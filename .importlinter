@@ -2,11 +2,15 @@
 ;
 ; モジュラーモノリスの境界は規約では守られない。CI で落とす。
 ; 新しい packages/* や evaluators/* を足したら、必ずここにも登録すること。
-; 登録漏れを防ぐため、tests/test_boundaries.py がディレクトリと突き合わせている。
+; 登録漏れを防ぐため、packages/core/tests/test_boundaries.py が
+; ディレクトリと突き合わせている。
 
 [importlinter]
 root_packages =
     aijudge_core
+    aijudge_grading
+    aijudge_authoring
+    aijudge_eval_code_test_runner
 include_external_packages = True
 
 [importlinter:contract:core-is-independent]
@@ -43,3 +47,35 @@ forbidden_modules =
     anthropic
 ignore_imports =
     aijudge_core.ids -> uuid
+
+[importlinter:contract:subsystems-are-independent]
+name = サブシステムどうしは直接 import しない（連携はイベント経由）
+type = independence
+modules =
+    aijudge_authoring
+    aijudge_grading
+
+; ADR 0002 の核心。採点エンジンが個々の評価器を知らないことを機械で保証する。
+; これが破られた瞬間、「科目を足してもエンジンは無変更」が成立しなくなる。
+[importlinter:contract:engine-does-not-know-evaluators]
+name = 採点エンジンは個々の Evaluator を import しない
+type = forbidden
+source_modules =
+    aijudge_grading
+forbidden_modules =
+    aijudge_eval_code_test_runner
+
+[importlinter:contract:evaluators-depend-on-core-and-protocol-only]
+name = Evaluator はコアと採点プロトコルにしか依存しない
+type = forbidden
+source_modules =
+    aijudge_eval_code_test_runner
+forbidden_modules =
+    aijudge_authoring
+    aijudge_identity
+    aijudge_submission
+    aijudge_skill
+    aijudge_portfolio
+    aijudge_analytics
+    aijudge_transcription
+    aijudge_llm_gateway

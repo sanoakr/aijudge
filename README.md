@@ -16,15 +16,18 @@ Three capabilities, each operable as an independent subsystem:
 Design and rollout plan: [`docs/design/`](docs/design/).
 Architecture decisions: [`docs/adr/`](docs/adr/).
 
-> Status: pre-PoC. Only `packages/core` — the shared domain model and event
-> contracts — exists so far.
+> Status: pre-PoC. The domain model, the grading pipeline, and one deterministic
+> evaluator exist. Real course assignments (Sharif Judge format) import and grade
+> end to end. No AI evaluator yet — that is PoC-1.
 
 ## Layout
 
 | Path | Contents |
 |------|----------|
 | `packages/core` | Subject-agnostic domain model and event contracts. The only package everything else may depend on. |
-| `packages/*` | One package per subsystem (S1–S11). |
+| `packages/grading` | The grading pipeline, evaluator registry, and subject profile loader (S5). Knows nothing about any subject. |
+| `packages/authoring` | Task authoring and importers for existing course assets (S2). |
+| `packages/*` | One package per remaining subsystem (S1, S3–S11). |
 | `evaluators/*` | Grading plugins. Depend on `packages/core` and nothing else. |
 | `subjects/` | Subject profiles: which evaluators run, in what order, under what review policy. |
 | `evals/` | Golden datasets and regression tests for grading accuracy. |
@@ -52,3 +55,23 @@ package means registering it there; `packages/core/tests/test_boundaries.py`
 catches the omission if you forget.
 
 See [ADR 0001](docs/adr/0001-modular-monolith.md) for why.
+
+### Adding a subject should not touch the engine
+
+`packages/grading` never imports an evaluator. Evaluators register through the
+`aijudge.evaluators` entry point group, and a subject profile in `subjects/`
+names the ones it wants:
+
+```yaml
+# subjects/cs_intro_c.yaml
+deterministic:  [code_test_runner]
+ai_evaluators:  []            # empty still grades — see design principle P2
+review_policy:  {boundary_score: 0.6, boundary_margin: 0.05}
+```
+
+Naming an evaluator that is not installed fails at load, not at grading time.
+An import-linter contract fails the build if the engine ever imports an
+evaluator directly. `evals/test_prog2_ex06_p3.py` grades a real course
+assignment through this path to prove the claim holds on real data.
+
+See [ADR 0002](docs/adr/0002-evaluator-plugin-boundary.md).

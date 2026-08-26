@@ -1,0 +1,35 @@
+# プログラミング演習（C 言語）— prog2 相当
+#
+# 科目の違いはコードではなくこの宣言で表す（ADR 0002）。
+# ここに並べた evaluator は entry point から発見される。
+# 存在しない名前を書けばロード時に落ちる。
+
+name: cs_intro_c
+description: 入門プログラミング演習。テスト実行による正誤判定を主とする。
+
+input:
+  allow_handwriting: false
+
+normalizers: []
+
+# 決定的評価が先。ここで確定した観点は AI に問い合わせない（設計原則 P3）。
+deterministic:
+  - code_test_runner
+
+# AI 評価器はまだ入れていない。PoC-1 でここに rubric_ai_judge を足す。
+# 空のままでも採点は完結する（= S6 停止時の劣化動作、設計原則 P2）。
+ai_evaluators: []
+
+aggregation: weighted_sum
+
+review_policy:
+  # テスト実行の確信度は 1.0 なので、この閾値では誰もレビューに回らない。
+  # AI 評価器を足した時点で意味を持ちはじめる。
+  confidence_below: 0.75
+  always_review_if_weight_over: 1.0
+  # 合否境界（60%）の前後 5 ポイントは人間が見る。
+  boundary_score: 0.6
+  boundary_margin: 0.05
+
+# 1 テストケースあたりの実行上限（秒）。入門課題なので短くてよい。
+timeout_seconds: 5

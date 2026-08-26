@@ -1,0 +1,25 @@
+[project]
+name = "aijudge-eval-code-test-runner"
+version = "0.0.1"
+description = "Deterministic evaluator: compile a C submission and diff its stdout against expected output"
+requires-python = ">=3.12"
+dependencies = [
+    "aijudge-core",
+    "aijudge-grading",
+]
+
+# 科目を足す作業が「パッケージ 1 つ + YAML の 1 行」で済むことを
+# 構造で保証する仕掛け。採点エンジンはこの名前でしか評価器を知らない。
+[project.entry-points."aijudge.evaluators"]
+code_test_runner = "aijudge_eval_code_test_runner:build"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/aijudge_eval_code_test_runner"]
+
+[tool.uv.sources]
+aijudge-core = { workspace = true }
+aijudge-grading = { workspace = true }
