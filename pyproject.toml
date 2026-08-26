@@ -1,0 +1,43 @@
+[project]
+name = "aijudge"
+version = "0.0.1"
+description = "AI-assisted assessment platform for STEM coursework"
+requires-python = ">=3.12"
+dependencies = [
+    "aijudge-core",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "import-linter>=2.0",
+    "ruff>=0.6",
+    "mypy>=1.11",
+]
+
+[tool.uv.workspace]
+members = ["packages/*", "evaluators/*"]
+
+[tool.uv.sources]
+aijudge-core = { workspace = true }
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+# RUF001-003 は全角括弧・読点を「紛らわしい文字」として弾く。
+# コメントは日本語で書く規約なので、このルールとは両立しない。
+ignore = ["RUF001", "RUF002", "RUF003"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["aijudge_core"]
+
+[tool.pytest.ini_options]
+testpaths = ["packages", "evaluators", "evals"]
+addopts = "-q"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true

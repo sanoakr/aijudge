@@ -1,0 +1,45 @@
+; サブシステム境界の強制（設計原則 P1 / P2 / P9）。
+;
+; モジュラーモノリスの境界は規約では守られない。CI で落とす。
+; 新しい packages/* や evaluators/* を足したら、必ずここにも登録すること。
+; 登録漏れを防ぐため、tests/test_boundaries.py がディレクトリと突き合わせている。
+
+[importlinter]
+root_packages =
+    aijudge_core
+include_external_packages = True
+
+[importlinter:contract:core-is-independent]
+name = core は他のどのサブシステムにも依存しない
+type = forbidden
+source_modules =
+    aijudge_core
+forbidden_modules =
+    aijudge_identity
+    aijudge_authoring
+    aijudge_submission
+    aijudge_grading
+    aijudge_skill
+    aijudge_portfolio
+    aijudge_analytics
+    aijudge_transcription
+    aijudge_llm_gateway
+
+[importlinter:contract:core-has-no-io]
+name = core は I/O を持たない（DB・HTTP・LLM・ファイル）
+type = forbidden
+source_modules =
+    aijudge_core
+forbidden_modules =
+    sqlalchemy
+    psycopg
+    redis
+    httpx
+    requests
+    boto3
+    fastapi
+    celery
+    openai
+    anthropic
+ignore_imports =
+    aijudge_core.ids -> uuid
