@@ -1,0 +1,9 @@
+# 合成データ。形式の例であって、正解データではない。
+submission: s001.c
+marks:
+  correctness: 3
+  readability: 1
+marker: synthetic-example
+marked_at: 2026-08-27
+blind: true
+notes: 変数名が a, b, c で役割が読み取れない。動作は正しい。

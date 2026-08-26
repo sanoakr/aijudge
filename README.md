@@ -17,8 +17,9 @@ Design and rollout plan: [`docs/design/`](docs/design/).
 Architecture decisions: [`docs/adr/`](docs/adr/).
 
 > Status: PoC-1 in progress. Real course assignments import and grade end to end
-> with a deterministic evaluator plus an LLM rubric judge running on a local
-> model. Accuracy against instructor marking (κ) has not been measured yet.
+> with a deterministic evaluator plus an LLM rubric judge on a local model, and
+> the accuracy harness is in place. **The gate currently reports NOT MEASURED —
+> there is no instructor-marked golden set yet, so PoC-1 has not passed.**
 
 ## Layout
 
@@ -28,10 +29,12 @@ Architecture decisions: [`docs/adr/`](docs/adr/).
 | `packages/grading` | The grading pipeline, evaluator registry, and subject profile loader (S5). Knows nothing about any subject. |
 | `packages/authoring` | Task authoring and importers for existing course assets (S2). |
 | `packages/llm_gateway` | Provider abstraction, policy routing, structured output, prompt versioning (S6). |
+| `packages/analytics` | Agreement metrics and PoC gate evaluation (S9). Pure functions. |
+| `apps/*` | Composition roots. The only layer allowed to combine subsystems. |
 | `packages/*` | One package per remaining subsystem (S1, S3–S11). |
 | `evaluators/*` | Grading plugins. Depend on `packages/core` and nothing else. |
 | `subjects/` | Subject profiles: which evaluators run, in what order, under what review policy. |
-| `evals/` | Golden datasets and regression tests for grading accuracy. |
+| `evals/` | Gate thresholds, the golden-set format, and grading regression tests. |
 | `docs/adr/` | Architecture decision records. |
 
 ## Development
@@ -95,3 +98,23 @@ AIJUDGE_LIVE_LLM=1 uv run pytest evals/test_llm_live.py -v -s
 Everything else runs offline against a scripted provider. See
 [ADR 0004](docs/adr/0004-llm-gateway.md) for what the real hardware taught us —
 several assumptions about constrained decoding did not survive contact.
+
+### Accuracy is measured, and "unmeasured" is not a pass
+
+```fish
+uv run aijudge-eval --subject cs_intro_c --out accuracy.md
+```
+
+It grades an instructor-marked golden set, computes Cohen's κ, quadratic
+weighted κ, miss rate, review rate and scoring consistency, and checks them
+against `evals/gates.yaml`. The verdict has three values, not two, and the exit
+code follows: `0` pass, `1` fail, `2` **not measurable**. A sample below
+`min_sample_size` reports `2` no matter how good the numbers look — three items
+agreeing perfectly is not evidence of anything.
+
+Golden sets hold student work and instructor marks, so they live **outside the
+repository** (`~/.aijudge/golden`, or `AIJUDGE_GOLDEN_DIR`). Marks made after
+seeing the AI's output are excluded by default: they are anchored by it and are
+not ground truth. See [`evals/golden/README.md`](evals/golden/README.md) for the
+format and [ADR 0005](docs/adr/0005-accuracy-measurement.md) for why the harness
+is built to refuse to flatter itself.

@@ -13,6 +13,8 @@ root_packages =
     aijudge_llm_gateway
     aijudge_eval_code_test_runner
     aijudge_eval_rubric_ai_judge
+    aijudge_analytics
+    aijudge_evalrunner
 include_external_packages = True
 
 [importlinter:contract:core-is-independent]
@@ -75,6 +77,39 @@ modules =
     aijudge_authoring
     aijudge_grading
     aijudge_llm_gateway
+    aijudge_analytics
+
+; S9 は指標の計算だけを持つ純関数の層。採点の実装を知らないので、
+; 採点器を差し替えても測定側は変わらない。
+[importlinter:contract:analytics-is-pure]
+name = 分析（S9）は採点にも I/O にも依存しない
+type = forbidden
+source_modules =
+    aijudge_analytics
+forbidden_modules =
+    aijudge_core
+    aijudge_grading
+    aijudge_authoring
+    aijudge_llm_gateway
+    sqlalchemy
+    httpx
+    requests
+
+; apps/* は合成の中心（composition root）。複数のサブシステムを束ねてよい
+; 唯一の層で、逆にサブシステムから apps を参照してはならない。
+[importlinter:contract:subsystems-do-not-depend-on-apps]
+name = サブシステムはアプリに依存しない
+type = forbidden
+source_modules =
+    aijudge_core
+    aijudge_grading
+    aijudge_authoring
+    aijudge_llm_gateway
+    aijudge_analytics
+    aijudge_eval_code_test_runner
+    aijudge_eval_rubric_ai_judge
+forbidden_modules =
+    aijudge_evalrunner
 
 ; ADR 0002 の核心。採点エンジンが個々の評価器を知らないことを機械で保証する。
 ; これが破られた瞬間、「科目を足してもエンジンは無変更」が成立しなくなる。

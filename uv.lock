@@ -9,10 +9,12 @@ resolution-markers = [
 [manifest]
 members = [
     "aijudge",
+    "aijudge-analytics",
     "aijudge-authoring",
     "aijudge-core",
     "aijudge-eval-code-test-runner",
     "aijudge-eval-rubric-ai-judge",
+    "aijudge-evalrunner",
     "aijudge-grading",
     "aijudge-llm-gateway",
 ]
@@ -22,10 +24,12 @@ name = "aijudge"
 version = "0.0.1"
 source = { virtual = "." }
 dependencies = [
+    { name = "aijudge-analytics" },
     { name = "aijudge-authoring" },
     { name = "aijudge-core" },
     { name = "aijudge-eval-code-test-runner" },
     { name = "aijudge-eval-rubric-ai-judge" },
+    { name = "aijudge-evalrunner" },
     { name = "aijudge-grading" },
     { name = "aijudge-llm-gateway" },
 ]
@@ -40,10 +44,12 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aijudge-analytics", editable = "packages/analytics" },
     { name = "aijudge-authoring", editable = "packages/authoring" },
     { name = "aijudge-core", editable = "packages/core" },
     { name = "aijudge-eval-code-test-runner", editable = "evaluators/code_test_runner" },
     { name = "aijudge-eval-rubric-ai-judge", editable = "evaluators/rubric_ai_judge" },
+    { name = "aijudge-evalrunner", editable = "apps/evalrunner" },
     { name = "aijudge-grading", editable = "packages/grading" },
     { name = "aijudge-llm-gateway", editable = "packages/llm_gateway" },
     { name = "import-linter", marker = "extra == 'dev'", specifier = ">=2.0" },
@@ -52,6 +58,17 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
 ]
 provides-extras = ["dev"]
+
+[[package]]
+name = "aijudge-analytics"
+version = "0.0.1"
+source = { editable = "packages/analytics" }
+dependencies = [
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "pydantic", specifier = ">=2.8" }]
 
 [[package]]
 name = "aijudge-authoring"
@@ -105,6 +122,27 @@ requires-dist = [
     { name = "aijudge-core", editable = "packages/core" },
     { name = "aijudge-grading", editable = "packages/grading" },
     { name = "aijudge-llm-gateway", editable = "packages/llm_gateway" },
+]
+
+[[package]]
+name = "aijudge-evalrunner"
+version = "0.0.1"
+source = { editable = "apps/evalrunner" }
+dependencies = [
+    { name = "aijudge-analytics" },
+    { name = "aijudge-authoring" },
+    { name = "aijudge-core" },
+    { name = "aijudge-grading" },
+    { name = "pyyaml" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aijudge-analytics", editable = "packages/analytics" },
+    { name = "aijudge-authoring", editable = "packages/authoring" },
+    { name = "aijudge-core", editable = "packages/core" },
+    { name = "aijudge-grading", editable = "packages/grading" },
+    { name = "pyyaml", specifier = ">=6.0" },
 ]
 
 [[package]]
