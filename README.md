@@ -18,8 +18,9 @@ Architecture decisions: [`docs/adr/`](docs/adr/).
 
 > Status: PoC-1 in progress. Real course assignments import and grade end to end
 > with a deterministic evaluator plus an LLM rubric judge on a local model, and
-> the accuracy harness is in place. **The gate currently reports NOT MEASURED —
-> there is no instructor-marked golden set yet, so PoC-1 has not passed.**
+> the accuracy harness and the instructor review console are in place.
+> **The gate currently reports NOT MEASURED — the golden set is still too small,
+> so PoC-1 has not passed.**
 
 ## Layout
 
@@ -30,6 +31,8 @@ Architecture decisions: [`docs/adr/`](docs/adr/).
 | `packages/authoring` | Task authoring and importers for existing course assets (S2). |
 | `packages/llm_gateway` | Provider abstraction, policy routing, structured output, prompt versioning (S6). |
 | `packages/analytics` | Agreement metrics and PoC gate evaluation (S9). Pure functions. |
+| `apps/reviewconsole` | Instructor review console. Blind marking first, verdict second. |
+| `apps/evalrunner` | Measures agreement against the gates. |
 | `apps/*` | Composition roots. The only layer allowed to combine subsystems. |
 | `packages/*` | One package per remaining subsystem (S1, S3–S11). |
 | `evaluators/*` | Grading plugins. Depend on `packages/core` and nothing else. |
@@ -98,6 +101,26 @@ AIJUDGE_LIVE_LLM=1 uv run pytest evals/test_llm_live.py -v -s
 Everything else runs offline against a scripted provider. See
 [ADR 0004](docs/adr/0004-llm-gateway.md) for what the real hardware taught us —
 several assumptions about constrained decoding did not survive contact.
+
+### Reviewing is how the golden set gets built
+
+```fish
+uv run aijudge-review --golden ~/.aijudge/golden --marker sano
+```
+
+The instructor marks the submission **before** the AI verdict exists, then the
+verdict is revealed and they settle the final grade. The blind mark is what the
+accuracy gate measures; the final grade is what the student receives. Changing
+your mind after seeing the AI does not touch the golden entry.
+
+The order is the whole point. Mark after reading the model and your marking is
+anchored by it, and the agreement you then measure is inflated. Because the
+blind mark is a by-product of ordinary review, keeping the order costs nothing.
+The blind page carries no trace of the verdict — grading has not even run yet,
+and a test asserts the response body is clean.
+
+No authentication yet; it binds to localhost only. Put it behind S1 before
+exposing it.
 
 ### Accuracy is measured, and "unmeasured" is not a pass
 

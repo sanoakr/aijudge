@@ -28,7 +28,7 @@ from aijudge_core import (
     RubricLevel,
     TaskVersion,
     TestCase,
-    new_id,
+    derived_id,
 )
 from aijudge_core.ids import CriterionId, TaskId, TaskVersionId, UserId
 
@@ -108,7 +108,18 @@ def find_reference_solution(problem_dir: Path) -> str | None:
     return sources[0].read_text(encoding="utf-8")
 
 
-def correctness_criterion(evaluator_id: str = DEFAULT_EVALUATOR) -> RubricCriterion:
+def _criterion_id(task_key: str, code: str) -> CriterionId:
+    """観点 ID を課題と観点コードから決定的に導く。
+
+    同じ課題を取り込み直しても同じ ID になるので、保存済みの採点結果を
+    あとから読んでも、どの観点の点なのかが分かる。
+    """
+    return CriterionId(derived_id("crt", task_key, code))
+
+
+def correctness_criterion(
+    evaluator_id: str = DEFAULT_EVALUATOR, task_key: str = "default"
+) -> RubricCriterion:
     """テスト実行だけの課題に与える単一観点。
 
     段階を 0 / 1 の二値にせず 4 段階にしてあるのは、部分点を表現するため。
@@ -116,7 +127,7 @@ def correctness_criterion(evaluator_id: str = DEFAULT_EVALUATOR) -> RubricCriter
     「設計」「可読性」の観点を並べることになる。
     """
     return RubricCriterion(
-        id=CriterionId(new_id("crt")),
+        id=_criterion_id(task_key, "correctness"),
         code="correctness",
         title="出力の正しさ",
         description="与えられた入力に対して仕様どおりの出力を返すか。テスト実行で判定する。",
@@ -135,7 +146,9 @@ def correctness_criterion(evaluator_id: str = DEFAULT_EVALUATOR) -> RubricCriter
     )
 
 
-def readability_criterion(weight: float, evaluator_id: str = AI_EVALUATOR) -> RubricCriterion:
+def readability_criterion(
+    weight: float, evaluator_id: str = AI_EVALUATOR, task_key: str = "default"
+) -> RubricCriterion:
     """テスト実行では測れない観点。AI 評価器が担当する。
 
     Sharif Judge にはこの軸が無かった。テストが通るかどうかしか見ないので、
@@ -143,7 +156,7 @@ def readability_criterion(weight: float, evaluator_id: str = AI_EVALUATOR) -> Ru
     まずここにある。
     """
     return RubricCriterion(
-        id=CriterionId(new_id("crt")),
+        id=_criterion_id(task_key, "readability"),
         code="readability",
         title="変数名と構造の分かりやすさ",
         description=(
@@ -196,19 +209,22 @@ def import_problem(
     statement = desc_path.read_text(encoding="utf-8")
     parse_title(statement)  # 形式が壊れていればここで落とす
 
-    correctness = correctness_criterion(evaluator_id)
+    # 課題ディレクトリ名を同一性の鍵にする（exNN/pN など運用上の一意名）。
+    task_key = f"{problem_dir.parent.name}/{problem_dir.name}"
+
+    correctness = correctness_criterion(evaluator_id, task_key)
     criteria: tuple[RubricCriterion, ...]
     if readability_weight > 0.0:
         criteria = (
             correctness.model_copy(update={"weight": 1.0 - readability_weight}),
-            readability_criterion(readability_weight),
+            readability_criterion(readability_weight, AI_EVALUATOR, task_key),
         )
     else:
         criteria = (correctness,)
 
     return TaskVersion(
-        id=TaskVersionId(new_id("tsv")),
-        task_id=task_id or TaskId(new_id("tsk")),
+        id=TaskVersionId(derived_id("tsv", task_key, "1")),
+        task_id=task_id or TaskId(derived_id("tsk", task_key)),
         version=1,
         subject_profile=subject_profile,
         statement=statement,

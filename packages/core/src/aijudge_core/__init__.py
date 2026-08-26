@@ -41,7 +41,7 @@ from .grading import (
     renormalize,
     resolve_conflicts,
 )
-from .ids import new_id, prefix_of
+from .ids import derived_id, new_id, prefix_of
 from .knowledge import KnowledgeComponent, QMatrixEntry
 from .skill import Credential, CredentialExport, MasteryModel, SkillEvidence, SkillState
 from .spans import (
@@ -127,6 +127,7 @@ __all__ = [
     "aggregate",
     "assert_transition",
     "can_transition",
+    "derived_id",
     "new_id",
     "prefix_of",
     "renormalize",

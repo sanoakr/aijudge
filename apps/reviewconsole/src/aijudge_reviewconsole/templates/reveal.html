@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}AI の判定 — {{ entry.submission }}{% endblock %}
+{% block body %}
+<h1>AI の判定 — <span class="mono">{{ entry.submission }}</span></h1>
+<p class="crumb"><a href="/">← 待ち行列</a> / {{ entry.task_name }}</p>
+
+<div class="note">
+  あなたの blind 採点は保存済みです。ここで段階を変えても
+  <strong>ゴールデンセットに残るのは blind 側</strong>で、一致度の測定は影響を受けません。
+  変更は最終成績にのみ反映されます。
+</div>
+
+<h2>観点ごとの突き合わせ</h2>
+<table>
+  <thead><tr><th>観点</th><th>あなた</th><th>AI</th><th>一致</th><th>AI の根拠</th></tr></thead>
+  <tbody>
+  {% for row in rows %}
+    <tr>
+      <td><strong>{{ row.criterion.title }}</strong><br>
+          <span class="desc">重み {{ '%.2f' | format(row.criterion.weight) }}</span></td>
+      <td>{{ row.human_level if row.human_level is not none else '—' }}</td>
+      <td>{{ row.ai_level if row.ai_level is not none else '—' }}</td>
+      <td>
+        {% if row.unscored %}<span class="pill no">採点できず</span>
+        {% elif row.agrees %}<span class="pill ok">一致</span>
+        {% else %}<span class="pill no">不一致</span>{% endif %}
+      </td>
+      <td>
+        {% if row.score %}
+          {{ row.score.rationale }}
+          {% if row.score.evidence %}
+            <br><span class="desc">
+            根拠:
+            {%- for e in row.score.evidence %}
+              {%- if e.span.kind == 'line' %} L{{ e.span.start_line }}–{{ e.span.end_line }}{% endif -%}
+            {%- endfor %}
+            / 確信度 {{ '%.2f' | format(row.score.confidence) }}
+            </span>
+          {% endif %}
+        {% else %}
+          <span class="desc">この観点は採点されませんでした。</span>
+        {% endif %}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+{% if run.unscored_criteria %}
+<div class="note warn">
+  採点できなかった観点があるため、この点数は暫定です。人手で確定させてください。
+</div>
+{% endif %}
+
+<h2>コードと根拠</h2>
+<pre class="code">{% for n, line in lines %}<span class="ln{% if n in highlights %} hl{% endif %}"><span class="n">{{ n }}</span>{{ line }}</span>{% endfor %}</pre>
+
+<h2>最終確定</h2>
+<p class="desc">
+  総合 {{ '%.1f' | format(run.score_ratio * 100) }}% ／ 確信度 {{ '%.2f' | format(run.confidence) }}
+  ／ 振り分け {{ run.routing.value }}
+</p>
+<form method="post" action="/review/{{ entry.id }}/finalize">
+  {% for row in rows %}
+  <fieldset>
+    <legend>{{ row.criterion.title }}</legend>
+    <div class="levels">
+      {% for level in row.criterion.levels %}
+      <label>
+        <input type="radio" name="levels" required
+               value="{{ row.criterion.code }}={{ level.level }}"
+               {% if row.human_level == level.level %}checked{% endif %}>
+        <span class="lv">{{ level.level }}: {{ level.label }}</span>
+        <span>{{ level.descriptor }}</span>
+      </label>
+      {% endfor %}
+    </div>
+  </fieldset>
+  {% endfor %}
+  <fieldset>
+    <legend>コメント（任意）</legend>
+    <textarea name="comment" rows="3" placeholder="AI の判定を見て変えた場合はその理由">{{ decision.comment or '' if decision else '' }}</textarea>
+  </fieldset>
+  <button type="submit">成績を確定する</button>
+</form>
+{% endblock %}

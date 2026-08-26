@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}採点 — {{ entry.submission }}{% endblock %}
+{% block body %}
+{#
+  この画面は AI の判定を一切含まない。CSS で隠すのではなく、
+  レンダリングの時点で持っていない。テストで固定してある。
+#}
+<h1>採点 — <span class="mono">{{ entry.submission }}</span></h1>
+<p class="crumb"><a href="/">← 待ち行列</a> / {{ entry.task_name }}</p>
+
+<div class="note">
+  <strong>AI の判定は、あなたが段階を決めたあとに表示します。</strong>
+  先に見ると採点がそれに引きずられ、一致度の測定に使えなくなります。
+</div>
+
+<div class="grid2">
+  <div>
+    <h2>問題</h2>
+    <div class="statement">{{ task.statement }}</div>
+
+    <h2>提出されたコード</h2>
+    <pre class="code">{% for n, line in lines %}<span class="ln"><span class="n">{{ n }}</span>{{ line }}</span>{% endfor %}</pre>
+  </div>
+
+  <div>
+    <h2>あなたの採点</h2>
+    <form method="post" action="/review/{{ entry.id }}/blind">
+      {% for criterion in criteria %}
+      <fieldset>
+        <legend>{{ criterion.title }}</legend>
+        <p class="desc">{{ criterion.description }}</p>
+        <div class="levels">
+          {% for level in criterion.levels %}
+          <label>
+            <input type="radio" name="levels" required
+                   value="{{ criterion.code }}={{ level.level }}">
+            <span class="lv">{{ level.level }}: {{ level.label }}</span>
+            <span>{{ level.descriptor }}</span>
+          </label>
+          {% endfor %}
+        </div>
+      </fieldset>
+      {% endfor %}
+
+      <fieldset>
+        <legend>メモ（任意）</legend>
+        <textarea name="notes" rows="3" placeholder="判断の根拠など"></textarea>
+      </fieldset>
+
+      <button type="submit">採点を確定して AI の判定を見る</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

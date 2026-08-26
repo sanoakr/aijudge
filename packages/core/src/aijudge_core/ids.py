@@ -56,6 +56,26 @@ def new_id(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex}"
 
 
+# 決定的 ID を作るための名前空間。値を変えると既存 ID がすべて変わるので固定。
+_NAMESPACE = uuid.UUID("6f9b1f6e-0d1a-4f1e-9b3a-8c5d2e7a4b10")
+
+
+def derived_id(prefix: str, *parts: str) -> str:
+    """同じ入力から必ず同じ ID を作る。
+
+    取り込みのたびに ID が振り直されると、保存済みの採点結果を
+    課題の観点に結び付けられなくなる（stored な GradingRun が読めても、
+    どの観点の点なのか分からない）。既存資産の取り込みのように
+    「同じものを何度も取り込む」経路では決定的な ID が要る。
+    """
+    if prefix not in PREFIXES:
+        raise ValueError(f"unknown id prefix: {prefix!r}")
+    if not parts:
+        raise ValueError("derived_id needs at least one part")
+    key = "\x1e".join(parts)
+    return f"{prefix}_{uuid.uuid5(_NAMESPACE, f'{prefix}:{key}').hex}"
+
+
 def prefix_of(value: str) -> str:
     """ID からプレフィックスを取り出す。形式が不正なら ValueError。"""
     match = _ID_RE.match(value)

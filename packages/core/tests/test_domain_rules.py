@@ -31,7 +31,9 @@ from aijudge_core import (
     aggregate,
     assert_transition,
     can_transition,
+    derived_id,
     new_id,
+    prefix_of,
     resolve_conflicts,
 )
 from aijudge_core.ids import (
@@ -410,3 +412,38 @@ def test_review_policy_catches_the_pass_fail_boundary() -> None:
     )
     assert policy.requires_review((score,), total_ratio=0.58)
     assert not policy.requires_review((score,), total_ratio=0.90)
+
+
+# --------------------------------------------------------------------------
+# 決定的 ID
+# --------------------------------------------------------------------------
+
+
+def test_derived_ids_are_stable_across_calls() -> None:
+    """同じ課題を取り込み直したら同じ ID になること。
+
+    振り直されると、保存済みの採点結果を観点に結び付けられなくなる。
+    """
+    first = derived_id("crt", "ex06/p3", "readability")
+    second = derived_id("crt", "ex06/p3", "readability")
+    assert first == second
+    assert prefix_of(first) == "crt"
+
+
+def test_derived_ids_differ_per_key() -> None:
+    assert derived_id("crt", "ex06/p3", "readability") != derived_id(
+        "crt", "ex06/p3", "correctness"
+    )
+    assert derived_id("crt", "ex06/p3", "readability") != derived_id(
+        "crt", "ex07/p3", "readability"
+    )
+
+
+def test_derived_ids_are_not_confused_with_generated_ones() -> None:
+    """形式は同じでも中身は衝突しない。"""
+    assert derived_id("crt", "x") != new_id("crt")
+
+
+def test_derived_id_needs_a_key() -> None:
+    with pytest.raises(ValueError, match="at least one part"):
+        derived_id("crt")

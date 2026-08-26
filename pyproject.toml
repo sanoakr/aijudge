@@ -12,11 +12,13 @@ dependencies = [
     "aijudge-eval-rubric-ai-judge",
     "aijudge-analytics",
     "aijudge-evalrunner",
+    "aijudge-reviewconsole",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
+    "httpx>=0.27",
     "import-linter>=2.0",
     "ruff>=0.6",
     "mypy>=1.11",
@@ -34,6 +36,7 @@ aijudge-llm-gateway = { workspace = true }
 aijudge-eval-rubric-ai-judge = { workspace = true }
 aijudge-analytics = { workspace = true }
 aijudge-evalrunner = { workspace = true }
+aijudge-reviewconsole = { workspace = true }
 
 [tool.ruff]
 line-length = 100
@@ -55,6 +58,7 @@ known-first-party = [
     "aijudge_eval_rubric_ai_judge",
     "aijudge_analytics",
     "aijudge_evalrunner",
+    "aijudge_reviewconsole",
 ]
 
 [tool.pytest.ini_options]

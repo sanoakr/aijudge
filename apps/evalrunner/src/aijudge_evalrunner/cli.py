@@ -45,6 +45,13 @@ def render(report: EvalReport) -> str:
     lines.append("")
     lines.append(f"生成: {report.generated_at:%Y-%m-%d %H:%M:%S %Z}")
     lines.append(f"採点した提出: {report.item_count} 件")
+    if report.regraded_runs:
+        lines.append("")
+        lines.append(
+            f"> このうち {report.regraded_runs} 件は測定のために採点し直しています"
+            f"（教員がレビューした採点をそのまま使ったのは {report.reused_runs} 件）。"
+            "引き直した分の見逃し率は実績ではなく推定です。"
+        )
     lines.append("")
 
     if report.agreement:
@@ -151,6 +158,11 @@ def main(argv: list[str] | None = None) -> int:
         help="採点の一貫性を測るために先頭 1 件を繰り返す回数",
     )
     parser.add_argument(
+        "--regrade",
+        action="store_true",
+        help="保存済みの採点を使わず引き直す（教員が見たのとは別の採点を測ることになる）",
+    )
+    parser.add_argument(
         "--include-non-blind",
         action="store_true",
         help="AI の結果を見てから付けた採点も含める（既定では除外する）",
@@ -182,6 +194,7 @@ def main(argv: list[str] | None = None) -> int:
         subject_profile=args.subject,
         profile_path=profile_path,
         repeats=args.repeats,
+        regrade=args.regrade,
         progress=lambda line: print(line, file=sys.stderr),
     )
 

@@ -85,6 +85,11 @@ class EvalReport(BaseModel):
     subject_profile: str
     generated_at: datetime
     item_count: int
+    # 教員がレビューした採点をそのまま使った件数と、測定のために引き直した件数。
+    # 後者が混ざると、見逃し率とレビュー行き率は「誰も見ていない採点」の
+    # 数字になる。内訳を隠さず出す。
+    reused_runs: int = 0
+    regraded_runs: int = 0
     items: tuple[ItemResult, ...] = ()
     agreement: dict[str, AgreementReport] = Field(default_factory=dict)
     observed_miss_rate: float | None = None
@@ -120,6 +125,19 @@ def _submission_from(item: GoldenItem) -> tuple[Submission, bytes]:
         submitted_at=datetime.now(UTC),
     )
     return submission, payload
+
+
+def stored_run(item: GoldenItem) -> GradingRun | None:
+    """教員がレビューした採点を読む。
+
+    測定は**実際に教員が見た採点**に対して行う。採点し直すと、
+    LLM のばらつきで別の結果が出て、見逃し率もレビュー行き率も
+    誰も見ていない採点についての数字になってしまう。
+    """
+    path = item.task_dir.parent / "runs" / f"{item.source_path.stem}.json"
+    if not path.is_file():
+        return None
+    return GradingRun.model_validate_json(path.read_text(encoding="utf-8"))
 
 
 def _task_for(item: GoldenItem, cache: dict[str, TaskVersion]) -> TaskVersion:
@@ -162,9 +180,14 @@ def run_evaluation(
     profile_path: Path,
     registry: EvaluatorRegistry | None = None,
     repeats: int = 1,
+    regrade: bool = False,
     progress: Callable[[str], None] | None = None,
 ) -> EvalReport:
     """ゴールデンセットを採点して測定する。
+
+    保存済みの採点（教員がレビューしたもの）があればそれを使う。
+    `regrade=True` にすると必ず引き直すが、そのとき出る見逃し率は
+    「教員がその採点を見ていたら直したか」の推定であって実績ではない。
 
     `repeats` を 2 以上にすると、先頭の 1 件を繰り返し採点して
     スコアのばらつき（採点の一貫性）を測る。
@@ -176,14 +199,22 @@ def run_evaluation(
     tasks: dict[str, TaskVersion] = {}
     results: list[ItemResult] = []
     errors: list[str] = []
+    reused = regraded = 0
 
     for index, item in enumerate(items, 1):
-        if progress:
-            progress(f"[{index}/{len(items)}] {item.key}")
         try:
             task = _task_for(item, tasks)
-            submission, payload = _submission_from(item)
-            run = pipeline.run(task, submission, lambda _, data=payload: data)
+            run = None if regrade else stored_run(item)
+            if run is None:
+                if progress:
+                    progress(f"[{index}/{len(items)}] {item.key} — 採点中")
+                submission, payload = _submission_from(item)
+                run = pipeline.run(task, submission, lambda _, data=payload: data)
+                regraded += 1
+            else:
+                if progress:
+                    progress(f"[{index}/{len(items)}] {item.key} — レビュー済みの採点を使用")
+                reused += 1
         except Exception as exc:
             errors.append(f"{item.key}: {type(exc).__name__}: {exc}")
             continue
@@ -235,6 +266,8 @@ def run_evaluation(
         subject_profile=subject_profile,
         generated_at=datetime.now(UTC),
         item_count=len(results),
+        reused_runs=reused,
+        regraded_runs=regraded,
         items=tuple(results),
         agreement=agreement,
         observed_miss_rate=observed_miss,

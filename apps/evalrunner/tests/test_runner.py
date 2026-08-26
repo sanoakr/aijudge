@@ -6,17 +6,31 @@ LLM は呼ばず、スクリプト応答で配線だけを確かめる。
 
 from __future__ import annotations
 
+import hashlib
+import json
 import shutil
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
 from aijudge_analytics import Gates, Verdict
 from aijudge_analytics.gates import CriterionGate
+from aijudge_authoring.importers import sharif_judge
+from aijudge_core import (
+    Artifact,
+    ArtifactKind,
+    ArtifactRole,
+    Submission,
+    SubmissionState,
+    new_id,
+)
+from aijudge_core.ids import ArtifactId, SubmissionId, TaskVersionId, UserId
 from aijudge_eval_rubric_ai_judge import RubricAiJudge
 from aijudge_evalrunner import GoldenSetError, load_golden, run_evaluation
 from aijudge_evalrunner.cli import EXIT_NOT_MEASURED, main, render
-from aijudge_grading import EvaluatorRegistry
+from aijudge_evalrunner.runner import stored_run
+from aijudge_grading import EvaluatorRegistry, GradingPipeline, load_profile
 from aijudge_llm_gateway import LlmGateway, ScriptedProvider
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -180,6 +194,92 @@ def test_an_llm_failure_is_recorded_not_silently_dropped() -> None:
     # 採点できなかった観点は標本に入らない。
     assert "readability" not in report.agreement
     assert report.verdict is Verdict.NOT_MEASURED
+
+
+@needs_c_compiler
+def test_a_stored_run_is_measured_rather_than_a_fresh_one(tmp_path: Path) -> None:
+    """教員がレビューした採点を測る。引き直すと別の結果を測ることになる。
+
+    LLM は同じ提出でも実行ごとに違う段階を返しうる。測定のたびに採点し直すと、
+    見逃し率もレビュー行き率も「誰も見ていない採点」の数字になる。
+    """
+    shutil.copytree(EXAMPLE_GOLDEN, tmp_path / "golden")
+    items = load_golden(tmp_path / "golden", "cs_intro_c")
+    item = items[0]
+
+    # 教員のレビュー時に AI が段階 3 と判定した、という状況を作る。
+    registry = _registry([VERDICT_3])
+    profile = load_profile(PROFILES / "cs_intro_c.yaml", registry)
+    payload = item.source_path.read_bytes()
+    task = sharif_judge.import_problem(
+        item.task_dir,
+        subject_profile="cs_intro_c",
+        authored_by=UserId(new_id("usr")),
+        readability_weight=0.3,
+    )
+    run = GradingPipeline(registry, profile).run(
+        task, _submission_of(item, payload), lambda _: payload
+    )
+    runs_dir = tmp_path / "golden" / "cs_intro_c" / "example-task" / "runs"
+    runs_dir.mkdir(parents=True)
+    (runs_dir / "s001.json").write_text(
+        json.dumps(run.model_dump(mode="json"), ensure_ascii=False), encoding="utf-8"
+    )
+    assert stored_run(item) is not None
+
+    # 測定時に AI が段階 1 を返す設定にしても、保存済みの 3 が測られる。
+    report = run_evaluation(
+        items,
+        gates=_gates(),
+        subject_profile="cs_intro_c",
+        profile_path=PROFILES / "cs_intro_c.yaml",
+        registry=_registry([VERDICT_1]),
+    )
+    assert report.reused_runs == 1
+    assert report.regraded_runs == 0
+    # 教員 1 − AI 3 = −2。段階 1 を測っていたら 0 になっていた。
+    assert report.agreement["readability"].mean_bias == pytest.approx(-2.0)
+
+
+@needs_c_compiler
+def test_regrade_forces_a_fresh_grading_and_says_so(tmp_path: Path) -> None:
+    shutil.copytree(EXAMPLE_GOLDEN, tmp_path / "golden")
+    items = load_golden(tmp_path / "golden", "cs_intro_c")
+    report = run_evaluation(
+        items,
+        gates=_gates(),
+        subject_profile="cs_intro_c",
+        profile_path=PROFILES / "cs_intro_c.yaml",
+        registry=_registry([VERDICT_1]),
+        regrade=True,
+    )
+    assert report.regraded_runs == 1
+    # 引き直したことをレポートに明記する。黙って測ると実績と誤読される。
+    assert "採点し直しています" in render(report)
+
+
+def _submission_of(item, payload: bytes):
+    """テスト用の Submission を組む。"""
+    submission_id = SubmissionId(new_id("sub"))
+    artifact = Artifact(
+        id=ArtifactId(new_id("art")),
+        submission_id=submission_id,
+        role=ArtifactRole.ORIGINAL,
+        kind=ArtifactKind.CODE,
+        storage_key=f"file://{item.source_path}",
+        content_hash=f"sha256:{hashlib.sha256(payload).hexdigest()}",
+        byte_size=len(payload),
+        created_at=datetime(2026, 4, 1, tzinfo=UTC),
+    )
+    return Submission(
+        id=submission_id,
+        task_version_id=TaskVersionId(new_id("tsv")),
+        learner_id=UserId(new_id("usr")),
+        state=SubmissionState.SUBMITTED,
+        artifacts=(artifact,),
+        created_at=datetime(2026, 4, 1, tzinfo=UTC),
+        submitted_at=datetime(2026, 4, 1, tzinfo=UTC),
+    )
 
 
 @needs_c_compiler

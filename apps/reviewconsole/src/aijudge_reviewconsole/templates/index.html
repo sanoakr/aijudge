@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>レビュー待ち</h1>
+<p class="crumb">採点しながら、そのままゴールデンセットが貯まります。</p>
+
+<div class="card">
+  <strong>教員採点の蓄積: {{ reviewed_count }} / {{ min_sample_size }} 件</strong>
+  <div class="progress">
+    <div style="width: {{ (100 * reviewed_count / min_sample_size) | round(1) if reviewed_count < min_sample_size else 100 }}%"></div>
+  </div>
+  <p class="desc" style="margin:0">
+    {% if reviewed_count < min_sample_size %}
+      あと {{ min_sample_size - reviewed_count }} 件で精度の測定ができるようになります。
+      それまで <code>aijudge-eval</code> は「判定不能」を返します。
+    {% else %}
+      測定に足る件数です。<code>uv run aijudge-eval</code> で κ を確認できます。
+    {% endif %}
+  </p>
+</div>
+
+<table>
+  <thead><tr><th>提出</th><th>課題</th><th>状態</th><th></th></tr></thead>
+  <tbody>
+  {% for entry in entries %}
+    <tr>
+      <td class="mono">{{ entry.submission }}</td>
+      <td>{{ entry.task_name }}</td>
+      <td>
+        {% if entry.reviewed %}<span class="pill ok">採点済み</span>
+        {% else %}<span class="pill">未採点</span>{% endif %}
+      </td>
+      <td>
+        {% if entry.reviewed %}
+          <a href="/review/{{ entry.id }}/reveal">結果を見る</a>
+        {% else %}
+          <a href="/review/{{ entry.id }}/blind">採点する</a>
+        {% endif %}
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="4" class="desc">提出物がありません。</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
