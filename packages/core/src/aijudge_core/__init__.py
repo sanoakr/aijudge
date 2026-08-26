@@ -38,6 +38,7 @@ from .grading import (
     ReviewPolicy,
     Routing,
     aggregate,
+    renormalize,
     resolve_conflicts,
 )
 from .ids import new_id, prefix_of
@@ -128,5 +129,6 @@ __all__ = [
     "can_transition",
     "new_id",
     "prefix_of",
+    "renormalize",
     "resolve_conflicts",
 ]

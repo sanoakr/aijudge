@@ -1,0 +1,25 @@
+[project]
+name = "aijudge-eval-rubric-ai-judge"
+version = "0.0.1"
+description = "AI evaluator: judge one rubric criterion with evidence, via the LLM gateway"
+requires-python = ">=3.12"
+dependencies = [
+    "aijudge-core",
+    "aijudge-grading",
+    "aijudge-llm-gateway",
+]
+
+[project.entry-points."aijudge.evaluators"]
+rubric_ai_judge = "aijudge_eval_rubric_ai_judge:build"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/aijudge_eval_rubric_ai_judge"]
+
+[tool.uv.sources]
+aijudge-core = { workspace = true }
+aijudge-grading = { workspace = true }
+aijudge-llm-gateway = { workspace = true }

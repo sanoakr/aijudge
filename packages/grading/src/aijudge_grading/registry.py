@@ -28,6 +28,15 @@ class EvaluatorRegistry:
             raise ValueError(f"duplicate evaluator id: {evaluator.evaluator_id!r}")
         self._evaluators[evaluator.evaluator_id] = evaluator
 
+    def replace(self, evaluator: Evaluator) -> None:
+        """登録済みの評価器を差し替える。
+
+        テストで実 LLM の代わりにスタブを挿すための口。`register` が
+        重複を拒むのは設定ミスを早く落とすためなので、意図した上書きは
+        別のメソッドにして区別する。
+        """
+        self._evaluators[evaluator.evaluator_id] = evaluator
+
     def get(self, evaluator_id: str) -> Evaluator:
         try:
             return self._evaluators[evaluator_id]

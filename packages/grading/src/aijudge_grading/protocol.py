@@ -44,6 +44,9 @@ class EvaluationRequest(BaseModel):
     test_cases: tuple[TestCase, ...] = ()
     prior_results: tuple[CriterionScore, ...] = ()
     timeout_seconds: float = Field(default=10.0, gt=0.0)
+    # 科目プロファイルの evaluator_options から渡す評価器固有の設定。
+    # コアの語彙を汚さずに「この科目ではサンプル数を 5 にする」を表現するため。
+    options: dict[str, object] = Field(default_factory=dict)
 
 
 class EvaluationOutcome(BaseModel):
@@ -59,6 +62,9 @@ class EvaluationOutcome(BaseModel):
     scores: tuple[CriterionScore, ...] = ()
     raw_output: dict[str, object] = Field(default_factory=dict)
     error: str | None = None
+    # 再現性のための出所（設計原則 P8）。パイプラインが GradingContext に集約する。
+    model_id: str | None = None
+    prompt_id: str | None = None
 
 
 @runtime_checkable

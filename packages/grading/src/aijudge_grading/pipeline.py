@@ -31,6 +31,7 @@ from aijudge_core import (
     TaskVersion,
     aggregate,
     new_id,
+    renormalize,
 )
 from aijudge_core.ids import (
     ArtifactId,
@@ -125,6 +126,16 @@ class GradingPipeline:
 
         results: list[EvaluatorResult] = []
         scores: list[CriterionScore] = []
+        # 再現性のための出所（P8）。どの評価器がどのモデル・どのプロンプト版で
+        # 出したのかを GradingContext に残す。
+        model_ids: dict[str, str] = {}
+        prompt_versions: dict[str, str] = {}
+
+        def record_provenance(evaluator_id: str, outcome: EvaluationOutcome) -> None:
+            if outcome.model_id:
+                model_ids[evaluator_id] = outcome.model_id
+            if outcome.prompt_id:
+                prompt_versions[evaluator_id] = outcome.prompt_id
 
         # --- 2. 決定的評価 -------------------------------------------------
         for evaluator_id in self._profile.deterministic:
@@ -136,8 +147,10 @@ class GradingPipeline:
                     artifact_contents=contents,
                     test_cases=self._test_cases_for(task_version, evaluator_id),
                     timeout_seconds=self._profile.timeout_seconds,
+                    options=self._profile.evaluator_options.get(evaluator_id, {}),
                 ),
             )
+            record_provenance(evaluator_id, outcome)
             results.append(self._to_result(evaluator_id, EvaluatorKind.DETERMINISTIC, outcome))
             scores.extend(self._attach(outcome, results[-1].id))
 
@@ -161,8 +174,10 @@ class GradingPipeline:
                         criterion=criterion,
                         prior_results=tuple(scores),
                         timeout_seconds=self._profile.timeout_seconds,
+                        options=self._profile.evaluator_options.get(evaluator_id, {}),
                     ),
                 )
+                record_provenance(evaluator_id, outcome)
                 results.append(self._to_result(evaluator_id, EvaluatorKind.AI, outcome))
                 scores.extend(self._attach(outcome, results[-1].id))
 
@@ -173,11 +188,18 @@ class GradingPipeline:
             )
 
         # --- 4. 集約 / 5. 振り分け ------------------------------------------
-        final = tuple(scores)
+        # 評価器が落ちた観点があると、残りの重みは 1.0 に満たない。
+        # 0 点にすれば学習者に不当な不利益が出るし、満点にすれば
+        # 誰も見ていない観点に点を与えることになる。どちらも取らず、
+        # 採点できた観点で暫定の点を出し、必ず人間のレビューへ回す（P5）。
+        scored = {score.criterion_id for score in scores}
+        unscored = tuple(c.id for c in task_version.criteria if c.id not in scored)
+
+        final = renormalize(tuple(scores)) if unscored else tuple(scores)
         score_ratio, confidence = aggregate(final)
         routing = (
             Routing.REVIEW_REQUIRED
-            if self._profile.review_policy.requires_review(final, score_ratio)
+            if unscored or self._profile.review_policy.requires_review(final, score_ratio)
             else Routing.AUTO
         )
 
@@ -189,6 +211,8 @@ class GradingPipeline:
                 subject_profile=self._profile.name,
                 rubric_version=f"{task_version.id}@{task_version.version}",
                 input_hash=compute_input_hash(submission, contents),
+                prompt_versions=prompt_versions,
+                model_ids=model_ids,
                 pipeline_version=PIPELINE_VERSION,
             ),
             evaluator_results=tuple(results),
@@ -197,6 +221,7 @@ class GradingPipeline:
             score_ratio=score_ratio,
             confidence=confidence,
             routing=routing,
+            unscored_criteria=unscored,
             created_at=datetime.now(UTC),
         )
 

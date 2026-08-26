@@ -196,6 +196,9 @@ class GradingRun(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0)
     routing: Routing
     feedback: str | None = None
+    # 評価器の失敗などで採点できなかった観点。空でなければ点は暫定であり、
+    # routing は必ず REVIEW_REQUIRED になる。
+    unscored_criteria: tuple[CriterionId, ...] = ()
     created_at: datetime
     superseded_by: GradingRunId | None = None
 
@@ -215,9 +218,20 @@ class GradingRun(BaseModel):
                 raise ValueError(f"AI CriterionScore {score.id!r} must carry evidence")
         return self
 
+    @model_validator(mode="after")
+    def _check_unscored(self) -> Self:
+        if self.unscored_criteria and self.routing is not Routing.REVIEW_REQUIRED:
+            # 誰も見ていない観点がある採点を自動確定させない（設計原則 P5）。
+            raise ValueError("a run with unscored criteria must be routed to review")
+        return self
+
     @property
     def needs_review(self) -> bool:
         return self.routing is Routing.REVIEW_REQUIRED
+
+    @property
+    def is_provisional(self) -> bool:
+        return bool(self.unscored_criteria)
 
 
 def aggregate(scores: tuple[CriterionScore, ...]) -> tuple[float, float]:
@@ -240,6 +254,22 @@ def aggregate(scores: tuple[CriterionScore, ...]) -> tuple[float, float]:
     uncertain = [score.confidence for score in scores if not score.conclusive]
     confidence = min(uncertain) if uncertain else 1.0
     return round(score_ratio, 10), confidence
+
+
+def renormalize(scores: tuple[CriterionScore, ...]) -> tuple[CriterionScore, ...]:
+    """一部の観点が採点されなかったとき、残った観点の重みを比例配分し直す。
+
+    評価器が落ちた観点を 0 点にすると学習者に不当な不利益が出るし、
+    満点にすると誰も見ていない観点に点を与えることになる。どちらも取らず、
+    採点できた観点だけで暫定の点を出し、**必ず人間のレビューに回す**
+    （呼び出し側の責務）。GradingRun には未採点の観点を記録する。
+    """
+    if not scores:
+        raise ValueError("cannot renormalize an empty score set")
+    total = sum(score.weight for score in scores)
+    if total <= 0.0:
+        raise ValueError("total weight must be positive")
+    return tuple(score.model_copy(update={"weight": score.weight / total}) for score in scores)
 
 
 def resolve_conflicts(scores: tuple[CriterionScore, ...]) -> tuple[CriterionScore, ...]:

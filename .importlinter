@@ -10,7 +10,9 @@ root_packages =
     aijudge_core
     aijudge_grading
     aijudge_authoring
+    aijudge_llm_gateway
     aijudge_eval_code_test_runner
+    aijudge_eval_rubric_ai_judge
 include_external_packages = True
 
 [importlinter:contract:core-is-independent]
@@ -28,6 +30,24 @@ forbidden_modules =
     aijudge_analytics
     aijudge_transcription
     aijudge_llm_gateway
+
+; ゲートウェイは他サブシステムを知らない。採点の語彙にも依存しない
+; （依存させると、採点以外から LLM を使うたびに採点が引きずられる）。
+[importlinter:contract:gateway-is-standalone]
+name = LLM ゲートウェイは他のどのサブシステムにも依存しない
+type = forbidden
+source_modules =
+    aijudge_llm_gateway
+forbidden_modules =
+    aijudge_core
+    aijudge_grading
+    aijudge_authoring
+    aijudge_identity
+    aijudge_submission
+    aijudge_skill
+    aijudge_portfolio
+    aijudge_analytics
+    aijudge_transcription
 
 [importlinter:contract:core-has-no-io]
 name = core は I/O を持たない（DB・HTTP・LLM・ファイル）
@@ -54,6 +74,7 @@ type = independence
 modules =
     aijudge_authoring
     aijudge_grading
+    aijudge_llm_gateway
 
 ; ADR 0002 の核心。採点エンジンが個々の評価器を知らないことを機械で保証する。
 ; これが破られた瞬間、「科目を足してもエンジンは無変更」が成立しなくなる。
@@ -64,12 +85,17 @@ source_modules =
     aijudge_grading
 forbidden_modules =
     aijudge_eval_code_test_runner
+    aijudge_eval_rubric_ai_judge
 
+; Evaluator が依存してよいのは core・採点プロトコル・LLM ゲートウェイの 3 つ。
+; ゲートウェイを許すのは「AI 評価器は LLM を使う」が普遍だから。
+; 逆にサブシステムへの依存を許すと、評価器が単体でテストできなくなる。
 [importlinter:contract:evaluators-depend-on-core-and-protocol-only]
-name = Evaluator はコアと採点プロトコルにしか依存しない
+name = Evaluator はコア・採点プロトコル・LLM ゲートウェイにしか依存しない
 type = forbidden
 source_modules =
     aijudge_eval_code_test_runner
+    aijudge_eval_rubric_ai_judge
 forbidden_modules =
     aijudge_authoring
     aijudge_identity
@@ -78,4 +104,3 @@ forbidden_modules =
     aijudge_portfolio
     aijudge_analytics
     aijudge_transcription
-    aijudge_llm_gateway

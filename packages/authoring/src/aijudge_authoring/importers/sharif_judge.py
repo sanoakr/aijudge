@@ -39,6 +39,7 @@ _TAG_RE = re.compile(r"^\[(?P<tag>[^\]]+)\]\s*")
 _INPUT_RE = re.compile(r"^input(?P<index>\d+)\.txt$")
 
 DEFAULT_EVALUATOR = "code_test_runner"
+AI_EVALUATOR = "rubric_ai_judge"
 
 
 class ImportError_(Exception):
@@ -134,6 +135,39 @@ def correctness_criterion(evaluator_id: str = DEFAULT_EVALUATOR) -> RubricCriter
     )
 
 
+def readability_criterion(weight: float, evaluator_id: str = AI_EVALUATOR) -> RubricCriterion:
+    """テスト実行では測れない観点。AI 評価器が担当する。
+
+    Sharif Judge にはこの軸が無かった。テストが通るかどうかしか見ないので、
+    「動くが読めない」コードを満点にしてしまう。AI 採点を入れる価値は
+    まずここにある。
+    """
+    return RubricCriterion(
+        id=CriterionId(new_id("crt")),
+        code="readability",
+        title="変数名と構造の分かりやすさ",
+        description=(
+            "変数名が役割を表しているか、処理の流れが追えるか、"
+            "不要な重複がないか。出力の正しさはこの観点では評価しない。"
+        ),
+        weight=weight,
+        levels=(
+            RubricLevel(
+                level=0, label="未達", descriptor="名前が無意味で構造も追えない", score_ratio=0.0
+            ),
+            RubricLevel(level=1, label="一部", descriptor="一部の名前が説明的", score_ratio=0.34),
+            RubricLevel(
+                level=2,
+                label="概ね",
+                descriptor="おおむね説明的で構造も追える",
+                score_ratio=0.67,
+            ),
+            RubricLevel(level=3, label="達成", descriptor="名前・構造とも明快", score_ratio=1.0),
+        ),
+        evaluator_id=evaluator_id,
+    )
+
+
 def import_problem(
     problem_dir: Path,
     *,
@@ -142,8 +176,16 @@ def import_problem(
     task_id: TaskId | None = None,
     evaluator_id: str = DEFAULT_EVALUATOR,
     max_score: float = 100.0,
+    readability_weight: float = 0.0,
 ) -> TaskVersion:
-    """Sharif Judge の問題ディレクトリ 1 つを TaskVersion にする。"""
+    """Sharif Judge の問題ディレクトリ 1 つを TaskVersion にする。
+
+    `readability_weight` を 0 より大きくすると、AI 評価器が担当する
+    「読みやすさ」の観点を加え、正しさの重みをその分下げる。
+    既存課題をそのまま取り込むだけなら 0 のままでよい。
+    """
+    if not 0.0 <= readability_weight < 1.0:
+        raise ImportError_("readability_weight must be in [0.0, 1.0)")
     if not problem_dir.is_dir():
         raise ImportError_(f"{problem_dir} is not a directory")
 
@@ -154,6 +196,16 @@ def import_problem(
     statement = desc_path.read_text(encoding="utf-8")
     parse_title(statement)  # 形式が壊れていればここで落とす
 
+    correctness = correctness_criterion(evaluator_id)
+    criteria: tuple[RubricCriterion, ...]
+    if readability_weight > 0.0:
+        criteria = (
+            correctness.model_copy(update={"weight": 1.0 - readability_weight}),
+            readability_criterion(readability_weight),
+        )
+    else:
+        criteria = (correctness,)
+
     return TaskVersion(
         id=TaskVersionId(new_id("tsv")),
         task_id=task_id or TaskId(new_id("tsk")),
@@ -161,7 +213,7 @@ def import_problem(
         subject_profile=subject_profile,
         statement=statement,
         reference_solution=find_reference_solution(problem_dir),
-        criteria=(correctness_criterion(evaluator_id),),
+        criteria=criteria,
         test_cases=collect_test_cases(problem_dir, evaluator_id),
         q_matrix=(),
         max_score=max_score,
@@ -182,6 +234,7 @@ def import_assignment(
     subject_profile: str,
     authored_by: UserId,
     evaluator_id: str = DEFAULT_EVALUATOR,
+    readability_weight: float = 0.0,
 ) -> dict[str, TaskVersion]:
     """exNN/ 配下の p1, p2, … をまとめて取り込む。"""
     problems: dict[str, TaskVersion] = {}
@@ -193,6 +246,7 @@ def import_assignment(
             subject_profile=subject_profile,
             authored_by=authored_by,
             evaluator_id=evaluator_id,
+            readability_weight=readability_weight,
         )
     if not problems:
         raise ImportError_(f"{assignment_dir} contains no pN/ problem directories")

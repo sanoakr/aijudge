@@ -16,9 +16,9 @@ Three capabilities, each operable as an independent subsystem:
 Design and rollout plan: [`docs/design/`](docs/design/).
 Architecture decisions: [`docs/adr/`](docs/adr/).
 
-> Status: pre-PoC. The domain model, the grading pipeline, and one deterministic
-> evaluator exist. Real course assignments (Sharif Judge format) import and grade
-> end to end. No AI evaluator yet — that is PoC-1.
+> Status: PoC-1 in progress. Real course assignments import and grade end to end
+> with a deterministic evaluator plus an LLM rubric judge running on a local
+> model. Accuracy against instructor marking (κ) has not been measured yet.
 
 ## Layout
 
@@ -27,6 +27,7 @@ Architecture decisions: [`docs/adr/`](docs/adr/).
 | `packages/core` | Subject-agnostic domain model and event contracts. The only package everything else may depend on. |
 | `packages/grading` | The grading pipeline, evaluator registry, and subject profile loader (S5). Knows nothing about any subject. |
 | `packages/authoring` | Task authoring and importers for existing course assets (S2). |
+| `packages/llm_gateway` | Provider abstraction, policy routing, structured output, prompt versioning (S6). |
 | `packages/*` | One package per remaining subsystem (S1, S3–S11). |
 | `evaluators/*` | Grading plugins. Depend on `packages/core` and nothing else. |
 | `subjects/` | Subject profiles: which evaluators run, in what order, under what review policy. |
@@ -65,7 +66,7 @@ names the ones it wants:
 ```yaml
 # subjects/cs_intro_c.yaml
 deterministic:  [code_test_runner]
-ai_evaluators:  []            # empty still grades — see design principle P2
+ai_evaluators:  [rubric_ai_judge]   # removing this still grades — principle P2
 review_policy:  {boundary_score: 0.6, boundary_margin: 0.05}
 ```
 
@@ -75,3 +76,22 @@ evaluator directly. `evals/test_prog2_ex06_p3.py` grades a real course
 assignment through this path to prove the claim holds on real data.
 
 See [ADR 0002](docs/adr/0002-evaluator-plugin-boundary.md).
+
+### LLM calls go through the gateway
+
+Nothing calls a model provider directly. `packages/llm_gateway` enforces that
+learner data only reaches a local provider, validates structured output against
+a schema and retries with the actual error when it does not match, records which
+prompt version and model produced a result, and derives confidence from
+self-consistency across samples.
+
+Defaults point at the lab GPU host (`http://slab-llm:11434`, `gemma4:e4b`);
+override with `AIJUDGE_LLM_BASE_URL` and `AIJUDGE_LLM_MODEL`.
+
+```fish
+AIJUDGE_LIVE_LLM=1 uv run pytest evals/test_llm_live.py -v -s
+```
+
+Everything else runs offline against a scripted provider. See
+[ADR 0004](docs/adr/0004-llm-gateway.md) for what the real hardware taught us —
+several assumptions about constrained decoding did not survive contact.

@@ -8,6 +8,8 @@ dependencies = [
     "aijudge-grading",
     "aijudge-authoring",
     "aijudge-eval-code-test-runner",
+    "aijudge-llm-gateway",
+    "aijudge-eval-rubric-ai-judge",
 ]
 
 [project.optional-dependencies]
@@ -26,6 +28,8 @@ aijudge-core = { workspace = true }
 aijudge-grading = { workspace = true }
 aijudge-authoring = { workspace = true }
 aijudge-eval-code-test-runner = { workspace = true }
+aijudge-llm-gateway = { workspace = true }
+aijudge-eval-rubric-ai-judge = { workspace = true }
 
 [tool.ruff]
 line-length = 100
@@ -43,6 +47,8 @@ known-first-party = [
     "aijudge_grading",
     "aijudge_authoring",
     "aijudge_eval_code_test_runner",
+    "aijudge_llm_gateway",
+    "aijudge_eval_rubric_ai_judge",
 ]
 
 [tool.pytest.ini_options]

@@ -12,7 +12,9 @@ members = [
     "aijudge-authoring",
     "aijudge-core",
     "aijudge-eval-code-test-runner",
+    "aijudge-eval-rubric-ai-judge",
     "aijudge-grading",
+    "aijudge-llm-gateway",
 ]
 
 [[package]]
@@ -23,7 +25,9 @@ dependencies = [
     { name = "aijudge-authoring" },
     { name = "aijudge-core" },
     { name = "aijudge-eval-code-test-runner" },
+    { name = "aijudge-eval-rubric-ai-judge" },
     { name = "aijudge-grading" },
+    { name = "aijudge-llm-gateway" },
 ]
 
 [package.optional-dependencies]
@@ -39,7 +43,9 @@ requires-dist = [
     { name = "aijudge-authoring", editable = "packages/authoring" },
     { name = "aijudge-core", editable = "packages/core" },
     { name = "aijudge-eval-code-test-runner", editable = "evaluators/code_test_runner" },
+    { name = "aijudge-eval-rubric-ai-judge", editable = "evaluators/rubric_ai_judge" },
     { name = "aijudge-grading", editable = "packages/grading" },
+    { name = "aijudge-llm-gateway", editable = "packages/llm_gateway" },
     { name = "import-linter", marker = "extra == 'dev'", specifier = ">=2.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.11" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
@@ -85,6 +91,23 @@ requires-dist = [
 ]
 
 [[package]]
+name = "aijudge-eval-rubric-ai-judge"
+version = "0.0.1"
+source = { editable = "evaluators/rubric_ai_judge" }
+dependencies = [
+    { name = "aijudge-core" },
+    { name = "aijudge-grading" },
+    { name = "aijudge-llm-gateway" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aijudge-core", editable = "packages/core" },
+    { name = "aijudge-grading", editable = "packages/grading" },
+    { name = "aijudge-llm-gateway", editable = "packages/llm_gateway" },
+]
+
+[[package]]
 name = "aijudge-grading"
 version = "0.0.1"
 source = { editable = "packages/grading" }
@@ -100,6 +123,17 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.8" },
     { name = "pyyaml", specifier = ">=6.0" },
 ]
+
+[[package]]
+name = "aijudge-llm-gateway"
+version = "0.0.1"
+source = { editable = "packages/llm_gateway" }
+dependencies = [
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "pydantic", specifier = ">=2.8" }]
 
 [[package]]
 name = "annotated-types"

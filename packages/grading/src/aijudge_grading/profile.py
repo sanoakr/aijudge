@@ -43,6 +43,8 @@ class SubjectProfile(BaseModel):
     # 1 テストケースあたりの実行上限。科目によって妥当な値が違う
     # （入門課題は 1 秒で十分、数値計算課題はもっと要る）ため設定にする。
     timeout_seconds: float = Field(default=10.0, gt=0.0)
+    # 評価器ごとの追加設定。キーは evaluator_id。
+    evaluator_options: dict[str, dict[str, object]] = Field(default_factory=dict)
 
     def validate_against(self, registry: EvaluatorRegistry) -> None:
         """宣言された Evaluator が実在し、種別が宣言と一致することを確かめる。"""
@@ -60,6 +62,13 @@ class SubjectProfile(BaseModel):
                     f"{evaluator_id!r} is listed under 'ai_evaluators' "
                     f"but declares kind={evaluator.kind}"
                 )
+        declared = set(self.deterministic) | set(self.ai_evaluators)
+        unknown = set(self.evaluator_options) - declared
+        if unknown:
+            raise ValueError(
+                f"profile {self.name!r} sets options for evaluators it does not run: "
+                f"{sorted(unknown)}"
+            )
         if self.input.allow_handwriting and not self.input.transcription:
             raise ValueError(f"profile {self.name!r} allows handwriting but names no transcriber")
 

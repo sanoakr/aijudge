@@ -263,11 +263,16 @@ def test_the_run_converts_to_an_event_for_downstream_subsystems(task_version) ->
 
 
 @needs_c_compiler
-def test_grading_completes_with_no_ai_evaluators_registered(task_version) -> None:
-    """S6（LLM Gateway）が無い状態でも採点は完結する（設計原則 P2）。"""
+def test_grading_completes_with_ai_evaluators_disabled(task_version) -> None:
+    """AI 評価器を外しても採点は完結する（設計原則 P2）。
+
+    S6（LLM Gateway）を止めた状態の劣化動作にあたる。この課題は
+    テスト実行だけで採点できる観点しか持たないので、点は満点のまま。
+    """
     registry = EvaluatorRegistry().load_installed()
-    profile = load_profile(PROFILE_PATH, registry)
-    assert profile.ai_evaluators == ()
+    profile = load_profile(PROFILE_PATH, registry).model_copy(
+        update={"ai_evaluators": (), "evaluator_options": {}}
+    )
 
     submission, contents = _submission_of(task_version.reference_solution)
     run = GradingPipeline(registry, profile).run(

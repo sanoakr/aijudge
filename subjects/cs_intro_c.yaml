@@ -16,20 +16,29 @@ normalizers: []
 deterministic:
   - code_test_runner
 
-# AI 評価器はまだ入れていない。PoC-1 でここに rubric_ai_judge を足す。
-# 空のままでも採点は完結する（= S6 停止時の劣化動作、設計原則 P2）。
-ai_evaluators: []
+# AI 評価器。決定的評価が確定させた観点には呼ばれない（設計原則 P3）ので、
+# 実際に走るのは「読みやすさ」の観点だけ。
+# ここを空にしても採点は完結する（= S6 停止時の劣化動作、設計原則 P2）。
+ai_evaluators:
+  - rubric_ai_judge
+
+evaluator_options:
+  rubric_ai_judge:
+    # 自己一貫性のサンプル数。多いほど確信度は信用できるが、その分遅い。
+    # PoC-1 で κ と所要時間のバランスを見て決め直す。
+    samples: 3
 
 aggregation: weighted_sum
 
 review_policy:
-  # テスト実行の確信度は 1.0 なので、この閾値では誰もレビューに回らない。
-  # AI 評価器を足した時点で意味を持ちはじめる。
+  # AI 判定が割れたら人間が見る。3 回サンプリングで 2/3 一致（0.67）は通し、
+  # 1/3（0.33）は通さない、という水準に置いている。
   confidence_below: 0.75
   always_review_if_weight_over: 1.0
   # 合否境界（60%）の前後 5 ポイントは人間が見る。
   boundary_score: 0.6
   boundary_margin: 0.05
 
-# 1 テストケースあたりの実行上限（秒）。入門課題なので短くてよい。
-timeout_seconds: 5
+# 1 テストケース／1 LLM 呼び出しあたりの上限（秒）。
+# ローカル LLM は 20 秒前後かかるため、テスト実行だけの頃より長く取る。
+timeout_seconds: 120
