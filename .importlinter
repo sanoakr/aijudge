@@ -120,6 +120,28 @@ forbidden_modules =
     httpx
     requests
 
+; ADR 0007 の核心。測定は採点の必須機能ではない。
+; 測定側が採点の語彙（core / grading）や実行手段（llm_gateway / sandbox）を
+; import しないことを機械で保証する。これが破られた瞬間、「analytics と
+; evalrunner を削除しても採点は動く」が成立しなくなる。
+;
+; 測定が読むのは記録済みの観測レコード（aijudge_analytics.Observation）だけ。
+[importlinter:contract:measurement-does-not-depend-on-grading]
+name = 測定は採点に依存しない（削除しても採点は動く）
+type = forbidden
+source_modules =
+    aijudge_analytics
+    aijudge_evalrunner
+forbidden_modules =
+    aijudge_core
+    aijudge_grading
+    aijudge_authoring
+    aijudge_llm_gateway
+    aijudge_sandbox
+    aijudge_identity
+    aijudge_submission
+    aijudge_reviewconsole
+
 ; apps/* は合成の中心（composition root）。複数のサブシステムを束ねてよい
 ; 唯一の層で、逆にサブシステムから apps を参照してはならない。
 [importlinter:contract:subsystems-do-not-depend-on-apps]

@@ -15,7 +15,13 @@ from .pipeline import (
     derive_kc_outcomes,
     grading_completed_event,
 )
-from .profile import InputPolicy, SubjectProfile, load_profile, load_profiles
+from .profile import (
+    InputPolicy,
+    MeasurementPolicy,
+    SubjectProfile,
+    load_profile,
+    load_profiles,
+)
 from .protocol import EvaluationOutcome, EvaluationRequest, Evaluator
 from .registry import ENTRY_POINT_GROUP, EvaluatorRegistry, default_registry
 
@@ -29,6 +35,7 @@ __all__ = [
     "EvaluatorRegistry",
     "GradingPipeline",
     "InputPolicy",
+    "MeasurementPolicy",
     "SubjectProfile",
     "compute_input_hash",
     "default_registry",

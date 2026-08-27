@@ -16,11 +16,16 @@ Three capabilities, each operable as an independent subsystem:
 Design and rollout plan: [`docs/design/`](docs/design/).
 Architecture decisions: [`docs/adr/`](docs/adr/).
 
-> Status: PoC-1 in progress. Real course assignments import and grade end to end
-> with a deterministic evaluator plus an LLM rubric judge on a local model, and
-> the accuracy harness and the instructor review console are in place.
-> **The gate currently reports NOT MEASURED — the golden set is still too small,
-> so PoC-1 has not passed.**
+> Status: Phase 0 in progress. Real course assignments import and grade end to
+> end with a deterministic evaluator plus an LLM rubric judge on a local model,
+> and the instructor review console is in place. Still missing before a course
+> can run on it: submission orchestration (S3), minimal identity (S1), a student
+> UI, and persistence. See [`docs/design/`](docs/design/) §12.
+>
+> **Measuring grading accuracy is Phase 1, not Phase 0.** The records it needs
+> are captured from the start — a blind mark cannot be reconstructed later — but
+> grading does not depend on the measurement, and the accuracy gate currently
+> reports NOT MEASURED. See [ADR 0007](docs/adr/0007-phase-separation-and-optional-measurement.md).
 
 ## Layout
 
@@ -30,9 +35,9 @@ Architecture decisions: [`docs/adr/`](docs/adr/).
 | `packages/grading` | The grading pipeline, evaluator registry, and subject profile loader (S5). Knows nothing about any subject. |
 | `packages/authoring` | Task authoring and importers for existing course assets (S2). |
 | `packages/llm_gateway` | Provider abstraction, policy routing, structured output, prompt versioning (S6). |
-| `packages/analytics` | Agreement metrics and PoC gate evaluation (S9). Pure functions. |
-| `apps/reviewconsole` | Instructor review console. Blind marking first, verdict second. |
-| `apps/evalrunner` | Measures agreement against the gates. |
+| `packages/analytics` | Agreement metrics, gate evaluation, and the observation record (S9). Pure functions. Delete it and grading still runs. |
+| `apps/reviewconsole` | Instructor review console and the grading worker. Grading runs *before* review, never because of it. |
+| `apps/evalrunner` | Reads recorded observations and measures agreement against the gates. Never grades. |
 | `apps/*` | Composition roots. The only layer allowed to combine subsystems. |
 | `packages/*` | One package per remaining subsystem (S1, S3–S11). |
 | `evaluators/*` | Grading plugins. Depend on `packages/core` and nothing else. |
@@ -102,22 +107,30 @@ Everything else runs offline against a scripted provider. See
 [ADR 0004](docs/adr/0004-llm-gateway.md) for what the real hardware taught us —
 several assumptions about constrained decoding did not survive contact.
 
-### Reviewing is how the golden set gets built
+### Grading and reviewing are separate steps
 
 ```fish
-uv run aijudge-review --golden ~/.aijudge/golden --marker sano
+uv run aijudge-grade  --golden ~/.aijudge/golden                  # grade
+uv run aijudge-review --golden ~/.aijudge/golden --marker sano    # then review
 ```
 
-The instructor marks the submission **before** the AI verdict exists, then the
-verdict is revealed and they settle the final grade. The blind mark is what the
-accuracy gate measures; the final grade is what the student receives. Changing
-your mind after seeing the AI does not touch the golden entry.
+The worker grades on submission; the console reads what arrived. **Reviewing is
+not a precondition for grading.** It used to be — the console only invoked the
+pipeline after the instructor had entered a blind mark, which made capturing
+measurement data a prerequisite for grading at all. That inverted means and
+ends, so it was undone ([ADR 0007](docs/adr/0007-phase-separation-and-optional-measurement.md)).
 
-The order is the whole point. Mark after reading the model and your marking is
-anchored by it, and the agreement you then measure is inflated. Because the
-blind mark is a by-product of ordinary review, keeping the order costs nothing.
-The blind page carries no trace of the verdict — grading has not even run yet,
-and a test asserts the response body is clean.
+For most submissions the instructor reads the verdict and settles the grade. For
+a **sampled** subset they mark first, blind, and only then see the model. Marking
+after reading the model is anchored by it, and the agreement you measure is
+inflated — but demanding it on every submission taxes every review, so it is
+sampled. The rate is declared per subject (`measurement.blind_sample_rate`) and
+the selection is a hash of the submission id, not the instructor's choice: let
+them pick and the hard submissions end up over-represented.
+
+The blind page carries no trace of the verdict even though grading has already
+finished. It is not hidden — it is absent from the response, and a test asserts
+the body is clean.
 
 No authentication yet; it binds to localhost only. Put it behind S1 before
 exposing it.
@@ -128,16 +141,22 @@ exposing it.
 uv run aijudge-eval --subject cs_intro_c --out accuracy.md
 ```
 
-It grades an instructor-marked golden set, computes Cohen's κ, quadratic
-weighted κ, miss rate, review rate and scoring consistency, and checks them
-against `evals/gates.yaml`. The verdict has three values, not two, and the exit
-code follows: `0` pass, `1` fail, `2` **not measurable**. A sample below
-`min_sample_size` reports `2` no matter how good the numbers look — three items
-agreeing perfectly is not evidence of anything.
+**It does not grade.** It reads the observation records that grading and review
+left behind — one per submission per criterion — computes Cohen's κ, quadratic
+weighted κ, miss rate and review rate, and checks them against
+`evals/gates.yaml`. Recomputing κ needs no LLM, no sandbox, and no task
+definition; `import-linter` enforces that the measurement side cannot import the
+grading side at all.
 
-Golden sets hold student work and instructor marks, so they live **outside the
+The verdict has three values, not two, and the exit code follows: `0` pass, `1`
+fail, `2` **not measurable**. A sample below `min_sample_size` reports `2` no
+matter how good the numbers look — three items agreeing perfectly is not evidence
+of anything. And `2` is not an operational failure: grading works whether or not
+anyone measures it.
+
+Observations hold student work and instructor marks, so they live **outside the
 repository** (`~/.aijudge/golden`, or `AIJUDGE_GOLDEN_DIR`). Marks made after
-seeing the AI's output are excluded by default: they are anchored by it and are
-not ground truth. See [`evals/golden/README.md`](evals/golden/README.md) for the
-format and [ADR 0005](docs/adr/0005-accuracy-measurement.md) for why the harness
-is built to refuse to flatter itself.
+seeing the AI's output are excluded: they are anchored by it and are not ground
+truth, and the report lists every observation it excluded and why. See
+[ADR 0005](docs/adr/0005-accuracy-measurement.md) for why the harness is built to
+refuse to flatter itself.

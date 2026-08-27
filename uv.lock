@@ -140,18 +140,12 @@ version = "0.0.1"
 source = { editable = "apps/evalrunner" }
 dependencies = [
     { name = "aijudge-analytics" },
-    { name = "aijudge-authoring" },
-    { name = "aijudge-core" },
-    { name = "aijudge-grading" },
     { name = "pyyaml" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "aijudge-analytics", editable = "packages/analytics" },
-    { name = "aijudge-authoring", editable = "packages/authoring" },
-    { name = "aijudge-core", editable = "packages/core" },
-    { name = "aijudge-grading", editable = "packages/grading" },
     { name = "pyyaml", specifier = ">=6.0" },
 ]
 
@@ -188,6 +182,7 @@ name = "aijudge-reviewconsole"
 version = "0.0.1"
 source = { editable = "apps/reviewconsole" }
 dependencies = [
+    { name = "aijudge-analytics" },
     { name = "aijudge-authoring" },
     { name = "aijudge-core" },
     { name = "aijudge-grading" },
@@ -200,6 +195,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aijudge-analytics", editable = "packages/analytics" },
     { name = "aijudge-authoring", editable = "packages/authoring" },
     { name = "aijudge-core", editable = "packages/core" },
     { name = "aijudge-grading", editable = "packages/grading" },

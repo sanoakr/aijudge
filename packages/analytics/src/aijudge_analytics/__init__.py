@@ -1,7 +1,11 @@
 """aiJudge analytics (S9) — 採点一致度の測定と合格基準の判定。
 
-PoC の合格判定はここが唯一の根拠。純関数だけで構成し、
+採点性能の判定はここが唯一の根拠。純関数だけで構成し、
 採点の実装にも I/O にも依存しない。
+
+**このパッケージは採点の必須経路ではない。** 削除しても採点は動く
+（ADR 0007）。測定は記録済みの観測レコード（`Observation`）を読むだけで、
+採点を実行しない。
 """
 
 from __future__ import annotations
@@ -18,12 +22,15 @@ from .metrics import (
     quadratic_weighted_kappa,
     review_rate,
 )
+from .observation import MeasurementSummary, Observation, summarize
 
 __all__ = [
     "AgreementReport",
     "Check",
     "CriterionGate",
     "Gates",
+    "MeasurementSummary",
+    "Observation",
     "Verdict",
     "agreement_report",
     "cohen_kappa",
@@ -35,4 +42,5 @@ __all__ = [
     "population_stdev",
     "quadratic_weighted_kappa",
     "review_rate",
+    "summarize",
 ]

@@ -1,300 +1,303 @@
 """測定の足場そのものを検証する。
 
 測る道具が壊れていると、壊れていることに気づけない。
-LLM は呼ばず、スクリプト応答で配線だけを確かめる。
+
+**採点は一切走らせない。** 測定は記録済みの観測レコードを読むだけなので、
+テストも観測を直接組み立てて渡す（ADR 0007）。LLM もコンパイラも要らない。
+これ自体が「測定が採点に依存していない」ことの証拠になっている。
 """
 
 from __future__ import annotations
 
-import hashlib
 import json
-import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+import yaml
 
-from aijudge_analytics import Gates, Verdict
+from aijudge_analytics import Gates, Observation, Verdict
 from aijudge_analytics.gates import CriterionGate
-from aijudge_authoring.importers import sharif_judge
-from aijudge_core import (
-    Artifact,
-    ArtifactKind,
-    ArtifactRole,
-    Submission,
-    SubmissionState,
-    new_id,
-)
-from aijudge_core.ids import ArtifactId, SubmissionId, TaskVersionId, UserId
-from aijudge_eval_rubric_ai_judge import RubricAiJudge
-from aijudge_evalrunner import GoldenSetError, load_golden, run_evaluation
-from aijudge_evalrunner.cli import EXIT_NOT_MEASURED, main, render
-from aijudge_evalrunner.runner import stored_run
-from aijudge_grading import EvaluatorRegistry, GradingPipeline, load_profile
-from aijudge_llm_gateway import LlmGateway, ScriptedProvider
+from aijudge_evalrunner import ObservationSetError, load_observations, measure
+from aijudge_evalrunner.cli import EXIT_FAIL, EXIT_NOT_MEASURED, EXIT_PASS, main, render
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-EXAMPLE_GOLDEN = REPO_ROOT / "evals" / "golden"
-PROFILES = REPO_ROOT / "subjects"
 GATES_PATH = REPO_ROOT / "evals" / "gates.yaml"
 
-needs_c_compiler = pytest.mark.skipif(
-    shutil.which("cc") is None and shutil.which("gcc") is None,
-    reason="no C compiler available",
-)
-
-# 読みやすさを段階 1 と判定する応答。例のマークも 1 なので一致する。
-VERDICT_1 = (
-    '{"level": 1, "evidence": [{"start_line": 5, "end_line": 5, '
-    '"quote": "int b = 0, c = 0, d = 0;"}], "rationale": "変数名から役割が読み取れません。"}'
-)
-VERDICT_3 = (
-    '{"level": 3, "evidence": [{"start_line": 5, "end_line": 5, '
-    '"quote": "int b = 0, c = 0, d = 0;"}], "rationale": "明快です。"}'
-)
+LEVELS = (0, 1, 2, 3)
 
 
-# 科目プロファイルは自己一貫性のサンプル数を 3 にしている。テストは
-# プロファイルを差し替えず本番と同じ設定で走らせるので、応答も 3 回ぶん要る。
-PROFILE_SAMPLES = 3
-
-
-def _registry(responses: list[str], *, repeat: bool = True) -> EvaluatorRegistry:
-    scripted = [r for r in responses for _ in range(PROFILE_SAMPLES)] if repeat else responses
-    registry = EvaluatorRegistry().load_installed()
-    registry.replace(RubricAiJudge(LlmGateway(ScriptedProvider(scripted)), model="stub"))
-    return registry
-
-
-def _gates(**overrides) -> Gates:
-    defaults = dict(
-        poc="test",
-        min_sample_size=1,
-        criteria={"readability": CriterionGate(min_cohen_kappa=0.65)},
-        max_miss_rate=0.05,
+def observation(
+    submission: str,
+    *,
+    code: str = "readability",
+    human: int | None = 1,
+    machine: int | None = 1,
+    blind: bool = True,
+    conclusive: bool = False,
+    unscored: bool = False,
+    auto_confirmed: bool = True,
+    changed: bool | None = False,
+    graded: bool = True,
+) -> Observation:
+    return Observation(
+        subject_profile="cs_intro_c",
+        task_name="example-task",
+        submission=submission,
+        criterion_code=code,
+        levels=LEVELS,
+        machine_level=machine,
+        machine_confidence=1.0 if machine is not None else None,
+        conclusive=conclusive,
+        unscored=unscored,
+        grading_run_id="grn_test" if graded else None,
+        human_level=human,
+        blind=blind,
+        marker="tester" if human is not None else None,
+        auto_confirmed=auto_confirmed,
+        changed_after_seeing_ai=changed,
+        observed_at=datetime(2026, 8, 28, tzinfo=UTC),
     )
-    return Gates(**{**defaults, **overrides})
+
+
+def _gates(**overrides: object) -> Gates:
+    base: dict[str, object] = {
+        "poc": "test",
+        "min_sample_size": 2,
+        "criteria": {"readability": CriterionGate(min_cohen_kappa=0.5)},
+    }
+    base.update(overrides)
+    return Gates.model_validate(base)
+
+
+def _write(root: Path, submission: str, observations: list[Observation]) -> None:
+    folder = root / "cs_intro_c" / "example-task" / "observations"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / f"{Path(submission).stem}.json").write_text(
+        json.dumps([item.model_dump(mode="json") for item in observations], ensure_ascii=False),
+        encoding="utf-8",
+    )
 
 
 # --------------------------------------------------------------------------
-# ゴールデンセットの読み込み
+# 測定は採点しない
 # --------------------------------------------------------------------------
 
 
-def test_the_example_golden_set_loads() -> None:
-    items = load_golden(EXAMPLE_GOLDEN, "cs_intro_c")
-    assert len(items) == 1
-    item = items[0]
-    assert item.key == "example-task/s001.c"
-    assert item.mark.marks == {"correctness": 3, "readability": 1}
-    assert item.mark.blind
-
-
-def test_non_blind_marks_are_excluded_by_default(tmp_path: Path) -> None:
-    """AI の出力を見てから付けた採点は正解データにならない。"""
-    shutil.copytree(EXAMPLE_GOLDEN, tmp_path / "golden")
-    mark = tmp_path / "golden" / "cs_intro_c" / "example-task" / "marks" / "s001.yaml"
-    mark.write_text(mark.read_text().replace("blind: true", "blind: false"), encoding="utf-8")
-
-    assert load_golden(tmp_path / "golden", "cs_intro_c") == ()
-    assert len(load_golden(tmp_path / "golden", "cs_intro_c", blind_only=False)) == 1
-
-
-def test_a_mark_pointing_at_a_missing_submission_is_an_error(tmp_path: Path) -> None:
-    """黙って飛ばすと標本が減ったことに気づかないまま κ を見ることになる。"""
-    shutil.copytree(EXAMPLE_GOLDEN, tmp_path / "golden")
-    (tmp_path / "golden" / "cs_intro_c" / "example-task" / "marks" / "s001.c").unlink()
-
-    with pytest.raises(GoldenSetError, match=r"s001\.c"):
-        load_golden(tmp_path / "golden", "cs_intro_c")
-
-
-def test_a_task_without_a_definition_is_an_error(tmp_path: Path) -> None:
-    broken = tmp_path / "golden" / "cs_intro_c" / "no-task" / "marks"
-    broken.mkdir(parents=True)
-    with pytest.raises(GoldenSetError, match="no task/ directory"):
-        load_golden(tmp_path / "golden", "cs_intro_c")
-
-
-def test_a_missing_golden_directory_yields_nothing_rather_than_raising() -> None:
-    assert load_golden(Path("/nonexistent/golden"), "cs_intro_c") == ()
-
-
-# --------------------------------------------------------------------------
-# 測定
-# --------------------------------------------------------------------------
-
-
-@needs_c_compiler
-def test_agreement_is_computed_from_the_marks(tmp_path: Path) -> None:
-    items = load_golden(EXAMPLE_GOLDEN, "cs_intro_c")
-    report = run_evaluation(
-        items,
+def test_measuring_needs_nothing_but_observations() -> None:
+    """課題定義もサンドボックスも LLM も無い状態で測定が完結すること。"""
+    report = measure(
+        [observation("s001.c", human=1, machine=1), observation("s002.c", human=2, machine=2)],
         gates=_gates(),
         subject_profile="cs_intro_c",
-        profile_path=PROFILES / "cs_intro_c.yaml",
-        registry=_registry([VERDICT_1]),
     )
+    assert report.agreement["readability"].sample_size == 2
+    assert report.agreement["readability"].cohen_kappa == 1.0
+    assert report.verdict is Verdict.PASS
 
-    assert report.item_count == 1
+
+def test_the_levels_come_from_the_record_not_from_a_task_definition() -> None:
+    """段階の集合は観測に焼き込まれている。
+
+    課題定義から引き直す設計だと、引けなかったときに既定値へ黙って落ちて
+    QWK の重み行列が狂う。ここでは 5 段階の観測を渡して、その通りに
+    扱われることを確かめる。
+    """
+    wide = [
+        observation("s001.c", human=0, machine=0).model_copy(update={"levels": (0, 1, 2, 3, 4)}),
+        observation("s002.c", human=4, machine=4).model_copy(update={"levels": (0, 1, 2, 3, 4)}),
+    ]
+    report = measure(wide, gates=_gates(), subject_profile="cs_intro_c")
+    assert report.agreement["readability"].levels == (0, 1, 2, 3, 4)
+
+
+def test_conflicting_level_sets_are_refused() -> None:
+    """同じ観点で段階数が違うのは構成の誤り。黙って片方に寄せない。"""
+    mixed = [
+        observation("s001.c"),
+        observation("s002.c").model_copy(update={"levels": (0, 1, 2, 3, 4)}),
+    ]
+    with pytest.raises(ValueError, match="conflicting level sets"):
+        measure(mixed, gates=_gates(), subject_profile="cs_intro_c")
+
+
+# --------------------------------------------------------------------------
+# 標本の選別 — 数えてはいけないものを数えない
+# --------------------------------------------------------------------------
+
+
+def test_non_blind_marks_are_excluded() -> None:
+    """AI を見てから付けた採点は正解データにならない（ADR 0005）。"""
+    report = measure(
+        [
+            observation("s001.c", blind=True),
+            observation("s002.c", blind=False),
+            observation("s003.c", blind=True),
+        ],
+        gates=_gates(),
+        subject_profile="cs_intro_c",
+    )
+    assert report.agreement["readability"].sample_size == 2
+    assert report.excluded["blind でない教員採点"] == 1
+
+
+def test_deterministic_criteria_are_excluded() -> None:
+    """決定的評価が確定させた観点は AI の精度ではない。"""
+    report = measure(
+        [
+            observation("s001.c", code="correctness", conclusive=True),
+            observation("s002.c", code="correctness", conclusive=True),
+        ],
+        gates=_gates(),
+        subject_profile="cs_intro_c",
+    )
+    assert "correctness" not in report.agreement
+    assert report.excluded["決定的評価が確定（AI は関与しない）"] == 2
+
+
+def test_unscored_criteria_are_counted_as_neither_agreement_nor_disagreement() -> None:
+    report = measure(
+        [observation("s001.c", unscored=True), observation("s002.c")],
+        gates=_gates(),
+        subject_profile="cs_intro_c",
+    )
     assert report.agreement["readability"].sample_size == 1
-    assert report.agreement["readability"].exact_agreement == pytest.approx(1.0)
-    # 決定的評価の観点も、教員が採点していれば比較対象になる。
-    assert report.agreement["correctness"].sample_size == 1
+    assert report.excluded["採点できなかった観点"] == 1
 
 
-@needs_c_compiler
-def test_a_disagreement_shows_up_as_bias_and_a_miss(tmp_path: Path) -> None:
-    """AI が段階 3、教員が 1。自動確定していれば見逃しとして数える。"""
-    items = load_golden(EXAMPLE_GOLDEN, "cs_intro_c")
-    report = run_evaluation(
-        items,
+def test_submissions_without_an_instructor_mark_are_excluded() -> None:
+    """採点済みだが教員が見ていない提出。運用の大多数がこれ。"""
+    report = measure(
+        [observation("s001.c", human=None, blind=False, changed=None)],
         gates=_gates(),
         subject_profile="cs_intro_c",
-        profile_path=PROFILES / "cs_intro_c.yaml",
-        registry=_registry([VERDICT_3]),
     )
+    assert not report.agreement
+    assert report.excluded["教員採点がない"] == 1
 
-    readability = report.agreement["readability"]
-    assert readability.exact_agreement == pytest.approx(0.0)
-    # 教員 1 − AI 3 = −2。負なので AI が甘い。
-    assert readability.mean_bias == pytest.approx(-2.0)
-    assert report.observed_miss_rate == pytest.approx(1.0)
+
+def test_excluded_observations_are_reported_not_hidden() -> None:
+    """黙って標本を減らさない（ADR 0005）。"""
+    report = measure(
+        [observation("s001.c", blind=False), observation("s002.c", unscored=True)],
+        gates=_gates(),
+        subject_profile="cs_intro_c",
+    )
+    assert sum(report.excluded.values()) == 2
+    assert "一致度の標本から外した観測" in render(report)
+
+
+# --------------------------------------------------------------------------
+# 運用の指標
+# --------------------------------------------------------------------------
+
+
+def test_the_review_rate_counts_submissions_not_criteria() -> None:
+    """1 提出に観点が複数あっても、レビュー行き率は提出単位で数える。"""
+    report = measure(
+        [
+            observation("s001.c", code="correctness", auto_confirmed=True),
+            observation("s001.c", code="readability", auto_confirmed=True),
+            observation("s002.c", code="correctness", auto_confirmed=False),
+            observation("s002.c", code="readability", auto_confirmed=False),
+        ],
+        gates=_gates(),
+        subject_profile="cs_intro_c",
+    )
+    assert report.submission_count == 2
+    assert report.observed_review_rate == 0.5
+
+
+def test_the_miss_rate_uses_what_the_instructor_changed_after_seeing_the_ai() -> None:
+    """見逃し = 自動確定したのに、AI を見た教員が直した提出。"""
+    report = measure(
+        [
+            observation("s001.c", auto_confirmed=True, changed=True),
+            observation("s002.c", auto_confirmed=True, changed=False),
+            observation("s003.c", auto_confirmed=True, changed=False),
+            observation("s004.c", auto_confirmed=True, changed=False),
+        ],
+        gates=_gates(),
+        subject_profile="cs_intro_c",
+    )
+    assert report.observed_miss_rate == 0.25
+
+
+def test_unfinalized_submissions_are_not_in_the_miss_rate_denominator() -> None:
+    """まだ教員が見ていない提出は「直さなかった」ではない。"""
+    report = measure(
+        [
+            observation("s001.c", auto_confirmed=True, changed=True),
+            observation("s002.c", auto_confirmed=True, changed=None),
+        ],
+        gates=_gates(),
+        subject_profile="cs_intro_c",
+    )
+    assert report.observed_miss_rate == 1.0
+
+
+def test_no_observations_at_all_is_not_measured() -> None:
+    report = measure([], gates=_gates(), subject_profile="cs_intro_c")
+    assert report.verdict is Verdict.NOT_MEASURED
+    assert report.observation_count == 0
+
+
+# --------------------------------------------------------------------------
+# 「測れていない」を「合格」に丸めない（ADR 0005）
+# --------------------------------------------------------------------------
+
+
+def test_a_small_sample_is_not_measured_however_good_the_numbers_are() -> None:
+    report = measure(
+        [observation("s001.c", human=2, machine=2)],
+        gates=_gates(min_sample_size=30),
+        subject_profile="cs_intro_c",
+    )
+    assert report.agreement["readability"].cohen_kappa == 1.0
+    assert report.verdict is Verdict.NOT_MEASURED
+    assert "1/30 件" in render(report)
+
+
+def test_falling_short_of_the_threshold_fails() -> None:
+    report = measure(
+        [
+            observation("s001.c", human=1, machine=3),
+            observation("s002.c", human=2, machine=0),
+            observation("s003.c", human=3, machine=1),
+        ],
+        gates=_gates(),
+        subject_profile="cs_intro_c",
+    )
     assert report.verdict is Verdict.FAIL
 
 
-@needs_c_compiler
-def test_a_thin_sample_reports_not_measured_even_on_perfect_agreement() -> None:
-    """1 件の完全一致でも合格にしない。ここが足場の要。"""
-    items = load_golden(EXAMPLE_GOLDEN, "cs_intro_c")
-    report = run_evaluation(
-        items,
-        gates=_gates(min_sample_size=30),
-        subject_profile="cs_intro_c",
-        profile_path=PROFILES / "cs_intro_c.yaml",
-        registry=_registry([VERDICT_1]),
-    )
-    assert report.agreement["readability"].exact_agreement == pytest.approx(1.0)
-    assert report.verdict is Verdict.NOT_MEASURED
-    assert "1/30" in next(c for c in report.checks if "κ" in c.name).detail
+# --------------------------------------------------------------------------
+# ファイルからの読み込み
+# --------------------------------------------------------------------------
 
 
-@needs_c_compiler
-def test_an_llm_failure_is_recorded_not_silently_dropped() -> None:
-    """評価器が落ちた提出を、一致した扱いにしてはならない。"""
-    items = load_golden(EXAMPLE_GOLDEN, "cs_intro_c")
-    report = run_evaluation(
-        items,
-        gates=_gates(),
-        subject_profile="cs_intro_c",
-        profile_path=PROFILES / "cs_intro_c.yaml",
-        registry=_registry([], repeat=False),  # 応答なし = LLM 障害
-    )
-    assert report.items[0].unscored == ("readability",)
-    # 採点できなかった観点は標本に入らない。
-    assert "readability" not in report.agreement
-    assert report.verdict is Verdict.NOT_MEASURED
+def test_observations_are_read_from_the_tree(tmp_path: Path) -> None:
+    _write(tmp_path, "s001.c", [observation("s001.c"), observation("s001.c", code="correctness")])
+    loaded = load_observations(tmp_path, "cs_intro_c")
+    assert len(loaded) == 2
 
 
-@needs_c_compiler
-def test_a_stored_run_is_measured_rather_than_a_fresh_one(tmp_path: Path) -> None:
-    """教員がレビューした採点を測る。引き直すと別の結果を測ることになる。
-
-    LLM は同じ提出でも実行ごとに違う段階を返しうる。測定のたびに採点し直すと、
-    見逃し率もレビュー行き率も「誰も見ていない採点」の数字になる。
-    """
-    shutil.copytree(EXAMPLE_GOLDEN, tmp_path / "golden")
-    items = load_golden(tmp_path / "golden", "cs_intro_c")
-    item = items[0]
-
-    # 教員のレビュー時に AI が段階 3 と判定した、という状況を作る。
-    registry = _registry([VERDICT_3])
-    profile = load_profile(PROFILES / "cs_intro_c.yaml", registry)
-    payload = item.source_path.read_bytes()
-    task = sharif_judge.import_problem(
-        item.task_dir,
-        subject_profile="cs_intro_c",
-        authored_by=UserId(new_id("usr")),
-        readability_weight=0.3,
-    )
-    run = GradingPipeline(registry, profile).run(
-        task, _submission_of(item, payload), lambda _: payload
-    )
-    runs_dir = tmp_path / "golden" / "cs_intro_c" / "example-task" / "runs"
-    runs_dir.mkdir(parents=True)
-    (runs_dir / "s001.json").write_text(
-        json.dumps(run.model_dump(mode="json"), ensure_ascii=False), encoding="utf-8"
-    )
-    assert stored_run(item) is not None
-
-    # 測定時に AI が段階 1 を返す設定にしても、保存済みの 3 が測られる。
-    report = run_evaluation(
-        items,
-        gates=_gates(),
-        subject_profile="cs_intro_c",
-        profile_path=PROFILES / "cs_intro_c.yaml",
-        registry=_registry([VERDICT_1]),
-    )
-    assert report.reused_runs == 1
-    assert report.regraded_runs == 0
-    # 教員 1 − AI 3 = −2。段階 1 を測っていたら 0 になっていた。
-    assert report.agreement["readability"].mean_bias == pytest.approx(-2.0)
+def test_another_subject_is_not_mixed_in(tmp_path: Path) -> None:
+    _write(tmp_path, "s001.c", [observation("s001.c")])
+    assert load_observations(tmp_path, "math_calculus") == ()
 
 
-@needs_c_compiler
-def test_regrade_forces_a_fresh_grading_and_says_so(tmp_path: Path) -> None:
-    shutil.copytree(EXAMPLE_GOLDEN, tmp_path / "golden")
-    items = load_golden(tmp_path / "golden", "cs_intro_c")
-    report = run_evaluation(
-        items,
-        gates=_gates(),
-        subject_profile="cs_intro_c",
-        profile_path=PROFILES / "cs_intro_c.yaml",
-        registry=_registry([VERDICT_1]),
-        regrade=True,
-    )
-    assert report.regraded_runs == 1
-    # 引き直したことをレポートに明記する。黙って測ると実績と誤読される。
-    assert "採点し直しています" in render(report)
+def test_a_broken_observation_file_raises(tmp_path: Path) -> None:
+    """黙って飛ばすと、標本が減ったことに気づかないまま κ を見る。"""
+    folder = tmp_path / "cs_intro_c" / "example-task" / "observations"
+    folder.mkdir(parents=True)
+    (folder / "s001.json").write_text('{"not": "a list"}', encoding="utf-8")
+    with pytest.raises(ObservationSetError, match="list of observations"):
+        load_observations(tmp_path, "cs_intro_c")
 
 
-def _submission_of(item, payload: bytes):
-    """テスト用の Submission を組む。"""
-    submission_id = SubmissionId(new_id("sub"))
-    artifact = Artifact(
-        id=ArtifactId(new_id("art")),
-        submission_id=submission_id,
-        role=ArtifactRole.ORIGINAL,
-        kind=ArtifactKind.CODE,
-        storage_key=f"file://{item.source_path}",
-        content_hash=f"sha256:{hashlib.sha256(payload).hexdigest()}",
-        byte_size=len(payload),
-        created_at=datetime(2026, 4, 1, tzinfo=UTC),
-    )
-    return Submission(
-        id=submission_id,
-        task_version_id=TaskVersionId(new_id("tsv")),
-        learner_id=UserId(new_id("usr")),
-        state=SubmissionState.SUBMITTED,
-        artifacts=(artifact,),
-        created_at=datetime(2026, 4, 1, tzinfo=UTC),
-        submitted_at=datetime(2026, 4, 1, tzinfo=UTC),
-    )
-
-
-@needs_c_compiler
-def test_repeated_grading_measures_consistency() -> None:
-    items = load_golden(EXAMPLE_GOLDEN, "cs_intro_c")
-    report = run_evaluation(
-        items,
-        gates=_gates(max_score_stdev=0.05),
-        subject_profile="cs_intro_c",
-        profile_path=PROFILES / "cs_intro_c.yaml",
-        registry=_registry([VERDICT_1] * 4),
-        repeats=3,
-    )
-    # 同じ応答を返すスタブなので、ばらつきはゼロ。
-    assert report.observed_score_stdev == pytest.approx(0.0)
+def test_a_missing_root_is_empty_not_an_error(tmp_path: Path) -> None:
+    assert load_observations(tmp_path / "nope") == ()
 
 
 # --------------------------------------------------------------------------
@@ -302,35 +305,43 @@ def test_repeated_grading_measures_consistency() -> None:
 # --------------------------------------------------------------------------
 
 
-def test_an_empty_golden_set_exits_not_measured_not_pass(tmp_path: Path, capsys) -> None:
-    """CI が「測れていない」を「合格」と取り違えないための境界。"""
-    code = main(
-        [
-            "--subject",
-            "cs_intro_c",
-            "--golden",
-            str(tmp_path),
-            "--gates",
-            str(GATES_PATH),
-            "--profiles",
-            str(PROFILES),
-        ]
-    )
+def test_the_cli_exits_2_when_there_is_nothing_to_measure(tmp_path: Path, capsys) -> None:
+    """CI が「測れていない」を「合格」と取り違えないため（ADR 0005）。"""
+    code = main(["--golden", str(tmp_path), "--gates", str(GATES_PATH)])
     assert code == EXIT_NOT_MEASURED
-    assert "合格ではありません" in capsys.readouterr().err
+    assert "観測レコードがありません" in capsys.readouterr().err
 
 
-@needs_c_compiler
-def test_the_report_says_why_it_could_not_measure() -> None:
-    items = load_golden(EXAMPLE_GOLDEN, "cs_intro_c")
-    report = run_evaluation(
-        items,
-        gates=_gates(min_sample_size=30),
-        subject_profile="cs_intro_c",
-        profile_path=PROFILES / "cs_intro_c.yaml",
-        registry=_registry([VERDICT_1]),
+def test_the_cli_says_grading_still_works_without_measurement(tmp_path: Path, capsys) -> None:
+    """データが無いのは運用の失敗ではない（ADR 0007）。"""
+    _write(tmp_path, "s001.c", [observation("s001.c", human=None, blind=False, changed=None)])
+    main(["--golden", str(tmp_path), "--gates", str(GATES_PATH)])
+    assert "採点運用は成立している" in capsys.readouterr().out
+
+
+def test_the_cli_reports_pass_and_fail_from_the_gates(tmp_path: Path) -> None:
+    gates = tmp_path / "gates.yaml"
+    gates.write_text(
+        yaml.safe_dump(
+            {
+                "poc": "test",
+                "min_sample_size": 2,
+                "criteria": {"readability": {"min_cohen_kappa": 0.5}},
+            }
+        ),
+        encoding="utf-8",
     )
-    text = render(report)
-    assert "判定不能" in text
-    assert "測れていないことは合格ではない" in text
-    assert "混同行列" in text
+    root = tmp_path / "agree"
+    _write(root, "s001.c", [observation("s001.c", human=1, machine=1)])
+    _write(root, "s002.c", [observation("s002.c", human=2, machine=2)])
+    assert main(["--golden", str(root), "--gates", str(gates)]) == EXIT_PASS
+
+    root = tmp_path / "disagree"
+    _write(root, "s001.c", [observation("s001.c", human=1, machine=3)])
+    _write(root, "s002.c", [observation("s002.c", human=2, machine=0)])
+    assert main(["--golden", str(root), "--gates", str(gates)]) == EXIT_FAIL
+
+
+def test_the_report_says_it_did_not_grade(tmp_path: Path) -> None:
+    report = measure([observation("s001.c")], gates=_gates(), subject_profile="cs_intro_c")
+    assert "このコマンドは採点しません" in render(report)

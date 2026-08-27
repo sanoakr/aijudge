@@ -27,6 +27,27 @@ class InputPolicy(BaseModel):
     transcription: str | None = None
 
 
+class MeasurementPolicy(BaseModel):
+    """採点性能の測定に関する宣言。
+
+    **採点エンジンはこの値を読まない。** 科目プロファイルは科目の宣言文書で
+    あって採点エンジンの設定ファイルではない（既に `input` は S3 の関心事、
+    `review_policy` は HITL の関心事を宣言している）。測定の設定も、運用者が
+    探す場所は同じであるべきなのでここに置く。読むのはレビュー側（ADR 0007）。
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    # blind 採点（AI を見る前に教員が付ける）を求める提出の割合。
+    # 0.0 なら求めない = 測定用データを集めない。
+    #
+    # 全件 blind にしないのは、レビュー 1 件ごとに 2 段階の入力を強制する
+    # ことになり、測定コストを日常業務に転嫁するため。教員の任意選択にも
+    # しない（難しい提出だけ blind にする等の選択バイアスが入ると、
+    # 一致度がその分だけ意味を失う）。
+    blind_sample_rate: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
 class SubjectProfile(BaseModel):
     """1 科目分の採点構成。"""
 
@@ -40,6 +61,8 @@ class SubjectProfile(BaseModel):
     ai_evaluators: tuple[str, ...] = ()
     aggregation: Literal["weighted_sum"] = "weighted_sum"
     review_policy: ReviewPolicy = ReviewPolicy()
+    # 測定の宣言。採点エンジンは参照しない（MeasurementPolicy 参照）。
+    measurement: MeasurementPolicy = MeasurementPolicy()
     # 1 テストケースあたりの実行上限。科目によって妥当な値が違う
     # （入門課題は 1 秒で十分、数値計算課題はもっと要る）ため設定にする。
     timeout_seconds: float = Field(default=10.0, gt=0.0)

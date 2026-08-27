@@ -1,13 +1,13 @@
 [project]
 name = "aijudge-evalrunner"
 version = "0.0.1"
-description = "Measure agreement between instructor marking and AI grading, against PoC gates"
+description = "Read recorded observations and measure grading accuracy. Never grades."
 requires-python = ">=3.12"
+# 依存はこれだけ。core も grading も入らない = 測定に採点の語彙が要らない
+# （ADR 0007）。ここに採点側のパッケージが増えたら、測定が採点に依存し始めた
+# 兆候なので設計を見直す。
 dependencies = [
-    "aijudge-core",
     "aijudge-analytics",
-    "aijudge-authoring",
-    "aijudge-grading",
     "pyyaml>=6.0",
 ]
 
@@ -22,7 +22,4 @@ build-backend = "hatchling.build"
 packages = ["src/aijudge_evalrunner"]
 
 [tool.uv.sources]
-aijudge-core = { workspace = true }
 aijudge-analytics = { workspace = true }
-aijudge-authoring = { workspace = true }
-aijudge-grading = { workspace = true }

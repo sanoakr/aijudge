@@ -48,6 +48,43 @@ def test_every_workspace_package_is_listed_in_the_forbidden_contract() -> None:
         )
 
 
+def test_the_measurement_contract_is_declared() -> None:
+    """測定が採点に依存しない契約が `.importlinter` にあること。
+
+    契約ごと消せば依存を足せてしまう。契約の存在そのものを固定する
+    （ADR 0007）。
+    """
+    config = _import_linter_config()
+    section = "importlinter:contract:measurement-does-not-depend-on-grading"
+    assert config.has_section(section), "測定の独立を保証する契約が .importlinter から消えている"
+    forbidden = set(config[section]["forbidden_modules"].split())
+    sources = set(config[section]["source_modules"].split())
+    assert {"aijudge_analytics", "aijudge_evalrunner"} <= sources
+    assert {"aijudge_core", "aijudge_grading"} <= forbidden
+
+
+def test_the_measurement_app_declares_no_grading_dependencies() -> None:
+    """測定アプリの依存に採点側のパッケージが入っていないこと。
+
+    import が無くても依存宣言が残っていると、いつのまにか使い始める。
+    「analytics と evalrunner を削除しても採点は動く」の裏返しとして、
+    測定側から採点側への依存も無いことを固定する（ADR 0007）。
+    """
+    manifest = REPO_ROOT / "apps" / "evalrunner" / "pyproject.toml"
+    with manifest.open("rb") as handle:
+        dependencies = tomllib.load(handle)["project"]["dependencies"]
+    names = {item.split(">")[0].split("=")[0].split("[")[0].strip() for item in dependencies}
+    forbidden = {
+        "aijudge-core",
+        "aijudge-grading",
+        "aijudge-authoring",
+        "aijudge-llm-gateway",
+        "aijudge-sandbox",
+    }
+    leaked = names & forbidden
+    assert not leaked, f"measurement app depends on grading packages: {sorted(leaked)}"
+
+
 def test_core_declares_no_io_dependencies() -> None:
     """core の依存は pydantic だけ。ここが増えるのは設計が漏れた兆候。"""
     manifest = REPO_ROOT / "packages" / "core" / "pyproject.toml"

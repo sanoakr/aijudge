@@ -4,15 +4,17 @@
 <h1>AI の判定 — <span class="mono">{{ entry.submission }}</span></h1>
 <p class="crumb"><a href="/">← 待ち行列</a> / {{ entry.task_name }}</p>
 
+{% if was_blind %}
 <div class="note">
   あなたの blind 採点は保存済みです。ここで段階を変えても
-  <strong>ゴールデンセットに残るのは blind 側</strong>で、一致度の測定は影響を受けません。
+  <strong>測定に残るのは blind 側</strong>で、一致度の測定は影響を受けません。
   変更は最終成績にのみ反映されます。
 </div>
+{% endif %}
 
 <h2>観点ごとの突き合わせ</h2>
 <table>
-  <thead><tr><th>観点</th><th>あなた</th><th>AI</th><th>一致</th><th>AI の根拠</th></tr></thead>
+  <thead><tr><th>観点</th><th>{{ 'あなた（blind）' if was_blind else 'あなた' }}</th><th>AI</th><th>一致</th><th>AI の根拠</th></tr></thead>
   <tbody>
   {% for row in rows %}
     <tr>
@@ -22,6 +24,7 @@
       <td>{{ row.ai_level if row.ai_level is not none else '—' }}</td>
       <td>
         {% if row.unscored %}<span class="pill no">採点できず</span>
+        {% elif row.agrees is none %}<span class="desc">—</span>
         {% elif row.agrees %}<span class="pill ok">一致</span>
         {% else %}<span class="pill no">不一致</span>{% endif %}
       </td>
@@ -69,7 +72,7 @@
       <label>
         <input type="radio" name="levels" required
                value="{{ row.criterion.code }}={{ level.level }}"
-               {% if row.human_level == level.level %}checked{% endif %}>
+               {% if (row.human_level if row.human_level is not none else row.ai_level) == level.level %}checked{% endif %}>
         <span class="lv">{{ level.level }}: {{ level.label }}</span>
         <span>{{ level.descriptor }}</span>
       </label>
