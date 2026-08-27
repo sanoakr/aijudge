@@ -13,6 +13,7 @@ UI で隠すのは表示の都合であって権限ではないので、リク�
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
@@ -22,8 +23,16 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from aijudge_authoring import render_statement
-from aijudge_core import ArtifactKind, Course, Submission, TaskVersion
-from aijudge_core.ids import CourseId, SubmissionId, TaskVersionId
+from aijudge_core import (
+    MIN_JUSTIFICATION_LENGTH,
+    ArtifactKind,
+    Course,
+    ReviewRequest,
+    Submission,
+    Task,
+    TaskVersion,
+)
+from aijudge_core.ids import CourseId, ReviewRequestId, SubmissionId, TaskVersionId, new_id
 from aijudge_identity import (
     AuthenticationFailed,
     AuthService,
@@ -168,12 +177,21 @@ def create_app(app_state: StudentApp) -> FastAPI:
     def course(request: Request, course_id: str, me: Me) -> HTMLResponse:
         course_obj, tasks = _course_and_tasks(app_state, me, CourseId(course_id))
         return TEMPLATES.TemplateResponse(
-            request, "course.html", {"me": me, "course": course_obj, "tasks": tasks}
+            request,
+            "course.html",
+            {
+                "me": me,
+                "course": course_obj,
+                "units": _group_by_unit(tasks),
+                **build_context(course_obj),
+            },
         )
 
     @app.get("/tasks/{task_version_id}", response_class=HTMLResponse)
     def task(request: Request, task_version_id: str, me: Me) -> HTMLResponse:
-        version, course_obj = _task_and_course(app_state, me, TaskVersionId(task_version_id))
+        version, course_obj, task_obj = _task_and_course(
+            app_state, me, TaskVersionId(task_version_id)
+        )
         with app_state.database.unit_of_work() as uow:
             submissions = uow.submissions.list_for_learner(me.tenant_id, me.user_id, version.id)
         return TEMPLATES.TemplateResponse(
@@ -187,6 +205,7 @@ def create_app(app_state: StudentApp) -> FastAPI:
                 "accepts": sorted(SUFFIX_KINDS),
                 # 課題文は Markdown。生のまま出すと `##` や ``` が見える。
                 "statement_html": render_statement(version.statement),
+                **build_context(course_obj, task_obj, version),
             },
         )
 
@@ -199,7 +218,7 @@ def create_app(app_state: StudentApp) -> FastAPI:
         me: Me,
         upload: UploadFile,
     ) -> Response:
-        version, course_obj = _task_and_course(app_state, me, TaskVersionId(task_version_id))
+        version, course_obj, _task = _task_and_course(app_state, me, TaskVersionId(task_version_id))
         payload = await upload.read()
 
         filename = Path(upload.filename or "submission").name
@@ -237,23 +256,103 @@ def create_app(app_state: StudentApp) -> FastAPI:
 
     @app.get("/submissions/{submission_id}", response_class=HTMLResponse)
     def submission(request: Request, submission_id: str, me: Me, again: int = 0) -> HTMLResponse:
-        target, version, run, view = _submission_view(app_state, me, SubmissionId(submission_id))
-        source = _source_of(app_state, target)
+        loaded = _submission_view(app_state, me, SubmissionId(submission_id))
+        source = _source_of(app_state, loaded.submission)
         return TEMPLATES.TemplateResponse(
             request,
             "submission.html",
             {
                 "me": me,
-                "submission": target,
-                "task": version,
-                "run": run,
-                "view": view,
+                "submission": loaded.submission,
+                "task": loaded.version,
+                "run": loaded.run,
+                "view": loaded.view,
                 "lines": _numbered(source),
                 "duplicate": bool(again),
+                "min_reason": MIN_JUSTIFICATION_LENGTH,
+                **build_context(loaded.course, loaded.task, loaded.version, loaded.submission),
             },
         )
 
+    @app.post("/submissions/{submission_id}/request-review")
+    def request_review(
+        submission_id: str,
+        me: Me,
+        reason: Annotated[str, Form()] = "",
+    ) -> Response:
+        """再確認を依頼する。**根拠説明が必須。**
+
+        項目が空でも欠けていても、同じ 400 と同じ案内を返す。422 を返すと
+        学習者には何をすればよいか分からない。
+
+        「納得できない」だけの依頼を受け付けると、教員は何を確認すべきか
+        分からないまま全件を見ることになり、導線が機能しなくなる。
+        """
+        loaded = _submission_view(app_state, me, SubmissionId(submission_id))
+        if loaded.run is None:
+            raise HTTPException(status_code=409, detail="まだ採点されていません")
+        if loaded.view is not None and not loaded.view.can_request_review:
+            raise HTTPException(
+                status_code=409,
+                detail=loaded.view.request_reason or "この採点には依頼を出せません",
+            )
+
+        text = reason.strip()
+        if len(text) < MIN_JUSTIFICATION_LENGTH:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"どの観点のどこが違うと考えるかを {MIN_JUSTIFICATION_LENGTH} "
+                    "文字以上で書いてください"
+                ),
+            )
+
+        with app_state.database.unit_of_work() as uow:
+            try:
+                uow.reviews.save_request(
+                    ReviewRequest(
+                        id=ReviewRequestId(new_id("rrq")),
+                        submission_id=loaded.submission.id,
+                        grading_run_id=loaded.run.id,
+                        learner_id=me.user_id,
+                        reason=text,
+                        requested_at=datetime.now(UTC),
+                    )
+                )
+            except Exception as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            uow.commit()
+        return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
+
     return app
+
+
+def _group_by_unit(rows: tuple) -> list[dict[str, object]]:
+    """課題を「何回目」でまとめる。
+
+    1 回の授業で複数問出るので、平らに並べると何回目の分か分からなくなる。
+    """
+    groups: dict[tuple, dict[str, object]] = {}
+    for task, version in sorted(rows, key=lambda row: row[0].sort_key):
+        key = (task.session, task.unit)
+        group = groups.setdefault(
+            key,
+            {
+                "label": task.unit_label,
+                "unit": task.unit,
+                "session": task.session,
+                "opens_at": task.opens_at,
+                "due_at": task.due_at,
+                "tasks": [],
+            },
+        )
+        group["tasks"].append((task, version))
+        # まとまりの提示日・締切は、その中で最も早い／遅いものを代表にする。
+        if task.opens_at and (group["opens_at"] is None or task.opens_at < group["opens_at"]):
+            group["opens_at"] = task.opens_at
+        if task.due_at and (group["due_at"] is None or task.due_at > group["due_at"]):
+            group["due_at"] = task.due_at
+    return list(groups.values())
 
 
 # -- 権限つきの読み出し ------------------------------------------------------
@@ -297,7 +396,7 @@ def _course_and_tasks(
 
 def _task_and_course(
     app_state: StudentApp, me: Principal, task_version_id: TaskVersionId
-) -> tuple[TaskVersion, Course]:
+) -> tuple[TaskVersion, Course, Task]:
     with app_state.database.unit_of_work() as uow:
         version = uow.tasks.get_version(task_version_id)
         if version is None:
@@ -313,12 +412,27 @@ def _task_and_course(
             raise HTTPException(status_code=404, detail="課題が見つかりません") from exc
         if course_obj is None:
             raise HTTPException(status_code=404, detail="コースが見つかりません")
-    return version, course_obj
+    return version, course_obj, task
+
+
+@dataclass(frozen=True)
+class LoadedSubmission:
+    """結果画面が要るもの一式。
+
+    文脈（科目・回・課題・提出）をすべての画面に出すために、まとめて返す。
+    """
+
+    submission: Submission
+    version: TaskVersion
+    task: Task
+    course: Course
+    run: object | None
+    view: ResultView | None
 
 
 def _submission_view(
     app_state: StudentApp, me: Principal, submission_id: SubmissionId
-) -> tuple[Submission, TaskVersion, object | None, ResultView | None]:
+) -> LoadedSubmission:
     with app_state.database.unit_of_work() as uow:
         target = uow.submissions.get(submission_id)
         if target is None or target.learner_id != me.user_id:
@@ -328,11 +442,18 @@ def _submission_view(
         version = uow.tasks.get_version(target.task_version_id)
         if version is None:
             raise HTTPException(status_code=404, detail="課題が見つかりません")
+        task = uow.tasks.get_task(version.task_id)
+        course = None if task is None else uow.identity.get_course(task.course_id)
+        if task is None or course is None:
+            raise HTTPException(status_code=404, detail="課題が見つかりません")
         run = uow.runs.latest_for(submission_id)
         review = None if run is None else uow.reviews.find_review_for_run(run.id)
+        request = None if run is None else uow.reviews.find_request_for_run(run.id)
 
-    view = None if run is None else build_result_view(run, version, review)
-    return target, version, run, view
+    view = None if run is None else build_result_view(run, version, review, request=request)
+    return LoadedSubmission(
+        submission=target, version=version, task=task, course=course, run=run, view=view
+    )
 
 
 def _source_of(app_state: StudentApp, submission: Submission) -> str:
@@ -342,6 +463,26 @@ def _source_of(app_state: StudentApp, submission: Submission) -> str:
         except Exception:  # pragma: no cover - ストアが読めない状況
             return ""
     return ""
+
+
+def build_context(
+    course: Course,
+    task: Task | None = None,
+    version: TaskVersion | None = None,
+    submission: Submission | None = None,
+) -> dict[str, object]:
+    """どの科目の何回目のどの課題か、誰の何回目の提出かを 1 つにまとめる。
+
+    **すべての画面に出す。** 出さないと、複数の科目・回・提出を行き来する
+    うちに「いま何を見ているか」が分からなくなる。ブラウザの戻る操作や
+    リンクの共有で途中の画面から入ることもある。
+    """
+    return {
+        "ctx_course": course,
+        "ctx_task": task,
+        "ctx_version": version,
+        "ctx_submission": submission,
+    }
 
 
 def _numbered(source: str) -> list[tuple[int, str]]:

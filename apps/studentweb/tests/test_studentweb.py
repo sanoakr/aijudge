@@ -122,6 +122,7 @@ class World:
                     id=HumanReviewId(new_id("hrv")),
                     grading_run_id=run.id,
                     grader_id=grader.user_id,
+                    comment="テスト実行の結果を確認しました。判定は妥当です。",
                     reviewed_at=datetime.now(UTC),
                 )
             )
@@ -297,22 +298,12 @@ def test_an_oversized_file_is_refused(world: World) -> None:
 
 
 @needs_c_compiler
-def test_the_test_results_appear_before_the_instructor_looks(world: World) -> None:
-    """テスト実行の結果はすぐ見せる。Sharif Judge から引き継ぐ価値の中心。"""
-    world.register("s2400001")
-    world.login("s2400001")
-    location = world.submit().headers["location"]
-    world.worker.run_once()
+def test_the_ai_verdict_is_shown_immediately(world: World) -> None:
+    """AI の判定は採点直後に見せる（ADR 0009）。
 
-    body = world.client.get(location).text
-    assert "テスト実行の結果が出ました" in body
-
-
-@needs_c_compiler
-def test_the_ai_verdict_is_hidden_until_the_instructor_confirms(world: World) -> None:
-    """確定前の AI 判定を成績として受け取らせない（設計原則 P5）。
-
-    CSS で隠すのでは不十分なので、本文に現れないことを確かめる。
+    以前は教員の確認まで伏せていた。だが設計原則 P5 が要求するのは
+    **最終権限が教員にあること**であって、途中経過を伏せることではない。
+    伏せると、速く返せるという AI 採点の価値が教員の作業速度で消える。
     """
     world.register("s2400001")
     world.login("s2400001")
@@ -320,36 +311,147 @@ def test_the_ai_verdict_is_hidden_until_the_instructor_confirms(world: World) ->
     world.worker.run_once()
 
     body = world.client.get(location).text
-    assert AI_RATIONALE not in body, "AI の説明が確定前に出ている"
-    assert "AIRATIONALEMARKER" not in body
-    assert "確認中" in body
+    assert AI_RATIONALE in body, "AI の判定が出ていない"
+    assert "確認中" not in body
+    assert 'class="score"' in body, "総合点が出ていない"
+    assert "担当教員の確認を経て確定します" in body
 
 
 @needs_c_compiler
-def test_no_total_score_is_shown_before_confirmation(world: World) -> None:
-    """暫定値を成績と誤解させない。"""
-    world.register("s2400001")
-    world.login("s2400001")
-    location = world.submit().headers["location"]
-    world.worker.run_once()
-    assert 'class="score"' not in world.client.get(location).text
-
-
-@needs_c_compiler
-def test_the_ai_verdict_appears_after_confirmation(world: World) -> None:
+def test_a_confirmed_grade_is_distinguished_from_a_provisional_one(world: World) -> None:
+    """区別しないと、AI の判定と教員の判定が同じ重みに見える。"""
     world.register("s2400001")
     instructor = world.register("instructor", role=Role.INSTRUCTOR)
     world.login("s2400001")
     location = world.submit().headers["location"]
     world.worker.run_once()
 
+    assert "担当教員の確認を経て確定します" in world.client.get(location).text
+
+    submission_id = location.split("/")[-1].split("?")[0]
+    world.finalize(submission_id, grader=instructor)
+    body = world.client.get(location).text
+    assert "担当教員が確認した成績です" in body
+
+
+@needs_c_compiler
+def test_which_criteria_the_ai_judged_is_visible(world: World) -> None:
+    """テスト実行の結果と AI の判定を学習者が区別できること。"""
+    world.register("s2400001")
+    world.login("s2400001")
+    location = world.submit().headers["location"]
+    world.worker.run_once()
+
+    body = world.client.get(location).text
+    assert ">AI<" in body
+    assert ">テスト実行<" in body
+
+
+# --------------------------------------------------------------------------
+# 再確認の依頼 — 異議申し立ての導線（設計方針 §9.4）
+# --------------------------------------------------------------------------
+
+
+@needs_c_compiler
+def test_a_learner_can_request_a_review(world: World) -> None:
+    world.register("s2400001")
+    world.login("s2400001")
+    location = world.submit().headers["location"]
+    world.worker.run_once()
+    submission_id = location.split("/")[-1].split("?")[0]
+
+    response = world.client.post(
+        f"/submissions/{submission_id}/request-review",
+        data={"reason": "テストケース 3 の想定出力が仕様と違うと思います。"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+
+    body = world.client.get(location).text
+    assert "再確認を依頼済みです" in body
+
+
+@needs_c_compiler
+def test_a_request_without_a_reason_is_refused(world: World) -> None:
+    """「納得できない」だけの依頼を受け付けると、教員は何を確認すべきか
+    分からないまま全件を見ることになり、導線が機能しなくなる。"""
+    world.register("s2400001")
+    world.login("s2400001")
+    location = world.submit().headers["location"]
+    world.worker.run_once()
+    submission_id = location.split("/")[-1].split("?")[0]
+
+    for reason in ("", "違う", "   "):
+        response = world.client.post(
+            f"/submissions/{submission_id}/request-review", data={"reason": reason}
+        )
+        assert response.status_code == 400, reason
+
+
+@needs_c_compiler
+def test_a_second_request_is_refused(world: World) -> None:
+    world.register("s2400001")
+    world.login("s2400001")
+    location = world.submit().headers["location"]
+    world.worker.run_once()
+    submission_id = location.split("/")[-1].split("?")[0]
+    data = {"reason": "テストケース 3 の想定出力が仕様と違うと思います。"}
+
+    world.client.post(f"/submissions/{submission_id}/request-review", data=data)
+    assert (
+        world.client.post(f"/submissions/{submission_id}/request-review", data=data).status_code
+        == 409
+    )
+
+
+@needs_c_compiler
+def test_a_confirmed_grade_cannot_be_requested(world: World) -> None:
+    """確定済みの成績に依頼を出す導線は無い。やり直しは再採点から。"""
+    world.register("s2400001")
+    instructor = world.register("instructor", role=Role.INSTRUCTOR)
+    world.login("s2400001")
+    location = world.submit().headers["location"]
+    world.worker.run_once()
     submission_id = location.split("/")[-1].split("?")[0]
     world.finalize(submission_id, grader=instructor)
 
+    response = world.client.post(
+        f"/submissions/{submission_id}/request-review",
+        data={"reason": "やはり納得できないので再度お願いします。"},
+    )
+    assert response.status_code == 409
+
+
+@needs_c_compiler
+def test_the_instructors_justification_is_shown_to_the_learner(world: World) -> None:
+    """教員の根拠が学習者に返ること。返らないなら書かせる意味がない。"""
+    from datetime import UTC, datetime
+
+    from aijudge_core import HumanReview
+    from aijudge_core.ids import HumanReviewId, new_id
+
+    world.register("s2400001")
+    instructor = world.register("instructor", role=Role.INSTRUCTOR)
+    world.login("s2400001")
+    location = world.submit().headers["location"]
+    world.worker.run_once()
+    submission_id = location.split("/")[-1].split("?")[0]
+
+    with world.database.unit_of_work() as uow:
+        run = uow.runs.latest_for(submission_id)
+        uow.reviews.save_review(
+            HumanReview(
+                id=HumanReviewId(new_id("hrv")),
+                grading_run_id=run.id,
+                grader_id=instructor.user_id,
+                comment="テストケース 3 を確認しました。仕様どおりで判定は妥当です。",
+                reviewed_at=datetime.now(UTC),
+            )
+        )
+        uow.commit()
+
     body = world.client.get(location).text
-    assert AI_RATIONALE in body
-    assert 'class="score"' in body
-    assert "担当教員が確認した成績です" in body
+    assert "テストケース 3 を確認しました" in body
 
 
 @needs_c_compiler
@@ -377,7 +479,7 @@ def test_an_instructor_adjustment_changes_the_score_the_learner_sees(world: Worl
                 grading_run_id=run.id,
                 grader_id=instructor.user_id,
                 adjusted_levels={readability.id: 3},
-                comment="読みやすさは十分",
+                comment="読みやすさは十分だと判断しました。命名は一貫しています。",
                 reviewed_at=datetime.now(UTC),
             )
         )
@@ -393,11 +495,7 @@ def test_an_instructor_adjustment_changes_the_score_the_learner_sees(world: Worl
 
 @needs_c_compiler
 def test_the_feedback_appears_without_waiting_for_confirmation(world: World) -> None:
-    """フィードバックは学習者に返す価値の本体。確定を待たせない。
-
-    決定的評価の結果だけから作られているので、待たせる理由が無い
-    （AI の判定を材料にしていない — packages/feedback のテストで固定）。
-    """
+    """フィードバックは学習者に返す価値の本体。確定を待たせない。"""
     from aijudge_feedback import FeedbackResult
 
     class Fixed:
@@ -412,7 +510,6 @@ def test_the_feedback_appears_without_waiting_for_confirmation(world: World) -> 
 
     body = world.client.get(location).text
     assert "次の一手" in body
-    assert AI_RATIONALE not in body, "確定前に AI の判定が漏れている"
 
 
 @needs_c_compiler

@@ -156,18 +156,51 @@ def blind_world(tmp_path: Path):
     instance.close()
 
 
+JUSTIFICATION = "テスト実行の結果を確認しました。判定は妥当です。"
+
+
 def _agree_form(world: World, machine: dict) -> dict[str, str]:
     """AI の判定に同意するフォーム。
 
     **ブラウザが送る形と同じにする。** 段階の項目名は観点ごとに違う
     （`level_<code>`）。共有の名前で送るテストは、実際のフォームで
     観点をまたいで 1 つしか選べないバグを見逃す（実際に見逃した）。
+
+    根拠説明は必須（ADR 0009）。学習者には AI の判定が既に示されており、
+    「確認した」だけでは何も返らない。
     """
-    return {
+    form = {
         f"level_{c.code}": str(machine[c.id])
         for c in world.task_version.criteria
         if c.id in machine
     }
+    form["comment"] = JUSTIFICATION
+    return form
+
+
+def _request_review(world: World, submission_id) -> None:
+    """学習者として再確認を依頼する。教員の待ち行列に載せるため。"""
+    from datetime import UTC, datetime
+
+    from aijudge_core import ReviewRequest
+    from aijudge_core.ids import ReviewRequestId, new_id
+
+    with world.database.unit_of_work() as uow:
+        run = uow.runs.latest_for(submission_id)
+        assert run is not None
+        submission = uow.submissions.get(submission_id)
+        assert submission is not None
+        uow.reviews.save_request(
+            ReviewRequest(
+                id=ReviewRequestId(new_id("rrq")),
+                submission_id=submission_id,
+                grading_run_id=run.id,
+                learner_id=submission.learner_id,
+                reason="テストケース 3 の想定出力が仕様と違うと思います。",
+                requested_at=datetime.now(UTC),
+            )
+        )
+        uow.commit()
 
 
 def _instructor_and_submission(world: World):
@@ -214,14 +247,39 @@ def test_an_ungraded_submission_cannot_be_reviewed(world: World) -> None:
 
 
 @needs_c_compiler
-def test_the_queue_only_lists_graded_submissions(world: World) -> None:
-    _, accepted = _instructor_and_submission(world)
-    body = world.client.get(f"/courses/{COURSE}").text
-    assert "確認を待っている提出はありません" in body
+def test_the_queue_lists_only_review_requests(world: World) -> None:
+    """待ち行列は**学習者が再確認を依頼したもの**だけ（ADR 0009）。
 
+    全提出を並べると受講 91 名 × 課題数になり、何から見ればよいか分からない。
+    AI の判定は採点直後に学習者へ示しているので、疑いが出たものだけが
+    人間の判断を要する。
+    """
+    _, accepted = _instructor_and_submission(world)
     world.worker.run_once()
+
+    body = world.client.get(f"/courses/{COURSE}").text
+    assert str(accepted.submission.id)[:12] not in body, "依頼が無いのに並んでいる"
+
+    _request_review(world, accepted.submission.id)
     body = world.client.get(f"/courses/{COURSE}").text
     assert str(accepted.submission.id)[:12] in body
+
+
+@needs_c_compiler
+def test_a_resolved_request_leaves_the_queue(world: World) -> None:
+    _, accepted = _instructor_and_submission(world)
+    world.worker.run_once()
+    _request_review(world, accepted.submission.id)
+
+    with world.database.unit_of_work() as uow:
+        run = uow.runs.latest_for(accepted.submission.id)
+    assert run is not None
+    machine = {score.criterion_id: score.level for score in run.criterion_scores}
+    world.client.post(
+        f"/review/{accepted.submission.id}/finalize", data=_agree_form(world, machine)
+    )
+    body = world.client.get(f"/courses/{COURSE}").text
+    assert str(accepted.submission.id)[:12] not in body
 
 
 # --------------------------------------------------------------------------
@@ -420,7 +478,7 @@ def test_finalizing_records_only_what_changed(world: World) -> None:
         data={
             "level_correctness": str(machine[correctness.id]),
             "level_readability": "0",
-            "comment": "読みにくい",
+            "comment": "変数名が役割を表しておらず、読み手が追えないため下げました。",
         },
         follow_redirects=False,
     )
@@ -481,27 +539,15 @@ def test_the_grading_run_is_never_rewritten(world: World) -> None:
     correctness = next(c for c in world.task_version.criteria if c.code == "correctness")
     world.client.post(
         f"/review/{accepted.submission.id}/finalize",
-        data={"level_correctness": str(machine[correctness.id]), "level_readability": "0"},
+        data={
+            "level_correctness": str(machine[correctness.id]),
+            "level_readability": "0",
+            "comment": JUSTIFICATION,
+        },
     )
     with world.database.unit_of_work() as uow:
         after = uow.runs.latest_for(accepted.submission.id)
     assert after == before
-
-
-@needs_c_compiler
-def test_a_finalized_submission_leaves_the_queue(world: World) -> None:
-    _, accepted = _instructor_and_submission(world)
-    world.worker.run_once()
-    with world.database.unit_of_work() as uow:
-        run = uow.runs.latest_for(accepted.submission.id)
-    assert run is not None
-    machine = {score.criterion_id: score.level for score in run.criterion_scores}
-    world.client.post(
-        f"/review/{accepted.submission.id}/finalize",
-        data=_agree_form(world, machine),
-    )
-    body = world.client.get(f"/courses/{COURSE}").text
-    assert "確認を待っている提出はありません" in body
 
 
 # --------------------------------------------------------------------------
@@ -575,7 +621,11 @@ def test_overriding_the_ai_is_recorded_as_a_correction(blind_world: World) -> No
     )
     blind_world.client.post(
         f"/review/{accepted.submission.id}/finalize",
-        data={"level_correctness": "3", "level_readability": "1", "comment": "AI は甘い"},
+        data={
+            "level_correctness": "3",
+            "level_readability": "1",
+            "comment": "AI の判定は甘いと考えます。変数名が役割を表していません。",
+        },
     )
 
     stored = blind_world.observations.load(
@@ -659,7 +709,9 @@ def test_the_finalize_form_round_trips_as_a_browser_sends_it(world: World) -> No
     assert len(checked) == 2, f"既定選択が {checked}（観点ごとに 1 つ要る）"
 
     response = world.client.post(
-        f"/review/{accepted.submission.id}/finalize", data=checked, follow_redirects=False
+        f"/review/{accepted.submission.id}/finalize",
+        data=checked | {"comment": JUSTIFICATION},
+        follow_redirects=False,
     )
     assert response.status_code == 303, response.text
 

@@ -40,6 +40,7 @@ from fastapi.templating import Jinja2Templates
 
 from aijudge_authoring import render_statement
 from aijudge_core import (
+    MIN_JUSTIFICATION_LENGTH,
     BlindMark,
     Course,
     GradingRun,
@@ -291,6 +292,9 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 "task": context.task_version,
                 "lines": _numbered(console.source_of(context.submission)),
                 "criteria": context.task_version.criteria,
+                "course": context.course,
+                "task_meta": context.task,
+                "learner": context.learner,
                 "statement_html": render_statement(context.task_version.statement),
             },
         )
@@ -357,6 +361,10 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 "highlights": _highlighted_lines(context.run),
                 "review": context.review,
                 "was_blind": context.mark is not None,
+                "review_request": context.request,
+                "learner": context.learner,
+                "task_meta": context.task,
+                "min_reason": MIN_JUSTIFICATION_LENGTH,
             },
         )
 
@@ -375,18 +383,36 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
             if machine.get(criterion_id) != level
         }
 
+        text = comment.strip()
+        if len(text) < MIN_JUSTIFICATION_LENGTH:
+            # **根拠説明を必須にする。** 学習者には AI の判定が既に示されて
+            # おり、覆すなら理由が要る。覆さない場合も「確認した」だけでは
+            # 学習者に何も返らない（設計原則 P4 を人間の判定にも適用する）。
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"確定の根拠を {MIN_JUSTIFICATION_LENGTH} 文字以上で書いてください"
+                    "（学習者に表示されます）"
+                ),
+            )
+
+        review_id = HumanReviewId(new_id("hrv"))
         with console.database.unit_of_work() as uow:
+            request = uow.reviews.find_request_for_run(context.run.id)
             try:
                 uow.reviews.save_review(
                     HumanReview(
-                        id=HumanReviewId(new_id("hrv")),
+                        id=review_id,
                         grading_run_id=context.run.id,
                         grader_id=me.user_id,
                         adjusted_levels=adjusted,
-                        comment=comment.strip() or None,
+                        comment=text,
+                        request_id=None if request is None else request.id,
                         reviewed_at=datetime.now(UTC),
                     )
                 )
+                if request is not None:
+                    uow.reviews.resolve_request(request.id, review_id)
             except ImmutabilityViolation as exc:
                 # 二度確定できると成績が二つ存在する。やり直しは再採点から。
                 raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -410,15 +436,22 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
 
 
 class _Context:
-    """1 件のレビューに必要なもの一式。"""
+    """1 件のレビューに必要なもの一式。
+
+    文脈（どの回のどの課題か、誰の何回目の提出か）も含める。すべての画面に
+    出すため、読み出しを 1 か所にまとめてある。
+    """
 
     __slots__ = (
         "course",
+        "learner",
         "mark",
         "needs_blind",
+        "request",
         "review",
         "run",
         "submission",
+        "task",
         "task_version",
     )
 
@@ -431,6 +464,9 @@ class _Context:
         mark: BlindMark | None,
         review: HumanReview | None,
         needs_blind: bool,
+        task: object | None = None,
+        learner: object | None = None,
+        request: object | None = None,
     ) -> None:
         self.submission = submission
         self.run = run
@@ -439,6 +475,9 @@ class _Context:
         self.mark = mark
         self.review = review
         self.needs_blind = needs_blind
+        self.task = task
+        self.learner = learner
+        self.request = request
 
 
 def _can_grade(auth: AuthService, course_id: CourseId, me: Principal) -> bool:
@@ -482,9 +521,22 @@ def _load(console: Console, me: Principal, submission_id: SubmissionId) -> _Cont
             )
         mark = uow.reviews.find_blind_mark(submission_id)
         review = uow.reviews.find_review_for_run(run.id)
+        request = uow.reviews.find_request_for_run(run.id)
+        learner = uow.identity.get_user(submission.learner_id)
 
     needs_blind = mark is None and console.needs_blind_mark(submission, course.subject_profile)
-    return _Context(submission, run, task_version, course, mark, review, needs_blind)
+    return _Context(
+        submission,
+        run,
+        task_version,
+        course,
+        mark,
+        review,
+        needs_blind,
+        task=task,
+        learner=learner,
+        request=request,
+    )
 
 
 def _queue_rows(
@@ -500,17 +552,27 @@ def _queue_rows(
         if course is None:
             raise HTTPException(status_code=404, detail="コースが見つかりません")
 
-        pending = uow.reviews.pending_for_course(course_id)
+        # **待ち行列は学習者からの再確認の依頼**（ADR 0009）。
+        # 全提出を並べると受講 91 名 × 課題数になり、何から見ればよいか
+        # 分からない。AI の判定は採点直後に学習者へ示しているので、
+        # 疑いが出たものだけが人間の判断を要する。
+        requested = uow.reviews.requested_for_course(course_id)
         rows = []
         marked = 0
-        for submission, run in pending:
+        for submission, run, request in requested:
             mark = uow.reviews.find_blind_mark(submission.id)
             if mark is not None:
                 marked += 1
+            version = uow.tasks.get_version(submission.task_version_id)
+            task = None if version is None else uow.tasks.get_task(version.task_id)
+            learner = uow.identity.get_user(submission.learner_id)
             rows.append(
                 {
                     "submission": submission,
                     "run": run,
+                    "request": request,
+                    "task": task,
+                    "learner": learner,
                     "marked": mark is not None,
                     "needs_blind": mark is None
                     and console.needs_blind_mark(submission, course.subject_profile),

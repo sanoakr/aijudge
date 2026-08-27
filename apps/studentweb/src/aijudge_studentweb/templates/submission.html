@@ -1,38 +1,35 @@
 {% extends "base.html" %}
 {% block title %}提出 {{ submission.attempt }} 回目 — aiJudge{% endblock %}
 {% block body %}
-<h1>提出 {{ submission.attempt }} 回目の結果</h1>
+<h1>{{ task.statement.split("\n")[0] | replace("#", "") | trim }} — 提出 {{ submission.attempt }} 回目</h1>
 <p class="crumb"><a href="/tasks/{{ task.id }}">← 課題へ戻る</a></p>
 
 {% if duplicate %}
-<div class="note">
-  同じ内容がすでに提出されています。新しい提出は作られていません。
-</div>
+<div class="note">同じ内容がすでに提出されています。新しい提出は作られていません。</div>
 {% endif %}
 
 {% if not run %}
 <div class="note">
   <strong>採点を待っています。</strong>
-  テスト実行の結果はすぐに、AI による評価は少し時間をおいて届きます。
   この画面を再読み込みして確認してください。
 </div>
 {% else %}
 
-{% if view.confirmed %}
 <div class="card">
   <div class="score">{{ '%.0f' | format(view.score_ratio * 100) }}<span class="unit">%</span></div>
-  <p class="desc" style="margin:0">担当教員が確認した成績です。</p>
+  {% if view.confirmed %}
+    <p class="desc" style="margin:0">担当教員が確認した成績です。</p>
+  {% else %}
+    <p class="desc" style="margin:0">
+      自動採点の結果です。担当教員の確認を経て確定します。
+      {% if view.has_pending %}採点できなかった観点があるため、点数は暫定です。{% endif %}
+    </p>
+  {% endif %}
 </div>
-{% elif view.awaiting_ai %}
-<div class="note">
-  <strong>テスト実行の結果が出ました。</strong>
-  観点別の評価は担当教員の確認後に表示されます。総合点もそのときに確定します。
-</div>
-{% endif %}
 
 <h2>観点ごとの結果</h2>
 <table>
-  <thead><tr><th>観点</th><th class="fit">評価</th><th class="grow">説明</th></tr></thead>
+  <thead><tr><th>観点</th><th class="fit">評価</th><th class="fit">判定</th><th class="grow">説明</th></tr></thead>
   <tbody>
   {% for row in view.criteria %}
     <tr>
@@ -43,6 +40,11 @@
         {% else %}<span class="pill ok">{{ row.label }}</span>
           {% if row.adjusted %}<br><span class="desc">教員が調整</span>{% endif %}
         {% endif %}
+      </td>
+      <td class="fit">
+        {% if row.pending %}<span class="desc">—</span>
+        {% elif row.by_ai %}<span class="pill">AI</span>
+        {% else %}<span class="pill">テスト実行</span>{% endif %}
       </td>
       <td class="grow">
         {% if row.rationale %}{{ row.rationale }}
@@ -60,6 +62,30 @@
 <h2>次の一手</h2>
 <div class="card">{{ view.feedback }}</div>
 {% endif %}
+
+{% if view.review_comment %}
+<h2>担当教員から</h2>
+<div class="card">{{ view.review_comment }}</div>
+{% endif %}
+
+<h2>採点の再確認を依頼する</h2>
+{% if view.can_request_review %}
+<form method="post" action="/submissions/{{ submission.id }}/request-review" class="card">
+  <div class="field">
+    <label for="reason">どの観点のどこが違うと考えますか（{{ min_reason }} 文字以上・必須）</label>
+    <textarea id="reason" name="reason" rows="4" required minlength="{{ min_reason }}"
+      placeholder="例: 出力の正しさが「一部」ですが、入力例 3 の想定出力は仕様では 2 行のはずです。"></textarea>
+  </div>
+  <p class="desc">
+    担当教員が内容を確認し、根拠を添えて回答します。
+    何が違うと考えるかを具体的に書いてください。
+  </p>
+  <button type="submit">再確認を依頼する</button>
+</form>
+{% else %}
+<div class="note">{{ view.request_reason }}</div>
+{% endif %}
+
 {% endif %}
 
 <h2>提出したコード</h2>

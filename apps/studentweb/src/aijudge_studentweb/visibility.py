@@ -1,17 +1,23 @@
 """学習者に何を見せるか。
 
-設計原則 P5（教員が最終権限を持つ）を画面の規則に落とす。
+**AI の判定は採点直後に見せる。** 教員の確認を待たせない。
 
-    決定的評価の結果   … すぐ見せる
-    フィードバック      … すぐ見せる（決定的評価だけから作られている）
-    AI の判定          … 教員が確定させてから見せる
-    根拠のハイライト    … 確定後
-    総合点             … 確定後（暫定値を成績と誤解させない）
+以前は待たせていた（設計原則 P5「教員が最終権限を持つ」を、そのまま
+「教員が見るまで示さない」と読んでいた）。だが P5 が要求するのは
+**最終権限が教員にあること**であって、途中経過を伏せることではない。
+待たせると次のことが起きる。
 
-決定的評価をすぐ見せるのは、それが Sharif Judge から引き継ぐ価値の中心
-だから（テストが通ったかは即座に分かるべき）。AI の判定を確定前に見せない
-のは、教員が覆す前提の値を学習者が成績として受け取ってしまうため。異議
-申し立ての導線も、確定した成績に対してでなければ意味がない。
+- 学習者は締切前に自分の到達点を知れない。速く返せることが AI 採点の
+  価値の中心なのに、その価値が教員の作業速度で消える
+- 教員は全件を見るまで誰にも結果を返せない。受講 91 名で現実的でない
+
+代わりに**異議申し立ての導線**を置く（設計方針 §9.4 が求めているもの）。
+学習者は結果画面から再確認を依頼でき、そのとき**根拠説明を必須**にする。
+
+    採点 → AI の判定を提示 → （学習者が疑えば）依頼 → 教員が確定
+
+確定した成績は「教員が確認済み」として区別して見せる。区別しないと、
+AI の判定と教員の判定が同じ重みに見える。
 
 **この判断は UI ではなくここに置く。** テンプレートの `{% if %}` に散らすと、
 画面を 1 つ足したときに漏れる。
@@ -43,6 +49,8 @@ class CriterionView:
     pending: bool
     # 教員が AI の判定を変えた。
     adjusted: bool = False
+    # AI が判定した観点か。決定的評価（テスト実行）と区別して見せる。
+    by_ai: bool = False
 
     @property
     def label(self) -> str:
@@ -58,49 +66,49 @@ class ResultView:
     """1 採点ぶんの表示内容。"""
 
     criteria: tuple[CriterionView, ...]
-    # 確定した総合点。未確定なら None（暫定値を成績として見せない）。
+    # 総合点。AI の判定に基づく暫定値でも見せる（`confirmed` で区別する）。
     score_ratio: float | None
     confirmed: bool
-    awaiting_ai: bool
     feedback: str | None = None
+    # 教員の根拠説明（確定済みのとき）。
+    review_comment: str | None = None
+    # 再確認の依頼を出せるか。出せないなら理由。
+    can_request_review: bool = False
+    request_reason: str | None = None
+    requested: bool = False
 
     @property
     def has_pending(self) -> bool:
         return any(view.pending for view in self.criteria)
+
+    @property
+    def provisional(self) -> bool:
+        """まだ教員が確認していない点数か。"""
+        return not self.confirmed
 
 
 def build_result_view(
     run: GradingRun,
     task_version: TaskVersion,
     review: HumanReview | None,
+    *,
+    request: object | None = None,
 ) -> ResultView:
-    """採点結果を学習者向けの表示に畳む。"""
+    """採点結果を学習者向けの表示に畳む。
+
+    `request` はこの採点に対する再確認の依頼（`ReviewRequest`）。既に出して
+    いれば二重に出させない。
+    """
     by_criterion: dict[str, CriterionScore] = {
         str(score.criterion_id): score for score in run.criterion_scores
     }
     confirmed = review is not None
 
     views: list[CriterionView] = []
-    awaiting_ai = False
     for criterion in task_version.criteria:
         score = by_criterion.get(str(criterion.id))
         if score is None:
             # 評価器が落ちた観点。暫定であることを隠さない。
-            views.append(
-                CriterionView(
-                    criterion=criterion,
-                    level=None,
-                    rationale=None,
-                    evidence_lines=(),
-                    pending=True,
-                )
-            )
-            continue
-
-        deterministic = score.kind is EvaluatorKind.DETERMINISTIC
-        if not deterministic and not confirmed:
-            # AI の判定は教員が確定させてから見せる。
-            awaiting_ai = True
             views.append(
                 CriterionView(
                     criterion=criterion,
@@ -126,19 +134,30 @@ def build_result_view(
                 evidence_lines=_evidence_lines(score),
                 pending=False,
                 adjusted=adjusted,
+                # AI の判定か、決定的評価か。学習者が区別できるようにする。
+                by_ai=score.kind is EvaluatorKind.AI,
             )
         )
 
+    unscored = any(view.pending for view in views)
+    can_request = not confirmed and request is None and not unscored
+    reason: str | None = None
+    if confirmed:
+        reason = "担当教員が確認した成績です。"
+    elif request is not None:
+        reason = "再確認を依頼済みです。担当教員の対応をお待ちください。"
+    elif unscored:
+        reason = "採点できなかった観点があります。担当教員が確認します。"
+
     return ResultView(
         criteria=tuple(views),
-        # 確定していない総合点は見せない。暫定値を成績と誤解させないため。
-        score_ratio=_confirmed_score(run, task_version, review) if confirmed else None,
+        score_ratio=_confirmed_score(run, task_version, review),
         confirmed=confirmed,
-        awaiting_ai=awaiting_ai,
-        # フィードバックは決定的評価の結果だけから作られている
-        # （aijudge_feedback がそう作る）。確定を待たせる理由が無く、
-        # 待たせると学習者に返す価値の本体が届かない。
         feedback=run.feedback,
+        review_comment=None if review is None else review.comment,
+        can_request_review=can_request,
+        request_reason=reason,
+        requested=request is not None,
     )
 
 

@@ -37,6 +37,10 @@ table{border-collapse:collapse;width:100%;font-size:.9rem;table-layout:auto}
 /* 「説明」のように長い列に残りを吸わせ、他の列を潰させない。 */
 td.fit,th.fit{width:1%;white-space:nowrap}
 td.grow,th.grow{width:auto}
+/* 最初の列（観点名など）に最小幅を与える。与えないと、隣の列に押されて
+   「変数名と構造の分かりやす／さ」のように 1 文字だけ折り返される。 */
+table td:first-child,table th:first-child{min-width:12em}
+@media (max-width:720px){table td:first-child,table th:first-child{min-width:0}}
 th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line-soft);vertical-align:top}
 thead th{font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);
   font-weight:400;background:var(--surface-2)}
@@ -97,6 +101,11 @@ header.top button{background:none;color:var(--muted);border:1px solid var(--line
 .field input{width:100%;font:inherit;font-size:.9rem;padding:9px 12px;border-radius:3px;
   border:1px solid var(--line);background:var(--surface);color:var(--ink)}
 .narrow{max-width:420px}
+.ctx{background:var(--surface-2);border-bottom:1px solid var(--line-soft)}
+.ctx .inner{max-width:1100px;margin:0 auto;padding:8px 24px;font-size:.8rem;
+  color:var(--muted);display:flex;flex-wrap:wrap;gap:6px 14px}
+.ctx b{color:var(--ink-2);font-weight:600}
+.ctx a{color:var(--ink-2);text-decoration:none}
 .score{font-size:2rem;font-weight:700;color:var(--ink)}
 .score .unit{font-size:1rem;color:var(--muted);font-weight:400}
 @media (max-width:860px){.grid2{grid-template-columns:1fr}}
@@ -111,6 +120,23 @@ header.top button{background:none;color:var(--muted);border:1px solid var(--line
   <span>{{ me.display_name }}</span>
   <form method="post" action="/logout"><button type="submit">ログアウト</button></form>
 </div></header>
+{% endif %}
+{% if course is defined and course %}
+<div class="ctx"><div class="inner">
+  <span><b>科目</b> <a href="/courses/{{ course.id }}">{{ course.title }}</a>
+    <span class="mono">({{ course.code }} / {{ course.term }})</span></span>
+  {% if task_meta is defined and task_meta %}
+  <span><b>{{ task_meta.unit_label }}</b>
+    {% if task_meta.opens_at %}{{ task_meta.opens_at.strftime('%Y-%m-%d') }} 提示{% endif %}</span>
+  <span><b>課題</b> {{ task_meta.title }}</span>
+  {% endif %}
+  {% if submission is defined and submission %}
+  <span><b>提出</b>
+    {% if learner is defined and learner %}<span class="mono">{{ learner.login }}</span>{% endif %}
+    {{ submission.attempt }} 回目
+    {% if submission.submitted_at %}({{ submission.submitted_at.strftime('%Y-%m-%d %H:%M') }}){% endif %}</span>
+  {% endif %}
+</div></div>
 {% endif %}
 <main>{% block body %}{% endblock %}</main></body>
 </html>

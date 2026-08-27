@@ -2,7 +2,49 @@
 {% block title %}{{ course.title }} — aiJudge レビュー{% endblock %}
 {% block body %}
 <h1>{{ course.title }}</h1>
-<p class="crumb"><a href="/">← 担当コース</a> / {{ course.code }} / {{ course.term }}</p>
+<p class="crumb">
+  <a href="/">← 担当コース</a> / {{ course.code }} / {{ course.term }} /
+  <a href="/manage/courses/{{ course.id }}">科目の管理</a>
+</p>
+
+<div class="note">
+  <strong>ここに出るのは、学習者が再確認を依頼した提出です。</strong>
+  AI の判定は採点直後に学習者へ示しているので、疑いが出たものだけが
+  確認を要します。依頼が無い提出は課題から辿って確定できます。
+</div>
+
+<table>
+  <thead><tr>
+    <th class="fit">依頼</th><th class="fit">学習者</th><th class="fit">課題</th>
+    <th class="fit">回</th><th class="fit">AI の総合</th>
+    <th class="grow">依頼の理由</th><th class="fit"></th>
+  </tr></thead>
+  <tbody>
+  {% for row in rows %}
+    <tr>
+      <td class="fit">{{ row.request.requested_at.strftime('%m-%d %H:%M') }}</td>
+      <td class="fit mono">{{ row.learner.login if row.learner else '—' }}</td>
+      <td class="fit">
+        {% if row.task %}{{ row.task.unit_label }}<br>
+          <span class="desc">{{ row.task.title }}</span>
+        {% else %}—{% endif %}
+      </td>
+      <td class="fit">{{ row.submission.attempt }} 回目</td>
+      <td class="fit">{{ '%.0f' | format(row.run.score_ratio * 100) }}%</td>
+      <td class="grow">{{ row.request.reason }}</td>
+      <td class="fit">
+        {% if row.needs_blind %}
+          <a href="/review/{{ row.submission.id }}/blind">先に自分で採点する</a>
+        {% else %}
+          <a href="/review/{{ row.submission.id }}/reveal">確認して確定する</a>
+        {% endif %}
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="7" class="desc">確認を待っている依頼はありません。</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
 
 <div class="card">
   <strong>blind 採点の蓄積: {{ marked_count }} / {{ min_sample_size }} 件</strong>
@@ -14,38 +56,4 @@
     測定は採点の必須機能ではないので、貯まらなくても運用は続きます。
   </p>
 </div>
-
-<table>
-  <thead><tr>
-    <th class="fit">提出</th><th class="fit">回</th><th class="fit">AI の総合</th>
-    <th class="fit">振り分け</th><th class="fit">状態</th><th class="grow"></th>
-  </tr></thead>
-  <tbody>
-  {% for row in rows %}
-    <tr>
-      <td class="mono fit">{{ row.submission.id[:12] }}…</td>
-      <td class="fit">{{ row.submission.attempt }}</td>
-      <td class="fit">{{ '%.0f' | format(row.run.score_ratio * 100) }}%</td>
-      <td class="fit">
-        {% if row.run.routing.value == 'review_required' %}<span class="pill no">要レビュー</span>
-        {% else %}<span class="pill ok">自動確定可</span>{% endif %}
-      </td>
-      <td class="fit">
-        {% if row.needs_blind %}<span class="pill">blind 採点</span>
-        {% elif row.marked %}<span class="pill ok">blind 済み</span>
-        {% else %}<span class="pill">未確定</span>{% endif %}
-      </td>
-      <td class="grow">
-        {% if row.needs_blind %}
-          <a href="/review/{{ row.submission.id }}/blind">先に自分で採点する</a>
-        {% else %}
-          <a href="/review/{{ row.submission.id }}/reveal">確認して確定する</a>
-        {% endif %}
-      </td>
-    </tr>
-  {% else %}
-    <tr><td colspan="6" class="desc">確認を待っている提出はありません。</td></tr>
-  {% endfor %}
-  </tbody>
-</table>
 {% endblock %}

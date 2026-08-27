@@ -12,6 +12,14 @@
 </div>
 {% endif %}
 
+{% if review_request %}
+<div class="note warn">
+  <strong>学習者からの再確認の依頼</strong>
+  （{{ review_request.requested_at.strftime('%Y-%m-%d %H:%M') }}）<br>
+  {{ review_request.reason }}
+</div>
+{% endif %}
+
 <h2>観点ごとの突き合わせ</h2>
 <table>
   <thead><tr>
@@ -112,8 +120,15 @@
   </fieldset>
   {% endfor %}
   <fieldset>
-    <legend>コメント（任意）</legend>
-    <textarea name="comment" rows="3" placeholder="AI の判定を見て変えた場合はその理由">{{ review.comment or '' if review else '' }}</textarea>
+    <legend>確定の根拠（{{ min_reason }} 文字以上・必須）</legend>
+    <p class="desc">
+      <strong>学習者に表示されます。</strong> AI の判定は既に学習者へ示されて
+      いるので、覆すなら理由が要ります。覆さない場合も「確認した」だけでは
+      学習者に何も返りません。
+    </p>
+    <textarea name="comment" rows="4" required minlength="{{ min_reason }}"
+      placeholder="例: テストケース 3 の想定出力を確認しました。仕様どおりで、判定は妥当です。"
+      >{{ review.comment if review else '' }}</textarea>
   </fieldset>
   <button type="submit">成績を確定する</button>
 </form>
