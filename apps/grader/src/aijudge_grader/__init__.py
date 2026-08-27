@@ -9,6 +9,7 @@ S3 のキューと S5 のパイプラインを束ねる唯一の層。提出受�
 
 from __future__ import annotations
 
+from .feedback import build_feedback_generator
 from .relay import EventRelay
 from .worker import (
     DEFAULT_LEASE_SECONDS,
@@ -24,5 +25,6 @@ __all__ = [
     "GradingWorker",
     "PermanentGradingError",
     "WorkResult",
+    "build_feedback_generator",
     "import_task_version",
 ]

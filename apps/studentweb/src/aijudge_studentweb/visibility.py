@@ -3,6 +3,7 @@
 設計原則 P5（教員が最終権限を持つ）を画面の規則に落とす。
 
     決定的評価の結果   … すぐ見せる
+    フィードバック      … すぐ見せる（決定的評価だけから作られている）
     AI の判定          … 教員が確定させてから見せる
     根拠のハイライト    … 確定後
     総合点             … 確定後（暫定値を成績と誤解させない）
@@ -134,7 +135,10 @@ def build_result_view(
         score_ratio=_confirmed_score(run, task_version, review) if confirmed else None,
         confirmed=confirmed,
         awaiting_ai=awaiting_ai,
-        feedback=run.feedback if confirmed else None,
+        # フィードバックは決定的評価の結果だけから作られている
+        # （aijudge_feedback がそう作る）。確定を待たせる理由が無く、
+        # 待たせると学習者に返す価値の本体が届かない。
+        feedback=run.feedback,
     )
 
 

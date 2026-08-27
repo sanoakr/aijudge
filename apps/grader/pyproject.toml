@@ -12,6 +12,7 @@ dependencies = [
     "aijudge-authoring",
     "aijudge-persistence",
     "aijudge-observation",
+    "aijudge-feedback",
 ]
 
 [project.scripts]
@@ -31,3 +32,4 @@ aijudge-submission = { workspace = true }
 aijudge-authoring = { workspace = true }
 aijudge-persistence = { workspace = true }
 aijudge-observation = { workspace = true }
+aijudge-feedback = { workspace = true }

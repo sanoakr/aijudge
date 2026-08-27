@@ -23,6 +23,7 @@ root_packages =
     aijudge_grader
     aijudge_identity
     aijudge_studentweb
+    aijudge_feedback
 include_external_packages = True
 
 [importlinter:contract:core-is-independent]
@@ -43,6 +44,7 @@ forbidden_modules =
     aijudge_sandbox
     aijudge_observation
     aijudge_persistence
+    aijudge_feedback
 
 ; ゲートウェイは他サブシステムを知らない。採点の語彙にも依存しない
 ; （依存させると、採点以外から LLM を使うたびに採点が引きずられる）。
@@ -232,6 +234,24 @@ forbidden_modules =
     aijudge_reviewconsole
     aijudge_grader
     aijudge_studentweb
+
+; フィードバック生成は評価器と同じ依存の形に留める。core と S6 だけ。
+; 採点エンジンを知らせると、採点が終わるまでフィードバックが作れない設計に
+; 引きずられる（実際には確定的な結果だけで先に返せる）。保存先を知らせると
+; 単体でテストできなくなる。
+[importlinter:contract:feedback-depends-on-core-and-gateway-only]
+name = フィードバック生成はコアと LLM ゲートウェイにしか依存しない
+type = forbidden
+source_modules =
+    aijudge_feedback
+forbidden_modules =
+    aijudge_grading
+    aijudge_authoring
+    aijudge_submission
+    aijudge_identity
+    aijudge_analytics
+    aijudge_persistence
+    aijudge_sandbox
 
 ; ADR 0002 の核心。採点エンジンが個々の評価器を知らないことを機械で保証する。
 ; これが破られた瞬間、「科目を足してもエンジンは無変更」が成立しなくなる。

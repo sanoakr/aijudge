@@ -392,3 +392,70 @@ def test_the_completed_event_carries_the_score(world: World) -> None:
         events = [e for e in uow.outbox.unpublished() if isinstance(e, GradingCompleted)]
     assert len(events) == 1
     assert 0.0 <= events[0].score_ratio <= 1.0
+
+
+# --------------------------------------------------------------------------
+# フィードバック（設計方針 §04 step 6）
+# --------------------------------------------------------------------------
+
+
+@needs_c_compiler
+def test_feedback_is_attached_before_the_run_is_saved(tmp_path: Path) -> None:
+    """`GradingRun` は保存後不変（P8）なので、保存前に付ける。"""
+    from aijudge_feedback import FeedbackGenerator
+
+    world = World(tmp_path)
+    try:
+        world.worker._feedback = FeedbackGenerator()
+        accepted = world.submit()
+        result = world.worker.run_once()
+        assert result is not None and result.graded, result.error if result else None
+
+        with world.database.unit_of_work() as uow:
+            run = uow.runs.latest_for(accepted.submission.id)
+        assert run is not None
+        assert run.feedback
+        assert "自動テストの結果" in run.feedback
+    finally:
+        world.close()
+
+
+@needs_c_compiler
+def test_the_feedback_does_not_carry_the_unconfirmed_ai_verdict(tmp_path: Path) -> None:
+    """確定前の AI 判定が、フィードバックの文章として漏れないこと。"""
+    from aijudge_feedback import FeedbackGenerator
+
+    world = World(tmp_path, responses=[AI_SAYS_1])
+    try:
+        world.worker._feedback = FeedbackGenerator()
+        accepted = world.submit()
+        world.worker.run_once()
+        with world.database.unit_of_work() as uow:
+            run = uow.runs.latest_for(accepted.submission.id)
+        assert run is not None and run.feedback is not None
+        assert "変数名から役割が読み取れません" not in run.feedback
+    finally:
+        world.close()
+
+
+@needs_c_compiler
+def test_a_failing_feedback_generator_does_not_fail_the_grading(tmp_path: Path) -> None:
+    """フィードバックが出ないことは採点の失敗ではない。"""
+    world = World(tmp_path)
+    try:
+
+        class Exploding:
+            def generate(self, *_args: object, **_kwargs: object) -> None:
+                raise RuntimeError("feedback host is down")
+
+        world.worker._feedback = Exploding()
+        accepted = world.submit()
+        result = world.worker.run_once()
+
+        assert result is not None and result.graded, result.error if result else None
+        with world.database.unit_of_work() as uow:
+            run = uow.runs.latest_for(accepted.submission.id)
+        assert run is not None
+        assert run.feedback is None
+    finally:
+        world.close()

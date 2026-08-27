@@ -20,6 +20,7 @@ from pathlib import Path
 from aijudge_persistence import ENV_DATABASE_URL, Database, ObservationFileStore
 from aijudge_submission import FilesystemArtifactStore
 
+from .feedback import build_feedback_generator
 from .worker import GradingWorker
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -44,6 +45,7 @@ def build_worker(args: argparse.Namespace) -> tuple[GradingWorker, Database]:
         FilesystemArtifactStore(args.artifacts),
         profiles_dir=args.profiles,
         observations=ObservationFileStore(args.observations),
+        feedback=build_feedback_generator(),
         worker=args.name,
     )
     return worker, database

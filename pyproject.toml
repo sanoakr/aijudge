@@ -20,6 +20,7 @@ dependencies = [
     "aijudge-grader",
     "aijudge-identity",
     "aijudge-studentweb",
+    "aijudge-feedback",
 ]
 
 [project.optional-dependencies]
@@ -51,6 +52,7 @@ aijudge-persistence = { workspace = true }
 aijudge-grader = { workspace = true }
 aijudge-identity = { workspace = true }
 aijudge-studentweb = { workspace = true }
+aijudge-feedback = { workspace = true }
 
 [tool.ruff]
 line-length = 100
@@ -80,6 +82,7 @@ known-first-party = [
     "aijudge_grader",
     "aijudge_identity",
     "aijudge_studentweb",
+    "aijudge_feedback",
 ]
 
 [tool.pytest.ini_options]

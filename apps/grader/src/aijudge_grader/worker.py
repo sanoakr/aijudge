@@ -28,6 +28,7 @@ from pathlib import Path
 
 from aijudge_authoring.repository import TaskStoreError
 from aijudge_core import GradingRun, Submission, TaskVersion
+from aijudge_feedback import FeedbackGenerator
 from aijudge_grading import (
     EvaluatorRegistry,
     GradingPipeline,
@@ -80,6 +81,7 @@ class GradingWorker:
         profiles_dir: Path,
         registry: EvaluatorRegistry | None = None,
         observations: ObservationFileStore | None = None,
+        feedback: FeedbackGenerator | None = None,
         worker: str = "worker-1",
         lease_seconds: float = DEFAULT_LEASE_SECONDS,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
@@ -89,6 +91,7 @@ class GradingWorker:
         self._profiles_dir = profiles_dir
         self._registry = registry or EvaluatorRegistry().load_installed()
         self._observations = observations
+        self._feedback = feedback
         self._worker = worker
         self._lease_seconds = lease_seconds
         self._clock = clock
@@ -156,7 +159,31 @@ class GradingWorker:
         profile = self._profile(job.subject_profile)
         contents = gradable_contents(submission, self._store)
         pipeline = GradingPipeline(self._registry, profile)
-        return pipeline.run(task_version, submission, lambda artifact: contents[artifact.id])
+        run = pipeline.run(task_version, submission, lambda artifact: contents[artifact.id])
+        return self._with_feedback(run, task_version, contents)
+
+    def _with_feedback(
+        self, run: GradingRun, task_version: TaskVersion, contents: dict
+    ) -> GradingRun:
+        """フィードバックを付ける。
+
+        保存前に付けるのが要点。`GradingRun` は保存後不変（P8）なので、
+        あとから書き足す経路を作らない。
+
+        **失敗しても採点は成立させる。** フィードバックが出ないことは
+        採点の失敗ではない。
+        """
+        if self._feedback is None:
+            return run
+        try:
+            source = next((payload.decode("utf-8", "replace") for payload in contents.values()), "")
+            result = self._feedback.generate(run, task_version, source)
+        except Exception:
+            logger.warning("could not generate feedback", exc_info=True)
+            return run
+        if result is None:
+            return run
+        return run.model_copy(update={"feedback": result.message})
 
     def _profile(self, name: str) -> SubjectProfile:
         if name not in self._profiles:

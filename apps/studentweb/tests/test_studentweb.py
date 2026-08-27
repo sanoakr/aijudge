@@ -389,3 +389,23 @@ def test_an_instructor_adjustment_changes_the_score_the_learner_sees(world: Worl
         run = uow.runs.latest_for(submission_id)
     assert run is not None
     assert run.score_ratio == machine_score, "GradingRun が書き換えられている（P8 違反）"
+
+
+@needs_c_compiler
+def test_the_feedback_appears_without_waiting_for_confirmation(world: World) -> None:
+    """フィードバックは学習者に返す価値の本体。確定を待たせない。
+
+    決定的評価の結果だけから作られているので、待たせる理由が無い
+    （AI の判定を材料にしていない — packages/feedback のテストで固定）。
+    """
+    from aijudge_feedback import FeedbackGenerator
+
+    world.worker._feedback = FeedbackGenerator()
+    world.register("s2400001")
+    world.login("s2400001")
+    location = world.submit().headers["location"]
+    world.worker.run_once()
+
+    body = world.client.get(location).text
+    assert "次の一手" in body
+    assert AI_RATIONALE not in body, "確定前に AI の判定が漏れている"
