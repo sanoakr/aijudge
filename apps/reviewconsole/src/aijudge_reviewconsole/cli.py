@@ -5,9 +5,8 @@
 **採点は別プロセス**（`aijudge-worker`）。レビューは採点の前提条件では
 なく、採点が届いた提出を教員が確定させる作業（ADR 0007）。
 
-.. warning::
-
-   セッション Cookie の `secure` は既定で偽。TLS 終端の前に真にすること。
+既定は `127.0.0.1` にしか bind しない。他の端末から使うなら
+`tailscale serve` を前に立てる（`docs/RUNNING.md`）。
 """
 
 from __future__ import annotations

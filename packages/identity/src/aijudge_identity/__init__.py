@@ -10,6 +10,7 @@ Phase 8 で、**この層のアダプタとして足す**。外向きの型（`P
 
 from __future__ import annotations
 
+from .cookies import ENV_SECURE_COOKIES, secure_cookies, session_cookie_kwargs
 from .models import Principal, Session, User, UserState
 from .passwords import (
     MIN_PASSWORD_LENGTH,
@@ -28,6 +29,7 @@ from .service import (
 
 __all__ = [
     "DEFAULT_SESSION_HOURS",
+    "ENV_SECURE_COOKIES",
     "MIN_PASSWORD_LENGTH",
     "AuthService",
     "AuthenticationFailed",
@@ -41,5 +43,7 @@ __all__ = [
     "WeakPassword",
     "hash_password",
     "needs_rehash",
+    "secure_cookies",
+    "session_cookie_kwargs",
     "verify_password",
 ]

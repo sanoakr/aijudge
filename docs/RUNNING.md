@@ -69,6 +69,51 @@ print(s.name, s.isolation.value, sorted(l.value for l in s.limitations))
 "
 ```
 
+## tailnet の他の端末から使う
+
+既定は `127.0.0.1` にしか bind しないので、他の端末からは見えない。
+出す方法は 2 つある。
+
+### tailscale serve（推奨）
+
+TLS 終端が前に入り、**本物の証明書で HTTPS になる**。tailnet の中だけに
+公開され、LAN には出ない。
+
+```fish
+tailscale serve --bg --https=443 8080     # 学生 UI
+tailscale serve --bg --https=8443 8765    # 教員 UI
+
+# → https://<ホスト名>.<tailnet>.ts.net/       学生
+# → https://<ホスト名>.<tailnet>.ts.net:8443/  教員
+
+tailscale serve status     # 確認
+tailscale serve reset      # 取り消し
+```
+
+アプリ側は `X-Forwarded-Proto: https` を見て**セッション Cookie に `Secure`
+を付ける**ので、追加の設定は要らない。
+
+### Tailscale のアドレスに直接 bind する
+
+```fish
+set -l ts (tailscale ip -4)
+uv run aijudge-web    --host $ts --port 8080
+uv run aijudge-review --host $ts --port 8765
+```
+
+平文 HTTP だが、tailnet 内の通信は WireGuard で暗号化される。ただし
+**Cookie に `Secure` が付かない**ので、`AIJUDGE_SECURE_COOKIES=1` は
+設定しないこと（設定するとブラウザが Cookie を送らずログインできない）。
+
+**`--host 0.0.0.0` は使わないこと。** tailnet だけでなく同じ LAN 上の
+全端末に出る。
+
+### 学生に配るとき
+
+tailnet は教員・TA の端末を繋ぐには足りるが、**学生には配れない**
+（全員に Tailscale を入れさせることになる）。実運用では学内ネットワークに
+リバースプロキシ（TLS 終端）を立て、`AIJUDGE_SECURE_COOKIES=1` を設定する。
+
 ## 環境変数
 
 | 変数 | 用途 | 既定 |
@@ -78,6 +123,7 @@ print(s.name, s.isolation.value, sorted(l.value for l in s.limitations))
 | `AIJUDGE_OBSERVATION_DIR` | 観測レコード（測定用・任意） | `~/.aijudge/observations` |
 | `AIJUDGE_SANDBOX` | 隔離バックエンド（`auto`/`docker`/`gvisor`/`seatbelt`） | `auto` |
 | `AIJUDGE_SANDBOX_WORKDIR` | 作業域の置き場所。コンテナがマウントするパスであること | `~/.aijudge/work` |
+| `AIJUDGE_SECURE_COOKIES` | セッション Cookie に `Secure` を付ける（`1`/`0`）。未設定なら `X-Forwarded-Proto` で判断 | 未設定 |
 | `AIJUDGE_LLM_BASE_URL` / `AIJUDGE_LLM_MODEL` | ローカル LLM | — |
 | `AIJUDGE_FEEDBACK_MODEL` | フィードバック生成のモデル。未設定なら要約に落ちる | — |
 

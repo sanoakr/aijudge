@@ -55,6 +55,7 @@ from aijudge_identity import (
     AuthService,
     PermissionDenied,
     Principal,
+    session_cookie_kwargs,
 )
 from aijudge_persistence import Database, ObservationFileStore
 from aijudge_submission import ArtifactStore, ImmutabilityViolation
@@ -223,7 +224,9 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
             uow.commit()
         response = RedirectResponse("/", status_code=303)
         response.set_cookie(
-            SESSION_COOKIE, token, httponly=True, samesite="lax", secure=False, path="/"
+            SESSION_COOKIE,
+            token,
+            **session_cookie_kwargs(forwarded_proto=request.headers.get("x-forwarded-proto")),
         )
         return response
 

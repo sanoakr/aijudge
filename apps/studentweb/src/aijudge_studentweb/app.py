@@ -29,6 +29,7 @@ from aijudge_identity import (
     AuthService,
     PermissionDenied,
     Principal,
+    session_cookie_kwargs,
 )
 from aijudge_persistence import Database
 from aijudge_submission import (
@@ -129,13 +130,13 @@ def create_app(app_state: StudentApp) -> FastAPI:
             uow.commit()
 
         response = RedirectResponse("/", status_code=303)
+        # `Secure` を付けるかは配置で決まる（`aijudge_identity.cookies` 参照）。
+        # リバースプロキシの `X-Forwarded-Proto` か
+        # `AIJUDGE_SECURE_COOKIES=1` で決める。
         response.set_cookie(
             SESSION_COOKIE,
             token,
-            httponly=True,  # JavaScript から読めない
-            samesite="lax",  # 他サイトからの POST でセッションを使わせない
-            secure=False,  # HTTPS 化までは False。TLS 終端の前に True にする
-            path="/",
+            **session_cookie_kwargs(forwarded_proto=request.headers.get("x-forwarded-proto")),
         )
         return response
 

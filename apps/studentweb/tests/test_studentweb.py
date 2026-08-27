@@ -442,3 +442,30 @@ def test_html_in_a_statement_is_not_executed(world: World) -> None:
     assert "<script>" not in rendered
     assert "&lt;script&gt;" in rendered
     assert "<h2>見出し</h2>" in rendered
+
+
+def test_the_session_cookie_becomes_secure_behind_a_tls_proxy(world: World) -> None:
+    """`tailscale serve` や nginx が前に居る配置で `Secure` が付くこと。
+
+    付かないと、TLS で配置しても平文の経路が残る。
+    """
+    world.register("s2400001")
+    response = world.client.post(
+        "/login",
+        data={"login": "s2400001", "password": PASSWORD},
+        headers={"X-Forwarded-Proto": "https"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert "Secure" in response.headers["set-cookie"]
+
+
+def test_the_session_cookie_is_not_secure_on_plain_localhost(world: World) -> None:
+    """真にすると localhost の平文アクセスでログインできない。"""
+    world.register("s2400001")
+    response = world.client.post(
+        "/login",
+        data={"login": "s2400001", "password": PASSWORD},
+        follow_redirects=False,
+    )
+    assert "Secure" not in response.headers["set-cookie"]

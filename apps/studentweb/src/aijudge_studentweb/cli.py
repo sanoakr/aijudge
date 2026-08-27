@@ -3,11 +3,11 @@
     uv run aijudge-web --create-schema      # 開発時（スキーマを作る）
     uv run aijudge-web --host 0.0.0.0
 
-.. warning::
-
-   セッション Cookie の `secure` は既定で偽。**TLS 終端の前に真にすること**
-   （`app.py` の該当箇所）。平文 HTTP でセッションを流すと、同じ
-   ネットワークに居る誰でも他人として提出できる。
+既定は `127.0.0.1` にしか bind しない。他の端末から使うなら
+`tailscale serve` を前に立てる（`docs/RUNNING.md`）。TLS 終端が
+`X-Forwarded-Proto: https` を付けるので、セッション Cookie に `Secure` が
+自動で付く。プロキシを立てずに直接 bind する場合は平文になるので、
+その経路を学生に配らないこと。
 """
 
 from __future__ import annotations
