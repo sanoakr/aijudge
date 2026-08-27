@@ -27,6 +27,7 @@ from .events import (
     TaskPublished,
 )
 from .grading import (
+    MIN_JUSTIFICATION_LENGTH,
     BlindMark,
     CriterionScore,
     EvaluatorKind,
@@ -37,6 +38,7 @@ from .grading import (
     HumanReview,
     KcOutcome,
     ReviewPolicy,
+    ReviewRequest,
     Routing,
     aggregate,
     renormalize,
@@ -77,6 +79,7 @@ from .tenancy import Course, Enrollment, Role, Tenant
 
 __all__ = [
     "EVENT_TYPES",
+    "MIN_JUSTIFICATION_LENGTH",
     "SCHEMA_VERSION",
     "Artifact",
     "ArtifactKind",
@@ -108,6 +111,7 @@ __all__ = [
     "QMatrixEntry",
     "RegionSpan",
     "ReviewPolicy",
+    "ReviewRequest",
     "ReviewState",
     "Role",
     "Routing",

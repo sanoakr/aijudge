@@ -24,6 +24,7 @@ from .ids import (
     GradingRunId,
     HumanReviewId,
     KcId,
+    ReviewRequestId,
     SubmissionId,
     TaskVersionId,
     UserId,
@@ -179,11 +180,51 @@ class BlindMark(BaseModel):
     notes: str | None = None
 
 
+# 根拠説明の最短長。1〜2 文字の「ok」「違う」を根拠として通さない。
+MIN_JUSTIFICATION_LENGTH = 10
+
+
+class ReviewRequest(BaseModel):
+    """学習者からの再確認の依頼。
+
+    AI の判定は採点直後に学習者へ示す。誤りを疑ったときの導線がなければ、
+    示したこと自体が一方的な通告になる（設計方針 §9.4 の「異議申し立て
+    導線」）。
+
+    **根拠説明を必須にする。** 「納得できない」だけの依頼を受け付けると、
+    教員は何を確認すべきか分からないまま全件を見ることになり、導線が
+    機能しなくなる。学習者にとっても、どこが違うと考えるかを書く過程が
+    自己評価になる。
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    id: ReviewRequestId
+    submission_id: SubmissionId
+    grading_run_id: GradingRunId
+    learner_id: UserId
+    # 学習者が「どの観点のどこが違うと考えるか」。必須。
+    reason: str = Field(min_length=MIN_JUSTIFICATION_LENGTH)
+    # 対象の観点。空なら全体に対する依頼。
+    criterion_ids: tuple[CriterionId, ...] = ()
+    requested_at: datetime
+    # 対応した教員レビュー。未対応なら None。
+    resolved_by: HumanReviewId | None = None
+
+    @property
+    def resolved(self) -> bool:
+        return self.resolved_by is not None
+
+
 class HumanReview(BaseModel):
     """教員による確認・修正。GradingRun を上書きせず追記する。
 
-    **この記録が成績の確定を意味する。** 存在しないうちは AI の判定は
-    暫定であり、学習者に示す範囲は上位層が決める（設計原則 P5）。
+    **この記録が成績の確定を意味する。**
+
+    **根拠説明を必須にする。** 学習者には AI の判定が既に示されており、
+    教員がそれを覆すなら理由が要る。覆さない場合も同じで、「確認した」
+    だけでは学習者に何も返らない（設計原則 P4 の「すべての判定は根拠を
+    持つ」を人間の判定にも適用する）。
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -193,7 +234,10 @@ class HumanReview(BaseModel):
     grader_id: UserId
     # 変更した観点だけを持つ。触っていない観点は AI の判定に同意したという意味。
     adjusted_levels: dict[CriterionId, int] = Field(default_factory=dict)
-    comment: str | None = None
+    # 根拠説明。**必須。**
+    comment: str = Field(min_length=MIN_JUSTIFICATION_LENGTH)
+    # 対応したレビュー依頼。教員が自発的に見た場合は None。
+    request_id: ReviewRequestId | None = None
     reviewed_at: datetime
 
     @property

@@ -27,13 +27,22 @@ from aijudge_authoring.repository import (
     TaskStoreError,
     substantive,
 )
-from aijudge_core import BlindMark, GradingRun, HumanReview, Submission, Task, TaskVersion
+from aijudge_core import (
+    BlindMark,
+    GradingRun,
+    HumanReview,
+    ReviewRequest,
+    Submission,
+    Task,
+    TaskVersion,
+)
 from aijudge_core.events import EVENT_TYPES, DomainEvent
 from aijudge_core.ids import (
     CourseId,
     GradingJobId,
     GradingRunId,
     HumanReviewId,
+    ReviewRequestId,
     SubmissionId,
     TaskId,
     TaskVersionId,
@@ -49,6 +58,7 @@ from .schema import (
     GradingRunRow,
     HumanReviewRow,
     OutboxRow,
+    ReviewRequestRow,
     SubmissionKeyRow,
     SubmissionRow,
     TaskRow,
@@ -282,7 +292,96 @@ class SqlReviewRepository:
         row = self._session.get(BlindMarkRow, str(submission_id))
         return None if row is None else BlindMark.model_validate(row.document)
 
+    # -- 学習者からの再確認の依頼 ------------------------------------------
+
+    def save_request(self, request: ReviewRequest) -> None:
+        existing = (
+            self._session.execute(
+                select(ReviewRequestRow).where(
+                    ReviewRequestRow.grading_run_id == str(request.grading_run_id)
+                )
+            )
+            .scalars()
+            .first()
+        )
+        if existing is not None:
+            raise ImmutabilityViolation(
+                f"GradingRun {request.grading_run_id} already has a review request"
+            )
+        self._session.add(
+            ReviewRequestRow(
+                id=str(request.id),
+                grading_run_id=str(request.grading_run_id),
+                submission_id=str(request.submission_id),
+                learner_id=str(request.learner_id),
+                requested_at=request.requested_at,
+                resolved_by=None,
+                document=_dump(request),
+            )
+        )
+        self._session.flush()
+
+    def find_request_for_run(self, run_id: GradingRunId) -> ReviewRequest | None:
+        row = (
+            self._session.execute(
+                select(ReviewRequestRow).where(ReviewRequestRow.grading_run_id == str(run_id))
+            )
+            .scalars()
+            .first()
+        )
+        return None if row is None else ReviewRequest.model_validate(row.document)
+
+    def get_request(self, request_id: ReviewRequestId) -> ReviewRequest | None:
+        row = self._session.get(ReviewRequestRow, str(request_id))
+        return None if row is None else ReviewRequest.model_validate(row.document)
+
+    def resolve_request(self, request_id: ReviewRequestId, review_id: HumanReviewId) -> None:
+        row = self._session.get(ReviewRequestRow, str(request_id))
+        if row is None:
+            return
+        row.resolved_by = str(review_id)
+        document = dict(row.document)
+        document["resolved_by"] = str(review_id)
+        row.document = document
+        self._session.flush()
+
     # -- レビュー待ち行列（教員 UI 用の読み取り）--------------------------
+
+    def requested_for_course(
+        self, course_id: CourseId, *, include_resolved: bool = False, limit: int = 200
+    ) -> tuple[tuple[Submission, GradingRun, ReviewRequest], ...]:
+        """このコースで**学習者が再確認を依頼した**提出。
+
+        教員の待ち行列はこれである。全提出を並べると受講 91 名 × 課題数に
+        なり、教員は何から見ればよいか分からない。AI の判定は採点直後に
+        学習者へ示しているので、**疑いが出たものだけ**が人間の判断を要する。
+
+        自発的に見たい提出は課題や学習者から辿る（依頼が無くても確定できる）。
+        """
+        statement = (
+            select(SubmissionRow, GradingRunRow, ReviewRequestRow)
+            .join(
+                ReviewRequestRow,
+                ReviewRequestRow.grading_run_id == GradingRunRow.id,
+            )
+            .join(SubmissionRow, SubmissionRow.id == GradingRunRow.submission_id)
+            .join(TaskVersionRow, TaskVersionRow.id == SubmissionRow.task_version_id)
+            .join(TaskRow, TaskRow.id == TaskVersionRow.task_id)
+            .where(TaskRow.course_id == str(course_id))
+            .order_by(ReviewRequestRow.requested_at, ReviewRequestRow.id)
+            .limit(limit)
+        )
+        if not include_resolved:
+            statement = statement.where(ReviewRequestRow.resolved_by.is_(None))
+
+        return tuple(
+            (
+                Submission.model_validate(submission_row.document),
+                GradingRun.model_validate(run_row.document),
+                ReviewRequest.model_validate(request_row.document),
+            )
+            for submission_row, run_row, request_row in self._session.execute(statement).all()
+        )
 
     def pending_for_course(
         self, course_id: CourseId, *, include_decided: bool = False, limit: int = 200
@@ -511,11 +610,17 @@ class SqlTaskRepository:
                 TaskRow(
                     id=str(task.id),
                     course_id=str(task.course_id),
+                    unit=task.unit,
+                    session=task.session,
+                    position=task.position,
                     document=_dump(task),
                 )
             )
         else:
             row.course_id = str(task.course_id)
+            row.unit = task.unit
+            row.session = task.session
+            row.position = task.position
             row.document = _dump(task)
         self._session.flush()
 
@@ -573,6 +678,15 @@ class SqlTaskRepository:
 
     def list_for_course(self, course_id: CourseId) -> tuple[Task, ...]:
         rows = self._session.execute(
-            select(TaskRow).where(TaskRow.course_id == str(course_id)).order_by(TaskRow.id)
+            select(TaskRow)
+            .where(TaskRow.course_id == str(course_id))
+            # 何回目 → まとまり → その中の順。回の無い課題（試験など）は後ろ。
+            .order_by(
+                TaskRow.session.is_(None),
+                TaskRow.session,
+                TaskRow.unit,
+                TaskRow.position,
+                TaskRow.id,
+            )
         ).scalars()
         return tuple(Task.model_validate(row.document) for row in rows)

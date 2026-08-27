@@ -12,12 +12,21 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import Protocol, runtime_checkable
 
-from aijudge_core import Artifact, BlindMark, GradingRun, HumanReview, Submission
+from aijudge_core import (
+    Artifact,
+    BlindMark,
+    GradingRun,
+    HumanReview,
+    ReviewRequest,
+    Submission,
+)
 from aijudge_core.events import DomainEvent
 from aijudge_core.ids import (
     ArtifactId,
+    CourseId,
     GradingRunId,
     HumanReviewId,
+    ReviewRequestId,
     SubmissionId,
     TaskVersionId,
     TenantId,
@@ -141,6 +150,26 @@ class ReviewRepository(Protocol):
         ...
 
     def find_blind_mark(self, submission_id: SubmissionId) -> BlindMark | None: ...
+
+    # -- 学習者からの再確認の依頼 --
+
+    def save_request(self, request: ReviewRequest) -> None:
+        """レビュー依頼を保存する。同じ採点に二重に出させない。"""
+        ...
+
+    def find_request_for_run(self, run_id: GradingRunId) -> ReviewRequest | None: ...
+
+    def get_request(self, request_id: ReviewRequestId) -> ReviewRequest | None: ...
+
+    def resolve_request(self, request_id: ReviewRequestId, review_id: HumanReviewId) -> None:
+        """依頼に対応した教員レビューを結びつける。"""
+        ...
+
+    def requested_for_course(
+        self, course_id: CourseId, *, include_resolved: bool = False, limit: int = 200
+    ) -> tuple[tuple[Submission, GradingRun, ReviewRequest], ...]:
+        """学習者が再確認を依頼した提出。教員の待ち行列。"""
+        ...
 
 
 @runtime_checkable

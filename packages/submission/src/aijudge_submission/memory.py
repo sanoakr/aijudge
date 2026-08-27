@@ -17,12 +17,13 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import datetime
 
-from aijudge_core import BlindMark, GradingRun, HumanReview, Submission
+from aijudge_core import BlindMark, GradingRun, HumanReview, ReviewRequest, Submission
 from aijudge_core.events import DomainEvent
 from aijudge_core.ids import (
     GradingJobId,
     GradingRunId,
     HumanReviewId,
+    ReviewRequestId,
     SubmissionId,
     TaskVersionId,
     TenantId,
@@ -143,6 +144,8 @@ class InMemoryReviewRepository:
         self._reviews: dict[HumanReviewId, HumanReview] = {}
         self._by_run: dict[GradingRunId, HumanReviewId] = {}
         self._marks: dict[SubmissionId, BlindMark] = {}
+        self._requests: dict[ReviewRequestId, ReviewRequest] = {}
+        self._requests_by_run: dict[GradingRunId, ReviewRequestId] = {}
 
     def save_review(self, review: HumanReview) -> None:
         self._reviews[review.id] = review
@@ -165,6 +168,26 @@ class InMemoryReviewRepository:
 
     def find_blind_mark(self, submission_id: SubmissionId) -> BlindMark | None:
         return self._marks.get(submission_id)
+
+    def save_request(self, request: ReviewRequest) -> None:
+        if request.grading_run_id in self._requests_by_run:
+            raise ImmutabilityViolation(
+                f"GradingRun {request.grading_run_id} already has a review request"
+            )
+        self._requests[request.id] = request
+        self._requests_by_run[request.grading_run_id] = request.id
+
+    def find_request_for_run(self, run_id: GradingRunId) -> ReviewRequest | None:
+        request_id = self._requests_by_run.get(run_id)
+        return None if request_id is None else self._requests.get(request_id)
+
+    def get_request(self, request_id: ReviewRequestId) -> ReviewRequest | None:
+        return self._requests.get(request_id)
+
+    def resolve_request(self, request_id: ReviewRequestId, review_id: HumanReviewId) -> None:
+        request = self._requests.get(request_id)
+        if request is not None:
+            self._requests[request_id] = request.model_copy(update={"resolved_by": review_id})
 
 
 class InMemoryJobQueue:

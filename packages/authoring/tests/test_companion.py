@@ -185,3 +185,35 @@ def test_broken_yaml_is_refused_not_silently_skipped(tmp_path: Path) -> None:
     """
     with pytest.raises(companion.CompanionError):
         companion.load_companion_cases(_problem(tmp_path, "role: client\n  bad indent\n"))
+
+
+# --------------------------------------------------------------------------
+# 回のまとまり（何回目の何問目か）
+# --------------------------------------------------------------------------
+
+
+def test_the_unit_and_position_come_from_the_directory(tmp_path: Path) -> None:
+    """`ex06/p3` から「第 6 回・3 問目」を取る。
+
+    1 回の授業で複数問出るので、これが分からないと一覧が平らになり、
+    何回目の分を見ているのか分からなくなる。
+    """
+    problem = tmp_path / "ex06" / "p3"
+    problem.mkdir(parents=True)
+    unit, session, position = sharif_judge.parse_unit(problem)
+    assert (unit, session, position) == ("ex06", 6, 3)
+
+
+def test_a_re_run_year_keeps_its_session(tmp_path: Path) -> None:
+    """`ex07-2023` は第 7 回の別年度版。"""
+    problem = tmp_path / "ex07-2023" / "p1"
+    problem.mkdir(parents=True)
+    assert sharif_judge.parse_unit(problem)[:2] == ("ex07-2023", 7)
+
+
+def test_a_unit_without_a_session_keeps_its_name(tmp_path: Path) -> None:
+    """`exam08` は回に対応しない。名前だけ残す。"""
+    problem = tmp_path / "exam08" / "p2"
+    problem.mkdir(parents=True)
+    unit, session, position = sharif_judge.parse_unit(problem)
+    assert (unit, session, position) == ("exam08", None, 2)

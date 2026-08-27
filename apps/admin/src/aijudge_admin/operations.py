@@ -247,6 +247,9 @@ class ImportedTask:
     # 決定的評価器が担当する観点があるか。無ければ AI 観点だけで、
     # 教員の確定が前提になる（サーバ課題・レポート課題・自己採点課題）。
     auto_graded: bool
+    # 何回目のまとまりか。一覧の階層化に使う。
+    unit: str | None = None
+    session: int | None = None
 
 
 @dataclass
@@ -326,14 +329,17 @@ def import_tasks(
             )
             continue
 
+        unit, session, position = sharif_judge.parse_unit(problem_dir)
         if not dry_run:
-            _save(database, course_id, version, key)
+            _save(database, course_id, version, key, unit, session, position)
         report.imported.append(
             ImportedTask(
                 key=key,
                 title=_title_of(version),
                 test_cases=len(version.test_cases),
                 auto_graded=bool(version.test_cases),
+                unit=unit,
+                session=session,
             )
         )
     return report
@@ -347,9 +353,30 @@ def _title_of(version: TaskVersion) -> str:
     return title
 
 
-def _save(database: Database, course_id: CourseId, version: TaskVersion, key: str) -> None:
+def _save(
+    database: Database,
+    course_id: CourseId,
+    version: TaskVersion,
+    key: str,
+    unit: str | None = None,
+    session: int | None = None,
+    position: int | None = None,
+) -> None:
     with database.unit_of_work() as uow:
-        uow.tasks.save_task(Task(id=version.task_id, course_id=course_id, title=_title_of(version)))
+        existing = uow.tasks.get_task(version.task_id)
+        uow.tasks.save_task(
+            Task(
+                id=version.task_id,
+                course_id=course_id,
+                title=_title_of(version),
+                unit=unit,
+                session=session,
+                position=position,
+                # 取り込み直しで締切を消さない。教員が設定した値を残す。
+                opens_at=None if existing is None else existing.opens_at,
+                due_at=None if existing is None else existing.due_at,
+            )
+        )
         try:
             uow.tasks.save_version(version)
         except TaskStoreError as exc:

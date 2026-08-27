@@ -48,6 +48,31 @@ class ImportError_(Exception):
     """取り込みに失敗した。データ側の問題なので、内容を添えて上位に返す。"""
 
 
+# `ex06` / `ex07-2023` / `exam08` から回を取る。
+_UNIT_SESSION = re.compile(r"^ex(?P<n>\d+)(?:-\d+)?$", re.IGNORECASE)
+# `p3` から問の順序を取る。
+_POSITION = re.compile(r"^p(?P<n>\d+)$", re.IGNORECASE)
+
+
+def parse_unit(problem_dir: Path) -> tuple[str, int | None, int | None]:
+    """課題ディレクトリから「何回目の何問目か」を取る。
+
+    Sharif Judge の配置は `ex06/p3` のようになっている。1 回の授業で複数問
+    出るので、これが分からないと一覧が平らになり、学習者も教員も何回目の
+    分を見ているのか分からなくなる。
+
+    `exam08` や `2025-exam16` のように回に対応しない名前もあるので、
+    取れなければ `None` を返す（まとまりの名前だけは残る）。
+    """
+    unit = problem_dir.parent.name
+    session_match = _UNIT_SESSION.match(unit)
+    session = int(session_match.group("n")) if session_match else None
+
+    position_match = _POSITION.match(problem_dir.name)
+    position = int(position_match.group("n")) if position_match else None
+    return unit, session, position
+
+
 def parse_title(desc: str) -> tuple[str, str | None]:
     """desc.md の先頭見出しからタイトルと区分を取り出す。"""
     for line in desc.splitlines():

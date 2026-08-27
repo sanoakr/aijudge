@@ -154,13 +154,49 @@ class TaskVersion(BaseModel):
 
 
 class Task(BaseModel):
-    """課題そのもの。版をまたいだ同一性を担う。"""
+    """課題そのもの。版をまたいだ同一性を担う。
+
+    `unit` と `session` は課題を「何回目の課題か」でまとめるためにある。
+    1 回の授業で複数問（`p1 p2 p3`）出るので、一覧を平らに並べると
+    学習者も教員も何回目の分を見ているのか分からなくなる。
+
+    `unit` は取り込み元のまとまりの名前（`ex03` など）で、同一性の鍵。
+    `session` は並べ替え用の数値。`unit` から機械的に取れないことがある
+    （`exam08` のような名前）ので別に持つ。
+    """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     id: TaskId
     course_id: CourseId
     title: str = Field(min_length=1)
+    # 何回目のまとまりか（例: "ex03"）。取り込み元のディレクトリ名。
+    unit: str | None = None
+    # 何回目か。並べ替えに使う。`unit` から取れないこともある。
+    session: int | None = Field(default=None, ge=1)
+    # まとまりの中での順序（p1, p2, … の 1, 2, …）。
+    position: int | None = Field(default=None, ge=1)
     current_version_id: TaskVersionId | None = None
+    # 提示日時。学習者に見せる「何日提示の課題か」がこれ。
     opens_at: datetime | None = None
     due_at: datetime | None = None
+
+    @property
+    def unit_label(self) -> str:
+        """まとまりの表示名。
+
+        `session` があれば「第 3 回」、無ければ `unit` をそのまま出す
+        （`exam08` のような、回に対応しないまとまりがある）。
+        """
+        if self.session is not None:
+            return f"第 {self.session} 回"
+        return self.unit or "未分類"
+
+    @property
+    def sort_key(self) -> tuple[int, str, int]:
+        """一覧の並び順。回がある課題を先に、無いものを後に。"""
+        return (
+            self.session if self.session is not None else 10**6,
+            self.unit or "",
+            self.position if self.position is not None else 10**6,
+        )

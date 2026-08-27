@@ -26,6 +26,7 @@ GradingRunId = NewType("GradingRunId", str)
 EvaluatorResultId = NewType("EvaluatorResultId", str)
 CriterionScoreId = NewType("CriterionScoreId", str)
 HumanReviewId = NewType("HumanReviewId", str)
+ReviewRequestId = NewType("ReviewRequestId", str)
 CredentialId = NewType("CredentialId", str)
 EventId = NewType("EventId", str)
 
@@ -46,6 +47,7 @@ PREFIXES: dict[str, str] = {
     "evr": "EvaluatorResult",
     "cs": "CriterionScore",
     "hrv": "HumanReview",
+    "rrq": "ReviewRequest",
     "cred": "Credential",
     "evt": "DomainEvent",
 }

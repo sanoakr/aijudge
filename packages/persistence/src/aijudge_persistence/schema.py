@@ -171,6 +171,30 @@ class HumanReviewRow(Base):
     )
 
 
+class ReviewRequestRow(Base):
+    """学習者からの再確認の依頼。
+
+    AI の判定は採点直後に学習者へ示すので、誤りを疑ったときの導線が要る
+    （設計方針 §9.4「異議申し立て導線」）。1 採点につき 1 件。
+    """
+
+    __tablename__ = "review_requests"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    grading_run_id: Mapped[str] = mapped_column(String(64), index=True)
+    submission_id: Mapped[str] = mapped_column(String(64), index=True)
+    learner_id: Mapped[str] = mapped_column(String(64), index=True)
+    requested_at: Mapped[datetime] = mapped_column(Timestamp, index=True)
+    # 対応した教員レビュー。NULL なら未対応 = 教員の待ち行列に出る。
+    resolved_by: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    document: Mapped[dict] = mapped_column(JsonType)
+
+    __table_args__ = (
+        # 同じ採点に二重に依頼を出させない。
+        UniqueConstraint("grading_run_id", name="uq_requests_run"),
+    )
+
+
 class BlindMarkRow(Base):
     """教員が AI を見る前に付けた段階（測定用の正解データ）。
 
@@ -322,7 +346,14 @@ class TaskRow(Base):
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     course_id: Mapped[str] = mapped_column(String(64), index=True)
+    # 何回目のまとまりか。一覧の階層化と並べ替えに使うので列にする
+    # （JSON の中だと並べ替えられない）。
+    unit: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    session: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    position: Mapped[int | None] = mapped_column(Integer, nullable=True)
     document: Mapped[dict] = mapped_column(JsonType)
+
+    __table_args__ = (Index("ix_tasks_course_order", "course_id", "session", "position"),)
 
 
 class TaskVersionRow(Base):
