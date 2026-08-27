@@ -19,6 +19,7 @@ root_packages =
     aijudge_sandbox
     aijudge_observation
     aijudge_submission
+    aijudge_persistence
 include_external_packages = True
 
 [importlinter:contract:core-is-independent]
@@ -38,6 +39,7 @@ forbidden_modules =
     aijudge_llm_gateway
     aijudge_sandbox
     aijudge_observation
+    aijudge_persistence
 
 ; ゲートウェイは他サブシステムを知らない。採点の語彙にも依存しない
 ; （依存させると、採点以外から LLM を使うたびに採点が引きずられる）。
@@ -183,6 +185,28 @@ forbidden_modules =
     aijudge_identity
     aijudge_submission
     aijudge_reviewconsole
+
+; インフラ層。S2 / S3 が定義したプロトコルを実装するので、それらに依存する。
+; **逆向きは無い。** サブシステムが保存先の実装を知った瞬間、保存先を
+; 差し替えられなくなる（インメモリでテストできなくなり、PostgreSQL が
+; 全テストの前提になる）。
+[importlinter:contract:subsystems-do-not-know-the-store]
+name = サブシステムは保存先の実装に依存しない
+type = forbidden
+source_modules =
+    aijudge_core
+    aijudge_grading
+    aijudge_authoring
+    aijudge_submission
+    aijudge_llm_gateway
+    aijudge_sandbox
+    aijudge_analytics
+    aijudge_observation
+    aijudge_eval_code_test_runner
+    aijudge_eval_rubric_ai_judge
+forbidden_modules =
+    aijudge_persistence
+    sqlalchemy
 
 ; apps/* は合成の中心（composition root）。複数のサブシステムを束ねてよい
 ; 唯一の層で、逆にサブシステムから apps を参照してはならない。

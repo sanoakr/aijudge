@@ -16,6 +16,7 @@ dependencies = [
     "aijudge-reviewconsole",
     "aijudge-sandbox",
     "aijudge-submission",
+    "aijudge-persistence",
 ]
 
 [project.optional-dependencies]
@@ -43,6 +44,7 @@ aijudge-evalrunner = { workspace = true }
 aijudge-reviewconsole = { workspace = true }
 aijudge-sandbox = { workspace = true }
 aijudge-submission = { workspace = true }
+aijudge-persistence = { workspace = true }
 
 [tool.ruff]
 line-length = 100
@@ -68,6 +70,7 @@ known-first-party = [
     "aijudge_reviewconsole",
     "aijudge_sandbox",
     "aijudge_submission",
+    "aijudge_persistence",
 ]
 
 [tool.pytest.ini_options]
@@ -77,3 +80,8 @@ addopts = "-q"
 [tool.mypy]
 python_version = "3.12"
 strict = true
+
+[dependency-groups]
+dev = [
+    "pytest-asyncio>=1.4.0",
+]

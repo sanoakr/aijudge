@@ -1,0 +1,29 @@
+[project]
+name = "aijudge-persistence"
+version = "0.0.1"
+description = "PostgreSQL implementations of the S2/S3 stores, and the object store for artifacts"
+requires-python = ">=3.12"
+# インフラ層。複数のサブシステムのプロトコルを実装するので、それらに依存する。
+# 逆向きは無い（サブシステムは persistence を知らない）。
+dependencies = [
+    "aijudge-core",
+    "aijudge-submission",
+    "aijudge-authoring",
+    "sqlalchemy>=2.0",
+]
+
+[project.optional-dependencies]
+postgres = ["psycopg[binary]>=3.2"]
+s3 = ["boto3>=1.35"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/aijudge_persistence"]
+
+[tool.uv.sources]
+aijudge-core = { workspace = true }
+aijudge-submission = { workspace = true }
+aijudge-authoring = { workspace = true }
