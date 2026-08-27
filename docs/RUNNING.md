@@ -75,6 +75,37 @@ print(s.name, s.isolation.value, sorted(l.value for l in s.limitations))
 | `AIJUDGE_LLM_BASE_URL` / `AIJUDGE_LLM_MODEL` | ローカル LLM | — |
 | `AIJUDGE_FEEDBACK_MODEL` | フィードバック生成のモデル。未設定なら要約に落ちる | — |
 
+## 締切集中に備える
+
+採点ワーカーは複数立てられる。**ただし PostgreSQL であること。**
+
+```fish
+uv run aijudge-worker --name w1 &
+uv run aijudge-worker --name w2 &
+uv run aijudge-worker --name w3 &
+uv run aijudge-worker --name w4 &
+```
+
+実測（受講 91 名 × 1 課題 × テスト 5 件、colima 上のコンテナ隔離）:
+
+| ワーカー | 所要 | 秒/件 |
+|---:|---:|---:|
+| 1 | 53.0 秒 | 0.58 |
+| 2 | 34.8 秒 | 0.38 |
+| 4 | 25.2 秒 | 0.28 |
+
+91 名の同時提出で「結果表示まで 30 秒以内」を満たすには 4 本必要。
+
+**SQLite でワーカーを複数立てないこと。** 行ロックが無いので同じ提出が
+二度採点され、1 つの提出に採点結果が 2 つできる。`aijudge-worker` は
+起動時に警告する。
+
+GPU を使う科目と使わない科目でキューを分けたい場合は `--subject` で絞る。
+
+```fish
+uv run aijudge-worker --subject net_python --name py1
+```
+
 ## 測定（Phase 1・任意）
 
 ```fish

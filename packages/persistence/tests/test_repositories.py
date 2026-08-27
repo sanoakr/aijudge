@@ -44,6 +44,7 @@ from aijudge_persistence import Database
 from aijudge_submission import (
     ImmutabilityViolation,
     IncomingFile,
+    InMemoryArtifactStore,
     JobState,
     SubmissionService,
 )
@@ -64,9 +65,18 @@ def database(request) -> Database:
 
     SQLite だけで通してしまうと、方言差（JSON 型・行ロック・timezone）に
     気づけない。CI に PostgreSQL を置くまでの暫定。
+
+    **PostgreSQL では毎テストでスキーマを作り直す。** インメモリ SQLite は
+    テストごとに別 DB になるが、PostgreSQL は残る。残ると前のテストの
+    ジョブや提出が次のテストに見え、失敗の原因が読めなくなる
+    （実際にそうなった: 予約したジョブが前のテストのものだった）。
     """
+    from aijudge_persistence import Base
+
     url = "sqlite+pysqlite:///:memory:" if request.param == "sqlite" else POSTGRES_URL
-    db = Database.connect(url, create=True)
+    db = Database.connect(url, create=False)
+    Base.metadata.drop_all(db.engine)
+    Base.metadata.create_all(db.engine)
     yield db
     db.dispose()
 
@@ -530,3 +540,72 @@ def test_a_naive_datetime_is_refused_on_write(database: Database) -> None:
         )
         with pytest.raises((ValueError, StatementError), match="naive"):
             session.flush()
+
+
+# --------------------------------------------------------------------------
+# 同時実行 — 行ロックが効いていること
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(POSTGRES_URL is None, reason="needs PostgreSQL (SQLite has no row locks)")
+def test_concurrent_workers_never_take_the_same_job() -> None:
+    """複数ワーカーが同じジョブを取らないこと。
+
+    取ると同じ提出が二度採点され、1 つの提出に GradingRun が 2 行できる。
+    どちらが成績なのかが決まらない。
+
+    **SQLite では確かめられない**（行ロックが無い）。だからこのテストは
+    PostgreSQL でしか走らない。`Database.supports_row_locking` が偽の環境で
+    ワーカーを複数立ててはならない、という申告の裏付けがここにある。
+    """
+    import threading
+
+    from aijudge_persistence import Base
+
+    database = Database.connect(POSTGRES_URL, create=False)
+    try:
+        Base.metadata.drop_all(database.engine)
+        Base.metadata.create_all(database.engine)
+
+        store = InMemoryArtifactStore()
+        service = SubmissionService(database.unit_of_work, store)
+        job_count = 24
+        for index in range(job_count):
+            service.accept(
+                tenant_id=TENANT,
+                task_version_id=TASK_VERSION,
+                learner_id=UserId(f"usr_{index:032d}"),
+                subject_profile="cs_intro_c",
+                files=code(f"int main(void){{return {index};}}"),
+            )
+
+        taken: list[str] = []
+        lock = threading.Lock()
+        barrier = threading.Barrier(4)
+
+        def drain() -> None:
+            # 全スレッドを同時に走らせる。ずらすと競合が起きない。
+            barrier.wait()
+            while True:
+                with database.unit_of_work() as uow:
+                    job = uow.jobs.reserve(
+                        NOW, worker=f"w{threading.get_ident()}", lease_seconds=600.0
+                    )
+                    if job is None:
+                        uow.commit()
+                        return
+                    uow.jobs.update(job.completed(NOW, GradingRunId(f"grn_{job.id[4:]}")))
+                    uow.commit()
+                with lock:
+                    taken.append(str(job.id))
+
+        threads = [threading.Thread(target=drain) for _ in range(4)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        assert len(taken) == job_count, f"取り漏らし: {len(taken)}/{job_count}"
+        assert len(set(taken)) == job_count, "同じジョブが二度配られた"
+    finally:
+        database.dispose()

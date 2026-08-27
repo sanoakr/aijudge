@@ -65,6 +65,7 @@ dev = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "psycopg", extra = ["binary"] },
     { name = "pytest-asyncio" },
 ]
 
@@ -97,7 +98,10 @@ requires-dist = [
 provides-extras = ["dev"]
 
 [package.metadata.requires-dev]
-dev = [{ name = "pytest-asyncio", specifier = ">=1.4.0" }]
+dev = [
+    { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },
+    { name = "pytest-asyncio", specifier = ">=1.4.0" },
+]
 
 [[package]]
 name = "aijudge-admin"
