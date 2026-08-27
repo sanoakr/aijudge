@@ -7,6 +7,7 @@ Evaluator は entry point で発見し、科目プロファイル（subjects/*.y
 
 from __future__ import annotations
 
+from .observations import project_observations
 from .pipeline import (
     PIPELINE_VERSION,
     ContentLoader,
@@ -43,4 +44,5 @@ __all__ = [
     "grading_completed_event",
     "load_profile",
     "load_profiles",
+    "project_observations",
 ]

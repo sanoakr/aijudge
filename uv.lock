@@ -15,6 +15,7 @@ members = [
     "aijudge-eval-code-test-runner",
     "aijudge-eval-rubric-ai-judge",
     "aijudge-evalrunner",
+    "aijudge-grader",
     "aijudge-grading",
     "aijudge-llm-gateway",
     "aijudge-observation",
@@ -35,6 +36,7 @@ dependencies = [
     { name = "aijudge-eval-code-test-runner" },
     { name = "aijudge-eval-rubric-ai-judge" },
     { name = "aijudge-evalrunner" },
+    { name = "aijudge-grader" },
     { name = "aijudge-grading" },
     { name = "aijudge-llm-gateway" },
     { name = "aijudge-observation" },
@@ -66,6 +68,7 @@ requires-dist = [
     { name = "aijudge-eval-code-test-runner", editable = "evaluators/code_test_runner" },
     { name = "aijudge-eval-rubric-ai-judge", editable = "evaluators/rubric_ai_judge" },
     { name = "aijudge-evalrunner", editable = "apps/evalrunner" },
+    { name = "aijudge-grader", editable = "apps/grader" },
     { name = "aijudge-grading", editable = "packages/grading" },
     { name = "aijudge-llm-gateway", editable = "packages/llm_gateway" },
     { name = "aijudge-observation", editable = "packages/observation" },
@@ -173,11 +176,35 @@ requires-dist = [
 ]
 
 [[package]]
+name = "aijudge-grader"
+version = "0.0.1"
+source = { editable = "apps/grader" }
+dependencies = [
+    { name = "aijudge-authoring" },
+    { name = "aijudge-core" },
+    { name = "aijudge-grading" },
+    { name = "aijudge-observation" },
+    { name = "aijudge-persistence" },
+    { name = "aijudge-submission" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aijudge-authoring", editable = "packages/authoring" },
+    { name = "aijudge-core", editable = "packages/core" },
+    { name = "aijudge-grading", editable = "packages/grading" },
+    { name = "aijudge-observation", editable = "packages/observation" },
+    { name = "aijudge-persistence", editable = "packages/persistence" },
+    { name = "aijudge-submission", editable = "packages/submission" },
+]
+
+[[package]]
 name = "aijudge-grading"
 version = "0.0.1"
 source = { editable = "packages/grading" }
 dependencies = [
     { name = "aijudge-core" },
+    { name = "aijudge-observation" },
     { name = "pydantic" },
     { name = "pyyaml" },
 ]
@@ -185,6 +212,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "aijudge-core", editable = "packages/core" },
+    { name = "aijudge-observation", editable = "packages/observation" },
     { name = "pydantic", specifier = ">=2.8" },
     { name = "pyyaml", specifier = ">=6.0" },
 ]
@@ -218,6 +246,7 @@ source = { editable = "packages/persistence" }
 dependencies = [
     { name = "aijudge-authoring" },
     { name = "aijudge-core" },
+    { name = "aijudge-observation" },
     { name = "aijudge-submission" },
     { name = "sqlalchemy" },
 ]
@@ -234,6 +263,7 @@ s3 = [
 requires-dist = [
     { name = "aijudge-authoring", editable = "packages/authoring" },
     { name = "aijudge-core", editable = "packages/core" },
+    { name = "aijudge-observation", editable = "packages/observation" },
     { name = "aijudge-submission", editable = "packages/submission" },
     { name = "boto3", marker = "extra == 's3'", specifier = ">=1.35" },
     { name = "psycopg", extras = ["binary"], marker = "extra == 'postgres'", specifier = ">=3.2" },

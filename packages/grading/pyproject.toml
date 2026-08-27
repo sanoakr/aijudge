@@ -5,6 +5,7 @@ description = "Subject-agnostic grading pipeline, evaluator registry, and subjec
 requires-python = ">=3.12"
 dependencies = [
     "aijudge-core",
+    "aijudge-observation",
     "pydantic>=2.8",
     "pyyaml>=6.0",
 ]
@@ -18,3 +19,4 @@ packages = ["src/aijudge_grading"]
 
 [tool.uv.sources]
 aijudge-core = { workspace = true }
+aijudge-observation = { workspace = true }

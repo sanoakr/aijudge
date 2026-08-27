@@ -9,6 +9,7 @@ dependencies = [
     "aijudge-core",
     "aijudge-submission",
     "aijudge-authoring",
+    "aijudge-observation",
     "sqlalchemy>=2.0",
 ]
 
@@ -27,3 +28,4 @@ packages = ["src/aijudge_persistence"]
 aijudge-core = { workspace = true }
 aijudge-submission = { workspace = true }
 aijudge-authoring = { workspace = true }
+aijudge-observation = { workspace = true }

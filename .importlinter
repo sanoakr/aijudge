@@ -20,6 +20,7 @@ root_packages =
     aijudge_observation
     aijudge_submission
     aijudge_persistence
+    aijudge_grader
 include_external_packages = True
 
 [importlinter:contract:core-is-independent]
@@ -225,7 +226,7 @@ source_modules =
 forbidden_modules =
     aijudge_evalrunner
     aijudge_reviewconsole
-    aijudge_reviewconsole
+    aijudge_grader
 
 ; ADR 0002 の核心。採点エンジンが個々の評価器を知らないことを機械で保証する。
 ; これが破られた瞬間、「科目を足してもエンジンは無変更」が成立しなくなる。

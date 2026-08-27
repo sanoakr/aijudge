@@ -22,6 +22,7 @@ from .engine import (
     supports_row_locking,
 )
 from .objectstore import ObjectArtifactStore
+from .observations import OBSERVATIONS_DIR, ObservationFileStore
 from .repositories import (
     SqlGradingRunRepository,
     SqlJobQueue,
@@ -34,9 +35,11 @@ from .schema import Base
 __all__ = [
     "DEFAULT_DATABASE_URL",
     "ENV_DATABASE_URL",
+    "OBSERVATIONS_DIR",
     "Base",
     "Database",
     "ObjectArtifactStore",
+    "ObservationFileStore",
     "SqlGradingRunRepository",
     "SqlJobQueue",
     "SqlOutbox",
