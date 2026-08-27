@@ -21,6 +21,7 @@ from .engine import (
     database_url,
     supports_row_locking,
 )
+from .identity_repository import SqlIdentityRepository
 from .objectstore import ObjectArtifactStore
 from .observations import OBSERVATIONS_DIR, ObservationFileStore
 from .repositories import (
@@ -41,6 +42,7 @@ __all__ = [
     "ObjectArtifactStore",
     "ObservationFileStore",
     "SqlGradingRunRepository",
+    "SqlIdentityRepository",
     "SqlJobQueue",
     "SqlOutbox",
     "SqlSubmissionRepository",

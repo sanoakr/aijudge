@@ -10,6 +10,7 @@ dependencies = [
     "aijudge-submission",
     "aijudge-authoring",
     "aijudge-observation",
+    "aijudge-identity",
     "sqlalchemy>=2.0",
 ]
 
@@ -29,3 +30,4 @@ aijudge-core = { workspace = true }
 aijudge-submission = { workspace = true }
 aijudge-authoring = { workspace = true }
 aijudge-observation = { workspace = true }
+aijudge-identity = { workspace = true }

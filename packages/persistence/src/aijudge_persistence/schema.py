@@ -15,13 +15,15 @@ SQL で集約の中身を検索するようになったときで、そのとき�
     outbox_events      ドメインイベント。published_at が NULL なら未送信
     tasks / task_versions  課題。公開後は不変
 
-日時は必ず timezone 付きで持つ。素の TIMESTAMP に入れると、締切判定が
-サーバのローカル時刻に依存する。
+日時は必ず timezone 付きで扱う。素の TIMESTAMP に入れると、締切判定が
+サーバのローカル時刻に依存する。**ただしバックエンドによっては保証されない**
+（SQLite は tzinfo を落とす）。方言差を呼び出し側に漏らさないため、
+`UtcDateTime` が読み書きの両方で UTC を強制する。
 """
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import (
     JSON,
@@ -33,6 +35,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    TypeDecorator,
     UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -40,7 +43,44 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 # PostgreSQL では JSONB（索引が張れる）、それ以外では JSON。
 JsonType = JSON().with_variant(JSONB(), "postgresql")
-Timestamp = DateTime(timezone=True)
+
+
+class UtcDateTime(TypeDecorator):
+    """常に timezone 付きの UTC で読み書きする日時。
+
+    PostgreSQL の `TIMESTAMP WITH TIME ZONE` は aware な値を返すが、
+    **SQLite は tzinfo を落として naive を返す**。そのまま aware な値と
+    比較すると `TypeError` になり、比較できてしまう経路（naive 同士）では
+    サーバのローカル時刻で締切を判定することになる。
+
+    どちらも受け入れられないので、方言差をここで吸収する。書き込み時に
+    naive を拒否するのは、`datetime.now()` を `datetime.now(UTC)` の
+    代わりに使った誤りを、静かに通さず落とすため。
+    """
+
+    impl = DateTime(timezone=True)
+    cache_ok = True
+
+    def process_bind_param(self, value: datetime | None, dialect: object) -> datetime | None:
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            raise ValueError(
+                "naive datetimes are not accepted; use datetime.now(UTC) so that "
+                "deadlines do not depend on the server's local time"
+            )
+        return value.astimezone(UTC)
+
+    def process_result_value(self, value: datetime | None, dialect: object) -> datetime | None:
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            # SQLite。保存時に UTC へ正規化してあるので、UTC として復元する。
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
+
+
+Timestamp = UtcDateTime()
 
 
 class Base(DeclarativeBase):
@@ -152,6 +192,84 @@ class OutboxRow(Base):
     document: Mapped[dict] = mapped_column(JsonType)
 
     __table_args__ = (Index("ix_outbox_pending", "published_at", "occurred_at"),)
+
+
+class UserRow(Base):
+    """利用者。
+
+    パスワードハッシュはここに置く。**この列をアプリ層へ出さない**
+    （S1 の `Principal` が外向きの型で、資格情報を含まない）。
+    """
+
+    __tablename__ = "users"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    login: Mapped[str] = mapped_column(String(128))
+    display_name: Mapped[str] = mapped_column(String(256))
+    email: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    password_hash: Mapped[str] = mapped_column(String(256))
+    state: Mapped[str] = mapped_column(String(32), index=True)
+    created_at: Mapped[datetime] = mapped_column(Timestamp)
+
+    __table_args__ = (
+        # 同じテナント内でログイン ID は一意。別テナントでは衝突してよい
+        # （機関をまたいで学籍番号が重なるのは普通のこと）。
+        UniqueConstraint("tenant_id", "login", name="uq_users_tenant_login"),
+    )
+
+
+class SessionRow(Base):
+    """ログインセッション。
+
+    保存するのはトークンの**ハッシュ**。DB が漏れてもセッションを
+    乗っ取れないようにするため。
+    """
+
+    __tablename__ = "sessions"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(64), ForeignKey("users.id"), index=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    token_hash: Mapped[str] = mapped_column(String(128))
+    created_at: Mapped[datetime] = mapped_column(Timestamp)
+    expires_at: Mapped[datetime] = mapped_column(Timestamp, index=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(Timestamp, nullable=True)
+
+    __table_args__ = (
+        # トークンからセッションを引くのが毎リクエストの操作。
+        UniqueConstraint("token_hash", name="uq_sessions_token_hash"),
+    )
+
+
+class CourseRow(Base):
+    __tablename__ = "courses"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    code: Mapped[str] = mapped_column(String(64))
+    title: Mapped[str] = mapped_column(String(256))
+    term: Mapped[str] = mapped_column(String(64), index=True)
+    subject_profile: Mapped[str] = mapped_column(String(64), index=True)
+
+    __table_args__ = (UniqueConstraint("tenant_id", "code", "term", name="uq_courses_code_term"),)
+
+
+class EnrollmentRow(Base):
+    """受講。
+
+    「見えてはいけないものが見えない」の根拠になる表。UI で隠すのは表示の
+    都合であって権限ではない。
+    """
+
+    __tablename__ = "enrollments"
+
+    course_id: Mapped[str] = mapped_column(String(64), ForeignKey("courses.id"), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(64), ForeignKey("users.id"), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    role: Mapped[str] = mapped_column(String(32), index=True)
+
+    __table_args__ = (Index("ix_enrollments_user", "tenant_id", "user_id"),)
 
 
 class TaskRow(Base):

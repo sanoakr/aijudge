@@ -19,6 +19,7 @@ from contextlib import contextmanager
 from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from .identity_repository import SqlIdentityRepository
 from .repositories import (
     SqlGradingRunRepository,
     SqlJobQueue,
@@ -89,6 +90,7 @@ class SqlUnitOfWork:
         self.jobs = SqlJobQueue(self._session)
         self.outbox = SqlOutbox(self._session)
         self.tasks = SqlTaskRepository(self._session)
+        self.identity = SqlIdentityRepository(self._session)
         return self
 
     def __exit__(self, *exc: object) -> None:

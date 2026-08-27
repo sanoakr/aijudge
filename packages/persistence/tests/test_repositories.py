@@ -483,3 +483,50 @@ def _store(database: Database):
     if not hasattr(database, "_artifact_store"):
         database._artifact_store = InMemoryArtifactStore()  # type: ignore[attr-defined]
     return database._artifact_store  # type: ignore[attr-defined]
+
+
+# --------------------------------------------------------------------------
+# 日時 — 締切判定の土台
+# --------------------------------------------------------------------------
+
+
+def test_datetimes_come_back_timezone_aware(database: Database) -> None:
+    """バックエンドが tzinfo を落としても、読み出しは aware であること。
+
+    SQLite は落とす。naive な値が混ざると、締切判定がサーバのローカル時刻に
+    依存するか、aware な値との比較で TypeError になる。
+    """
+    service = SubmissionService(database.unit_of_work, _store(database))
+    result = service.accept(
+        tenant_id=TENANT,
+        task_version_id=TASK_VERSION,
+        learner_id=LEARNER,
+        subject_profile="cs_intro_c",
+        files=code(),
+    )
+    with database.unit_of_work() as uow:
+        job = uow.jobs.get(result.job.id)
+    assert job is not None
+    assert job.available_at.tzinfo is not None
+    assert job.created_at.tzinfo is not None
+
+
+def test_a_naive_datetime_is_refused_on_write(database: Database) -> None:
+    """`datetime.now()` を `datetime.now(UTC)` の代わりに使った誤りを落とす。"""
+    from sqlalchemy.exc import StatementError
+
+    from aijudge_persistence.schema import OutboxRow
+
+    with database.session() as session:
+        session.add(
+            OutboxRow(
+                event_id="evt_" + "0" * 32,
+                tenant_id=str(TENANT),
+                type="submission.created",
+                occurred_at=datetime(2026, 8, 28, 9, 0),
+                published_at=None,
+                document={},
+            )
+        )
+        with pytest.raises((ValueError, StatementError), match="naive"):
+            session.flush()
