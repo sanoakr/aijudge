@@ -13,6 +13,7 @@ from __future__ import annotations
 from .operations import (
     AdminError,
     EnrolReport,
+    ImportedTask,
     ImportReport,
     create_staff,
     enrol_roster,
@@ -35,6 +36,7 @@ __all__ = [
     "AdminError",
     "EnrolReport",
     "ImportReport",
+    "ImportedTask",
     "RosterEntry",
     "RosterError",
     "create_staff",

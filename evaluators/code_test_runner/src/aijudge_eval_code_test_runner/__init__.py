@@ -1,6 +1,13 @@
-"""C プログラムをテストケースで採点する決定的評価器。
+"""提出プログラムをテストケースで採点する決定的評価器。
 
 Sharif Judge の中核機能に相当する。標準入力を与えて標準出力を比較する。
+
+**言語を決め打ちにしない。** 科目プロファイルの
+`evaluator_options.code_test_runner.language` で選ぶ（既定は C）。
+プログラミング演習は C、ネットワーク演習は Python というように、科目が
+違えば言語も違う。**言語を足す作業がこのファイルに閉じている**ことが
+ADR 0002 の主張（科目の追加でコアと採点エンジンが変わらない）の実際の
+検証になる。
 
 実行はすべて S4（`aijudge_sandbox`）を通す。この評価器は subprocess を
 直接呼ばない。呼べるようにしておくと、どこか一箇所で隔離が抜け、
@@ -17,6 +24,7 @@ AI 評価器に問い合わせず、AI の判断で覆されることもない�
 from __future__ import annotations
 
 import math
+from typing import NamedTuple
 
 from aijudge_core import (
     CriterionScore,
@@ -40,8 +48,53 @@ from aijudge_sandbox import (
 
 EVALUATOR_ID = "code_test_runner"
 
-SOURCE_NAME = "main.c"
+
+class UnknownLanguage(Exception):
+    """科目プロファイルが知らない言語を指定した。
+
+    採点を止める。既定に落とすと、言語違いが「全員 0 点」として現れる。
+    """
+
+
 BINARY_NAME = "main"
+
+OPTION_LANGUAGE = "language"
+OPTION_IMAGE = "image"
+DEFAULT_LANGUAGE = "c"
+
+
+class Language(NamedTuple):
+    """1 言語の扱い方。
+
+    `compile_argv` が None ならコンパイル段階を飛ばす（スクリプト言語）。
+    飛ばすのは速さのためではなく、**「コンパイルエラー」という結果が
+    存在しない**言語で、構文エラーを実行時の失敗として扱うため。
+    """
+
+    source_name: str
+    compile_argv: tuple[str, ...] | None
+    run_argv: tuple[str, ...]
+    # 学習者に見せる名前。エラーメッセージに出る。
+    label: str
+
+
+LANGUAGES: dict[str, Language] = {
+    "c": Language(
+        source_name="main.c",
+        # -O0 なのは、最適化で消える未定義動作を採点で拾えるようにするため。
+        compile_argv=("cc", "-std=c11", "-O0", "-o", BINARY_NAME, "main.c"),
+        run_argv=(f"./{BINARY_NAME}",),
+        label="C",
+    ),
+    "python": Language(
+        source_name="main.py",
+        compile_argv=None,
+        # -I で分離モードにする。環境変数（PYTHONPATH 等）と利用者の
+        # site-packages を無視するので、提出の挙動が採点機の状態に依存しない。
+        run_argv=("python3", "-I", "main.py"),
+        label="Python",
+    ),
+}
 
 _MEMORY_BYTES = 512 * 1024 * 1024
 _MAX_PROCESSES = 64
@@ -90,6 +143,46 @@ def _limits(timeout_seconds: float) -> Limits:
     )
 
 
+# 根拠に載せるエラーの長さ。全文は raw_output に残る。
+_ERROR_EXCERPT_CHARS = 300
+
+
+def _common_error(failed: list[dict[str, object]]) -> str | None:
+    """全ケースが共有しているエラーの要点。無ければ None。
+
+    Python の traceback は最後の行に型と説明が出る。C の異常終了は
+    シグナル名しか無い。どちらも「全件同じ理由で落ちた」ことを伝えたい。
+    """
+    signals = {case.get("signal") for case in failed}
+    if len(signals) == 1 and (signal_name := next(iter(signals))) is not None:
+        return f"{signal_name} で強制終了しました"
+
+    messages: set[str] = set()
+    for case in failed:
+        text = str(case.get("stderr", "")).strip()
+        if not text:
+            return None
+        # traceback の最終行が型と説明。それ以外の言語では最後の出力行。
+        messages.add(text.splitlines()[-1].strip())
+    if len(messages) != 1:
+        return None
+    return next(iter(messages))[:_ERROR_EXCERPT_CHARS]
+
+
+def resolve_language(options: dict[str, object]) -> Language:
+    """科目プロファイルから言語を引く。
+
+    知らない言語名は**例外にする**。既定の C に落とすと、Python の課題が
+    「コンパイルエラーで全員 0 点」になり、原因が提出物の側にあるように見える。
+    """
+    name = str(options.get(OPTION_LANGUAGE, DEFAULT_LANGUAGE)).strip().lower()
+    if name not in LANGUAGES:
+        raise UnknownLanguage(
+            f"language {name!r} is not supported; pick one of {sorted(LANGUAGES)}"
+        )
+    return LANGUAGES[name]
+
+
 def _seconds_option(options: dict[str, object], key: str, default: float) -> float:
     """科目プロファイルからの上限を読む。不正な値は既定に落とす。
 
@@ -110,16 +203,32 @@ class CodeTestRunner:
     evaluator_id = EVALUATOR_ID
     kind = EvaluatorKind.DETERMINISTIC
 
-    def __init__(self, sandbox: Sandbox | None = None, *, compiler: str = "cc") -> None:
+    def __init__(self, sandbox: Sandbox | None = None) -> None:
         # サンドボックスの用意は最初の採点まで遅らせる。起動時に
-        # Docker が無いだけでプロセス全体が上がらないのは行き過ぎ。
+        # コンテナ実行環境が無いだけでプロセス全体が上がらないのは行き過ぎ。
         self._sandbox = sandbox
-        self._compiler = compiler
+        self._explicit_sandbox = sandbox is not None
+        self._by_image: dict[str, Sandbox] = {}
 
-    def _resolve_sandbox(self) -> Sandbox:
-        if self._sandbox is None:
-            self._sandbox = default_sandbox()
-        return self._sandbox
+    def _resolve_sandbox(self, options: dict[str, object]) -> Sandbox:
+        """このリクエストで使うサンドボックス。
+
+        科目プロファイルがイメージを指定していれば、それごとに 1 つ持つ。
+        言語の処理系はイメージが持つので、Python 3.13 を要求する科目と
+        C を要求する科目が別のイメージを使える。指定が無ければ自動選択。
+        """
+        if self._explicit_sandbox and self._sandbox is not None:
+            return self._sandbox
+        image = str(options.get(OPTION_IMAGE, "")).strip()
+        if not image:
+            if self._sandbox is None:
+                self._sandbox = default_sandbox()
+            return self._sandbox
+        if image not in self._by_image:
+            from aijudge_sandbox import build_sandbox
+
+            self._by_image[image] = build_sandbox(image=image)
+        return self._by_image[image]
 
     def evaluate(self, request: EvaluationRequest) -> EvaluationOutcome:
         criterion = self._target_criterion(request)
@@ -160,13 +269,19 @@ class CodeTestRunner:
             )
         )
         try:
-            sandbox = self._resolve_sandbox()
+            language = resolve_language(request.options)
+        except UnknownLanguage as exc:
+            # 既定に落とさない。落とすと言語違いが「全員 0 点」として現れる。
+            return EvaluationOutcome(status=EvaluatorStatus.FAILED, error=str(exc))
+
+        try:
+            sandbox = self._resolve_sandbox(request.options)
             with sandbox.workspace() as workspace:
-                workspace.write(SOURCE_NAME, source)
-                compiled = self._compile(workspace, compile_limits)
-                if not compiled.ok:
+                workspace.write(language.source_name, source)
+                compiled = self._compile(workspace, language, compile_limits)
+                if compiled is not None and not compiled.ok:
                     return self._compile_failure(request, criterion, source_id, compiled)
-                cases = self._run_cases(request, workspace, case_limits)
+                cases = self._run_cases(request, workspace, language, case_limits)
         except SandboxError as exc:
             # 隔離できないなら採点しない。
             return EvaluationOutcome(
@@ -203,10 +318,15 @@ class CodeTestRunner:
 
     # -- internals ---------------------------------------------------------
 
-    def _compile(self, workspace: Workspace, limits: Limits) -> ExecResult:
+    def _compile(
+        self, workspace: Workspace, language: Language, limits: Limits
+    ) -> ExecResult | None:
+        """コンパイルする。スクリプト言語では None を返す（段階が存在しない）。"""
+        if language.compile_argv is None:
+            return None
         return workspace.run(
             ExecRequest(
-                argv=(self._compiler, "-std=c11", "-O0", "-o", BINARY_NAME, SOURCE_NAME),
+                argv=language.compile_argv,
                 limits=limits,
                 # コンパイラは信頼できる実行体。中間ファイルの置き場が要る。
                 # 提出物そのものを動かすときは決して立てない。
@@ -265,7 +385,11 @@ class CodeTestRunner:
         return "unknown"
 
     def _run_cases(
-        self, request: EvaluationRequest, workspace: Workspace, limits: Limits
+        self,
+        request: EvaluationRequest,
+        workspace: Workspace,
+        language: Language,
+        limits: Limits,
     ) -> list[dict[str, object]]:
         cases: list[dict[str, object]] = []
         for case in request.test_cases:
@@ -277,7 +401,7 @@ class CodeTestRunner:
             }
             result = workspace.run(
                 ExecRequest(
-                    argv=(f"./{BINARY_NAME}",),
+                    argv=language.run_argv,
                     stdin=str(case.payload.get("input", "")),
                     limits=limits,
                 )
@@ -318,9 +442,21 @@ class CodeTestRunner:
     def _rationale(self, passed: int, total: int, failed: list[dict[str, object]]) -> str:
         if not failed:
             return f"テストケース {total} 件すべてに正しい出力を返しました。"
+
+        head = f"テストケース {total} 件中 {passed} 件が一致しました。"
+
+        # 全件が同じエラーで落ちているなら、それを書く。
+        #
+        # スクリプト言語にはコンパイル段階が無いので、構文エラーが「全件の
+        # 実行時失敗」として現れる。ケース名を並べるだけでは、学習者に
+        # 「出力が違う」としか伝わらない。C の segfault も同じ形になる。
+        common = _common_error(failed) if passed == 0 else None
+        if common is not None:
+            return head + f"すべて同じエラーで停止しています: {common}"
+
         names = ", ".join(str(case["name"]) for case in failed[:5])
         suffix = " ほか" if len(failed) > 5 else ""
-        return f"テストケース {total} 件中 {passed} 件が一致しました。不一致: {names}{suffix}。"
+        return head + f"不一致: {names}{suffix}。"
 
     def _score(
         self,

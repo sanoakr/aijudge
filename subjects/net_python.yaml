@@ -1,0 +1,60 @@
+# ネットワーク及び演習（Python）— network2025 相当
+#
+# 2 つめの科目。**cs_intro_c との差はこのファイルと評価器の言語定義だけ**で、
+# `packages/core` と `packages/grading` は変わらないこと ── それが
+# ADR 0002 の主張であり、Phase 2 の検証項目そのもの（設計方針 §9.2）。
+
+name: net_python
+description: >
+  ネットワーク及び演習。Python によるソケット・HTTP・スレッドの演習。
+  ex1–ex3 は標準入出力で完結する。ex4 以降のクライアント／サーバ課題は
+  伴走プロセスを立てて採点する（未実装）。
+
+input:
+  allow_handwriting: false
+
+normalizers: []
+
+deterministic:
+  - code_test_runner
+
+ai_evaluators:
+  - rubric_ai_judge
+
+evaluator_options:
+  rubric_ai_judge:
+    samples: 3
+  code_test_runner:
+    language: python
+
+    # 実行環境のイメージ。講義は Python 3.13 を使うが、既定イメージ
+    # （gcc:14-bookworm）の Python は 3.11 である。ex1–ex3 の範囲では差は
+    # 出ないが、3.13 固有の機能を使う課題を出すならここを 3.13 のイメージに
+    # 変える。**科目ごとにイメージを選べる**ことが、言語の違う科目を
+    # 同じ基盤で運用する前提になっている。
+    # image: python:3.13-bookworm
+
+    # Python は起動が C の実行体より遅い（インタプリタの立ち上がり）。
+    # それでも 3 秒あれば ex1–ex3 の想定計算量には十分。
+    case_timeout_seconds: 3.0
+    # コンパイル段階が無いので使われない（宣言しておくと意図が分かる）。
+    compile_timeout_seconds: 10.0
+
+aggregation: weighted_sum
+
+review_policy:
+  confidence_below: 0.75
+  always_review_if_weight_over: 1.0
+  boundary_score: 0.6
+  boundary_margin: 0.05
+
+# 評価器 1 回の呼び出しに対する予算（秒）。AI 評価器の LLM 応答待ちを含む。
+# テストケースの実行上限とは別（上の case_timeout_seconds）。
+timeout_seconds: 120
+
+# 採点性能の測定（ADR 0007）。採点エンジンはこの値を読まない。
+#
+# 受講 91 名 × 自動採点できる課題 24 件 ≒ 2000 提出。1 観点あたり 30 件の
+# 標本には 0.02 で足りるが、初年度は多めに取って早く測れるようにする。
+measurement:
+  blind_sample_rate: 0.05

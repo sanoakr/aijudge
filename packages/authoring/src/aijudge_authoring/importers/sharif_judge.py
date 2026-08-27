@@ -110,14 +110,23 @@ def collect_test_cases(
     return tuple(cases)
 
 
+# 参照解答として扱う拡張子。科目によって言語が違う（prog2 は C、
+# ネットワーク演習は Python）ので、決め打ちにしない。
+REFERENCE_SUFFIXES = (".c", ".py", ".java")
+
+
 def find_reference_solution(problem_dir: Path) -> str | None:
-    """参照解答（.c）を読む。無くても取り込みは成立する。"""
-    sources = sorted(problem_dir.glob("*.c"))
-    if not sources:
-        return None
-    if len(sources) > 1:
-        raise ImportError_(f"{problem_dir} has multiple .c files: {[p.name for p in sources]}")
-    return sources[0].read_text(encoding="utf-8")
+    """参照解答を読む。無くても取り込みは成立する。
+
+    複数あっても落とさない。既存の課題ディレクトリには `a.out` や別年度の
+    控えが混ざっていることがあり、そこで取り込みを止めると 130 件の課題が
+    1 件の残骸で入らなくなる。拡張子の優先順で 1 つ選ぶ。
+    """
+    for suffix in REFERENCE_SUFFIXES:
+        sources = sorted(problem_dir.glob(f"*{suffix}"))
+        if sources:
+            return sources[0].read_text(encoding="utf-8", errors="replace")
+    return None
 
 
 def _criterion_id(task_key: str, code: str) -> CriterionId:
@@ -224,7 +233,36 @@ def import_problem(
     # 課題ディレクトリ名を同一性の鍵にする（exNN/pN など運用上の一意名）。
     task_key = f"{problem_dir.parent.name}/{problem_dir.name}"
 
-    correctness = correctness_criterion(evaluator_id, task_key)
+    cases = collect_test_cases(problem_dir, evaluator_id)
+
+    # **テストケースが無い課題は、決定的評価器に担当させない。**
+    #
+    # 担当させると、その観点は永久に採点されないまま `unscored_criteria` に
+    # 入り、全提出が review_required で教員に積まれる（設計原則 P5 の
+    # 「誰も見ていない観点に点を与えない」が、そのまま「全部を人間が見る」に
+    # なる）。
+    #
+    # 実在する課題がこれに当たる。ネットワーク演習の HTTP サーバ課題
+    # （受動的に応答するので Sharif Judge では判定できなかった）、
+    # プログラミング演習の自己採点課題、レポート課題。
+    #
+    # これらは「自動採点できない課題」ではなく「**まだ**自動採点できない課題」
+    # である（伴走サーバによるサーバ課題の採点、レポートのルーブリック採点は
+    # いずれも計画にある）。当面は AI 観点だけで構成し、テストケースの形が
+    # 決まった時点で新しい版を作って決定的評価器に渡す。
+    graded_by = evaluator_id if cases else AI_EVALUATOR
+    correctness = correctness_criterion(graded_by, task_key)
+    if not cases:
+        correctness = correctness.model_copy(
+            update={
+                "title": "仕様の充足",
+                "description": (
+                    "課題の指示どおりに動作するか。自動テストがまだ無いため "
+                    "AI が判定し、教員が確定させる。"
+                ),
+            }
+        )
+
     criteria: tuple[RubricCriterion, ...]
     if readability_weight > 0.0:
         criteria = (
@@ -242,7 +280,7 @@ def import_problem(
         statement=statement,
         reference_solution=find_reference_solution(problem_dir),
         criteria=criteria,
-        test_cases=collect_test_cases(problem_dir, evaluator_id),
+        test_cases=cases,
         q_matrix=(),
         max_score=max_score,
         allow_handwriting=False,

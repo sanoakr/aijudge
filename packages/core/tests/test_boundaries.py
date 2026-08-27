@@ -124,6 +124,49 @@ def test_the_measurement_app_declares_no_grading_dependencies() -> None:
     assert not leaked, f"measurement app depends on grading packages: {sorted(leaked)}"
 
 
+def test_neither_core_nor_the_engine_knows_a_language() -> None:
+    """科目を足しても採点エンジンが変わらないこと（ADR 0002）。
+
+    2 つめの科目（ネットワーク演習・Python）を足したときの実測では、
+    `packages/core` と `packages/grading` の変更行数は **0 行**だった。
+    変わったのは評価器（言語定義）と科目 YAML だけ。
+
+    この性質は行数では守れないので、言語固有の語がエンジンに現れないことを
+    見る。ここに `python` や `cc` が入り始めたら、科目の追加がエンジンの
+    改修になっている。
+    """
+    # 言語処理系・拡張子・言語名。コメントも含めて現れないこと。
+    forbidden = ("cc ", "gcc", "-std=c11", "main.c", "main.py", "python3", "javac")
+    checked = 0
+    for package in ("core", "grading"):
+        for path in (REPO_ROOT / "packages" / package / "src").rglob("*.py"):
+            text = path.read_text(encoding="utf-8")
+            checked += 1
+            for token in forbidden:
+                assert token not in text, (
+                    f"{path.relative_to(REPO_ROOT)} に言語固有の語 {token!r} がある。"
+                    "科目の追加が採点エンジンの改修になっていないか確認すること"
+                )
+    assert checked > 5, "検査対象が少なすぎる（走査に失敗している）"
+
+
+def test_the_engine_names_no_subject() -> None:
+    """特定の科目名がエンジンに現れないこと。
+
+    科目プロファイルは名前で指名される。エンジンが名前を知っていたら、
+    その科目だけ特別扱いする経路がある。
+    """
+    subjects = {path.stem for path in (REPO_ROOT / "subjects").glob("*.yaml")}
+    assert subjects, "科目プロファイルが見つからない"
+    for package in ("core", "grading"):
+        for path in (REPO_ROOT / "packages" / package / "src").rglob("*.py"):
+            text = path.read_text(encoding="utf-8")
+            for name in subjects:
+                assert name not in text, (
+                    f"{path.relative_to(REPO_ROOT)} が科目 {name!r} を名指ししている"
+                )
+
+
 def test_core_declares_no_io_dependencies() -> None:
     """core の依存は pydantic だけ。ここが増えるのは設計が漏れた兆候。"""
     manifest = REPO_ROOT / "packages" / "core" / "pyproject.toml"

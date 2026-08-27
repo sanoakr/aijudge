@@ -240,12 +240,30 @@ def create_staff(
 
 
 @dataclass
+class ImportedTask:
+    key: str
+    title: str
+    test_cases: int
+    # 決定的評価器が担当する観点があるか。無ければ AI 観点だけで、
+    # 教員の確定が前提になる（サーバ課題・レポート課題・自己採点課題）。
+    auto_graded: bool
+
+
+@dataclass
 class ImportReport:
-    imported: list[tuple[str, str, int]] = field(default_factory=list)
-    """(課題名, 題名, テストケース数)。"""
+    imported: list[ImportedTask] = field(default_factory=list)
 
     skipped: list[tuple[str, str]] = field(default_factory=list)
     """(課題名, 理由)。取り込めなかったもの。**黙って消さない。**"""
+
+    @property
+    def review_only(self) -> list[ImportedTask]:
+        """自動テストがまだ無い課題。
+
+        「取り込めなかった」ではなく「取り込めたが AI 観点だけ」。
+        運用者がその違いを見落とさないよう、別に数えて出す。
+        """
+        return [task for task in self.imported if not task.auto_graded]
 
 
 def import_tasks(
@@ -256,7 +274,7 @@ def import_tasks(
     profiles_dir: Path,
     readability_weight: float = 0.0,
     evaluator_id: str | None = None,
-    require_test_cases: bool = True,
+    require_test_cases: bool = False,
     dry_run: bool = False,
 ) -> ImportReport:
     """Sharif Judge の課題ディレクトリを取り込む。
@@ -269,9 +287,14 @@ def import_tasks(
     導くため）。問題文を直した場合だけ「内容が違う」として拒否される。
     その場合は版を上げる操作が別に要る（P8）。
 
-    `require_test_cases` が真のとき、テストケースが 0 件の課題は取り込まない。
-    取り込むと「決定的評価が何も判定しない課題」ができ、全員が
-    review_required で教員に積まれる。**それを黙って作らない。**
+    テストケースが 0 件の課題も取り込む。それは「自動採点できない課題」では
+    なく「**まだ**自動採点できない課題」で、実在する（HTTP サーバ課題・
+    自己採点課題・レポート課題）。取り込み器がそういう課題を AI 観点だけで
+    構成するので、決定的評価器が永久に判定しない観点は生まれない。
+
+    `require_test_cases` を真にすると 0 件の課題を拒否する。取り込み対象を
+    間違えた（空のディレクトリを渡した）ことに気づくための安全装置で、
+    運用の既定ではない。
     """
     with database.unit_of_work() as uow:
         course = uow.identity.get_course(course_id)
@@ -299,17 +322,20 @@ def import_tasks(
 
         if require_test_cases and not version.test_cases:
             report.skipped.append(
-                (
-                    key,
-                    "テストケースが 0 件（自動採点できない）。"
-                    "教員レビューだけで運用するなら --allow-no-test-cases",
-                )
+                (key, "テストケースが 0 件（--require-test-cases が指定されている）")
             )
             continue
 
         if not dry_run:
             _save(database, course_id, version, key)
-        report.imported.append((key, _title_of(version), len(version.test_cases)))
+        report.imported.append(
+            ImportedTask(
+                key=key,
+                title=_title_of(version),
+                test_cases=len(version.test_cases),
+                auto_graded=bool(version.test_cases),
+            )
+        )
     return report
 
 

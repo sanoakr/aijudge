@@ -332,3 +332,103 @@ def test_an_absurd_case_timeout_option_falls_back_to_the_default() -> None:
             _seconds_option(bad, OPTION_CASE_TIMEOUT, DEFAULT_CASE_TIMEOUT_SECONDS)
             == DEFAULT_CASE_TIMEOUT_SECONDS
         )
+
+
+# --------------------------------------------------------------------------
+# 2 つめの言語（Phase 2）
+# --------------------------------------------------------------------------
+
+
+def test_the_runner_supports_more_than_one_language() -> None:
+    """言語を足す作業が評価器に閉じていること（ADR 0002）。"""
+    from aijudge_eval_code_test_runner import LANGUAGES, resolve_language
+
+    assert {"c", "python"} <= set(LANGUAGES)
+    assert resolve_language({}).label == "C", "既定は C"
+    assert resolve_language({"language": "python"}).label == "Python"
+    assert resolve_language({"language": "PYTHON"}).label == "Python", "大文字小文字を問わない"
+
+
+def test_a_script_language_has_no_compile_step() -> None:
+    """「コンパイルエラー」という結果が存在しない言語がある。"""
+    from aijudge_eval_code_test_runner import resolve_language
+
+    assert resolve_language({"language": "c"}).compile_argv is not None
+    assert resolve_language({"language": "python"}).compile_argv is None
+
+
+def test_an_unknown_language_stops_the_grading() -> None:
+    """既定に落とさない。落とすと言語違いが「全員 0 点」として現れる。"""
+    from aijudge_eval_code_test_runner import UnknownLanguage, resolve_language
+
+    with pytest.raises(UnknownLanguage, match="not supported"):
+        resolve_language({"language": "rust"})
+
+
+def test_python_is_run_in_isolated_mode() -> None:
+    """`-I` で環境変数と site-packages を無視する。
+
+    無視しないと、提出の挙動が採点機の状態に依存する（PYTHONPATH に
+    何が入っているかで結果が変わる）。
+    """
+    from aijudge_eval_code_test_runner import resolve_language
+
+    assert "-I" in resolve_language({"language": "python"}).run_argv
+
+
+def test_both_subject_profiles_declare_their_language() -> None:
+    """科目の違いが YAML に現れていること。"""
+    from pathlib import Path
+
+    from aijudge_grading import EvaluatorRegistry, load_profile
+
+    registry = EvaluatorRegistry().load_installed()
+    root = Path(__file__).resolve().parents[1] / "subjects"
+    languages = {}
+    for path in sorted(root.glob("*.yaml")):
+        profile = load_profile(path, registry)
+        options = profile.evaluator_options.get("code_test_runner", {})
+        languages[profile.name] = options.get("language")
+
+    assert languages.get("cs_intro_c") == "c"
+    assert languages.get("net_python") == "python"
+
+
+def test_a_common_error_is_reported_instead_of_case_names() -> None:
+    """全件が同じ理由で落ちたなら、その理由を書く。
+
+    スクリプト言語には コンパイル段階が無いので、構文エラーが「全件の実行時
+    失敗」として現れる。ケース名を並べるだけでは「出力が違う」としか伝わらない。
+    """
+    from aijudge_eval_code_test_runner import CodeTestRunner
+
+    runner = CodeTestRunner()
+    failed = [
+        {"name": f"case{i}", "stderr": "Traceback...\nSyntaxError: '(' was never closed"}
+        for i in range(1, 6)
+    ]
+    rationale = runner._rationale(0, 5, failed)
+    assert "SyntaxError: '(' was never closed" in rationale
+    assert "case1" not in rationale
+
+
+def test_differing_errors_fall_back_to_case_names() -> None:
+    """理由が違うなら、まとめて 1 つのエラーとして語らない。"""
+    from aijudge_eval_code_test_runner import CodeTestRunner
+
+    runner = CodeTestRunner()
+    failed = [
+        {"name": "case1", "stderr": "ValueError: a"},
+        {"name": "case2", "stderr": "KeyError: b"},
+    ]
+    rationale = runner._rationale(0, 2, failed)
+    assert "case1" in rationale
+
+
+def test_a_shared_signal_is_reported(monkeypatch) -> None:
+    """C の segfault も「全件同じ理由」に当たる。"""
+    from aijudge_eval_code_test_runner import CodeTestRunner
+
+    runner = CodeTestRunner()
+    failed = [{"name": f"case{i}", "signal": "SIGSEGV"} for i in range(3)]
+    assert "SIGSEGV" in runner._rationale(0, 3, failed)

@@ -355,9 +355,10 @@ def test_a_problem_directory_is_imported(database: Database, course) -> None:
         database, course_id=course.id, directory=EXAMPLE_TASK, profiles_dir=PROFILES
     )
     assert len(report.imported) == 1
-    _key, title, cases = report.imported[0]
-    assert cases == 5
-    assert title
+    task = report.imported[0]
+    assert task.test_cases == 5
+    assert task.title
+    assert task.auto_graded
 
     rows = list_tasks(database, course.id)
     assert len(rows) == 1
@@ -392,48 +393,79 @@ def test_a_parent_directory_imports_every_problem(
     report = import_tasks(
         database, course_id=course.id, directory=assignment, profiles_dir=PROFILES
     )
-    assert sorted(key for key, _, _ in report.imported) == ["ex3/p1", "ex3/p2", "ex3/p3"]
+    assert sorted(task.key for task in report.imported) == ["ex3/p1", "ex3/p2", "ex3/p3"]
     assert len(list_tasks(database, course.id)) == 3
 
 
-def test_a_task_without_test_cases_is_not_imported_silently(
-    database: Database, course, tmp_path: Path
-) -> None:
-    """自動採点できない課題を黙って作らない。
-
-    作ると、全員が review_required で教員に積まれる。
-    ネットワーク演習の ex5 以降（HTTP サーバ）が実際にこれに当たる。
-    """
+def _server_task(tmp_path: Path) -> Path:
+    """自動テストの無い課題。実在する形（in/out が空のサーバ課題）。"""
     staged = tmp_path / "ex5" / "p1"
     staged.mkdir(parents=True)
     (staged / "desc.md").write_text("## httpServer2.py\n\nサーバを作りなさい\n", encoding="utf-8")
     (staged / "in").mkdir()
     (staged / "out").mkdir()
-
-    report = import_tasks(database, course_id=course.id, directory=staged, profiles_dir=PROFILES)
-    assert report.imported == []
-    assert len(report.skipped) == 1
-    assert "テストケースが 0 件" in report.skipped[0][1]
-    assert list_tasks(database, course.id) == ()
+    return staged
 
 
-def test_a_task_without_test_cases_can_be_imported_deliberately(
+def test_a_task_without_test_cases_is_imported(database: Database, course, tmp_path: Path) -> None:
+    """自動テストが無い課題も取り込む。
+
+    HTTP サーバ課題（受動的に応答するので Sharif Judge では判定できなかった）、
+    自己採点課題、レポート課題が実在する。これらは「自動採点できない」のでは
+    なく「**まだ**自動採点できない」課題である。
+    """
+    report = import_tasks(
+        database, course_id=course.id, directory=_server_task(tmp_path), profiles_dir=PROFILES
+    )
+    assert len(report.imported) == 1
+    assert report.imported[0].test_cases == 0
+    assert not report.imported[0].auto_graded
+    assert len(list_tasks(database, course.id)) == 1
+
+
+def test_a_task_without_test_cases_is_graded_by_the_ai_not_left_unscored(
     database: Database, course, tmp_path: Path
 ) -> None:
-    """教員レビューだけで運用する選択肢は残す。"""
-    staged = tmp_path / "ex5" / "p1"
-    staged.mkdir(parents=True)
-    (staged / "desc.md").write_text("## httpServer2.py\n\nサーバを作りなさい\n", encoding="utf-8")
+    """決定的評価器に担当させない。
 
+    担当させると、その観点は永久に採点されず全提出が review_required で
+    教員に積まれる。AI 観点にしておけば採点は成立し、教員が確定させる。
+    """
+    import_tasks(
+        database, course_id=course.id, directory=_server_task(tmp_path), profiles_dir=PROFILES
+    )
+    (_task, version) = list_tasks(database, course.id)[0]
+    assert version.test_cases == ()
+    assert [c.evaluator_id for c in version.criteria] == ["rubric_ai_judge"]
+    assert sum(c.weight for c in version.criteria) == pytest.approx(1.0)
+
+
+def test_the_report_distinguishes_auto_graded_from_review_only(
+    database: Database, course, tmp_path: Path
+) -> None:
+    """「取り込めた」と「自動採点できる」は違う。混ぜて報告しない。"""
+    shutil.copytree(EXAMPLE_TASK, tmp_path / "ex5" / "p2")
+    _server_task(tmp_path)
+    report = import_tasks(
+        database, course_id=course.id, directory=tmp_path / "ex5", profiles_dir=PROFILES
+    )
+    assert len(report.imported) == 2
+    assert [task.key for task in report.review_only] == ["ex5/p1"]
+
+
+def test_requiring_test_cases_refuses_a_task_without_them(
+    database: Database, course, tmp_path: Path
+) -> None:
+    """取り込み対象を間違えたことに気づくための安全装置。"""
     report = import_tasks(
         database,
         course_id=course.id,
-        directory=staged,
+        directory=_server_task(tmp_path),
         profiles_dir=PROFILES,
-        readability_weight=0.5,
-        require_test_cases=False,
+        require_test_cases=True,
     )
-    assert len(report.imported) == 1
+    assert report.imported == []
+    assert "テストケースが 0 件" in report.skipped[0][1]
 
 
 def test_a_directory_without_problems_is_refused(

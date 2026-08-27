@@ -194,19 +194,27 @@ def cmd_task_import(args: argparse.Namespace) -> int:
             profiles_dir=args.profiles,
             readability_weight=args.readability_weight,
             evaluator_id=args.evaluator,
-            require_test_cases=not args.allow_no_test_cases,
+            require_test_cases=args.require_test_cases,
             dry_run=args.dry_run,
         )
     finally:
         database.dispose()
 
-    for key, title, cases in report.imported:
-        print(f"取り込み: {key:12s} テスト {cases:3d} 件  {title}")
+    for task in report.imported:
+        mark = "" if task.auto_graded else "  ← 自動テストなし（AI 観点のみ）"
+        print(f"取り込み: {task.key:16s} テスト {task.test_cases:3d} 件  {task.title}{mark}")
     if report.skipped:
         print(f"\n取り込まなかった課題: {len(report.skipped)} 件", file=sys.stderr)
         for key, reason in report.skipped:
             print(f"  {key}: {reason}", file=sys.stderr)
+
     print(f"\n合計 {len(report.imported)} 件取り込み / {len(report.skipped)} 件除外")
+    if report.review_only:
+        # 「取り込めた」と「自動採点できる」は違う。混ぜて報告しない。
+        print(
+            f"うち {len(report.review_only)} 件は自動テストがまだ無く、"
+            "AI 観点のみで採点されます（教員の確定が前提）。"
+        )
     if args.dry_run:
         print("（dry-run のため何も保存していません）")
     # 除外があっても取り込めた分は成立している。件数で判断できるよう 0 を返す。
@@ -302,9 +310,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     imp.add_argument("--evaluator", default=None, help="決定的評価器の ID を明示する")
     imp.add_argument(
-        "--allow-no-test-cases",
+        "--require-test-cases",
         action="store_true",
-        help="テストケースが 0 件の課題も取り込む（教員レビューだけで運用する場合）",
+        help=(
+            "テストケースが 0 件の課題を拒否する"
+            "（取り込み対象を間違えたことに気づくための安全装置）"
+        ),
     )
     imp.add_argument("--dry-run", action="store_true")
     imp.set_defaults(func=cmd_task_import)
