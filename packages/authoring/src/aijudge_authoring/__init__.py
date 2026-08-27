@@ -18,6 +18,7 @@ from .repository import (
     TaskImmutabilityViolation,
     TaskRepository,
     TaskStoreError,
+    substantive,
 )
 
 __all__ = [
@@ -26,4 +27,5 @@ __all__ = [
     "TaskRepository",
     "TaskStoreError",
     "sharif_judge",
+    "substantive",
 ]

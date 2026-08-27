@@ -22,7 +22,11 @@ from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from aijudge_authoring.repository import TaskImmutabilityViolation, TaskStoreError
+from aijudge_authoring.repository import (
+    TaskImmutabilityViolation,
+    TaskStoreError,
+    substantive,
+)
 from aijudge_core import BlindMark, GradingRun, HumanReview, Submission, Task, TaskVersion
 from aijudge_core.events import EVENT_TYPES, DomainEvent
 from aijudge_core.ids import (
@@ -522,8 +526,9 @@ class SqlTaskRepository:
     def save_version(self, version: TaskVersion) -> None:
         row = self._session.get(TaskVersionRow, str(version.id))
         if row is not None:
-            if row.document == _dump(version):
+            if substantive(TaskVersion.model_validate(row.document)) == substantive(version):
                 # 同じ内容の取り込みは冪等。決定的 ID の経路で普通に起きる。
+                # 判定から `created_at` を外している（authoring/repository.py 参照）。
                 return
             raise TaskImmutabilityViolation(
                 f"TaskVersion {version.id} already exists with different content; "

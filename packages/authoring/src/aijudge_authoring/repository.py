@@ -6,6 +6,11 @@
 
 `TaskVersion` は公開後不変（P8）。保存済みの版を書き換えようとしたら
 拒否する。問題文の訂正は新しい版を作る。
+
+**「同じ内容」の判定から `created_at` を外す。** 不変にしたいのは採点の
+基準（問題文・観点・テストケース）であって、行を書いた時刻ではない。
+含めると、同じディレクトリの再取り込みが毎回「内容が違う」と拒否され、
+学期の頭に取り込みを流し直せなくなる。
 """
 
 from __future__ import annotations
@@ -45,6 +50,18 @@ class TaskRepository(Protocol):
         ...
 
 
+# 不変性の比較から外す項目。採点の基準ではないもの。
+VOLATILE_FIELDS = frozenset({"created_at"})
+
+
+def substantive(version: TaskVersion) -> dict:
+    """採点の基準になる部分だけを取り出す。
+
+    `created_at` を含めないのがこの関数の存在理由（モジュール docstring 参照）。
+    """
+    return version.model_dump(mode="json", exclude=set(VOLATILE_FIELDS))
+
+
 class InMemoryTaskRepository:
     """テストと開発用。規則は本番と同じにしてある。"""
 
@@ -62,9 +79,10 @@ class InMemoryTaskRepository:
     def save_version(self, version: TaskVersion) -> None:
         existing = self._versions.get(version.id)
         if existing is not None:
-            if existing == version:
+            if substantive(existing) == substantive(version):
                 # 同じ内容の取り込みを繰り返すのは冪等な操作。
                 # 決定的 ID（derived_id）で取り込む経路では普通に起きる。
+                # 保存済みの側を残す（取り込み時刻を書き換えない）。
                 return
             raise TaskImmutabilityViolation(
                 f"TaskVersion {version.id} already exists with different content; "

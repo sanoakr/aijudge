@@ -24,6 +24,7 @@ root_packages =
     aijudge_identity
     aijudge_studentweb
     aijudge_feedback
+    aijudge_admin
 include_external_packages = True
 
 [importlinter:contract:core-is-independent]
@@ -234,6 +235,7 @@ forbidden_modules =
     aijudge_reviewconsole
     aijudge_grader
     aijudge_studentweb
+    aijudge_admin
 
 ; フィードバック生成は評価器と同じ依存の形に留める。core と S6 だけ。
 ; 採点エンジンを知らせると、採点が終わるまでフィードバックが作れない設計に

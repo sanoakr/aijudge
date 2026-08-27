@@ -65,11 +65,25 @@ def parse_title(desc: str) -> tuple[str, str | None]:
 def collect_test_cases(
     problem_dir: Path, evaluator_id: str = DEFAULT_EVALUATOR
 ) -> tuple[TestCase, ...]:
-    """in/inputN.txt と out/outputN.txt を対にして TestCase にする。"""
+    """in/inputN.txt と out/outputN.txt を対にして TestCase にする。
+
+    **テストケースが 0 件でも例外にしない。** 自動採点しない課題が実在する
+    （ネットワーク演習の HTTP サーバ課題は in/out が空、レポート課題には
+    そもそも無い）。そういう課題は教員レビューだけで運用する。
+
+    ただし「0 件でよい」の判断はここではしない。呼び出し側が
+    「自動採点できない課題を黙って作らない」を判断する
+    （`aijudge_admin.import_tasks` の `require_test_cases`）。ここで
+    例外にすると、その判断を呼び出し側から奪うことになる。
+
+    対応が壊れている場合（input はあるのに output が無い）は例外にする。
+    これは「テストが無い」ではなく「テストが壊れている」で、黙って
+    件数が減ると採点が緩くなる。
+    """
     in_dir = problem_dir / "in"
     out_dir = problem_dir / "out"
     if not in_dir.is_dir() or not out_dir.is_dir():
-        raise ImportError_(f"{problem_dir} has no in/ and out/ directories")
+        return ()
 
     cases: list[TestCase] = []
     for input_path in sorted(in_dir.iterdir()):
@@ -93,8 +107,6 @@ def collect_test_cases(
                 weight=1.0,
             )
         )
-    if not cases:
-        raise ImportError_(f"{problem_dir} contains no input*.txt / output*.txt pairs")
     return tuple(cases)
 
 
