@@ -148,6 +148,44 @@ class GradingRunRow(Base):
     )
 
 
+class HumanReviewRow(Base):
+    """教員の確認・修正。
+
+    **GradingRun を書き換えない。** 追記でしか記録しない（P8）。この行の
+    存在が成績の確定を意味する。
+    """
+
+    __tablename__ = "human_reviews"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    grading_run_id: Mapped[str] = mapped_column(String(64), index=True)
+    submission_id: Mapped[str] = mapped_column(String(64), index=True)
+    grader_id: Mapped[str] = mapped_column(String(64), index=True)
+    agreed: Mapped[bool] = mapped_column(Boolean, index=True)
+    reviewed_at: Mapped[datetime] = mapped_column(Timestamp, index=True)
+    document: Mapped[dict] = mapped_column(JsonType)
+
+    __table_args__ = (
+        # 1 採点につき確定は 1 つ。二度確定できると成績が二つ存在する。
+        UniqueConstraint("grading_run_id", name="uq_reviews_run"),
+    )
+
+
+class BlindMarkRow(Base):
+    """教員が AI を見る前に付けた段階（測定用の正解データ）。
+
+    提出 1 件につき 1 つ。二度目を受け付けると、AI を見たあとの段階で
+    上書きできてしまい正解データが汚れる（ADR 0005）。
+    """
+
+    __tablename__ = "blind_marks"
+
+    submission_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    grader_id: Mapped[str] = mapped_column(String(64), index=True)
+    marked_at: Mapped[datetime] = mapped_column(Timestamp)
+    document: Mapped[dict] = mapped_column(JsonType)
+
+
 class GradingJobRow(Base):
     __tablename__ = "grading_jobs"
 

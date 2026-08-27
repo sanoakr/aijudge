@@ -28,6 +28,7 @@ from .repositories import (
     SqlGradingRunRepository,
     SqlJobQueue,
     SqlOutbox,
+    SqlReviewRepository,
     SqlSubmissionRepository,
     SqlTaskRepository,
 )
@@ -45,6 +46,7 @@ __all__ = [
     "SqlIdentityRepository",
     "SqlJobQueue",
     "SqlOutbox",
+    "SqlReviewRepository",
     "SqlSubmissionRepository",
     "SqlTaskRepository",
     "SqlUnitOfWork",

@@ -23,12 +23,13 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from aijudge_authoring.repository import TaskImmutabilityViolation, TaskStoreError
-from aijudge_core import GradingRun, Submission, Task, TaskVersion
+from aijudge_core import BlindMark, GradingRun, HumanReview, Submission, Task, TaskVersion
 from aijudge_core.events import EVENT_TYPES, DomainEvent
 from aijudge_core.ids import (
     CourseId,
     GradingJobId,
     GradingRunId,
+    HumanReviewId,
     SubmissionId,
     TaskId,
     TaskVersionId,
@@ -39,8 +40,10 @@ from aijudge_submission import GradingJob, JobState
 from aijudge_submission.protocols import ImmutabilityViolation, SubmissionStoreError
 
 from .schema import (
+    BlindMarkRow,
     GradingJobRow,
     GradingRunRow,
+    HumanReviewRow,
     OutboxRow,
     SubmissionKeyRow,
     SubmissionRow,
@@ -199,6 +202,81 @@ class SqlGradingRunRepository:
         document["superseded_by"] = str(new_id)
         row.document = document
         self._session.flush()
+
+
+class SqlReviewRepository:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def save_review(self, review: HumanReview) -> None:
+        run = self._session.get(GradingRunRow, str(review.grading_run_id))
+        if run is None:
+            raise SubmissionStoreError(f"no GradingRun {review.grading_run_id}")
+        row = self._session.get(HumanReviewRow, str(review.id))
+        if row is None:
+            existing = (
+                self._session.execute(
+                    select(HumanReviewRow).where(
+                        HumanReviewRow.grading_run_id == str(review.grading_run_id)
+                    )
+                )
+                .scalars()
+                .first()
+            )
+            if existing is not None:
+                # 二度確定できると成績が二つ存在する。やり直しは再採点から。
+                raise ImmutabilityViolation(
+                    f"GradingRun {review.grading_run_id} is already finalised by "
+                    f"{existing.grader_id}"
+                )
+            self._session.add(
+                HumanReviewRow(
+                    id=str(review.id),
+                    grading_run_id=str(review.grading_run_id),
+                    submission_id=str(run.submission_id),
+                    grader_id=str(review.grader_id),
+                    agreed=review.agreed,
+                    reviewed_at=review.reviewed_at,
+                    document=_dump(review),
+                )
+            )
+        else:
+            raise ImmutabilityViolation(f"HumanReview {review.id} already exists")
+        self._session.flush()
+
+    def get_review(self, review_id: HumanReviewId) -> HumanReview | None:
+        row = self._session.get(HumanReviewRow, str(review_id))
+        return None if row is None else HumanReview.model_validate(row.document)
+
+    def find_review_for_run(self, run_id: GradingRunId) -> HumanReview | None:
+        row = (
+            self._session.execute(
+                select(HumanReviewRow).where(HumanReviewRow.grading_run_id == str(run_id))
+            )
+            .scalars()
+            .first()
+        )
+        return None if row is None else HumanReview.model_validate(row.document)
+
+    def save_blind_mark(self, mark: BlindMark) -> None:
+        if self._session.get(BlindMarkRow, str(mark.submission_id)) is not None:
+            raise ImmutabilityViolation(
+                f"submission {mark.submission_id} already has a blind mark; "
+                "overwriting it would let a post-AI grade become ground truth (ADR 0005)"
+            )
+        self._session.add(
+            BlindMarkRow(
+                submission_id=str(mark.submission_id),
+                grader_id=str(mark.grader_id),
+                marked_at=mark.marked_at,
+                document=_dump(mark),
+            )
+        )
+        self._session.flush()
+
+    def find_blind_mark(self, submission_id: SubmissionId) -> BlindMark | None:
+        row = self._session.get(BlindMarkRow, str(submission_id))
+        return None if row is None else BlindMark.model_validate(row.document)
 
 
 class SqlJobQueue:

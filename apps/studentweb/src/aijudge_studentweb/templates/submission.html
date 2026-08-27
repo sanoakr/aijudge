@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}提出 {{ submission.attempt }} 回目 — aiJudge{% endblock %}
+{% block body %}
+<h1>提出 {{ submission.attempt }} 回目の結果</h1>
+<p class="crumb"><a href="/tasks/{{ task.id }}">← 課題へ戻る</a></p>
+
+{% if duplicate %}
+<div class="note">
+  同じ内容がすでに提出されています。新しい提出は作られていません。
+</div>
+{% endif %}
+
+{% if not run %}
+<div class="note">
+  <strong>採点を待っています。</strong>
+  テスト実行の結果はすぐに、AI による評価は少し時間をおいて届きます。
+  この画面を再読み込みして確認してください。
+</div>
+{% else %}
+
+{% if view.confirmed %}
+<div class="card">
+  <div class="score">{{ '%.0f' | format(view.score_ratio * 100) }}<span class="unit">%</span></div>
+  <p class="desc" style="margin:0">担当教員が確認した成績です。</p>
+</div>
+{% elif view.awaiting_ai %}
+<div class="note">
+  <strong>テスト実行の結果が出ました。</strong>
+  観点別の評価は担当教員の確認後に表示されます。総合点もそのときに確定します。
+</div>
+{% endif %}
+
+<h2>観点ごとの結果</h2>
+<table>
+  <thead><tr><th>観点</th><th>評価</th><th>説明</th></tr></thead>
+  <tbody>
+  {% for row in view.criteria %}
+    <tr>
+      <td><strong>{{ row.criterion.title }}</strong><br>
+          <span class="desc">{{ row.criterion.description }}</span></td>
+      <td>
+        {% if row.pending %}<span class="pill">{{ row.label }}</span>
+        {% else %}<span class="pill ok">{{ row.label }}</span>
+          {% if row.adjusted %}<br><span class="desc">教員が調整</span>{% endif %}
+        {% endif %}
+      </td>
+      <td>
+        {% if row.rationale %}{{ row.rationale }}
+          {% if row.evidence_lines %}
+            <br><span class="desc">該当行: {{ row.evidence_lines | join(', ') }}</span>
+          {% endif %}
+        {% else %}<span class="desc">—</span>{% endif %}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+{% if view.feedback %}
+<h2>次の一手</h2>
+<div class="card">{{ view.feedback }}</div>
+{% endif %}
+{% endif %}
+
+<h2>提出したコード</h2>
+<pre class="code">{% for n, line in lines %}<span class="ln">{{ '<span class="n">' | safe }}{{ n }}{{ '</span>' | safe }}{{ line }}</span>{% endfor %}</pre>
+{% endblock %}

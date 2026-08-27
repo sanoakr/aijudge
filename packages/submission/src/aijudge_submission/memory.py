@@ -17,11 +17,12 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import datetime
 
-from aijudge_core import GradingRun, Submission
+from aijudge_core import BlindMark, GradingRun, HumanReview, Submission
 from aijudge_core.events import DomainEvent
 from aijudge_core.ids import (
     GradingJobId,
     GradingRunId,
+    HumanReviewId,
     SubmissionId,
     TaskVersionId,
     TenantId,
@@ -137,6 +138,35 @@ class InMemoryGradingRunRepository:
         self._items[old_id] = old.model_copy(update={"superseded_by": new_id})
 
 
+class InMemoryReviewRepository:
+    def __init__(self) -> None:
+        self._reviews: dict[HumanReviewId, HumanReview] = {}
+        self._by_run: dict[GradingRunId, HumanReviewId] = {}
+        self._marks: dict[SubmissionId, BlindMark] = {}
+
+    def save_review(self, review: HumanReview) -> None:
+        self._reviews[review.id] = review
+        self._by_run[review.grading_run_id] = review.id
+
+    def get_review(self, review_id: HumanReviewId) -> HumanReview | None:
+        return self._reviews.get(review_id)
+
+    def find_review_for_run(self, run_id: GradingRunId) -> HumanReview | None:
+        review_id = self._by_run.get(run_id)
+        return None if review_id is None else self._reviews.get(review_id)
+
+    def save_blind_mark(self, mark: BlindMark) -> None:
+        if mark.submission_id in self._marks:
+            raise ImmutabilityViolation(
+                f"submission {mark.submission_id} already has a blind mark; "
+                "overwriting it would let a post-AI grade become ground truth (ADR 0005)"
+            )
+        self._marks[mark.submission_id] = mark
+
+    def find_blind_mark(self, submission_id: SubmissionId) -> BlindMark | None:
+        return self._marks.get(submission_id)
+
+
 class InMemoryJobQueue:
     def __init__(self) -> None:
         self._items: dict[GradingJobId, GradingJob] = {}
@@ -231,11 +261,13 @@ class InMemoryUnitOfWork:
         runs: InMemoryGradingRunRepository,
         jobs: InMemoryJobQueue,
         outbox: InMemoryOutbox,
+        reviews: InMemoryReviewRepository | None = None,
     ) -> None:
         self.submissions = submissions
         self.runs = runs
         self.jobs = jobs
         self.outbox = outbox
+        self.reviews = reviews or InMemoryReviewRepository()
         self.commits = 0
 
     def __enter__(self) -> InMemoryUnitOfWork:
@@ -261,5 +293,6 @@ def in_memory_backend() -> tuple[InMemoryUnitOfWork, InMemoryArtifactStore]:
         InMemoryGradingRunRepository(),
         InMemoryJobQueue(),
         InMemoryOutbox(),
+        InMemoryReviewRepository(),
     )
     return uow, InMemoryArtifactStore()

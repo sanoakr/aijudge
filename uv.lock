@@ -23,6 +23,7 @@ members = [
     "aijudge-persistence",
     "aijudge-reviewconsole",
     "aijudge-sandbox",
+    "aijudge-studentweb",
     "aijudge-submission",
 ]
 
@@ -45,6 +46,7 @@ dependencies = [
     { name = "aijudge-persistence" },
     { name = "aijudge-reviewconsole" },
     { name = "aijudge-sandbox" },
+    { name = "aijudge-studentweb" },
     { name = "aijudge-submission" },
 ]
 
@@ -78,6 +80,7 @@ requires-dist = [
     { name = "aijudge-persistence", editable = "packages/persistence" },
     { name = "aijudge-reviewconsole", editable = "apps/reviewconsole" },
     { name = "aijudge-sandbox", editable = "packages/sandbox" },
+    { name = "aijudge-studentweb", editable = "apps/studentweb" },
     { name = "aijudge-submission", editable = "packages/submission" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.27" },
     { name = "import-linter", marker = "extra == 'dev'", specifier = ">=2.0" },
@@ -326,6 +329,35 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [{ name = "pydantic", specifier = ">=2.8" }]
+
+[[package]]
+name = "aijudge-studentweb"
+version = "0.0.1"
+source = { editable = "apps/studentweb" }
+dependencies = [
+    { name = "aijudge-authoring" },
+    { name = "aijudge-core" },
+    { name = "aijudge-identity" },
+    { name = "aijudge-persistence" },
+    { name = "aijudge-submission" },
+    { name = "fastapi" },
+    { name = "jinja2" },
+    { name = "python-multipart" },
+    { name = "uvicorn" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aijudge-authoring", editable = "packages/authoring" },
+    { name = "aijudge-core", editable = "packages/core" },
+    { name = "aijudge-identity", editable = "packages/identity" },
+    { name = "aijudge-persistence", editable = "packages/persistence" },
+    { name = "aijudge-submission", editable = "packages/submission" },
+    { name = "fastapi", specifier = ">=0.115" },
+    { name = "jinja2", specifier = ">=3.1" },
+    { name = "python-multipart", specifier = ">=0.0.9" },
+    { name = "uvicorn", specifier = ">=0.30" },
+]
 
 [[package]]
 name = "aijudge-submission"

@@ -24,6 +24,7 @@ from .repositories import (
     SqlGradingRunRepository,
     SqlJobQueue,
     SqlOutbox,
+    SqlReviewRepository,
     SqlSubmissionRepository,
     SqlTaskRepository,
 )
@@ -90,6 +91,7 @@ class SqlUnitOfWork:
         self.jobs = SqlJobQueue(self._session)
         self.outbox = SqlOutbox(self._session)
         self.tasks = SqlTaskRepository(self._session)
+        self.reviews = SqlReviewRepository(self._session)
         self.identity = SqlIdentityRepository(self._session)
         return self
 

@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}aiJudge{% endblock %}</title>
+<style>
+:root{
+  --paper:#eef1f5; --surface:#fff; --surface-2:#f6f8fa;
+  --ink:#141e2b; --ink-2:#3c4a5c; --muted:#697a8e;
+  --line:#d3dbe4; --line-soft:#e3e9ef;
+  --shu:#b03a29; --shu-soft:#f3e3e0;
+  --verd:#1c6d67; --verd-soft:#dfedeb;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --paper:#0e141c; --surface:#151d27; --surface-2:#1b242f;
+    --ink:#dee6ef; --ink-2:#b6c2d0; --muted:#8395a8;
+    --line:#2a3542; --line-soft:#212c38;
+    --shu:#e4826f; --shu-soft:#2e1f1c;
+    --verd:#5eb2ab; --verd-soft:#152a29;
+  }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);
+  font-family:"Hiragino Sans","Noto Sans JP",system-ui,sans-serif;line-height:1.75}
+main{max-width:1100px;margin:0 auto;padding:32px 24px 80px}
+h1{font-size:1.5rem;margin:0 0 4px}
+h2{font-size:1.1rem;margin:32px 0 10px}
+a{color:var(--shu)}
+.crumb{font-size:.8rem;color:var(--muted);margin-bottom:24px}
+.card{background:var(--surface);border:1px solid var(--line-soft);border-radius:4px;padding:20px 22px;margin-bottom:20px}
+.note{border-left:3px solid var(--verd);background:var(--verd-soft);padding:12px 16px;
+  border-radius:0 3px 3px 0;font-size:.9rem;color:var(--ink-2);margin-bottom:20px}
+.note.warn{border-left-color:var(--shu);background:var(--shu-soft)}
+table{border-collapse:collapse;width:100%;font-size:.9rem}
+th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line-soft);vertical-align:top}
+thead th{font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);
+  font-weight:400;background:var(--surface-2)}
+code,pre,.mono{font-family:ui-monospace,"SFMono-Regular",monospace}
+pre.code{margin:0;overflow-x:auto;background:var(--surface-2);border:1px solid var(--line-soft);
+  border-radius:3px;padding:14px 0;font-size:.8rem;line-height:1.65}
+pre.code .ln{display:block;padding:0 16px;white-space:pre}
+pre.code .ln .n{display:inline-block;width:3em;color:var(--muted);user-select:none;text-align:right;margin-right:1em}
+pre.code .ln.hl{background:var(--shu-soft);border-left:3px solid var(--shu);padding-left:13px}
+.statement{font-size:.9rem;color:var(--ink-2);white-space:pre-wrap;
+  max-height:16em;overflow-y:auto;border:1px solid var(--line-soft);border-radius:3px;
+  padding:14px 16px;background:var(--surface-2)}
+fieldset{border:1px solid var(--line-soft);border-radius:3px;padding:14px 18px;margin:0 0 16px}
+legend{font-weight:700;font-size:.95rem;padding:0 6px}
+.desc{font-size:.85rem;color:var(--muted);margin:0 0 12px}
+.levels{display:flex;flex-direction:column;gap:6px}
+.levels label{display:flex;gap:10px;align-items:baseline;font-size:.88rem;
+  padding:7px 10px;border:1px solid var(--line-soft);border-radius:3px;cursor:pointer}
+.levels label:hover{background:var(--surface-2)}
+.levels input:checked + .lv{font-weight:700;color:var(--shu)}
+.lv{min-width:5.5em}
+button{font:inherit;font-weight:700;background:var(--shu);color:#fff;border:0;
+  border-radius:3px;padding:10px 22px;cursor:pointer}
+button:hover{filter:brightness(1.08)}
+textarea{width:100%;font:inherit;font-size:.88rem;padding:10px 12px;border-radius:3px;
+  border:1px solid var(--line);background:var(--surface);color:var(--ink);resize:vertical}
+.pill{display:inline-block;font-size:.72rem;padding:2px 9px;border-radius:99px;
+  border:1px solid var(--line);color:var(--muted)}
+.pill.ok{color:var(--verd);border-color:var(--verd);background:var(--verd-soft)}
+.pill.no{color:var(--shu);border-color:var(--shu);background:var(--shu-soft)}
+.progress{height:6px;background:var(--line-soft);border-radius:99px;overflow:hidden;margin:10px 0 6px}
+.progress > div{height:100%;background:var(--verd)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+header.top{border-bottom:1px solid var(--line-soft);background:var(--surface)}
+header.top .inner{max-width:1100px;margin:0 auto;padding:12px 24px;display:flex;
+  align-items:baseline;gap:16px;font-size:.85rem}
+header.top .brand{font-weight:700;font-size:1rem;color:var(--ink);text-decoration:none}
+header.top .spacer{flex:1}
+header.top form{margin:0}
+header.top button{background:none;color:var(--muted);border:1px solid var(--line);
+  font-weight:400;padding:4px 12px;font-size:.8rem}
+.field{margin-bottom:14px}
+.field label{display:block;font-size:.85rem;color:var(--ink-2);margin-bottom:4px}
+.field input{width:100%;font:inherit;font-size:.9rem;padding:9px 12px;border-radius:3px;
+  border:1px solid var(--line);background:var(--surface);color:var(--ink)}
+.narrow{max-width:420px}
+.score{font-size:2rem;font-weight:700;color:var(--ink)}
+.score .unit{font-size:1rem;color:var(--muted);font-weight:400}
+@media (max-width:860px){.grid2{grid-template-columns:1fr}}
+:focus-visible{outline:2px solid var(--shu);outline-offset:2px}
+</style>
+</head>
+<body>
+{% if me is defined and me %}
+<header class="top"><div class="inner">
+  <a class="brand" href="/">aiJudge</a>
+  <span class="spacer"></span>
+  <span>{{ me.display_name }}</span>
+  <form method="post" action="/logout"><button type="submit">ログアウト</button></form>
+</div></header>
+{% endif %}
+<main>{% block body %}{% endblock %}</main></body>
+</html>

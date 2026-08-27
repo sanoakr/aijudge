@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>履修中のコース</h1>
+<p class="crumb">課題の提出と結果の確認はコースから入ります。</p>
+
+<table>
+  <thead><tr><th>コード</th><th>コース</th><th>学期</th></tr></thead>
+  <tbody>
+  {% for course in courses %}
+    <tr>
+      <td class="mono">{{ course.code }}</td>
+      <td><a href="/courses/{{ course.id }}">{{ course.title }}</a></td>
+      <td>{{ course.term }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="3" class="desc">履修中のコースがありません。</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

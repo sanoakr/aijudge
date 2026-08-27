@@ -12,11 +12,12 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import Protocol, runtime_checkable
 
-from aijudge_core import Artifact, GradingRun, Submission
+from aijudge_core import Artifact, BlindMark, GradingRun, HumanReview, Submission
 from aijudge_core.events import DomainEvent
 from aijudge_core.ids import (
     ArtifactId,
     GradingRunId,
+    HumanReviewId,
     SubmissionId,
     TaskVersionId,
     TenantId,
@@ -115,6 +116,34 @@ class GradingRunRepository(Protocol):
 
 
 @runtime_checkable
+class ReviewRepository(Protocol):
+    """教員の確認・修正と、blind 採点。
+
+    `HumanReview` の存在が成績の確定を意味する。無いうちは AI の判定は
+    暫定で、学習者に示す範囲は上位層が決める（設計原則 P5）。
+
+    `BlindMark` は測定用の正解データ（ADR 0005）。抽出された提出にしか
+    存在しないので、無いのは正常な状態である。
+    """
+
+    def save_review(self, review: HumanReview) -> None: ...
+
+    def get_review(self, review_id: HumanReviewId) -> HumanReview | None: ...
+
+    def find_review_for_run(self, run_id: GradingRunId) -> HumanReview | None: ...
+
+    def save_blind_mark(self, mark: BlindMark) -> None:
+        """blind 採点を保存する。既にあれば拒否する。
+
+        二度目を受け付けると、AI を見たあとの段階で上書きできてしまい、
+        正解データが汚れる（ADR 0005）。
+        """
+        ...
+
+    def find_blind_mark(self, submission_id: SubmissionId) -> BlindMark | None: ...
+
+
+@runtime_checkable
 class JobQueue(Protocol):
     """採点ジョブのキュー。
 
@@ -177,6 +206,7 @@ class UnitOfWork(Protocol):
 
     submissions: SubmissionRepository
     runs: GradingRunRepository
+    reviews: ReviewRepository
     jobs: JobQueue
     outbox: Outbox
 

@@ -159,8 +159,32 @@ class ReviewPolicy(BaseModel):
         )
 
 
+class BlindMark(BaseModel):
+    """教員が **AI の判定を見る前に** 付けた段階。
+
+    測定の正解データはこれだけ。AI を見たあとの段階（`HumanReview`）は
+    AI に引きずられており（アンカリング）、一致度の標本にならない（ADR 0005）。
+
+    全提出に求めるものではない。抽出された提出だけに求める（ADR 0007）。
+    採点そのものはこれを待たない。
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    submission_id: SubmissionId
+    grader_id: UserId
+    # 観点コードではなく ID で持つ。コードは課題版ごとに付け替えられる。
+    levels: dict[CriterionId, int] = Field(min_length=1)
+    marked_at: datetime
+    notes: str | None = None
+
+
 class HumanReview(BaseModel):
-    """教員による確認・修正。GradingRun を上書きせず追記する。"""
+    """教員による確認・修正。GradingRun を上書きせず追記する。
+
+    **この記録が成績の確定を意味する。** 存在しないうちは AI の判定は
+    暫定であり、学習者に示す範囲は上位層が決める（設計原則 P5）。
+    """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -176,6 +200,10 @@ class HumanReview(BaseModel):
     def agreed(self) -> bool:
         """AI の採点をそのまま承認したか。κ の算出に使う。"""
         return not self.adjusted_levels
+
+    def level_for(self, criterion_id: CriterionId, machine_level: int) -> int:
+        """確定した段階。教員が触っていなければ機械の判定がそのまま通る。"""
+        return self.adjusted_levels.get(criterion_id, machine_level)
 
 
 class GradingRun(BaseModel):

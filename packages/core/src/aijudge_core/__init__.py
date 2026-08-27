@@ -27,6 +27,7 @@ from .events import (
     TaskPublished,
 )
 from .grading import (
+    BlindMark,
     CriterionScore,
     EvaluatorKind,
     EvaluatorResult,
@@ -81,6 +82,7 @@ __all__ = [
     "ArtifactKind",
     "ArtifactRole",
     "ArtifactSpan",
+    "BlindMark",
     "CharSpan",
     "Course",
     "Credential",

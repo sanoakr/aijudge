@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}課題 — aiJudge{% endblock %}
+{% block body %}
+<h1>課題</h1>
+<p class="crumb"><a href="/courses/{{ course.id }}">← {{ course.title }}</a></p>
+
+<div class="statement">{{ task.statement }}</div>
+
+<h2>提出する</h2>
+<form method="post" action="/tasks/{{ task.id }}/submit" enctype="multipart/form-data" class="card">
+  <div class="field">
+    <label for="upload">ファイル（{{ accepts | join(', ') }}）</label>
+    <input id="upload" name="upload" type="file" required accept="{{ accepts | join(',') }}">
+  </div>
+  <p class="desc">
+    提出すると採点が始まります。テスト実行の結果はすぐに表示されます。
+    <strong>AI による観点別の評価は、担当教員が確認したあとに表示されます。</strong>
+  </p>
+  <button type="submit">提出する</button>
+</form>
+
+<h2>これまでの提出</h2>
+<table>
+  <thead><tr><th>回</th><th>提出日時</th><th></th></tr></thead>
+  <tbody>
+  {% for item in submissions %}
+    <tr>
+      <td>{{ item.attempt }}</td>
+      <td>{{ item.submitted_at.strftime('%Y-%m-%d %H:%M') if item.submitted_at else '—' }}</td>
+      <td><a href="/submissions/{{ item.id }}">結果を見る</a></td>
+    </tr>
+  {% else %}
+    <tr><td colspan="3" class="desc">まだ提出がありません。</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
