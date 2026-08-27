@@ -22,7 +22,7 @@ from .metrics import (
     quadratic_weighted_kappa,
     review_rate,
 )
-from .observation import MeasurementSummary, Observation, summarize
+from .observation import MeasurementSummary, summarize
 
 __all__ = [
     "AgreementReport",
@@ -30,7 +30,6 @@ __all__ = [
     "CriterionGate",
     "Gates",
     "MeasurementSummary",
-    "Observation",
     "Verdict",
     "agreement_report",
     "cohen_kappa",

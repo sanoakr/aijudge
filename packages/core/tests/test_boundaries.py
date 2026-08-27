@@ -63,6 +63,45 @@ def test_the_measurement_contract_is_declared() -> None:
     assert {"aijudge_core", "aijudge_grading"} <= forbidden
 
 
+def test_the_grading_side_declares_no_measurement_dependencies() -> None:
+    """採点・レビュー側が測定パッケージに依存していないこと。
+
+    契約が「測定 → 採点」の片方向だけだと、逆向きの import が通ってしまう。
+    実際に通っていた: レビューコンソールが観測の型を `aijudge_analytics` から
+    import していたため、測定を削除すると採点が起動しなくなった
+    （2026-08-28 の削除実験で判明）。記録の型は `aijudge_observation` に分けた。
+    """
+    config = _import_linter_config()
+    section = "importlinter:contract:grading-does-not-depend-on-measurement"
+    assert config.has_section(section), (
+        "採点側が測定に依存しないことを保証する契約が .importlinter から消えている"
+    )
+    sources = set(config[section]["source_modules"].split())
+    forbidden = set(config[section]["forbidden_modules"].split())
+    assert {"aijudge_grading", "aijudge_reviewconsole"} <= sources
+    assert {"aijudge_analytics", "aijudge_evalrunner"} <= forbidden
+
+    manifest = REPO_ROOT / "apps" / "reviewconsole" / "pyproject.toml"
+    with manifest.open("rb") as handle:
+        dependencies = tomllib.load(handle)["project"]["dependencies"]
+    names = {item.split(">")[0].split("=")[0].split("[")[0].strip() for item in dependencies}
+    leaked = names & {"aijudge-analytics", "aijudge-evalrunner"}
+    assert not leaked, f"the grading side depends on measurement packages: {sorted(leaked)}"
+
+
+def test_the_observation_record_declares_nothing_but_pydantic() -> None:
+    """記録の形式は Phase 0 の側に置き、何にも依存させない（ADR 0007）。
+
+    ここに採点側か測定側の依存が入った瞬間、「記録は残るが測定は任意」が
+    成立しなくなる。
+    """
+    manifest = REPO_ROOT / "packages" / "observation" / "pyproject.toml"
+    with manifest.open("rb") as handle:
+        dependencies = tomllib.load(handle)["project"]["dependencies"]
+    names = {item.split(">")[0].split("=")[0].split("[")[0].strip() for item in dependencies}
+    assert names == {"pydantic"}, f"observation gained unexpected dependencies: {names}"
+
+
 def test_the_measurement_app_declares_no_grading_dependencies() -> None:
     """測定アプリの依存に採点側のパッケージが入っていないこと。
 

@@ -24,12 +24,12 @@ from aijudge_analytics import (
     Check,
     Gates,
     MeasurementSummary,
-    Observation,
     Verdict,
     evaluate_gates,
     overall,
     summarize,
 )
+from aijudge_observation import Observation
 
 
 class EvalReport(BaseModel):

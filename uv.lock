@@ -17,6 +17,7 @@ members = [
     "aijudge-evalrunner",
     "aijudge-grading",
     "aijudge-llm-gateway",
+    "aijudge-observation",
     "aijudge-reviewconsole",
     "aijudge-sandbox",
 ]
@@ -34,6 +35,7 @@ dependencies = [
     { name = "aijudge-evalrunner" },
     { name = "aijudge-grading" },
     { name = "aijudge-llm-gateway" },
+    { name = "aijudge-observation" },
     { name = "aijudge-reviewconsole" },
     { name = "aijudge-sandbox" },
 ]
@@ -57,6 +59,7 @@ requires-dist = [
     { name = "aijudge-evalrunner", editable = "apps/evalrunner" },
     { name = "aijudge-grading", editable = "packages/grading" },
     { name = "aijudge-llm-gateway", editable = "packages/llm_gateway" },
+    { name = "aijudge-observation", editable = "packages/observation" },
     { name = "aijudge-reviewconsole", editable = "apps/reviewconsole" },
     { name = "aijudge-sandbox", editable = "packages/sandbox" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.27" },
@@ -72,11 +75,15 @@ name = "aijudge-analytics"
 version = "0.0.1"
 source = { editable = "packages/analytics" }
 dependencies = [
+    { name = "aijudge-observation" },
     { name = "pydantic" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "pydantic", specifier = ">=2.8" }]
+requires-dist = [
+    { name = "aijudge-observation", editable = "packages/observation" },
+    { name = "pydantic", specifier = ">=2.8" },
+]
 
 [[package]]
 name = "aijudge-authoring"
@@ -140,12 +147,14 @@ version = "0.0.1"
 source = { editable = "apps/evalrunner" }
 dependencies = [
     { name = "aijudge-analytics" },
+    { name = "aijudge-observation" },
     { name = "pyyaml" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "aijudge-analytics", editable = "packages/analytics" },
+    { name = "aijudge-observation", editable = "packages/observation" },
     { name = "pyyaml", specifier = ">=6.0" },
 ]
 
@@ -178,14 +187,25 @@ dependencies = [
 requires-dist = [{ name = "pydantic", specifier = ">=2.8" }]
 
 [[package]]
+name = "aijudge-observation"
+version = "0.0.1"
+source = { editable = "packages/observation" }
+dependencies = [
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "pydantic", specifier = ">=2.8" }]
+
+[[package]]
 name = "aijudge-reviewconsole"
 version = "0.0.1"
 source = { editable = "apps/reviewconsole" }
 dependencies = [
-    { name = "aijudge-analytics" },
     { name = "aijudge-authoring" },
     { name = "aijudge-core" },
     { name = "aijudge-grading" },
+    { name = "aijudge-observation" },
     { name = "fastapi" },
     { name = "jinja2" },
     { name = "python-multipart" },
@@ -195,10 +215,10 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "aijudge-analytics", editable = "packages/analytics" },
     { name = "aijudge-authoring", editable = "packages/authoring" },
     { name = "aijudge-core", editable = "packages/core" },
     { name = "aijudge-grading", editable = "packages/grading" },
+    { name = "aijudge-observation", editable = "packages/observation" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "jinja2", specifier = ">=3.1" },
     { name = "python-multipart", specifier = ">=0.0.9" },

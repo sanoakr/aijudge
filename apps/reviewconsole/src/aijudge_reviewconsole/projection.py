@@ -13,8 +13,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from aijudge_analytics import Observation
 from aijudge_core import EvaluatorKind, GradingRun, Routing, TaskVersion
+from aijudge_observation import Observation
 
 from .store import FinalDecision, GoldenMark, QueueEntry
 

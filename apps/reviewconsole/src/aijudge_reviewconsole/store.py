@@ -36,8 +36,8 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
-from aijudge_analytics import Observation
 from aijudge_core import GradingRun
+from aijudge_observation import Observation
 
 # 提出物として扱う拡張子。ここに無いものは待ち行列に出さない。
 SUBMISSION_SUFFIXES = frozenset({".c", ".py", ".java", ".tex", ".md"})

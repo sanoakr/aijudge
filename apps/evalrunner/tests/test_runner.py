@@ -16,10 +16,11 @@ from pathlib import Path
 import pytest
 import yaml
 
-from aijudge_analytics import Gates, Observation, Verdict
+from aijudge_analytics import Gates, Verdict
 from aijudge_analytics.gates import CriterionGate
 from aijudge_evalrunner import ObservationSetError, load_observations, measure
 from aijudge_evalrunner.cli import EXIT_FAIL, EXIT_NOT_MEASURED, EXIT_PASS, main, render
+from aijudge_observation import Observation
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 GATES_PATH = REPO_ROOT / "evals" / "gates.yaml"

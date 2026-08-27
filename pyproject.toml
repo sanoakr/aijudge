@@ -10,6 +10,7 @@ dependencies = [
     "aijudge-eval-code-test-runner",
     "aijudge-llm-gateway",
     "aijudge-eval-rubric-ai-judge",
+    "aijudge-observation",
     "aijudge-analytics",
     "aijudge-evalrunner",
     "aijudge-reviewconsole",
@@ -35,6 +36,7 @@ aijudge-authoring = { workspace = true }
 aijudge-eval-code-test-runner = { workspace = true }
 aijudge-llm-gateway = { workspace = true }
 aijudge-eval-rubric-ai-judge = { workspace = true }
+aijudge-observation = { workspace = true }
 aijudge-analytics = { workspace = true }
 aijudge-evalrunner = { workspace = true }
 aijudge-reviewconsole = { workspace = true }
@@ -58,6 +60,7 @@ known-first-party = [
     "aijudge_eval_code_test_runner",
     "aijudge_llm_gateway",
     "aijudge_eval_rubric_ai_judge",
+    "aijudge_observation",
     "aijudge_analytics",
     "aijudge_evalrunner",
     "aijudge_reviewconsole",

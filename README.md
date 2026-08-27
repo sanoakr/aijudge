@@ -35,7 +35,8 @@ Architecture decisions: [`docs/adr/`](docs/adr/).
 | `packages/grading` | The grading pipeline, evaluator registry, and subject profile loader (S5). Knows nothing about any subject. |
 | `packages/authoring` | Task authoring and importers for existing course assets (S2). |
 | `packages/llm_gateway` | Provider abstraction, policy routing, structured output, prompt versioning (S6). |
-| `packages/analytics` | Agreement metrics, gate evaluation, and the observation record (S9). Pure functions. Delete it and grading still runs. |
+| `packages/observation` | The observation record — what grading leaves behind for measurement to read. Depends on pydantic and nothing else. |
+| `packages/analytics` | Agreement metrics and gate evaluation (S9). Pure functions. Delete it and grading still runs — verified by deleting it. |
 | `apps/reviewconsole` | Instructor review console and the grading worker. Grading runs *before* review, never because of it. |
 | `apps/evalrunner` | Reads recorded observations and measures agreement against the gates. Never grades. |
 | `apps/*` | Composition roots. The only layer allowed to combine subsystems. |
@@ -146,7 +147,10 @@ left behind — one per submission per criterion — computes Cohen's κ, quadra
 weighted κ, miss rate and review rate, and checks them against
 `evals/gates.yaml`. Recomputing κ needs no LLM, no sandbox, and no task
 definition; `import-linter` enforces that the measurement side cannot import the
-grading side at all.
+grading side at all — and, in the other direction, that grading cannot import
+the measurement side. Both directions are needed: with only the first, the
+review console imported the record type from `analytics` and deleting it stopped
+grading from starting at all. The record type now lives in its own package.
 
 The verdict has three values, not two, and the exit code follows: `0` pass, `1`
 fail, `2` **not measurable**. A sample below `min_sample_size` reports `2` no

@@ -23,7 +23,7 @@ import os
 from collections.abc import Iterator
 from pathlib import Path
 
-from aijudge_analytics import Observation
+from aijudge_observation import Observation
 
 ENV_GOLDEN_DIR = "AIJUDGE_GOLDEN_DIR"
 DEFAULT_GOLDEN_DIR = Path.home() / ".aijudge" / "golden"

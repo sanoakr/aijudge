@@ -7,7 +7,7 @@ dependencies = [
     "aijudge-core",
     "aijudge-authoring",
     "aijudge-grading",
-    "aijudge-analytics",
+    "aijudge-observation",
     "fastapi>=0.115",
     "jinja2>=3.1",
     "python-multipart>=0.0.9",
@@ -30,4 +30,4 @@ packages = ["src/aijudge_reviewconsole"]
 aijudge-core = { workspace = true }
 aijudge-authoring = { workspace = true }
 aijudge-grading = { workspace = true }
-aijudge-analytics = { workspace = true }
+aijudge-observation = { workspace = true }

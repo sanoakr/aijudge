@@ -1,9 +1,10 @@
 [project]
 name = "aijudge-analytics"
 version = "0.0.1"
-description = "Agreement metrics and PoC gate evaluation (S9)"
+description = "Agreement metrics and accuracy gate evaluation (S9). Reads observations; never grades."
 requires-python = ">=3.12"
 dependencies = [
+    "aijudge-observation",
     "pydantic>=2.8",
 ]
 
@@ -13,3 +14,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/aijudge_analytics"]
+
+[tool.uv.sources]
+aijudge-observation = { workspace = true }

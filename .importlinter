@@ -17,6 +17,7 @@ root_packages =
     aijudge_evalrunner
     aijudge_reviewconsole
     aijudge_sandbox
+    aijudge_observation
 include_external_packages = True
 
 [importlinter:contract:core-is-independent]
@@ -35,6 +36,7 @@ forbidden_modules =
     aijudge_transcription
     aijudge_llm_gateway
     aijudge_sandbox
+    aijudge_observation
 
 ; ゲートウェイは他サブシステムを知らない。採点の語彙にも依存しない
 ; （依存させると、採点以外から LLM を使うたびに採点が引きずられる）。
@@ -119,6 +121,44 @@ forbidden_modules =
     sqlalchemy
     httpx
     requests
+
+; 観測レコードの形式。記録は Phase 0、計算は Phase 1（ADR 0007）。
+; 記録の形式を測定パッケージに置くと、測定を消したときに採点側の import が
+; 壊れる。実際に壊れた（2026-08-28 の削除実験）ので、ここに分けてある。
+; 何にも依存しない純粋なスキーマとして保つ。
+[importlinter:contract:observation-is-a-bare-schema]
+name = 観測レコードは何にも依存しない
+type = forbidden
+source_modules =
+    aijudge_observation
+forbidden_modules =
+    aijudge_core
+    aijudge_grading
+    aijudge_authoring
+    aijudge_llm_gateway
+    aijudge_sandbox
+    aijudge_analytics
+    aijudge_evalrunner
+    aijudge_reviewconsole
+
+; ADR 0007 のもう半分。**採点側が測定側を import しない。**
+; 契約が片方向だけだと、採点側から測定パッケージへの import が通ってしまい、
+; 「測定を消しても採点は動く」が成立しなくなる。実際にそうなっていた。
+[importlinter:contract:grading-does-not-depend-on-measurement]
+name = 採点とレビューは測定に依存しない（測定を消しても動く）
+type = forbidden
+source_modules =
+    aijudge_core
+    aijudge_grading
+    aijudge_authoring
+    aijudge_llm_gateway
+    aijudge_sandbox
+    aijudge_eval_code_test_runner
+    aijudge_eval_rubric_ai_judge
+    aijudge_reviewconsole
+forbidden_modules =
+    aijudge_analytics
+    aijudge_evalrunner
 
 ; ADR 0007 の核心。測定は採点の必須機能ではない。
 ; 測定側が採点の語彙（core / grading）や実行手段（llm_gateway / sandbox）を

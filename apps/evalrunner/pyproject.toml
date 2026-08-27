@@ -8,6 +8,7 @@ requires-python = ">=3.12"
 # 兆候なので設計を見直す。
 dependencies = [
     "aijudge-analytics",
+    "aijudge-observation",
     "pyyaml>=6.0",
 ]
 
@@ -23,3 +24,4 @@ packages = ["src/aijudge_evalrunner"]
 
 [tool.uv.sources]
 aijudge-analytics = { workspace = true }
+aijudge-observation = { workspace = true }
