@@ -2,14 +2,13 @@
 
 Sharif Judge の中核機能に相当する。標準入力を与えて標準出力を比較する。
 
-.. warning::
+実行はすべて S4（`aijudge_sandbox`）を通す。この評価器は subprocess を
+直接呼ばない。呼べるようにしておくと、どこか一箇所で隔離が抜け、
+抜けたことに気づく方法も無くなる（ADR 0006）。
 
-   **このモジュールは提出コードを直接 subprocess で実行する。**
-   隔離は行っていない。悪意ある提出（ファイル削除、ネットワーク送信、
-   fork bomb）を防げないため、**実学生の提出には絶対に使わないこと。**
-   PoC-0 でサンドボックス（S4 / gVisor）に載せ替えるまでは、
-   自分で書いた提出を通す検証用に限る。実行時間とプロセス数の上限だけは
-   最低限かけてあるが、これは事故防止であって防御ではない。
+隔離手段が無い環境では、採点を諦めて失敗として返す。0 点にもしない
+（隔離できないのは学習者の責任ではない）。隔離なしで点が付いてしまうより、
+点が付かない方がましだから。
 
 判定は決定的（`conclusive=True`）。ここで不正解が確定した観点は
 AI 評価器に問い合わせず、AI の判断で覆されることもない（設計原則 P3）。
@@ -18,13 +17,6 @@ AI 評価器に問い合わせず、AI の判断で覆されることもない�
 from __future__ import annotations
 
 import math
-import resource
-import shutil
-import signal
-import subprocess
-import tempfile
-from collections.abc import Callable
-from pathlib import Path
 
 from aijudge_core import (
     CriterionScore,
@@ -36,47 +28,24 @@ from aijudge_core import (
 )
 from aijudge_core.ids import ArtifactId, CriterionScoreId, EvaluatorResultId
 from aijudge_grading.protocol import EvaluationOutcome, EvaluationRequest
+from aijudge_sandbox import (
+    ExecRequest,
+    ExecResult,
+    Limits,
+    Sandbox,
+    SandboxError,
+    Workspace,
+    default_sandbox,
+)
 
 EVALUATOR_ID = "code_test_runner"
 
-# 事故防止の上限。防御ではない（モジュール docstring 参照）。
-_ADDRESS_SPACE_BYTES = 512 * 1024 * 1024
+SOURCE_NAME = "main.c"
+BINARY_NAME = "main"
+
+_MEMORY_BYTES = 512 * 1024 * 1024
 _MAX_PROCESSES = 64
-_MAX_OUTPUT_BYTES = 1 * 1024 * 1024
-
-
-def _apply_limit(which: int, soft: int) -> None:
-    """1 つの rlimit を、ハード上限を超えない範囲で設定する。
-
-    macOS では RLIMIT_AS / RLIMIT_NPROC の設定が環境によって失敗する。
-    preexec_fn の中で例外を投げると subprocess ごと起動できなくなるため、
-    設定できないものは黙って諦める。どのみちこれは防御ではなく事故防止で、
-    本来の隔離はサンドボックス（S4）の仕事。
-    """
-    try:
-        _, hard = resource.getrlimit(which)
-        if hard != resource.RLIM_INFINITY:
-            soft = min(soft, hard)
-        resource.setrlimit(which, (soft, hard))
-    except (ValueError, OSError):
-        pass
-
-
-def _make_limiter(timeout_seconds: float) -> Callable[[], None]:
-    """CPU 上限は待ち時間の設定に追従させる。
-
-    壁時計のタイムアウトだけだと、CPU を回し続ける提出が上限いっぱい
-    走ってから殺される。CPU 上限を先に当てておくと早く諦められる。
-    """
-    cpu_seconds = max(1, math.ceil(timeout_seconds))
-
-    def limit() -> None:
-        _apply_limit(resource.RLIMIT_CPU, cpu_seconds)
-        _apply_limit(resource.RLIMIT_AS, _ADDRESS_SPACE_BYTES)
-        _apply_limit(resource.RLIMIT_NPROC, _MAX_PROCESSES)
-        _apply_limit(resource.RLIMIT_FSIZE, _MAX_OUTPUT_BYTES)
-
-    return limit
+_MAX_OUTPUT_BYTES = 1024 * 1024
 
 
 def normalize_output(text: str) -> list[str]:
@@ -92,14 +61,32 @@ def normalize_output(text: str) -> list[str]:
     return lines
 
 
+def _limits(timeout_seconds: float) -> Limits:
+    return Limits(
+        cpu_seconds=max(1, math.ceil(timeout_seconds)),
+        wall_seconds=timeout_seconds,
+        memory_bytes=_MEMORY_BYTES,
+        processes=_MAX_PROCESSES,
+        output_bytes=_MAX_OUTPUT_BYTES,
+    )
+
+
 class CodeTestRunner:
     """コンパイルして実行し、期待出力と比較する。"""
 
     evaluator_id = EVALUATOR_ID
     kind = EvaluatorKind.DETERMINISTIC
 
-    def __init__(self, compiler: str | None = None) -> None:
-        self._compiler = compiler or shutil.which("cc") or shutil.which("gcc") or "cc"
+    def __init__(self, sandbox: Sandbox | None = None, *, compiler: str = "cc") -> None:
+        # サンドボックスの用意は最初の採点まで遅らせる。起動時に
+        # Docker が無いだけでプロセス全体が上がらないのは行き過ぎ。
+        self._sandbox = sandbox
+        self._compiler = compiler
+
+    def _resolve_sandbox(self) -> Sandbox:
+        if self._sandbox is None:
+            self._sandbox = default_sandbox()
+        return self._sandbox
 
     def evaluate(self, request: EvaluationRequest) -> EvaluationOutcome:
         criterion = self._target_criterion(request)
@@ -115,50 +102,31 @@ class CodeTestRunner:
             )
 
         source_id, source = self._source(request)
-        if source is None:
+        if source is None or source_id is None:
             return EvaluationOutcome(
                 status=EvaluatorStatus.FAILED,
                 error="no source artifact found in the submission",
             )
 
-        with tempfile.TemporaryDirectory(prefix="aijudge-run-") as workdir:
-            root = Path(workdir)
-            source_path = root / "main.c"
-            source_path.write_bytes(source)
-            binary_path = root / "main"
-
-            compiled = subprocess.run(
-                [self._compiler, "-std=c11", "-O0", "-o", str(binary_path), str(source_path)],
-                capture_output=True,
-                text=True,
-                timeout=request.timeout_seconds,
-                cwd=root,
+        limits = _limits(request.timeout_seconds)
+        try:
+            sandbox = self._resolve_sandbox()
+            with sandbox.workspace() as workspace:
+                workspace.write(SOURCE_NAME, source)
+                compiled = self._compile(workspace, limits)
+                if not compiled.ok:
+                    return self._compile_failure(request, criterion, source_id, compiled)
+                cases = self._run_cases(request, workspace, limits)
+        except SandboxError as exc:
+            # 隔離できないなら採点しない。
+            return EvaluationOutcome(
+                status=EvaluatorStatus.FAILED,
+                error=f"cannot execute the submission safely: {exc}",
             )
-            if compiled.returncode != 0:
-                # コンパイルエラーも「0 点で確定」であって評価器の失敗ではない。
-                return EvaluationOutcome(
-                    status=EvaluatorStatus.OK,
-                    scores=(
-                        self._score(
-                            criterion_id=criterion.id,
-                            weight=criterion.weight,
-                            ratio=0.0,
-                            level=criterion.levels[0].level,
-                            artifact_id=source_id,
-                            content_hash=self._content_hash(request, source_id),
-                            rationale="コンパイルに失敗したため、テストを実行できませんでした。",
-                            note=compiled.stderr.strip()[:2000],
-                        ),
-                    ),
-                    raw_output={"compile_error": compiled.stderr.strip()[:8000]},
-                )
-
-            cases = self._run_cases(request, binary_path, root)
 
         passed_weight = sum(case["weight"] for case in cases if case["passed"])
         total_weight = sum(case["weight"] for case in cases) or 1.0
         ratio = passed_weight / total_weight
-        level = self._level_for(criterion, ratio)
         failed = [case for case in cases if not case["passed"]]
 
         return EvaluationOutcome(
@@ -168,22 +136,64 @@ class CodeTestRunner:
                     criterion_id=criterion.id,
                     weight=criterion.weight,
                     ratio=ratio,
-                    level=level,
+                    level=self._level_for(criterion, ratio),
                     artifact_id=source_id,
                     content_hash=self._content_hash(request, source_id),
                     rationale=self._rationale(len(cases) - len(failed), len(cases), failed),
                     note=None,
                 ),
             ),
-            raw_output={"cases": cases},
+            raw_output={
+                "cases": cases,
+                # どの隔離で走らせたかを残す。後から監査できないと意味がない。
+                "sandbox": sandbox.name,
+                "isolation": sandbox.isolation.value,
+            },
         )
 
     # -- internals ---------------------------------------------------------
 
+    def _compile(self, workspace: Workspace, limits: Limits) -> ExecResult:
+        return workspace.run(
+            ExecRequest(
+                argv=(self._compiler, "-std=c11", "-O0", "-o", BINARY_NAME, SOURCE_NAME),
+                limits=limits,
+                # コンパイラは信頼できる実行体。中間ファイルの置き場が要る。
+                # 提出物そのものを動かすときは決して立てない。
+                trusted_toolchain=True,
+            )
+        )
+
+    def _compile_failure(
+        self,
+        request: EvaluationRequest,
+        criterion,
+        source_id: ArtifactId,
+        result: ExecResult,
+    ) -> EvaluationOutcome:
+        """コンパイルエラーは 0 点で確定であって、評価器の失敗ではない。"""
+        detail = (result.stderr or result.stdout).strip()[:2000]
+        return EvaluationOutcome(
+            status=EvaluatorStatus.OK,
+            scores=(
+                self._score(
+                    criterion_id=criterion.id,
+                    weight=criterion.weight,
+                    ratio=0.0,
+                    level=criterion.levels[0].level,
+                    artifact_id=source_id,
+                    content_hash=self._content_hash(request, source_id),
+                    rationale="コンパイルに失敗したため、テストを実行できませんでした。",
+                    note=detail,
+                ),
+            ),
+            raw_output={"compile_error": detail, "timed_out": result.timed_out},
+        )
+
     def _target_criterion(self, request: EvaluationRequest):
         """この評価器が担当する観点を選ぶ。
 
-        観点側の `evaluator_id` 指定を優先し、無ければ最初の観点を採る。
+        観点側の `evaluator_id` 指定を優先し、無ければ最初の未割当を採る。
         """
         explicit = [c for c in request.task_version.criteria if c.evaluator_id == EVALUATOR_ID]
         if explicit:
@@ -205,52 +215,43 @@ class CodeTestRunner:
         return "unknown"
 
     def _run_cases(
-        self, request: EvaluationRequest, binary: Path, cwd: Path
+        self, request: EvaluationRequest, workspace: Workspace, limits: Limits
     ) -> list[dict[str, object]]:
         cases: list[dict[str, object]] = []
-        limiter = _make_limiter(request.timeout_seconds)
         for case in request.test_cases:
-            stdin = str(case.payload.get("input", ""))
             expected = normalize_output(str(case.payload.get("expected", "")))
             entry: dict[str, object] = {
                 "name": case.name,
                 "weight": case.weight,
                 "hidden": case.hidden,
             }
-            try:
-                completed = subprocess.run(
-                    [str(binary)],
-                    input=stdin,
-                    capture_output=True,
-                    text=True,
-                    timeout=request.timeout_seconds,
-                    cwd=cwd,
-                    preexec_fn=limiter,
+            result = workspace.run(
+                ExecRequest(
+                    argv=(f"./{BINARY_NAME}",),
+                    stdin=str(case.payload.get("input", "")),
+                    limits=limits,
                 )
-            except subprocess.TimeoutExpired:
+            )
+
+            if result.timed_out:
                 entry |= {"passed": False, "reason": "timeout"}
                 cases.append(entry)
                 continue
 
-            actual = normalize_output(completed.stdout)
-            passed = completed.returncode == 0 and actual == expected
+            actual = normalize_output(result.stdout)
+            passed = result.exit_code == 0 and actual == expected
             entry |= {
                 "passed": passed,
-                "exit_code": completed.returncode,
+                "exit_code": result.exit_code,
                 "expected": expected,
                 "actual": actual,
             }
-            if completed.returncode < 0:
-                # シグナルで殺された。CPU 上限（SIGXCPU）ならタイムアウトと同義。
-                signal_number = -completed.returncode
-                name = signal.Signals(signal_number).name
-                entry["signal"] = name
-                entry["reason"] = (
-                    "timeout" if name in ("SIGXCPU", "SIGKILL") else f"killed by {name}"
-                )
-            elif completed.returncode != 0:
+            if result.signal_name:
+                entry["signal"] = result.signal_name
+                entry["reason"] = f"killed by {result.signal_name}"
+            elif result.exit_code != 0:
                 entry["reason"] = "nonzero exit"
-                entry["stderr"] = completed.stderr.strip()[:2000]
+                entry["stderr"] = result.stderr.strip()[:2000]
             elif not passed:
                 entry["reason"] = "output mismatch"
             cases.append(entry)

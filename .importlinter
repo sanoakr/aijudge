@@ -16,6 +16,7 @@ root_packages =
     aijudge_analytics
     aijudge_evalrunner
     aijudge_reviewconsole
+    aijudge_sandbox
 include_external_packages = True
 
 [importlinter:contract:core-is-independent]
@@ -33,6 +34,7 @@ forbidden_modules =
     aijudge_analytics
     aijudge_transcription
     aijudge_llm_gateway
+    aijudge_sandbox
 
 ; ゲートウェイは他サブシステムを知らない。採点の語彙にも依存しない
 ; （依存させると、採点以外から LLM を使うたびに採点が引きずられる）。
@@ -51,6 +53,27 @@ forbidden_modules =
     aijudge_portfolio
     aijudge_analytics
     aijudge_transcription
+    aijudge_sandbox
+
+; S4 は「隔離してプロセスを動かす」だけの層。採点も科目も知らない。
+; 知らせると、評価器を差し替えるたびに隔離の実装が引きずられる。
+; 逆にここが独立していれば、CAS 実行やシミュレータ実行も同じ層で動かせる。
+[importlinter:contract:sandbox-is-standalone]
+name = サンドボックス（S4）は他のどのサブシステムにも依存しない
+type = forbidden
+source_modules =
+    aijudge_sandbox
+forbidden_modules =
+    aijudge_core
+    aijudge_grading
+    aijudge_authoring
+    aijudge_identity
+    aijudge_submission
+    aijudge_skill
+    aijudge_portfolio
+    aijudge_analytics
+    aijudge_transcription
+    aijudge_llm_gateway
 
 [importlinter:contract:core-has-no-io]
 name = core は I/O を持たない（DB・HTTP・LLM・ファイル）
@@ -92,6 +115,7 @@ forbidden_modules =
     aijudge_grading
     aijudge_authoring
     aijudge_llm_gateway
+    aijudge_sandbox
     sqlalchemy
     httpx
     requests
@@ -109,6 +133,7 @@ source_modules =
     aijudge_analytics
     aijudge_eval_code_test_runner
     aijudge_eval_rubric_ai_judge
+    aijudge_sandbox
 forbidden_modules =
     aijudge_evalrunner
     aijudge_reviewconsole
@@ -124,12 +149,13 @@ source_modules =
 forbidden_modules =
     aijudge_eval_code_test_runner
     aijudge_eval_rubric_ai_judge
+    aijudge_sandbox
 
-; Evaluator が依存してよいのは core・採点プロトコル・LLM ゲートウェイの 3 つ。
+; Evaluator が依存してよいのは core・採点プロトコル・LLM ゲートウェイ・S4 の 4 つ。
 ; ゲートウェイを許すのは「AI 評価器は LLM を使う」が普遍だから。
 ; 逆にサブシステムへの依存を許すと、評価器が単体でテストできなくなる。
 [importlinter:contract:evaluators-depend-on-core-and-protocol-only]
-name = Evaluator はコア・採点プロトコル・LLM ゲートウェイにしか依存しない
+name = Evaluator はコア・採点プロトコル・LLM ゲートウェイ・サンドボックスにしか依存しない
 type = forbidden
 source_modules =
     aijudge_eval_code_test_runner

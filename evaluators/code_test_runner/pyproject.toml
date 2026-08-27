@@ -6,6 +6,7 @@ requires-python = ">=3.12"
 dependencies = [
     "aijudge-core",
     "aijudge-grading",
+    "aijudge-sandbox",
 ]
 
 # 科目を足す作業が「パッケージ 1 つ + YAML の 1 行」で済むことを
@@ -23,3 +24,4 @@ packages = ["src/aijudge_eval_code_test_runner"]
 [tool.uv.sources]
 aijudge-core = { workspace = true }
 aijudge-grading = { workspace = true }
+aijudge-sandbox = { workspace = true }

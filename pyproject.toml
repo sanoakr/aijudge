@@ -13,6 +13,7 @@ dependencies = [
     "aijudge-analytics",
     "aijudge-evalrunner",
     "aijudge-reviewconsole",
+    "aijudge-sandbox",
 ]
 
 [project.optional-dependencies]
@@ -37,6 +38,7 @@ aijudge-eval-rubric-ai-judge = { workspace = true }
 aijudge-analytics = { workspace = true }
 aijudge-evalrunner = { workspace = true }
 aijudge-reviewconsole = { workspace = true }
+aijudge-sandbox = { workspace = true }
 
 [tool.ruff]
 line-length = 100
@@ -59,6 +61,7 @@ known-first-party = [
     "aijudge_analytics",
     "aijudge_evalrunner",
     "aijudge_reviewconsole",
+    "aijudge_sandbox",
 ]
 
 [tool.pytest.ini_options]

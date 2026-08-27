@@ -1,0 +1,250 @@
+"""作業域とバックエンド共通の実行処理。
+
+バックエンドの違いは「argv をどう包むか」だけに閉じる。
+プロセス起動・上限適用・出力の切り詰めは全バックエンドで同じ。
+"""
+
+from __future__ import annotations
+
+import contextlib
+import functools
+import os
+import resource
+import shutil
+import signal
+import subprocess
+import tempfile
+import time
+from collections.abc import Callable, Iterator
+from pathlib import Path
+from typing import Protocol, runtime_checkable
+
+from .types import ExecRequest, ExecResult, Isolation, Limitation, Limits
+
+
+def _apply_limit(which: int, soft: int) -> None:
+    """rlimit を 1 つ、ハード上限を超えない範囲で設定する。
+
+    環境によっては設定できない（macOS の RLIMIT_AS 等）。preexec_fn の中で
+    例外を投げるとプロセスごと起動できなくなるため、設定できないものは諦める。
+    これは隔離の代わりではなく、隔離に足す事故防止。
+    """
+    try:
+        _, hard = resource.getrlimit(which)
+        if hard != resource.RLIM_INFINITY:
+            soft = min(soft, hard)
+        resource.setrlimit(which, (soft, hard))
+    except (ValueError, OSError):
+        pass
+
+
+@functools.cache
+def _user_process_count() -> int:
+    """このユーザーが今動かしているプロセス数。
+
+    RLIMIT_NPROC の基準に要る。1 回だけ数えて使い回す。
+    """
+    try:
+        completed = subprocess.run(
+            ["/bin/ps", "-u", str(os.getuid()), "-o", "pid="],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return 512
+    return max(1, len(completed.stdout.splitlines()))
+
+
+def make_limiter(limits: Limits) -> Callable[[], None]:
+    """子プロセスに rlimit を掛ける。
+
+    RLIMIT_NPROC の扱いに注意が要る。これは「このプロセスの子」ではなく
+    **このユーザーの全プロセス**の上限なので、絶対値で小さく設定すると
+    コンパイラすら起動できない（実測: posix_spawn failed: Resource
+    temporarily unavailable）。現在の使用数に上乗せする形で掛ける。
+
+    これで fork bomb は上限で頭打ちになるが、**完全な封じ込めではない**。
+    暴走中は同じユーザーの他のプロセスも起動しにくくなる。
+    本番でプロセス数を確実に区切るには、専用 UID かコンテナの
+    `--pids-limit` が要る（ADR 0006）。
+    """
+    ceiling = _user_process_count() + limits.processes
+
+    def limit() -> None:
+        _apply_limit(resource.RLIMIT_CPU, limits.cpu_seconds)
+        _apply_limit(resource.RLIMIT_AS, limits.memory_bytes)
+        _apply_limit(resource.RLIMIT_NPROC, ceiling)
+        _apply_limit(resource.RLIMIT_FSIZE, limits.output_bytes)
+
+    return limit
+
+
+def _kill_group(process: subprocess.Popen[str]) -> None:
+    """子プロセスグループを丸ごと落とす。
+
+    子が孫を撒いている場合、親だけ殺しても孫は生き残ってホストの
+    CPU を食い続ける。setsid してあるので、グループ ID = 子の PID。
+    """
+    with contextlib.suppress(ProcessLookupError, PermissionError, OSError):
+        os.killpg(process.pid, signal.SIGKILL)
+    with contextlib.suppress(ProcessLookupError, OSError):
+        process.kill()
+
+
+def _truncate(text: str, cap: int) -> tuple[str, bool]:
+    if len(text) <= cap:
+        return text, False
+    return text[:cap], True
+
+
+@runtime_checkable
+class Workspace(Protocol):
+    """1 件の採点のあいだだけ存在する作業域。
+
+    コンパイルと実行を跨いでファイルが残る必要があるので、
+    実行 1 回ごとではなく作業域を単位にしてある。
+    """
+
+    path: Path
+
+    def write(self, name: str, content: bytes | str) -> Path: ...
+
+    def run(self, request: ExecRequest) -> ExecResult: ...
+
+
+@runtime_checkable
+class Sandbox(Protocol):
+    name: str
+    isolation: Isolation
+
+    limitations: frozenset[Limitation]
+    """このバックエンドが守れないもの。空集合は「穴の申告なし」。
+
+    呼ぶ側はこれを見て判断する。`isolation` の強弱だけでは、
+    どの攻撃が通るかが分からない。
+    """
+
+    def workspace(self) -> contextlib.AbstractContextManager[Workspace]: ...
+
+
+class LocalWorkspace:
+    """ホスト上の一時ディレクトリを作業域にする作業域。
+
+    バックエンドは `wrap` で argv を包むだけでよい。
+    """
+
+    def __init__(
+        self,
+        path: Path,
+        isolation: Isolation,
+        wrap: Callable[[list[str], ExecRequest, Path], tuple[list[str], dict[str, str]]],
+    ) -> None:
+        self.path = path
+        self._isolation = isolation
+        self._wrap = wrap
+
+    def write(self, name: str, content: bytes | str) -> Path:
+        target = self.path / name
+        if not target.resolve().is_relative_to(self.path.resolve()):
+            raise ValueError(f"{name!r} escapes the workspace")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if isinstance(content, str):
+            target.write_text(content, encoding="utf-8")
+        else:
+            target.write_bytes(content)
+        return target
+
+    def run(self, request: ExecRequest) -> ExecResult:
+        argv, env = self._wrap(list(request.argv), request, self.path)
+        started = time.monotonic()
+
+        try:
+            process = subprocess.Popen(
+                argv,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                cwd=self.path,
+                env=env,
+                # 独立したセッションにして、孫まで一括で落とせるようにする。
+                start_new_session=True,
+                preexec_fn=make_limiter(request.limits),
+            )
+        except OSError as exc:
+            return ExecResult(
+                exit_code=-1,
+                stderr=f"failed to start: {exc}",
+                duration_ms=int((time.monotonic() - started) * 1000),
+                isolation=self._isolation,
+            )
+
+        timed_out = False
+        try:
+            raw_out, raw_err = process.communicate(
+                input=request.stdin, timeout=request.limits.wall_seconds
+            )
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            _kill_group(process)
+            with contextlib.suppress(subprocess.TimeoutExpired, ValueError):
+                raw_out, raw_err = process.communicate(timeout=5)
+            raw_out = raw_out or ""
+            raw_err = raw_err or ""
+        finally:
+            # 正常終了でも撒かれた孫が残ることがある。必ず掃除する。
+            _kill_group(process)
+
+        duration_ms = int((time.monotonic() - started) * 1000)
+        stdout, cut_out = _truncate(raw_out or "", request.limits.output_bytes)
+        stderr, cut_err = _truncate(raw_err or "", request.limits.output_bytes)
+
+        code = process.returncode if process.returncode is not None else -1
+        signal_name: str | None = None
+        if code < 0:
+            with contextlib.suppress(ValueError):
+                signal_name = signal.Signals(-code).name
+            # CPU 上限で殺されたのは時間切れと同じ意味。
+            timed_out = timed_out or signal_name in ("SIGXCPU", "SIGKILL")
+
+        return ExecResult(
+            exit_code=code,
+            stdout=stdout,
+            stderr=stderr,
+            duration_ms=duration_ms,
+            timed_out=timed_out,
+            signal_name=signal_name,
+            truncated=cut_out or cut_err,
+            isolation=self._isolation,
+        )
+
+
+class LocalSandboxBase:
+    """ホスト上に作業域を作るバックエンドの共通部分。
+
+    ホストのプロセス表と UID を共有するので、既定でその 2 つを申告する。
+    """
+
+    name = "local"
+    isolation = Isolation.NONE
+    limitations = frozenset(
+        {
+            Limitation.SHARED_KERNEL,
+            Limitation.SHARED_UID,
+            Limitation.PROCESS_LIMIT_UNENFORCED,
+        }
+    )
+
+    @contextlib.contextmanager
+    def workspace(self) -> Iterator[Workspace]:
+        directory = Path(tempfile.mkdtemp(prefix="aijudge-ws-")).resolve()
+        try:
+            yield LocalWorkspace(directory, self.isolation, self.wrap)
+        finally:
+            shutil.rmtree(directory, ignore_errors=True)
+
+    def wrap(
+        self, argv: list[str], request: ExecRequest, workdir: Path
+    ) -> tuple[list[str], dict[str, str]]:
+        raise NotImplementedError
