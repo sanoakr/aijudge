@@ -33,7 +33,7 @@ def project_observations(
     human_levels: dict[str, int] | None = None,
     blind: bool = False,
     marker: str | None = None,
-    changed_after_seeing_ai: bool | None = None,
+    machine_corrected: bool | None = None,
 ) -> tuple[Observation, ...]:
     """1 採点ぶんの観測を作る。観点 1 つにつき 1 行。
 
@@ -73,7 +73,7 @@ def project_observations(
                 blind=bool(marks and blind),
                 marker=marker if marks else None,
                 auto_confirmed=run.routing is Routing.AUTO,
-                changed_after_seeing_ai=changed_after_seeing_ai,
+                machine_corrected=machine_corrected,
                 observed_at=observed_at,
             )
         )

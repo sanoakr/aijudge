@@ -82,7 +82,7 @@ def summarize(observations: Iterable[Observation]) -> MeasurementSummary:
 
     # -- 提出単位の指標 ---------------------------------------------------
     # 観点ごとのレコードから提出単位に畳む。auto_confirmed と
-    # changed_after_seeing_ai は提出単位の値なので、代表を 1 つ取る。
+    # machine_corrected は提出単位の値なので、代表を 1 つ取る。
     by_submission: dict[str, Observation] = {}
     for observation in items:
         by_submission.setdefault(observation.submission_key, observation)
@@ -96,15 +96,13 @@ def summarize(observations: Iterable[Observation]) -> MeasurementSummary:
         review_rate([observation.auto_confirmed for observation in graded]) if graded else None
     )
 
-    # 見逃し率は「教員が AI を見たあとに変えたか」で測る。未確定の提出は
-    # 分母に入れない（変えたかどうかを知る方法がない）。
-    finalized = [
-        observation for observation in graded if observation.changed_after_seeing_ai is not None
-    ]
+    # 見逃し率は「教員が機械の判定を直したか」で測る。未確定の提出は
+    # 分母に入れない（直したかどうかを知る方法がない）。
+    finalized = [observation for observation in graded if observation.machine_corrected is not None]
     observed_miss = (
         miss_rate(
             [observation.auto_confirmed for observation in finalized],
-            [bool(observation.changed_after_seeing_ai) for observation in finalized],
+            [bool(observation.machine_corrected) for observation in finalized],
         )
         if finalized
         else None

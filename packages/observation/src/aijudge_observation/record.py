@@ -49,8 +49,14 @@ class Observation(BaseModel):
 
     # -- 提出単位の状態（同じ提出の全観点で同じ値）----------------------
     auto_confirmed: bool = False
-    # 教員が AI を見たあとに段階を変えたか。未確定なら None。
-    changed_after_seeing_ai: bool | None = None
+    # 教員が機械の判定を直したか。未確定なら None。
+    #
+    # 名前が「AI を見たあとに変えたか」ではないのは、測るものが違うため。
+    # ここが表すのは「機械の段階を人間が上書きした」であり、見逃し率
+    # （自動確定したのに実は直すべきだった割合）の材料になる。
+    # blind 採点から最終段階への移動（アンカリングの度合い）は別の量で、
+    # 現在の合格基準には入っていないので記録していない。
+    machine_corrected: bool | None = None
 
     observed_at: datetime
 

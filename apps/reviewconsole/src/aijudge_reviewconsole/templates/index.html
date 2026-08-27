@@ -1,58 +1,19 @@
 {% extends "base.html" %}
 {% block body %}
-<h1>レビュー待ち</h1>
-<p class="crumb">採点は <code>aijudge-grade</code> が済ませています。ここでは確認して確定します。</p>
-
-{% if ungraded_count %}
-<div class="note">
-  <strong>{{ ungraded_count }} 件がまだ採点されていません。</strong>
-  <code>uv run aijudge-grade</code> を実行してください。
-  レビューは採点の前提条件ではないので、採点を待つあいだ他の提出は確定できます。
-</div>
-{% endif %}
-
-<div class="card">
-  <strong>blind 採点の蓄積: {{ marked_count }} / {{ min_sample_size }} 件</strong>
-  <div class="progress">
-    <div style="width: {{ (100 * marked_count / min_sample_size) | round(1) if marked_count < min_sample_size else 100 }}%"></div>
-  </div>
-  <p class="desc" style="margin:0">
-    {% if marked_count < min_sample_size %}
-      あと {{ min_sample_size - marked_count }} 件で採点精度の測定ができるようになります。
-      blind 採点は<strong>抽出された提出だけ</strong>に出ます（残り {{ blind_pending_count }} 件）。
-      測定は採点の必須機能ではないので、貯まらなくても運用は続きます。
-    {% else %}
-      測定に足る件数です。<code>uv run aijudge-eval</code> で κ を確認できます。
-    {% endif %}
-  </p>
-</div>
+<h1>担当コース</h1>
+<p class="crumb">採点は <code>aijudge-worker</code> が済ませています。ここでは確認して確定します。</p>
 
 <table>
-  <thead><tr><th>提出</th><th>課題</th><th>状態</th><th></th></tr></thead>
+  <thead><tr><th>コード</th><th>コース</th><th>学期</th></tr></thead>
   <tbody>
-  {% for entry in entries %}
+  {% for course in courses %}
     <tr>
-      <td class="mono">{{ entry.submission }}</td>
-      <td>{{ entry.task_name }}</td>
-      <td>
-        {% if not entry.graded %}<span class="pill">採点待ち</span>
-        {% elif entry.decided %}<span class="pill ok">確定済み</span>
-        {% elif entry.needs_blind_mark %}<span class="pill">blind 採点</span>
-        {% else %}<span class="pill">未確定</span>{% endif %}
-        {% if entry.blind_required %}<span class="pill">抽出</span>{% endif %}
-      </td>
-      <td>
-        {% if not entry.graded %}
-          <span class="desc">—</span>
-        {% elif entry.needs_blind_mark %}
-          <a href="/review/{{ entry.id }}/blind">先に自分で採点する</a>
-        {% else %}
-          <a href="/review/{{ entry.id }}/reveal">{{ '結果を見る' if entry.decided else '確認して確定する' }}</a>
-        {% endif %}
-      </td>
+      <td class="mono">{{ course.code }}</td>
+      <td><a href="/courses/{{ course.id }}">{{ course.title }}</a></td>
+      <td>{{ course.term }}</td>
     </tr>
   {% else %}
-    <tr><td colspan="4" class="desc">提出物がありません。</td></tr>
+    <tr><td colspan="3" class="desc">採点を担当しているコースがありません。</td></tr>
   {% endfor %}
   </tbody>
 </table>

@@ -56,7 +56,7 @@ def observation(
         blind=blind,
         marker="tester" if human is not None else None,
         auto_confirmed=auto_confirmed,
-        changed_after_seeing_ai=changed,
+        machine_corrected=changed,
         observed_at=datetime(2026, 8, 28, tzinfo=UTC),
     )
 

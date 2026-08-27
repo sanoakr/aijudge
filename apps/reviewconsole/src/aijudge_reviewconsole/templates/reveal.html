@@ -1,8 +1,8 @@
 {% extends "base.html" %}
-{% block title %}AI の判定 — {{ entry.submission }}{% endblock %}
+{% block title %}AI の判定 — aiJudge レビュー{% endblock %}
 {% block body %}
-<h1>AI の判定 — <span class="mono">{{ entry.submission }}</span></h1>
-<p class="crumb"><a href="/">← 待ち行列</a> / {{ entry.task_name }}</p>
+<h1>AI の判定 — <span class="mono">{{ submission.id[:12] }}…</span></h1>
+<p class="crumb"><a href="/courses/{{ course.id }}">← {{ course.title }}</a> / 提出 {{ submission.attempt }} 回目</p>
 
 {% if was_blind %}
 <div class="note">
@@ -59,11 +59,17 @@
 <pre class="code">{% for n, line in lines %}<span class="ln{% if n in highlights %} hl{% endif %}"><span class="n">{{ n }}</span>{{ line }}</span>{% endfor %}</pre>
 
 <h2>最終確定</h2>
+{% if review %}
+<div class="note warn">
+  この採点はすでに確定しています（{{ review.reviewed_at.strftime('%Y-%m-%d %H:%M') }}）。
+  やり直すには再採点してください。
+</div>
+{% endif %}
 <p class="desc">
   総合 {{ '%.1f' | format(run.score_ratio * 100) }}% ／ 確信度 {{ '%.2f' | format(run.confidence) }}
   ／ 振り分け {{ run.routing.value }}
 </p>
-<form method="post" action="/review/{{ entry.id }}/finalize">
+<form method="post" action="/review/{{ submission.id }}/finalize">
   {% for row in rows %}
   <fieldset>
     <legend>{{ row.criterion.title }}</legend>
@@ -82,7 +88,7 @@
   {% endfor %}
   <fieldset>
     <legend>コメント（任意）</legend>
-    <textarea name="comment" rows="3" placeholder="AI の判定を見て変えた場合はその理由">{{ decision.comment or '' if decision else '' }}</textarea>
+    <textarea name="comment" rows="3" placeholder="AI の判定を見て変えた場合はその理由">{{ review.comment or '' if review else '' }}</textarea>
   </fieldset>
   <button type="submit">成績を確定する</button>
 </form>

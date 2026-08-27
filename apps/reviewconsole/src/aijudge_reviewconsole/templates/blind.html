@@ -1,12 +1,12 @@
 {% extends "base.html" %}
-{% block title %}採点 — {{ entry.submission }}{% endblock %}
+{% block title %}採点 — aiJudge レビュー{% endblock %}
 {% block body %}
 {#
   この画面は AI の判定を一切含まない。CSS で隠すのではなく、
   レンダリングの時点で持っていない。テストで固定してある。
 #}
-<h1>採点 — <span class="mono">{{ entry.submission }}</span></h1>
-<p class="crumb"><a href="/">← 待ち行列</a> / {{ entry.task_name }}</p>
+<h1>採点 — <span class="mono">{{ submission.id[:12] }}…</span></h1>
+<p class="crumb"><a href="/">← 担当コース</a> / 提出 {{ submission.attempt }} 回目</p>
 
 <div class="note">
   <strong>AI の判定は、あなたが段階を決めたあとに表示します。</strong>
@@ -24,7 +24,7 @@
 
   <div>
     <h2>あなたの採点</h2>
-    <form method="post" action="/review/{{ entry.id }}/blind">
+    <form method="post" action="/review/{{ submission.id }}/blind">
       {% for criterion in criteria %}
       <fieldset>
         <legend>{{ criterion.title }}</legend>

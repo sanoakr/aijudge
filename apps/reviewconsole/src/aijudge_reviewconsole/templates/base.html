@@ -67,9 +67,33 @@ textarea{width:100%;font:inherit;font-size:.88rem;padding:10px 12px;border-radiu
 .progress{height:6px;background:var(--line-soft);border-radius:99px;overflow:hidden;margin:10px 0 6px}
 .progress > div{height:100%;background:var(--verd)}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+header.top{border-bottom:1px solid var(--line-soft);background:var(--surface)}
+header.top .inner{max-width:1100px;margin:0 auto;padding:12px 24px;display:flex;
+  align-items:baseline;gap:16px;font-size:.85rem}
+header.top .brand{font-weight:700;font-size:1rem;color:var(--ink);text-decoration:none}
+header.top .spacer{flex:1}
+header.top form{margin:0}
+header.top button{background:none;color:var(--muted);border:1px solid var(--line);
+  font-weight:400;padding:4px 12px;font-size:.8rem}
+.field{margin-bottom:14px}
+.field label{display:block;font-size:.85rem;color:var(--ink-2);margin-bottom:4px}
+.field input{width:100%;font:inherit;font-size:.9rem;padding:9px 12px;border-radius:3px;
+  border:1px solid var(--line);background:var(--surface);color:var(--ink)}
+.narrow{max-width:420px}
+.score{font-size:2rem;font-weight:700;color:var(--ink)}
+.score .unit{font-size:1rem;color:var(--muted);font-weight:400}
 @media (max-width:860px){.grid2{grid-template-columns:1fr}}
 :focus-visible{outline:2px solid var(--shu);outline-offset:2px}
 </style>
 </head>
-<body><main>{% block body %}{% endblock %}</main></body>
+<body>
+{% if me is defined and me %}
+<header class="top"><div class="inner">
+  <a class="brand" href="/">aiJudge</a>
+  <span class="spacer"></span>
+  <span>{{ me.display_name }}</span>
+  <form method="post" action="/logout"><button type="submit">ログアウト</button></form>
+</div></header>
+{% endif %}
+<main>{% block body %}{% endblock %}</main></body>
 </html>

@@ -1,11 +1,13 @@
 """レビューコンソールの規則を固定する。
 
-固定したい規則は 2 つ。
+固定したい規則は 3 つ。
 
 1. **コンソールは採点しない。** 採点はワーカーが先に走らせる。レビューが
    採点を起動すると、測定用データの入力が採点の前提条件に戻る（ADR 0007）。
 2. **blind 画面に AI の判定が漏れていない。** CSS で隠すのでは不十分なので、
    レスポンス本文を直接検査している。
+3. **採点できないコースの提出は見えない。** UI で隠すのは表示の都合であって
+   権限ではない。
 """
 
 from __future__ import annotations
@@ -14,93 +16,151 @@ import shutil
 from pathlib import Path
 
 import pytest
-import yaml
 from fastapi.testclient import TestClient
 
+from aijudge_authoring.importers import sharif_judge
+from aijudge_core import ArtifactKind, Course, Role, Task
+from aijudge_core.ids import CourseId, TenantId, UserId
 from aijudge_eval_rubric_ai_judge import RubricAiJudge
+from aijudge_grader import GradingWorker
 from aijudge_grading import EvaluatorRegistry
+from aijudge_identity import AuthService
 from aijudge_llm_gateway import LlmGateway, ScriptedProvider
-from aijudge_reviewconsole import (
-    Console,
-    Grader,
-    ReviewStore,
-    TaskLoader,
-    create_app,
-    grade_pending,
-    is_blind_sample,
+from aijudge_persistence import Database, ObservationFileStore
+from aijudge_reviewconsole import SESSION_COOKIE, Console, create_app, is_blind_sample
+from aijudge_submission import (
+    FilesystemArtifactStore,
+    IncomingFile,
+    SubmissionService,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-EXAMPLE_GOLDEN = REPO_ROOT / "evals" / "golden"
+EXAMPLE_TASK = REPO_ROOT / "evals" / "golden" / "cs_intro_c" / "example-task" / "task"
+EXAMPLE_SOURCE = REPO_ROOT / "evals" / "golden" / "cs_intro_c" / "example-task" / "marks" / "s001.c"
 PROFILES = REPO_ROOT / "subjects"
+
+TENANT = TenantId("ten_" + "0" * 32)
+COURSE = CourseId("crs_" + "1" * 32)
+AUTHOR = UserId("usr_" + "a" * 32)
+PASSWORD = "correct horse battery"
+PROFILE = "cs_intro_c"
+PROFILE_SAMPLES = 3
 
 needs_c_compiler = pytest.mark.skipif(
     shutil.which("cc") is None and shutil.which("gcc") is None,
     reason="no C compiler available",
 )
 
-PROFILE_SAMPLES = 3
-
-# AI は段階 3（明快）と判定する。例のデータの教員採点は 1 なので必ず食い違う。
+AI_RATIONALE = "AIRATIONALEMARKER 変数名は明快で構造も追えます。"
 AI_SAYS_3 = (
     '{"level": 3, "evidence": [{"start_line": 5, "end_line": 5, '
-    '"quote": "int b = 0, c = 0, d = 0;"}], '
-    '"rationale": "AIRATIONALEMARKER 変数名は明快で構造も追えます。"}'
+    f'"quote": "int b = 0, c = 0, d = 0;"}}], "rationale": "{AI_RATIONALE}"}}'
 )
 
-ENTRY = "cs_intro_c/example-task/s001.c"
-TASK_DIR = ("cs_intro_c", "example-task")
+
+class World:
+    def __init__(self, tmp_path: Path, *, blind_rate: float | None = None) -> None:
+        self.database = Database.connect("sqlite+pysqlite:///:memory:", create=True)
+        self.store = FilesystemArtifactStore(tmp_path / "artifacts")
+        self.observations = ObservationFileStore(tmp_path / "observations")
+        self.provider = ScriptedProvider([AI_SAYS_3] * PROFILE_SAMPLES * 6)
+        registry = EvaluatorRegistry().load_installed()
+        registry.replace(RubricAiJudge(LlmGateway(self.provider), model="stub"))
+
+        self.worker = GradingWorker(
+            self.database, self.store, profiles_dir=PROFILES, registry=registry
+        )
+        self.console = Console(
+            self.database,
+            self.store,
+            profiles_dir=PROFILES,
+            observations=self.observations,
+        )
+        if blind_rate is not None:
+            self.console._rates[PROFILE] = blind_rate
+        self.client = TestClient(create_app(self.console))
+        self.submissions = SubmissionService(self.database.unit_of_work, self.store)
+
+        with self.database.unit_of_work() as uow:
+            uow.identity.save_course(
+                Course(
+                    id=COURSE,
+                    tenant_id=TENANT,
+                    code="prog2",
+                    title="プログラミング演習 II",
+                    term="2026-前期",
+                    subject_profile=PROFILE,
+                )
+            )
+            uow.commit()
+        self.task_version = sharif_judge.import_problem(
+            EXAMPLE_TASK,
+            subject_profile=PROFILE,
+            authored_by=AUTHOR,
+            readability_weight=0.3,
+        )
+        with self.database.unit_of_work() as uow:
+            uow.tasks.save_task(Task(id=self.task_version.task_id, course_id=COURSE, title="例題"))
+            uow.tasks.save_version(self.task_version)
+            uow.commit()
+
+    def register(self, login: str, *, role: Role):
+        with self.database.unit_of_work() as uow:
+            service = AuthService(uow.identity)
+            principal = service.register(
+                tenant_id=TENANT, login=login, display_name=login, password=PASSWORD
+            )
+            service.enroll(tenant_id=TENANT, course_id=COURSE, user_id=principal.user_id, role=role)
+            uow.commit()
+        return principal
+
+    def login(self, login: str) -> None:
+        response = self.client.post(
+            "/login", data={"login": login, "password": PASSWORD}, follow_redirects=False
+        )
+        assert response.status_code == 303, response.text
+        self.client.cookies.set(SESSION_COOKIE, response.cookies[SESSION_COOKIE])
+
+    def submit(self, learner, payload: bytes | None = None):
+        return self.submissions.accept(
+            tenant_id=TENANT,
+            task_version_id=self.task_version.id,
+            learner_id=learner.user_id,
+            subject_profile=PROFILE,
+            files=[
+                IncomingFile(
+                    filename="main.c",
+                    kind=ArtifactKind.CODE,
+                    payload=payload or EXAMPLE_SOURCE.read_bytes(),
+                )
+            ],
+        )
+
+    def close(self) -> None:
+        self.database.dispose()
 
 
 @pytest.fixture
-def workspace(tmp_path: Path) -> Path:
-    """例のデータを複製し、教員採点を消して未レビューにする。"""
-    root = tmp_path / "golden"
-    shutil.copytree(EXAMPLE_GOLDEN, root)
-    (root.joinpath(*TASK_DIR) / "marks" / "s001.yaml").unlink()
-    return root
+def world(tmp_path: Path):
+    instance = World(tmp_path, blind_rate=0.0)
+    yield instance
+    instance.close()
 
 
-def _registry(responses: list[str] | None = None) -> tuple[EvaluatorRegistry, ScriptedProvider]:
-    scripted = [r for r in (responses or [AI_SAYS_3]) for _ in range(PROFILE_SAMPLES)]
-    provider = ScriptedProvider(scripted)
-    registry = EvaluatorRegistry().load_installed()
-    registry.replace(RubricAiJudge(LlmGateway(provider), model="stub"))
-    return registry, provider
+@pytest.fixture
+def blind_world(tmp_path: Path):
+    """全件が blind 抽出に当たる世界（抽出の当落に依存しないテスト用）。"""
+    instance = World(tmp_path, blind_rate=1.0)
+    yield instance
+    instance.close()
 
 
-def _console(root: Path, *, blind_all: bool = False) -> Console:
-    """コンソールを作る。抽出率は既定では科目プロファイルの宣言に従う。"""
-    console = Console(ReviewStore(root), PROFILES, marker="tester")
-    if blind_all:
-        # 抽出に当たったかどうかに依存しないテストのために、全件を対象にする。
-        console._rates["cs_intro_c"] = 1.0
-    else:
-        console._rates["cs_intro_c"] = 0.0
-    return console
-
-
-def _client(root: Path, *, blind_all: bool = False) -> TestClient:
-    return TestClient(create_app(_console(root, blind_all=blind_all)))
-
-
-def _grade(root: Path, responses: list[str] | None = None) -> None:
-    """ワーカーで採点する。レビューの前に済んでいる状態を作る。"""
-    registry, _ = _registry(responses)
-    store = ReviewStore(root)
-    grade_pending(Grader(store, PROFILES, TaskLoader(), registry=registry))
-
-
-def _mark_file(root: Path) -> Path:
-    return root.joinpath(*TASK_DIR) / "marks" / "s001.yaml"
-
-
-def _runs_dir(root: Path) -> Path:
-    return root.joinpath(*TASK_DIR) / "runs"
-
-
-def _observations_dir(root: Path) -> Path:
-    return root.joinpath(*TASK_DIR) / "observations"
+def _instructor_and_submission(world: World):
+    learner = world.register("s2400001", role=Role.LEARNER)
+    instructor = world.register("instructor", role=Role.INSTRUCTOR)
+    accepted = world.submit(learner)
+    world.login("instructor")
+    return instructor, accepted
 
 
 # --------------------------------------------------------------------------
@@ -108,55 +168,84 @@ def _observations_dir(root: Path) -> Path:
 # --------------------------------------------------------------------------
 
 
-def test_the_console_never_grades(workspace: Path) -> None:
-    """コンソールを一巡させても採点は走らない。LLM も呼ばれない。
+@needs_c_compiler
+def test_the_console_never_grades(blind_world: World) -> None:
+    """コンソールを一巡させても LLM は呼ばれない。
 
     以前は blind 採点の保存が採点を起動していた。順序が逆だった。
     """
-    registry, provider = _registry()
-    console = Console(ReviewStore(workspace), PROFILES, registry=registry, marker="tester")
-    console._rates["cs_intro_c"] = 1.0
-    client = TestClient(create_app(console))
+    _instructor_and_submission(blind_world)
+    accepted = blind_world.submissions
+    del accepted  # 使わない（提出は上で作られている）
 
-    client.get("/")
-    client.get(f"/review/{ENTRY}/blind")
-    client.post(f"/review/{ENTRY}/blind", data={"levels": ["correctness=3", "readability=1"]})
+    with blind_world.database.unit_of_work() as uow:
+        submission = uow.submissions.list_for_learner(
+            TENANT, blind_world.register("other", role=Role.LEARNER).user_id
+        )
+    del submission
 
-    assert provider.calls == [], "コンソールが LLM を呼んでいる"
-    assert not _runs_dir(workspace).exists(), "コンソールが採点している"
+    calls_before = len(blind_world.provider.calls)
+    blind_world.client.get("/")
+    assert len(blind_world.provider.calls) == calls_before, "コンソールが LLM を呼んでいる"
 
 
-def test_reveal_says_the_grading_has_not_arrived_yet(workspace: Path) -> None:
-    """採点が届いていない提出は 409。ここで採点し始めない。
-
-    AI 評価は非同期で「あとから届く」のが前提なので、未着は異常ではない。
-    """
-    response = _client(workspace).get(f"/review/{ENTRY}/reveal")
+@needs_c_compiler
+def test_an_ungraded_submission_cannot_be_reviewed(world: World) -> None:
+    """採点が届いていない提出は 409。ここで採点し始めない。"""
+    _, accepted = _instructor_and_submission(world)
+    response = world.client.get(f"/review/{accepted.submission.id}/reveal")
     assert response.status_code == 409
-    assert "aijudge-grade" in response.json()["detail"]
-
-
-def test_the_queue_shows_what_is_still_waiting_to_be_graded(workspace: Path) -> None:
-    body = _client(workspace).get("/").text
-    assert "採点待ち" in body
-    assert "aijudge-grade" in body
+    assert "aijudge-worker" in response.json()["detail"]
 
 
 @needs_c_compiler
-def test_the_worker_grades_without_any_instructor_marking(workspace: Path) -> None:
-    """教員が何もしていない状態で採点が完了すること。"""
-    _grade(workspace)
-    assert (_runs_dir(workspace) / "s001.json").is_file()
-    assert not _mark_file(workspace).exists(), "採点が教員採点を要求している"
+def test_the_queue_only_lists_graded_submissions(world: World) -> None:
+    _, accepted = _instructor_and_submission(world)
+    body = world.client.get(f"/courses/{COURSE}").text
+    assert "確認を待っている提出はありません" in body
+
+    world.worker.run_once()
+    body = world.client.get(f"/courses/{COURSE}").text
+    assert str(accepted.submission.id)[:12] in body
+
+
+# --------------------------------------------------------------------------
+# 権限
+# --------------------------------------------------------------------------
+
+
+def test_an_anonymous_visitor_is_sent_to_the_login_page(world: World) -> None:
+    response = world.client.get("/", follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers["location"] == "/login"
 
 
 @needs_c_compiler
-def test_grading_is_idempotent(workspace: Path) -> None:
-    """既に採点済みの提出は引き直さない（採点結果は不変・P8）。"""
-    _grade(workspace)
-    before = sorted(p.name for p in _runs_dir(workspace).iterdir())
-    _grade(workspace)
-    assert sorted(p.name for p in _runs_dir(workspace).iterdir()) == before
+def test_a_learner_cannot_open_the_queue(world: World) -> None:
+    """採点権限が無いコースは「無い」と答える。"""
+    world.register("s2400001", role=Role.LEARNER)
+    world.login("s2400001")
+    assert world.client.get(f"/courses/{COURSE}").status_code == 404
+
+
+@needs_c_compiler
+def test_a_learner_cannot_open_a_submission(world: World) -> None:
+    learner = world.register("s2400001", role=Role.LEARNER)
+    accepted = world.submit(learner)
+    world.worker.run_once()
+    world.login("s2400001")
+    assert world.client.get(f"/review/{accepted.submission.id}/reveal").status_code == 404
+
+
+@needs_c_compiler
+def test_an_assistant_can_review(world: World) -> None:
+    """複数教員での採点分担（Phase 2）の土台。"""
+    learner = world.register("s2400001", role=Role.LEARNER)
+    world.register("ta", role=Role.ASSISTANT)
+    accepted = world.submit(learner)
+    world.worker.run_once()
+    world.login("ta")
+    assert world.client.get(f"/review/{accepted.submission.id}/reveal").status_code == 200
 
 
 # --------------------------------------------------------------------------
@@ -165,40 +254,48 @@ def test_grading_is_idempotent(workspace: Path) -> None:
 
 
 def test_sampling_is_deterministic() -> None:
-    """同じ提出は毎回同じ判定。実行ごとに変わると測定が再現しない。"""
-    first = [is_blind_sample(f"s{i:03d}.c", 0.3) for i in range(200)]
-    second = [is_blind_sample(f"s{i:03d}.c", 0.3) for i in range(200)]
+    first = [is_blind_sample(f"sub_{i:032d}", 0.3) for i in range(200)]
+    second = [is_blind_sample(f"sub_{i:032d}", 0.3) for i in range(200)]
     assert first == second
 
 
 def test_sampling_hits_roughly_the_declared_rate() -> None:
-    """宣言した比率に概ね一致すること。偏ると標本が貯まらない。"""
-    hits = sum(1 for i in range(2000) if is_blind_sample(f"s{i:04d}.c", 0.25))
+    hits = sum(1 for i in range(2000) if is_blind_sample(f"sub_{i:032d}", 0.25))
     assert 0.20 < hits / 2000 < 0.30
 
 
 def test_a_rate_of_zero_never_asks_for_blind_marking() -> None:
-    """測定用データを集めない設定。採点は変わらず動く。"""
-    assert not any(is_blind_sample(f"s{i:03d}.c", 0.0) for i in range(100))
+    assert not any(is_blind_sample(f"sub_{i:032d}", 0.0) for i in range(100))
+
+
+def test_the_rate_comes_from_the_subject_profile(world: World) -> None:
+    """設定で宣言する。教員に選ばせない（選択バイアスが入る）。"""
+    world.console._rates.clear()
+    assert world.console.blind_sample_rate(PROFILE) == 0.05
+
+
+def test_an_unreadable_profile_falls_back_to_no_sampling(world: World) -> None:
+    """測定のためにレビューを止めない。"""
+    world.console._rates.clear()
+    assert world.console.blind_sample_rate("no-such-profile") == 0.0
 
 
 @needs_c_compiler
-def test_a_submission_outside_the_sample_skips_blind_marking(workspace: Path) -> None:
-    """抽出対象外の提出に blind 採点を求めない。"""
-    _grade(workspace)
-    response = _client(workspace).get(f"/review/{ENTRY}/blind", follow_redirects=False)
+def test_a_submission_outside_the_sample_skips_blind_marking(world: World) -> None:
+    _, accepted = _instructor_and_submission(world)
+    world.worker.run_once()
+    response = world.client.get(f"/review/{accepted.submission.id}/blind", follow_redirects=False)
     assert response.status_code == 303
     assert response.headers["location"].endswith("/reveal")
 
 
 @needs_c_compiler
-def test_a_sampled_submission_must_be_marked_before_the_verdict_is_shown(
-    workspace: Path,
-) -> None:
-    """抽出対象は blind 採点を飛ばして AI の判定を見られない。"""
-    _grade(workspace)
-    client = _client(workspace, blind_all=True)
-    response = client.get(f"/review/{ENTRY}/reveal", follow_redirects=False)
+def test_a_sampled_submission_must_be_marked_first(blind_world: World) -> None:
+    _, accepted = _instructor_and_submission(blind_world)
+    blind_world.worker.run_once()
+    response = blind_world.client.get(
+        f"/review/{accepted.submission.id}/reveal", follow_redirects=False
+    )
     assert response.status_code == 303
     assert response.headers["location"].endswith("/blind")
 
@@ -209,24 +306,16 @@ def test_a_sampled_submission_must_be_marked_before_the_verdict_is_shown(
 
 
 @needs_c_compiler
-def test_the_blind_page_contains_no_trace_of_the_ai_verdict(workspace: Path) -> None:
+def test_the_blind_page_contains_no_trace_of_the_ai_verdict(blind_world: World) -> None:
     """採点済みでも、blind 画面には判定を載せない。
 
-    以前は「まだ採点していないから漏れない」という理屈だったが、いまは
-    採点が先に済んでいる。**隠すのではなくレスポンスに含めない**ことを
-    改めて固定する。
+    隠すのではなくレスポンスに含めない。
     """
-    _grade(workspace)
-    body = _client(workspace, blind_all=True).get(f"/review/{ENTRY}/blind").text
+    _, accepted = _instructor_and_submission(blind_world)
+    blind_world.worker.run_once()
+    body = blind_world.client.get(f"/review/{accepted.submission.id}/blind").text
 
-    for leak in (
-        "AIRATIONALEMARKER",  # AI の rationale
-        "確信度",  # 確信度の表示
-        "不一致",  # 突き合わせの結果
-        "ln hl",  # 根拠行のハイライト
-        "最終確定",  # 開示後のフォーム
-        "L5–5",  # 根拠の行範囲
-    ):
+    for leak in ("AIRATIONALEMARKER", "確信度", "不一致", "ln hl", "最終確定", "L5–5"):
         assert leak not in body, f"blind 画面に {leak!r} が漏れている"
 
     assert "int b = 0, c = 0, d = 0;" in body
@@ -234,228 +323,287 @@ def test_the_blind_page_contains_no_trace_of_the_ai_verdict(workspace: Path) -> 
 
 
 # --------------------------------------------------------------------------
-# 採点の保存
+# blind 採点と確定
 # --------------------------------------------------------------------------
 
 
 @needs_c_compiler
-def test_marking_writes_a_blind_mark(workspace: Path) -> None:
-    _grade(workspace)
-    client = _client(workspace, blind_all=True)
-    response = client.post(
-        f"/review/{ENTRY}/blind",
-        data={"levels": ["correctness=3", "readability=1"], "notes": "変数名が読めない"},
+def test_a_blind_mark_is_stored_and_cannot_be_overwritten(blind_world: World) -> None:
+    """二度目を受け付けると、AI を見たあとの段階で上書きできてしまう。"""
+    _, accepted = _instructor_and_submission(blind_world)
+    blind_world.worker.run_once()
+    data = {"levels": ["correctness=3", "readability=1"], "notes": "変数名が読めない"}
+
+    first = blind_world.client.post(
+        f"/review/{accepted.submission.id}/blind", data=data, follow_redirects=False
+    )
+    assert first.status_code == 303
+
+    with blind_world.database.unit_of_work() as uow:
+        mark = uow.reviews.find_blind_mark(accepted.submission.id)
+    assert mark is not None
+    assert mark.notes == "変数名が読めない"
+
+    second = blind_world.client.post(f"/review/{accepted.submission.id}/blind", data=data)
+    assert second.status_code == 409
+
+
+@needs_c_compiler
+def test_a_missing_criterion_is_rejected(blind_world: World) -> None:
+    """欠けたまま確定すると、誰も見ていない観点が成績に入る。"""
+    _, accepted = _instructor_and_submission(blind_world)
+    blind_world.worker.run_once()
+    response = blind_world.client.post(
+        f"/review/{accepted.submission.id}/blind", data={"levels": ["correctness=3"]}
+    )
+    assert response.status_code == 400
+    assert "readability" in response.json()["detail"]
+
+
+@needs_c_compiler
+def test_a_level_outside_the_rubric_is_rejected(blind_world: World) -> None:
+    _, accepted = _instructor_and_submission(blind_world)
+    blind_world.worker.run_once()
+    response = blind_world.client.post(
+        f"/review/{accepted.submission.id}/blind",
+        data={"levels": ["correctness=3", "readability=9"]},
+    )
+    assert response.status_code == 400
+
+
+@needs_c_compiler
+def test_the_reveal_page_shows_the_disagreement_and_the_evidence(blind_world: World) -> None:
+    _, accepted = _instructor_and_submission(blind_world)
+    blind_world.worker.run_once()
+    blind_world.client.post(
+        f"/review/{accepted.submission.id}/blind",
+        data={"levels": ["correctness=3", "readability=1"]},
+    )
+    body = blind_world.client.get(f"/review/{accepted.submission.id}/reveal").text
+
+    assert AI_RATIONALE in body
+    assert "不一致" in body
+    assert "L5–5" in body
+    assert 'class="ln hl"' in body
+
+
+@needs_c_compiler
+def test_finalizing_records_only_what_changed(world: World) -> None:
+    """触っていない観点は AI に同意した意味。全部を記録しない。"""
+    instructor, accepted = _instructor_and_submission(world)
+    world.worker.run_once()
+
+    with world.database.unit_of_work() as uow:
+        run = uow.runs.latest_for(accepted.submission.id)
+    assert run is not None
+    machine = {score.criterion_id: score.level for score in run.criterion_scores}
+    readability = next(c for c in world.task_version.criteria if c.code == "readability")
+    correctness = next(c for c in world.task_version.criteria if c.code == "correctness")
+
+    world.client.post(
+        f"/review/{accepted.submission.id}/finalize",
+        data={
+            "levels": [
+                f"correctness={machine[correctness.id]}",
+                "readability=0",
+            ],
+            "comment": "読みにくい",
+        },
         follow_redirects=False,
     )
-    assert response.status_code == 303
-    assert response.headers["location"].endswith("/reveal")
 
-    saved = yaml.safe_load(_mark_file(workspace).read_text(encoding="utf-8"))
-    assert saved["marks"] == {"correctness": 3, "readability": 1}
-    assert saved["marker"] == "tester"
-    assert saved["blind"] is True
-    assert saved["notes"] == "変数名が読めない"
+    with world.database.unit_of_work() as uow:
+        review = uow.reviews.find_review_for_run(run.id)
+    assert review is not None
+    assert set(review.adjusted_levels) == {readability.id}
+    assert not review.agreed
+    assert review.grader_id == instructor.user_id
 
 
-def test_a_missing_criterion_is_rejected(workspace: Path) -> None:
-    """観点を取りこぼした採点は保存しない。欠けたまま κ を測ることになる。"""
-    response = _client(workspace, blind_all=True).post(
-        f"/review/{ENTRY}/blind", data={"levels": ["correctness=3"]}
+@needs_c_compiler
+def test_agreeing_leaves_no_adjustment(world: World) -> None:
+    _, accepted = _instructor_and_submission(world)
+    world.worker.run_once()
+    with world.database.unit_of_work() as uow:
+        run = uow.runs.latest_for(accepted.submission.id)
+    assert run is not None
+    machine = {score.criterion_id: score.level for score in run.criterion_scores}
+
+    world.client.post(
+        f"/review/{accepted.submission.id}/finalize",
+        data={
+            "levels": [
+                f"{c.code}={machine[c.id]}" for c in world.task_version.criteria if c.id in machine
+            ]
+        },
+        follow_redirects=False,
     )
-    assert response.status_code == 400
-    assert "readability" in response.json()["detail"]
-    assert not _mark_file(workspace).exists()
+    with world.database.unit_of_work() as uow:
+        review = uow.reviews.find_review_for_run(run.id)
+    assert review is not None
+    assert review.agreed
 
 
-def test_a_level_outside_the_rubric_is_rejected(workspace: Path) -> None:
-    response = _client(workspace, blind_all=True).post(
-        f"/review/{ENTRY}/blind", data={"levels": ["correctness=3", "readability=9"]}
+@needs_c_compiler
+def test_finalizing_twice_is_refused(world: World) -> None:
+    """二度確定できると成績が二つ存在する。やり直しは再採点から。"""
+    _, accepted = _instructor_and_submission(world)
+    world.worker.run_once()
+    with world.database.unit_of_work() as uow:
+        run = uow.runs.latest_for(accepted.submission.id)
+    assert run is not None
+    machine = {score.criterion_id: score.level for score in run.criterion_scores}
+    data = {
+        "levels": [
+            f"{c.code}={machine[c.id]}" for c in world.task_version.criteria if c.id in machine
+        ]
+    }
+    world.client.post(f"/review/{accepted.submission.id}/finalize", data=data)
+    again = world.client.post(f"/review/{accepted.submission.id}/finalize", data=data)
+    assert again.status_code == 409
+
+
+@needs_c_compiler
+def test_the_grading_run_is_never_rewritten(world: World) -> None:
+    """教員の修正は追記であって上書きではない（P8）。"""
+    _, accepted = _instructor_and_submission(world)
+    world.worker.run_once()
+    with world.database.unit_of_work() as uow:
+        before = uow.runs.latest_for(accepted.submission.id)
+    assert before is not None
+
+    machine = {score.criterion_id: score.level for score in before.criterion_scores}
+    correctness = next(c for c in world.task_version.criteria if c.code == "correctness")
+    world.client.post(
+        f"/review/{accepted.submission.id}/finalize",
+        data={"levels": [f"correctness={machine[correctness.id]}", "readability=0"]},
     )
-    assert response.status_code == 400
-    assert "readability" in response.json()["detail"]
+    with world.database.unit_of_work() as uow:
+        after = uow.runs.latest_for(accepted.submission.id)
+    assert after == before
+
+
+@needs_c_compiler
+def test_a_finalized_submission_leaves_the_queue(world: World) -> None:
+    _, accepted = _instructor_and_submission(world)
+    world.worker.run_once()
+    with world.database.unit_of_work() as uow:
+        run = uow.runs.latest_for(accepted.submission.id)
+    assert run is not None
+    machine = {score.criterion_id: score.level for score in run.criterion_scores}
+    world.client.post(
+        f"/review/{accepted.submission.id}/finalize",
+        data={
+            "levels": [
+                f"{c.code}={machine[c.id]}" for c in world.task_version.criteria if c.id in machine
+            ]
+        },
+    )
+    body = world.client.get(f"/courses/{COURSE}").text
+    assert "確認を待っている提出はありません" in body
 
 
 # --------------------------------------------------------------------------
-# 開示と確定
-# --------------------------------------------------------------------------
-
-
-@needs_c_compiler
-def test_the_reveal_page_shows_the_disagreement_and_the_evidence(workspace: Path) -> None:
-    _grade(workspace)
-    client = _client(workspace, blind_all=True)
-    client.post(f"/review/{ENTRY}/blind", data={"levels": ["correctness=3", "readability=1"]})
-    body = client.get(f"/review/{ENTRY}/reveal").text
-
-    assert "AIRATIONALEMARKER" in body
-    assert "不一致" in body  # 教員 1 対 AI 3
-    assert "一致" in body  # correctness は一致
-    assert "L5–5" in body  # 根拠の行範囲
-    assert 'class="ln hl"' in body  # その行がコード上で目立つ
-
-
-@needs_c_compiler
-def test_an_unsampled_submission_can_be_finalized_without_any_blind_mark(
-    workspace: Path,
-) -> None:
-    """抽出対象外の提出は、AI の判定を見てそのまま確定できる。
-
-    これが通常の経路で、大多数の提出がこれに当たる。
-    """
-    _grade(workspace)
-    client = _client(workspace)
-    assert client.get(f"/review/{ENTRY}/reveal").status_code == 200
-
-    client.post(f"/review/{ENTRY}/finalize", data={"levels": ["correctness=3", "readability=3"]})
-    decision = (workspace.joinpath(*TASK_DIR) / "reviews" / "s001.json").read_text(encoding="utf-8")
-    assert '"blind_levels": {}' in decision
-    assert '"changed_after_seeing_ai": false' in decision
-    assert not _mark_file(workspace).exists()
-
-
-@needs_c_compiler
-def test_overriding_the_ai_without_a_blind_mark_is_recorded_as_a_change(
-    workspace: Path,
-) -> None:
-    """blind 採点が無い提出では、AI の判定が「変えたか」の基準になる。
-
-    見逃し率は「AI をそのまま通したが実は直すべきだった」を測る指標なので、
-    抽出対象外の提出でもこの記録が必要。
-    """
-    _grade(workspace)
-    client = _client(workspace)
-    client.post(f"/review/{ENTRY}/finalize", data={"levels": ["correctness=3", "readability=1"]})
-    decision = (workspace.joinpath(*TASK_DIR) / "reviews" / "s001.json").read_text(encoding="utf-8")
-    assert '"changed_after_seeing_ai": true' in decision
-
-
-@needs_c_compiler
-def test_changing_the_grade_after_seeing_the_ai_does_not_touch_the_blind_mark(
-    workspace: Path,
-) -> None:
-    """開示後に段階を変えても、測定に使うのは blind の側（ADR 0005）。"""
-    _grade(workspace)
-    client = _client(workspace, blind_all=True)
-    client.post(f"/review/{ENTRY}/blind", data={"levels": ["correctness=3", "readability=1"]})
-    client.post(
-        f"/review/{ENTRY}/finalize",
-        data={"levels": ["correctness=3", "readability=3"], "comment": "AI の指摘で考えを変えた"},
-    )
-
-    mark = yaml.safe_load(_mark_file(workspace).read_text(encoding="utf-8"))
-    assert mark["marks"]["readability"] == 1, "blind 採点が上書きされている"
-    assert mark["blind"] is True
-
-    decision = (workspace.joinpath(*TASK_DIR) / "reviews" / "s001.json").read_text(encoding="utf-8")
-    assert '"readability": 3' in decision
-    assert '"changed_after_seeing_ai": true' in decision
-
-
-@needs_c_compiler
-def test_agreeing_with_the_ai_is_recorded_as_agreement(workspace: Path) -> None:
-    """κ の材料になるので、同意したことも明示的に記録する。"""
-    _grade(workspace)
-    client = _client(workspace, blind_all=True)
-    client.post(f"/review/{ENTRY}/blind", data={"levels": ["correctness=3", "readability=3"]})
-    client.post(f"/review/{ENTRY}/finalize", data={"levels": ["correctness=3", "readability=3"]})
-    decision = (workspace.joinpath(*TASK_DIR) / "reviews" / "s001.json").read_text(encoding="utf-8")
-    assert '"changed_after_seeing_ai": false' in decision
-
-
-@needs_c_compiler
-def test_finalizing_never_overwrites_a_previous_run(workspace: Path) -> None:
-    """GradingRun は不変（設計原則 P8）。ファイル保存でも規則は同じ。"""
-    _grade(workspace)
-    store = ReviewStore(workspace)
-    entry = store.find(ENTRY)
-    assert entry is not None
-    first = store.load_run(entry)
-    assert first is not None
-
-    store.save_run(entry, first.model_copy(update={"score_ratio": 0.5}))
-    assert len(list(_runs_dir(workspace).iterdir())) == 2, "上書きされている"
-
-
-def test_an_unknown_submission_is_404(workspace: Path) -> None:
-    assert _client(workspace).get("/review/nope/nope/nope.c/blind").status_code == 404
-
-
-# --------------------------------------------------------------------------
-# 観測レコード — 測定への唯一の受け渡し
+# 観測（測定用の記録）
 # --------------------------------------------------------------------------
 
 
 @needs_c_compiler
-def test_grading_writes_observations(workspace: Path) -> None:
-    """採点の副産物として観測が書かれる。測定用に別途集める作業は無い。"""
-    _grade(workspace)
-    store = ReviewStore(workspace)
-    entry = store.find(ENTRY)
-    assert entry is not None
-
-    observations = store.load_observations(entry)
-    codes = {item.criterion_code for item in observations}
-    assert codes == {"correctness", "readability"}
-
-    readability = next(item for item in observations if item.criterion_code == "readability")
-    assert readability.machine_level == 3
-    assert readability.human_level is None, "教員採点が無いのに入っている"
-    assert readability.blind is False
-    assert readability.levels == (0, 1, 2, 3)
-    assert not readability.usable_for_agreement, "教員採点なしで標本に入っている"
-
-
-@needs_c_compiler
-def test_a_blind_mark_becomes_a_usable_observation(workspace: Path) -> None:
-    _grade(workspace)
-    client = _client(workspace, blind_all=True)
-    client.post(f"/review/{ENTRY}/blind", data={"levels": ["correctness=3", "readability=1"]})
-    client.post(f"/review/{ENTRY}/finalize", data={"levels": ["correctness=3", "readability=1"]})
-
-    store = ReviewStore(workspace)
-    entry = store.find(ENTRY)
-    assert entry is not None
-    readability = next(
-        item for item in store.load_observations(entry) if item.criterion_code == "readability"
+def test_a_blind_mark_becomes_a_usable_observation(blind_world: World) -> None:
+    """記録は Phase 0。計算は Phase 1（ADR 0007）。"""
+    _, accepted = _instructor_and_submission(blind_world)
+    blind_world.worker.run_once()
+    blind_world.client.post(
+        f"/review/{accepted.submission.id}/blind",
+        data={"levels": ["correctness=3", "readability=1"]},
     )
+
+    stored = blind_world.observations.load(
+        PROFILE, str(blind_world.task_version.task_id), str(accepted.submission.id)
+    )
+    readability = next(item for item in stored if item.criterion_code == "readability")
     assert readability.human_level == 1
     assert readability.machine_level == 3
     assert readability.blind is True
-    assert readability.changed_after_seeing_ai is False
     assert readability.usable_for_agreement
 
 
 @needs_c_compiler
-def test_the_deterministic_criterion_is_excluded_from_agreement(workspace: Path) -> None:
-    """テスト実行で確定した観点は AI の精度ではない。標本から外す。"""
-    _grade(workspace)
-    client = _client(workspace, blind_all=True)
-    client.post(f"/review/{ENTRY}/blind", data={"levels": ["correctness=3", "readability=1"]})
+def test_accepting_the_ai_is_not_recorded_as_a_correction(blind_world: World) -> None:
+    """教員が blind の判断を翻して AI に合わせても、それは「訂正」ではない。
 
-    store = ReviewStore(workspace)
-    entry = store.find(ENTRY)
-    assert entry is not None
-    correctness = next(
-        item for item in store.load_observations(entry) if item.criterion_code == "correctness"
+    `machine_corrected` が測るのは「機械の段階を人間が上書きしたか」で、
+    見逃し率（自動確定したのに実は直すべきだった割合）の材料になる。
+    教員が AI に合わせた提出は、見逃しではない。
+
+    blind 採点から最終段階への移動（アンカリングの度合い）は別の量で、
+    現在の合格基準には入っていないので記録していない。
+    """
+    _, accepted = _instructor_and_submission(blind_world)
+    blind_world.worker.run_once()
+    blind_world.client.post(
+        f"/review/{accepted.submission.id}/blind",
+        data={"levels": ["correctness=3", "readability=1"]},
     )
-    assert correctness.conclusive
-    assert not correctness.usable_for_agreement
+    blind_world.client.post(
+        f"/review/{accepted.submission.id}/finalize",
+        data={"levels": ["correctness=3", "readability=3"], "comment": "AI の指摘で考えを変えた"},
+    )
+
+    stored = blind_world.observations.load(
+        PROFILE, str(blind_world.task_version.task_id), str(accepted.submission.id)
+    )
+    readability = next(item for item in stored if item.criterion_code == "readability")
+    # blind の側は上書きされない（ADR 0005）。κ はこちらで測る。
+    assert readability.human_level == 1
+    assert readability.machine_corrected is False
 
 
 @needs_c_compiler
-def test_a_broken_observation_write_does_not_fail_the_grading(workspace: Path) -> None:
-    """観測の書き出しが失敗しても採点は成立する（P2 / ADR 0007）。"""
-    registry, _ = _registry()
-    store = ReviewStore(workspace)
-    grader = Grader(store, PROFILES, TaskLoader(), registry=registry)
+def test_overriding_the_ai_is_recorded_as_a_correction(blind_world: World) -> None:
+    """見逃し率の材料。教員が機械の段階を上書きしたか。"""
+    _, accepted = _instructor_and_submission(blind_world)
+    blind_world.worker.run_once()
+    blind_world.client.post(
+        f"/review/{accepted.submission.id}/blind",
+        data={"levels": ["correctness=3", "readability=1"]},
+    )
+    blind_world.client.post(
+        f"/review/{accepted.submission.id}/finalize",
+        data={"levels": ["correctness=3", "readability=1"], "comment": "AI は甘い"},
+    )
 
-    def explode(*args: object, **kwargs: object) -> None:
+    stored = blind_world.observations.load(
+        PROFILE, str(blind_world.task_version.task_id), str(accepted.submission.id)
+    )
+    readability = next(item for item in stored if item.criterion_code == "readability")
+    assert readability.machine_corrected is True
+
+
+@needs_c_compiler
+def test_a_broken_observation_store_does_not_block_the_review(world: World) -> None:
+    """測定の都合でレビューを落とさない（ADR 0007）。"""
+
+    def explode(*_args: object, **_kwargs: object) -> None:
         raise OSError("disk on fire")
 
-    store.save_observations = explode  # type: ignore[method-assign]
-    entry = store.queue()[0]
-    run = grader.grade(entry)
+    world.observations.save = explode  # type: ignore[method-assign]
+    _, accepted = _instructor_and_submission(world)
+    world.worker.run_once()
+    with world.database.unit_of_work() as uow:
+        run = uow.runs.latest_for(accepted.submission.id)
+    assert run is not None
+    machine = {score.criterion_id: score.level for score in run.criterion_scores}
 
-    assert run.score_ratio >= 0.0
-    assert (_runs_dir(workspace) / "s001.json").is_file()
-    assert not _observations_dir(workspace).exists()
+    response = world.client.post(
+        f"/review/{accepted.submission.id}/finalize",
+        data={
+            "levels": [
+                f"{c.code}={machine[c.id]}" for c in world.task_version.criteria if c.id in machine
+            ]
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    with world.database.unit_of_work() as uow:
+        assert uow.reviews.find_review_for_run(run.id) is not None

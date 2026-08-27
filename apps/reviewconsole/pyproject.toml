@@ -1,13 +1,15 @@
 [project]
 name = "aijudge-reviewconsole"
 version = "0.0.1"
-description = "Instructor review console and grading worker: grading runs before review, never because of it"
+description = "Instructor review console: reads grading results, confirms grades. Never grades."
 requires-python = ">=3.12"
 dependencies = [
     "aijudge-core",
     "aijudge-authoring",
     "aijudge-grading",
-    "aijudge-observation",
+    "aijudge-identity",
+    "aijudge-submission",
+    "aijudge-persistence",
     "fastapi>=0.115",
     "jinja2>=3.1",
     "python-multipart>=0.0.9",
@@ -17,7 +19,6 @@ dependencies = [
 
 [project.scripts]
 aijudge-review = "aijudge_reviewconsole.cli:main"
-aijudge-grade = "aijudge_reviewconsole.cli:grade"
 
 [build-system]
 requires = ["hatchling"]
@@ -30,4 +31,6 @@ packages = ["src/aijudge_reviewconsole"]
 aijudge-core = { workspace = true }
 aijudge-authoring = { workspace = true }
 aijudge-grading = { workspace = true }
-aijudge-observation = { workspace = true }
+aijudge-identity = { workspace = true }
+aijudge-submission = { workspace = true }
+aijudge-persistence = { workspace = true }

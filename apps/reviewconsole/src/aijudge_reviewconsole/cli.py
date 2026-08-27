@@ -1,94 +1,68 @@
-"""レビューコンソールと採点ワーカーの起動。
+"""`aijudge-review` — 教員レビューコンソールを起動する。
 
-    uv run aijudge-grade  --golden ~/.aijudge/golden          # 採点（提出時に相当）
-    uv run aijudge-review --golden ~/.aijudge/golden --marker sano   # 教員レビュー
+    uv run aijudge-review
 
-**採点とレビューは別のコマンドである。** レビューは採点の前提条件ではなく、
-採点が届いた提出を教員が確定させる作業（ADR 0007）。
+**採点は別プロセス**（`aijudge-worker`）。レビューは採点の前提条件では
+なく、採点が届いた提出を教員が確定させる作業（ADR 0007）。
 
-認証は無い。コンソールが既定で 127.0.0.1 にしか bind しないのはそのため。
-学内に公開するなら先に S1（Identity）に載せること。
+.. warning::
+
+   セッション Cookie の `secure` は既定で偽。TLS 終端の前に真にすること。
 """
 
 from __future__ import annotations
 
 import argparse
 import os
-import sys
 from pathlib import Path
 
 import uvicorn
 
-from .app import ENV_GOLDEN_DIR, ENV_MARKER, Console, create_app
-from .store import ReviewStore
-from .tasks import TaskLoader
-from .worker import Grader, grade_pending
+from aijudge_persistence import ENV_DATABASE_URL, Database, ObservationFileStore
+from aijudge_submission import FilesystemArtifactStore
+
+from .app import Console, create_app
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
-DEFAULT_GOLDEN_DIR = Path.home() / ".aijudge" / "golden"
+ENV_ARTIFACT_DIR = "AIJUDGE_ARTIFACT_DIR"
+ENV_OBSERVATION_DIR = "AIJUDGE_OBSERVATION_DIR"
+DEFAULT_ARTIFACT_DIR = Path.home() / ".aijudge" / "artifacts"
+DEFAULT_OBSERVATION_DIR = Path.home() / ".aijudge" / "observations"
 
 
-def _common(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument(
-        "--golden",
-        type=Path,
-        default=Path(os.environ.get(ENV_GOLDEN_DIR, DEFAULT_GOLDEN_DIR)).expanduser(),
-        help="提出物と採点結果の置き場所",
+def build_console(args: argparse.Namespace) -> Console:
+    database = Database.connect(args.database_url, create=args.create_schema)
+    return Console(
+        database,
+        FilesystemArtifactStore(args.artifacts),
+        profiles_dir=args.profiles,
+        observations=ObservationFileStore(args.observations),
     )
-    parser.add_argument(
-        "--profiles", type=Path, default=REPO_ROOT / "subjects", help="科目プロファイルの場所"
-    )
-    parser.add_argument("--subject", default=None, help="科目プロファイル名で絞る")
-
-
-def grade(argv: list[str] | None = None) -> int:
-    """`aijudge-grade` — 採点が無い提出をすべて採点する。
-
-    S3（Submission & Orchestration）の最小代替。本来はキューを消費する
-    常駐ワーカーで、提出のたびに走る。
-    """
-    parser = argparse.ArgumentParser(
-        prog="aijudge-grade", description="未採点の提出を採点する（レビューとは独立）"
-    )
-    _common(parser)
-    args = parser.parse_args(argv)
-
-    store = ReviewStore(args.golden)
-    grader = Grader(store, args.profiles, TaskLoader())
-    graded, errors = grade_pending(
-        grader,
-        subject_profile=args.subject,
-        progress=lambda line: print(line, file=sys.stderr),
-    )
-
-    print(f"採点した提出: {graded} 件")
-    if errors:
-        print(f"失敗: {len(errors)} 件", file=sys.stderr)
-        for error in errors:
-            print(f"  - {error}", file=sys.stderr)
-        # 一部が失敗しても、採点できた分は成立している。
-        return 1
-    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
-    """`aijudge-review` — 教員レビューコンソールを起動する。"""
     parser = argparse.ArgumentParser(prog="aijudge-review", description="教員レビューコンソール")
-    _common(parser)
+    parser.add_argument("--database-url", default=os.environ.get(ENV_DATABASE_URL))
     parser.add_argument(
-        "--marker",
-        default=os.environ.get(ENV_MARKER, "instructor"),
-        help="採点者の識別子。blind 採点に記録される",
+        "--artifacts",
+        type=Path,
+        default=Path(os.environ.get(ENV_ARTIFACT_DIR, DEFAULT_ARTIFACT_DIR)).expanduser(),
     )
-    parser.add_argument("--host", default="127.0.0.1", help="認証が無いので既定は localhost のみ")
+    parser.add_argument(
+        "--observations",
+        type=Path,
+        default=Path(os.environ.get(ENV_OBSERVATION_DIR, DEFAULT_OBSERVATION_DIR)).expanduser(),
+        help="観測レコードの置き場所（測定用。無くてもレビューは動く）",
+    )
+    parser.add_argument("--profiles", type=Path, default=REPO_ROOT / "subjects")
+    parser.add_argument("--host", default="127.0.0.1", help="既定は localhost のみ")
     parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--create-schema", action="store_true", help="開発用")
     args = parser.parse_args(argv)
 
-    console = Console(ReviewStore(args.golden), args.profiles, marker=args.marker)
-    print(f"レビュー対象: {args.golden}")
-    print(f"採点者: {args.marker}")
-    print("採点は aijudge-grade が行います（このコンソールは採点しません）")
+    console = build_console(args)
     print(f"→ http://{args.host}:{args.port}/")
+    print("採点は aijudge-worker が行います（このコンソールは採点しません）")
     uvicorn.run(create_app(console), host=args.host, port=args.port, log_level="warning")
     return 0
 

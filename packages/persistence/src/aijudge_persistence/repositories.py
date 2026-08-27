@@ -18,7 +18,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import datetime
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -277,6 +277,57 @@ class SqlReviewRepository:
     def find_blind_mark(self, submission_id: SubmissionId) -> BlindMark | None:
         row = self._session.get(BlindMarkRow, str(submission_id))
         return None if row is None else BlindMark.model_validate(row.document)
+
+    # -- レビュー待ち行列（教員 UI 用の読み取り）--------------------------
+
+    def pending_for_course(
+        self, course_id: CourseId, *, include_decided: bool = False, limit: int = 200
+    ) -> tuple[tuple[Submission, GradingRun], ...]:
+        """このコースで教員の確認を待っている提出。
+
+        「採点が届いていて、まだ確定していない」もの。採点が届いていない
+        提出をレビュー画面に出さないのは、そこで採点を起動しないため
+        （ADR 0007）。提出のたびに 1 行ではなく、**最新の採点 1 件につき 1 行**。
+
+        課題 → コースの経路で絞る。提出は課題版を指しており、コースを
+        直接持たない（持たせると課題の移動で片方だけ古くなる）。
+        """
+        latest = (
+            select(
+                GradingRunRow.submission_id.label("submission_id"),
+                func.max(GradingRunRow.created_at).label("created_at"),
+            )
+            .group_by(GradingRunRow.submission_id)
+            .subquery()
+        )
+        statement = (
+            select(SubmissionRow, GradingRunRow)
+            .join(
+                TaskVersionRow,
+                TaskVersionRow.id == SubmissionRow.task_version_id,
+            )
+            .join(TaskRow, TaskRow.id == TaskVersionRow.task_id)
+            .join(GradingRunRow, GradingRunRow.submission_id == SubmissionRow.id)
+            .join(
+                latest,
+                (latest.c.submission_id == GradingRunRow.submission_id)
+                & (latest.c.created_at == GradingRunRow.created_at),
+            )
+            .where(TaskRow.course_id == str(course_id))
+            .order_by(SubmissionRow.submitted_at, SubmissionRow.id)
+            .limit(limit)
+        )
+        if not include_decided:
+            reviewed = select(HumanReviewRow.grading_run_id)
+            statement = statement.where(GradingRunRow.id.not_in(reviewed))
+
+        return tuple(
+            (
+                Submission.model_validate(submission_row.document),
+                GradingRun.model_validate(run_row.document),
+            )
+            for submission_row, run_row in self._session.execute(statement).all()
+        )
 
 
 class SqlJobQueue:
