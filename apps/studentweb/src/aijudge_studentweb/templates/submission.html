@@ -32,19 +32,19 @@
 
 <h2>観点ごとの結果</h2>
 <table>
-  <thead><tr><th>観点</th><th>評価</th><th>説明</th></tr></thead>
+  <thead><tr><th>観点</th><th class="fit">評価</th><th class="grow">説明</th></tr></thead>
   <tbody>
   {% for row in view.criteria %}
     <tr>
       <td><strong>{{ row.criterion.title }}</strong><br>
           <span class="desc">{{ row.criterion.description }}</span></td>
-      <td>
+      <td class="fit">
         {% if row.pending %}<span class="pill">{{ row.label }}</span>
         {% else %}<span class="pill ok">{{ row.label }}</span>
           {% if row.adjusted %}<br><span class="desc">教員が調整</span>{% endif %}
         {% endif %}
       </td>
-      <td>
+      <td class="grow">
         {% if row.rationale %}{{ row.rationale }}
           {% if row.evidence_lines %}
             <br><span class="desc">該当行: {{ row.evidence_lines | join(', ') }}</span>

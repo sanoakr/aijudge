@@ -469,3 +469,23 @@ def test_the_session_cookie_is_not_secure_on_plain_localhost(world: World) -> No
         follow_redirects=False,
     )
     assert "Secure" not in response.headers["set-cookie"]
+
+
+@needs_c_compiler
+def test_the_verdict_column_does_not_wrap(world: World) -> None:
+    """評価のピルが縦に積まれないこと。
+
+    `白space:nowrap` が無いと、狭い列で「採点できませんでした」が
+    1 文字ずつ縦に並ぶ（実際にそうなった）。表がその分の幅を確保するよう、
+    列に `fit` を付けて幅を内容に合わせる。
+    """
+    world.register("s2400001")
+    world.login("s2400001")
+    location = world.submit().headers["location"]
+    world.worker.run_once()
+    body = world.client.get(location).text
+
+    assert "white-space:nowrap" in body, "ピルの折り返しを止めていない"
+    # 評価列が内容幅、説明列が残りを取る指定になっていること。
+    assert 'class="fit">評価' in body
+    assert 'class="grow">説明' in body

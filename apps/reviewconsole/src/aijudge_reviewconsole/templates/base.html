@@ -33,7 +33,10 @@ a{color:var(--shu)}
 .note{border-left:3px solid var(--verd);background:var(--verd-soft);padding:12px 16px;
   border-radius:0 3px 3px 0;font-size:.9rem;color:var(--ink-2);margin-bottom:20px}
 .note.warn{border-left-color:var(--shu);background:var(--shu-soft)}
-table{border-collapse:collapse;width:100%;font-size:.9rem}
+table{border-collapse:collapse;width:100%;font-size:.9rem;table-layout:auto}
+/* 「説明」のように長い列に残りを吸わせ、他の列を潰させない。 */
+td.fit,th.fit{width:1%;white-space:nowrap}
+td.grow,th.grow{width:auto}
 th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line-soft);vertical-align:top}
 thead th{font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);
   font-weight:400;background:var(--surface-2)}
@@ -71,8 +74,11 @@ button{font:inherit;font-weight:700;background:var(--shu);color:#fff;border:0;
 button:hover{filter:brightness(1.08)}
 textarea{width:100%;font:inherit;font-size:.88rem;padding:10px 12px;border-radius:3px;
   border:1px solid var(--line);background:var(--surface);color:var(--ink);resize:vertical}
+/* ピルは折り返さない。狭い列に入ると 1 文字ずつ縦に積まれる
+   （「採点できませんでした」で実際にそうなった）。nowrap にすると
+   表がその分の幅を確保する。 */
 .pill{display:inline-block;font-size:.72rem;padding:2px 9px;border-radius:99px;
-  border:1px solid var(--line);color:var(--muted)}
+  border:1px solid var(--line);color:var(--muted);white-space:nowrap}
 .pill.ok{color:var(--verd);border-color:var(--verd);background:var(--verd-soft)}
 .pill.no{color:var(--shu);border-color:var(--shu);background:var(--shu-soft)}
 .progress{height:6px;background:var(--line-soft);border-radius:99px;overflow:hidden;margin:10px 0 6px}
