@@ -22,11 +22,13 @@ Architecture decisions: [`docs/adr/`](docs/adr/).
 > feedback, and the instructor review console are all in place. See
 > [`docs/RUNNING.md`](docs/RUNNING.md) to run it.
 >
-> **Not yet cleared: the container escape suite has never run.** macOS seatbelt
-> cannot contain a fork bomb (measured — see
-> [ADR 0006](docs/adr/0006-execution-isolation.md)), so real student code needs
-> Linux and containers, and `packages/sandbox/tests/test_container.py` must pass
-> rather than skip before any of it runs. A skip is not a pass.
+> **Not yet cleared: the container escape suite has never run.** `sandbox-exec`
+> alone cannot contain a fork bomb (measured — see
+> [ADR 0006](docs/adr/0006-execution-isolation.md)), so real student code needs a
+> container, and `packages/sandbox/tests/test_container.py` must pass rather than
+> skip before any of it runs. A skip is not a pass. This is not a Linux-only
+> story: `brew install colima docker` gets a macOS dev machine to the same
+> isolation level with no code change.
 >
 > **Measuring grading accuracy is Phase 1, not Phase 0.** The records it needs
 > are captured from the start — a blind mark cannot be reconstructed later — but

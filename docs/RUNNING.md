@@ -27,17 +27,34 @@ SQLite でも動くが**行ロックが無い**ので、ワーカーは 1 プロ
 
 ## 実提出を通す前に
 
-**macOS で実学生のコードを走らせてはならない。** seatbelt はプロセス数を
+**seatbelt 単体で実学生のコードを走らせてはならない。** プロセス数を
 封じ込められず、実測で開発機のプロセス表が埋まった（ADR 0006）。
+`sandbox-exec` が止めるのは書き込み・通信・家目録の読み取りまでで、
+プロセス数だけが穴になっている。
 
-Linux + コンテナで脱出試験を通してから運用に入る。
+コンテナ実行環境を入れてから運用に入る。**macOS でも同じ水準に揃う。**
 
 ```fish
+brew install colima docker      # 軽量 VM 上の Linux コンテナ
+colima start --cpu 4 --memory 8
+
 AIJUDGE_SANDBOX=docker uv run pytest packages/sandbox/tests/test_container.py -v
 ```
 
 このファイルが **skip ではなく pass** することが、実提出を通す前提条件。
 skip は「検証していない」であって「安全」ではない。
+
+バックエンドは自動選択で最も強いものを取る（gVisor > docker > seatbelt）。
+何が選ばれたかは採点結果の `isolation` に残るので、あとから
+「どの水準で付いた点か」を選別できる。
+
+```fish
+uv run python -c "
+from aijudge_sandbox import build_sandbox
+s = build_sandbox()
+print(s.name, s.isolation.value, sorted(l.value for l in s.limitations))
+"
+```
 
 ## 環境変数
 
