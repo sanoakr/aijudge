@@ -25,6 +25,8 @@ root_packages =
     aijudge_studentweb
     aijudge_feedback
     aijudge_admin
+    aijudge_toolchain
+    aijudge_eval_network_test_runner
 include_external_packages = True
 
 [importlinter:contract:core-is-independent]
@@ -46,6 +48,7 @@ forbidden_modules =
     aijudge_observation
     aijudge_persistence
     aijudge_feedback
+    aijudge_toolchain
 
 ; ゲートウェイは他サブシステムを知らない。採点の語彙にも依存しない
 ; （依存させると、採点以外から LLM を使うたびに採点が引きずられる）。
@@ -166,6 +169,7 @@ source_modules =
     aijudge_sandbox
     aijudge_eval_code_test_runner
     aijudge_eval_rubric_ai_judge
+    aijudge_eval_network_test_runner
     aijudge_reviewconsole
 forbidden_modules =
     aijudge_analytics
@@ -212,6 +216,7 @@ source_modules =
     aijudge_observation
     aijudge_eval_code_test_runner
     aijudge_eval_rubric_ai_judge
+    aijudge_eval_network_test_runner
 forbidden_modules =
     aijudge_persistence
     sqlalchemy
@@ -236,6 +241,25 @@ forbidden_modules =
     aijudge_grader
     aijudge_studentweb
     aijudge_admin
+
+; 言語の扱い方は何にも依存しない。複数の評価器が共有する知識で、片方に
+; 置いて他方が import すると評価器どうしが結合する（観測レコードを独立させた
+; のと同じ理由、ADR 0007）。
+[importlinter:contract:toolchain-is-a-bare-table]
+name = 言語定義は何にも依存しない
+type = forbidden
+source_modules =
+    aijudge_toolchain
+forbidden_modules =
+    aijudge_core
+    aijudge_grading
+    aijudge_authoring
+    aijudge_submission
+    aijudge_identity
+    aijudge_sandbox
+    aijudge_analytics
+    aijudge_persistence
+    aijudge_eval_code_test_runner
 
 ; フィードバック生成は評価器と同じ依存の形に留める。core と S6 だけ。
 ; 採点エンジンを知らせると、採点が終わるまでフィードバックが作れない設計に
@@ -265,6 +289,7 @@ source_modules =
 forbidden_modules =
     aijudge_eval_code_test_runner
     aijudge_eval_rubric_ai_judge
+    aijudge_eval_network_test_runner
     aijudge_sandbox
 
 ; Evaluator が依存してよいのは core・採点プロトコル・LLM ゲートウェイ・S4 の 4 つ。
@@ -276,6 +301,7 @@ type = forbidden
 source_modules =
     aijudge_eval_code_test_runner
     aijudge_eval_rubric_ai_judge
+    aijudge_eval_network_test_runner
 forbidden_modules =
     aijudge_authoring
     aijudge_identity

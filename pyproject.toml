@@ -22,6 +22,8 @@ dependencies = [
     "aijudge-studentweb",
     "aijudge-feedback",
     "aijudge-admin",
+    "aijudge-toolchain",
+    "aijudge-eval-network-test-runner",
 ]
 
 [project.optional-dependencies]
@@ -55,6 +57,8 @@ aijudge-identity = { workspace = true }
 aijudge-studentweb = { workspace = true }
 aijudge-feedback = { workspace = true }
 aijudge-admin = { workspace = true }
+aijudge-toolchain = { workspace = true }
+aijudge-eval-network-test-runner = { workspace = true }
 
 [tool.ruff]
 line-length = 100
@@ -86,6 +90,8 @@ known-first-party = [
     "aijudge_studentweb",
     "aijudge_feedback",
     "aijudge_admin",
+    "aijudge_toolchain",
+    "aijudge_eval_network_test_runner",
 ]
 
 [tool.pytest.ini_options]

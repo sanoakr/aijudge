@@ -24,7 +24,6 @@ AI 評価器に問い合わせず、AI の判断で覆されることもない�
 from __future__ import annotations
 
 import math
-from typing import NamedTuple
 
 from aijudge_core import (
     CriterionScore,
@@ -45,60 +44,32 @@ from aijudge_sandbox import (
     Workspace,
     default_sandbox,
 )
+from aijudge_toolchain import (
+    LANGUAGES,
+    OPTION_IMAGE,
+    Language,
+    UnknownLanguage,
+    resolve_language,
+)
 
 EVALUATOR_ID = "code_test_runner"
 
-
-class UnknownLanguage(Exception):
-    """科目プロファイルが知らない言語を指定した。
-
-    採点を止める。既定に落とすと、言語違いが「全員 0 点」として現れる。
-    """
-
-
-BINARY_NAME = "main"
-
-OPTION_LANGUAGE = "language"
-OPTION_IMAGE = "image"
-DEFAULT_LANGUAGE = "c"
-
-
-class Language(NamedTuple):
-    """1 言語の扱い方。
-
-    `compile_argv` が None ならコンパイル段階を飛ばす（スクリプト言語）。
-    飛ばすのは速さのためではなく、**「コンパイルエラー」という結果が
-    存在しない**言語で、構文エラーを実行時の失敗として扱うため。
-    """
-
-    source_name: str
-    compile_argv: tuple[str, ...] | None
-    run_argv: tuple[str, ...]
-    # 学習者に見せる名前。エラーメッセージに出る。
-    label: str
-
-
-LANGUAGES: dict[str, Language] = {
-    "c": Language(
-        source_name="main.c",
-        # -O0 なのは、最適化で消える未定義動作を採点で拾えるようにするため。
-        compile_argv=("cc", "-std=c11", "-O0", "-o", BINARY_NAME, "main.c"),
-        run_argv=(f"./{BINARY_NAME}",),
-        label="C",
-    ),
-    "python": Language(
-        source_name="main.py",
-        compile_argv=None,
-        # -I で分離モードにする。環境変数（PYTHONPATH 等）と利用者の
-        # site-packages を無視するので、提出の挙動が採点機の状態に依存しない。
-        run_argv=("python3", "-I", "main.py"),
-        label="Python",
-    ),
-}
-
-_MEMORY_BYTES = 512 * 1024 * 1024
-_MAX_PROCESSES = 64
-_MAX_OUTPUT_BYTES = 1024 * 1024
+# 言語の扱い方は `aijudge_toolchain` にある（伴走プロセスの評価器と共有する）。
+# ここから再輸出するのは、既存の import 経路を壊さないため。
+__all__ = [
+    "DEFAULT_CASE_TIMEOUT_SECONDS",
+    "DEFAULT_COMPILE_TIMEOUT_SECONDS",
+    "EVALUATOR_ID",
+    "LANGUAGES",
+    "OPTION_CASE_TIMEOUT",
+    "OPTION_COMPILE_TIMEOUT",
+    "CodeTestRunner",
+    "Language",
+    "UnknownLanguage",
+    "build",
+    "normalize_output",
+    "resolve_language",
+]
 
 
 def normalize_output(text: str) -> list[str]:
@@ -131,6 +102,13 @@ OPTION_CASE_TIMEOUT = "case_timeout_seconds"
 # コンパイルの上限。実行より長く取る（最適化なしでも数秒かかる課題がある）。
 DEFAULT_COMPILE_TIMEOUT_SECONDS = 30.0
 OPTION_COMPILE_TIMEOUT = "compile_timeout_seconds"
+
+
+# 資源上限。提出物 1 プロセスに与える。伴走プロセスを使う課題は
+# 別の評価器（network_test_runner）が扱うので、ここは 1 プロセス前提でよい。
+_MEMORY_BYTES = 512 * 1024 * 1024
+_MAX_PROCESSES = 64
+_MAX_OUTPUT_BYTES = 1024 * 1024
 
 
 def _limits(timeout_seconds: float) -> Limits:
@@ -167,20 +145,6 @@ def _common_error(failed: list[dict[str, object]]) -> str | None:
     if len(messages) != 1:
         return None
     return next(iter(messages))[:_ERROR_EXCERPT_CHARS]
-
-
-def resolve_language(options: dict[str, object]) -> Language:
-    """科目プロファイルから言語を引く。
-
-    知らない言語名は**例外にする**。既定の C に落とすと、Python の課題が
-    「コンパイルエラーで全員 0 点」になり、原因が提出物の側にあるように見える。
-    """
-    name = str(options.get(OPTION_LANGUAGE, DEFAULT_LANGUAGE)).strip().lower()
-    if name not in LANGUAGES:
-        raise UnknownLanguage(
-            f"language {name!r} is not supported; pick one of {sorted(LANGUAGES)}"
-        )
-    return LANGUAGES[name]
 
 
 def _seconds_option(options: dict[str, object], key: str, default: float) -> float:

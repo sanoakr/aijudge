@@ -32,6 +32,8 @@ from aijudge_core import (
 )
 from aijudge_core.ids import CriterionId, TaskId, TaskVersionId, UserId
 
+from . import companion
+
 # `## [必須] 最大値・最小値・平均値 ##` から見出しを取る。
 _HEADING_RE = re.compile(r"^\s*#{1,6}\s*(?P<title>.+?)\s*#*\s*$")
 # 見出し先頭の `[必須]` `[任意]` などの区分。
@@ -233,7 +235,14 @@ def import_problem(
     # 課題ディレクトリ名を同一性の鍵にする（exNN/pN など運用上の一意名）。
     task_key = f"{problem_dir.parent.name}/{problem_dir.name}"
 
-    cases = collect_test_cases(problem_dir, evaluator_id)
+    # 伴走プロセスの宣言があればそちらを使う。クライアント／サーバ課題は
+    # in/ out/ の形に乗らない（ADR 0008）。
+    if companion.has_companion(problem_dir):
+        cases = companion.load_companion_cases(problem_dir)
+        graded_by_id = companion.EVALUATOR_ID
+    else:
+        cases = collect_test_cases(problem_dir, evaluator_id)
+        graded_by_id = evaluator_id
 
     # **テストケースが無い課題は、決定的評価器に担当させない。**
     #
@@ -250,7 +259,7 @@ def import_problem(
     # である（伴走サーバによるサーバ課題の採点、レポートのルーブリック採点は
     # いずれも計画にある）。当面は AI 観点だけで構成し、テストケースの形が
     # 決まった時点で新しい版を作って決定的評価器に渡す。
-    graded_by = evaluator_id if cases else AI_EVALUATOR
+    graded_by = graded_by_id if cases else AI_EVALUATOR
     correctness = correctness_criterion(graded_by, task_key)
     if not cases:
         correctness = correctness.model_copy(

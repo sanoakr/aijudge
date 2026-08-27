@@ -14,6 +14,7 @@ members = [
     "aijudge-authoring",
     "aijudge-core",
     "aijudge-eval-code-test-runner",
+    "aijudge-eval-network-test-runner",
     "aijudge-eval-rubric-ai-judge",
     "aijudge-evalrunner",
     "aijudge-feedback",
@@ -27,6 +28,7 @@ members = [
     "aijudge-sandbox",
     "aijudge-studentweb",
     "aijudge-submission",
+    "aijudge-toolchain",
 ]
 
 [[package]]
@@ -39,6 +41,7 @@ dependencies = [
     { name = "aijudge-authoring" },
     { name = "aijudge-core" },
     { name = "aijudge-eval-code-test-runner" },
+    { name = "aijudge-eval-network-test-runner" },
     { name = "aijudge-eval-rubric-ai-judge" },
     { name = "aijudge-evalrunner" },
     { name = "aijudge-feedback" },
@@ -52,6 +55,7 @@ dependencies = [
     { name = "aijudge-sandbox" },
     { name = "aijudge-studentweb" },
     { name = "aijudge-submission" },
+    { name = "aijudge-toolchain" },
 ]
 
 [package.optional-dependencies]
@@ -76,6 +80,7 @@ requires-dist = [
     { name = "aijudge-authoring", editable = "packages/authoring" },
     { name = "aijudge-core", editable = "packages/core" },
     { name = "aijudge-eval-code-test-runner", editable = "evaluators/code_test_runner" },
+    { name = "aijudge-eval-network-test-runner", editable = "evaluators/network_test_runner" },
     { name = "aijudge-eval-rubric-ai-judge", editable = "evaluators/rubric_ai_judge" },
     { name = "aijudge-evalrunner", editable = "apps/evalrunner" },
     { name = "aijudge-feedback", editable = "packages/feedback" },
@@ -89,6 +94,7 @@ requires-dist = [
     { name = "aijudge-sandbox", editable = "packages/sandbox" },
     { name = "aijudge-studentweb", editable = "apps/studentweb" },
     { name = "aijudge-submission", editable = "packages/submission" },
+    { name = "aijudge-toolchain", editable = "packages/toolchain" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.27" },
     { name = "import-linter", marker = "extra == 'dev'", specifier = ">=2.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.11" },
@@ -171,6 +177,7 @@ dependencies = [
     { name = "aijudge-core" },
     { name = "aijudge-grading" },
     { name = "aijudge-sandbox" },
+    { name = "aijudge-toolchain" },
 ]
 
 [package.metadata]
@@ -178,6 +185,26 @@ requires-dist = [
     { name = "aijudge-core", editable = "packages/core" },
     { name = "aijudge-grading", editable = "packages/grading" },
     { name = "aijudge-sandbox", editable = "packages/sandbox" },
+    { name = "aijudge-toolchain", editable = "packages/toolchain" },
+]
+
+[[package]]
+name = "aijudge-eval-network-test-runner"
+version = "0.0.1"
+source = { editable = "evaluators/network_test_runner" }
+dependencies = [
+    { name = "aijudge-core" },
+    { name = "aijudge-grading" },
+    { name = "aijudge-sandbox" },
+    { name = "aijudge-toolchain" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aijudge-core", editable = "packages/core" },
+    { name = "aijudge-grading", editable = "packages/grading" },
+    { name = "aijudge-sandbox", editable = "packages/sandbox" },
+    { name = "aijudge-toolchain", editable = "packages/toolchain" },
 ]
 
 [[package]]
@@ -423,6 +450,11 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [{ name = "aijudge-core", editable = "packages/core" }]
+
+[[package]]
+name = "aijudge-toolchain"
+version = "0.0.1"
+source = { editable = "packages/toolchain" }
 
 [[package]]
 name = "annotated-doc"

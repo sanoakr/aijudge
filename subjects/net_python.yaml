@@ -16,7 +16,11 @@ input:
 normalizers: []
 
 deterministic:
+  # 標準入出力で完結する課題（ex1–ex3）。
   - code_test_runner
+  # クライアント／サーバ課題（ex4 以降）。伴走プロセスを立てる（ADR 0008）。
+  # 課題ディレクトリの companion.yaml が宣言する。
+  - network_test_runner
 
 ai_evaluators:
   - rubric_ai_judge
@@ -39,6 +43,13 @@ evaluator_options:
     case_timeout_seconds: 3.0
     # コンパイル段階が無いので使われない（宣言しておくと意図が分かる）。
     compile_timeout_seconds: 10.0
+
+  network_test_runner:
+    language: python
+    # 待ち受け開始を待つ上限。提出物の起動が遅いだけで落とさない程度。
+    ready_timeout_seconds: 6.0
+    # 通信 1 往復の上限。
+    case_timeout_seconds: 10.0
 
 aggregation: weighted_sum
 

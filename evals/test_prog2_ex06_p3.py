@@ -102,10 +102,18 @@ def test_import_fails_loudly_on_a_broken_directory(tmp_path: Path) -> None:
 
 
 def test_the_evaluator_is_discovered_through_an_entry_point() -> None:
-    """エンジンは評価器を import していない。entry point で見つけている。"""
+    """エンジンは評価器を import していない。entry point で見つけている。
+
+    決定的評価器の**個数**は固定しない。評価器を足せることがこの設計の
+    目的で、足すたびにこのテストが落ちるなら、テストが設計を邪魔している。
+    """
     registry = default_registry()
     assert "code_test_runner" in registry
-    assert registry.ids_of_kind(EvaluatorKind.DETERMINISTIC) == ("code_test_runner",)
+    deterministic = registry.ids_of_kind(EvaluatorKind.DETERMINISTIC)
+    assert "code_test_runner" in deterministic
+    # 伴走プロセスの評価器も同じ経路で見つかる（ADR 0008）。
+    assert "network_test_runner" in deterministic
+    assert "rubric_ai_judge" not in deterministic
 
 
 def test_profile_validation_rejects_an_unknown_evaluator(tmp_path: Path) -> None:
