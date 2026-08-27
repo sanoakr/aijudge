@@ -1,0 +1,53 @@
+# 開発・検証用のスタック。
+#
+#   docker compose up -d
+#   AIJUDGE_DATABASE_URL=postgresql+psycopg://aijudge:aijudge@localhost:5432/aijudge \
+#     uv run aijudge-web --create-schema
+#
+# **本番の構成ではない。** 認証情報がここに書いてあるのがその証拠で、
+# 学内に出すなら Secret 管理と TLS 終端を前に置くこと。
+#
+# 採点ワーカーはここに入れていない。提出コードを実行するので、
+# **Linux + コンテナで動かす**必要があり（ADR 0006）、その場合ワーカー自身が
+# Docker を呼ぶ（docker-out-of-docker）。開発機では
+# `AIJUDGE_SANDBOX=docker uv run aijudge-worker` をホスト側で動かす。
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: aijudge
+      POSTGRES_PASSWORD: aijudge
+      POSTGRES_DB: aijudge
+      # 締切前のバーストで接続が枯れないように。
+      POSTGRES_MAX_CONNECTIONS: "200"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aijudge"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # 提出物のオブジェクトストレージ。個人情報を含むので学内に閉じる。
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: aijudge
+      MINIO_ROOT_PASSWORD: aijudge-dev-secret
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  postgres-data:
+  minio-data:

@@ -16,11 +16,17 @@ Three capabilities, each operable as an independent subsystem:
 Design and rollout plan: [`docs/design/`](docs/design/).
 Architecture decisions: [`docs/adr/`](docs/adr/).
 
-> Status: Phase 0 in progress. Real course assignments import and grade end to
-> end with a deterministic evaluator plus an LLM rubric judge on a local model,
-> and the instructor review console is in place. Still missing before a course
-> can run on it: submission orchestration (S3), minimal identity (S1), a student
-> UI, and persistence. See [`docs/design/`](docs/design/) §12.
+> Status: Phase 0 is built end to end — submit, isolate, grade, confirm, return.
+> Submission intake and job orchestration (S3), local authentication (S1), the
+> learner web app, PostgreSQL persistence, the grading worker, next-step
+> feedback, and the instructor review console are all in place. See
+> [`docs/RUNNING.md`](docs/RUNNING.md) to run it.
+>
+> **Not yet cleared: the container escape suite has never run.** macOS seatbelt
+> cannot contain a fork bomb (measured — see
+> [ADR 0006](docs/adr/0006-execution-isolation.md)), so real student code needs
+> Linux and containers, and `packages/sandbox/tests/test_container.py` must pass
+> rather than skip before any of it runs. A skip is not a pass.
 >
 > **Measuring grading accuracy is Phase 1, not Phase 0.** The records it needs
 > are captured from the start — a blind mark cannot be reconstructed later — but
@@ -35,9 +41,15 @@ Architecture decisions: [`docs/adr/`](docs/adr/).
 | `packages/grading` | The grading pipeline, evaluator registry, and subject profile loader (S5). Knows nothing about any subject. |
 | `packages/authoring` | Task authoring and importers for existing course assets (S2). |
 | `packages/llm_gateway` | Provider abstraction, policy routing, structured output, prompt versioning (S6). |
+| `packages/submission` | Submission intake, artifact storage, and grading job orchestration (S3). Does not import the grading engine. |
+| `packages/identity` | Local authentication, courses, enrolment (S1). Credentials never leave this package. |
+| `packages/persistence` | PostgreSQL implementations of the S2/S3/S1 stores. Infrastructure — no subsystem may import it. |
+| `packages/feedback` | Turns grading results into the learner's next step. Draws only on deterministic results. |
 | `packages/observation` | The observation record — what grading leaves behind for measurement to read. Depends on pydantic and nothing else. |
 | `packages/analytics` | Agreement metrics and gate evaluation (S9). Pure functions. Delete it and grading still runs — verified by deleting it. |
-| `apps/reviewconsole` | Instructor review console and the grading worker. Grading runs *before* review, never because of it. |
+| `apps/studentweb` | The learner-facing app: submit, see results. What is visible lives in one module, not in templates. |
+| `apps/grader` | The grading worker. The only layer that knows both the queue and the pipeline. |
+| `apps/reviewconsole` | Instructor review console. Reads results, confirms grades. Never grades. |
 | `apps/evalrunner` | Reads recorded observations and measures agreement against the gates. Never grades. |
 | `apps/*` | Composition roots. The only layer allowed to combine subsystems. |
 | `packages/*` | One package per remaining subsystem (S1, S3–S11). |
@@ -108,11 +120,12 @@ Everything else runs offline against a scripted provider. See
 [ADR 0004](docs/adr/0004-llm-gateway.md) for what the real hardware taught us —
 several assumptions about constrained decoding did not survive contact.
 
-### Grading and reviewing are separate steps
+### Grading and reviewing are separate processes
 
 ```fish
-uv run aijudge-grade  --golden ~/.aijudge/golden                  # grade
-uv run aijudge-review --golden ~/.aijudge/golden --marker sano    # then review
+uv run aijudge-web        # learners submit                    :8080
+uv run aijudge-worker     # grading consumes the queue
+uv run aijudge-review     # instructors confirm                :8765
 ```
 
 The worker grades on submission; the console reads what arrived. **Reviewing is

@@ -29,12 +29,18 @@ from aijudge_sandbox import (
 
 on_macos = pytest.mark.skipif(platform.system() != "Darwin", reason="seatbelt is macOS only")
 
-# fork bomb 試験は、プロセス数を強制できるバックエンドでしか走らせない。
-# seatbelt で走らせた実測（2026-08）では、暴走プロセスがホスト利用者の
-# プロセス表を埋め、シェルが fork できなくなった。試験そのものが事故になる。
+# fork bomb 試験は、プロセス数を強制できるバックエンドでは**既定で走らせる**。
+# 走らせなければ「封じ込められる」という主張が検証されないままになり、
+# 主張だけが残る。コンテナなら被害の及ぶ範囲はそのコンテナの中である。
+#
+# 封じ込めを申告しないバックエンド（macOS seatbelt）では skip する。
+# 実測（2026-08）では、暴走プロセスがホスト利用者のプロセス表を埋め、
+# シェルが fork できなくなった。試験そのものが事故になる。
 # 「上限が効かないことを確かめる試験」は要らない。効かないことは
 # バックエンドが `Limitation.PROCESS_LIMIT_UNENFORCED` で申告する。
-FORK_BOMB_OPT_IN = "AIJUDGE_RUN_FORK_BOMB_TEST"
+#
+# それでも走らせたい場合（隔離の実測をやり直すなど）だけ、この環境変数で開ける。
+FORK_BOMB_OVERRIDE = "AIJUDGE_RUN_FORK_BOMB_TEST"
 needs_cc = pytest.mark.skipif(shutil.which("cc") is None, reason="no C compiler available")
 
 FAST = Limits(cpu_seconds=2, wall_seconds=6.0, processes=32)
@@ -277,21 +283,23 @@ def test_a_backend_that_cannot_contain_a_fork_bomb_says_so() -> None:
 
 
 @needs_cc
-@pytest.mark.skipif(
-    os.environ.get(FORK_BOMB_OPT_IN) != "yes",
-    reason=f"destructive; set {FORK_BOMB_OPT_IN}=yes to run",
-)
 def test_a_fork_bomb_is_contained() -> None:
-    """プロセス数の上限で止まり、**ホストに漏れない**こと。
+    """プロセス数の上限で止まり、**外に漏れない**こと。
 
-    走らせてよいのは、封じ込めを申告しているバックエンドだけ。
-    申告していないものは試験ごと拒否する（走らせれば採点機が落ちる）。
+    封じ込めを申告しているバックエンドでは既定で走らせる。走らせなければ、
+    「封じ込められる」という主張が検証されないまま残る。
+
+    申告していないものは skip する（走らせれば採点機が落ちる）。
     """
     sandbox = build_sandbox()
-    if Limitation.PROCESS_LIMIT_UNENFORCED in sandbox.limitations:
+    if (
+        Limitation.PROCESS_LIMIT_UNENFORCED in sandbox.limitations
+        and os.environ.get(FORK_BOMB_OVERRIDE) != "yes"
+    ):
         pytest.skip(
             f"{sandbox.name} cannot contain a fork bomb; running this would take "
-            "the host down. Use a container backend (AIJUDGE_SANDBOX=docker)."
+            "the host down. Use a container backend (AIJUDGE_SANDBOX=docker), "
+            f"or set {FORK_BOMB_OVERRIDE}=yes to measure the failure again."
         )
 
     source = """
