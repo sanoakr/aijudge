@@ -25,8 +25,19 @@ ai_evaluators:
 evaluator_options:
   rubric_ai_judge:
     # 自己一貫性のサンプル数。多いほど確信度は信用できるが、その分遅い。
-    # PoC-1 で κ と所要時間のバランスを見て決め直す。
+    # Phase 1 で κ と所要時間のバランスを見て決め直す。
     samples: 3
+  code_test_runner:
+    # テストケース 1 件あたりの実行上限（秒）。
+    #
+    # **下の `timeout_seconds` とは別物。** あちらは評価器 1 回の呼び出しの
+    # 予算で、AI 評価器では LLM の応答待ちを含むため 120 秒取っている。
+    # 同じ値を実行上限に使うと、暴走コードに 120 秒 × ケース数の猶予を
+    # 与えることになる（実測でワーカーが 10 分占有された、ADR 0006）。
+    #
+    # 入門課題の想定計算量なら 2 秒で足りる。数値計算課題では上げる。
+    case_timeout_seconds: 2.0
+    compile_timeout_seconds: 30.0
 
 aggregation: weighted_sum
 
@@ -48,6 +59,11 @@ review_policy:
 measurement:
   blind_sample_rate: 0.05
 
-# 1 テストケース／1 LLM 呼び出しあたりの上限（秒）。
-# ローカル LLM は 20 秒前後かかるため、テスト実行だけの頃より長く取る。
+# 評価器 1 回の呼び出しに対する予算（秒）。
+#
+# AI 評価器では LLM の応答待ちを含む（ローカルモデルで 20 秒前後、
+# 自己一貫性で 3 回サンプリングするのでその倍）。
+#
+# **テストケースの実行上限ではない。** それは
+# `evaluator_options.code_test_runner.case_timeout_seconds` で別に決める。
 timeout_seconds: 120

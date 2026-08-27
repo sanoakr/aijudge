@@ -279,3 +279,56 @@ def test_grading_completes_with_ai_evaluators_disabled(task_version) -> None:
         task_version, submission, lambda artifact: contents[artifact.id]
     )
     assert run.score_ratio == pytest.approx(1.0)
+
+
+def test_the_case_timeout_is_separate_from_the_evaluator_budget() -> None:
+    """テストケースの実行上限が、LLM の予算に引きずられないこと。
+
+    科目プロファイルの `timeout_seconds` は評価器 1 回の呼び出しの予算で、
+    AI 評価器では LLM の応答待ちを含む（120 秒）。同じ値を実行上限に使うと、
+    暴走コードに 120 秒 × ケース数の猶予を与える。
+
+    実測（2026-08-28）: 分けていなかったため、無限ループの提出 1 件で
+    ワーカーが 10 分占有された。締切前に数件あれば待ち行列が止まる。
+    """
+    from pathlib import Path
+
+    from aijudge_eval_code_test_runner import (
+        DEFAULT_CASE_TIMEOUT_SECONDS,
+        OPTION_CASE_TIMEOUT,
+    )
+    from aijudge_grading import load_profile
+
+    profile = load_profile(Path(__file__).resolve().parents[1] / "subjects" / "cs_intro_c.yaml")
+    options = profile.evaluator_options.get("code_test_runner", {})
+    case_timeout = float(options.get(OPTION_CASE_TIMEOUT, DEFAULT_CASE_TIMEOUT_SECONDS))
+
+    assert case_timeout < profile.timeout_seconds, (
+        "テストケースの実行上限が評価器の予算と同じになっている"
+    )
+    # 5 ケースの課題で、暴走した提出が占有する時間の上限。
+    assert case_timeout * 5 < 30.0, (
+        f"暴走した提出が {case_timeout * 5:.0f} 秒占有する。"
+        "§9.1 の「結果表示まで p95 < 30 秒」を満たせない"
+    )
+
+
+def test_an_absurd_case_timeout_option_falls_back_to_the_default() -> None:
+    """設定ミスで採点が止まるより、既定で動いた方がよい。"""
+    from aijudge_eval_code_test_runner import (
+        DEFAULT_CASE_TIMEOUT_SECONDS,
+        OPTION_CASE_TIMEOUT,
+        _seconds_option,
+    )
+
+    bad_options = (
+        {},
+        {OPTION_CASE_TIMEOUT: "abc"},
+        {OPTION_CASE_TIMEOUT: 0},
+        {OPTION_CASE_TIMEOUT: -5},
+    )
+    for bad in bad_options:
+        assert (
+            _seconds_option(bad, OPTION_CASE_TIMEOUT, DEFAULT_CASE_TIMEOUT_SECONDS)
+            == DEFAULT_CASE_TIMEOUT_SECONDS
+        )

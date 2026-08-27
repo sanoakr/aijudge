@@ -61,6 +61,25 @@ def normalize_output(text: str) -> list[str]:
     return lines
 
 
+# テストケース 1 件あたりの実行上限（秒）。科目プロファイルの
+# `evaluator_options.code_test_runner.case_timeout_seconds` で上書きできる。
+#
+# **科目プロファイルの `timeout_seconds` を使ってはならない。** あちらは
+# 評価器 1 回の呼び出しに対する予算で、AI 評価器では LLM の応答待ち
+# （ローカルモデルで 20〜120 秒）を含む。同じ値をテストケースの実行上限に
+# 使うと、LLM のために伸ばした値がそのまま暴走コードの猶予になる。
+#
+# 実測（2026-08-28）: `timeout_seconds: 120` の科目で無限ループの提出を通したら、
+# 1 ケース 120 秒 × 5 ケースでワーカーが 10 分占有された。締切前に数件あれば
+# 待ち行列が止まり、§9.1 の「結果表示まで p95 < 30 秒」も満たせない。
+DEFAULT_CASE_TIMEOUT_SECONDS = 5.0
+OPTION_CASE_TIMEOUT = "case_timeout_seconds"
+
+# コンパイルの上限。実行より長く取る（最適化なしでも数秒かかる課題がある）。
+DEFAULT_COMPILE_TIMEOUT_SECONDS = 30.0
+OPTION_COMPILE_TIMEOUT = "compile_timeout_seconds"
+
+
 def _limits(timeout_seconds: float) -> Limits:
     return Limits(
         cpu_seconds=max(1, math.ceil(timeout_seconds)),
@@ -69,6 +88,20 @@ def _limits(timeout_seconds: float) -> Limits:
         processes=_MAX_PROCESSES,
         output_bytes=_MAX_OUTPUT_BYTES,
     )
+
+
+def _seconds_option(options: dict[str, object], key: str, default: float) -> float:
+    """科目プロファイルからの上限を読む。不正な値は既定に落とす。
+
+    設定ミスで採点が止まるより、既定で動いた方がよい（値の妥当性は
+    プロファイルのレビューで見る）。
+    """
+    raw = options.get(key, default)
+    try:
+        value = float(raw)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return default
+    return value if value > 0 else default
 
 
 class CodeTestRunner:
@@ -108,15 +141,32 @@ class CodeTestRunner:
                 error="no source artifact found in the submission",
             )
 
-        limits = _limits(request.timeout_seconds)
+        # 実行とコンパイルの上限は、評価器自身の設定から取る。
+        # 呼び出し全体の予算（`request.timeout_seconds`）を超えないように
+        # 抑えるが、**あちらを実行上限として使わない**（上の注記を参照）。
+        budget = request.timeout_seconds
+        case_limits = _limits(
+            min(
+                budget,
+                _seconds_option(request.options, OPTION_CASE_TIMEOUT, DEFAULT_CASE_TIMEOUT_SECONDS),
+            )
+        )
+        compile_limits = _limits(
+            min(
+                budget,
+                _seconds_option(
+                    request.options, OPTION_COMPILE_TIMEOUT, DEFAULT_COMPILE_TIMEOUT_SECONDS
+                ),
+            )
+        )
         try:
             sandbox = self._resolve_sandbox()
             with sandbox.workspace() as workspace:
                 workspace.write(SOURCE_NAME, source)
-                compiled = self._compile(workspace, limits)
+                compiled = self._compile(workspace, compile_limits)
                 if not compiled.ok:
                     return self._compile_failure(request, criterion, source_id, compiled)
-                cases = self._run_cases(request, workspace, limits)
+                cases = self._run_cases(request, workspace, case_limits)
         except SandboxError as exc:
             # 隔離できないなら採点しない。
             return EvaluationOutcome(
