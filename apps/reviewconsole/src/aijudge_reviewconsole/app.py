@@ -1,4 +1,4 @@
-"""教員レビューコンソール。
+"""教員コンソール（レビューと管理）。
 
 **この画面は採点しない。** 採点は提出時にワーカーが走らせ（`aijudge-worker`）、
 ここは届いた結果を読んで教員が確定させる場所である。レビューが採点を
@@ -21,6 +21,10 @@ blind 抽出に当たった提出だけ、教員の段階を先に取る:
 
 blind 画面のレスポンスには AI の判定を一切含めない。CSS で隠すのでは
 不十分（ページのソースを見れば分かる）。これはテストで固定してある。
+
+`/manage` に科目・課題・受講の管理を載せている（`manage.py`）。学期中に
+発生する作業（締切の設定、受講者の追加、課題の追加）を教員がターミナルで
+行うのは現実的でないため。**科目プロファイルは表示だけで編集させない。**
 """
 
 from __future__ import annotations
@@ -83,6 +87,8 @@ class Console:
         self.profiles_dir = profiles_dir
         self.observations = observations
         self._rates: dict[str, float] = {}
+        # 直近の課題取り込み結果。管理画面が表示に使う。
+        self.last_import = None
 
     def blind_sample_rate(self, subject_profile: str) -> float:
         """科目プロファイルが宣言した blind 抽出率。
@@ -181,8 +187,14 @@ Me = Annotated[Principal, Depends(require_principal)]
 
 
 def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
-    app = FastAPI(title="aiJudge review console")
+    app = FastAPI(title="aiJudge instructor console")
     app.state.aijudge = console
+
+    # 管理画面（科目・課題・受講）。採点の待ち行列とは別の関心事だが、
+    # 教員に 2 つの Web アプリを使わせないため同じアプリに載せる。
+    from .manage import register as register_manage
+
+    app.include_router(register_manage(TEMPLATES))
 
     # -- ログイン ----------------------------------------------------------
 

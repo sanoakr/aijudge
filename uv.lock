@@ -372,6 +372,7 @@ name = "aijudge-reviewconsole"
 version = "0.0.1"
 source = { editable = "apps/reviewconsole" }
 dependencies = [
+    { name = "aijudge-admin" },
     { name = "aijudge-authoring" },
     { name = "aijudge-core" },
     { name = "aijudge-grading" },
@@ -387,6 +388,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aijudge-admin", editable = "apps/admin" },
     { name = "aijudge-authoring", editable = "packages/authoring" },
     { name = "aijudge-core", editable = "packages/core" },
     { name = "aijudge-grading", editable = "packages/grading" },

@@ -52,6 +52,18 @@ class IdentityRepository(Protocol):
 
     def list_enrollments(self, course_id: CourseId) -> tuple[Enrollment, ...]: ...
 
+    def remove_enrollment(self, course_id: CourseId, user_id: UserId) -> None:
+        """受講を取り消す。
+
+        **利用者は消さない。** 過去の提出と採点が参照しているので、消すと
+        成績の履歴が壊れる（`AuthService.disable` と同じ理屈）。
+        """
+        ...
+
+    def list_users(self, tenant_id: TenantId, logins: tuple[str, ...]) -> tuple[User, ...]:
+        """login をまとめて引く。受講者一覧の表示に使う。"""
+        ...
+
 
 class InMemoryIdentityRepository:
     """テストと開発用。"""
@@ -121,4 +133,15 @@ class InMemoryIdentityRepository:
     def list_enrollments(self, course_id: CourseId) -> tuple[Enrollment, ...]:
         return tuple(
             enrollment for (cid, _), enrollment in self._enrollments.items() if cid == course_id
+        )
+
+    def remove_enrollment(self, course_id: CourseId, user_id: UserId) -> None:
+        self._enrollments.pop((course_id, user_id), None)
+
+    def list_users(self, tenant_id: TenantId, logins: tuple[str, ...]) -> tuple[User, ...]:
+        wanted = set(logins)
+        return tuple(
+            user
+            for user in self._users.values()
+            if user.tenant_id == tenant_id and user.login in wanted
         )

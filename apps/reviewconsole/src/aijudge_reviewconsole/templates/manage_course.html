@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}{{ course.title }} の管理 — aiJudge{% endblock %}
+{% block body %}
+<h1>{{ course.title }}</h1>
+<p class="crumb">
+  <a href="/manage">← 科目の管理</a> / {{ course.code }} / {{ course.term }} /
+  <a href="/courses/{{ course.id }}">採点の待ち行列</a>
+</p>
+
+<h2>課題</h2>
+<table>
+  <thead><tr><th>課題</th><th>テスト</th><th>評価器</th><th>公開</th><th>締切</th><th></th></tr></thead>
+  <tbody>
+  {% for row in tasks %}
+    <tr>
+      <td>{{ row.task.title }}
+        {% if not row.auto_graded %}<br><span class="pill">自動テストなし</span>{% endif %}
+      </td>
+      <td>{{ row.test_cases }}</td>
+      <td class="mono desc">{{ row.evaluators | join(', ') }}</td>
+      <td colspan="3">
+        <form method="post" action="/manage/courses/{{ course.id }}/tasks/{{ row.task.id }}/schedule"
+              style="display:flex;gap:8px;align-items:center;margin:0">
+          <input type="datetime-local" name="opens_at"
+                 value="{{ row.task.opens_at.strftime('%Y-%m-%dT%H:%M') if row.task.opens_at else '' }}">
+          <input type="datetime-local" name="due_at"
+                 value="{{ row.task.due_at.strftime('%Y-%m-%dT%H:%M') if row.task.due_at else '' }}">
+          <button type="submit">保存</button>
+        </form>
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="6" class="desc">課題がありません。</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<h2>課題を取り込む</h2>
+<form method="post" action="/manage/courses/{{ course.id }}/tasks"
+      enctype="multipart/form-data" class="card">
+  <div class="field">
+    <label for="archive">課題ディレクトリの zip</label>
+    <input id="archive" name="archive" type="file" accept=".zip" required>
+  </div>
+  <p class="desc">
+    <code>desc.md</code> と <code>in/</code> <code>out/</code> を含むディレクトリ、
+    またはその親（<code>p1 p2 p3</code>）を zip にしたもの。
+    同じ内容の取り込みは何度でも安全です。
+    クライアント／サーバ課題は <code>companion.yaml</code> を同梱してください。
+  </p>
+  <button type="submit">取り込む</button>
+</form>
+
+<h2>受講者（{{ people | length }} 名）</h2>
+<table>
+  <thead><tr><th>ID</th><th>氏名</th><th>役割</th><th></th></tr></thead>
+  <tbody>
+  {% for row in people %}
+    <tr>
+      <td class="mono">{{ row.user.login if row.user else row.enrollment.user_id }}</td>
+      <td>{{ row.user.display_name if row.user else '—' }}</td>
+      <td>{{ row.enrollment.role.value }}</td>
+      <td>
+        {% if row.enrollment.user_id != me.user_id %}
+        <form method="post"
+              action="/manage/courses/{{ course.id }}/enrolments/{{ row.enrollment.user_id }}/remove"
+              style="margin:0">
+          <button type="submit">受講を取り消す</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="4" class="desc">受講者がいません。</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<h2>受講登録</h2>
+<form method="post" action="/manage/courses/{{ course.id }}/enrolments" class="card">
+  <div class="field">
+    <label for="roster">名簿（1 行 1 名。ID だけ、または <code>ID メール RANDOM[n] 役割</code>）</label>
+    <textarea id="roster" name="roster" rows="4" required placeholder="y230012&#10;y230013"></textarea>
+  </div>
+  <div class="field">
+    <label for="role">役割が書かれていない行の既定</label>
+    <select id="role" name="role">
+      {% for name in roles %}<option value="{{ name }}">{{ name }}</option>{% endfor %}
+    </select>
+  </div>
+  <p class="desc">
+    <strong>既に登録されている利用者だけ</strong>を追加できます。新規作成は
+    パスワードの配布が伴うため <code>aijudge-admin enrol --credentials &lt;path&gt;</code>
+    で行ってください（画面に平文を出さないため）。
+  </p>
+  <button type="submit">登録する</button>
+</form>
+
+<h2>科目プロファイル <span class="mono desc">{{ profile_path }}</span></h2>
+<div class="note">
+  採点の設定は<strong>この画面から変更できません</strong>。評価器の指名と
+  タイムアウトを持つ設定で、ブラウザから壊せるようにすると 1 人の操作で
+  全員の採点が止まります。コードと同じ扱いでレビューを通します。
+</div>
+{% if profile_text %}
+<pre class="code">{{ profile_text }}</pre>
+{% else %}
+<p class="desc">プロファイルが見つかりません（{{ profile_path }}）。</p>
+{% endif %}
+{% endblock %}

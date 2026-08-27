@@ -10,6 +10,7 @@ dependencies = [
     "aijudge-identity",
     "aijudge-submission",
     "aijudge-persistence",
+    "aijudge-admin",
     "fastapi>=0.115",
     "jinja2>=3.1",
     "python-multipart>=0.0.9",
@@ -34,3 +35,4 @@ aijudge-grading = { workspace = true }
 aijudge-identity = { workspace = true }
 aijudge-submission = { workspace = true }
 aijudge-persistence = { workspace = true }
+aijudge-admin = { workspace = true }

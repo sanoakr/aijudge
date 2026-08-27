@@ -241,6 +241,7 @@ forbidden_modules =
     aijudge_grader
     aijudge_studentweb
     aijudge_admin
+    aijudge_admin
 
 ; 言語の扱い方は何にも依存しない。複数の評価器が共有する知識で、片方に
 ; 置いて他方が import すると評価器どうしが結合する（観測レコードを独立させた

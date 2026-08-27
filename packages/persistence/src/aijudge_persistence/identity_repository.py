@@ -173,6 +173,26 @@ class SqlIdentityRepository:
         ).scalars()
         return tuple(_course(row) for row in rows if row is not None)  # type: ignore[misc]
 
+    def remove_enrollment(self, course_id: CourseId, user_id: UserId) -> None:
+        """受講を取り消す。**利用者の行は残す。**
+
+        過去の提出と採点が利用者を参照しているので、消すと成績の履歴が壊れる。
+        """
+        row = self._session.get(EnrollmentRow, (str(course_id), str(user_id)))
+        if row is not None:
+            self._session.delete(row)
+            self._session.flush()
+
+    def list_users(self, tenant_id: TenantId, logins: tuple[str, ...]) -> tuple[User, ...]:
+        if not logins:
+            return ()
+        rows = self._session.execute(
+            select(UserRow).where(
+                UserRow.tenant_id == str(tenant_id), UserRow.login.in_(list(logins))
+            )
+        ).scalars()
+        return tuple(user for row in rows if (user := _user(row)) is not None)
+
     def list_enrollments(self, course_id: CourseId) -> tuple[Enrollment, ...]:
         rows = self._session.execute(
             select(EnrollmentRow)

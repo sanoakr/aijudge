@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}管理 — aiJudge{% endblock %}
+{% block body %}
+<h1>科目の管理</h1>
+<p class="crumb"><a href="/">← 採点</a></p>
+
+<table>
+  <thead><tr><th>コード</th><th>コース</th><th>学期</th><th>科目プロファイル</th></tr></thead>
+  <tbody>
+  {% for course in courses %}
+    <tr>
+      <td class="mono">{{ course.code }}</td>
+      <td><a href="/manage/courses/{{ course.id }}">{{ course.title }}</a></td>
+      <td>{{ course.term }}</td>
+      <td class="mono">{{ course.subject_profile }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="4" class="desc">担当しているコースがありません。</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+{% if is_admin %}
+<h2>コースを作る</h2>
+<form method="post" action="/manage/courses" class="card">
+  <div class="field">
+    <label for="code">科目コード</label>
+    <input id="code" name="code" required placeholder="network">
+  </div>
+  <div class="field">
+    <label for="title">科目名</label>
+    <input id="title" name="title" required placeholder="ネットワーク及び演習">
+  </div>
+  <div class="field">
+    <label for="term">学期</label>
+    <input id="term" name="term" required placeholder="2025-後期">
+  </div>
+  <div class="field">
+    <label for="profile">科目プロファイル</label>
+    <select id="profile" name="profile" required>
+      {% for name in profiles %}<option value="{{ name }}">{{ name }}</option>{% endfor %}
+    </select>
+    <p class="desc" style="margin-top:6px">
+      採点の設定（言語・評価器・タイムアウト）はファイルで管理します。
+      この画面では選ぶだけです。
+    </p>
+  </div>
+  <button type="submit">作成する</button>
+</form>
+{% endif %}
+{% endblock %}
