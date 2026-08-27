@@ -183,6 +183,11 @@ class GradingWorker:
             return run
         if result is None:
             return run
+        if result.redundant:
+            # 観点の説明をそのまま並べただけのものは付けない。学習者の画面で
+            # 同じ文章が 2 度出る（実測で確認）。LLM が使える環境では
+            # `redundant` が立たないので、そのときは付く。
+            return run
         return run.model_copy(update={"feedback": result.message})
 
     def _profile(self, name: str) -> SubjectProfile:

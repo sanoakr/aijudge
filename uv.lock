@@ -153,10 +153,14 @@ version = "0.0.1"
 source = { editable = "packages/authoring" }
 dependencies = [
     { name = "aijudge-core" },
+    { name = "markdown-it-py" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "aijudge-core", editable = "packages/core" }]
+requires-dist = [
+    { name = "aijudge-core", editable = "packages/core" },
+    { name = "markdown-it-py", specifier = ">=3.0" },
+]
 
 [[package]]
 name = "aijudge-core"

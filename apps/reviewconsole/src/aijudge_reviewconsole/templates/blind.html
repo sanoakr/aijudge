@@ -16,7 +16,7 @@
 <div class="grid2">
   <div>
     <h2>問題</h2>
-    <div class="statement">{{ task.statement }}</div>
+    <div class="statement">{{ statement_html | safe }}</div>
 
     <h2>提出されたコード</h2>
     <pre class="code">{% for n, line in lines %}<span class="ln"><span class="n">{{ n }}</span>{{ line }}</span>{% endfor %}</pre>

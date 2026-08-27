@@ -125,6 +125,21 @@ def _limits(timeout_seconds: float) -> Limits:
 _ERROR_EXCERPT_CHARS = 300
 
 
+def _compile_excerpt(text: str) -> str:
+    """コンパイラの出力から要点を 1 行取り出す。
+
+    `cc` は `main.c:2:24: error: ...` の形で出す。最初の `error` 行が
+    学習者にとっての要点で、それ以降は波及したものが多い。
+    """
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if not lines:
+        return ""
+    for line in lines:
+        if "error" in line.lower():
+            return line[:_ERROR_EXCERPT_CHARS]
+    return lines[0][:_ERROR_EXCERPT_CHARS]
+
+
 def _common_error(failed: list[dict[str, object]]) -> str | None:
     """全ケースが共有しているエラーの要点。無ければ None。
 
@@ -305,8 +320,18 @@ class CodeTestRunner:
         source_id: ArtifactId,
         result: ExecResult,
     ) -> EvaluationOutcome:
-        """コンパイルエラーは 0 点で確定であって、評価器の失敗ではない。"""
+        """コンパイルエラーは 0 点で確定であって、評価器の失敗ではない。
+
+        **エラーの内容を根拠に載せる。** 「コンパイルに失敗しました」だけでは
+        次の一手が分からない。実測（2026-08-28）で学生 UI を見たとき、
+        コンパイラの出力が `raw_output` と Evidence の note にしか無く、
+        学習者の画面には出ていなかった。
+        """
         detail = (result.stderr or result.stdout).strip()[:2000]
+        excerpt = _compile_excerpt(detail)
+        rationale = "コンパイルに失敗したため、テストを実行できませんでした。"
+        if excerpt:
+            rationale += f" {excerpt}"
         return EvaluationOutcome(
             status=EvaluatorStatus.OK,
             scores=(
@@ -317,7 +342,7 @@ class CodeTestRunner:
                     level=criterion.levels[0].level,
                     artifact_id=source_id,
                     content_hash=self._content_hash(request, source_id),
-                    rationale="コンパイルに失敗したため、テストを実行できませんでした。",
+                    rationale=rationale,
                     note=detail,
                 ),
             ),

@@ -402,11 +402,16 @@ def test_the_completed_event_carries_the_score(world: World) -> None:
 @needs_c_compiler
 def test_feedback_is_attached_before_the_run_is_saved(tmp_path: Path) -> None:
     """`GradingRun` は保存後不変（P8）なので、保存前に付ける。"""
-    from aijudge_feedback import FeedbackGenerator
+    from aijudge_feedback import FeedbackGenerator, FeedbackResult
 
     world = World(tmp_path)
     try:
-        world.worker._feedback = FeedbackGenerator()
+
+        class Fixed:
+            def generate(self, *_args: object, **_kwargs: object) -> FeedbackResult:
+                return FeedbackResult(message="n <= 0 の場合を確かめてください。")
+
+        world.worker._feedback = Fixed()
         accepted = world.submit()
         result = world.worker.run_once()
         assert result is not None and result.graded, result.error if result else None
@@ -414,8 +419,30 @@ def test_feedback_is_attached_before_the_run_is_saved(tmp_path: Path) -> None:
         with world.database.unit_of_work() as uow:
             run = uow.runs.latest_for(accepted.submission.id)
         assert run is not None
-        assert run.feedback
-        assert "自動テストの結果" in run.feedback
+        assert run.feedback == "n <= 0 の場合を確かめてください。"
+        assert FeedbackGenerator is not None
+    finally:
+        world.close()
+
+
+@needs_c_compiler
+def test_a_redundant_fallback_is_not_attached(tmp_path: Path) -> None:
+    """観点の説明をそのまま並べただけのものは付けない。
+
+    学習者の画面で同じ文章が 2 度出る（実測で確認）。LLM が使える環境では
+    `redundant` が立たないので、そのときは付く。
+    """
+    from aijudge_feedback import FeedbackGenerator
+
+    world = World(tmp_path)
+    try:
+        world.worker._feedback = FeedbackGenerator()  # LLM 無し → 要約に落ちる
+        accepted = world.submit()
+        world.worker.run_once()
+        with world.database.unit_of_work() as uow:
+            run = uow.runs.latest_for(accepted.submission.id)
+        assert run is not None
+        assert run.feedback is None
     finally:
         world.close()
 
@@ -427,13 +454,18 @@ def test_the_feedback_does_not_carry_the_unconfirmed_ai_verdict(tmp_path: Path) 
 
     world = World(tmp_path, responses=[AI_SAYS_1])
     try:
+        from aijudge_feedback import summarize_findings
+
         world.worker._feedback = FeedbackGenerator()
         accepted = world.submit()
         world.worker.run_once()
         with world.database.unit_of_work() as uow:
             run = uow.runs.latest_for(accepted.submission.id)
-        assert run is not None and run.feedback is not None
-        assert "変数名から役割が読み取れません" not in run.feedback
+            task = uow.tasks.get_version(run.context.task_version_id)
+        # 要約は付かない（重複するため）が、その材料に AI の判定が
+        # 混ざっていないことを確かめる。
+        findings = "\n".join(summarize_findings(run, task))
+        assert "変数名から役割が読み取れません" not in findings
     finally:
         world.close()
 

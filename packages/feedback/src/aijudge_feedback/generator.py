@@ -84,6 +84,8 @@ class FeedbackResult(BaseModel):
     prompt_id: str | None = None
     # LLM を使わずに組み立てたか（S6 停止時の劣化動作）。
     fallback: bool = False
+    # 観点の説明をそのまま並べただけか。表示側が重複を落とすのに使う。
+    redundant: bool = False
 
 
 def releasable_scores(run: GradingRun) -> tuple[CriterionScore, ...]:
@@ -173,10 +175,15 @@ def _fallback(findings: tuple[str, ...]) -> FeedbackResult:
 
     材料をそのまま並べる。「次の一手」としては弱いが、無言よりましである
     （無言だと、システムが壊れたのか提出に問題が無いのか区別できない）。
+
+    **同じ文章を二度見せない。** 実測（2026-08-28）で学生 UI を見たとき、
+    観点の行に出ている説明が「次の一手」にそのまま再掲されていた。
+    表示側が重複を落とせるよう `redundant` を立てる。
     """
     return FeedbackResult(
         message="自動テストの結果は次のとおりです。\n" + "\n".join(findings),
         fallback=True,
+        redundant=True,
     )
 
 

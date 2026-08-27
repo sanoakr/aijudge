@@ -398,9 +398,13 @@ def test_the_feedback_appears_without_waiting_for_confirmation(world: World) -> 
     決定的評価の結果だけから作られているので、待たせる理由が無い
     （AI の判定を材料にしていない — packages/feedback のテストで固定）。
     """
-    from aijudge_feedback import FeedbackGenerator
+    from aijudge_feedback import FeedbackResult
 
-    world.worker._feedback = FeedbackGenerator()
+    class Fixed:
+        def generate(self, *_args: object, **_kwargs: object) -> FeedbackResult:
+            return FeedbackResult(message="n <= 0 の場合を確かめてください。")
+
+    world.worker._feedback = Fixed()
     world.register("s2400001")
     world.login("s2400001")
     location = world.submit().headers["location"]
@@ -409,3 +413,32 @@ def test_the_feedback_appears_without_waiting_for_confirmation(world: World) -> 
     body = world.client.get(location).text
     assert "次の一手" in body
     assert AI_RATIONALE not in body, "確定前に AI の判定が漏れている"
+
+
+@needs_c_compiler
+def test_the_statement_is_rendered_not_shown_as_raw_markdown(world: World) -> None:
+    """課題文は Markdown。生のまま出すと `##` や ``` が見える。
+
+    実測（2026-08-28）で学生 UI に生の Markdown が出ていた。プログラミング
+    課題の課題文はコードブロックが本体なので、これは読めない。
+    """
+    world.register("s2400001")
+    world.login("s2400001")
+    body = world.client.get(f"/tasks/{world.task_version.id}").text
+
+    statement = body.split('class="statement"')[1].split("</div>")[0]
+    assert "<h2>" in statement or "<h3>" in statement, "見出しが描画されていない"
+    assert "## " not in statement, "生の Markdown が出ている"
+
+
+def test_html_in_a_statement_is_not_executed(world: World) -> None:
+    """AI 作問（Phase 4）が入れば課題文はモデルの出力になる。
+
+    そのとき `<script>` が通る経路があってはならないので、最初から塞ぐ。
+    """
+    from aijudge_authoring import render_statement
+
+    rendered = render_statement("<script>alert(1)</script>\n\n## 見出し\n")
+    assert "<script>" not in rendered
+    assert "&lt;script&gt;" in rendered
+    assert "<h2>見出し</h2>" in rendered

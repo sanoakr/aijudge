@@ -21,6 +21,7 @@ from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response, Up
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from aijudge_authoring import render_statement
 from aijudge_core import ArtifactKind, Course, Submission, TaskVersion
 from aijudge_core.ids import CourseId, SubmissionId, TaskVersionId
 from aijudge_identity import (
@@ -183,6 +184,8 @@ def create_app(app_state: StudentApp) -> FastAPI:
                 "course": course_obj,
                 "submissions": tuple(reversed(submissions)),
                 "accepts": sorted(SUFFIX_KINDS),
+                # 課題文は Markdown。生のまま出すと `##` や ``` が見える。
+                "statement_html": render_statement(version.statement),
             },
         )
 

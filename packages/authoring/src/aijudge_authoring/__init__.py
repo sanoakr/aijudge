@@ -20,12 +20,14 @@ from .repository import (
     TaskStoreError,
     substantive,
 )
+from .statement import render_statement
 
 __all__ = [
     "InMemoryTaskRepository",
     "TaskImmutabilityViolation",
     "TaskRepository",
     "TaskStoreError",
+    "render_statement",
     "sharif_judge",
     "substantive",
 ]

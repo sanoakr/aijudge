@@ -5,6 +5,7 @@ description = "Task, rubric and test case authoring, plus importers for existing
 requires-python = ">=3.12"
 dependencies = [
     "aijudge-core",
+    "markdown-it-py>=3.0",
 ]
 
 [build-system]

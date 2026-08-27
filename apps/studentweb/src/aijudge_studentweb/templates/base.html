@@ -43,7 +43,15 @@ pre.code{margin:0;overflow-x:auto;background:var(--surface-2);border:1px solid v
 pre.code .ln{display:block;padding:0 16px;white-space:pre}
 pre.code .ln .n{display:inline-block;width:3em;color:var(--muted);user-select:none;text-align:right;margin-right:1em}
 pre.code .ln.hl{background:var(--shu-soft);border-left:3px solid var(--shu);padding-left:13px}
-.statement{font-size:.9rem;color:var(--ink-2);white-space:pre-wrap;
+.statement > *:first-child{margin-top:0}
+.statement > *:last-child{margin-bottom:0}
+.statement h2,.statement h3,.statement h4,.statement h5{font-size:1rem;margin:1.2em 0 .4em;color:var(--ink)}
+.statement pre{background:var(--surface);border:1px solid var(--line-soft);border-radius:3px;
+  padding:10px 12px;overflow-x:auto;font-size:.82rem}
+.statement code{font-size:.85em}
+.statement ul,.statement ol{padding-left:1.4em}
+.statement hr{border:0;border-top:1px solid var(--line-soft);margin:1.2em 0}
+.statement{font-size:.9rem;color:var(--ink-2);
   max-height:16em;overflow-y:auto;border:1px solid var(--line-soft);border-radius:3px;
   padding:14px 16px;background:var(--surface-2)}
 fieldset{border:1px solid var(--line-soft);border-radius:3px;padding:14px 18px;margin:0 0 16px}

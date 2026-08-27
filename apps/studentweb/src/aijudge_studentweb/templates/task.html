@@ -4,7 +4,7 @@
 <h1>課題</h1>
 <p class="crumb"><a href="/courses/{{ course.id }}">← {{ course.title }}</a></p>
 
-<div class="statement">{{ task.statement }}</div>
+<div class="statement">{{ statement_html | safe }}</div>
 
 <h2>提出する</h2>
 <form method="post" action="/tasks/{{ task.id }}/submit" enctype="multipart/form-data" class="card">

@@ -37,6 +37,7 @@ from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from aijudge_authoring import render_statement
 from aijudge_core import (
     BlindMark,
     Course,
@@ -286,6 +287,7 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 "task": context.task_version,
                 "lines": _numbered(console.source_of(context.submission)),
                 "criteria": context.task_version.criteria,
+                "statement_html": render_statement(context.task_version.statement),
             },
         )
 
