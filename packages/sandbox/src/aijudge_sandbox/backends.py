@@ -10,6 +10,7 @@ import contextlib
 import os
 import platform
 import shutil
+import signal
 import subprocess
 from collections.abc import Iterator
 from pathlib import Path
@@ -19,6 +20,7 @@ from .types import (
     ExecRequest,
     Isolation,
     Limitation,
+    Limits,
     SandboxUnavailable,
     UnsafeSandboxRefused,
 )
@@ -190,6 +192,21 @@ class SeatbeltSandbox(LocalSandboxBase):
 
 DEFAULT_IMAGE = "gcc:14-bookworm"
 
+# コンテナバックエンドの作業域の既定の置き場所。
+#
+# ホストの一時ディレクトリ（macOS の `/var/folders/...`）を使わないのは、
+# colima / Docker Desktop がそこを VM にマウントしないため。マウントされない
+# パスを bind mount すると**エラーにならず空のディレクトリが見える**ので、
+# 提出物が存在しないまま採点が走り、全員がコンパイルエラーで 0 点になる。
+# 家目録の下は両者が既定でマウントする。
+DEFAULT_WORKSPACE_ROOT = Path.home() / ".aijudge" / "work"
+ENV_WORKSPACE_ROOT = "AIJUDGE_SANDBOX_WORKDIR"
+
+# マウント検証に使う目印。中身まで一致を見るのは、
+# 「ディレクトリは見えるが中身が古い」構成（キャッシュされた共有）も落とすため。
+_MOUNT_PROBE = "aijudge-mount-probe"
+_MOUNT_TOKEN = "mounted"
+
 
 class DockerSandbox(LocalSandboxBase):
     """コンテナで包む。`runtime` に `runsc` を渡せば gVisor になる。
@@ -206,11 +223,17 @@ class DockerSandbox(LocalSandboxBase):
         *,
         binary: str = "docker",
         runtime: str | None = None,
+        workspace_root: Path | None = None,
+        verify_mount: bool = True,
     ) -> None:
         resolved = shutil.which(binary)
         if resolved is None:
             raise SandboxUnavailable(f"{binary} is not installed")
         self._binary = resolved
+        self.workspace_root = (
+            workspace_root
+            or Path(os.environ.get(ENV_WORKSPACE_ROOT, DEFAULT_WORKSPACE_ROOT)).expanduser()
+        )
         # CLI があることと動くことは別。デーモンが落ちている、runsc が
         # 入っていない、といった状態で「隔離できている」と誤認しないよう、
         # ここで確かめる。自動選択が弱い方へ落ちる判断もこの結果で決まる。
@@ -228,6 +251,85 @@ class DockerSandbox(LocalSandboxBase):
         self.limitations = (
             frozenset() if runtime == "runsc" else frozenset({Limitation.SHARED_KERNEL})
         )
+        if verify_mount:
+            # 作業域がコンテナから**実際に見えるか**を一度だけ確かめる。
+            # 確かめないと、マウントされていない構成で採点が「動く」。
+            # 動いた結果は全員 0 点で、原因は提出物にあるように見える。
+            self._verify_mount()
+
+    def _verify_mount(self) -> None:
+        """作業域が見えることを確認する。見えなければ使えないと申告する。
+
+        「隔離できないなら採点を止める」（ADR 0006）と同じ理屈。壊れた
+        サンドボックスで採点が通ってしまう方が、採点が止まるより悪い。
+        """
+        with super().workspace() as probe:
+            probe.write(_MOUNT_PROBE, _MOUNT_TOKEN)
+            result = probe.run(
+                ExecRequest(
+                    argv=("/bin/cat", f"/work/{_MOUNT_PROBE}"),
+                    limits=Limits(cpu_seconds=10, wall_seconds=60.0),
+                )
+            )
+            visible = result.ok and result.stdout.strip() == _MOUNT_TOKEN
+
+            # 書き込みも確かめる。コンパイル結果を置けなければ採点できない。
+            written = probe.run(
+                ExecRequest(
+                    argv=(
+                        "/bin/sh",
+                        "-c",
+                        "printf ok > /work/write-probe && cat /work/write-probe",
+                    ),
+                    limits=Limits(cpu_seconds=10, wall_seconds=60.0),
+                )
+            )
+
+        if not visible:
+            raise SandboxUnavailable(
+                f"the workspace at {self.workspace_root} is not visible inside the "
+                f"container, so submissions would be graded against an empty directory "
+                f"(every one of them failing to compile). Mount that path into the "
+                f"container runtime, or point {ENV_WORKSPACE_ROOT} at a path it mounts. "
+                f"Probe said: {result.stderr.strip()[:200] or result.stdout.strip()[:200]!r}"
+            )
+        if not written.ok or written.stdout.strip() != "ok":
+            raise SandboxUnavailable(
+                f"the workspace at {self.workspace_root} is not writable inside the "
+                f"container, so a compiled submission has nowhere to go. "
+                f"Probe said: {written.stderr.strip()[:200]!r}"
+            )
+
+    def decode_signal(self, code: int) -> str | None:
+        """`docker run` の終了コードからシグナル名を引く。
+
+        コンテナの中で主プロセスがシグナル N で死ぬと、`docker run` 自体は
+        **128+N で正常終了する**。`subprocess` から見ると負の値にならないので、
+        既定の解釈では「シグナルで死んだ」と分からない。
+
+        分からないと何が起きるか: CPU 上限や OOM で殺された提出が
+        「終了コード 137 で終わった」＝不正解として扱われる。学習者には
+        時間切れが「答えが違う」と表示される。原因の分類を誤ると、
+        次の一手も間違ったものになる。
+
+        .. note::
+
+           この規約は曖昧である。提出が自分で `exit(137)` を呼んだ場合と
+           区別できない（`docker run --rm` はコンテナを消すので、あとから
+           状態を問い合わせられない）。区別を付けるには `--cidfile` と
+           `docker inspect` が要るが、得られるのは「稀な意図的 exit(137) を
+           時間切れと呼ばない」ことだけで、どちらにしても `ok` は偽である。
+           取り違えの害が小さい側に倒してある。
+        """
+        below = super().decode_signal(code)
+        if below is not None:
+            return below
+        if 128 < code <= 128 + 64:
+            try:
+                return signal.Signals(code - 128).name
+            except ValueError:
+                return None
+        return None
 
     def wrap(
         self, argv: list[str], request: ExecRequest, workdir: Path

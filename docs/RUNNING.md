@@ -43,6 +43,13 @@ AIJUDGE_SANDBOX=docker uv run pytest packages/sandbox/tests/test_container.py -v
 
 このファイルが **skip ではなく pass** することが、実提出を通す前提条件。
 skip は「検証していない」であって「安全」ではない。
+2026-08-28 に colima で 15 件通過を確認済み（gVisor の 1 件のみ skip）。
+
+作業域は既定で `~/.aijudge/work`。**ホストの一時ディレクトリを使わない**のは、
+macOS の `/var/folders/...` がコンテナ実行環境にマウントされず、bind mount が
+黙って空になるため（ADR 0006）。変えるなら `AIJUDGE_SANDBOX_WORKDIR` に
+マウントされるパスを指定する。構築時に検証するので、マウントされていなければ
+採点は始まらず `SandboxUnavailable` になる。
 
 バックエンドは自動選択で最も強いものを取る（gVisor > docker > seatbelt）。
 何が選ばれたかは採点結果の `isolation` に残るので、あとから
@@ -64,6 +71,7 @@ print(s.name, s.isolation.value, sorted(l.value for l in s.limitations))
 | `AIJUDGE_ARTIFACT_DIR` | 提出物の置き場所 | `~/.aijudge/artifacts` |
 | `AIJUDGE_OBSERVATION_DIR` | 観測レコード（測定用・任意） | `~/.aijudge/observations` |
 | `AIJUDGE_SANDBOX` | 隔離バックエンド（`auto`/`docker`/`gvisor`/`seatbelt`） | `auto` |
+| `AIJUDGE_SANDBOX_WORKDIR` | 作業域の置き場所。コンテナがマウントするパスであること | `~/.aijudge/work` |
 | `AIJUDGE_LLM_BASE_URL` / `AIJUDGE_LLM_MODEL` | ローカル LLM | — |
 | `AIJUDGE_FEEDBACK_MODEL` | フィードバック生成のモデル。未設定なら要約に落ちる | — |
 

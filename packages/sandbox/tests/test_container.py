@@ -121,15 +121,33 @@ def test_the_submission_cannot_write_outside_the_workspace(container, tmp_path: 
 
 
 def test_the_host_home_directory_is_not_visible(container) -> None:
-    """鍵・トークン・他学生の答案がある場所。"""
+    """鍵・トークン・他学生の答案がある場所。
+
+    作業域は家目録の下に置く（コンテナ実行環境がマウントするのはそこだから）。
+    **その親が見えていないこと**を確かめる。見えていれば、作業域を家目録に
+    置いた判断がそのまま穴になる。
+    """
+    home = Path.home().resolve()
     with container.workspace() as workspace:
         result = workspace.run(
             ExecRequest(
-                argv=("/bin/sh", "-c", "ls /Users /home 2>/dev/null | wc -l"),
+                argv=(
+                    "/bin/sh",
+                    "-c",
+                    f'test -e "{home}" && echo VISIBLE || echo denied',
+                ),
                 limits=FAST,
             )
         )
-    assert result.stdout.strip() in ("0", ""), result.stdout
+    assert result.stdout.strip() == "denied", f"ホストの家目録 {home} がコンテナから見えている"
+
+
+def test_only_the_workspace_is_mounted(container) -> None:
+    """作業域の外は持ち込まれていないこと。"""
+    with container.workspace() as workspace:
+        workspace.write("mine.txt", "x")
+        result = workspace.run(ExecRequest(argv=("/bin/sh", "-c", "ls -A /work"), limits=FAST))
+    assert sorted(result.stdout.split()) == ["mine.txt"], result.stdout
 
 
 def test_the_submission_cannot_reach_the_network(container) -> None:
@@ -158,12 +176,19 @@ int main(void) {
 
 
 def test_an_infinite_loop_is_stopped(container) -> None:
+    """CPU 上限で止まり、**時間切れとして分類される**こと。
+
+    分類を誤ると、学習者には時間切れが「答えが違う」と表示される。
+    コンテナ越しのシグナルは `docker run` の 128+N で返るので、
+    バックエンドがそれを読み替えている（`DockerSandbox.decode_signal`）。
+    """
     with container.workspace() as workspace:
         _build(workspace, "int main(void) { for (;;) ; }")
         result = workspace.run(
             ExecRequest(argv=("./prog",), limits=Limits(cpu_seconds=2, wall_seconds=30.0))
         )
-    assert result.killed
+    assert result.killed, f"シグナル終了が検出されていない: {result.exit_code}"
+    assert result.timed_out, "時間切れとして分類されていない"
     assert not result.ok
 
 

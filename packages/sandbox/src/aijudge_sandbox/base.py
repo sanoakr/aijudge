@@ -92,6 +92,21 @@ def _kill_group(process: subprocess.Popen[str]) -> None:
         process.kill()
 
 
+def _signal_of_negative_code(code: int) -> str | None:
+    """直接の子プロセスがシグナルで死んだ場合の解釈。
+
+    `subprocess` は子が signal N で死ぬと `-N` を返す。**間に別のプロセスが
+    入る構成ではこれが効かない**（コンテナバックエンドは自分の規約で
+    読み替える。`LocalSandboxBase.decode_signal` 参照）。
+    """
+    if code >= 0:
+        return None
+    try:
+        return signal.Signals(-code).name
+    except ValueError:
+        return None
+
+
 def _truncate(text: str, cap: int) -> tuple[str, bool]:
     if len(text) <= cap:
         return text, False
@@ -139,10 +154,12 @@ class LocalWorkspace:
         path: Path,
         isolation: Isolation,
         wrap: Callable[[list[str], ExecRequest, Path], tuple[list[str], dict[str, str]]],
+        decode_signal: Callable[[int], str | None] | None = None,
     ) -> None:
         self.path = path
         self._isolation = isolation
         self._wrap = wrap
+        self._decode_signal = decode_signal or _signal_of_negative_code
 
     def write(self, name: str, content: bytes | str) -> Path:
         target = self.path / name
@@ -201,11 +218,9 @@ class LocalWorkspace:
         stderr, cut_err = _truncate(raw_err or "", request.limits.output_bytes)
 
         code = process.returncode if process.returncode is not None else -1
-        signal_name: str | None = None
-        if code < 0:
-            with contextlib.suppress(ValueError):
-                signal_name = signal.Signals(-code).name
-            # CPU 上限で殺されたのは時間切れと同じ意味。
+        signal_name = self._decode_signal(code)
+        if signal_name is not None:
+            # CPU 上限やメモリ上限で殺されたのは時間切れと同じ意味。
             timed_out = timed_out or signal_name in ("SIGXCPU", "SIGKILL")
 
         return ExecResult(
@@ -224,6 +239,12 @@ class LocalSandboxBase:
     """ホスト上に作業域を作るバックエンドの共通部分。
 
     ホストのプロセス表と UID を共有するので、既定でその 2 つを申告する。
+
+    作業域の置き場所を差し替えられるようにしてあるのは、コンテナ
+    バックエンドのため。**ホストの一時ディレクトリはコンテナから見えない
+    ことがある**（macOS の `/var/folders/...` は colima / Docker Desktop の
+    既定のマウント対象に入らない）。見えないまま bind mount すると
+    **空のディレクトリがマウントされ、提出物が存在しないまま採点が走る**。
     """
 
     name = "local"
@@ -235,12 +256,26 @@ class LocalSandboxBase:
             Limitation.PROCESS_LIMIT_UNENFORCED,
         }
     )
+    workspace_root: Path | None = None
+
+    def decode_signal(self, code: int) -> str | None:
+        """終了コードからシグナル名を引く。
+
+        既定は「直接の子が死んだ場合」だけを見る。プロセスの間に別の
+        プロセスが挟まるバックエンドは、自分の規約で上書きする。
+        """
+        return _signal_of_negative_code(code)
 
     @contextlib.contextmanager
     def workspace(self) -> Iterator[Workspace]:
-        directory = Path(tempfile.mkdtemp(prefix="aijudge-ws-")).resolve()
+        root = self.workspace_root
+        if root is not None:
+            root.mkdir(parents=True, exist_ok=True)
+        directory = Path(
+            tempfile.mkdtemp(prefix="aijudge-ws-", dir=None if root is None else str(root))
+        ).resolve()
         try:
-            yield LocalWorkspace(directory, self.isolation, self.wrap)
+            yield LocalWorkspace(directory, self.isolation, self.wrap, self.decode_signal)
         finally:
             shutil.rmtree(directory, ignore_errors=True)
 
