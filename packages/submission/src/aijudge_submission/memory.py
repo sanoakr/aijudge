@@ -1,0 +1,265 @@
+"""インメモリ実装。
+
+テストと開発のためのもので、**本番では使わない**（プロセスが落ちれば消える）。
+それでも規則は本番と同じにしてある。ここで緩めると、テストが通るのに
+PostgreSQL 実装で落ちる、あるいはその逆が起きる。
+
+特に守っているもの:
+
+- `GradingRunRepository.save` は上書きを拒否する（P8）
+- `supersede` は二度書き換えない
+- `JobQueue.enqueue` は冪等キーで既存を返す
+- `reserve` はリースの切れた RUNNING を取り直す
+"""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+from datetime import datetime
+
+from aijudge_core import GradingRun, Submission
+from aijudge_core.events import DomainEvent
+from aijudge_core.ids import (
+    GradingJobId,
+    GradingRunId,
+    SubmissionId,
+    TaskVersionId,
+    TenantId,
+    UserId,
+)
+
+from .jobs import GradingJob, JobState
+from .protocols import ImmutabilityViolation, SubmissionStoreError
+
+
+class InMemoryArtifactStore:
+    def __init__(self) -> None:
+        self._blobs: dict[str, bytes] = {}
+
+    def put(self, key: str, payload: bytes) -> None:
+        self._blobs[key] = payload
+
+    def get(self, key: str) -> bytes:
+        if key not in self._blobs:
+            raise SubmissionStoreError(f"no artifact stored at {key!r}")
+        return self._blobs[key]
+
+    def exists(self, key: str) -> bool:
+        return key in self._blobs
+
+
+class InMemorySubmissionRepository:
+    def __init__(self) -> None:
+        self._items: dict[SubmissionId, Submission] = {}
+        self._keys: dict[tuple[TenantId, str], SubmissionId] = {}
+        self._tenants: dict[SubmissionId, TenantId] = {}
+
+    def save(self, submission: Submission) -> None:
+        existing = self._items.get(submission.id)
+        if existing is not None and existing.submitted_at is not None:
+            # 提出後は不変（core の規則）。書き換えようとするのは呼び出し側の誤り。
+            raise ImmutabilityViolation(f"submission {submission.id} is already submitted")
+        self._items[submission.id] = submission
+
+    def get(self, submission_id: SubmissionId) -> Submission | None:
+        return self._items.get(submission_id)
+
+    def find_by_idempotency_key(self, tenant_id: TenantId, key: str) -> Submission | None:
+        submission_id = self._keys.get((tenant_id, key))
+        return None if submission_id is None else self._items.get(submission_id)
+
+    def remember_idempotency_key(
+        self, tenant_id: TenantId, key: str, submission_id: SubmissionId
+    ) -> None:
+        self._keys[(tenant_id, key)] = submission_id
+        self._tenants[submission_id] = tenant_id
+
+    def list_for_learner(
+        self,
+        tenant_id: TenantId,
+        learner_id: UserId,
+        task_version_id: TaskVersionId | None = None,
+    ) -> tuple[Submission, ...]:
+        return tuple(
+            sorted(
+                (
+                    item
+                    for item in self._items.values()
+                    if item.learner_id == learner_id
+                    and (task_version_id is None or item.task_version_id == task_version_id)
+                    and self._tenants.get(item.id, tenant_id) == tenant_id
+                ),
+                key=lambda item: (item.created_at, item.id),
+            )
+        )
+
+    def next_attempt(
+        self, tenant_id: TenantId, learner_id: UserId, task_version_id: TaskVersionId
+    ) -> int:
+        return len(self.list_for_learner(tenant_id, learner_id, task_version_id)) + 1
+
+
+class InMemoryGradingRunRepository:
+    def __init__(self) -> None:
+        self._items: dict[GradingRunId, GradingRun] = {}
+        self._order: list[GradingRunId] = []
+
+    def save(self, run: GradingRun) -> None:
+        if run.id in self._items:
+            raise ImmutabilityViolation(
+                f"GradingRun {run.id} already exists; re-grading creates a new run (P8)"
+            )
+        self._items[run.id] = run
+        self._order.append(run.id)
+
+    def get(self, run_id: GradingRunId) -> GradingRun | None:
+        return self._items.get(run_id)
+
+    def list_for(self, submission_id: SubmissionId) -> tuple[GradingRun, ...]:
+        return tuple(
+            self._items[run_id]
+            for run_id in self._order
+            if self._items[run_id].submission_id == submission_id
+        )
+
+    def latest_for(self, submission_id: SubmissionId) -> GradingRun | None:
+        runs = self.list_for(submission_id)
+        return runs[-1] if runs else None
+
+    def supersede(self, old_id: GradingRunId, new_id: GradingRunId) -> None:
+        old = self._items.get(old_id)
+        if old is None:
+            raise SubmissionStoreError(f"no GradingRun {old_id}")
+        if old.superseded_by is not None:
+            raise ImmutabilityViolation(
+                f"GradingRun {old_id} is already superseded by {old.superseded_by}"
+            )
+        self._items[old_id] = old.model_copy(update={"superseded_by": new_id})
+
+
+class InMemoryJobQueue:
+    def __init__(self) -> None:
+        self._items: dict[GradingJobId, GradingJob] = {}
+        self._keys: dict[str, GradingJobId] = {}
+
+    def enqueue(self, job: GradingJob) -> GradingJob:
+        existing_id = self._keys.get(job.idempotency_key)
+        if existing_id is not None:
+            # 同じ仕事は 1 つだけ。二重投入で GPU を二度回さない。
+            return self._items[existing_id]
+        self._items[job.id] = job
+        self._keys[job.idempotency_key] = job.id
+        return job
+
+    def reserve(
+        self,
+        now: datetime,
+        *,
+        worker: str,
+        lease_seconds: float,
+        subject_profile: str | None = None,
+    ) -> GradingJob | None:
+        candidates = [
+            job
+            for job in self._items.values()
+            if job.is_available(now)
+            and (subject_profile is None or job.subject_profile == subject_profile)
+        ]
+        if not candidates:
+            return None
+        # 古い順に取る。締切前でも先に出した学習者が先に返る。
+        candidates.sort(key=lambda job: (job.available_at, job.created_at, job.id))
+        reserved = candidates[0].reserved(now, worker=worker, lease_seconds=lease_seconds)
+        self._items[reserved.id] = reserved
+        return reserved
+
+    def update(self, job: GradingJob) -> None:
+        if job.id not in self._items:
+            raise SubmissionStoreError(f"no job {job.id}")
+        self._items[job.id] = job
+
+    def get(self, job_id: GradingJobId) -> GradingJob | None:
+        return self._items.get(job_id)
+
+    def find_by_idempotency_key(self, key: str) -> GradingJob | None:
+        job_id = self._keys.get(key)
+        return None if job_id is None else self._items.get(job_id)
+
+    def pending_count(self, subject_profile: str | None = None) -> int:
+        return sum(
+            1
+            for job in self._items.values()
+            if job.state in (JobState.QUEUED, JobState.RUNNING)
+            and (subject_profile is None or job.subject_profile == subject_profile)
+        )
+
+    def all_jobs(self) -> tuple[GradingJob, ...]:
+        return tuple(self._items.values())
+
+
+class InMemoryOutbox:
+    def __init__(self) -> None:
+        self._events: list[DomainEvent] = []
+        self._published: set[str] = set()
+
+    def append(self, event: DomainEvent) -> None:
+        self._events.append(event)
+
+    def unpublished(self, limit: int = 100) -> tuple[DomainEvent, ...]:
+        return tuple(event for event in self._events if event.event_id not in self._published)[
+            :limit
+        ]
+
+    def mark_published(self, event_ids: Sequence[str]) -> None:
+        self._published.update(event_ids)
+
+    def all_events(self) -> tuple[DomainEvent, ...]:
+        return tuple(self._events)
+
+
+class InMemoryUnitOfWork:
+    """トランザクション境界の形だけを持つ実装。
+
+    ロールバックは実装しない。**インメモリでロールバックできるふりをすると、
+    DB 実装に移したときに初めて破綻する。** 使うのはテストと開発だけなので、
+    境界の形（with と commit）を本番と同じにしておくことだけを目的にする。
+    """
+
+    def __init__(
+        self,
+        submissions: InMemorySubmissionRepository,
+        runs: InMemoryGradingRunRepository,
+        jobs: InMemoryJobQueue,
+        outbox: InMemoryOutbox,
+    ) -> None:
+        self.submissions = submissions
+        self.runs = runs
+        self.jobs = jobs
+        self.outbox = outbox
+        self.commits = 0
+
+    def __enter__(self) -> InMemoryUnitOfWork:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        return None
+
+    def commit(self) -> None:
+        self.commits += 1
+
+    def rollback(self) -> None:
+        raise NotImplementedError(
+            "the in-memory unit of work cannot roll back; use the database implementation "
+            "when you need real transactions"
+        )
+
+
+def in_memory_backend() -> tuple[InMemoryUnitOfWork, InMemoryArtifactStore]:
+    """開発・テスト用の一式を組み立てる。"""
+    uow = InMemoryUnitOfWork(
+        InMemorySubmissionRepository(),
+        InMemoryGradingRunRepository(),
+        InMemoryJobQueue(),
+        InMemoryOutbox(),
+    )
+    return uow, InMemoryArtifactStore()

@@ -18,6 +18,7 @@ root_packages =
     aijudge_reviewconsole
     aijudge_sandbox
     aijudge_observation
+    aijudge_submission
 include_external_packages = True
 
 [importlinter:contract:core-is-independent]
@@ -104,6 +105,7 @@ modules =
     aijudge_grading
     aijudge_llm_gateway
     aijudge_analytics
+    aijudge_submission
 
 ; S9 は指標の計算だけを持つ純関数の層。採点の実装を知らないので、
 ; 採点器を差し替えても測定側は変わらない。

@@ -20,6 +20,7 @@ members = [
     "aijudge-observation",
     "aijudge-reviewconsole",
     "aijudge-sandbox",
+    "aijudge-submission",
 ]
 
 [[package]]
@@ -38,6 +39,7 @@ dependencies = [
     { name = "aijudge-observation" },
     { name = "aijudge-reviewconsole" },
     { name = "aijudge-sandbox" },
+    { name = "aijudge-submission" },
 ]
 
 [package.optional-dependencies]
@@ -62,6 +64,7 @@ requires-dist = [
     { name = "aijudge-observation", editable = "packages/observation" },
     { name = "aijudge-reviewconsole", editable = "apps/reviewconsole" },
     { name = "aijudge-sandbox", editable = "packages/sandbox" },
+    { name = "aijudge-submission", editable = "packages/submission" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.27" },
     { name = "import-linter", marker = "extra == 'dev'", specifier = ">=2.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.11" },
@@ -236,6 +239,17 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [{ name = "pydantic", specifier = ">=2.8" }]
+
+[[package]]
+name = "aijudge-submission"
+version = "0.0.1"
+source = { editable = "packages/submission" }
+dependencies = [
+    { name = "aijudge-core" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "aijudge-core", editable = "packages/core" }]
 
 [[package]]
 name = "annotated-doc"

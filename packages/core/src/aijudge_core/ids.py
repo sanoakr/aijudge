@@ -19,6 +19,7 @@ TaskVersionId = NewType("TaskVersionId", str)
 CriterionId = NewType("CriterionId", str)
 KcId = NewType("KcId", str)
 SubmissionId = NewType("SubmissionId", str)
+GradingJobId = NewType("GradingJobId", str)
 ArtifactId = NewType("ArtifactId", str)
 GradingRunId = NewType("GradingRunId", str)
 EvaluatorResultId = NewType("EvaluatorResultId", str)
@@ -37,6 +38,7 @@ PREFIXES: dict[str, str] = {
     "crt": "RubricCriterion",
     "kc": "KnowledgeComponent",
     "sub": "Submission",
+    "job": "GradingJob",
     "art": "Artifact",
     "grn": "GradingRun",
     "evr": "EvaluatorResult",
