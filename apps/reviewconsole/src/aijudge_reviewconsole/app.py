@@ -29,6 +29,7 @@ blind 画面のレスポンスには AI の判定を一切含めない。CSS で
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
@@ -295,15 +296,16 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
         )
 
     @app.post("/review/{submission_id}/blind")
-    def submit_blind(
-        submission_id: str,
-        me: Me,
-        levels: Annotated[list[str], Form()],
-        notes: Annotated[str, Form()] = "",
-    ) -> Response:
-        """blind 採点を保存する。**採点は起動しない。**"""
+    async def submit_blind(request: Request, submission_id: str, me: Me) -> Response:
+        """blind 採点を保存する。**採点は起動しない。**
+
+        フォーム全体を読む。段階の項目名が観点ごとに違うため
+        （`level_<code>`）、宣言された引数では受け取れない。
+        """
+        form = await request.form()
         context = _load(console, me, SubmissionId(submission_id))
-        parsed = _parse_levels(context.task_version.criteria, levels)
+        parsed = _parse_levels(context.task_version.criteria, form)
+        notes = str(form.get("notes", ""))
 
         with console.database.unit_of_work() as uow:
             try:
@@ -359,14 +361,11 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
         )
 
     @app.post("/review/{submission_id}/finalize")
-    def finalize(
-        submission_id: str,
-        me: Me,
-        levels: Annotated[list[str], Form()],
-        comment: Annotated[str, Form()] = "",
-    ) -> Response:
+    async def finalize(request: Request, submission_id: str, me: Me) -> Response:
+        form = await request.form()
         context = _load(console, me, SubmissionId(submission_id))
-        final = _parse_levels(context.task_version.criteria, levels)
+        final = _parse_levels(context.task_version.criteria, form)
+        comment = str(form.get("comment", ""))
 
         # 変更した観点だけを持つ。触っていない観点は AI に同意した意味。
         machine = {score.criterion_id: score.level for score in context.run.criterion_scores}
@@ -523,34 +522,51 @@ def _queue_rows(
 # -- 表示用のヘルパ ----------------------------------------------------------
 
 
-def _parse_levels(criteria: tuple[RubricCriterion, ...], raw: list[str]) -> dict[CriterionId, int]:
-    """フォームの `code=level` を観点 ID の辞書にする。
+LEVEL_FIELD_PREFIX = "level_"
+
+
+def level_field(code: str) -> str:
+    """観点 1 つ分のフォーム項目名。
+
+    **観点ごとに変える。** 共有すると、ブラウザは全観点を 1 つのラジオ
+    グループとして扱い、観点をまたいで 1 つしか選べなくなる。実際にそう
+    なっていた（テストがフォームを経由せず直接 POST していたので、
+    画面を見るまで分からなかった）。
+    """
+    return f"{LEVEL_FIELD_PREFIX}{code}"
+
+
+def _parse_levels(
+    criteria: tuple[RubricCriterion, ...], form: Mapping[str, object]
+) -> dict[CriterionId, int]:
+    """フォームから観点ごとの段階を読む。
 
     観点の取りこぼしは拒否する。欠けたまま確定すると、誰も見ていない観点が
     成績に入る。
     """
-    by_code = {criterion.code: criterion for criterion in criteria}
     parsed: dict[CriterionId, int] = {}
-    for item in raw:
-        code, _, value = item.partition("=")
-        criterion = by_code.get(code)
-        if criterion is None:
-            raise HTTPException(status_code=400, detail=f"unknown criterion: {code!r}")
+    missing: list[str] = []
+    for criterion in criteria:
+        raw = form.get(level_field(criterion.code))
+        if raw is None or str(raw).strip() == "":
+            missing.append(criterion.code)
+            continue
         try:
-            level = int(value)
+            level = int(str(raw))
         except ValueError:
-            raise HTTPException(status_code=400, detail=f"malformed level: {item!r}") from None
+            raise HTTPException(
+                status_code=400, detail=f"{criterion.code}: malformed level {raw!r}"
+            ) from None
         allowed = {candidate.level for candidate in criterion.levels}
         if level not in allowed:
             raise HTTPException(
                 status_code=400,
-                detail=f"{code}: level {level} is not in {sorted(allowed)}",
+                detail=f"{criterion.code}: level {level} is not in {sorted(allowed)}",
             )
         parsed[criterion.id] = level
 
-    missing = sorted(code for code, c in by_code.items() if c.id not in parsed)
     if missing:
-        raise HTTPException(status_code=400, detail=f"missing marks for: {missing}")
+        raise HTTPException(status_code=400, detail=f"missing marks for: {sorted(missing)}")
     return parsed
 
 

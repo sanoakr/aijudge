@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import re
 import shutil
 from pathlib import Path
 
@@ -153,6 +154,20 @@ def blind_world(tmp_path: Path):
     instance = World(tmp_path, blind_rate=1.0)
     yield instance
     instance.close()
+
+
+def _agree_form(world: World, machine: dict) -> dict[str, str]:
+    """AI の判定に同意するフォーム。
+
+    **ブラウザが送る形と同じにする。** 段階の項目名は観点ごとに違う
+    （`level_<code>`）。共有の名前で送るテストは、実際のフォームで
+    観点をまたいで 1 つしか選べないバグを見逃す（実際に見逃した）。
+    """
+    return {
+        f"level_{c.code}": str(machine[c.id])
+        for c in world.task_version.criteria
+        if c.id in machine
+    }
 
 
 def _instructor_and_submission(world: World):
@@ -332,7 +347,7 @@ def test_a_blind_mark_is_stored_and_cannot_be_overwritten(blind_world: World) ->
     """二度目を受け付けると、AI を見たあとの段階で上書きできてしまう。"""
     _, accepted = _instructor_and_submission(blind_world)
     blind_world.worker.run_once()
-    data = {"levels": ["correctness=3", "readability=1"], "notes": "変数名が読めない"}
+    data = {"level_correctness": "3", "level_readability": "1", "notes": "変数名が読めない"}
 
     first = blind_world.client.post(
         f"/review/{accepted.submission.id}/blind", data=data, follow_redirects=False
@@ -354,7 +369,7 @@ def test_a_missing_criterion_is_rejected(blind_world: World) -> None:
     _, accepted = _instructor_and_submission(blind_world)
     blind_world.worker.run_once()
     response = blind_world.client.post(
-        f"/review/{accepted.submission.id}/blind", data={"levels": ["correctness=3"]}
+        f"/review/{accepted.submission.id}/blind", data={"level_correctness": "3"}
     )
     assert response.status_code == 400
     assert "readability" in response.json()["detail"]
@@ -366,7 +381,7 @@ def test_a_level_outside_the_rubric_is_rejected(blind_world: World) -> None:
     blind_world.worker.run_once()
     response = blind_world.client.post(
         f"/review/{accepted.submission.id}/blind",
-        data={"levels": ["correctness=3", "readability=9"]},
+        data={"level_correctness": "3", "level_readability": "9"},
     )
     assert response.status_code == 400
 
@@ -377,7 +392,7 @@ def test_the_reveal_page_shows_the_disagreement_and_the_evidence(blind_world: Wo
     blind_world.worker.run_once()
     blind_world.client.post(
         f"/review/{accepted.submission.id}/blind",
-        data={"levels": ["correctness=3", "readability=1"]},
+        data={"level_correctness": "3", "level_readability": "1"},
     )
     body = blind_world.client.get(f"/review/{accepted.submission.id}/reveal").text
 
@@ -403,10 +418,8 @@ def test_finalizing_records_only_what_changed(world: World) -> None:
     world.client.post(
         f"/review/{accepted.submission.id}/finalize",
         data={
-            "levels": [
-                f"correctness={machine[correctness.id]}",
-                "readability=0",
-            ],
+            "level_correctness": str(machine[correctness.id]),
+            "level_readability": "0",
             "comment": "読みにくい",
         },
         follow_redirects=False,
@@ -431,11 +444,7 @@ def test_agreeing_leaves_no_adjustment(world: World) -> None:
 
     world.client.post(
         f"/review/{accepted.submission.id}/finalize",
-        data={
-            "levels": [
-                f"{c.code}={machine[c.id]}" for c in world.task_version.criteria if c.id in machine
-            ]
-        },
+        data=_agree_form(world, machine),
         follow_redirects=False,
     )
     with world.database.unit_of_work() as uow:
@@ -453,11 +462,7 @@ def test_finalizing_twice_is_refused(world: World) -> None:
         run = uow.runs.latest_for(accepted.submission.id)
     assert run is not None
     machine = {score.criterion_id: score.level for score in run.criterion_scores}
-    data = {
-        "levels": [
-            f"{c.code}={machine[c.id]}" for c in world.task_version.criteria if c.id in machine
-        ]
-    }
+    data = _agree_form(world, machine)
     world.client.post(f"/review/{accepted.submission.id}/finalize", data=data)
     again = world.client.post(f"/review/{accepted.submission.id}/finalize", data=data)
     assert again.status_code == 409
@@ -476,7 +481,7 @@ def test_the_grading_run_is_never_rewritten(world: World) -> None:
     correctness = next(c for c in world.task_version.criteria if c.code == "correctness")
     world.client.post(
         f"/review/{accepted.submission.id}/finalize",
-        data={"levels": [f"correctness={machine[correctness.id]}", "readability=0"]},
+        data={"level_correctness": str(machine[correctness.id]), "level_readability": "0"},
     )
     with world.database.unit_of_work() as uow:
         after = uow.runs.latest_for(accepted.submission.id)
@@ -493,11 +498,7 @@ def test_a_finalized_submission_leaves_the_queue(world: World) -> None:
     machine = {score.criterion_id: score.level for score in run.criterion_scores}
     world.client.post(
         f"/review/{accepted.submission.id}/finalize",
-        data={
-            "levels": [
-                f"{c.code}={machine[c.id]}" for c in world.task_version.criteria if c.id in machine
-            ]
-        },
+        data=_agree_form(world, machine),
     )
     body = world.client.get(f"/courses/{COURSE}").text
     assert "確認を待っている提出はありません" in body
@@ -515,7 +516,7 @@ def test_a_blind_mark_becomes_a_usable_observation(blind_world: World) -> None:
     blind_world.worker.run_once()
     blind_world.client.post(
         f"/review/{accepted.submission.id}/blind",
-        data={"levels": ["correctness=3", "readability=1"]},
+        data={"level_correctness": "3", "level_readability": "1"},
     )
 
     stored = blind_world.observations.load(
@@ -543,11 +544,15 @@ def test_accepting_the_ai_is_not_recorded_as_a_correction(blind_world: World) ->
     blind_world.worker.run_once()
     blind_world.client.post(
         f"/review/{accepted.submission.id}/blind",
-        data={"levels": ["correctness=3", "readability=1"]},
+        data={"level_correctness": "3", "level_readability": "1"},
     )
     blind_world.client.post(
         f"/review/{accepted.submission.id}/finalize",
-        data={"levels": ["correctness=3", "readability=3"], "comment": "AI の指摘で考えを変えた"},
+        data={
+            "level_correctness": "3",
+            "level_readability": "3",
+            "comment": "AI の指摘で考えを変えた",
+        },
     )
 
     stored = blind_world.observations.load(
@@ -566,11 +571,11 @@ def test_overriding_the_ai_is_recorded_as_a_correction(blind_world: World) -> No
     blind_world.worker.run_once()
     blind_world.client.post(
         f"/review/{accepted.submission.id}/blind",
-        data={"levels": ["correctness=3", "readability=1"]},
+        data={"level_correctness": "3", "level_readability": "1"},
     )
     blind_world.client.post(
         f"/review/{accepted.submission.id}/finalize",
-        data={"levels": ["correctness=3", "readability=1"], "comment": "AI は甘い"},
+        data={"level_correctness": "3", "level_readability": "1", "comment": "AI は甘い"},
     )
 
     stored = blind_world.observations.load(
@@ -597,13 +602,97 @@ def test_a_broken_observation_store_does_not_block_the_review(world: World) -> N
 
     response = world.client.post(
         f"/review/{accepted.submission.id}/finalize",
-        data={
-            "levels": [
-                f"{c.code}={machine[c.id]}" for c in world.task_version.criteria if c.id in machine
-            ]
-        },
+        data=_agree_form(world, machine),
         follow_redirects=False,
     )
     assert response.status_code == 303
     with world.database.unit_of_work() as uow:
         assert uow.reviews.find_review_for_run(run.id) is not None
+
+
+# --------------------------------------------------------------------------
+# フォームそのもの — 画面を見て初めて分かった不具合
+# --------------------------------------------------------------------------
+
+
+@needs_c_compiler
+def test_each_criterion_has_its_own_radio_group(blind_world: World) -> None:
+    """段階のラジオは観点ごとに独立していること。
+
+    name を共有すると、ブラウザは全観点を 1 つのグループとして扱い、
+    **観点をまたいで 1 つしか選べない**。実際にそうなっていた。
+    テストがフォームを経由せず直接 POST していたので、画面を見るまで
+    分からなかった。
+    """
+    _, accepted = _instructor_and_submission(blind_world)
+    blind_world.worker.run_once()
+
+    for path in ("blind", "reveal"):
+        if path == "reveal":
+            blind_world.client.post(
+                f"/review/{accepted.submission.id}/blind",
+                data={"level_correctness": "3", "level_readability": "1"},
+            )
+        body = blind_world.client.get(f"/review/{accepted.submission.id}/{path}").text
+        names = set(re.findall(r'<input type="radio" name="([^"]+)"', body))
+        assert len(names) >= 2, f"{path}: ラジオ群が {names} しかない（観点ごとに要る）"
+        assert "levels" not in names, f"{path}: 共有の name が残っている"
+
+
+@needs_c_compiler
+def test_the_finalize_form_round_trips_as_a_browser_sends_it(world: World) -> None:
+    """画面のフォームをそのまま送って確定できること。
+
+    フォームから項目名と既定値を読み取り、ブラウザと同じ形で送る。
+    """
+    _, accepted = _instructor_and_submission(world)
+    world.worker.run_once()
+    body = world.client.get(f"/review/{accepted.submission.id}/reveal").text
+
+    # 「選択済み」になっている項目を拾う（ブラウザが送るのはこれ）。
+    checked = dict(
+        re.findall(
+            r'<input type="radio" name="(level_[^"]+)" required\s+value="(\d+)"\s+checked',
+            body,
+        )
+    )
+    assert len(checked) == 2, f"既定選択が {checked}（観点ごとに 1 つ要る）"
+
+    response = world.client.post(
+        f"/review/{accepted.submission.id}/finalize", data=checked, follow_redirects=False
+    )
+    assert response.status_code == 303, response.text
+
+
+@needs_c_compiler
+def test_the_system_verdict_is_labelled_on_every_option(world: World) -> None:
+    """段階を動かしたあとでも「システムは何と言ったか」が分かること。
+
+    分からないと、確定の判断が記憶に頼ることになる。
+    """
+    _, accepted = _instructor_and_submission(world)
+    world.worker.run_once()
+    body = world.client.get(f"/review/{accepted.submission.id}/reveal").text
+    assert "システム判定" in body
+
+    with world.database.unit_of_work() as uow:
+        run = uow.runs.latest_for(accepted.submission.id)
+    assert run is not None
+    # 判定が付いた観点の数だけ印が出ていること。
+    scored = [s for s in run.criterion_scores]
+    assert body.count("システム判定") == len(scored), (
+        f"印が {body.count('システム判定')} 個 / 判定は {len(scored)} 件"
+    )
+
+
+@needs_c_compiler
+def test_the_blind_mark_is_labelled_after_reveal(blind_world: World) -> None:
+    """自分が blind で何を付けたかも、選択肢の上で分かること。"""
+    _, accepted = _instructor_and_submission(blind_world)
+    blind_world.worker.run_once()
+    blind_world.client.post(
+        f"/review/{accepted.submission.id}/blind",
+        data={"level_correctness": "3", "level_readability": "1"},
+    )
+    body = blind_world.client.get(f"/review/{accepted.submission.id}/reveal").text
+    assert "あなたの blind 採点" in body

@@ -30,10 +30,11 @@
         <legend>{{ criterion.title }}</legend>
         <p class="desc">{{ criterion.description }}</p>
         <div class="levels">
+          {# name は観点ごとに変える（reveal.html の注記を参照）。 #}
           {% for level in criterion.levels %}
           <label>
-            <input type="radio" name="levels" required
-                   value="{{ criterion.code }}={{ level.level }}">
+            <input type="radio" name="level_{{ criterion.code }}" required
+                   value="{{ level.level }}">
             <span class="lv">{{ level.level }}: {{ level.label }}</span>
             <span>{{ level.descriptor }}</span>
           </label>

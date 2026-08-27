@@ -51,8 +51,11 @@ pre.code .ln.hl{background:var(--shu-soft);border-left:3px solid var(--shu);padd
 .statement code{font-size:.85em}
 .statement ul,.statement ol{padding-left:1.4em}
 .statement hr{border:0;border-top:1px solid var(--line-soft);margin:1.2em 0}
+/* 課題文に内部スクロールを付けない。付けると全体を一度に読めず、
+   長い課題文ほど読みにくくなる。ページ全体のスクロールで読ませる。
+   横に溢れるのはコードブロックだけで、そちらは pre 側で処理する。 */
 .statement{font-size:.9rem;color:var(--ink-2);
-  max-height:16em;overflow-y:auto;border:1px solid var(--line-soft);border-radius:3px;
+  border:1px solid var(--line-soft);border-radius:3px;
   padding:14px 16px;background:var(--surface-2)}
 fieldset{border:1px solid var(--line-soft);border-radius:3px;padding:14px 18px;margin:0 0 16px}
 legend{font-weight:700;font-size:.95rem;padding:0 6px}

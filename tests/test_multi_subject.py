@@ -349,7 +349,7 @@ def test_only_one_teacher_can_finalise_a_submission(campus: Campus) -> None:
     assert run is not None
     (_task, version) = campus.tasks_of(campus.c_course.id)[0]
     machine = {score.criterion_id: score.level for score in run.criterion_scores}
-    data = {"levels": [f"{c.code}={machine[c.id]}" for c in version.criteria if c.id in machine]}
+    data = {f"level_{c.code}": str(machine[c.id]) for c in version.criteria if c.id in machine}
 
     first = campus.login_teacher("c_teacher").post(
         f"/review/{accepted.submission.id}/finalize", data=data, follow_redirects=False

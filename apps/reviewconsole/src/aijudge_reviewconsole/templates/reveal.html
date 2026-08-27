@@ -70,20 +70,39 @@
   ／ 振り分け {{ run.routing.value }}
 </p>
 <form method="post" action="/review/{{ submission.id }}/finalize">
+  {#
+    ラジオの name は**観点ごとに変える**。共有すると、ブラウザは全観点を
+    1 つのグループとして扱い、観点をまたいで 1 つしか選べなくなる
+    （実際にそうなっていた。テストはフォームを経由せず直接 POST していたので
+    見落としていた）。
+  #}
   {% for row in rows %}
   <fieldset>
     <legend>{{ row.criterion.title }}</legend>
+    <p class="desc">{{ row.criterion.description }}</p>
     <div class="levels">
       {% for level in row.criterion.levels %}
       <label>
-        <input type="radio" name="levels" required
-               value="{{ row.criterion.code }}={{ level.level }}"
+        <input type="radio" name="level_{{ row.criterion.code }}" required
+               value="{{ level.level }}"
                {% if (row.human_level if row.human_level is not none else row.ai_level) == level.level %}checked{% endif %}>
         <span class="lv">{{ level.level }}: {{ level.label }}</span>
         <span>{{ level.descriptor }}</span>
+        {#
+          どれがシステムの判定かを常に見せる。段階を動かしたあとでも
+          「AI は何と言っていたか」が分からなくなると、確定の判断が
+          記憶に頼ることになる。
+        #}
+        {% if row.ai_level == level.level %}<span class="pill">システム判定</span>{% endif %}
+        {% if row.human_level == level.level %}<span class="pill ok">あなたの blind 採点</span>{% endif %}
       </label>
       {% endfor %}
     </div>
+    {% if row.unscored %}
+    <p class="desc">この観点は自動採点できませんでした。段階はあなたが決めます。</p>
+    {% elif row.ai_level is none %}
+    <p class="desc">システムの判定はありません。</p>
+    {% endif %}
   </fieldset>
   {% endfor %}
   <fieldset>
