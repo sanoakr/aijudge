@@ -27,7 +27,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from aijudge_authoring.repository import TaskStoreError
-from aijudge_core import GradingRun, Submission, TaskVersion
+from aijudge_core import GradingPhase, GradingRun, Submission, TaskVersion, new_id
+from aijudge_core.ids import GradingJobId
 from aijudge_feedback import FeedbackGenerator
 from aijudge_grading import (
     EvaluatorRegistry,
@@ -43,6 +44,7 @@ from aijudge_submission import (
     GradingJob,
     JobReason,
     gradable_contents,
+    job_idempotency_key,
 )
 
 logger = logging.getLogger(__name__)
@@ -96,11 +98,23 @@ class GradingWorker:
         self._lease_seconds = lease_seconds
         self._clock = clock
         self._profiles: dict[str, SubjectProfile] = {}
+        # 決定的段階のあとに積む AI 段階のジョブ。1 件処理するあいだだけ持つ。
+        self._follow_up: tuple[GradingJob, TaskVersion] | None = None
 
     # -- 1 件処理 ----------------------------------------------------------
 
-    def run_once(self, *, subject_profile: str | None = None) -> WorkResult | None:
-        """ジョブを 1 つ処理する。無ければ None。"""
+    def run_once(
+        self,
+        *,
+        subject_profile: str | None = None,
+        phase: GradingPhase | None = None,
+    ) -> WorkResult | None:
+        """ジョブを 1 つ処理する。無ければ None。
+
+        `phase` を渡すとその段階のジョブだけを取る。**決定的評価専用の
+        ワーカーを立てるためにある** ── 立てないと、テスト実行が終わって
+        いる提出の結果が、前に並んだ他人の LLM 待ちの後ろで止まる。
+        """
         now = self._clock()
 
         # --- 予約。ここで commit してリースを他のワーカーに見せる。 -------
@@ -110,6 +124,7 @@ class GradingWorker:
                 worker=self._worker,
                 lease_seconds=self._lease_seconds,
                 subject_profile=subject_profile,
+                phase=phase,
             )
             if job is None:
                 return None
@@ -126,7 +141,11 @@ class GradingWorker:
         return WorkResult(job=self._record_success(job, run), run=run)
 
     def run_until_empty(
-        self, *, subject_profile: str | None = None, limit: int = 1000
+        self,
+        *,
+        subject_profile: str | None = None,
+        phase: GradingPhase | None = None,
+        limit: int = 1000,
     ) -> tuple[int, tuple[str, ...]]:
         """キューが空になるまで処理する。
 
@@ -136,7 +155,7 @@ class GradingWorker:
         graded = 0
         errors: list[str] = []
         for _ in range(limit):
-            result = self.run_once(subject_profile=subject_profile)
+            result = self.run_once(subject_profile=subject_profile, phase=phase)
             if result is None:
                 break
             if result.graded:
@@ -156,11 +175,32 @@ class GradingWorker:
             if task_version is None:
                 raise PermanentGradingError(f"課題版が見つかりません: {job.task_version_id}")
 
+        base: GradingRun | None = None
+        if job.phase is GradingPhase.AI:
+            with self._database.unit_of_work() as uow:
+                base = uow.runs.get(job.base_run_id)
+            if base is None:
+                raise PermanentGradingError(f"土台の採点が見つかりません: {job.base_run_id}")
+
         profile = self._profile(job.subject_profile)
         contents = gradable_contents(submission, self._store)
         pipeline = GradingPipeline(self._registry, profile)
-        run = pipeline.run(task_version, submission, lambda artifact: contents[artifact.id])
-        return self._with_feedback(run, task_version, contents)
+        run = pipeline.run(
+            task_version,
+            submission,
+            lambda artifact: contents[artifact.id],
+            phase=job.phase,
+            base=base,
+        )
+        run = self._with_feedback(run, task_version, contents)
+
+        if job.phase is GradingPhase.DETERMINISTIC and pipeline.has_ai_work(task_version, run):
+            # AI 段階を積む。**決定的段階の結果を保存してから**（`_record_success`）
+            # にしないと、土台がまだ無いジョブが走りうる。ここでは印だけ付ける。
+            self._follow_up = (job, task_version)
+        else:
+            self._follow_up = None
+        return run
 
     def _with_feedback(
         self, run: GradingRun, task_version: TaskVersion, contents: dict
@@ -216,11 +256,41 @@ class GradingWorker:
                 uow.outbox.append(grading_completed_event(run, submission, tenant_id=job.tenant_id))
             done = job.completed(now, run.id)
             uow.jobs.update(done)
+
+            follow_up = self._follow_up
+            if follow_up is not None and follow_up[0].id == job.id:
+                # AI 段階を同じトランザクションで積む。別にすると、決定的評価
+                # だけ保存されて AI が永久に来ない提出ができる。
+                uow.jobs.enqueue(self._ai_job(job, run, now))
             uow.commit()
 
         # 観測は採点の外側。失敗しても採点は成立させる（ADR 0007）。
-        self._record_observations(job, run)
+        #
+        # **暫定の採点では書かない。** 決定的段階の run は AI 観点が未採点
+        # なので、それを測定に入れると「AI が判定しなかった」という記録が
+        # 一致度の標本に混ざる。AI 段階が続くならその後で書く。
+        if self._follow_up is None:
+            self._record_observations(job, run)
         return done
+
+    def _ai_job(self, job: GradingJob, base: GradingRun, now: datetime) -> GradingJob:
+        """決定的評価の結果の上に積む AI 段階のジョブ。"""
+        return GradingJob(
+            id=GradingJobId(new_id("job")),
+            tenant_id=job.tenant_id,
+            submission_id=job.submission_id,
+            task_version_id=job.task_version_id,
+            subject_profile=job.subject_profile,
+            reason=job.reason,
+            phase=GradingPhase.AI,
+            base_run_id=base.id,
+            idempotency_key=job_idempotency_key(
+                job.submission_id, job.reason, phase=GradingPhase.AI
+            ),
+            available_at=now,
+            created_at=now,
+            updated_at=now,
+        )
 
     def _record_failure(
         self, job: GradingJob, error: str, *, permanent: bool = False

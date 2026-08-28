@@ -124,10 +124,19 @@ several assumptions about constrained decoding did not survive contact.
 ### Grading and reviewing are separate processes
 
 ```fish
-uv run aijudge-web        # learners submit                    :8080
-uv run aijudge-worker     # grading consumes the queue
-uv run aijudge-review     # instructors confirm                :8765
+uv run aijudge-web                             # learners submit          :8080
+uv run aijudge-worker --phase deterministic    # the fast lane
+uv run aijudge-worker --phase ai               # the slow one, arriving later
+uv run aijudge-review                          # instructors confirm      :8765
 ```
+
+The two phases are separate queues, because a test run takes half a second and
+an LLM takes seventeen ([ADR 0011](docs/adr/0011-split-the-grading-queue-by-phase.md)).
+Sharing one queue meant a learner whose tests had already finished waited behind
+somebody else's model call: measured on exam08 — 496 real submissions arriving
+uniformly over two hours — one worker gave a p95 of 1689 seconds, and it took
+four workers to reach the 30 seconds §9.1 asks for. Split, **one worker answers
+in a p95 of 0.8 seconds** and the AI verdict lands when it lands.
 
 The worker grades on submission; the console reads what arrived. **Reviewing is
 not a precondition for grading.** It used to be — the console only invoked the

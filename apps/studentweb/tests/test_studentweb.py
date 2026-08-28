@@ -349,7 +349,7 @@ def test_the_ai_verdict_is_shown_immediately(world: World) -> None:
     world.register("s2400001")
     world.login("s2400001")
     location = world.submit().headers["location"]
-    world.worker.run_once()
+    world.worker.run_until_empty()
 
     body = world.client.get(location).text
     assert AI_RATIONALE in body, "AI の判定が出ていない"
@@ -365,7 +365,7 @@ def test_a_confirmed_grade_is_distinguished_from_a_provisional_one(world: World)
     instructor = world.register("instructor", role=Role.INSTRUCTOR)
     world.login("s2400001")
     location = world.submit().headers["location"]
-    world.worker.run_once()
+    world.worker.run_until_empty()
 
     assert "担当教員の確認を経て確定します" in world.client.get(location).text
 
@@ -381,7 +381,7 @@ def test_which_criteria_the_ai_judged_is_visible(world: World) -> None:
     world.register("s2400001")
     world.login("s2400001")
     location = world.submit().headers["location"]
-    world.worker.run_once()
+    world.worker.run_until_empty()
 
     body = world.client.get(location).text
     assert ">AI<" in body
@@ -398,7 +398,7 @@ def test_a_learner_can_request_a_review(world: World) -> None:
     world.register("s2400001")
     world.login("s2400001")
     location = world.submit().headers["location"]
-    world.worker.run_once()
+    world.worker.run_until_empty()
     submission_id = location.split("/")[-1].split("?")[0]
 
     response = world.client.post(
@@ -419,7 +419,7 @@ def test_a_request_without_a_reason_is_refused(world: World) -> None:
     world.register("s2400001")
     world.login("s2400001")
     location = world.submit().headers["location"]
-    world.worker.run_once()
+    world.worker.run_until_empty()
     submission_id = location.split("/")[-1].split("?")[0]
 
     for reason in ("", "違う", "   "):
@@ -434,7 +434,7 @@ def test_a_second_request_is_refused(world: World) -> None:
     world.register("s2400001")
     world.login("s2400001")
     location = world.submit().headers["location"]
-    world.worker.run_once()
+    world.worker.run_until_empty()
     submission_id = location.split("/")[-1].split("?")[0]
     data = {"reason": "テストケース 3 の想定出力が仕様と違うと思います。"}
 
@@ -452,7 +452,7 @@ def test_a_confirmed_grade_cannot_be_requested(world: World) -> None:
     instructor = world.register("instructor", role=Role.INSTRUCTOR)
     world.login("s2400001")
     location = world.submit().headers["location"]
-    world.worker.run_once()
+    world.worker.run_until_empty()
     submission_id = location.split("/")[-1].split("?")[0]
     world.finalize(submission_id, grader=instructor)
 
@@ -470,7 +470,7 @@ def test_the_instructors_justification_is_shown_to_the_learner(world: World) -> 
     instructor = world.register("instructor", role=Role.INSTRUCTOR)
     world.login("s2400001")
     location = world.submit().headers["location"]
-    world.worker.run_once()
+    world.worker.run_until_empty()
     submission_id = location.split("/")[-1].split("?")[0]
 
     world.finalize(
@@ -494,7 +494,7 @@ def test_an_instructor_adjustment_changes_the_score_the_learner_sees(world: Worl
     instructor = world.register("instructor", role=Role.INSTRUCTOR)
     world.login("s2400001")
     location = world.submit().headers["location"]
-    world.worker.run_once()
+    world.worker.run_until_empty()
     submission_id = location.split("/")[-1].split("?")[0]
 
     readability = next(c for c in world.task_version.criteria if c.code == "readability")
@@ -535,7 +535,7 @@ def test_the_feedback_appears_without_waiting_for_confirmation(world: World) -> 
     world.register("s2400001")
     world.login("s2400001")
     location = world.submit().headers["location"]
-    world.worker.run_once()
+    world.worker.run_until_empty()
 
     body = world.client.get(location).text
     assert "次の一手" in body
@@ -608,7 +608,7 @@ def test_the_verdict_column_does_not_wrap(world: World) -> None:
     world.register("s2400001")
     world.login("s2400001")
     location = world.submit().headers["location"]
-    world.worker.run_once()
+    world.worker.run_until_empty()
     body = world.client.get(location).text
 
     assert "white-space:nowrap" in body, "ピルの折り返しを止めていない"
@@ -632,7 +632,7 @@ def test_an_automatically_finalized_grade_does_not_claim_a_human_read_it(world: 
     world.register("s2400001")
     world.login("s2400001")
     location = world.submit().headers["location"]
-    world.worker.run_once()
+    world.worker.run_until_empty()
     submission_id = location.split("/")[-1].split("?")[0]
 
     world.finalize(
@@ -653,7 +653,7 @@ def test_a_bulk_finalized_grade_says_it_was_not_read_individually(world: World) 
     instructor = world.register("instructor", role=Role.INSTRUCTOR)
     world.login("s2400001")
     location = world.submit().headers["location"]
-    world.worker.run_once()
+    world.worker.run_until_empty()
     submission_id = location.split("/")[-1].split("?")[0]
 
     world.finalize(
@@ -679,7 +679,7 @@ def test_a_finalized_grade_can_no_longer_be_contested(world: World) -> None:
     world.register("s2400001")
     world.login("s2400001")
     location = world.submit().headers["location"]
-    world.worker.run_once()
+    world.worker.run_until_empty()
     submission_id = location.split("/")[-1].split("?")[0]
     world.finalize(submission_id, source=FinalizationSource.DEADLINE_ELAPSED)
 
@@ -703,7 +703,7 @@ def test_an_instructor_can_still_settle_an_automatically_finalized_grade(world: 
     instructor = world.register("instructor", role=Role.INSTRUCTOR)
     world.login("s2400001")
     location = world.submit().headers["location"]
-    world.worker.run_once()
+    world.worker.run_until_empty()
     submission_id = location.split("/")[-1].split("?")[0]
 
     world.finalize(submission_id, source=FinalizationSource.DEADLINE_ELAPSED)
@@ -761,7 +761,7 @@ def test_before_the_deadline_the_confirmation_time_is_not_announced_as_provision
     world.register("s2400001")
     world.login("s2400001")
     location = world.submit().headers["location"]
-    world.worker.run_once()
+    world.worker.run_until_empty()
     _schedule(world, due_offset_hours=24, grace=24.0)
 
     body = world.client.get(location).text
@@ -777,7 +777,7 @@ def test_after_the_deadline_the_grade_is_provisional_and_says_when_it_settles(
     world.register("s2400001")
     world.login("s2400001")
     location = world.submit().headers["location"]
-    world.worker.run_once()
+    world.worker.run_until_empty()
     _schedule(world, due_offset_hours=-1, grace=24.0)
 
     body = world.client.get(location).text
@@ -791,7 +791,7 @@ def test_a_provisional_grade_can_still_be_contested(world: World) -> None:
     world.register("s2400001")
     world.login("s2400001")
     location = world.submit().headers["location"]
-    world.worker.run_once()
+    world.worker.run_until_empty()
     submission_id = location.split("/")[-1].split("?")[0]
     _schedule(world, due_offset_hours=-1, grace=24.0)
 
@@ -813,7 +813,7 @@ def test_the_window_closes_on_time_even_before_the_sweep_runs(world: World) -> N
     world.register("s2400001")
     world.login("s2400001")
     location = world.submit().headers["location"]
-    world.worker.run_once()
+    world.worker.run_until_empty()
     submission_id = location.split("/")[-1].split("?")[0]
     # 締切 25 時間前 + 猶予 24 時間 = 期限は 1 時間前。まだ確定処理は走って
     # いない（Finalization は無い）。
@@ -833,7 +833,7 @@ def test_without_a_grace_the_window_never_closes(world: World) -> None:
     world.register("s2400001")
     world.login("s2400001")
     location = world.submit().headers["location"]
-    world.worker.run_once()
+    world.worker.run_until_empty()
     submission_id = location.split("/")[-1].split("?")[0]
     _schedule(world, due_offset_hours=-100, grace=None)
 
@@ -862,7 +862,7 @@ def test_the_page_renders_when_the_overall_score_is_withheld(world: World) -> No
     world.register("s2400001")
     world.login("s2400001")
     location = world.submit().headers["location"]
-    world.worker.run_once()
+    world.worker.run_until_empty()
     submission_id = location.split("/")[-1].split("?")[0]
 
     # AI 観点が採点できなかった採点を、新しい run として重ねる（追記のみ、P8）。

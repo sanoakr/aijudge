@@ -5,7 +5,7 @@ Phase 0 の構成は 3 つのプロセスに分かれる。**採点はレビュ�
 
 ```
 aijudge-web       学習者：提出と結果表示                    :8080
-aijudge-worker    採点：キューを消費                        （常駐）
+aijudge-worker    採点：キューを消費                        （常駐・段階ごとに立てる）
 aijudge-review    教員：確認して確定 + 科目・課題の管理      :8765
 aijudge-finalize  成績：締切を過ぎた分を自動確定            （cron か常駐）
 aijudge-admin     運用：学期の頭の一括操作（CLI）
@@ -130,14 +130,33 @@ tailnet は教員・TA の端末を繋ぐには足りるが、**学生には配�
 
 ## 締切集中に備える
 
-採点ワーカーは複数立てられる。**ただし PostgreSQL であること。**
+**採点は 2 段階で、キューが分かれている**（ADR 0011）。決定的評価は 0.5 秒、
+AI 評価は 17 秒（実測）。同じワーカーに任せると、テスト実行が終わっている提出の
+結果が前に並んだ他人の LLM 待ちの後ろで止まる。
+
+**決定的専用を最低 1 本立てる。** これで学習者に返るまでが p95 0.8 秒になる。
 
 ```fish
-uv run aijudge-worker --name w1 &
-uv run aijudge-worker --name w2 &
-uv run aijudge-worker --name w3 &
-uv run aijudge-worker --name w4 &
+uv run aijudge-worker --phase deterministic --name det1 &   # 速い段階（最低 1 本）
+uv run aijudge-worker --phase ai --name ai1 &               # AI はあとから届く
+uv run aijudge-worker --phase ai --name ai2 &
+uv run aijudge-worker --phase ai --name ai3 &
+uv run aijudge-worker --phase ai --name ai4 &
 ```
+
+`--phase` を付けないワーカーは両方を取る。開発機ではそれで足りるが、**締切集中
+では決定的評価が AI の後ろに並ぶ**ので運用では分ける。
+
+実測（exam08、提出 496 件を 2 時間の一様到着、400 回試行）:
+
+| | 平均 | p95 |
+|---|---:|---:|
+| 分割前・1 本 | 910 秒 | 1689 秒 |
+| 分割前・4 本 | 18.2 秒 | 25.2 秒 |
+| **決定的専用 1 本** | **0.5 秒** | **0.8 秒** |
+| AI 専用 4 本（到着まで） | 17.6 秒 | 24.3 秒 |
+
+複数立てるときは **PostgreSQL であること。**
 
 実測（受講 91 名 × 1 課題 × テスト 5 件、colima 上のコンテナ隔離）:
 
@@ -219,6 +238,7 @@ cron に置くなら 1 時間ごとで十分（猶予は時間単位の話）。
 
 ```sql
 ALTER TABLE courses ADD COLUMN auto_finalize_after_hours DOUBLE PRECISION;
+ALTER TABLE grading_jobs ADD COLUMN phase VARCHAR(32) DEFAULT 'deterministic';
 ```
 
 `finalizations` 表の方は `--create-schema` で作られる。**開発機でデータを

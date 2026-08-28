@@ -24,6 +24,7 @@ from aijudge_core import (
     EvaluatorStatus,
     GradingCompleted,
     GradingContext,
+    GradingPhase,
     GradingRun,
     KcOutcome,
     Routing,
@@ -102,6 +103,14 @@ def derive_kc_outcomes(
     )
 
 
+class NoDeterministicWork(Exception):
+    """この科目には決定的評価器が無い。
+
+    レポート課題のように AI 観点だけで構成される科目では、決定的段階に
+    やることが無い。失敗ではないので、呼び出し側は AI 段階へ進める。
+    """
+
+
 class GradingPipeline:
     """科目非依存の採点実行器。"""
 
@@ -114,12 +123,42 @@ class GradingPipeline:
     def profile(self) -> SubjectProfile:
         return self._profile
 
+    def has_ai_work(self, task_version: TaskVersion, base: GradingRun) -> bool:
+        """決定的評価のあとに AI 段階を走らせる意味があるか。
+
+        意味が無いのは 2 つの場合。科目プロファイルが AI 評価器を宣言して
+        いない（S6 停止時の劣化動作を含む）か、決定的評価が全観点を確定
+        させた（P3 により AI は呼ばれない）か。**どちらでもジョブを積まない**
+        ── 積むと、走らせても何も変わらないジョブがキューに溜まる。
+        """
+        if not self._profile.ai_evaluators:
+            return False
+        settled = {score.criterion_id for score in base.criterion_scores if score.conclusive}
+        return any(c.id not in settled for c in task_version.criteria)
+
     def run(
         self,
         task_version: TaskVersion,
         submission: Submission,
         load_content: ContentLoader,
+        *,
+        phase: GradingPhase | None = None,
+        base: GradingRun | None = None,
     ) -> GradingRun:
+        """採点を走らせる。
+
+        `phase` を渡すとその段階だけを走らせる。**決定的評価は 1 秒未満、
+        AI 評価は十数秒**（実測 12.8 秒、うち 95% が LLM）で、同じキューに
+        並べると速い方の結果が遅い方の後ろで止まる。分けることで、決定的
+        評価の結果が先に返り、AI 評価はあとから届く（設計方針 §9.1・§10）。
+
+        `phase=AI` では `base`（決定的評価の結果）の上に積む。**サンドボックス
+        を二度回さない** ── 回すと費用が倍になるうえ、二度目の結果が一度目と
+        違いうる（タイムアウト境界の提出）。
+        """
+        if phase is GradingPhase.AI and base is None:
+            raise ValueError("the ai phase needs the deterministic run it builds on")
+
         contents = {
             artifact.id: load_content(artifact) for artifact in submission.gradable_artifacts
         }
@@ -137,8 +176,22 @@ class GradingPipeline:
             if outcome.prompt_id:
                 prompt_versions[evaluator_id] = outcome.prompt_id
 
+        if base is not None:
+            # 土台の結果を引き継ぐ。**重みはルーブリックから取り直す。**
+            # 土台の run では未採点の観点があったぶん重みが比例配分されて
+            # おり（`renormalize`）、その値をそのまま使うと最終の集約が狂う。
+            results.extend(base.evaluator_results)
+            for score in base.criterion_scores:
+                try:
+                    weight = task_version.criterion(score.criterion_id).weight
+                except KeyError:  # pragma: no cover - 課題版が一致しない構成
+                    weight = score.weight
+                scores.append(score.model_copy(update={"weight": weight}))
+            model_ids.update(base.context.model_ids)
+            prompt_versions.update(base.context.prompt_versions)
+
         # --- 2. 決定的評価 -------------------------------------------------
-        for evaluator_id in self._profile.deterministic:
+        for evaluator_id in ([] if phase is GradingPhase.AI else self._profile.deterministic):
             outcome = self._invoke(
                 evaluator_id,
                 EvaluationRequest(
@@ -157,7 +210,8 @@ class GradingPipeline:
         settled = {score.criterion_id for score in scores if score.conclusive}
 
         # --- 3. AI 評価（ルーブリック観点ごとに 1 回） -----------------------
-        for evaluator_id in self._profile.ai_evaluators:
+        ai_evaluators = [] if phase is GradingPhase.DETERMINISTIC else self._profile.ai_evaluators
+        for evaluator_id in ai_evaluators:
             for criterion in task_version.criteria:
                 # 決定的評価が確定させた観点は AI に問い合わせない（P3）。
                 # 呼ばないので費用も掛からない。
@@ -181,6 +235,12 @@ class GradingPipeline:
                 results.append(self._to_result(evaluator_id, EvaluatorKind.AI, outcome))
                 scores.extend(self._attach(outcome, results[-1].id))
 
+        if not scores and phase is GradingPhase.DETERMINISTIC and not self._profile.deterministic:
+            # 決定的評価器を宣言していない科目（レポート課題など）。この段階
+            # では何も出ないのが正しいので、AI 段階に委ねる。
+            raise NoDeterministicWork(
+                f"profile '{self._profile.name}' declares no deterministic evaluator"
+            )
         if not scores:
             raise RuntimeError(
                 f"no evaluator produced a score for submission {submission.id!r}; "

@@ -12,6 +12,15 @@
 </div>
 {% endif %}
 
+{% if awaiting_ai %}
+<div class="note warn">
+  <strong>AI 評価がまだ届いていません。</strong>
+  テスト実行の結果は出ていますが、AI が担当する観点はこれから採点されます
+  （決定的評価と AI 評価は別のキューで走ります）。届いてから確定してください。
+  この画面を再読み込みして確認できます。
+</div>
+{% endif %}
+
 {% if review_request %}
 <div class="note warn">
   <strong>学習者からの再確認の依頼</strong>
@@ -83,6 +92,9 @@
   総合 {{ '%.1f' | format(run.score_ratio * 100) }}% ／ 確信度 {{ '%.2f' | format(run.confidence) }}
   ／ 振り分け {{ run.routing.value }}
 </p>
+{% if awaiting_ai %}
+<p class="desc">AI 評価の到着後に確定できます。</p>
+{% else %}
 <form method="post" action="/review/{{ submission.id }}/finalize">
   {#
     ラジオの name は**観点ごとに変える**。共有すると、ブラウザは全観点を
@@ -132,4 +144,5 @@
   </fieldset>
   <button type="submit">成績を確定する</button>
 </form>
+{% endif %}
 {% endblock %}

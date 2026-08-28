@@ -45,6 +45,7 @@ from aijudge_core import (
     Course,
     Finalization,
     FinalizationSource,
+    GradingPhase,
     GradingRun,
     HumanReview,
     RubricCriterion,
@@ -382,6 +383,7 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 "was_blind": context.mark is not None,
                 "review_request": context.request,
                 "finalization": context.finalization,
+                "awaiting_ai": context.awaiting_ai,
                 "learner": context.learner,
                 "task_meta": context.task,
                 "min_reason": MIN_JUSTIFICATION_LENGTH,
@@ -392,6 +394,13 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
     async def finalize(request: Request, submission_id: str, me: Me) -> Response:
         form = await request.form()
         context = _load(console, me, SubmissionId(submission_id))
+        if context.awaiting_ai:
+            # **AI 評価の到着前に確定させない。** 確定すると、直後に届く
+            # AI 段階の採点が確定済みの成績を追い越すことになる。
+            raise HTTPException(
+                status_code=409,
+                detail="AI 評価がまだ届いていません。届いてから確定してください。",
+            )
         final = _parse_levels(context.task_version.criteria, form)
         comment = str(form.get("comment", ""))
 
@@ -484,6 +493,7 @@ class _Context:
     """
 
     __slots__ = (
+        "awaiting_ai",
         "course",
         "finalization",
         "learner",
@@ -510,6 +520,7 @@ class _Context:
         learner: object | None = None,
         request: object | None = None,
         finalization: Finalization | None = None,
+        awaiting_ai: bool = False,
     ) -> None:
         self.submission = submission
         self.run = run
@@ -522,6 +533,7 @@ class _Context:
         self.learner = learner
         self.request = request
         self.finalization = finalization
+        self.awaiting_ai = awaiting_ai
 
 
 def _can_grade(auth: AuthService, course_id: CourseId, me: Principal) -> bool:
@@ -567,6 +579,9 @@ def _load(console: Console, me: Principal, submission_id: SubmissionId) -> _Cont
         review = uow.reviews.find_review_for_run(run.id)
         request = uow.reviews.find_request_for_run(run.id)
         finalization = uow.reviews.find_finalization_for_run(run.id)
+        # AI 評価がまだ来ていないだけなのか、来たが判定できなかったのかを
+        # 区別する。前者は待てばよく、後者は教員が観点を埋める。
+        awaiting_ai = uow.jobs.awaiting(submission_id, GradingPhase.AI)
         learner = uow.identity.get_user(submission.learner_id)
 
     needs_blind = mark is None and console.needs_blind_mark(submission, course.subject_profile)
@@ -582,6 +597,7 @@ def _load(console: Console, me: Principal, submission_id: SubmissionId) -> _Cont
         learner=learner,
         request=request,
         finalization=finalization,
+        awaiting_ai=awaiting_ai,
     )
 
 

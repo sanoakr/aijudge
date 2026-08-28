@@ -95,7 +95,9 @@ known-first-party = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["packages", "evaluators", "apps", "evals"]
+# `tests` はどのパッケージにも属さない結合検証。**入れ忘れると走らない。**
+# 実際に走っておらず、ADR 0009 で古くなったテストが 2 件気づかれずに残っていた。
+testpaths = ["packages", "evaluators", "apps", "evals", "tests"]
 addopts = "-q"
 
 [tool.mypy]

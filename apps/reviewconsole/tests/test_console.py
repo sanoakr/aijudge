@@ -255,7 +255,7 @@ def test_the_queue_lists_only_review_requests(world: World) -> None:
     人間の判断を要する。
     """
     _, accepted = _instructor_and_submission(world)
-    world.worker.run_once()
+    world.worker.run_until_empty()
 
     body = world.client.get(f"/courses/{COURSE}").text
     assert str(accepted.submission.id)[:12] not in body, "依頼が無いのに並んでいる"
@@ -268,7 +268,7 @@ def test_the_queue_lists_only_review_requests(world: World) -> None:
 @needs_c_compiler
 def test_a_resolved_request_leaves_the_queue(world: World) -> None:
     _, accepted = _instructor_and_submission(world)
-    world.worker.run_once()
+    world.worker.run_until_empty()
     _request_review(world, accepted.submission.id)
 
     with world.database.unit_of_work() as uow:
@@ -305,7 +305,7 @@ def test_a_learner_cannot_open_the_queue(world: World) -> None:
 def test_a_learner_cannot_open_a_submission(world: World) -> None:
     learner = world.register("s2400001", role=Role.LEARNER)
     accepted = world.submit(learner)
-    world.worker.run_once()
+    world.worker.run_until_empty()
     world.login("s2400001")
     assert world.client.get(f"/review/{accepted.submission.id}/reveal").status_code == 404
 
@@ -316,7 +316,7 @@ def test_an_assistant_can_review(world: World) -> None:
     learner = world.register("s2400001", role=Role.LEARNER)
     world.register("ta", role=Role.ASSISTANT)
     accepted = world.submit(learner)
-    world.worker.run_once()
+    world.worker.run_until_empty()
     world.login("ta")
     assert world.client.get(f"/review/{accepted.submission.id}/reveal").status_code == 200
 
@@ -356,7 +356,7 @@ def test_an_unreadable_profile_falls_back_to_no_sampling(world: World) -> None:
 @needs_c_compiler
 def test_a_submission_outside_the_sample_skips_blind_marking(world: World) -> None:
     _, accepted = _instructor_and_submission(world)
-    world.worker.run_once()
+    world.worker.run_until_empty()
     response = world.client.get(f"/review/{accepted.submission.id}/blind", follow_redirects=False)
     assert response.status_code == 303
     assert response.headers["location"].endswith("/reveal")
@@ -365,7 +365,7 @@ def test_a_submission_outside_the_sample_skips_blind_marking(world: World) -> No
 @needs_c_compiler
 def test_a_sampled_submission_must_be_marked_first(blind_world: World) -> None:
     _, accepted = _instructor_and_submission(blind_world)
-    blind_world.worker.run_once()
+    blind_world.worker.run_until_empty()
     response = blind_world.client.get(
         f"/review/{accepted.submission.id}/reveal", follow_redirects=False
     )
@@ -385,7 +385,7 @@ def test_the_blind_page_contains_no_trace_of_the_ai_verdict(blind_world: World) 
     隠すのではなくレスポンスに含めない。
     """
     _, accepted = _instructor_and_submission(blind_world)
-    blind_world.worker.run_once()
+    blind_world.worker.run_until_empty()
     body = blind_world.client.get(f"/review/{accepted.submission.id}/blind").text
 
     for leak in ("AIRATIONALEMARKER", "確信度", "不一致", "ln hl", "最終確定", "L5–5"):
@@ -404,7 +404,7 @@ def test_the_blind_page_contains_no_trace_of_the_ai_verdict(blind_world: World) 
 def test_a_blind_mark_is_stored_and_cannot_be_overwritten(blind_world: World) -> None:
     """二度目を受け付けると、AI を見たあとの段階で上書きできてしまう。"""
     _, accepted = _instructor_and_submission(blind_world)
-    blind_world.worker.run_once()
+    blind_world.worker.run_until_empty()
     data = {"level_correctness": "3", "level_readability": "1", "notes": "変数名が読めない"}
 
     first = blind_world.client.post(
@@ -425,7 +425,7 @@ def test_a_blind_mark_is_stored_and_cannot_be_overwritten(blind_world: World) ->
 def test_a_missing_criterion_is_rejected(blind_world: World) -> None:
     """欠けたまま確定すると、誰も見ていない観点が成績に入る。"""
     _, accepted = _instructor_and_submission(blind_world)
-    blind_world.worker.run_once()
+    blind_world.worker.run_until_empty()
     response = blind_world.client.post(
         f"/review/{accepted.submission.id}/blind", data={"level_correctness": "3"}
     )
@@ -436,7 +436,7 @@ def test_a_missing_criterion_is_rejected(blind_world: World) -> None:
 @needs_c_compiler
 def test_a_level_outside_the_rubric_is_rejected(blind_world: World) -> None:
     _, accepted = _instructor_and_submission(blind_world)
-    blind_world.worker.run_once()
+    blind_world.worker.run_until_empty()
     response = blind_world.client.post(
         f"/review/{accepted.submission.id}/blind",
         data={"level_correctness": "3", "level_readability": "9"},
@@ -447,7 +447,7 @@ def test_a_level_outside_the_rubric_is_rejected(blind_world: World) -> None:
 @needs_c_compiler
 def test_the_reveal_page_shows_the_disagreement_and_the_evidence(blind_world: World) -> None:
     _, accepted = _instructor_and_submission(blind_world)
-    blind_world.worker.run_once()
+    blind_world.worker.run_until_empty()
     blind_world.client.post(
         f"/review/{accepted.submission.id}/blind",
         data={"level_correctness": "3", "level_readability": "1"},
@@ -464,7 +464,7 @@ def test_the_reveal_page_shows_the_disagreement_and_the_evidence(blind_world: Wo
 def test_finalizing_records_only_what_changed(world: World) -> None:
     """触っていない観点は AI に同意した意味。全部を記録しない。"""
     instructor, accepted = _instructor_and_submission(world)
-    world.worker.run_once()
+    world.worker.run_until_empty()
 
     with world.database.unit_of_work() as uow:
         run = uow.runs.latest_for(accepted.submission.id)
@@ -494,7 +494,7 @@ def test_finalizing_records_only_what_changed(world: World) -> None:
 @needs_c_compiler
 def test_agreeing_leaves_no_adjustment(world: World) -> None:
     _, accepted = _instructor_and_submission(world)
-    world.worker.run_once()
+    world.worker.run_until_empty()
     with world.database.unit_of_work() as uow:
         run = uow.runs.latest_for(accepted.submission.id)
     assert run is not None
@@ -515,7 +515,7 @@ def test_agreeing_leaves_no_adjustment(world: World) -> None:
 def test_finalizing_twice_is_refused(world: World) -> None:
     """二度確定できると成績が二つ存在する。やり直しは再採点から。"""
     _, accepted = _instructor_and_submission(world)
-    world.worker.run_once()
+    world.worker.run_until_empty()
     with world.database.unit_of_work() as uow:
         run = uow.runs.latest_for(accepted.submission.id)
     assert run is not None
@@ -530,7 +530,7 @@ def test_finalizing_twice_is_refused(world: World) -> None:
 def test_the_grading_run_is_never_rewritten(world: World) -> None:
     """教員の修正は追記であって上書きではない（P8）。"""
     _, accepted = _instructor_and_submission(world)
-    world.worker.run_once()
+    world.worker.run_until_empty()
     with world.database.unit_of_work() as uow:
         before = uow.runs.latest_for(accepted.submission.id)
     assert before is not None
@@ -559,7 +559,7 @@ def test_the_grading_run_is_never_rewritten(world: World) -> None:
 def test_a_blind_mark_becomes_a_usable_observation(blind_world: World) -> None:
     """記録は Phase 0。計算は Phase 1（ADR 0007）。"""
     _, accepted = _instructor_and_submission(blind_world)
-    blind_world.worker.run_once()
+    blind_world.worker.run_until_empty()
     blind_world.client.post(
         f"/review/{accepted.submission.id}/blind",
         data={"level_correctness": "3", "level_readability": "1"},
@@ -587,7 +587,7 @@ def test_accepting_the_ai_is_not_recorded_as_a_correction(blind_world: World) ->
     現在の合格基準には入っていないので記録していない。
     """
     _, accepted = _instructor_and_submission(blind_world)
-    blind_world.worker.run_once()
+    blind_world.worker.run_until_empty()
     blind_world.client.post(
         f"/review/{accepted.submission.id}/blind",
         data={"level_correctness": "3", "level_readability": "1"},
@@ -614,7 +614,7 @@ def test_accepting_the_ai_is_not_recorded_as_a_correction(blind_world: World) ->
 def test_overriding_the_ai_is_recorded_as_a_correction(blind_world: World) -> None:
     """見逃し率の材料。教員が機械の段階を上書きしたか。"""
     _, accepted = _instructor_and_submission(blind_world)
-    blind_world.worker.run_once()
+    blind_world.worker.run_until_empty()
     blind_world.client.post(
         f"/review/{accepted.submission.id}/blind",
         data={"level_correctness": "3", "level_readability": "1"},
@@ -644,7 +644,7 @@ def test_a_broken_observation_store_does_not_block_the_review(world: World) -> N
 
     world.observations.save = explode  # type: ignore[method-assign]
     _, accepted = _instructor_and_submission(world)
-    world.worker.run_once()
+    world.worker.run_until_empty()
     with world.database.unit_of_work() as uow:
         run = uow.runs.latest_for(accepted.submission.id)
     assert run is not None
@@ -675,7 +675,7 @@ def test_each_criterion_has_its_own_radio_group(blind_world: World) -> None:
     分からなかった。
     """
     _, accepted = _instructor_and_submission(blind_world)
-    blind_world.worker.run_once()
+    blind_world.worker.run_until_empty()
 
     for path in ("blind", "reveal"):
         if path == "reveal":
@@ -696,7 +696,7 @@ def test_the_finalize_form_round_trips_as_a_browser_sends_it(world: World) -> No
     フォームから項目名と既定値を読み取り、ブラウザと同じ形で送る。
     """
     _, accepted = _instructor_and_submission(world)
-    world.worker.run_once()
+    world.worker.run_until_empty()
     body = world.client.get(f"/review/{accepted.submission.id}/reveal").text
 
     # 「選択済み」になっている項目を拾う（ブラウザが送るのはこれ）。
@@ -723,7 +723,7 @@ def test_the_system_verdict_is_labelled_on_every_option(world: World) -> None:
     分からないと、確定の判断が記憶に頼ることになる。
     """
     _, accepted = _instructor_and_submission(world)
-    world.worker.run_once()
+    world.worker.run_until_empty()
     body = world.client.get(f"/review/{accepted.submission.id}/reveal").text
     assert "システム判定" in body
 
@@ -741,7 +741,7 @@ def test_the_system_verdict_is_labelled_on_every_option(world: World) -> None:
 def test_the_blind_mark_is_labelled_after_reveal(blind_world: World) -> None:
     """自分が blind で何を付けたかも、選択肢の上で分かること。"""
     _, accepted = _instructor_and_submission(blind_world)
-    blind_world.worker.run_once()
+    blind_world.worker.run_until_empty()
     blind_world.client.post(
         f"/review/{accepted.submission.id}/blind",
         data={"level_correctness": "3", "level_readability": "1"},
@@ -765,7 +765,7 @@ def test_an_already_finalized_run_can_still_be_reviewed(world: World) -> None:
     from aijudge_core.ids import FinalizationId
 
     _, accepted = _instructor_and_submission(world)
-    world.worker.run_once()
+    world.worker.run_until_empty()
 
     with world.database.unit_of_work() as uow:
         run = uow.runs.latest_for(accepted.submission.id)

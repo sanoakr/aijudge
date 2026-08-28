@@ -246,6 +246,8 @@ class GradingJobRow(Base):
     submission_id: Mapped[str] = mapped_column(String(64), index=True)
     subject_profile: Mapped[str] = mapped_column(String(64))
     reason: Mapped[str] = mapped_column(String(32))
+    # 段階。**列にする。** ワーカーがここで絞って取るので、JSON の中では引けない。
+    phase: Mapped[str] = mapped_column(String(32), index=True, default="deterministic")
     idempotency_key: Mapped[str] = mapped_column(String(192))
     state: Mapped[str] = mapped_column(String(32))
     attempts: Mapped[int] = mapped_column(Integer)
@@ -261,6 +263,8 @@ class GradingJobRow(Base):
         # ワーカーの取得クエリ。state と available_at で絞って古い順に取る。
         Index("ix_jobs_available", "state", "available_at"),
         Index("ix_jobs_profile_state", "subject_profile", "state"),
+        # 段階を絞るワーカーの取得クエリ。
+        Index("ix_jobs_phase_available", "phase", "state", "available_at"),
     )
 
 

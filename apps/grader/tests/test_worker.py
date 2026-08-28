@@ -152,9 +152,14 @@ def test_grading_needs_no_instructor_action(world: World) -> None:
 
 @needs_c_compiler
 def test_the_queue_empties(world: World) -> None:
+    """**1 提出で 2 ジョブ**（決定的段階と AI 段階）。
+
+    分けたのは、テスト実行が終わっている提出の結果を、前に並んだ他人の
+    LLM 待ちの後ろで止めないため（`GradingPhase`）。
+    """
     world.submit()
     graded, errors = world.worker.run_until_empty()
-    assert (graded, errors) == (1, ())
+    assert (graded, errors) == (2, ())
     with world.database.unit_of_work() as uow:
         assert uow.jobs.pending_count() == 0
 
@@ -306,9 +311,13 @@ def test_a_dead_worker_does_not_strand_a_submission(world: World) -> None:
 
 @needs_c_compiler
 def test_grading_writes_observations(world: World) -> None:
-    """記録は Phase 0。計算は Phase 1（ADR 0007）。"""
+    """記録は Phase 0。計算は Phase 1（ADR 0007）。
+
+    **AI 段階まで終えてから書く。** 決定的段階の暫定 run で書くと、
+    「AI が判定しなかった」という記録が一致度の標本に混ざる。
+    """
     accepted = world.submit()
-    world.worker.run_once()
+    world.worker.run_until_empty()
 
     stored = world.observations.load(
         PROFILE, str(world.task_version.task_id), str(accepted.submission.id)
@@ -491,3 +500,114 @@ def test_a_failing_feedback_generator_does_not_fail_the_grading(tmp_path: Path) 
         assert run.feedback is None
     finally:
         world.close()
+
+
+# --------------------------------------------------------------------------
+# 段階の分割（決定的評価を先に返す）
+# --------------------------------------------------------------------------
+
+
+@needs_c_compiler
+def test_the_deterministic_result_lands_before_the_ai_runs(world: World) -> None:
+    """**これが分割の目的。**
+
+    テスト実行の結果が出た時点で学習者に返る。AI 評価は別のジョブなので、
+    前に並んだ他人の LLM 待ちの後ろで止まらない。
+    """
+    from aijudge_core import GradingPhase
+
+    accepted = world.submit()
+    result = world.worker.run_once(phase=GradingPhase.DETERMINISTIC)
+
+    assert result is not None and result.graded
+    with world.database.unit_of_work() as uow:
+        run = uow.runs.latest_for(accepted.submission.id)
+        # AI 段階が積まれている。
+        assert uow.jobs.awaiting(accepted.submission.id, GradingPhase.AI)
+
+    kinds = {score.kind.value for score in run.criterion_scores}
+    assert kinds == {"deterministic"}, "この段階で AI が走っている"
+    # AI 観点は未採点として残る。**総合点は学習者に出さない**（visibility）。
+    assert run.unscored_criteria
+    assert run.routing.value == "review_required"
+
+
+@needs_c_compiler
+def test_the_ai_phase_supersedes_the_interim_run(world: World) -> None:
+    from aijudge_core import GradingPhase
+
+    accepted = world.submit()
+    world.worker.run_once(phase=GradingPhase.DETERMINISTIC)
+    with world.database.unit_of_work() as uow:
+        interim = uow.runs.latest_for(accepted.submission.id)
+
+    world.worker.run_once(phase=GradingPhase.AI)
+
+    with world.database.unit_of_work() as uow:
+        final = uow.runs.latest_for(accepted.submission.id)
+        stored_interim = uow.runs.get(interim.id)
+    assert final.id != interim.id
+    # 追記のみ（P8）。暫定の採点は消さず、置き換わったことだけ記す。
+    assert stored_interim.superseded_by == final.id
+    assert {score.kind.value for score in final.criterion_scores} == {"deterministic", "ai"}
+    assert not final.unscored_criteria
+
+
+@needs_c_compiler
+def test_the_ai_phase_does_not_run_the_sandbox_again(world: World) -> None:
+    """土台の結果を引き継ぐ。回すと費用が倍になり、二度目の結果が違いうる。"""
+    from aijudge_core import GradingPhase
+
+    accepted = world.submit()
+    world.worker.run_once(phase=GradingPhase.DETERMINISTIC)
+    with world.database.unit_of_work() as uow:
+        interim = uow.runs.latest_for(accepted.submission.id)
+    deterministic = [
+        r for r in interim.evaluator_results if r.evaluator_id == "code_test_runner"
+    ]
+
+    world.worker.run_once(phase=GradingPhase.AI)
+
+    with world.database.unit_of_work() as uow:
+        final = uow.runs.latest_for(accepted.submission.id)
+    carried = [r for r in final.evaluator_results if r.evaluator_id == "code_test_runner"]
+    assert len(carried) == len(deterministic)
+    assert {r.id for r in carried} == {
+        r.id for r in deterministic
+    }, "サンドボックスを回し直している"
+
+
+@needs_c_compiler
+def test_the_weights_come_back_from_the_rubric_in_the_ai_phase(world: World) -> None:
+    """暫定 run では重みが比例配分されている（`renormalize`）。
+
+    その値をそのまま使うと最終の集約が狂うので、ルーブリックから取り直す。
+    """
+    from aijudge_core import GradingPhase
+
+    accepted = world.submit()
+    world.worker.run_once(phase=GradingPhase.DETERMINISTIC)
+    with world.database.unit_of_work() as uow:
+        interim = uow.runs.latest_for(accepted.submission.id)
+    assert interim.criterion_scores[0].weight == 1.0, "前提: 暫定では 1.0 に寄せられている"
+
+    world.worker.run_once(phase=GradingPhase.AI)
+
+    with world.database.unit_of_work() as uow:
+        final = uow.runs.latest_for(accepted.submission.id)
+    assert abs(sum(score.weight for score in final.criterion_scores) - 1.0) < 1e-6
+    by_code = {
+        world.task_version.criterion(score.criterion_id).code: score.weight
+        for score in final.criterion_scores
+    }
+    assert by_code["correctness"] == world.task_version.criterion(
+        next(c.id for c in world.task_version.criteria if c.code == "correctness")
+    ).weight
+
+
+def test_a_deterministic_worker_does_not_take_ai_jobs(world: World) -> None:
+    """段階を絞ったワーカーは、遅い段階の後ろに並ばない。これが分割の実体。"""
+    from aijudge_core import GradingPhase
+
+    world.submit()
+    assert world.worker.run_once(phase=GradingPhase.AI) is None, "土台が無いのに AI を取った"

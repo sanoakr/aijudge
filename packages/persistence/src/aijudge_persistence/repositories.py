@@ -50,7 +50,7 @@ from aijudge_core.ids import (
     TenantId,
     UserId,
 )
-from aijudge_submission import GradingJob, JobState
+from aijudge_submission import GradingJob, GradingPhase, JobState
 from aijudge_submission.protocols import ImmutabilityViolation, SubmissionStoreError
 
 from .schema import (
@@ -554,6 +554,7 @@ class SqlJobQueue:
         worker: str,
         lease_seconds: float,
         subject_profile: str | None = None,
+        phase: GradingPhase | None = None,
     ) -> GradingJob | None:
         """実行可能なジョブを 1 つ取る。
 
@@ -574,6 +575,11 @@ class SqlJobQueue:
         if subject_profile is not None:
             queued = queued.where(GradingJobRow.subject_profile == subject_profile)
             expired = expired.where(GradingJobRow.subject_profile == subject_profile)
+        if phase is not None:
+            # 段階を絞ったワーカーは、遅い段階の後ろに並ばない。これが
+            # 「決定的評価の結果を先に返す」の実体（GradingPhase 参照）。
+            queued = queued.where(GradingJobRow.phase == phase.value)
+            expired = expired.where(GradingJobRow.phase == phase.value)
 
         for statement in (queued, expired):
             statement = statement.order_by(
@@ -611,12 +617,24 @@ class SqlJobQueue:
         )
         return None if row is None else GradingJob.model_validate(row.document)
 
-    def pending_count(self, subject_profile: str | None = None) -> int:
+    def awaiting(self, submission_id: SubmissionId, phase: GradingPhase) -> bool:
+        statement = select(GradingJobRow).where(
+            GradingJobRow.submission_id == str(submission_id),
+            GradingJobRow.phase == phase.value,
+            GradingJobRow.state.in_((JobState.QUEUED.value, JobState.RUNNING.value)),
+        )
+        return self._session.execute(statement).scalars().first() is not None
+
+    def pending_count(
+        self, subject_profile: str | None = None, phase: GradingPhase | None = None
+    ) -> int:
         statement = select(GradingJobRow).where(
             GradingJobRow.state.in_((JobState.QUEUED.value, JobState.RUNNING.value))
         )
         if subject_profile is not None:
             statement = statement.where(GradingJobRow.subject_profile == subject_profile)
+        if phase is not None:
+            statement = statement.where(GradingJobRow.phase == phase.value)
         return len(self._session.execute(statement).scalars().all())
 
 
@@ -627,6 +645,7 @@ def _job_row(job: GradingJob) -> GradingJobRow:
         submission_id=str(job.submission_id),
         subject_profile=job.subject_profile,
         reason=job.reason.value,
+        phase=job.phase.value,
         idempotency_key=job.idempotency_key,
         state=job.state.value,
         attempts=job.attempts,

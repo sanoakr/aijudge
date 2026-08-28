@@ -35,7 +35,7 @@ from aijudge_core.ids import (
     UserId,
 )
 
-from .jobs import GradingJob
+from .jobs import GradingJob, GradingPhase
 
 
 class SubmissionStoreError(Exception):
@@ -218,6 +218,7 @@ class JobQueue(Protocol):
         worker: str,
         lease_seconds: float,
         subject_profile: str | None = None,
+        phase: GradingPhase | None = None,
     ) -> GradingJob | None:
         """実行可能なジョブを 1 つ取る。無ければ None。
 
@@ -231,7 +232,17 @@ class JobQueue(Protocol):
 
     def find_by_idempotency_key(self, key: str) -> GradingJob | None: ...
 
-    def pending_count(self, subject_profile: str | None = None) -> int:
+    def awaiting(self, submission_id: SubmissionId, phase: GradingPhase) -> bool:
+        """この提出にその段階の未了ジョブがあるか。
+
+        「AI 評価がまだ来ていない」と「AI 評価が失敗して観点が空のまま」を
+        画面で区別するために要る。前者は待てばよく、後者は教員が埋める。
+        """
+        ...
+
+    def pending_count(
+        self, subject_profile: str | None = None, phase: GradingPhase | None = None
+    ) -> int:
         """待ち行列の長さ。締切前の滞留を見るのに使う。"""
         ...
 

@@ -37,7 +37,7 @@ from aijudge_core.ids import (
     UserId,
 )
 
-from .jobs import GradingJob, JobState
+from .jobs import GradingJob, GradingPhase, JobState
 from .protocols import ImmutabilityViolation, SubmissionStoreError
 
 
@@ -232,12 +232,14 @@ class InMemoryJobQueue:
         worker: str,
         lease_seconds: float,
         subject_profile: str | None = None,
+        phase: GradingPhase | None = None,
     ) -> GradingJob | None:
         candidates = [
             job
             for job in self._items.values()
             if job.is_available(now)
             and (subject_profile is None or job.subject_profile == subject_profile)
+            and (phase is None or job.phase is phase)
         ]
         if not candidates:
             return None
@@ -259,12 +261,21 @@ class InMemoryJobQueue:
         job_id = self._keys.get(key)
         return None if job_id is None else self._items.get(job_id)
 
-    def pending_count(self, subject_profile: str | None = None) -> int:
+    def awaiting(self, submission_id: SubmissionId, phase: GradingPhase) -> bool:
+        return any(
+            job.submission_id == submission_id and job.phase is phase and not job.terminal
+            for job in self._items.values()
+        )
+
+    def pending_count(
+        self, subject_profile: str | None = None, phase: GradingPhase | None = None
+    ) -> int:
         return sum(
             1
             for job in self._items.values()
             if job.state in (JobState.QUEUED, JobState.RUNNING)
             and (subject_profile is None or job.subject_profile == subject_profile)
+            and (phase is None or job.phase is phase)
         )
 
     def all_jobs(self) -> tuple[GradingJob, ...]:

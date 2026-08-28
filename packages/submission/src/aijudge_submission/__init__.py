@@ -11,6 +11,8 @@ PostgreSQL / MinIO へは実装を差し替えるだけで移る（S4 と同じ�
 
 from __future__ import annotations
 
+from aijudge_core import GradingPhase
+
 from .filestore import FilesystemArtifactStore
 from .intake import (
     AcceptResult,
@@ -60,6 +62,7 @@ __all__ = [
     "ArtifactStore",
     "FilesystemArtifactStore",
     "GradingJob",
+    "GradingPhase",
     "GradingRunRepository",
     "ImmutabilityViolation",
     "InMemoryArtifactStore",

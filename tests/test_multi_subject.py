@@ -290,11 +290,14 @@ def test_a_teacher_cannot_review_the_other_courses_submission(campus: Campus) ->
 
 @needs_c_compiler
 def test_each_teachers_queue_holds_only_their_own_submissions(campus: Campus) -> None:
+    """待ち行列は**依頼が出た提出だけ**（ADR 0009）。その上でコースを跨がない。"""
     c_accepted = campus.submit(
         "c_student", campus.c_course, (C_TASK / "maxmin.c").read_bytes(), "main.c"
     )
     py_accepted = campus.submit("py_student", campus.py_course, PY_REFERENCE.encode(), "main.py")
     campus.worker.run_until_empty()
+    _contest(campus, c_accepted.submission)
+    _contest(campus, py_accepted.submission)
 
     c_queue = campus.login_teacher("c_teacher").get(f"/courses/{campus.c_course.id}").text
     py_queue = campus.login_teacher("py_teacher").get(f"/courses/{campus.py_course.id}").text
@@ -303,6 +306,33 @@ def test_each_teachers_queue_holds_only_their_own_submissions(campus: Campus) ->
     assert str(py_accepted.submission.id)[:12] not in c_queue
     assert str(py_accepted.submission.id)[:12] in py_queue
     assert str(c_accepted.submission.id)[:12] not in py_queue
+
+
+def _contest(campus: Campus, submission) -> None:
+    """学習者として再確認を依頼する。
+
+    教員の待ち行列に載せるにはこれが要る（ADR 0009 で、待ち行列は依頼が
+    出た提出だけになった）。学生の画面を経由せず記録を直接作る ── ここで
+    確かめたいのはコース間の分離であって、依頼の導線ではない。
+    """
+    from datetime import UTC, datetime
+
+    from aijudge_core import ReviewRequest, new_id
+    from aijudge_core.ids import ReviewRequestId
+
+    with campus.database.unit_of_work() as uow:
+        run = uow.runs.latest_for(submission.id)
+        uow.reviews.save_request(
+            ReviewRequest(
+                id=ReviewRequestId(new_id("rrq")),
+                submission_id=submission.id,
+                grading_run_id=run.id,
+                learner_id=submission.learner_id,
+                reason="入力例 3 の想定出力が仕様と違うと思います。",
+                requested_at=datetime.now(UTC),
+            )
+        )
+        uow.commit()
 
 
 # --------------------------------------------------------------------------
@@ -350,6 +380,8 @@ def test_only_one_teacher_can_finalise_a_submission(campus: Campus) -> None:
     (_task, version) = campus.tasks_of(campus.c_course.id)[0]
     machine = {score.criterion_id: score.level for score in run.criterion_scores}
     data = {f"level_{c.code}": str(machine[c.id]) for c in version.criteria if c.id in machine}
+    # 確定には根拠説明が要る（ADR 0009）。学習者に表示される。
+    data["comment"] = "テスト実行の結果を確認しました。判定は妥当です。"
 
     first = campus.login_teacher("c_teacher").post(
         f"/review/{accepted.submission.id}/finalize", data=data, follow_redirects=False

@@ -23,6 +23,7 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from aijudge_core import GradingPhase
 from aijudge_core.ids import (
     GradingJobId,
     GradingRunId,
@@ -77,6 +78,11 @@ class GradingJob(BaseModel):
     task_version_id: TaskVersionId
     subject_profile: str = Field(min_length=1)
     reason: JobReason = JobReason.SUBMISSION
+    # どの段階か。速い段階と遅い段階を別のジョブにして、ワーカーを分けられる
+    # ようにする（`GradingPhase` 参照）。
+    phase: GradingPhase = GradingPhase.DETERMINISTIC
+    # AI 段階が土台にする決定的評価の結果。DETERMINISTIC では None。
+    base_run_id: GradingRunId | None = None
     # 同じキーのジョブは 1 つしか作らない。再投入は既存のジョブを返す。
     idempotency_key: str = Field(min_length=1)
     state: JobState = JobState.QUEUED
@@ -102,6 +108,12 @@ class GradingJob(BaseModel):
             raise ValueError("a completed job must reference its GradingRun")
         if self.state is JobState.FAILED and not self.last_error:
             raise ValueError("a failed job must carry the error that stopped it")
+        if self.phase is GradingPhase.AI and self.base_run_id is None:
+            # AI 段階は決定的評価の結果の上に積む。土台が無いのに走らせると、
+            # サンドボックスをもう一度回すことになる（費用も結果も変わる）。
+            raise ValueError("an ai-phase job must name the run it builds on")
+        if self.phase is GradingPhase.DETERMINISTIC and self.base_run_id is not None:
+            raise ValueError("a deterministic-phase job builds on nothing")
         return self
 
     @property
@@ -211,15 +223,26 @@ class GradingJob(BaseModel):
 
 
 def job_idempotency_key(
-    submission_id: SubmissionId, reason: JobReason, *, discriminator: str = ""
+    submission_id: SubmissionId,
+    reason: JobReason,
+    *,
+    discriminator: str = "",
+    phase: GradingPhase = GradingPhase.DETERMINISTIC,
 ) -> str:
     """ジョブの冪等キー。
 
-    提出 1 件につき、理由ごとに 1 ジョブ。再採点は `discriminator` に
-    モデル版やプロンプト版を入れて区別する（同じモデルで二度流し直しても
-    ジョブは増えない）。
+    提出 1 件につき、理由と段階ごとに 1 ジョブ。段階をキーに入れるのは、
+    決定的評価と AI 評価が別ジョブだから ── 入れないと、AI 段階の投入が
+    決定的段階の既存ジョブに吸収されて永久に走らない。
+
+    再採点は `discriminator` にモデル版やプロンプト版を入れて区別する
+    （同じモデルで二度流し直してもジョブは増えない）。
     """
     parts = [str(submission_id), reason.value]
     if discriminator:
         parts.append(discriminator)
+    if phase is not GradingPhase.DETERMINISTIC:
+        # 既定の段階だけキーに出さない。既存のキーと互換にしておくと、
+        # 移行中のキューに二重投入が起きない。
+        parts.append(phase.value)
     return "|".join(parts)
