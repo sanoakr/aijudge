@@ -124,7 +124,11 @@ def build_task_version(
         TestCase(
             name=case.name,
             evaluator_id=spec.evaluator,
-            payload={"input": case.input, "expected_output": case.expected},
+            # **キー名は評価器が読むものと一致していなければならない。**
+            # `code_test_runner` は `payload.get("expected", "")` で読む。
+            # 違う名前で書くと既定値の空文字と比較され、**全ケースが黙って
+            # 不合格になる**（例外は出ない）。テストで固定してある。
+            payload={"input": case.input, "expected": case.expected},
             hidden=case.hidden,
             weight=case.weight,
         )
