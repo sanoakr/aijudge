@@ -16,6 +16,18 @@
 {% else %}
 
 <div class="card">
+{% if view.score_withheld %}
+  {# **総合点は出さない。** 採点できなかった観点があるあいだ、残った観点だけを
+     比例配分した合計は「読みやすさが未評価のまま 100%」として読まれる
+     （visibility.py 冒頭）。なぜ無いのかを必ず添える ── 黙って空にすると、
+     採点が壊れたのか 0 点なのか学習者に区別できない。 #}
+  <div class="score">—<span class="unit">保留</span></div>
+  <p class="desc" style="margin:0">
+    採点できなかった観点があるため、<strong>総合点は出していません。</strong>
+    下の観点ごとの結果のうち、テスト実行で判定できた分は確定しています。
+    担当教員が残りを確認して確定します。
+  </p>
+{% else %}
   <div class="score">{{ '%.0f' | format(view.score_ratio * 100) }}<span class="unit">%</span></div>
   {# 確定の出所を出す。「確定済み」だけにすると、締切後に機械が確定した
      成績が「教員が確認しました」に見える（ADR 0010）。 #}
@@ -33,15 +45,14 @@
       <strong>仮確定です。</strong>
       {{ view.settles_at.strftime('%m/%d %H:%M') }} に確定します。
       判定に疑問があれば、それまでに下の欄から再確認を依頼してください。
-      {% if view.has_pending %}採点できなかった観点があるため、点数は暫定です。{% endif %}
     </p>
   {% else %}
     <p class="desc" style="margin:0">
       自動採点の結果です。担当教員の確認を経て確定します。
       {% if view.settles_at %}（{{ view.settles_at.strftime('%m/%d %H:%M') }} に確定予定）{% endif %}
-      {% if view.has_pending %}採点できなかった観点があるため、点数は暫定です。{% endif %}
     </p>
   {% endif %}
+{% endif %}
 </div>
 
 <h2>観点ごとの結果</h2>

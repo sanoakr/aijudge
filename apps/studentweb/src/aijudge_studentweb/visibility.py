@@ -26,6 +26,21 @@
 逆に期限を示した以上、そこで締め切ってよい ── 締め切らないと、教員の待ち行列は
 学期末まで新しい依頼を受け続ける。確定後の申し出は画面の外（担当教員）に回す。
 
+**採点できなかった観点があるときは、総合点を出さない。**
+
+S6 が止まっていれば AI 評価器は飛ばされ、その観点は `unscored_criteria` に
+残る（P2 の劣化動作）。このとき決定的評価の結果は**そのまま返す** ── テスト
+実行の合否は確定した事実で、伏せる理由が無いし、学習者が次に直すものはそこから
+分かる。
+
+伏せるのは**全体の仮評価**である。残った観点だけを比例配分した合計は、
+「読みやすさが未評価のまま 100%」のように、欠けている観点を知らない学習者に
+到達度として読まれる。観点の一覧には「確認中」と出ているが、大きく出る数字の
+方が先に目に入る。部分的な合計は、正しい数字より誤読される数字である。
+
+教員には出す。欠けを埋めて確定させるのが教員の仕事で、決定的評価が何を返した
+かはその判断材料になる。
+
 確定した成績は区別して見せる。**確定の出所まで区別する。** 教員が読んで
 確定したものと、締切後に機械が確定したものを同じ「確認済み」で出すのは
 学習者に対する嘘になる（ADR 0010）。前者は人が根拠を書いており、後者は
@@ -85,6 +100,7 @@ class ResultView:
 
     criteria: tuple[CriterionView, ...]
     # 総合点。AI の判定に基づく暫定値でも見せる（`confirmed` で区別する）。
+    # ただし**採点できなかった観点があるあいだは None**（保留）。
     score_ratio: float | None
     confirmed: bool
     feedback: str | None = None
@@ -104,6 +120,16 @@ class ResultView:
     @property
     def has_pending(self) -> bool:
         return any(view.pending for view in self.criteria)
+
+    @property
+    def score_withheld(self) -> bool:
+        """総合点を保留しているか。
+
+        観点ごとの結果は出ているのに合計だけが無い状態なので、**なぜ無いのかを
+        必ず添える**（テンプレートの責務）。黙って空にすると、採点が壊れたのか
+        点が 0 なのか学習者に区別できない。
+        """
+        return self.score_ratio is None and bool(self.criteria)
 
     @property
     def provisional(self) -> bool:
@@ -234,9 +260,13 @@ def build_result_view(
     elif unscored:
         reason = "採点できなかった観点があります。担当教員が確認します。"
 
+    # 採点できなかった観点があるあいだは総合点を出さない（モジュール冒頭）。
+    # 教員が確認して欠けを埋めれば出す。
+    withhold = unscored and review is None
+
     return ResultView(
         criteria=tuple(views),
-        score_ratio=_confirmed_score(run, task_version, review),
+        score_ratio=None if withhold else _confirmed_score(run, task_version, review),
         confirmed=confirmed,
         feedback=run.feedback,
         finalized_by=_finalized_by(finalization, review),

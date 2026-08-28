@@ -844,3 +844,50 @@ def test_without_a_grace_the_window_never_closes(world: World) -> None:
     )
     assert response.status_code == 303
     assert "仮確定です" not in world.client.get(location).text
+
+
+@needs_c_compiler
+def test_the_page_renders_when_the_overall_score_is_withheld(world: World) -> None:
+    """S6 が止まった採点の画面が実際に描けること。
+
+    総合点を出さない状態はテンプレートの分岐が増える。純関数のテスト
+    （test_visibility.py）だけでは、`None` を数値として整形して落ちる類の
+    バグが画面を見るまで分からない。
+    """
+    from datetime import timedelta
+
+    from aijudge_core import Routing
+    from aijudge_core.ids import GradingRunId
+
+    world.register("s2400001")
+    world.login("s2400001")
+    location = world.submit().headers["location"]
+    world.worker.run_once()
+    submission_id = location.split("/")[-1].split("?")[0]
+
+    # AI 観点が採点できなかった採点を、新しい run として重ねる（追記のみ、P8）。
+    with world.database.unit_of_work() as uow:
+        run = uow.runs.latest_for(submission_id)
+        deterministic = next(
+            score for score in run.criterion_scores if score.kind.value == "deterministic"
+        )
+        ai = next(score for score in run.criterion_scores if score.kind.value == "ai")
+        uow.runs.save(
+            run.model_copy(
+                update={
+                    "id": GradingRunId(new_id("grn")),
+                    "criterion_scores": (deterministic.model_copy(update={"weight": 1.0}),),
+                    "unscored_criteria": (ai.criterion_id,),
+                    "routing": Routing.REVIEW_REQUIRED,
+                    "created_at": run.created_at + timedelta(seconds=1),
+                }
+            )
+        )
+        uow.commit()
+
+    body = world.client.get(location).text
+    assert "総合点は出していません" in body
+    assert "保留" in body
+    assert "確認中" in body, "採点できなかった観点が消えている"
+    # 決定的評価の結果は返す。伏せるのは合計だけ。
+    assert ">テスト実行<" in body

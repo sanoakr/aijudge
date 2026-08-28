@@ -150,6 +150,22 @@ the body is clean.
 No authentication yet; it binds to localhost only. Put it behind S1 before
 exposing it.
 
+### A partial total is worse than no total
+
+When S6 is down the AI criteria are skipped, and the run records them as
+unscored. The deterministic results still go back to the learner — a test run
+either passed or it did not, and that is what tells them what to fix next.
+
+The **overall score does not**. Renormalising the surviving criteria produces an
+arithmetically correct number that reads as "100%, readability unassessed" to
+someone who does not know a criterion is missing. The per-criterion table says
+`確認中`, but the large number at the top of the page is read first. So the total
+is withheld until an instructor fills the gap, and the page says why — a blank
+where a score belongs is indistinguishable from a zero.
+
+Instructors still see it. Closing the gap is their job, and what the
+deterministic side returned is what they need to do it.
+
 ### Finalising a grade is not the same as reviewing it
 
 The instructor's queue holds only the submissions learners contested
