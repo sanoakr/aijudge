@@ -29,6 +29,7 @@ from aijudge_authoring.repository import (
 )
 from aijudge_core import (
     BlindMark,
+    Finalization,
     GradingRun,
     HumanReview,
     ReviewRequest,
@@ -54,6 +55,7 @@ from aijudge_submission.protocols import ImmutabilityViolation, SubmissionStoreE
 
 from .schema import (
     BlindMarkRow,
+    FinalizationRow,
     GradingJobRow,
     GradingRunRow,
     HumanReviewRow,
@@ -383,6 +385,96 @@ class SqlReviewRepository:
             for submission_row, run_row, request_row in self._session.execute(statement).all()
         )
 
+    # -- 成績の確定 --------------------------------------------------------
+
+    def save_finalization(self, finalization: Finalization) -> None:
+        run = self._session.get(GradingRunRow, str(finalization.grading_run_id))
+        if run is None:
+            raise SubmissionStoreError(f"no GradingRun {finalization.grading_run_id}")
+        if self._session.get(FinalizationRow, str(finalization.id)) is not None:
+            raise ImmutabilityViolation(f"Finalization {finalization.id} already exists")
+        existing = (
+            self._session.execute(
+                select(FinalizationRow).where(
+                    FinalizationRow.grading_run_id == str(finalization.grading_run_id)
+                )
+            )
+            .scalars()
+            .first()
+        )
+        if existing is not None:
+            # 二度確定できると成績が二つ存在する。やり直しは再採点から。
+            raise ImmutabilityViolation(
+                f"GradingRun {finalization.grading_run_id} is already finalised "
+                f"({existing.source})"
+            )
+        self._session.add(
+            FinalizationRow(
+                id=str(finalization.id),
+                grading_run_id=str(finalization.grading_run_id),
+                submission_id=str(run.submission_id),
+                source=finalization.source.value,
+                actor_id=None if finalization.actor_id is None else str(finalization.actor_id),
+                finalized_at=finalization.finalized_at,
+                document=_dump(finalization),
+            )
+        )
+        self._session.flush()
+
+    def find_finalization_for_run(self, run_id: GradingRunId) -> Finalization | None:
+        row = (
+            self._session.execute(
+                select(FinalizationRow).where(FinalizationRow.grading_run_id == str(run_id))
+            )
+            .scalars()
+            .first()
+        )
+        return None if row is None else Finalization.model_validate(row.document)
+
+    def unfinalized_for_task(
+        self, task_id: TaskId, *, limit: int = 500
+    ) -> tuple[tuple[Submission, GradingRun, ReviewRequest | None], ...]:
+        """この課題でまだ確定していない提出。一括確定と自動確定が読む。
+
+        **最新の採点 1 件につき 1 行。** 再採点された提出で古い採点まで
+        確定させると、学習者に見えている点と確定した点が食い違う。
+
+        未対応の異議申立があるものを呼び出し側が外せるよう、依頼も返す
+        （`aijudge_core.blocks_finalization`）。
+        """
+        latest = (
+            select(
+                GradingRunRow.submission_id.label("submission_id"),
+                func.max(GradingRunRow.created_at).label("created_at"),
+            )
+            .group_by(GradingRunRow.submission_id)
+            .subquery()
+        )
+        finalised = select(FinalizationRow.grading_run_id)
+        statement = (
+            select(SubmissionRow, GradingRunRow, ReviewRequestRow)
+            .join(TaskVersionRow, TaskVersionRow.id == SubmissionRow.task_version_id)
+            .join(GradingRunRow, GradingRunRow.submission_id == SubmissionRow.id)
+            .join(
+                latest,
+                (latest.c.submission_id == GradingRunRow.submission_id)
+                & (latest.c.created_at == GradingRunRow.created_at),
+            )
+            .outerjoin(ReviewRequestRow, ReviewRequestRow.grading_run_id == GradingRunRow.id)
+            .where(TaskVersionRow.task_id == str(task_id))
+            .where(GradingRunRow.id.not_in(finalised))
+            .order_by(SubmissionRow.submitted_at, SubmissionRow.id)
+            .limit(limit)
+        )
+        return tuple(
+            (
+                Submission.model_validate(submission_row.document),
+                GradingRun.model_validate(run_row.document),
+                None if request_row is None else ReviewRequest.model_validate(request_row.document),
+            )
+            for submission_row, run_row, request_row in self._session.execute(statement).all()
+        )
+
     def pending_for_course(
         self, course_id: CourseId, *, include_decided: bool = False, limit: int = 200
     ) -> tuple[tuple[Submission, GradingRun], ...]:
@@ -421,8 +513,10 @@ class SqlReviewRepository:
             .limit(limit)
         )
         if not include_decided:
-            reviewed = select(HumanReviewRow.grading_run_id)
-            statement = statement.where(GradingRunRow.id.not_in(reviewed))
+            # 確定の有無は Finalization で見る。HumanReview は「教員が読んだ」
+            # 記録であって確定ではない（ADR 0010）。
+            finalised = select(FinalizationRow.grading_run_id)
+            statement = statement.where(GradingRunRow.id.not_in(finalised))
 
         return tuple(
             (

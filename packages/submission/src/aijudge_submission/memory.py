@@ -17,7 +17,14 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import datetime
 
-from aijudge_core import BlindMark, GradingRun, HumanReview, ReviewRequest, Submission
+from aijudge_core import (
+    BlindMark,
+    Finalization,
+    GradingRun,
+    HumanReview,
+    ReviewRequest,
+    Submission,
+)
 from aijudge_core.events import DomainEvent
 from aijudge_core.ids import (
     GradingJobId,
@@ -146,6 +153,7 @@ class InMemoryReviewRepository:
         self._marks: dict[SubmissionId, BlindMark] = {}
         self._requests: dict[ReviewRequestId, ReviewRequest] = {}
         self._requests_by_run: dict[GradingRunId, ReviewRequestId] = {}
+        self._finalizations: dict[GradingRunId, Finalization] = {}
 
     def save_review(self, review: HumanReview) -> None:
         self._reviews[review.id] = review
@@ -188,6 +196,19 @@ class InMemoryReviewRepository:
         request = self._requests.get(request_id)
         if request is not None:
             self._requests[request_id] = request.model_copy(update={"resolved_by": review_id})
+
+    # -- 成績の確定 --
+
+    def save_finalization(self, finalization: Finalization) -> None:
+        if finalization.grading_run_id in self._finalizations:
+            # 二度確定できると成績が二つ存在する。やり直しは再採点から。
+            raise ImmutabilityViolation(
+                f"GradingRun {finalization.grading_run_id} is already finalised"
+            )
+        self._finalizations[finalization.grading_run_id] = finalization
+
+    def find_finalization_for_run(self, run_id: GradingRunId) -> Finalization | None:
+        return self._finalizations.get(run_id)
 
 
 class InMemoryJobQueue:

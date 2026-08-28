@@ -15,6 +15,7 @@ from typing import Protocol, runtime_checkable
 from aijudge_core import (
     Artifact,
     BlindMark,
+    Finalization,
     GradingRun,
     HumanReview,
     ReviewRequest,
@@ -28,6 +29,7 @@ from aijudge_core.ids import (
     HumanReviewId,
     ReviewRequestId,
     SubmissionId,
+    TaskId,
     TaskVersionId,
     TenantId,
     UserId,
@@ -126,10 +128,14 @@ class GradingRunRepository(Protocol):
 
 @runtime_checkable
 class ReviewRepository(Protocol):
-    """教員の確認・修正と、blind 採点。
+    """教員の確認・修正、blind 採点、そして成績の確定。
 
-    `HumanReview` の存在が成績の確定を意味する。無いうちは AI の判定は
-    暫定で、学習者に示す範囲は上位層が決める（設計原則 P5）。
+    **`Finalization` の存在が成績の確定を意味する**（`HumanReview` ではない）。
+    確定は教員の個別レビューからも、課題単位の一括操作からも、締切経過による
+    自動確定からも起きる。`HumanReview` はそのうち「教員が 1 件を読んだ」
+    場合にだけ生まれる記録で、一致度の測定が使えるのはこちらだけ
+    （ADR 0010）。確定が無いうちは AI の判定は暫定で、学習者に示す範囲は
+    上位層が決める（設計原則 P5）。
 
     `BlindMark` は測定用の正解データ（ADR 0005）。抽出された提出にしか
     存在しないので、無いのは正常な状態である。
@@ -169,6 +175,27 @@ class ReviewRepository(Protocol):
         self, course_id: CourseId, *, include_resolved: bool = False, limit: int = 200
     ) -> tuple[tuple[Submission, GradingRun, ReviewRequest], ...]:
         """学習者が再確認を依頼した提出。教員の待ち行列。"""
+        ...
+
+    # -- 成績の確定 --
+
+    def save_finalization(self, finalization: Finalization) -> None:
+        """確定を保存する。同じ採点に二度目は拒否する。
+
+        二度確定できると成績が二つ存在する。やり直しは再採点から。
+        """
+        ...
+
+    def find_finalization_for_run(self, run_id: GradingRunId) -> Finalization | None: ...
+
+    def unfinalized_for_task(
+        self, task_id: TaskId, *, limit: int = 500
+    ) -> tuple[tuple[Submission, GradingRun, ReviewRequest | None], ...]:
+        """この課題でまだ確定していない提出。一括確定と自動確定が読む。
+
+        提出のたびに 1 行ではなく、**最新の採点 1 件につき 1 行**。
+        未対応の異議申立を判定できるよう、依頼も一緒に返す。
+        """
         ...
 
 

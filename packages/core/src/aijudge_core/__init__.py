@@ -26,6 +26,17 @@ from .events import (
     SubmissionCreated,
     TaskPublished,
 )
+from .finalization import (
+    DEADLINE_JUSTIFICATION,
+    Finalization,
+    FinalizationSource,
+    GradeWindow,
+    auto_finalizable,
+    blocks_finalization,
+    bulk_finalizable,
+    deadline_for,
+    grade_window,
+)
 from .grading import (
     MIN_JUSTIFICATION_LENGTH,
     BlindMark,
@@ -78,6 +89,7 @@ from .task import (
 from .tenancy import Course, Enrollment, Role, Tenant
 
 __all__ = [
+    "DEADLINE_JUSTIFICATION",
     "EVENT_TYPES",
     "MIN_JUSTIFICATION_LENGTH",
     "SCHEMA_VERSION",
@@ -99,6 +111,9 @@ __all__ = [
     "EvaluatorResult",
     "EvaluatorStatus",
     "Evidence",
+    "Finalization",
+    "FinalizationSource",
+    "GradeWindow",
     "GradingCompleted",
     "GradingContext",
     "GradingRun",
@@ -132,8 +147,13 @@ __all__ = [
     "WholeSpan",
     "aggregate",
     "assert_transition",
+    "auto_finalizable",
+    "blocks_finalization",
+    "bulk_finalizable",
     "can_transition",
+    "deadline_for",
     "derived_id",
+    "grade_window",
     "new_id",
     "prefix_of",
     "renormalize",

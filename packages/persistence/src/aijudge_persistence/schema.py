@@ -171,6 +171,34 @@ class HumanReviewRow(Base):
     )
 
 
+class FinalizationRow(Base):
+    """成績が確定した事実。**追記のみ。**
+
+    `human_reviews` とは別の表にする。あちらは「教員がその 1 件を読んだ」
+    記録で、一致度の測定が証拠に使う。確定は自動でも一括でも起きるので、
+    同じ表に混ぜると誰も読んでいない提出に教員の同意が記録される
+    （ADR 0005 / ADR 0010）。
+
+    `source` を列にしているのは、自動確定の件数を運用中に数えるため。
+    """
+
+    __tablename__ = "finalizations"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    grading_run_id: Mapped[str] = mapped_column(String(64), index=True)
+    submission_id: Mapped[str] = mapped_column(String(64), index=True)
+    source: Mapped[str] = mapped_column(String(32), index=True)
+    # 確定させた人。自動確定では NULL。
+    actor_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    finalized_at: Mapped[datetime] = mapped_column(Timestamp, index=True)
+    document: Mapped[dict] = mapped_column(JsonType)
+
+    __table_args__ = (
+        # 1 採点につき確定は 1 つ。二度確定できると成績が二つ存在する。
+        UniqueConstraint("grading_run_id", name="uq_finalizations_run"),
+    )
+
+
 class ReviewRequestRow(Base):
     """学習者からの再確認の依頼。
 
@@ -313,6 +341,8 @@ class CourseRow(Base):
     title: Mapped[str] = mapped_column(String(256))
     term: Mapped[str] = mapped_column(String(64), index=True)
     subject_profile: Mapped[str] = mapped_column(String(64), index=True)
+    # 締切から何時間で成績を自動確定するか。NULL なら自動確定しない。
+    auto_finalize_after_hours: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     __table_args__ = (UniqueConstraint("tenant_id", "code", "term", name="uq_courses_code_term"),)
 

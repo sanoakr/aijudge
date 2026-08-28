@@ -447,3 +447,35 @@ def test_derived_ids_are_not_confused_with_generated_ones() -> None:
 def test_derived_id_needs_a_key() -> None:
     with pytest.raises(ValueError, match="at least one part"):
         derived_id("crt")
+
+
+# --------------------------------------------------------------------------
+# 仮確定の窓（ADR 0010）
+# --------------------------------------------------------------------------
+
+
+def test_the_grade_window_moves_from_open_through_provisional_to_elapsed() -> None:
+    from datetime import UTC, datetime, timedelta
+
+    from aijudge_core import GradeWindow, grade_window
+
+    due = datetime(2026, 9, 1, 23, 59, tzinfo=UTC)
+    assert grade_window(due, 24.0, due - timedelta(hours=1)) is GradeWindow.OPEN
+    # 締切と同時に仮確定に入る。
+    assert grade_window(due, 24.0, due) is GradeWindow.PROVISIONAL
+    assert grade_window(due, 24.0, due + timedelta(hours=23)) is GradeWindow.PROVISIONAL
+    # 期限は境界を含む。「n 時間後まで受付」なのでその時刻には締め切る。
+    assert grade_window(due, 24.0, due + timedelta(hours=24)) is GradeWindow.ELAPSED
+
+
+def test_without_a_deadline_or_a_grace_the_window_stays_open() -> None:
+    """確定の予定が無いのに「いつ確定する」とは言えず、締め切りも示せない。"""
+    from datetime import UTC, datetime, timedelta
+
+    from aijudge_core import GradeWindow, grade_window
+
+    due = datetime(2026, 9, 1, 23, 59, tzinfo=UTC)
+    far = due + timedelta(days=365)
+    assert grade_window(due, None, far) is GradeWindow.OPEN
+    assert grade_window(None, 24.0, far) is GradeWindow.OPEN
+    assert grade_window(None, None, far) is GradeWindow.OPEN

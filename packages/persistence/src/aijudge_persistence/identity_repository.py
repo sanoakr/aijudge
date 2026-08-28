@@ -125,11 +125,13 @@ class SqlIdentityRepository:
                     title=course.title,
                     term=course.term,
                     subject_profile=course.subject_profile,
+                    auto_finalize_after_hours=course.auto_finalize_after_hours,
                 )
             )
         else:
             row.title = course.title
             row.subject_profile = course.subject_profile
+            row.auto_finalize_after_hours = course.auto_finalize_after_hours
         self._session.flush()
 
     def get_course(self, course_id: CourseId) -> Course | None:
@@ -235,4 +237,5 @@ def _course(row: CourseRow | None) -> Course | None:
         title=row.title,
         term=row.term,
         subject_profile=row.subject_profile,
+        auto_finalize_after_hours=row.auto_finalize_after_hours,
     )
