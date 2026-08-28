@@ -17,8 +17,22 @@ import pytest
 from fastapi.testclient import TestClient
 
 from aijudge_authoring.importers import sharif_judge
-from aijudge_core import Course, HumanReview, Role, Task
-from aijudge_core.ids import CourseId, HumanReviewId, TenantId, UserId, new_id
+from aijudge_core import (
+    Course,
+    Finalization,
+    FinalizationSource,
+    HumanReview,
+    Role,
+    Task,
+)
+from aijudge_core.ids import (
+    CourseId,
+    FinalizationId,
+    HumanReviewId,
+    TenantId,
+    UserId,
+    new_id,
+)
 from aijudge_eval_rubric_ai_judge import RubricAiJudge
 from aijudge_grader import GradingWorker
 from aijudge_grading import EvaluatorRegistry
@@ -112,18 +126,45 @@ class World:
             follow_redirects=False,
         )
 
-    def finalize(self, submission_id: str, *, grader) -> None:
-        """教員が確定させる（レビューコンソールの代わり）。"""
+    def finalize(
+        self,
+        submission_id: str,
+        *,
+        grader=None,
+        source: FinalizationSource = FinalizationSource.INSTRUCTOR_REVIEW,
+        comment: str = "テスト実行の結果を確認しました。判定は妥当です。",
+    ) -> None:
+        """成績を確定させる（レビューコンソールと自動確定の代わり）。
+
+        確定は `Finalization`。教員が 1 件を読んだ場合はそれに加えて
+        `HumanReview` が生まれる（ADR 0010）。ここで両方を書くのは、
+        コンソールの `finalize` がそうしているから。
+        """
         with self.database.unit_of_work() as uow:
             run = uow.runs.latest_for(submission_id)
             assert run is not None
-            uow.reviews.save_review(
-                HumanReview(
-                    id=HumanReviewId(new_id("hrv")),
+            review_id = None
+            if source is FinalizationSource.INSTRUCTOR_REVIEW:
+                assert grader is not None
+                review_id = HumanReviewId(new_id("hrv"))
+                uow.reviews.save_review(
+                    HumanReview(
+                        id=review_id,
+                        grading_run_id=run.id,
+                        grader_id=grader.user_id,
+                        comment=comment,
+                        reviewed_at=datetime.now(UTC),
+                    )
+                )
+            uow.reviews.save_finalization(
+                Finalization(
+                    id=FinalizationId(new_id("fin")),
                     grading_run_id=run.id,
-                    grader_id=grader.user_id,
-                    comment="テスト実行の結果を確認しました。判定は妥当です。",
-                    reviewed_at=datetime.now(UTC),
+                    source=source,
+                    actor_id=None if grader is None else grader.user_id,
+                    review_id=review_id,
+                    justification=comment,
+                    finalized_at=datetime.now(UTC),
                 )
             )
             uow.commit()
@@ -425,11 +466,6 @@ def test_a_confirmed_grade_cannot_be_requested(world: World) -> None:
 @needs_c_compiler
 def test_the_instructors_justification_is_shown_to_the_learner(world: World) -> None:
     """教員の根拠が学習者に返ること。返らないなら書かせる意味がない。"""
-    from datetime import UTC, datetime
-
-    from aijudge_core import HumanReview
-    from aijudge_core.ids import HumanReviewId, new_id
-
     world.register("s2400001")
     instructor = world.register("instructor", role=Role.INSTRUCTOR)
     world.login("s2400001")
@@ -437,18 +473,11 @@ def test_the_instructors_justification_is_shown_to_the_learner(world: World) -> 
     world.worker.run_once()
     submission_id = location.split("/")[-1].split("?")[0]
 
-    with world.database.unit_of_work() as uow:
-        run = uow.runs.latest_for(submission_id)
-        uow.reviews.save_review(
-            HumanReview(
-                id=HumanReviewId(new_id("hrv")),
-                grading_run_id=run.id,
-                grader_id=instructor.user_id,
-                comment="テストケース 3 を確認しました。仕様どおりで判定は妥当です。",
-                reviewed_at=datetime.now(UTC),
-            )
-        )
-        uow.commit()
+    world.finalize(
+        submission_id,
+        grader=instructor,
+        comment="テストケース 3 を確認しました。仕様どおりで判定は妥当です。",
+    )
 
     body = world.client.get(location).text
     assert "テストケース 3 を確認しました" in body
@@ -586,3 +615,232 @@ def test_the_verdict_column_does_not_wrap(world: World) -> None:
     # 評価列が内容幅、説明列が残りを取る指定になっていること。
     assert 'class="fit">評価' in body
     assert 'class="grow">説明' in body
+
+
+# --------------------------------------------------------------------------
+# 確定の出所（ADR 0010）
+# --------------------------------------------------------------------------
+
+
+@needs_c_compiler
+def test_an_automatically_finalized_grade_does_not_claim_a_human_read_it(world: World) -> None:
+    """**締切後に機械が確定した成績を「教員が確認した」と出さない。**
+
+    出せば学習者に嘘をつくことになる。誰も読んでいないという事実が、
+    異議を申し立てるかどうかの判断を変える。
+    """
+    world.register("s2400001")
+    world.login("s2400001")
+    location = world.submit().headers["location"]
+    world.worker.run_once()
+    submission_id = location.split("/")[-1].split("?")[0]
+
+    world.finalize(
+        submission_id,
+        source=FinalizationSource.DEADLINE_ELAPSED,
+        comment="締切から所定の時間が経過したため、AI の判定のまま確定しました。",
+    )
+
+    body = world.client.get(location).text
+    assert "担当教員が確認した成績です" not in body
+    assert "個別の確認は経ていません" in body
+    assert "担当教員の確認を経て確定します" not in body, "確定したことは伝える"
+
+
+@needs_c_compiler
+def test_a_bulk_finalized_grade_says_it_was_not_read_individually(world: World) -> None:
+    world.register("s2400001")
+    instructor = world.register("instructor", role=Role.INSTRUCTOR)
+    world.login("s2400001")
+    location = world.submit().headers["location"]
+    world.worker.run_once()
+    submission_id = location.split("/")[-1].split("?")[0]
+
+    world.finalize(
+        submission_id,
+        grader=instructor,
+        source=FinalizationSource.INSTRUCTOR_BULK,
+        comment="テスト全通の提出について、抽出して確認の上まとめて確定しました。",
+    )
+
+    body = world.client.get(location).text
+    assert "個別の確認は経ていません" in body
+    assert "担当教員が確認した成績です" not in body
+
+
+@needs_c_compiler
+def test_a_finalized_grade_can_no_longer_be_contested(world: World) -> None:
+    """確定したら依頼は締め切る。
+
+    締切と同時に「MM/DD HH:MM に確定します」と告げ、n 時間の窓を与えて
+    いる（ADR 0010）。締め切らないと、教員の待ち行列は学期末まで新しい
+    依頼を受け続ける。確定後の申し出は画面の外（担当教員）に回す。
+    """
+    world.register("s2400001")
+    world.login("s2400001")
+    location = world.submit().headers["location"]
+    world.worker.run_once()
+    submission_id = location.split("/")[-1].split("?")[0]
+    world.finalize(submission_id, source=FinalizationSource.DEADLINE_ELAPSED)
+
+    response = world.client.post(
+        f"/submissions/{submission_id}/request-review",
+        data={"reason": "自動で確定しましたが、テストケース 3 の想定出力が違うと思います。"},
+    )
+    assert response.status_code == 409
+    assert "担当教員に直接" in world.client.get(location).text
+
+
+@needs_c_compiler
+def test_an_instructor_can_still_settle_an_automatically_finalized_grade(world: World) -> None:
+    """自動確定 → 学習者が異議 → 教員が読む、の経路が通ること。
+
+    ここで二重確定になって落ちていた。確定の記録は最初のもの（自動確定）が
+    残り、教員が読んだ事実は `HumanReview` の側に付く（追記のみ、P8）。
+    学習者に出る顔は教員が読んだ方になる。
+    """
+    world.register("s2400001")
+    instructor = world.register("instructor", role=Role.INSTRUCTOR)
+    world.login("s2400001")
+    location = world.submit().headers["location"]
+    world.worker.run_once()
+    submission_id = location.split("/")[-1].split("?")[0]
+
+    world.finalize(submission_id, source=FinalizationSource.DEADLINE_ELAPSED)
+    world.client.post(
+        f"/submissions/{submission_id}/request-review",
+        data={"reason": "自動で確定しましたが、テストケース 3 の想定出力が違うと思います。"},
+    )
+
+    # 教員が読んで確定する（コンソールと同じ操作）。
+    with world.database.unit_of_work() as uow:
+        run = uow.runs.latest_for(submission_id)
+        uow.reviews.save_review(
+            HumanReview(
+                id=HumanReviewId(new_id("hrv")),
+                grading_run_id=run.id,
+                grader_id=instructor.user_id,
+                comment="ご指摘の入力例を確認しました。仕様どおりで判定は妥当です。",
+                reviewed_at=datetime.now(UTC),
+            )
+        )
+        uow.commit()
+
+    body = world.client.get(location).text
+    assert "担当教員が確認した成績です" in body
+    assert "個別の確認は経ていません" not in body
+    assert "ご指摘の入力例を確認しました" in body, "教員の言葉が自動確定の定型文に負けている"
+
+
+# --------------------------------------------------------------------------
+# 仮確定の窓（ADR 0010）
+# --------------------------------------------------------------------------
+
+
+def _schedule(world: World, *, due_offset_hours: float, grace: float | None) -> None:
+    """締切と猶予を入れる。締切は「いまから何時間後か」で指定する。"""
+    from datetime import timedelta
+
+    with world.database.unit_of_work() as uow:
+        task = uow.tasks.get_task(world.task_version.task_id)
+        uow.tasks.save_task(
+            task.model_copy(
+                update={"due_at": datetime.now(UTC) + timedelta(hours=due_offset_hours)}
+            )
+        )
+        course = uow.identity.get_course(COURSE)
+        uow.identity.save_course(course.model_copy(update={"auto_finalize_after_hours": grace}))
+        uow.commit()
+
+
+@needs_c_compiler
+def test_before_the_deadline_the_confirmation_time_is_not_announced_as_provisional(
+    world: World,
+) -> None:
+    """締切前は仮確定ではない。まだ提出をやり直せる段階である。"""
+    world.register("s2400001")
+    world.login("s2400001")
+    location = world.submit().headers["location"]
+    world.worker.run_once()
+    _schedule(world, due_offset_hours=24, grace=24.0)
+
+    body = world.client.get(location).text
+    assert "仮確定です" not in body
+    assert "担当教員の確認を経て確定します" in body
+
+
+@needs_c_compiler
+def test_after_the_deadline_the_grade_is_provisional_and_says_when_it_settles(
+    world: World,
+) -> None:
+    """**いつ確定するかを示す。** 示さずに確定させると事後にしか分からない。"""
+    world.register("s2400001")
+    world.login("s2400001")
+    location = world.submit().headers["location"]
+    world.worker.run_once()
+    _schedule(world, due_offset_hours=-1, grace=24.0)
+
+    body = world.client.get(location).text
+    assert "仮確定です" in body
+    assert "に確定します" in body
+    assert "再確認を依頼する" in body, "異議の窓が開いていない"
+
+
+@needs_c_compiler
+def test_a_provisional_grade_can_still_be_contested(world: World) -> None:
+    world.register("s2400001")
+    world.login("s2400001")
+    location = world.submit().headers["location"]
+    world.worker.run_once()
+    submission_id = location.split("/")[-1].split("?")[0]
+    _schedule(world, due_offset_hours=-1, grace=24.0)
+
+    response = world.client.post(
+        f"/submissions/{submission_id}/request-review",
+        data={"reason": "入力例 3 の想定出力が仕様と違うと思います。"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+
+
+@needs_c_compiler
+def test_the_window_closes_on_time_even_before_the_sweep_runs(world: World) -> None:
+    """**締め切りは時刻で決める。確定の有無では決めない。**
+
+    自動確定は定期実行なので、期限と実際の確定の間に隙がある。そこで
+    出された依頼は自動確定を恒久的に止め、誰も気づかないまま学期末まで残る。
+    """
+    world.register("s2400001")
+    world.login("s2400001")
+    location = world.submit().headers["location"]
+    world.worker.run_once()
+    submission_id = location.split("/")[-1].split("?")[0]
+    # 締切 25 時間前 + 猶予 24 時間 = 期限は 1 時間前。まだ確定処理は走って
+    # いない（Finalization は無い）。
+    _schedule(world, due_offset_hours=-25, grace=24.0)
+
+    response = world.client.post(
+        f"/submissions/{submission_id}/request-review",
+        data={"reason": "期限を過ぎてから依頼しようとしています。"},
+    )
+    assert response.status_code == 409
+    assert "仮確定です" not in world.client.get(location).text
+
+
+@needs_c_compiler
+def test_without_a_grace_the_window_never_closes(world: World) -> None:
+    """自動確定を設定していないコースでは期限を示していない。締め切れない。"""
+    world.register("s2400001")
+    world.login("s2400001")
+    location = world.submit().headers["location"]
+    world.worker.run_once()
+    submission_id = location.split("/")[-1].split("?")[0]
+    _schedule(world, due_offset_hours=-100, grace=None)
+
+    response = world.client.post(
+        f"/submissions/{submission_id}/request-review",
+        data={"reason": "締切をとうに過ぎていますが依頼できるはずです。"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert "仮確定です" not in world.client.get(location).text

@@ -17,11 +17,28 @@
 
 <div class="card">
   <div class="score">{{ '%.0f' | format(view.score_ratio * 100) }}<span class="unit">%</span></div>
+  {# 確定の出所を出す。「確定済み」だけにすると、締切後に機械が確定した
+     成績が「教員が確認しました」に見える（ADR 0010）。 #}
   {% if view.confirmed %}
-    <p class="desc" style="margin:0">担当教員が確認した成績です。</p>
+    <p class="desc" style="margin:0">{{ view.confirmation_label }}です。</p>
+    {% if not view.reviewed_individually %}
+      <p class="desc" style="margin:.4rem 0 0">
+        内容に疑問があるときは、担当教員に直接申し出てください。
+      </p>
+    {% endif %}
+  {% elif view.provisional_pending %}
+    {# 仮確定。**いつ確定するかを示す。** 期限を示さずに静かに確定させると、
+       確定したこと自体が事後にしか分からない（ADR 0010）。 #}
+    <p class="desc" style="margin:0">
+      <strong>仮確定です。</strong>
+      {{ view.settles_at.strftime('%m/%d %H:%M') }} に確定します。
+      判定に疑問があれば、それまでに下の欄から再確認を依頼してください。
+      {% if view.has_pending %}採点できなかった観点があるため、点数は暫定です。{% endif %}
+    </p>
   {% else %}
     <p class="desc" style="margin:0">
       自動採点の結果です。担当教員の確認を経て確定します。
+      {% if view.settles_at %}（{{ view.settles_at.strftime('%m/%d %H:%M') }} に確定予定）{% endif %}
       {% if view.has_pending %}採点できなかった観点があるため、点数は暫定です。{% endif %}
     </p>
   {% endif %}
@@ -64,11 +81,11 @@
 {% endif %}
 
 {% if view.review_comment %}
-<h2>担当教員から</h2>
+<h2>{% if view.reviewed_individually %}担当教員から{% else %}確定の理由{% endif %}</h2>
 <div class="card">{{ view.review_comment }}</div>
 {% endif %}
 
-<h2>採点の再確認を依頼する</h2>
+<h2>採点の再確認を依頼する{% if view.provisional_pending %}（{{ view.settles_at.strftime('%m/%d %H:%M') }} まで）{% endif %}</h2>
 {% if view.can_request_review %}
 <form method="post" action="/submissions/{{ submission.id }}/request-review" class="card">
   <div class="field">
@@ -79,6 +96,9 @@
   <p class="desc">
     担当教員が内容を確認し、根拠を添えて回答します。
     何が違うと考えるかを具体的に書いてください。
+    {% if view.settles_at %}
+      <strong>{{ view.settles_at.strftime('%m/%d %H:%M') }} を過ぎるとこの欄からは依頼できなくなります。</strong>
+    {% endif %}
   </p>
   <button type="submit">再確認を依頼する</button>
 </form>

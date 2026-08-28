@@ -449,8 +449,24 @@ def _submission_view(
         run = uow.runs.latest_for(submission_id)
         review = None if run is None else uow.reviews.find_review_for_run(run.id)
         request = None if run is None else uow.reviews.find_request_for_run(run.id)
+        # 確定は Finalization が表す。HumanReview は「教員が読んだ」記録で
+        # あって確定ではない（ADR 0010）。
+        finalization = None if run is None else uow.reviews.find_finalization_for_run(run.id)
 
-    view = None if run is None else build_result_view(run, version, review, request=request)
+    view = (
+        None
+        if run is None
+        else build_result_view(
+            run,
+            version,
+            review,
+            request=request,
+            finalization=finalization,
+            # 仮確定の窓を出すのに要る。締切は課題、猶予はコースが持つ。
+            due_at=task.due_at,
+            auto_finalize_after_hours=course.auto_finalize_after_hours,
+        )
+    )
     return LoadedSubmission(
         submission=target, version=version, task=task, course=course, run=run, view=view
     )

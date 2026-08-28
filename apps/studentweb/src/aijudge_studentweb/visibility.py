@@ -16,8 +16,20 @@
 
     採点 → AI の判定を提示 → （学習者が疑えば）依頼 → 教員が確定
 
-確定した成績は「教員が確認済み」として区別して見せる。区別しないと、
-AI の判定と教員の判定が同じ重みに見える。
+そして**期限を示す**。締切を過ぎた採点は「仮確定」として、いつ確定するかを
+学習者に告げる（`GradeWindow`）。
+
+    締切      仮確定。「MM/DD HH:MM に確定します」と示し、異議を受け付ける
+    締切+n    確定。依頼はここで締め切る
+
+期限を示さずに静かに確定させると、確定したこと自体が事後にしか分からない。
+逆に期限を示した以上、そこで締め切ってよい ── 締め切らないと、教員の待ち行列は
+学期末まで新しい依頼を受け続ける。確定後の申し出は画面の外（担当教員）に回す。
+
+確定した成績は区別して見せる。**確定の出所まで区別する。** 教員が読んで
+確定したものと、締切後に機械が確定したものを同じ「確認済み」で出すのは
+学習者に対する嘘になる（ADR 0010）。前者は人が根拠を書いており、後者は
+まだ誰も読んでいない ── 学習者が異議を申し立てるかどうかの判断が変わる。
 
 **この判断は UI ではなくここに置く。** テンプレートの `{% if %}` に散らすと、
 画面を 1 つ足したときに漏れる。
@@ -26,14 +38,20 @@ AI の判定と教員の判定が同じ重みに見える。
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from aijudge_core import (
     CriterionScore,
     EvaluatorKind,
+    Finalization,
+    FinalizationSource,
+    GradeWindow,
     GradingRun,
     HumanReview,
     RubricCriterion,
     TaskVersion,
+    deadline_for,
+    grade_window,
 )
 
 
@@ -70,7 +88,13 @@ class ResultView:
     score_ratio: float | None
     confirmed: bool
     feedback: str | None = None
-    # 教員の根拠説明（確定済みのとき）。
+    # 確定の出所。確定していなければ None。
+    finalized_by: FinalizationSource | None = None
+    # いまどの段階か（締切前 / 仮確定 / 期限経過）。
+    window: GradeWindow = GradeWindow.OPEN
+    # 確定する（した）予定時刻。自動確定を設定していないコースでは None。
+    settles_at: datetime | None = None
+    # 根拠説明（確定済みのとき）。教員が書いたものか、自動確定の定型文。
     review_comment: str | None = None
     # 再確認の依頼を出せるか。出せないなら理由。
     can_request_review: bool = False
@@ -83,8 +107,34 @@ class ResultView:
 
     @property
     def provisional(self) -> bool:
-        """まだ教員が確認していない点数か。"""
+        """まだ確定していない点数か。"""
         return not self.confirmed
+
+    @property
+    def reviewed_individually(self) -> bool:
+        """教員がこの提出を実際に読んだか。
+
+        確定していても偽になりうる（一括確定・自動確定）。**この区別を
+        表示から落とさない。** 落とすと、誰も読んでいない成績が「教員が
+        確認しました」として学習者に出る。
+        """
+        return self.finalized_by is FinalizationSource.INSTRUCTOR_REVIEW
+
+    @property
+    def provisional_pending(self) -> bool:
+        """仮確定か ── 締切を過ぎ、確定の予定時刻が示されていて、まだ確定していない。"""
+        return not self.confirmed and self.window is GradeWindow.PROVISIONAL
+
+    @property
+    def confirmation_label(self) -> str:
+        """確定の状態を 1 行で表す。テンプレートはこれを出す。"""
+        if self.finalized_by is None:
+            return "AI の判定（確定前）"
+        if self.finalized_by is FinalizationSource.INSTRUCTOR_REVIEW:
+            return "担当教員が確認した成績"
+        if self.finalized_by is FinalizationSource.INSTRUCTOR_BULK:
+            return "担当教員が確定した成績（個別の確認は経ていません）"
+        return "締切後に自動で確定した成績（個別の確認は経ていません）"
 
 
 def build_result_view(
@@ -93,16 +143,34 @@ def build_result_view(
     review: HumanReview | None,
     *,
     request: object | None = None,
+    finalization: Finalization | None = None,
+    due_at: datetime | None = None,
+    auto_finalize_after_hours: float | None = None,
+    now: datetime | None = None,
 ) -> ResultView:
     """採点結果を学習者向けの表示に畳む。
 
     `request` はこの採点に対する再確認の依頼（`ReviewRequest`）。既に出して
     いれば二重に出させない。
+
+    `due_at` と `auto_finalize_after_hours` から仮確定の窓を出す。片方でも
+    無ければ確定の予定は無く、窓は開いたまま（期限を示していないので
+    締め切れない）。
+
+    `finalization` が成績の確定である。`review` はそのうち「教員が読んだ」
+    場合にだけ在り、段階の修正を持つ（ADR 0010）。片方だけを見て確定を
+    判断すると、一括確定・自動確定した成績が暫定のまま学習者に出続ける。
+
+    **`review` は `finalization` より後から来ることがある。** 自動確定した
+    成績に学習者が異議を申し立て、教員が読んで修正する経路がそれで、
+    そのとき確定の記録は最初のもの（自動確定）のままである（追記のみ、P8）。
+    学習者に見せる顔は教員が読んだ方を採る ── 後から人が読んだのなら、
+    それがその成績について言える一番強いことだから。
     """
     by_criterion: dict[str, CriterionScore] = {
         str(score.criterion_id): score for score in run.criterion_scores
     }
-    confirmed = review is not None
+    confirmed = finalization is not None or review is not None
 
     views: list[CriterionView] = []
     for criterion in task_version.criteria:
@@ -140,10 +208,27 @@ def build_result_view(
         )
 
     unscored = any(view.pending for view in views)
-    can_request = not confirmed and request is None and not unscored
+    window = grade_window(due_at, auto_finalize_after_hours, now or datetime.now(UTC))
+    settles_at = deadline_for(due_at, auto_finalize_after_hours)
+    # 教員が読んだ証拠は `HumanReview` の存在。確定の出所ではない
+    # （自動確定のあとに教員が読むことがある）。
+    reviewed = review is not None
+
+    # **期限が来たら締め切る。** 締切と同時に「いつ確定するか」を示し、
+    # n 時間の窓を与えてある。締め切らないと、教員の待ち行列は学期末まで
+    # 新しい依頼を受け続ける。確定後の申し出は画面の外（担当教員）に回す。
+    #
+    # 締め切りは**時刻で**決め、確定の有無では決めない。自動確定は定期実行
+    # なので期限と実際の確定の間に隙があり、そこで出された依頼は自動確定を
+    # 恒久的に止める（誰も気づかないまま学期末まで残る）。
+    elapsed = window is GradeWindow.ELAPSED
+    can_request = not confirmed and not elapsed and request is None and not unscored
+
     reason: str | None = None
-    if confirmed:
+    if reviewed:
         reason = "担当教員が確認した成績です。"
+    elif confirmed or elapsed:
+        reason = "確定済みの成績です。申し出は担当教員に直接お願いします。"
     elif request is not None:
         reason = "再確認を依頼済みです。担当教員の対応をお待ちください。"
     elif unscored:
@@ -154,11 +239,34 @@ def build_result_view(
         score_ratio=_confirmed_score(run, task_version, review),
         confirmed=confirmed,
         feedback=run.feedback,
-        review_comment=None if review is None else review.comment,
+        finalized_by=_finalized_by(finalization, review),
+        window=window,
+        settles_at=settles_at,
+        review_comment=_justification(finalization, review),
         can_request_review=can_request,
         request_reason=reason,
         requested=request is not None,
     )
+
+
+def _finalized_by(
+    finalization: Finalization | None, review: HumanReview | None
+) -> FinalizationSource | None:
+    """学習者に示す確定の出所。
+
+    教員が読んでいれば、確定の記録が自動確定であってもそう示す。読んだ人が
+    居るという事実の方が、いつ確定したかより学習者にとって重い。
+    """
+    if review is not None:
+        return FinalizationSource.INSTRUCTOR_REVIEW
+    return None if finalization is None else finalization.source
+
+
+def _justification(finalization: Finalization | None, review: HumanReview | None) -> str | None:
+    """根拠説明。教員が読んでいればその言葉を出す。"""
+    if review is not None:
+        return review.comment
+    return None if finalization is None else finalization.justification
 
 
 def _evidence_lines(score: CriterionScore) -> tuple[int, ...]:
