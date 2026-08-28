@@ -74,6 +74,32 @@ def load_raters(specs: list[str]) -> tuple[dict[str, dict], dict]:
     return raters, index
 
 
+def consensus(raters: dict[str, dict], logins: list[str]) -> dict[str, dict[str, int]]:
+    """観点ごとの中央値で「合意」の採点者を作る。
+
+    **正解が無いときの物差しはこれしかない。** 誰か 1 人を基準に選ぶと、
+    その 1 人の癖が全員の評価に化けて出る。中央値なら、少なくとも
+    「多数がそう見た」という意味は持つ。
+
+    偶数人のときは低い側を採る（`median_low`）。段階は整数なので、
+    平均して 3.5 のような存在しない段階を作らない。
+    """
+    out: dict[str, dict[str, int]] = {}
+    for login in logins:
+        levels = {}
+        for code in CODES:
+            values = [
+                r[login][code]
+                for r in raters.values()
+                if login in r and code in r[login]
+            ]
+            if values:
+                levels[code] = int(statistics.median_low(values))
+        if levels:
+            out[login] = levels
+    return out
+
+
 def total(levels: dict[str, int]) -> int | None:
     """全観点そろっているときだけ合計を出す。**欠けを 0 で埋めない。**"""
     if any(c not in levels for c in CODES):
@@ -187,6 +213,38 @@ def krippendorff_alpha_ordinal(units: list[list[int | None]], levels: list[int])
     return 1.0 - observed / expected
 
 
+def average_linkage(labels: list[str], distance: dict[tuple[str, str], float]):
+    """平均連結法で採点者をまとめていく順を返す。
+
+    **どの 2 人が最も似ているか**を、対ごとの数字を目で追わずに済ませる
+    ためだけのもの。採点者が 4〜5 人しかいないので、これで十分である。
+
+    返すのは (まとめた集合, まとめた高さ) の列。高さは 1 − QWK。
+    """
+    clusters: list[frozenset[str]] = [frozenset({name}) for name in labels]
+
+    def between(a: frozenset[str], b: frozenset[str]) -> float:
+        values = [
+            distance[(x, y)] if (x, y) in distance else distance[(y, x)]
+            for x in a
+            for y in b
+        ]
+        return statistics.fmean(values)
+
+    steps = []
+    while len(clusters) > 1:
+        best = min(
+            ((i, j) for i in range(len(clusters)) for j in range(i + 1, len(clusters))),
+            key=lambda pair: between(clusters[pair[0]], clusters[pair[1]]),
+        )
+        i, j = best
+        height = between(clusters[i], clusters[j])
+        merged = clusters[i] | clusters[j]
+        steps.append((merged, height))
+        clusters = [c for k, c in enumerate(clusters) if k not in (i, j)] + [merged]
+    return steps
+
+
 def affine_fit(xs: list[float], ys: list[float]) -> tuple[float, float]:
     """y ≈ a·x + b の最小二乗解。"""
     mx, my = statistics.fmean(xs), statistics.fmean(ys)
@@ -228,6 +286,15 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--raters", nargs="+", default=DEFAULT_RATERS)
     parser.add_argument(
+        "--reference",
+        default=None,
+        help=(
+            "物差しにする採点者の表示名。`median` を渡すと全員の観点別中央値"
+            "（合意）を作ってそれを使う。既定は先頭の採点者。"
+            "**正解が無いときは `median` を使うこと**"
+        ),
+    )
+    parser.add_argument(
         "--out",
         default=None,
         help="書き出し先。学籍番号を含むので repository の外に置くこと",
@@ -237,7 +304,20 @@ def main() -> int:
     raters, _index = load_raters(args.raters)
     names = list(raters)
     logins = sorted({login for r in raters.values() for login in r})
+
+    # 物差しを決める。**正解が無いときは合意（中央値）を使う。**
+    synthetic = args.reference == "median"
+    if synthetic:
+        base_name = "合意（中央値）"
+        base = consensus(raters, logins)
+    else:
+        base_name = args.reference or names[0]
+        if base_name not in raters:
+            raise SystemExit(f"--reference {base_name!r} はこの一覧にありません: {names}")
+        base = raters[base_name]
+
     tot = {name: totals(rater) for name, rater in raters.items()}
+    base_tot = totals(base)
     out: list[str] = []
     w = out.append
 
@@ -259,7 +339,8 @@ def main() -> int:
     w("")
     w("| 採点者 | 経路 | 観点の呼び方 | 自己一貫性 | 制約デコード | 本文 |")
     w("|---|---|---|---|---|---|")
-    w("| CSV | 不明（LLM） | 不明 | 不明 | 不明 | 不明 |")
+    if "CSV" in names:
+        w("| CSV | 不明（LLM） | 不明 | 不明 | 不明 | 不明 |")
     w("| gemma4:e4b | ゲートウェイ | 1 観点ごとに 1 回 | 3 本 | あり | 原文 |")
     w("| qwen3.8:27b-mlx | ゲートウェイ | 1 観点ごとに 1 回 | 2 本 | あり | 原文 |")
     sub = "サブエージェント | **6 観点まとめて 1 回** | **1 本** | **なし** | **匿名化**"
@@ -313,9 +394,19 @@ def main() -> int:
             f" | {max(values) - min(values)} |"
         )
     w("")
-    w("**尺度を使い切っているのは CSV だけである。** 他はどれも狭い帯に詰まる。")
-    w("系統の違う 4 モデルが同じ向きに詰まる以上、これは個々のモデルの癖ではなく")
-    w("**段階の記述だけで実例（アンカー）を持たないルーブリックの性質**と読むべきである。")
+    spreads = {n: statistics.pstdev(list(tot[n].values())) for n in names}
+    widest = max(spreads, key=lambda n: spreads[n])
+    rest = [spreads[n] for n in names if n != widest]
+    if rest and spreads[widest] >= 1.8 * max(rest):
+        w(f"**尺度を使い切っているのは {widest} だけである**"
+          f"（σ {spreads[widest]:.2f} に対し他は {min(rest):.2f}〜{max(rest):.2f}）。")
+        w("系統の違う採点者が揃って同じ向きに詰まる以上、これは個々のモデルの")
+        w("癖ではなく**段階の記述だけで実例（アンカー）を持たないルーブリックの")
+        w("性質**と読むべきである。")
+    else:
+        w(f"広がりは {min(spreads.values()):.2f}〜{max(spreads.values()):.2f} の間に収まり、")
+        w("**飛び抜けて尺度を使い切っている採点者はいない。** 満点 23 に対して")
+        w("この幅しか使わないことが、全員に共通する性質である。")
     w("")
 
     w("### 3.2 観点別（平均 / σ / 使った段階の数）")
@@ -395,7 +486,7 @@ def main() -> int:
         ]
         alpha = krippendorff_alpha_ordinal(units, list(range(rubric.POINTS[code] + 1)))
         w("")
-        w(f"5 者まとめて: **Krippendorff の α = {fmt(alpha)}**")
+        w(f"{len(names)} 者まとめて: **Krippendorff の α = {fmt(alpha)}**")
         w("")
 
     # ---- 6. 合計点 -------------------------------------------------------
@@ -427,7 +518,7 @@ def main() -> int:
     ]
     alpha = krippendorff_alpha_ordinal(units, list(range(rubric.TOTAL_POINTS + 1)))
     w("")
-    w(f"5 者まとめて: **Krippendorff の α = {fmt(alpha)}**")
+    w(f"{len(names)} 者まとめて: **Krippendorff の α = {fmt(alpha)}**")
     w("")
 
     # ---- 7. 分解 ---------------------------------------------------------
@@ -463,15 +554,16 @@ def main() -> int:
     w("その件を除いた 18 件から決める（1 件抜き交差検証）。上がらなければ、")
     w("問題は較正ではなく**何を見ているかの違い**である。")
     w("")
-    w("| モデル → CSV | QWK（そのまま） | QWK（較正後） | 変化 | 平均絶対差 前→後 |")
+    w(f"| モデル → {base_name} | QWK（そのまま） | QWK（較正後） | 変化 | 平均絶対差 前→後 |")
     w("|---|--:|--:|--:|--:|")
-    base_name = names[0]
-    for name in names[1:]:
-        shared = sorted(set(tot[base_name]) & set(tot[name]))
+    for name in names:
+        if not synthetic and name == base_name:
+            continue
+        shared = sorted(set(base_tot) & set(tot[name]))
         if len(shared) < 4:
             continue
         source = [tot[name][i] for i in shared]
-        target = [tot[base_name][i] for i in shared]
+        target = [base_tot[i] for i in shared]
         before = quadratic_weighted_kappa(
             target, source, range(rubric.TOTAL_POINTS + 1)
         )
@@ -494,19 +586,19 @@ def main() -> int:
     # ---- 9. 10 点上限の判定 ----------------------------------------------
     w("## 9. 成績を左右する 1 つの決定 — 10 点上限")
     w("")
-    w("CSV の採点では、実験先が 0（localhost だけ）のレポートは")
+    w("この課題の運用では、実験先が 0（localhost だけ）のレポートは")
     w("**20 点満点中 10 点が上限**になる。他のどの観点よりも成績への効き方が大きい")
     w("単一の判定なので、ここだけを 2 値で取り出す。")
     w("")
     w(
-        "| 採点者 | 上限と判定 | CSV と一致"
-        " | 見逃し（CSV は上限・モデルは上限でない） | 過剰（逆） |"
+        f"| 採点者 | 上限と判定 | {base_name} と一致"
+        f" | 見逃し（{base_name} は上限・その採点者は上限でない） | 過剰（逆） |"
     )
     w("|---|--:|--:|--:|--:|")
-    capped_csv = {i for i in raters[base_name] if raters[base_name][i].get("target") == 0}
+    capped_csv = {i for i in base if base[i].get("target") == 0}
     for name in names:
         rater = raters[name]
-        shared = sorted(set(rater) & set(raters[base_name]))
+        shared = sorted(set(rater) & set(base))
         capped = {i for i in shared if rater[i].get("target") == 0}
         truth = {i for i in shared if i in capped_csv}
         agree = sum(1 for i in shared if (i in capped) == (i in truth))
@@ -522,31 +614,26 @@ def main() -> int:
     # ---- 10. アンサンブル -------------------------------------------------
     w("## 10. モデルの中央値は単独より良いか")
     w("")
-    w("観点ごとに 4 モデルの**中央値**を取った仮想の採点者を作り、CSV と比べる。")
+    if synthetic:
+        w("**基準そのものが中央値なので、この節は自明である**（QWK = 1.000）。")
+        w("ここで意味があるのは各採点者が合意からどれだけ離れているかで、")
+        w("それが下の表である ── **合意から遠い採点者ほど、他の 3 人と違う**。")
+    else:
+        w(f"観点ごとにモデルの**中央値**を取った仮想の採点者を作り、"
+          f"{base_name} と比べる。")
     w("")
-    model_names = names[1:]
-    ensemble: dict[str, dict[str, int]] = {}
-    for login in logins:
-        levels = {}
-        for code in CODES:
-            values = [
-                raters[n][login][code]
-                for n in model_names
-                if login in raters[n] and code in raters[n][login]
-            ]
-            if values:
-                levels[code] = int(statistics.median_low(values))
-        if levels:
-            ensemble[login] = levels
-    ens_tot = totals(ensemble)
-    shared = sorted(set(tot[base_name]) & set(ens_tot))
-    a = [tot[base_name][i] for i in shared]
+    model_names = [n for n in names if synthetic or n != base_name]
+    ens_tot = base_tot if synthetic else totals(consensus(
+        {n: raters[n] for n in model_names}, logins
+    ))
+    shared = sorted(set(base_tot) & set(ens_tot))
+    a = [base_tot[i] for i in shared]
     b = [ens_tot[i] for i in shared]
     w("| 採点者 | n | r | QWK | 平均差 | 平均絶対差 |")
     w("|---|--:|--:|--:|--:|--:|")
     for name in model_names:
-        s2 = sorted(set(tot[base_name]) & set(tot[name]))
-        p = [tot[base_name][i] for i in s2]
+        s2 = sorted(set(base_tot) & set(tot[name]))
+        p = [base_tot[i] for i in s2]
         q = [tot[name][i] for i in s2]
         d = [y - x for x, y in zip(p, q, strict=True)]
         w(
@@ -565,9 +652,9 @@ def main() -> int:
     # ---- 11. 提出ごとの割れ方 --------------------------------------------
     w("## 11. どのレポートで割れるか")
     w("")
-    w("提出ごとに、5 者の合計点の幅（最大 − 最小）を見る。")
+    w(f"提出ごとに、{len(names)} 者の合計点の幅（最大 − 最小）を見る。")
     w("")
-    w("| 学生 | " + " | ".join(names) + " | 幅 | CSV の位置 |")
+    w("| 学生 | " + " | ".join(names) + f" | 幅 | {base_name} の位置 |")
     w("|---" * (len(names) + 3) + "|")
     rows = []
     for login in logins:
@@ -577,7 +664,7 @@ def main() -> int:
             continue
         rows.append((max(present) - min(present), login, values, present))
     for span, login, values, present in sorted(rows, reverse=True):
-        csv_value = values[base_name]
+        csv_value = base_tot.get(login) if synthetic else values[base_name]
         if csv_value is None:
             position = "—"
         elif csv_value == max(present):
@@ -590,6 +677,74 @@ def main() -> int:
             str(values[n]) if values[n] is not None else "—" for n in names
         )
         w(f"| {login} | {cells} | {span} | {position} |")
+    w("")
+
+    # ---- 12. クラスタ構造 -----------------------------------------------
+    w("## 12. 採点者はどう分かれるか")
+    w("")
+    w("合計点の QWK から距離（1 − QWK）を作り、平均連結法でまとめる。")
+    w("**近いものから順に一つになる**ので、どこで塊が分かれるかが分かる。")
+    w("")
+    distance: dict[tuple[str, str], float] = {}
+    w("| | " + " | ".join(names) + " |")
+    w("|---" * (len(names) + 1) + "|")
+    for x in names:
+        cells = []
+        for y in names:
+            if x == y:
+                cells.append("—")
+                continue
+            shared = sorted(set(tot[x]) & set(tot[y]))
+            if len(shared) < 3:
+                cells.append("—")
+                continue
+            qwk = quadratic_weighted_kappa(
+                [tot[x][i] for i in shared],
+                [tot[y][i] for i in shared],
+                range(rubric.TOTAL_POINTS + 1),
+            )
+            distance[(x, y)] = 1.0 - qwk
+            cells.append(f"{1.0 - qwk:.3f}")
+        w(f"| **{x}** | " + " | ".join(cells) + " |")
+    w("")
+    w("まとまる順（近い順）:")
+    w("")
+    for merged, height in average_linkage(names, distance):
+        w(f"1. {{{' + '.join(sorted(merged))}}} — 距離 {height:.3f}")
+    w("")
+
+    # ---- 13. 観点を 1 つ外すと一致はどう動くか ---------------------------
+    w(f"## 13. どの観点が一致を支えているか（{base_name} との QWK）")
+    w("")
+    w("観点を 1 つだけ合計から外して測り直す。**下がれば、その観点が一致を")
+    w("支えていた**（外すと失う）。**上がれば、その観点が一致を壊していた。**")
+    w("配点の大きさではなく、実際に効いている観点が分かる。")
+    w("")
+    header13 = "| 採点者 | 全観点 | " + " | ".join(
+        f"−{TITLES[c].split('（')[0]}" for c in CODES
+    ) + " |"
+    w(header13)
+    w("|---" * (len(CODES) + 2) + "|")
+    for name in names:
+        if not synthetic and name == base_name:
+            continue
+        shared = sorted(set(base_tot) & set(tot[name]))
+        if len(shared) < 3:
+            continue
+        full = quadratic_weighted_kappa(
+            [base_tot[i] for i in shared],
+            [tot[name][i] for i in shared],
+            range(rubric.TOTAL_POINTS + 1),
+        )
+        cells = []
+        for dropped in CODES:
+            kept = [c for c in CODES if c != dropped]
+            top = sum(rubric.POINTS[c] for c in kept)
+            a = [sum(base[i][c] for c in kept) for i in shared]
+            b = [sum(raters[name][i][c] for c in kept) for i in shared]
+            without = quadratic_weighted_kappa(a, b, range(top + 1))
+            cells.append(f"{without:+.3f} ({without - full:+.3f})")
+        w(f"| {name} | {full:+.3f} | " + " | ".join(cells) + " |")
     w("")
 
     text = "\n".join(out) + "\n"
