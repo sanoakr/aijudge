@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
 
@@ -45,7 +46,9 @@ from aijudge_core.ids import (
 
 from .profile import SubjectProfile
 from .protocol import EvaluationOutcome, EvaluationRequest
-from .registry import EvaluatorRegistry
+from .registry import EvaluatorRegistry, NormalizerRegistry
+
+logger = logging.getLogger(__name__)
 
 PIPELINE_VERSION = "0.1.0"
 
@@ -114,10 +117,23 @@ class NoDeterministicWork(Exception):
 class GradingPipeline:
     """科目非依存の採点実行器。"""
 
-    def __init__(self, registry: EvaluatorRegistry, profile: SubjectProfile) -> None:
+    def __init__(
+        self,
+        registry: EvaluatorRegistry,
+        profile: SubjectProfile,
+        normalizers: NormalizerRegistry | None = None,
+    ) -> None:
         profile.validate_against(registry)
         self._registry = registry
         self._profile = profile
+        # 宣言された正規化器だけを解決する。宣言していない科目では
+        # レジストリを読みに行かない（起動時の副作用を増やさない）。
+        self._normalizers = normalizers
+        if profile.normalizers and normalizers is None:
+            self._normalizers = NormalizerRegistry().load_installed()
+        if profile.normalizers and self._normalizers is not None:
+            for name in profile.normalizers:
+                self._normalizers.get(name)  # 実在しなければここで落とす
 
     @property
     def profile(self) -> SubjectProfile:
@@ -162,6 +178,12 @@ class GradingPipeline:
         contents = {
             artifact.id: load_content(artifact) for artifact in submission.gradable_artifacts
         }
+        # --- 1. Normalize（設計方針 §4 step 1）---------------------------
+        #
+        # **評価器の前に本文へ直す。** PDF や DOCX をそのまま渡すと、AI には
+        # バイナリが渡り、字数や節の判定も成立しない。ここで 1 回変換して
+        # おけば、構造チェッカーと AI 評価器が同じ本文を見る。
+        contents = self._normalize(submission, contents)
 
         results: list[EvaluatorResult] = []
         scores: list[CriterionScore] = []
@@ -284,6 +306,35 @@ class GradingPipeline:
             unscored_criteria=unscored,
             created_at=datetime.now(UTC),
         )
+
+    def _normalize(
+        self, submission: Submission, contents: dict[ArtifactId, bytes]
+    ) -> dict[ArtifactId, bytes]:
+        """宣言された正規化器を順に当てる。
+
+        **1 件の失敗で採点を止めない。** 壊れた PDF が 1 つあっても、
+        他の提出の採点は続く（失敗した提出は本文が空のまま下流に渡り、
+        構造チェッカーが「読めない」と判定して人間に回る）。
+        """
+        if not self._profile.normalizers or self._normalizers is None:
+            return contents
+        out = dict(contents)
+        for artifact in submission.gradable_artifacts:
+            payload = out.get(artifact.id)
+            if payload is None:
+                continue
+            for name in self._profile.normalizers:
+                normalizer = self._normalizers.get(name)
+                if not normalizer.applies_to(artifact.kind):
+                    continue
+                try:
+                    payload = normalizer.normalize(artifact, payload)
+                except Exception:
+                    logger.warning(
+                        "normalizer %s failed on artifact %s", name, artifact.id, exc_info=True
+                    )
+            out[artifact.id] = payload
+        return out
 
     # -- internals ---------------------------------------------------------
 

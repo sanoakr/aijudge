@@ -24,11 +24,19 @@ from .profile import (
     load_profile,
     load_profiles,
 )
-from .protocol import EvaluationOutcome, EvaluationRequest, Evaluator
-from .registry import ENTRY_POINT_GROUP, EvaluatorRegistry, default_registry
+from .protocol import EvaluationOutcome, EvaluationRequest, Evaluator, Normalizer
+from .registry import (
+    ENTRY_POINT_GROUP,
+    NORMALIZER_ENTRY_POINT_GROUP,
+    EvaluatorRegistry,
+    NormalizerRegistry,
+    default_normalizers,
+    default_registry,
+)
 
 __all__ = [
     "ENTRY_POINT_GROUP",
+    "NORMALIZER_ENTRY_POINT_GROUP",
     "PIPELINE_VERSION",
     "ContentLoader",
     "EvaluationOutcome",
@@ -39,8 +47,11 @@ __all__ = [
     "InputPolicy",
     "MeasurementPolicy",
     "NoDeterministicWork",
+    "Normalizer",
+    "NormalizerRegistry",
     "SubjectProfile",
     "compute_input_hash",
+    "default_normalizers",
     "default_registry",
     "derive_kc_outcomes",
     "grading_completed_event",

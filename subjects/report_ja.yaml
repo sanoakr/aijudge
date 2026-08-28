@@ -1,0 +1,67 @@
+# レポート課題（日本語）— ネットワーク及び演習の性能評価レポート相当
+#
+# **この科目を足すためにエンジンは変えていない**（ADR 0002 の検証点）。
+# 足したのはこの YAML と、プラグイン 2 つ（正規化器 document_text、
+# 決定的評価器 report_structure）である。採点エンジン・コア・提出・
+# レビューのコードは無変更。
+#
+# 観点は課題ごとに宣言する（`TaskSpec.criteria`）。プログラミング課題の
+# 「正しさ＋読みやすさ」は当てはまらず、教員が決めるものだから。
+
+name: report_ja
+description: 実験レポート。体裁は決定的に、内容は AI とルーブリックで判定する。
+
+input:
+  # 手書きは扱わない。PDF/DOCX は文字が埋め込まれたものだけで、
+  # スキャン画像の書き起こしは Phase 6（学習者が提出前に確認する流れ）。
+  allow_handwriting: false
+
+# **採点の前に本文へ直す**（設計方針 §4 step 1）。しないと AI にバイナリが
+# 渡り、字数や節の判定も成立しない。
+normalizers:
+  - document_text
+
+# 読めば機械的に分かることは決定的側で確定させる（P3）。
+# 必須節・字数・数値の記載は AI に聞く必要がない。
+deterministic:
+  - report_structure
+
+# 読解が要る観点だけ AI に残す。ここを空にしても体裁の判定は成立する
+# （= S6 停止時の劣化動作、P2）。
+ai_evaluators:
+  - rubric_ai_judge
+
+evaluator_options:
+  rubric_ai_judge:
+    # レポートは 1 観点あたりの本文が長く、1 回の呼び出しが重い。
+    # 自己一貫性のサンプル数はプログラミング課題より落としている。
+    samples: 2
+  report_structure:
+    # 課題ごとに差し替えられる。ここはネットワーク演習の性能評価レポートの
+    # 実データ（19 件）に合わせた既定値。
+    sections:
+      目的: [目的, 背景と目的, はじめに]
+      条件: [条件, 実験条件, 実験環境, 環境, 測定条件]
+      方法: [方法, 実験方法, 手順, 測定方法]
+      結果: [結果, 実験結果, 測定結果]
+      考察: [考察, 議論]
+    min_characters: 800
+    min_numbers: 8
+
+aggregation: weighted_sum
+
+review_policy:
+  # レポートは AI の判定が割れやすい。プログラミング課題より広く人間に回す。
+  confidence_below: 0.8
+  always_review_if_weight_over: 1.0
+  # 合否境界（60%）の前後 10 ポイントは人間が見る。体裁だけで決まる点数と
+  # 違い、境界付近の判断は読まないと決められない。
+  boundary_score: 0.6
+  boundary_margin: 0.10
+
+# 1 回の評価器呼び出しの予算。レポートは本文が長く、LLM の応答も長い。
+timeout_seconds: 180.0
+
+measurement:
+  # レポートは観点が主観的なので、blind 抽出の比率を上げて κ を貯める。
+  blind_sample_rate: 0.2

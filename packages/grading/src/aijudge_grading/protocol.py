@@ -15,6 +15,8 @@ from typing import Protocol, runtime_checkable
 from pydantic import BaseModel, ConfigDict, Field
 
 from aijudge_core import (
+    Artifact,
+    ArtifactKind,
     CriterionScore,
     EvaluatorKind,
     EvaluatorStatus,
@@ -79,3 +81,30 @@ class Evaluator(Protocol):
     kind: EvaluatorKind
 
     def evaluate(self, request: EvaluationRequest) -> EvaluationOutcome: ...
+
+
+@runtime_checkable
+class Normalizer(Protocol):
+    """提出物を評価器が読める形に直すプラグイン（設計方針 §4 の step 1）。
+
+    評価器の前に走る。**ここで変換しておかないと、同じ変換を評価器ごとに
+    書くことになる** ── レポート課題では構造チェッカーと AI 評価器の両方が
+    同じ本文を要る。PDF を 2 回開くのは無駄なだけでなく、2 つの実装が
+    食い違えば「構造は満たすのに AI には空に見える」が起きる。
+
+    entry point のグループは `aijudge.normalizers`。科目プロファイルの
+    `normalizers` が名前で指名する（評価器と同じ仕組み、ADR 0002）。
+
+    **失敗は例外にしない。** 1 件の壊れた PDF で全員の採点を止めない。
+    変換できなければ元の内容をそのまま返し、下流が「読めない」と判定する。
+    """
+
+    normalizer_id: str
+
+    def applies_to(self, kind: ArtifactKind) -> bool:
+        """この種類の提出物を扱うか。"""
+        ...
+
+    def normalize(self, artifact: Artifact, payload: bytes) -> bytes:
+        """変換後の内容を返す。変換できなければ `payload` をそのまま返す。"""
+        ...

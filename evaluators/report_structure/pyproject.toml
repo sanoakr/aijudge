@@ -1,0 +1,23 @@
+[project]
+name = "aijudge-eval-report-structure"
+version = "0.0.1"
+description = "Deterministic evaluator: does a report have the sections, the length and the figures it was asked for"
+requires-python = ">=3.12"
+dependencies = [
+    "aijudge-core",
+    "aijudge-grading",
+]
+
+[project.entry-points."aijudge.evaluators"]
+report_structure = "aijudge_eval_report_structure:build"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/aijudge_eval_report_structure"]
+
+[tool.uv.sources]
+aijudge-core = { workspace = true }
+aijudge-grading = { workspace = true }

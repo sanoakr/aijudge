@@ -11,9 +11,10 @@ from importlib.metadata import entry_points
 
 from aijudge_core import EvaluatorKind
 
-from .protocol import Evaluator
+from .protocol import Evaluator, Normalizer
 
 ENTRY_POINT_GROUP = "aijudge.evaluators"
+NORMALIZER_ENTRY_POINT_GROUP = "aijudge.normalizers"
 
 
 class EvaluatorRegistry:
@@ -73,3 +74,57 @@ class EvaluatorRegistry:
 
 def default_registry() -> EvaluatorRegistry:
     return EvaluatorRegistry().load_installed()
+
+
+class NormalizerRegistry:
+    """正規化プラグインの名前解決。
+
+    評価器と同じ仕組みにしてある（ADR 0002）。**採点エンジンは個々の
+    Normalizer を import しない** ので、レポート課題を足す作業が
+    「パッケージを 1 つ足して YAML に名前を書く」で済む。
+    """
+
+    def __init__(self) -> None:
+        self._normalizers: dict[str, Normalizer] = {}
+
+    def register(self, normalizer: Normalizer) -> None:
+        existing = self._normalizers.get(normalizer.normalizer_id)
+        if existing is not None and existing is not normalizer:
+            raise ValueError(f"duplicate normalizer id: {normalizer.normalizer_id!r}")
+        self._normalizers[normalizer.normalizer_id] = normalizer
+
+    def replace(self, normalizer: Normalizer) -> None:
+        """登録済みを差し替える（テストでスタブを挿す口）。"""
+        self._normalizers[normalizer.normalizer_id] = normalizer
+
+    def get(self, normalizer_id: str) -> Normalizer:
+        try:
+            return self._normalizers[normalizer_id]
+        except KeyError:
+            known = ", ".join(sorted(self._normalizers)) or "(none)"
+            raise KeyError(
+                f"unknown normalizer {normalizer_id!r}; registered: {known}"
+            ) from None
+
+    def __contains__(self, normalizer_id: object) -> bool:
+        return normalizer_id in self._normalizers
+
+    def ids(self) -> tuple[str, ...]:
+        return tuple(sorted(self._normalizers))
+
+    def load_installed(self) -> NormalizerRegistry:
+        for entry_point in entry_points(group=NORMALIZER_ENTRY_POINT_GROUP):
+            normalizer = entry_point.load()()
+            if not isinstance(normalizer, Normalizer):
+                raise TypeError(f"entry point {entry_point.name!r} did not produce a Normalizer")
+            if normalizer.normalizer_id != entry_point.name:
+                raise ValueError(
+                    f"entry point name {entry_point.name!r} does not match "
+                    f"normalizer_id {normalizer.normalizer_id!r}"
+                )
+            self.register(normalizer)
+        return self
+
+
+def default_normalizers() -> NormalizerRegistry:
+    return NormalizerRegistry().load_installed()

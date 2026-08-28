@@ -22,6 +22,7 @@ from aijudge_core import (
     Provenance,
     ReviewState,
     RubricCriterion,
+    RubricLevel,
     TaskVersion,
     TestCase,
     derived_id,
@@ -53,6 +54,38 @@ class TestCaseSpec(BaseModel):
     weight: float = Field(default=1.0, gt=0.0)
 
 
+class LevelSpec(BaseModel):
+    """観点内の到達段階。"""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    level: int = Field(ge=0)
+    label: str = Field(min_length=1)
+    descriptor: str = Field(min_length=1)
+    score_ratio: float = Field(ge=0.0, le=1.0)
+
+
+class CriterionSpec(BaseModel):
+    """課題が宣言する観点 1 つ。
+
+    **プログラミング課題の 2 観点に固定できない。** レポート課題では教員が
+    観点を決める（構成・実験設計・考察・引用など）ので、課題ごとに宣言できる
+    必要がある。宣言しなければ従来どおり「正しさ（＋読みやすさ）」になる。
+
+    `evaluator` を書かないと AI 評価器が担当する。決定的に判定できる観点
+    （必須節が揃っているか、字数が足りているか）だけを評価器に指名する。
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    code: str = Field(min_length=1, max_length=64)
+    title: str = Field(min_length=1)
+    description: str = Field(min_length=1)
+    weight: float = Field(gt=0.0, le=1.0)
+    evaluator: str | None = None
+    levels: tuple[LevelSpec, ...] = Field(min_length=2)
+
+
 class TaskSpec(BaseModel):
     """課題 1 件の宣言。
 
@@ -78,6 +111,8 @@ class TaskSpec(BaseModel):
     evaluator: str = DEFAULT_EVALUATOR
     reference_solution: str | None = None
     test_cases: tuple[TestCaseSpec, ...] = ()
+    # 課題が観点を宣言する場合。空なら「正しさ（＋読みやすさ）」を組み立てる。
+    criteria: tuple[CriterionSpec, ...] = ()
 
     @model_validator(mode="after")
     def _check(self) -> Self:
@@ -93,6 +128,21 @@ class TaskSpec(BaseModel):
         names = [case.name for case in self.test_cases]
         if len(set(names)) != len(names):
             raise ValueError("テストケース名が重複しています")
+        if self.criteria:
+            codes = [c.code for c in self.criteria]
+            if len(set(codes)) != len(codes):
+                raise ValueError("観点コードが重複しています")
+            total = sum(c.weight for c in self.criteria)
+            if abs(total - 1.0) > 1e-6:
+                # 合計が 1.0 でないと集約が成立しない。ここで落とさないと、
+                # 保存の直前にコアの検証が落ちて原因が分かりにくくなる。
+                raise ValueError(f"観点の重みの合計は 1.0 でなければなりません（{total}）")
+            if self.readability_weight > 0.0:
+                # 両方を書けると、どちらが効くのか読めない。
+                raise ValueError(
+                    "criteria を宣言する課題では readability_weight を使えません"
+                    "（読みやすさも観点として書いてください）"
+                )
         return self
 
     @property
@@ -104,6 +154,62 @@ class TaskSpec(BaseModel):
         「全部を人間が見る」に化ける）。
         """
         return bool(self.test_cases)
+
+
+def _declared_version(
+    spec: TaskSpec,
+    cases: tuple[TestCase, ...],
+    *,
+    subject_profile: str,
+    authored_by: UserId,
+    version: int,
+) -> TaskVersion:
+    """課題が観点を宣言している場合の版。
+
+    観点 ID は課題キーと観点コードから決定的に導く（取り込み直しても同じ ID
+    になり、保存済みの採点結果がどの観点の点なのか辿れる、P8）。
+    """
+    from .importers.sharif_judge import _criterion_id
+
+    criteria = tuple(
+        RubricCriterion(
+            id=_criterion_id(spec.key, declared.code),
+            code=declared.code,
+            title=declared.title,
+            description=declared.description,
+            weight=declared.weight,
+            levels=tuple(
+                RubricLevel(
+                    level=level.level,
+                    label=level.label,
+                    descriptor=level.descriptor,
+                    score_ratio=level.score_ratio,
+                )
+                for level in sorted(declared.levels, key=lambda item: item.level)
+            ),
+            evaluator_id=declared.evaluator,
+        )
+        for declared in spec.criteria
+    )
+    return TaskVersion(
+        id=TaskVersionId(derived_id("tsv", spec.key, str(version))),
+        task_id=TaskId(derived_id("tsk", spec.key)),
+        version=version,
+        subject_profile=subject_profile,
+        statement=spec.statement,
+        reference_solution=spec.reference_solution,
+        criteria=criteria,
+        test_cases=cases,
+        q_matrix=(),
+        max_score=spec.max_score,
+        allow_handwriting=False,
+        provenance=Provenance(
+            authored_by=authored_by,
+            review_state=ReviewState.APPROVED,
+            reviewed_by=authored_by,
+        ),
+        created_at=datetime.now(UTC),
+    )
 
 
 def build_task_version(
@@ -138,6 +244,10 @@ def build_task_version(
     # テストケースが無い課題は AI 観点だけで構成する。「自動採点できない
     # 課題」ではなく「**まだ**自動採点できない課題」で、実在する
     # （HTTP サーバ課題・自己採点課題・レポート課題）。
+    if spec.criteria:
+        return _declared_version(spec, cases, subject_profile=subject_profile,
+                                 authored_by=authored_by, version=version)
+
     graded_by = spec.evaluator if spec.auto_graded else AI_EVALUATOR
     correctness = correctness_criterion(graded_by, spec.key)
     if not spec.auto_graded:
@@ -185,6 +295,8 @@ def build_task_version(
 __all__ = [
     "AI_EVALUATOR",
     "DEFAULT_EVALUATOR",
+    "CriterionSpec",
+    "LevelSpec",
     "TaskSpec",
     "TestCaseSpec",
     "build_task_version",

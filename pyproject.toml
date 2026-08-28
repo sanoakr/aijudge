@@ -24,6 +24,8 @@ dependencies = [
     "aijudge-admin",
     "aijudge-toolchain",
     "aijudge-eval-network-test-runner",
+    "aijudge-norm-document-text",
+    "aijudge-eval-report-structure",
 ]
 
 [project.optional-dependencies]
@@ -36,7 +38,7 @@ dev = [
 ]
 
 [tool.uv.workspace]
-members = ["packages/*", "evaluators/*", "apps/*"]
+members = ["packages/*", "evaluators/*", "normalizers/*", "apps/*"]
 
 [tool.uv.sources]
 aijudge-core = { workspace = true }
@@ -59,6 +61,8 @@ aijudge-feedback = { workspace = true }
 aijudge-admin = { workspace = true }
 aijudge-toolchain = { workspace = true }
 aijudge-eval-network-test-runner = { workspace = true }
+aijudge-norm-document-text = { workspace = true }
+aijudge-eval-report-structure = { workspace = true }
 
 [tool.ruff]
 line-length = 100
@@ -97,7 +101,7 @@ known-first-party = [
 [tool.pytest.ini_options]
 # `tests` はどのパッケージにも属さない結合検証。**入れ忘れると走らない。**
 # 実際に走っておらず、ADR 0009 で古くなったテストが 2 件気づかれずに残っていた。
-testpaths = ["packages", "evaluators", "apps", "evals", "tests"]
+testpaths = ["packages", "evaluators", "normalizers", "apps", "evals", "tests"]
 addopts = "-q"
 
 [tool.mypy]

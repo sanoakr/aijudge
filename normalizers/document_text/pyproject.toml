@@ -1,0 +1,24 @@
+[project]
+name = "aijudge-norm-document-text"
+version = "0.0.1"
+description = "Normalizer: turn a submitted PDF or DOCX into the text the graders read."
+requires-python = ">=3.12"
+dependencies = [
+    "aijudge-core",
+    "aijudge-grading",
+    "pypdf>=5.0",
+]
+
+[project.entry-points."aijudge.normalizers"]
+document_text = "aijudge_norm_document_text:DocumentText"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/aijudge_norm_document_text"]
+
+[tool.uv.sources]
+aijudge-core = { workspace = true }
+aijudge-grading = { workspace = true }

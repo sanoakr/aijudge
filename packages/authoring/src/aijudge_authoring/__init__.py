@@ -23,6 +23,8 @@ from .repository import (
 from .spec import (
     AI_EVALUATOR,
     DEFAULT_EVALUATOR,
+    CriterionSpec,
+    LevelSpec,
     TaskSpec,
     TestCaseSpec,
     build_task_version,
@@ -32,7 +34,9 @@ from .statement import render_statement
 __all__ = [
     "AI_EVALUATOR",
     "DEFAULT_EVALUATOR",
+    "CriterionSpec",
     "InMemoryTaskRepository",
+    "LevelSpec",
     "TaskImmutabilityViolation",
     "TaskRepository",
     "TaskSpec",

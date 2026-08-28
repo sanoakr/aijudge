@@ -69,7 +69,20 @@ class ArtifactKind(StrEnum):
     LATEX = "latex"
     MARKDOWN = "markdown"
     PDF = "pdf"
+    # Word 文書。実運用のレポート提出に PDF と混在して現れる（実データで
+    # 19 件のうち 2 件が .docx だった）。片方だけ受け付けると、学習者は
+    # 変換の失敗を採点の失敗として受け取る。
+    DOCX = "docx"
     IMAGE = "image"
+
+    @property
+    def is_document(self) -> bool:
+        """本文が直接読めない文書か。**採点の前に本文へ変換する必要がある。**
+
+        PDF や DOCX の中身をそのまま評価器に渡すと、AI にはバイナリが渡り、
+        字数や節の判定も成立しない（設計方針 §4 の Normalize 段）。
+        """
+        return self in (ArtifactKind.PDF, ArtifactKind.DOCX)
 
 
 class TranscriptionMeta(BaseModel):
