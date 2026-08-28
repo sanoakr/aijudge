@@ -93,6 +93,7 @@ def list_courses(database: Database, tenant_id: TenantId) -> tuple[Course, ...]:
                 title=row.title,
                 term=row.term,
                 subject_profile=row.subject_profile,
+                auto_finalize_after_hours=row.auto_finalize_after_hours,
             )
             for row in rows
         )

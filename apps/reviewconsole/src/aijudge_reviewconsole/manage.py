@@ -15,6 +15,12 @@
 - コースの作成・削除は **ADMIN**
 - そのコースの課題・受講の管理は **INSTRUCTOR 以上**（TA には開けない。
   締切や受講の変更は成績に直接効く）
+
+成績の確定もここに置く。教員の待ち行列は異議申立だけなので（ADR 0009）、
+依頼が出なかった提出を閉じる導線がどこかに要る。課題ごとの一括確定と、
+締切からの猶予（`auto_finalize_after_hours`）の設定がそれである
+（ADR 0010）。**猶予は科目プロファイルではなくコースに持つ** ── 締切と
+同じ性質の運用値で、教員が学期中に決めるものだから。
 """
 
 from __future__ import annotations
@@ -29,9 +35,25 @@ from typing import Annotated
 from fastapi import APIRouter, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from aijudge_admin import AdminError, enrol_roster, ensure_course, import_tasks, parse_roster
+from aijudge_admin import (
+    AdminError,
+    enrol_roster,
+    ensure_course,
+    finalize_task,
+    import_tasks,
+    parse_roster,
+    pending_counts,
+)
 from aijudge_admin.roster import RosterError
-from aijudge_core import Course, Role, Task
+from aijudge_core import (
+    MIN_JUSTIFICATION_LENGTH,
+    Course,
+    GradeWindow,
+    Role,
+    Task,
+    deadline_for,
+    grade_window,
+)
 from aijudge_core.ids import CourseId, TaskId, UserId
 from aijudge_identity import AuthService, PermissionDenied, Principal
 
@@ -177,6 +199,11 @@ def register(templates) -> APIRouter:
         course = _require_instructor(request, me, CourseId(course_id))
         console = _console(request)
 
+        # 課題ごとの未確定件数。**画面に出す。** 自動確定を設定したつもりで
+        # cron を仕掛け忘れても、件数が減らないことで気づける。
+        pending = pending_counts(console.database, course.id)
+        now = datetime.now(UTC)
+
         with console.database.unit_of_work() as uow:
             tasks = []
             for task in uow.tasks.list_for_course(course.id):
@@ -193,6 +220,17 @@ def register(templates) -> APIRouter:
                         "auto_graded": bool(version.test_cases),
                         "evaluators": sorted(
                             {c.evaluator_id for c in version.criteria if c.evaluator_id}
+                        ),
+                        "unfinalized": pending.get(task.id, 0),
+                        # 自動確定が走る時刻。締切か猶予が無ければ None。
+                        "auto_finalize_at": deadline_for(
+                            task.due_at, course.auto_finalize_after_hours
+                        ),
+                        # いまどの段階か。**期限経過なのに未確定が残っている
+                        # ことが見えるようにする** ── 自動確定が動いていないか、
+                        # 教員の対応を待っているものがあるかのどちらかである。
+                        "window": grade_window(
+                            task.due_at, course.auto_finalize_after_hours, now
                         ),
                     }
                 )
@@ -223,6 +261,16 @@ def register(templates) -> APIRouter:
                 "profile_text": profile_text,
                 "profile_path": profile_path.name,
                 "roles": [role.value for role in Role],
+                "min_reason": MIN_JUSTIFICATION_LENGTH,
+                # このコースの結果だけを渡す。
+                "PROVISIONAL": GradeWindow.PROVISIONAL,
+                "ELAPSED": GradeWindow.ELAPSED,
+                "last_finalize": (
+                    console.last_finalize[1]
+                    if console.last_finalize is not None
+                    and console.last_finalize[0] == str(course.id)
+                    else None
+                ),
             },
         )
 
@@ -255,6 +303,97 @@ def register(templates) -> APIRouter:
                 raise HTTPException(status_code=404, detail="課題が見つかりません")
             uow.tasks.save_task(task.model_copy(update={"opens_at": opens, "due_at": due}))
             uow.commit()
+        return RedirectResponse(f"/manage/courses/{course_id}", status_code=303)
+
+    @router.post("/courses/{course_id}/auto-finalize")
+    def set_auto_finalize(
+        request: Request,
+        course_id: str,
+        after_hours: Annotated[str, Form()] = "",
+    ) -> Response:
+        """締切から成績を自動確定するまでの猶予（時間）。
+
+        空なら自動確定しない。**既定はそれ**で、教員が明示的に入れて初めて
+        自動確定が始まる。既定で自動確定させると、設定を知らない教員の
+        コースで成績が勝手に閉じる。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+
+        text = after_hours.strip()
+        hours: float | None = None
+        if text:
+            try:
+                hours = float(text)
+            except ValueError:
+                raise HTTPException(
+                    status_code=400, detail=f"時間の形式が不正です: {after_hours!r}"
+                ) from None
+            if hours <= 0:
+                # 0 を許すと締切と同時に確定し、締切直前の提出が採点前に
+                # 確定しうる。猶予は正の値でなければ意味がない。
+                raise HTTPException(status_code=400, detail="猶予は 0 より大きい値にしてください")
+
+        with console.database.unit_of_work() as uow:
+            uow.identity.save_course(
+                course.model_copy(update={"auto_finalize_after_hours": hours})
+            )
+            uow.commit()
+        return RedirectResponse(f"/manage/courses/{course_id}", status_code=303)
+
+    @router.post("/courses/{course_id}/tasks/{task_id}/finalize")
+    def finalize_remaining(
+        request: Request,
+        course_id: str,
+        task_id: str,
+        justification: Annotated[str, Form()] = "",
+    ) -> Response:
+        """この課題の未確定分をまとめて確定する。
+
+        **根拠説明を必須にする。** 学習者にそのまま表示される。個別に読んで
+        いない成績を確定させる操作なので、何を根拠にそうしたのかが残らないと
+        学習者は何も分からない（設計原則 P4 を一括操作にも適用する）。
+
+        未対応の異議申立は確定しない。そこは 1 件ずつ読むべきものとして
+        待ち行列に残す。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+
+        text = justification.strip()
+        if len(text) < MIN_JUSTIFICATION_LENGTH:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"確定の根拠を {MIN_JUSTIFICATION_LENGTH} 文字以上で書いてください"
+                    "（学習者に表示されます）"
+                ),
+            )
+
+        with console.database.unit_of_work() as uow:
+            task = uow.tasks.get_task(TaskId(task_id))
+            if task is None or task.course_id != CourseId(course_id):
+                raise HTTPException(status_code=404, detail="課題が見つかりません")
+
+        try:
+            outcome = finalize_task(
+                console.database,
+                task_id=TaskId(task_id),
+                actor_id=me.user_id,
+                justification=text,
+            )
+        except AdminError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        # 表示のために保持する。**コースを添える**（Console は全利用者で共有で、
+        # 添えないと別コースの教員に他コースの課題名が出る）。
+        console.last_finalize = (str(course_id), outcome)
         return RedirectResponse(f"/manage/courses/{course_id}", status_code=303)
 
     @router.post("/courses/{course_id}/tasks")

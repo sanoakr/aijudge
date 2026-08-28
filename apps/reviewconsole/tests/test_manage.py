@@ -439,3 +439,132 @@ def test_there_is_no_route_that_writes_a_subject_profile(world: World) -> None:
     assert not writable, sorted(writable)
     # 管理画面の経路は列挙できていること（走査に失敗していない）。
     assert "/manage/courses/{course_id}" in paths
+
+
+# --------------------------------------------------------------------------
+# 成績の確定（ADR 0010）
+# --------------------------------------------------------------------------
+
+
+def test_the_grace_is_saved_on_the_course(world: World) -> None:
+    """猶予はコースに持つ。科目プロファイルではない（あれは編集させない）。"""
+    world.register("teacher", Role.INSTRUCTOR)
+
+    response = world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/auto-finalize",
+        data={"after_hours": "48"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+
+    with world.database.unit_of_work() as uow:
+        course = uow.identity.get_course(world.course.id)
+    assert course is not None
+    assert course.auto_finalize_after_hours == 48.0
+
+
+def test_an_empty_grace_turns_automatic_finalization_off(world: World) -> None:
+    """空欄は「自動確定しない」。既定はそれである。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    client.post(f"/manage/courses/{world.course.id}/auto-finalize", data={"after_hours": "24"})
+    client.post(f"/manage/courses/{world.course.id}/auto-finalize", data={"after_hours": ""})
+
+    with world.database.unit_of_work() as uow:
+        course = uow.identity.get_course(world.course.id)
+    assert course is not None
+    assert course.auto_finalize_after_hours is None
+
+
+def test_a_zero_grace_is_refused(world: World) -> None:
+    """0 を許すと締切と同時に確定し、締切直前の提出が採点前に確定しうる。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    for value in ("0", "-1", "しばらく"):
+        assert (
+            client.post(
+                f"/manage/courses/{world.course.id}/auto-finalize", data={"after_hours": value}
+            ).status_code
+            == 400
+        ), value
+
+
+def test_an_assistant_cannot_change_the_grace(world: World) -> None:
+    """猶予は成績に直接効く。採点を分担する TA の権限とは別（既存の締切と同じ）。"""
+    world.register("ta", Role.ASSISTANT)
+    response = world.client("ta").post(
+        f"/manage/courses/{world.course.id}/auto-finalize", data={"after_hours": "24"}
+    )
+    assert response.status_code == 403
+
+
+def test_bulk_finalization_requires_a_justification(world: World) -> None:
+    """個別に読んでいない成績を確定させる操作。根拠が残らないと学習者に何も返らない。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    task_id = _import_example(world)
+    client = world.client("teacher")
+
+    for text in ("", "確認", "   "):
+        response = client.post(
+            f"/manage/courses/{world.course.id}/tasks/{task_id}/finalize",
+            data={"justification": text},
+        )
+        assert response.status_code == 400, text
+
+
+def test_bulk_finalization_refuses_a_task_from_another_course(world: World) -> None:
+    world.register("teacher", Role.INSTRUCTOR)
+    other, _ = ensure_course(
+        world.database,
+        tenant_id=TENANT,
+        code="network",
+        title="ネットワーク",
+        term="2025-後期",
+        subject_profile="net_python",
+        profiles_dir=PROFILES,
+    )
+    world.register("other_teacher", Role.INSTRUCTOR, other.id)
+    task_id = _import_example(world)
+
+    response = world.client("other_teacher").post(
+        f"/manage/courses/{other.id}/tasks/{task_id}/finalize",
+        data={"justification": "他コースの課題を確定しようとしています。"},
+    )
+    assert response.status_code == 404
+
+
+def test_an_assistant_cannot_bulk_finalize(world: World) -> None:
+    world.register("ta", Role.ASSISTANT)
+    task_id = _import_example(world)
+    response = world.client("ta").post(
+        f"/manage/courses/{world.course.id}/tasks/{task_id}/finalize",
+        data={"justification": "TA がまとめて確定しようとしています。"},
+    )
+    assert response.status_code == 403
+
+
+def test_a_bulk_finalization_result_does_not_leak_to_another_course(world: World) -> None:
+    """`Console` は全利用者で共有なので、結果の表示にコースを添えている。
+
+    添えないと、別コースの教員の画面に他コースの課題名が出る。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    other, _ = ensure_course(
+        world.database,
+        tenant_id=TENANT,
+        code="network",
+        title="ネットワーク",
+        term="2025-後期",
+        subject_profile="net_python",
+        profiles_dir=PROFILES,
+    )
+    world.register("other_teacher", Role.INSTRUCTOR, other.id)
+    task_id = _import_example(world)
+
+    world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/tasks/{task_id}/finalize",
+        data={"justification": "テスト全通の提出をまとめて確定します。"},
+    )
+
+    body = world.client("other_teacher").get(f"/manage/courses/{other.id}").text
+    assert "件を確定しました" not in body

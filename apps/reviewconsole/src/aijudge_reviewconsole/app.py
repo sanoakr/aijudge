@@ -43,6 +43,8 @@ from aijudge_core import (
     MIN_JUSTIFICATION_LENGTH,
     BlindMark,
     Course,
+    Finalization,
+    FinalizationSource,
     GradingRun,
     HumanReview,
     RubricCriterion,
@@ -50,7 +52,13 @@ from aijudge_core import (
     TaskVersion,
     new_id,
 )
-from aijudge_core.ids import CourseId, CriterionId, HumanReviewId, SubmissionId
+from aijudge_core.ids import (
+    CourseId,
+    CriterionId,
+    FinalizationId,
+    HumanReviewId,
+    SubmissionId,
+)
 from aijudge_grading import load_profile, project_observations
 from aijudge_identity import (
     AuthenticationFailed,
@@ -93,6 +101,10 @@ class Console:
         self._rates: dict[str, float] = {}
         # 直近の課題取り込み結果。管理画面が表示に使う。
         self.last_import = None
+        # 直近の一括確定の結果を (course_id, outcome) で持つ。
+        # **コースを添えるのは Console が全利用者で共有だから。** 添えないと、
+        # 別のコースの教員に他コースの課題名が出る。
+        self.last_finalize: tuple[str, object] | None = None
 
     def blind_sample_rate(self, subject_profile: str) -> float:
         """科目プロファイルが宣言した blind 抽出率。
@@ -362,6 +374,7 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 "review": context.review,
                 "was_blind": context.mark is not None,
                 "review_request": context.request,
+                "finalization": context.finalization,
                 "learner": context.learner,
                 "task_meta": context.task,
                 "min_reason": MIN_JUSTIFICATION_LENGTH,
@@ -397,9 +410,14 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
             )
 
         review_id = HumanReviewId(new_id("hrv"))
+        now = datetime.now(UTC)
         with console.database.unit_of_work() as uow:
             request = uow.reviews.find_request_for_run(context.run.id)
             try:
+                # 2 つの記録を書く。**別物である**（ADR 0010）。
+                # HumanReview は「教員がこの 1 件を読んだ」── 一致度の測定が
+                # 証拠に使える唯一の記録。Finalization は「成績が確定した」──
+                # 一括確定や自動確定でも起きる事実。
                 uow.reviews.save_review(
                     HumanReview(
                         id=review_id,
@@ -408,9 +426,25 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                         adjusted_levels=adjusted,
                         comment=text,
                         request_id=None if request is None else request.id,
-                        reviewed_at=datetime.now(UTC),
+                        reviewed_at=now,
                     )
                 )
+                if context.finalization is None:
+                    uow.reviews.save_finalization(
+                        Finalization(
+                            id=FinalizationId(new_id("fin")),
+                            grading_run_id=context.run.id,
+                            source=FinalizationSource.INSTRUCTOR_REVIEW,
+                            actor_id=me.user_id,
+                            review_id=review_id,
+                            justification=text,
+                            finalized_at=now,
+                        )
+                    )
+                # 既に確定済みのことがある。**自動確定した成績に学習者が
+                # 異議を申し立て、教員が読む経路。** 確定の記録は最初の
+                # ものを残す（追記のみ、P8）。教員が読んだ事実は
+                # `HumanReview` の側に付き、学習者にはそちらが出る。
                 if request is not None:
                     uow.reviews.resolve_request(request.id, review_id)
             except ImmutabilityViolation as exc:
@@ -444,6 +478,7 @@ class _Context:
 
     __slots__ = (
         "course",
+        "finalization",
         "learner",
         "mark",
         "needs_blind",
@@ -467,6 +502,7 @@ class _Context:
         task: object | None = None,
         learner: object | None = None,
         request: object | None = None,
+        finalization: Finalization | None = None,
     ) -> None:
         self.submission = submission
         self.run = run
@@ -478,6 +514,7 @@ class _Context:
         self.task = task
         self.learner = learner
         self.request = request
+        self.finalization = finalization
 
 
 def _can_grade(auth: AuthService, course_id: CourseId, me: Principal) -> bool:
@@ -522,6 +559,7 @@ def _load(console: Console, me: Principal, submission_id: SubmissionId) -> _Cont
         mark = uow.reviews.find_blind_mark(submission_id)
         review = uow.reviews.find_review_for_run(run.id)
         request = uow.reviews.find_request_for_run(run.id)
+        finalization = uow.reviews.find_finalization_for_run(run.id)
         learner = uow.identity.get_user(submission.learner_id)
 
     needs_blind = mark is None and console.needs_blind_mark(submission, course.subject_profile)
@@ -536,6 +574,7 @@ def _load(console: Console, me: Principal, submission_id: SubmissionId) -> _Cont
         task=task,
         learner=learner,
         request=request,
+        finalization=finalization,
     )
 
 

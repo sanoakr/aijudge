@@ -748,3 +748,51 @@ def test_the_blind_mark_is_labelled_after_reveal(blind_world: World) -> None:
     )
     body = blind_world.client.get(f"/review/{accepted.submission.id}/reveal").text
     assert "あなたの blind 採点" in body
+
+
+@needs_c_compiler
+def test_an_already_finalized_run_can_still_be_reviewed(world: World) -> None:
+    """自動確定した成績を教員が読んで確定できること。
+
+    確定の記録は 1 採点につき 1 つなので、素直に書くと二度目で 409 になる。
+    確定は最初のものを残し、教員が読んだ事実は `HumanReview` の側に付ける
+    （ADR 0010、追記のみ P8）。この経路は実在する ── 自動確定した成績に
+    学習者が異議を申し立て、教員が読む。
+    """
+    from datetime import UTC, datetime
+
+    from aijudge_core import Finalization, FinalizationSource, new_id
+    from aijudge_core.ids import FinalizationId
+
+    _, accepted = _instructor_and_submission(world)
+    world.worker.run_once()
+
+    with world.database.unit_of_work() as uow:
+        run = uow.runs.latest_for(accepted.submission.id)
+        assert run is not None
+        uow.reviews.save_finalization(
+            Finalization(
+                id=FinalizationId(new_id("fin")),
+                grading_run_id=run.id,
+                source=FinalizationSource.DEADLINE_ELAPSED,
+                justification="締切から所定の時間が経過したため自動確定しました。",
+                finalized_at=datetime.now(UTC),
+            )
+        )
+        uow.commit()
+
+    machine = {score.criterion_id: score.level for score in run.criterion_scores}
+    response = world.client.post(
+        f"/review/{accepted.submission.id}/finalize",
+        data=_agree_form(world, machine),
+        follow_redirects=False,
+    )
+    assert response.status_code == 303, response.text
+
+    with world.database.unit_of_work() as uow:
+        review = uow.reviews.find_review_for_run(run.id)
+        finalization = uow.reviews.find_finalization_for_run(run.id)
+    assert review is not None, "教員が読んだ記録が残っていない"
+    # 確定の記録は最初のものを残す。上書きしない。
+    assert finalization is not None
+    assert finalization.source is FinalizationSource.DEADLINE_ELAPSED

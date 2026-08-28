@@ -10,6 +10,13 @@
 
 from __future__ import annotations
 
+from .finalization import (
+    FinalizeReport,
+    TaskOutcome,
+    finalize_task,
+    pending_counts,
+    sweep_deadlines,
+)
 from .operations import (
     AdminError,
     EnrolReport,
@@ -35,19 +42,24 @@ from .roster import (
 __all__ = [
     "AdminError",
     "EnrolReport",
+    "FinalizeReport",
     "ImportReport",
     "ImportedTask",
     "RosterEntry",
     "RosterError",
+    "TaskOutcome",
     "create_staff",
     "enrol_roster",
     "ensure_course",
+    "finalize_task",
     "generate_password",
     "import_tasks",
     "list_courses",
     "list_tasks",
     "load_roster",
     "parse_roster",
+    "pending_counts",
     "set_password",
+    "sweep_deadlines",
     "write_credentials",
 ]
