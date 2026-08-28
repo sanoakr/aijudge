@@ -35,7 +35,6 @@ from aijudge_analytics.metrics import (
     quadratic_weighted_kappa,
 )
 
-HERE = Path(__file__).parent
 CODES = [c["code"] for c in rubric.CRITERIA]
 TITLES = {c["code"]: c["title"] for c in rubric.CRITERIA}
 
@@ -55,19 +54,19 @@ DEFAULT_RATERS = [
 
 
 def load_raters(specs: list[str]) -> tuple[dict[str, dict], dict]:
-    index = {r["login"]: r for r in json.loads((HERE / "index.json").read_text("utf-8"))}
+    index = {r["login"]: r for r in json.loads(rubric.INDEX.read_text("utf-8"))}
     raters: dict[str, dict[str, dict[str, int]]] = {}
     for spec in specs:
         name, _, label = spec.partition(":")
         label = label or name
         if name == "csv":
             raters[label] = {
-                login: {c: row["human"][rubric.HUMAN_COLUMN[c]] for c in CODES}
+                login: dict(row["human"])
                 for login, row in index.items()
                 if row["human"] is not None
             }
             continue
-        runs = json.loads((HERE / "runs" / f"{name}.json").read_text("utf-8"))
+        runs = json.loads((rubric.RUNS / f"{name}.json").read_text("utf-8"))
         raters[label] = {
             r["login"]: {c: s["level"] for c, s in r["scores"].items()} for r in runs
         }
@@ -101,10 +100,8 @@ def consensus(raters: dict[str, dict], logins: list[str]) -> dict[str, dict[str,
 
 
 def total(levels: dict[str, int]) -> int | None:
-    """全観点そろっているときだけ合計を出す。**欠けを 0 で埋めない。**"""
-    if any(c not in levels for c in CODES):
-        return None
-    return sum(levels[c] for c in CODES)
+    """合計点。**段階と配点が 1 対 1 でない科目がある**ので rubric に任せる。"""
+    return rubric.total(levels)
 
 
 def totals(rater: dict) -> dict[str, int]:
@@ -360,8 +357,11 @@ def main() -> int:
     # ---- 2. 生データ -----------------------------------------------------
     w("## 2. 生データ（観点別の段階）")
     w("")
-    w("配点は 体裁 4 / 実験先 3 / 条件 2 / 独自性 8 / 考察 4 / 結果 2 = 23 点。")
-    w("段階は配点と 1 対 1（丸めていない）。`—` は未採点。")
+    w("配点: " + " / ".join(
+        f"{TITLES[c].split('（')[0]} {rubric.POINTS[c]}" for c in CODES
+    ) + f" = {rubric.TOTAL_POINTS} 点。")
+    w(f"段階は 0〜{max(rubric.MAX_LEVEL.values())}（教員の付け方をそのまま写す）。"
+      f"合計は 0〜{rubric.TOTAL_MAX} 段階。`—` は未採点。")
     w("")
     columns = " | ".join(TITLES[c].split("（")[0] for c in CODES)
     header = f"| 学生 | 採点者 | {columns} | 合計 |"
@@ -382,7 +382,7 @@ def main() -> int:
     # ---- 3. 採点者ごとの分布 ---------------------------------------------
     w("## 3. 採点者ごとの分布")
     w("")
-    w("### 3.1 合計点")
+    w(f"### 3.1 合計点（0〜{rubric.TOTAL_MAX} 段階）")
     w("")
     w("| 採点者 | n | 平均 | σ | 最小 | 最大 | 範囲の幅 |")
     w("|---|--:|--:|--:|--:|--:|--:|")
@@ -411,7 +411,7 @@ def main() -> int:
 
     w("### 3.2 観点別（平均 / σ / 使った段階の数）")
     w("")
-    w("| 観点 | 満点 | " + " | ".join(names) + " |")
+    w("| 観点 | 配点 | " + " | ".join(names) + " |")
     w("|---" * (len(names) + 2) + "|")
     for code in CODES:
         cells = []
@@ -431,7 +431,7 @@ def main() -> int:
     w("（全観点の和は 1.0）。**その採点者が誰を上位に置くかを決めているのは")
     w("どの観点か**を表す。")
     w("")
-    w("| 観点 | 満点 | " + " | ".join(names) + " |")
+    w("| 観点 | 配点 | " + " | ".join(names) + " |")
     w("|---" * (len(names) + 2) + "|")
     contributions: dict[str, dict[str, float]] = {}
     for code in CODES:
@@ -478,19 +478,19 @@ def main() -> int:
             w(
                 f"| {x} ↔ {y} | {len(a)} | {exact_agreement(a, b):.1%}"
                 f" | {fmt(cohen_kappa(a, b))}"
-                f" | {fmt(quadratic_weighted_kappa(a, b, range(rubric.POINTS[code] + 1)))} |"
+                f" | {fmt(quadratic_weighted_kappa(a, b, range(rubric.MAX_LEVEL[code] + 1)))} |"
             )
         units = [
             [raters[n][login].get(code) if login in raters[n] else None for n in names]
             for login in logins
         ]
-        alpha = krippendorff_alpha_ordinal(units, list(range(rubric.POINTS[code] + 1)))
+        alpha = krippendorff_alpha_ordinal(units, list(range(rubric.MAX_LEVEL[code] + 1)))
         w("")
         w(f"{len(names)} 者まとめて: **Krippendorff の α = {fmt(alpha)}**")
         w("")
 
     # ---- 6. 合計点 -------------------------------------------------------
-    w("## 6. 合計点の一致度")
+    w(f"## 6. 合計点の一致度（0〜{rubric.TOTAL_MAX} 段階）")
     w("")
     w("**r（ピアソン）と QWK を並べて見る。** r は順位だけを見るので、一律の")
     w("ずれや幅の違いでは下がらない。QWK は同じ値を付けたかを見るので下がる。")
@@ -508,7 +508,7 @@ def main() -> int:
         w(
             f"| {x} ↔ {y} | {len(a)} | {fmt(pearson(a, b))} | {fmt(spearman(a, b))}"
             f" | {fmt(kendall_tau(a, b))}"
-            f" | {fmt(quadratic_weighted_kappa(a, b, range(rubric.TOTAL_POINTS + 1)))}"
+            f" | {fmt(quadratic_weighted_kappa(a, b, range(rubric.TOTAL_MAX + 1)))}"
             f" | {statistics.fmean(diffs):+.2f}"
             f" | {statistics.fmean(abs(d) for d in diffs):.2f} |"
         )
@@ -516,7 +516,7 @@ def main() -> int:
         [tot[n].get(login) for n in names]
         for login in logins
     ]
-    alpha = krippendorff_alpha_ordinal(units, list(range(rubric.TOTAL_POINTS + 1)))
+    alpha = krippendorff_alpha_ordinal(units, list(range(rubric.TOTAL_MAX + 1)))
     w("")
     w(f"{len(names)} 者まとめて: **Krippendorff の α = {fmt(alpha)}**")
     w("")
@@ -537,7 +537,7 @@ def main() -> int:
         b = [tot[y][i] for i in shared]
         sx, sy = statistics.pstdev(a), statistics.pstdev(b)
         ratio = f"{sy / sx:.2f}" if sx else "—"
-        qwk = quadratic_weighted_kappa(a, b, range(rubric.TOTAL_POINTS + 1))
+        qwk = quadratic_weighted_kappa(a, b, range(rubric.TOTAL_MAX + 1))
         w(
             f"| {x} ↔ {y} | {statistics.fmean(b) - statistics.fmean(a):+.2f}"
             f" | {ratio} | {fmt(spearman(a, b))} | {fmt(qwk)} |"
@@ -550,8 +550,9 @@ def main() -> int:
     w("「順位は合っているが尺度が合っていない」なら、**1 次式で写せば一致度は")
     w("上がるはず**である。これを検定する。")
     w("")
-    w("**同じ 19 件で当てはめて測ると必ず上がる**ので、各件の変換は")
-    w("その件を除いた 18 件から決める（1 件抜き交差検証）。上がらなければ、")
+    w(f"**同じ {len(logins)} 件で当てはめて測ると必ず上がる**ので、各件の変換は")
+    w(f"その件を除いた {len(logins) - 1} 件から決める（1 件抜き交差検証）。"
+      "上がらなければ、")
     w("問題は較正ではなく**何を見ているかの違い**である。")
     w("")
     w(f"| モデル → {base_name} | QWK（そのまま） | QWK（較正後） | 変化 | 平均絶対差 前→後 |")
@@ -565,11 +566,11 @@ def main() -> int:
         source = [tot[name][i] for i in shared]
         target = [base_tot[i] for i in shared]
         before = quadratic_weighted_kappa(
-            target, source, range(rubric.TOTAL_POINTS + 1)
+            target, source, range(rubric.TOTAL_MAX + 1)
         )
-        mapped = recalibrated_loo(source, target, rubric.TOTAL_POINTS)
+        mapped = recalibrated_loo(source, target, rubric.TOTAL_MAX)
         after = quadratic_weighted_kappa(
-            target, mapped, range(rubric.TOTAL_POINTS + 1)
+            target, mapped, range(rubric.TOTAL_MAX + 1)
         )
         mae_before = statistics.fmean(
             abs(s - t) for s, t in zip(source, target, strict=True)
@@ -586,17 +587,24 @@ def main() -> int:
     # ---- 9. 10 点上限の判定 ----------------------------------------------
     w("## 9. 成績を左右する 1 つの決定 — 10 点上限")
     w("")
-    w("この課題の運用では、実験先が 0（localhost だけ）のレポートは")
-    w("**20 点満点中 10 点が上限**になる。他のどの観点よりも成績への効き方が大きい")
-    w("単一の判定なので、ここだけを 2 値で取り出す。")
-    w("")
+    # **この節は「実験先」を持つ科目だけのもの。** 観点が無い科目で出すと、
+    # 全員が「上限なし」で一致するだけの無意味な表になる。
+    if "target" not in CODES:
+        w("この科目には、単独で成績を左右する 2 値の判定に当たる観点が無い。")
+        w("（2025 年度の「実験先」＝ localhost だけなら 10 点上限、に相当するもの）")
+        w("")
+    else:
+        w("この課題の運用では、実験先が 0（localhost だけ）のレポートは")
+        w("**20 点満点中 10 点が上限**になる。他のどの観点よりも成績への効き方が")
+        w("大きい単一の判定なので、ここだけを 2 値で取り出す。")
+        w("")
     w(
         f"| 採点者 | 上限と判定 | {base_name} と一致"
         f" | 見逃し（{base_name} は上限・その採点者は上限でない） | 過剰（逆） |"
     )
     w("|---|--:|--:|--:|--:|")
     capped_csv = {i for i in base if base[i].get("target") == 0}
-    for name in names:
+    for name in names if "target" in CODES else []:
         rater = raters[name]
         shared = sorted(set(rater) & set(base))
         capped = {i for i in shared if rater[i].get("target") == 0}
@@ -638,13 +646,13 @@ def main() -> int:
         d = [y - x for x, y in zip(p, q, strict=True)]
         w(
             f"| {name} | {len(p)} | {fmt(pearson(p, q))}"
-            f" | {fmt(quadratic_weighted_kappa(p, q, range(rubric.TOTAL_POINTS + 1)))}"
+            f" | {fmt(quadratic_weighted_kappa(p, q, range(rubric.TOTAL_MAX + 1)))}"
             f" | {statistics.fmean(d):+.2f} | {statistics.fmean(abs(v) for v in d):.2f} |"
         )
     d = [y - x for x, y in zip(a, b, strict=True)]
     w(
         f"| **4 モデルの中央値** | {len(a)} | {fmt(pearson(a, b))}"
-        f" | {fmt(quadratic_weighted_kappa(a, b, range(rubric.TOTAL_POINTS + 1)))}"
+        f" | {fmt(quadratic_weighted_kappa(a, b, range(rubric.TOTAL_MAX + 1)))}"
         f" | {statistics.fmean(d):+.2f} | {statistics.fmean(abs(v) for v in d):.2f} |"
     )
     w("")
@@ -701,7 +709,7 @@ def main() -> int:
             qwk = quadratic_weighted_kappa(
                 [tot[x][i] for i in shared],
                 [tot[y][i] for i in shared],
-                range(rubric.TOTAL_POINTS + 1),
+                range(rubric.TOTAL_MAX + 1),
             )
             distance[(x, y)] = 1.0 - qwk
             cells.append(f"{1.0 - qwk:.3f}")
@@ -734,14 +742,14 @@ def main() -> int:
         full = quadratic_weighted_kappa(
             [base_tot[i] for i in shared],
             [tot[name][i] for i in shared],
-            range(rubric.TOTAL_POINTS + 1),
+            range(rubric.TOTAL_MAX + 1),
         )
         cells = []
         for dropped in CODES:
             kept = [c for c in CODES if c != dropped]
-            top = sum(rubric.POINTS[c] for c in kept)
-            a = [sum(base[i][c] for c in kept) for i in shared]
-            b = [sum(raters[name][i][c] for c in kept) for i in shared]
+            top = sum(rubric.MAX_LEVEL[c] * rubric.TOTAL_WEIGHT[c] for c in kept)
+            a = [sum(base[i][c] * rubric.TOTAL_WEIGHT[c] for c in kept) for i in shared]
+            b = [sum(raters[name][i][c] * rubric.TOTAL_WEIGHT[c] for c in kept) for i in shared]
             without = quadratic_weighted_kappa(a, b, range(top + 1))
             cells.append(f"{without:+.3f} ({without - full:+.3f})")
         w(f"| {name} | {full:+.3f} | " + " | ".join(cells) + " |")

@@ -1,245 +1,75 @@
-"""教員の実採点（network2025-report.csv）に合わせたルーブリック。
+"""採点表の読み込み口。**どのデータセットを見るかはここだけが知っている。**
 
-**観点も配点も教員が実際に使ったものをそのまま写す。** 従来の 4 観点
-（体裁・設計・結果・考察）は設計時に作った仮のもので、教員の採点表とは
-観点の数も配点も違っていた。違うものを測っても一致度は測れない。
+`AIJUDGE_EVAL_DATASET` で切り替える（既定は 2025）。各スクリプトは
+`import rubric` のまま変えずに済み、データセットを足す作業は
+`rubric_<年>.py` を 1 本書くだけになる。
 
-    A_体裁 4 / B_実験先 3 / C_条件 2 / D_独自性 8 / E_考察 4 / F_結果 2 = 23 点
+    AIJUDGE_EVAL_DATASET=2023 uv run python evals/report_ja/extract.py
 
-段階は**教員の配点そのもの**にしてある（体裁なら 0〜4）。丸めた段階に
-写すと、写した時点で一致度が変わってしまい、何を測ったのか分からなくなる。
+置き場所もここで決める。**データセットごとに分ける** ── 混ぜると、
+2023 年度の採点結果を 2025 年度のルーブリックで読むことになる。
+提出物と採点表は repository の外（設計検討ディレクトリ）にある。
 """
 
 from __future__ import annotations
 
-# 教員の配点。重みはこれを 23 で割ったもの。
-POINTS = {
-    "format": 4,
-    "target": 3,
-    "conditions": 2,
-    "originality": 8,
-    "discussion": 4,
-    "results": 2,
-}
-TOTAL_POINTS = sum(POINTS.values())
+import importlib
+import os
+from pathlib import Path
 
-# CSV の列と観点コードの対応。
-HUMAN_COLUMN = {
-    "format": "A_format",
-    "target": "B_target",
-    "conditions": "C_conditions",
-    "originality": "D_originality",
-    "discussion": "E_discussion",
-    "results": "F_results",
-}
+ENV_DATASET = "AIJUDGE_EVAL_DATASET"
+DEFAULT_DATASET = "2025"
 
-STATEMENT = """## [必須] HTTP サーバの性能評価レポート ##
+_name = os.environ.get(ENV_DATASET, DEFAULT_DATASET)
+try:
+    _module = importlib.import_module(f"rubric_{_name}")
+except ModuleNotFoundError as exc:  # pragma: no cover - 打ち間違い
+    raise SystemExit(
+        f"{ENV_DATASET}={_name!r} に対応する rubric_{_name}.py がありません"
+    ) from exc
 
-講義で作成した HTTP サーバを対象に、条件を変えて応答性能を測定し、
-結果を考察してレポートにまとめなさい。
+# ルーブリックの中身をそのまま通す。
+DATASET = _module.DATASET
+POINTS = _module.POINTS
+TOTAL_POINTS = _module.TOTAL_POINTS
+MAX_LEVEL = _module.MAX_LEVEL
+TOTAL_WEIGHT = _module.TOTAL_WEIGHT
+TOTAL_MAX = _module.TOTAL_MAX
+HUMAN_COLUMN = _module.HUMAN_COLUMN
+STATEMENT = _module.STATEMENT
+CRITERIA = _module.CRITERIA
+EVALUATOR_OPTIONS = _module.EVALUATOR_OPTIONS
+STUDENT_RE = _module.STUDENT_RE
+load_human = _module.load_human
 
-次の節を含めること。
+CODES = [c["code"] for c in CRITERIA]
 
-- **目的** — 何を明らかにするための実験か
-- **条件** — サーバ・クライアント・測定対象・変化させたパラメータ・試行回数
-- **方法** — 再現できる手順（実行したコマンドを含む）
-- **結果** — 測定値を表とグラフで示す
-- **考察** — 結果から分かること、および分からないこと
+# 設計検討ディレクトリ。提出物と採点表はここにある（repository には置かない）。
+DESIGN_DIR = Path.home() / "pCloud Drive/Agent Projects/aiJudge設計検討"
+SOURCE_DIR = DESIGN_DIR / _module.SOURCE
+HUMAN_CSV = DESIGN_DIR / _module.HUMAN_CSV
 
-分量の目安は本文 800 字以上。提出は PDF。
-
-測定の対象は自分のホスト（localhost）に限らない。外部のサイトや
-LAN 上の別の機械を測ってもよく、**自分で選んだ条件で比較すること**を
-評価する。
-"""
-
-
-def _levels(items: list[tuple[int, str, str]], top: int) -> list[dict]:
-    return [
-        {
-            "level": level,
-            "label": label,
-            "descriptor": descriptor,
-            "score_ratio": level / top,
-        }
-        for level, label, descriptor in items
-    ]
+# 作業用の置き場所。すべて .git/info/exclude で除外してある。
+WORK = Path(__file__).parent / f"data-{DATASET}"
+INDEX = WORK / "index.json"
+BODIES = WORK / "bodies"
+BODIES_ANON = WORK / "bodies_anon"
+PROMPTS = WORK / "prompts"
+RUNS = WORK / "runs"
+AGENT_OUT = WORK / "agent_out"
 
 
-CRITERIA = [
-    {
-        "code": "format",
-        "title": "体裁（4 点）",
-        "description": (
-            "必須の節が揃い、分量と測定値の記載があり、指定された形式（PDF）で"
-            "出されているか。読めば機械的に分かることなので機械が判定する。"
-        ),
-        "weight": POINTS["format"] / TOTAL_POINTS,
-        "evaluator": "report_structure",
-        "levels": _levels(
-            [
-                (0, "未達", "節・分量・測定値・提出形式のいずれも満たさない"),
-                (1, "1 つ", "4 つの条件のうち 1 つを満たす"),
-                (2, "2 つ", "4 つの条件のうち 2 つを満たす"),
-                (3, "3 つ", "4 つの条件のうち 3 つを満たす"),
-                (4, "達成", "必須の節・分量・測定値の記載・PDF 提出のすべてを満たす"),
-            ],
-            4,
-        ),
-    },
-    {
-        "code": "target",
-        "title": "実験先（3 点）",
-        "description": (
-            "何を測ったか。自分のホスト（localhost / 127.0.0.1）だけで完結して"
-            "いるか、それとも自ホスト以外を測っているか。**測定の質ではなく"
-            "測定先だけ**を見ること。"
-        ),
-        "weight": POINTS["target"] / TOTAL_POINTS,
-        "levels": _levels(
-            [
-                (0, "自ホストのみ", "測定先が localhost / 127.0.0.1 だけである"),
-                (1, "併用", "自ホストが主で、外部のホストを補助的に併せて測っている"),
-                (2, "外部 1 つ", "自ホスト以外を測っているが、対象が 1 つで比較になっていない"),
-                (
-                    3,
-                    "外部で比較",
-                    "自ホスト以外の複数の対象（外部サイト・LAN 上の別の機械・"
-                    "携帯回線など）を測って比較している",
-                ),
-            ],
-            3,
-        ),
-    },
-    {
-        "code": "conditions",
-        "title": "実験条件（2 点）",
-        "description": (
-            "他人が同じ測定を再現できるか。対象・変化させたパラメータ・"
-            "固定した条件・試行回数が示されているか。"
-        ),
-        "weight": POINTS["conditions"] / TOTAL_POINTS,
-        "levels": _levels(
-            [
-                (0, "未達", "何をどう測ったのか読み取れない"),
-                (1, "一部", "測定はしているが条件の記述が欠け、そのままでは再現できない"),
-                (2, "達成", "条件が示され、他人が同じ測定を再現できる"),
-            ],
-            2,
-        ),
-    },
-    {
-        "code": "originality",
-        "title": "独自性（8 点）",
-        "description": (
-            "講義で示した例からどれだけ自分で踏み出したか。**この観点が配点の"
-            "3 分の 1 を占める。** 講義例をなぞっただけのレポートと、自分で条件を"
-            "設計したレポートを、ここで分けること。"
-        ),
-        "weight": POINTS["originality"] / TOTAL_POINTS,
-        "levels": _levels(
-            [
-                (0, "測定なし", "測定そのものが無い"),
-                # **軸の本数で数えさせない。** 一度そう書き換えたところ、
-                # 平均 2.26 点も辛くなり QWK が 0.57 から 0.23 に落ちた
-                # （教員が 8 を付けた 3 件がすべて 5 前後になった）。
-                # 教員が見ているのは数え上げではなく「踏み出した度合い」で、
-                # 曖昧なままの方が一致する。
-                (1, "なぞりのみ", "講義例をなぞっただけで、自分で足した条件が 1 つも無い"),
-                (2, "ほぼ講義例", "講義例とほぼ同じ。変えたのは試行回数など些細な点だけ"),
-                (3, "条件を 1 つ追加", "講義例に自分で条件を 1 つ足している"),
-                (4, "1 種類の比較", "自分で選んだ条件で 1 種類の比較をしている"),
-                (5, "2 種類の比較", "2 種類以上の条件を組み合わせて比較している"),
-                (
-                    6,
-                    "独自の観点",
-                    "講義で扱っていない観点（Keep-Alive・スレッド数・遅延の付与・"
-                    "p95/p99 など）を自分で持ち込んでいる",
-                ),
-                (7, "観点の組合せ", "複数の独自の観点を組み合わせ、比較の設計に意図がある"),
-                (
-                    8,
-                    "体系的",
-                    "講義例から明確に踏み出した対象・条件を自分で設計し、"
-                    "比較が体系的に組まれている",
-                ),
-            ],
-            8,
-        ),
-    },
-    {
-        "code": "discussion",
-        "title": "考察（4 点）",
-        "description": (
-            "結果から言えることと言えないことを区別し、原因に踏み込んでいるか。"
-            "結果の言い換えで終わっていないか。"
-        ),
-        "weight": POINTS["discussion"] / TOTAL_POINTS,
-        "levels": _levels(
-            [
-                (0, "未達", "考察の節が無い、または「〜が速かった」と結果を繰り返すだけ"),
-                (
-                    1,
-                    "傾向のみ",
-                    "どちらが速い・遅いという傾向を述べるだけで、なぜそうなるかを"
-                    "一度も書いていない。**原因の語（〜のため、〜だから、"
-                    "〜が原因で）が出てこなければこの段階。**",
-                ),
-                (
-                    2,
-                    "原因は推測",
-                    "原因らしきものを挙げるが、自分の測定値を引かずに一般論"
-                    "（「ネットワークの遅延のため」等）で済ませている",
-                ),
-                (
-                    3,
-                    "測定値を引く",
-                    "自分の測定値を具体的に引用して（「70 倍の差」「p95 が 2 倍」）"
-                    "原因を説明している",
-                ),
-                (
-                    4,
-                    "限界も明示",
-                    "測定値を引いて原因を説明したうえで、**さらに**この実験では"
-                    "言えないこと・異常値・条件の制約のいずれかに触れている。"
-                    "触れていなければ段階 3 に留めること",
-                ),
-            ],
-            4,
-        ),
-    },
-    {
-        "code": "results",
-        "title": "結果の提示（2 点）",
-        "description": (
-            "測定値が表やグラフで示され、単位・条件・軸が対応しているか。"
-            "数値を並べただけでないか。"
-        ),
-        "weight": POINTS["results"] / TOTAL_POINTS,
-        "levels": _levels(
-            [
-                (0, "未達", "測定値が示されていない"),
-                (1, "一部", "数値はあるが単位や条件との対応が不明"),
-                (2, "達成", "表かグラフで示され、単位と条件が対応している"),
-            ],
-            2,
-        ),
-    },
-]
+def total(levels: dict[str, int]) -> int | None:
+    """全観点そろっているときだけ合計を出す。**欠けを 0 で埋めない。**
 
-# 科目プロファイルに渡す評価器の設定。体裁の 4 本目の条件（提出形式）は
-# 課題文が PDF を指定しているので課す。
-EVALUATOR_OPTIONS = {
-    "report_structure": {
-        "sections": {
-            "目的": ["目的", "背景と目的", "はじめに"],
-            "条件": ["条件", "実験条件", "実験環境", "環境", "測定条件"],
-            "方法": ["方法", "実験方法", "手順", "測定方法"],
-            "結果": ["結果", "実験結果", "測定結果"],
-            "考察": ["考察", "議論"],
-        },
-        "min_characters": 800,
-        "min_numbers": 8,
-        "required_kinds": ["pdf"],
-    },
-}
+    段階と配点が 1 対 1 でない科目があるので、必ずここを通す
+    （2023 年度は比率 0〜10 × 配点 5/5/5/10）。
+    """
+    if any(code not in levels for code in CODES):
+        return None
+    return sum(levels[code] * TOTAL_WEIGHT[code] for code in CODES)
+
+
+def ensure_dirs() -> None:
+    for path in (WORK, BODIES, BODIES_ANON, PROMPTS, RUNS, AGENT_OUT):
+        path.mkdir(parents=True, exist_ok=True)

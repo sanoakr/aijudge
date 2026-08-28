@@ -31,8 +31,6 @@ from aijudge_analytics.metrics import (
     quadratic_weighted_kappa,
 )
 
-HERE = Path(__file__).parent
-
 
 def load_csv_rater(index: dict) -> dict[str, dict[str, int]]:
     """CSV の採点を、実行結果と同じ形（学生 → 観点 → 段階）にする。"""
@@ -40,14 +38,12 @@ def load_csv_rater(index: dict) -> dict[str, dict[str, int]]:
     for login, row in index.items():
         if row["human"] is None:
             continue
-        out[login] = {
-            code: row["human"][column] for code, column in rubric.HUMAN_COLUMN.items()
-        }
+        out[login] = dict(row["human"])
     return out
 
 
 def load_run(name: str) -> dict[str, dict[str, int]]:
-    runs = json.loads((HERE / "runs" / f"{name}.json").read_text("utf-8"))
+    runs = json.loads((rubric.RUNS / f"{name}.json").read_text("utf-8"))
     return {
         r["login"]: {code: s["level"] for code, s in r["scores"].items()} for r in runs
     }
@@ -66,12 +62,12 @@ def pairwise(a: dict, b: dict, code: str) -> tuple[list[int], list[int]]:
 
 def totals(rater: dict) -> dict[str, int]:
     """全観点が揃っている提出だけの合計点（23 点尺度）。"""
-    codes = [c["code"] for c in rubric.CRITERIA]
-    return {
-        login: sum(levels[c] for c in codes)
-        for login, levels in rater.items()
-        if all(c in levels for c in codes)
-    }
+    out = {}
+    for login, levels in rater.items():
+        value = rubric.total(levels)
+        if value is not None:
+            out[login] = value
+    return out
 
 
 def main() -> int:
@@ -84,7 +80,7 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    index = {r["login"]: r for r in json.loads((HERE / "index.json").read_text("utf-8"))}
+    index = {r["login"]: r for r in json.loads(rubric.INDEX.read_text("utf-8"))}
     raters: dict[str, dict] = {}
     for spec in args.raters:
         name, _, label = spec.partition(":")
@@ -105,7 +101,7 @@ def main() -> int:
             if len(a) < 2:
                 print(f"  {x} ↔ {y}: 対が足りない")
                 continue
-            levels = range(rubric.POINTS[code] + 1)
+            levels = range(rubric.MAX_LEVEL[code] + 1)
             print(
                 f"  {x + ' ↔ ' + y:30} {len(a):2}"
                 f"   {exact_agreement(a, b):6.1%}"
@@ -150,7 +146,7 @@ def main() -> int:
         print(
             f"  {x + ' ↔ ' + y:30} {len(a):2}"
             f"   {r:+.3f}"
-            f"   {quadratic_weighted_kappa(a, b, range(rubric.TOTAL_POINTS + 1)):+.3f}"
+            f"   {quadratic_weighted_kappa(a, b, range(rubric.TOTAL_MAX + 1)):+.3f}"
             f"   {statistics.fmean(diffs):+6.2f}"
             f"   {statistics.fmean(abs(d) for d in diffs):6.2f}"
         )

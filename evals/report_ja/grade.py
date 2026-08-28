@@ -48,9 +48,6 @@ from aijudge_core.ids import (
 from aijudge_grading import GradingPipeline, SubjectProfile, default_normalizers, default_registry
 from aijudge_grading.profile import InputPolicy, MeasurementPolicy
 
-HERE = Path(__file__).parent
-REPORTS = Path.home() / "pCloud Drive/Agent Projects/aiJudge設計検討/network-report2025"
-
 
 def build_task_version() -> TaskVersion:
     """rubric.py の宣言から課題版を組む。"""
@@ -78,7 +75,7 @@ def build_task_version() -> TaskVersion:
         subject_profile="report_ja",
         statement=rubric.STATEMENT,
         criteria=tuple(criteria),
-        max_score=20.0,
+        max_score=float(rubric.TOTAL_POINTS),
         allow_handwriting=False,
         provenance=Provenance(
             authored_by=UserId("usr_" + "0" * 32), review_state=ReviewState.APPROVED
@@ -143,7 +140,7 @@ def build_submission(login: str, path: Path) -> tuple[Submission, bytes]:
 
 
 def grade_one(pipeline, task_version, login, filename):
-    submission, payload = build_submission(login, REPORTS / filename)
+    submission, payload = build_submission(login, rubric.SOURCE_DIR / filename)
     # ContentLoader は Artifact を受け取る（ID ではない）。
     def load(artifact):
         return payload
@@ -184,7 +181,8 @@ def main() -> int:
     parser.add_argument("--only", default=None, help="この学生だけ")
     args = parser.parse_args()
 
-    index = json.loads((HERE / "index.json").read_text(encoding="utf-8"))
+    rubric.ensure_dirs()
+    index = json.loads(rubric.INDEX.read_text(encoding="utf-8"))
     if args.only:
         index = [r for r in index if r["login"] == args.only.upper()]
     index.sort(key=lambda r: r["login"])
@@ -217,12 +215,13 @@ def main() -> int:
             )
 
     results.sort(key=lambda r: r["login"])
-    out = HERE / "runs"
-    out.mkdir(exist_ok=True)
-    (out / f"{args.name}.json").write_text(
+    (rubric.RUNS / f"{args.name}.json").write_text(
         json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8"
     )
-    print(f"\n{len(results)} 件 / {time.monotonic() - started:.0f} 秒 → runs/{args.name}.json")
+    print(
+        f"\n[{rubric.DATASET}] {len(results)} 件"
+        f" / {time.monotonic() - started:.0f} 秒 → {rubric.RUNS}/{args.name}.json"
+    )
     return 0
 
 

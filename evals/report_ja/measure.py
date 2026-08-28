@@ -25,7 +25,6 @@ from aijudge_analytics.metrics import (
     quadratic_weighted_kappa,
 )
 
-HERE = Path(__file__).parent
 # gates.yaml の基準（Phase 1）。
 GATE_KAPPA = 0.65
 GATE_QWK = 0.60
@@ -51,19 +50,18 @@ def main() -> int:
     parser.add_argument("--name", default="run1")
     args = parser.parse_args()
 
-    index = {r["login"]: r for r in json.loads((HERE / "index.json").read_text("utf-8"))}
-    runs = json.loads((HERE / "runs" / f"{args.name}.json").read_text("utf-8"))
+    index = {r["login"]: r for r in json.loads(rubric.INDEX.read_text("utf-8"))}
+    runs = json.loads((rubric.RUNS / f"{args.name}.json").read_text("utf-8"))
 
-    print(f"# 測定 — runs/{args.name}.json（提出 {len(runs)} 件）\n")
+    print(f"# 測定 — [{rubric.DATASET}] {args.name}（提出 {len(runs)} 件）\n")
 
     # --- 観点ごとの一致度 ------------------------------------------------
     print("観点              点  n   完全一致   κ         QWK       平均差")
     print("-" * 72)
     for spec in rubric.CRITERIA:
         code = spec["code"]
-        column = rubric.HUMAN_COLUMN[code]
         pairs = [
-            (index[r["login"]]["human"][column], r["scores"][code]["level"])
+            (index[r["login"]]["human"][code], r["scores"][code]["level"])
             for r in runs
             if code in r["scores"] and index[r["login"]]["human"]
         ]
@@ -76,7 +74,7 @@ def main() -> int:
         # 段階は 0 から配点まで。出現しなかった段階も期待値に効くので
         # 全部渡す。
         qwk = quadratic_weighted_kappa(
-            human, machine, range(rubric.POINTS[code] + 1)
+            human, machine, range(rubric.MAX_LEVEL[code] + 1)
         )
         bias = statistics.fmean(m - h for h, m in pairs)
         print(
@@ -88,18 +86,17 @@ def main() -> int:
         )
 
     # --- 合計点の一致 ----------------------------------------------------
-    print("\n## 合計点（23 点満点に戻して比較）\n")
+    print(f"\n## 合計点（0〜{rubric.TOTAL_MAX} 段階）\n")
     rows = []
     for r in runs:
         human = index[r["login"]]["human"]
         if human is None or r["unscored"]:
             continue
-        m_total = sum(
-            r["scores"][spec["code"]]["level"]
-            for spec in rubric.CRITERIA
-            if spec["code"] in r["scores"]
-        )
-        rows.append((r["login"], human["raw_total"], m_total, r["routing"]))
+        m_total = rubric.total({c: v["level"] for c, v in r["scores"].items()})
+        h_total = rubric.total(human)
+        if m_total is None or h_total is None:
+            continue
+        rows.append((r["login"], h_total, m_total, r["routing"]))
     if rows:
         h = [x[1] for x in rows]
         m = [x[2] for x in rows]
@@ -108,8 +105,8 @@ def main() -> int:
         print(f"  全観点が採点できた提出: {len(rows)} / {len(runs)}")
         print(f"  相関 r = {corr:+.3f}" if corr is not None else "  相関 = —")
         print(
-            "  QWK（23 点尺度） = "
-            f"{quadratic_weighted_kappa(h, m, range(rubric.TOTAL_POINTS + 1)):+.3f}"
+            f"  QWK（0〜{rubric.TOTAL_MAX} 段階） = "
+            f"{quadratic_weighted_kappa(h, m, range(rubric.TOTAL_MAX + 1)):+.3f}"
         )
         print(
             f"  平均差 {statistics.fmean(diffs):+.2f} 点 /"

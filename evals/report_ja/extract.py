@@ -7,7 +7,6 @@
 
 from __future__ import annotations
 
-import csv
 import hashlib
 import json
 import re
@@ -15,29 +14,28 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path.home() / "dev/aijudge"))
+sys.path.insert(0, str(Path(__file__).parent))
 
 from datetime import UTC, datetime
 
+import rubric
 from aijudge_norm_document_text import DocumentText
 
 from aijudge_core import Artifact, ArtifactKind, ArtifactRole
 from aijudge_core.ids import ArtifactId, SubmissionId, new_id
 
-REPORTS = Path.home() / "pCloud Drive/Agent Projects/aiJudge設計検討/network-report2025"
-CSV = Path.home() / "pCloud Drive/Agent Projects/aiJudge設計検討/network2025-report.csv"
-OUT = Path(__file__).parent / "bodies"
-
 # ファイル名から学籍番号を取る。`Y230035_HTTPサーバ性能評価...pdf` のように
 # 後ろに題名が付くものがあるので、先頭の学籍番号だけを見る。
-STUDENT_RE = re.compile(r"^([Yy]\d{6})")
+STUDENT_RE = re.compile(rubric.STUDENT_RE)
 
 
 def main() -> int:
-    graded = {row["学籍番号"].upper(): row for row in csv.DictReader(CSV.open(encoding="utf-8"))}
+    rubric.ensure_dirs()
+    graded = rubric.load_human(rubric.HUMAN_CSV)
     normalizer = DocumentText()
     index = []
 
-    for path in sorted(REPORTS.iterdir()):
+    for path in sorted(rubric.SOURCE_DIR.iterdir()):
         match = STUDENT_RE.match(path.name)
         if match is None:
             continue
@@ -63,8 +61,7 @@ def main() -> int:
             text = ""
             readable = False
 
-        (OUT / f"{login}.txt").write_text(text, encoding="utf-8")
-        row = graded.get(login)
+        (rubric.BODIES / f"{login}.txt").write_text(text, encoding="utf-8")
         index.append(
             {
                 "login": login,
@@ -72,28 +69,13 @@ def main() -> int:
                 "kind": kind.value,
                 "readable": readable,
                 "characters": len(re.sub(r"\s", "", text)),
-                "human": None
-                if row is None
-                else {
-                    "A_format": int(row["A_体裁4"]),
-                    "B_target": int(row["B_実験先3"]),
-                    "C_conditions": int(row["C_条件2"]),
-                    "D_originality": int(row["D_独自性8"]),
-                    "E_discussion": int(row["E_考察4"]),
-                    "F_results": int(row["F_結果2"]),
-                    "raw_total": int(row["計算点(23)"]),
-                    "normalized20": float(row["正規化20点"]),
-                    "final": float(row["最終点"]),
-                    "comment": row["コメント"],
-                },
+                "human": graded.get(login),
             }
         )
 
-    (Path(__file__).parent / "index.json").write_text(
-        json.dumps(index, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    rubric.INDEX.write_text(json.dumps(index, ensure_ascii=False, indent=2), encoding="utf-8")
     missing = [r["login"] for r in index if r["human"] is None]
-    print(f"抽出 {len(index)} 件 / 教員採点あり {len(index) - len(missing)} 件")
+    print(f"[{rubric.DATASET}] 抽出 {len(index)} 件 / 採点表にあり {len(index) - len(missing)} 件")
     if missing:
         print(f"  教員採点が見つからない: {missing}")
     for r in index:

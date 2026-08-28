@@ -21,7 +21,6 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import rubric
 
-HERE = Path(__file__).parent
 FENCE = re.compile(r"^\s*```(?:json)?\s*|\s*```\s*$", re.MULTILINE)
 
 
@@ -42,9 +41,9 @@ def main() -> int:
     parser.add_argument("--name", default=None, help="runs/ に置く名前（既定は model）")
     args = parser.parse_args()
 
-    source = HERE / "agent_out" / args.model
+    source = rubric.AGENT_OUT / args.model
     name = args.name or args.model
-    top = {c["code"]: rubric.POINTS[c["code"]] for c in rubric.CRITERIA}
+    top = dict(rubric.MAX_LEVEL)
 
     results = []
     for path in sorted(source.glob("*.json")):
@@ -86,9 +85,10 @@ def main() -> int:
                 "login": login,
                 # 合計比率は 23 点尺度から作る（他の実行と同じ意味にする）。
                 "score_ratio": (
-                    sum(scores[c]["level"] for c in scores) / rubric.TOTAL_POINTS
-                    if not unscored
-                    else None
+                    None
+                    if unscored
+                    else rubric.total({c: v["level"] for c, v in scores.items()})
+                    / rubric.TOTAL_MAX
                 ),
                 # 確信度が無いので振り分けは決められない。
                 "routing": "not_routed",
@@ -99,10 +99,10 @@ def main() -> int:
             }
         )
 
-    out = HERE / "runs" / f"{name}.json"
+    out = rubric.RUNS / f"{name}.json"
     out.write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
     complete = sum(1 for r in results if not r["unscored"])
-    print(f"{len(results)} 件（全観点そろい {complete} 件） → runs/{name}.json")
+    print(f"[{rubric.DATASET}] {len(results)} 件（全観点そろい {complete} 件） → {out}")
     return 0
 
 

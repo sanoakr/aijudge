@@ -15,9 +15,12 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from pathlib import Path
 
-HERE = Path(__file__).parent
+sys.path.insert(0, str(Path(__file__).parent))
+
+import rubric
 
 # 学籍番号の形。実データは Y+6 桁。
 STUDENT_ID = re.compile(r"[YyＹｙ][\s　]*[0-9０-９][\s　]*(?:[0-9０-９][\s　]*){5}")
@@ -58,12 +61,12 @@ def anonymize(text: str) -> tuple[str, int]:
 
 
 def main() -> int:
-    index = json.loads((HERE / "index.json").read_text(encoding="utf-8"))
-    out_dir = HERE / "bodies_anon"
-    out_dir.mkdir(exist_ok=True)
+    rubric.ensure_dirs()
+    index = json.loads(rubric.INDEX.read_text(encoding="utf-8"))
+    out_dir = rubric.BODIES_ANON
     total = 0
     for row in sorted(index, key=lambda r: r["login"]):
-        text = (HERE / "bodies" / f"{row['login']}.txt").read_text(encoding="utf-8")
+        text = (rubric.BODIES / f"{row['login']}.txt").read_text(encoding="utf-8")
         cleaned, hits = anonymize(text)
         (out_dir / f"{row['login']}.txt").write_text(cleaned, encoding="utf-8")
         total += hits

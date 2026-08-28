@@ -1,4 +1,5 @@
-# ruff: noqa: E501 — 出力形式の見本が 100 桁を超える。**折らない。**
+# 見本を組み立てる形にしたので、長すぎる行は無くなった。
+
 # ここを折ると、モデルに見せた文面が実際に送ったものと変わる。
 """API を使えない環境で、Sonnet 5 / Opus 5 に同じ判定をさせるための下ごしらえ。
 
@@ -26,8 +27,6 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import rubric
 
-HERE = Path(__file__).parent
-
 
 def describe_levels(spec: dict) -> str:
     """`rubric_ai_judge.describe_levels` と同じ形にする。"""
@@ -42,6 +41,17 @@ def number_lines(source: str) -> str:
     width = len(str(len(lines)))
     return "\n".join(f"{i:>{width}} | {line}" for i, line in enumerate(lines, 1))
 
+
+# 出力の見本。**観点コードをここで名指しする** ── 決め打ちにすると、
+# 観点の違う科目に流用したときに存在しないコードを求めることになる。
+FIRST = rubric.CRITERIA[0]["code"]
+SHAPE = ",\n".join(
+    [
+        f'  "{FIRST}": {{"level": 整数, "evidence": [{{"start_line": 整数,'
+        ' "end_line": 整数}], "rationale": "..."}'
+    ]
+    + [f'  "{c["code"]}": {{...}}' for c in rubric.CRITERIA[1:]]
+)
 
 CRITERIA_BLOCK = "\n\n".join(
     f"### 観点 `{c['code']}`: {c['title']}\n\n{c['description']}\n\n段階:\n"
@@ -73,7 +83,7 @@ TEMPLATE = """あなたは大学の演習レポートの採点者です。以下
 
 # 指示
 
-- 上の 6 つの観点それぞれについて、段階の番号を 1 つ選ぶこと。
+- 上の {count} つの観点それぞれについて、段階の番号を 1 つ選ぶこと。
 - すでに確定していることを再評価しないこと。
 - `evidence` には本文の行範囲を 1 つ以上入れること。根拠を示せない判定はしない。
 - `rationale` は日本語で、学習者が次に何をすればよいか分かるように書くこと。
@@ -83,20 +93,18 @@ TEMPLATE = """あなたは大学の演習レポートの採点者です。以下
 出力する JSON の形（この形だけを出力し、他の文字は書かない）:
 
 {{"scores": {{
-  "format": {{"level": 整数, "evidence": [{{"start_line": 整数, "end_line": 整数}}], "rationale": "..."}},
-  "target": {{...}}, "conditions": {{...}},
-  "originality": {{...}}, "discussion": {{...}}, "results": {{...}}
+{shape}
 }}}}
 """
 
 
 def main() -> int:
-    index = json.loads((HERE / "index.json").read_text(encoding="utf-8"))
-    out = HERE / "prompts"
-    out.mkdir(exist_ok=True)
+    rubric.ensure_dirs()
+    index = json.loads(rubric.INDEX.read_text(encoding="utf-8"))
+    out = rubric.PROMPTS
 
     for row in sorted(index, key=lambda r: r["login"]):
-        body = (HERE / "bodies_anon" / f"{row['login']}.txt").read_text(encoding="utf-8")
+        body = (rubric.BODIES_ANON / f"{row['login']}.txt").read_text(encoding="utf-8")
         # 体裁は決定的評価器が確定させる観点なので、ローカル経路と同じく
         # 「すでに確定していること」として渡す ── ここを空にすると、
         # 他モデルだけが体裁を自分で判定することになり比較にならない。
@@ -109,10 +117,12 @@ def main() -> int:
             criteria=CRITERIA_BLOCK,
             prior=prior,
             body=number_lines(body),
+            count=len(rubric.CRITERIA),
+            shape=SHAPE,
         )
         (out / f"{row['login']}.md").write_text(text, encoding="utf-8")
         print(f"  {row['login']:9} {len(text):6} 字")
-    print(f"\n{len(index)} 件 → prompts/")
+    print(f"\n[{rubric.DATASET}] {len(index)} 件 → {out}")
     return 0
 
 
