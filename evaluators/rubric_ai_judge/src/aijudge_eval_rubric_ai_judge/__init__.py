@@ -245,11 +245,29 @@ class RubricAiJudge:
     # -- internals ---------------------------------------------------------
 
     def _source(self, request: EvaluationRequest) -> tuple[ArtifactId | None, str | None]:
+        """判定する本文を選ぶ。
+
+        **提出時の種類では選ばない。** 正規化器が既に本文へ直しているので
+        （設計方針 §4 step 1）、`kind` は「学習者が何を出したか」の記録で
+        あって「いま何が渡っているか」ではない。種類で絞ると、PDF で出された
+        レポートを ── 本文が渡っているのに ── 素通りさせる。実際にそうなり、
+        実提出 19 件のうち 18 件で AI 観点が未採点のまま教員に積まれた。
+
+        判定は**中身が文字として読めるか**で行う。新しい提出形式を足す作業が
+        正規化器 1 つで済むのは、ここが種類を知らないからである。
+        """
         for artifact in request.submission.gradable_artifacts:
             content = request.artifact_contents.get(artifact.id)
-            if content is None or artifact.kind.value not in ("code", "latex", "markdown"):
+            if content is None:
                 continue
-            return artifact.id, content.decode("utf-8", errors="replace")
+            try:
+                # errors="replace" にしない。バイナリが「文字化けした本文」
+                # として通り、モデルにゴミを判定させることになる。
+                text = content.decode("utf-8")
+            except UnicodeDecodeError:
+                continue
+            if text.strip():
+                return artifact.id, text
         return None, None
 
     def _clamp_level(self, criterion: RubricCriterion, level: int) -> int:
