@@ -57,6 +57,12 @@ DEFAULT_MIN_CHARACTERS = 800
 # 測定値が 1 つも無ければ結果を示していない。
 DEFAULT_MIN_NUMBERS = 8
 
+# 受け付ける提出形式。**空なら形式を問わない。** 課題文が形式を指定して
+# いるとき（「提出は PDF」）、それを守ったかは読めば分かることなので、
+# AI ではなくここで確定させる。実データの教員採点でも体裁の減点理由に
+# なっていた（DOCX の 2 件がどちらも体裁で引かれている）。
+DEFAULT_REQUIRED_KINDS: tuple[str, ...] = ()
+
 _NUMBER = re.compile(r"\d+(?:\.\d+)?")
 
 
@@ -105,6 +111,7 @@ class ReportStructure:
         sections = _sections_from(options)
         min_chars = int(options.get("min_characters", DEFAULT_MIN_CHARACTERS))
         min_numbers = int(options.get("min_numbers", DEFAULT_MIN_NUMBERS))
+        required_kinds = _required_kinds(options)
 
         found = _readable_artifact(request)
         text = None if found is None else found[1]
@@ -125,12 +132,15 @@ class ReportStructure:
         characters = len(re.sub(r"\s", "", text))
         numbers = len(_NUMBER.findall(text))
 
-        # 満たした条件の数で段階を決める。節・字数・数値の 3 本立て。
+        # 満たした条件の数で段階を決める。節・字数・数値、そして課題が
+        # 形式を指定していればその 1 つ。
         checks = [
             not missing,
             characters >= min_chars,
             numbers >= min_numbers,
         ]
+        if required_kinds:
+            checks.append(found[0].kind.value in required_kinds)
         satisfied = sum(1 for ok in checks if ok)
         level = _level_for(satisfied, len(checks), criterion)
 
@@ -147,6 +157,12 @@ class ReportStructure:
             f"数値の記載 {numbers} 個（下限 {min_numbers}）"
             + ("" if numbers >= min_numbers else " — 不足")
         )
+        if required_kinds:
+            actual = found[0].kind.value
+            reasons.append(
+                f"提出形式 {actual}"
+                + ("" if actual in required_kinds else f" — 指定は {'・'.join(required_kinds)}")
+            )
 
         result_id = EvaluatorResultId(new_id("evr"))
         return EvaluationOutcome(
@@ -179,6 +195,8 @@ class ReportStructure:
             ),
             raw_output={
                 "readable": True,
+                "kind": found[0].kind.value,
+                "required_kinds": list(required_kinds),
                 "sections": present,
                 "missing": missing,
                 "characters": characters,
@@ -206,6 +224,18 @@ def _sections_from(options: dict[str, object]) -> dict[str, tuple[str, ...]]:
     if isinstance(declared, list):
         return {str(name): (str(name),) for name in declared}
     return DEFAULT_SECTIONS
+
+
+def _required_kinds(options: dict[str, object]) -> tuple[str, ...]:
+    """課題が指定した提出形式。宣言が無ければ形式を問わない。"""
+    declared = options.get("required_kinds")
+    if not declared:
+        return DEFAULT_REQUIRED_KINDS
+    if isinstance(declared, str):
+        return (declared,)
+    if isinstance(declared, list | tuple):
+        return tuple(str(kind) for kind in declared)
+    return DEFAULT_REQUIRED_KINDS
 
 
 def _readable_artifact(request: EvaluationRequest):
@@ -249,6 +279,7 @@ def build() -> ReportStructure:
 __all__ = [
     "DEFAULT_MIN_CHARACTERS",
     "DEFAULT_MIN_NUMBERS",
+    "DEFAULT_REQUIRED_KINDS",
     "DEFAULT_SECTIONS",
     "EVALUATOR_ID",
     "ReportStructure",

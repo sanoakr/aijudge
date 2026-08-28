@@ -47,6 +47,11 @@ evaluator_options:
       考察: [考察, 議論]
     min_characters: 800
     min_numbers: 8
+    # 課題文が「提出は PDF」と書いているので、守ったかどうかも体裁で見る。
+    # 教員の実採点でも、DOCX で出された 2 件はどちらも体裁で引かれていた。
+    # **宣言があるときだけ条件が 4 本になる**ので、体裁を 0〜4 の 5 段階で
+    # 持つ課題では段階と 1 対 1 に対応する。
+    required_kinds: [pdf]
 
 aggregation: weighted_sum
 

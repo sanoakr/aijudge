@@ -196,3 +196,30 @@ def test_the_task_can_declare_its_own_sections() -> None:
 
     assert outcome.scores[0].level == 3
     assert outcome.raw_output["missing"] == []
+
+
+def test_a_declared_format_becomes_a_fourth_check() -> None:
+    """課題が提出形式を指定すると、体裁の条件が 1 本増える。
+
+    実データの教員採点では、DOCX で出された 2 件がどちらも体裁で引かれて
+    いた。課題文が「提出は PDF」と書いている以上、守ったかどうかは読めば
+    分かることで、AI に聞く話ではない（P3）。
+    """
+    text = f"1. 目的\n{BODY}\n2. 条件\n{NUMBERS}\n3. 方法\n4. 結果\n5. 考察\n{BODY}"
+    outcome = ReportStructure().evaluate(_request(text, required_kinds=["docx"]))
+
+    assert outcome.status is EvaluatorStatus.OK
+    assert outcome.raw_output["kind"] == "pdf"
+    assert outcome.raw_output["required_kinds"] == ["docx"]
+    # 節・分量・数値は満たすが形式だけ外れる → 4 本中 3 本。
+    assert outcome.scores[0].level < 3
+    assert "指定は docx" in outcome.scores[0].rationale
+
+
+def test_no_declared_format_leaves_the_three_checks() -> None:
+    """宣言が無ければ形式を問わない。既存の課題の段階が黙って下がらない。"""
+    text = f"1. 目的\n{BODY}\n2. 条件\n{NUMBERS}\n3. 方法\n4. 結果\n5. 考察\n{BODY}"
+    outcome = ReportStructure().evaluate(_request(text))
+
+    assert outcome.raw_output["required_kinds"] == []
+    assert outcome.scores[0].level == 3
