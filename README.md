@@ -150,6 +150,66 @@ the body is clean.
 No authentication yet; it binds to localhost only. Put it behind S1 before
 exposing it.
 
+### Finalising a grade is not the same as reviewing it
+
+The instructor's queue holds only the submissions learners contested
+([ADR 0009](docs/adr/0009-show-the-verdict-and-let-the-learner-contest-it.md)).
+That is the only queue 91 learners times a dozen tasks can produce that anyone
+can act on — but it leaves every uncontested submission unfinalised forever, and
+the term never closes. Two things close it:
+
+```fish
+uv run aijudge-finalize --once     # deadline + n hours elapsed (for cron)
+uv run aijudge-finalize            # or resident, every 15 minutes
+```
+
+and a per-task **"finalise the rest"** button in `/manage`, which demands a
+written justification and shows it back to the learner.
+
+**Neither writes a `HumanReview`.** A grade closing and an instructor having read
+the work are two different facts, and the record keeps them apart
+([ADR 0010](docs/adr/0010-finalising-a-grade-is-not-a-human-review.md)):
+
+| record | means | evidence for κ |
+|---|---|---|
+| `HumanReview` | an instructor read **this** submission | **yes** |
+| `Finalization` | the grade closed, and by what route | no |
+
+Collapse them and most of a term's grades carry "the instructor agreed with the
+AI" while nobody read them — the agreement you then measure is invented, which is
+exactly what [ADR 0005](docs/adr/0005-accuracy-measurement.md) exists to prevent.
+Keeping them apart means the measurement code needed no change at all.
+
+The automatic route runs in two stages, because a grade that closes silently is
+the one-way notice [ADR 0009](docs/adr/0009-show-the-verdict-and-let-the-learner-contest-it.md)
+set out to avoid:
+
+```
+graded ──→ provisional at the deadline   "this settles at 09/08 23:59 — say so before then"
+       ──→ settled at deadline + n       unless a learner contested it
+```
+
+Announcing the time is what earns the right to close the appeal window at `n`.
+Miss that window and the page points at the instructor instead of the form. The
+stage is derived from `due_at` and the grace, never stored — deadlines move
+during a term, and a stored stage would keep the old one.
+
+The automatic route is the stricter one. It skips anything the review policy
+flagged (`review_required`), anything with an unscored criterion, and anything a
+learner has contested — a verdict nobody looked at does not become a grade
+because a clock ran out (P5). The bulk route includes what the policy flagged,
+because an instructor is signing for it in writing.
+
+The grace period lives on the **course** (`auto_finalize_after_hours`, editable in
+`/manage` by INSTRUCTOR and above, default off), not in `subjects/*.yaml`. The
+subject profile is grading configuration and stays out of the browser
+([ADR 0002](docs/adr/0002-evaluator-plugin-boundary.md)); a grace period is an
+operational value of the same kind as a deadline, so it sits where deadlines sit.
+
+Learners are told which route closed their grade. "The instructor confirmed this"
+and "a deadline passed" are not interchangeable sentences, and a grade closed
+without being read keeps its appeal link open.
+
 ### Accuracy is measured, and "unmeasured" is not a pass
 
 ```fish
