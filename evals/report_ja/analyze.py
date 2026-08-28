@@ -756,6 +756,53 @@ def main() -> int:
         w(f"| {name} | {full:+.3f} | " + " | ".join(cells) + " |")
     w("")
 
+    # ---- 14. 記述のずれか、読めていないのか -------------------------------
+    w("## 14. 段階の記述がずれているのか、観点を読めていないのか")
+    w("")
+    w("**段階の記述（descriptor）は採点表に無く、こちらで書いたものである。**")
+    w("したがって不一致には 2 つの原因がありうる。")
+    w("")
+    w("1. **記述のずれ** — 観点は読めているが、こちらが置いた段階の目盛りが")
+    w("   採点者のそれと合っていない。**こちらの責任で、書き直せば直る。**")
+    w("2. **読めていない** — その観点で誰が上かを、そもそも当てられていない。")
+    w("   目盛りを直しても直らない。")
+    w("")
+    w("**順位の一致（ρ）で切り分ける。** ρ が高いのに QWK が低ければ 1、")
+    w("ρ も低ければ 2 である。併せて、観点ごとに 1 次式で写し直したとき")
+    w("（1 件抜き交差検証）どこまで戻るかを見る ── これが「記述を直せば")
+    w("届きうる上限」にあたる。")
+    w("")
+    for spec in rubric.CRITERIA:
+        code = spec["code"]
+        w(f"### {spec['title']}")
+        w("")
+        w("| 採点者 | n | ρ（順位） | QWK | 記述を直した場合の QWK | 段階の σ |")
+        w("|---|--:|--:|--:|--:|--:|")
+        top = rubric.MAX_LEVEL[code]
+        for name in names:
+            if not synthetic and name == base_name:
+                continue
+            shared = sorted(
+                i for i in set(base) & set(raters[name])
+                if code in base[i] and code in raters[name][i]
+            )
+            if len(shared) < 4:
+                continue
+            target = [base[i][code] for i in shared]
+            source = [raters[name][i][code] for i in shared]
+            qwk = quadratic_weighted_kappa(target, source, range(top + 1))
+            mapped = recalibrated_loo(source, target, top)
+            fixed = quadratic_weighted_kappa(target, mapped, range(top + 1))
+            w(
+                f"| {name} | {len(shared)} | {fmt(spearman(source, target))}"
+                f" | {fmt(qwk)} | {fmt(fixed)}"
+                f" | {statistics.pstdev(source):.2f} |"
+            )
+        base_values = [base[i][code] for i in base if code in base[i]]
+        w("")
+        w(f"（{base_name} の段階の σ = {statistics.pstdev(base_values):.2f}）")
+        w("")
+
     text = "\n".join(out) + "\n"
     if args.out:
         Path(args.out).write_text(text, encoding="utf-8")
