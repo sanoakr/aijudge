@@ -15,10 +15,10 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import Session as DbSession
 
 from aijudge_core import Course, Enrollment, Role
-from aijudge_core.ids import CourseId, SessionId, TenantId, UserId
-from aijudge_identity.models import Session, User, UserState
+from aijudge_core.ids import ApiTokenId, CourseId, SessionId, TenantId, UserId
+from aijudge_identity.models import ApiToken, Session, User, UserState
 
-from .schema import CourseRow, EnrollmentRow, SessionRow, UserRow
+from .schema import ApiTokenRow, CourseRow, EnrollmentRow, SessionRow, UserRow
 
 
 class SqlIdentityRepository:
@@ -111,6 +111,54 @@ class SqlIdentityRepository:
             .values(revoked_at=at)
         )
         self._session.flush()
+
+    # -- API トークン ------------------------------------------------------
+
+    def save_api_token(self, token: ApiToken) -> None:
+        self._session.add(
+            ApiTokenRow(
+                id=str(token.id),
+                tenant_id=str(token.tenant_id),
+                user_id=str(token.user_id),
+                token_hash=token.token_hash,
+                note=token.note,
+                created_at=token.created_at,
+                expires_at=token.expires_at,
+                revoked_at=token.revoked_at,
+                last_used_at=token.last_used_at,
+            )
+        )
+        self._session.flush()
+
+    def find_api_token_by_hash(self, token_hash: str) -> ApiToken | None:
+        row = (
+            self._session.execute(
+                select(ApiTokenRow).where(ApiTokenRow.token_hash == token_hash)
+            )
+            .scalars()
+            .first()
+        )
+        return _api_token(row)
+
+    def touch_api_token(self, token_id: ApiTokenId, at: datetime) -> None:
+        row = self._session.get(ApiTokenRow, str(token_id))
+        if row is not None:
+            row.last_used_at = at
+            self._session.flush()
+
+    def revoke_api_token(self, token_id: ApiTokenId, at: datetime) -> None:
+        row = self._session.get(ApiTokenRow, str(token_id))
+        if row is not None and row.revoked_at is None:
+            row.revoked_at = at
+            self._session.flush()
+
+    def list_api_tokens(self, tenant_id: TenantId) -> tuple[ApiToken, ...]:
+        rows = self._session.execute(
+            select(ApiTokenRow)
+            .where(ApiTokenRow.tenant_id == str(tenant_id))
+            .order_by(ApiTokenRow.created_at)
+        ).scalars()
+        return tuple(token for token in (_api_token(row) for row in rows) if token is not None)
 
     # -- コースと受講 ------------------------------------------------------
 
@@ -224,6 +272,22 @@ def _user(row: UserRow | None) -> User | None:
         password_hash=row.password_hash,
         state=UserState(row.state),
         created_at=row.created_at,
+    )
+
+
+def _api_token(row: ApiTokenRow | None) -> ApiToken | None:
+    if row is None:
+        return None
+    return ApiToken(
+        id=ApiTokenId(row.id),
+        tenant_id=TenantId(row.tenant_id),
+        user_id=UserId(row.user_id),
+        token_hash=row.token_hash,
+        note=row.note,
+        created_at=row.created_at,
+        expires_at=row.expires_at,
+        revoked_at=row.revoked_at,
+        last_used_at=row.last_used_at,
     )
 
 

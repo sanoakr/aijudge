@@ -23,6 +23,7 @@ from pathlib import Path
 
 from aijudge_core import Role
 from aijudge_core.ids import CourseId, TenantId
+from aijudge_identity import DEFAULT_TOKEN_DAYS, AuthenticationFailed, AuthService
 from aijudge_persistence import ENV_DATABASE_URL, Database
 
 from .operations import (
@@ -163,6 +164,86 @@ def cmd_staff(args: argparse.Namespace) -> int:
     return 0
 
 
+# --------------------------------------------------------------------------
+# API トークン
+# --------------------------------------------------------------------------
+
+
+def cmd_token_issue(args: argparse.Namespace) -> int:
+    """トークンを発行する。**平文はこの一度だけ表示する。**
+
+    保存するのはハッシュなので、あとから取り出す方法は無い。パスワードを
+    ファイルにだけ書き出すのと違い標準出力に出しているのは、これが人ではなく
+    エージェントに渡す値で、渡し先が端末とは限らないため。ログに残ることは
+    承知の上で、接頭辞（`aij_`）で気づけるようにし、失効を用意してある。
+    """
+    database = _database(args)
+    try:
+        with database.unit_of_work() as uow:
+            auth = AuthService(uow.identity)
+            user = uow.identity.find_user_by_login(_tenant(args), args.login)
+            if user is None:
+                print(f"利用者が見つかりません: {args.login}", file=sys.stderr)
+                return 1
+            record, token = auth.issue_token(
+                tenant_id=_tenant(args),
+                user_id=user.id,
+                note=args.note,
+                days=None if args.days == 0 else args.days,
+            )
+            uow.commit()
+    except (ValueError, AuthenticationFailed) as exc:
+        print(f"エラー: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        database.dispose()
+
+    expiry = "無期限" if record.expires_at is None else record.expires_at.date().isoformat()
+    print(f"ID: {record.id}")
+    print(f"利用者: {args.login} / 用途: {record.note} / 有効: {expiry}")
+    print()
+    print(token)
+    print()
+    print("この平文はここでしか出ません。控えたら画面を閉じてください。")
+    return 0
+
+
+def cmd_token_list(args: argparse.Namespace) -> int:
+    database = _database(args)
+    try:
+        with database.unit_of_work() as uow:
+            tokens = AuthService(uow.identity).list_tokens(_tenant(args))
+            users = {t.user_id: uow.identity.get_user(t.user_id) for t in tokens}
+    finally:
+        database.dispose()
+    if not tokens:
+        print("トークンはありません")
+        return 0
+    for record in tokens:
+        user = users.get(record.user_id)
+        state = "失効" if record.revoked_at is not None else "有効"
+        used = "未使用" if record.last_used_at is None else record.last_used_at.date().isoformat()
+        print(
+            f"{record.id}  {state}  {user.login if user else record.user_id}"
+            f"  最終使用 {used}  {record.note}"
+        )
+    return 0
+
+
+def cmd_token_revoke(args: argparse.Namespace) -> int:
+    from aijudge_core.ids import ApiTokenId
+
+    database = _database(args)
+    try:
+        with database.unit_of_work() as uow:
+            AuthService(uow.identity).revoke_token(ApiTokenId(args.id))
+            uow.commit()
+    finally:
+        database.dispose()
+    print(f"失効させました: {args.id}")
+    return 0
+
+
 def cmd_password(args: argparse.Namespace) -> int:
     from .roster import generate_password
 
@@ -297,6 +378,24 @@ def build_parser() -> argparse.ArgumentParser:
     password.add_argument("--password", default=None, help="未指定なら生成する")
     password.add_argument("--credentials", type=Path, required=True)
     password.set_defaults(func=cmd_password)
+
+    token = sub.add_parser("token", help="API トークン").add_subparsers(
+        dest="token_command", required=True
+    )
+    tissue = token.add_parser("issue", help="発行する（平文はこの一度だけ表示）")
+    tissue.add_argument("--login", required=True, help="このトークンが名乗る利用者")
+    tissue.add_argument("--note", required=True, help="用途（何のためのトークンか）")
+    tissue.add_argument(
+        "--days",
+        type=int,
+        default=DEFAULT_TOKEN_DAYS,
+        help=f"有効日数（既定 {DEFAULT_TOKEN_DAYS}。0 で無期限）",
+    )
+    tissue.set_defaults(func=cmd_token_issue)
+    token.add_parser("list", help="一覧（平文は出ない）").set_defaults(func=cmd_token_list)
+    trevoke = token.add_parser("revoke", help="失効させる")
+    trevoke.add_argument("--id", required=True, help="トークン ID（token list で確認）")
+    trevoke.set_defaults(func=cmd_token_revoke)
 
     task = sub.add_parser("task", help="課題").add_subparsers(dest="task_command", required=True)
     imp = task.add_parser("import", help="Sharif Judge の課題ディレクトリを取り込む")

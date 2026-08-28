@@ -11,7 +11,7 @@ Phase 8 で、**この層のアダプタとして足す**。外向きの型（`P
 from __future__ import annotations
 
 from .cookies import ENV_SECURE_COOKIES, secure_cookies, session_cookie_kwargs
-from .models import Principal, Session, User, UserState
+from .models import ApiToken, Principal, Session, User, UserState
 from .passwords import (
     MIN_PASSWORD_LENGTH,
     WeakPassword,
@@ -22,6 +22,8 @@ from .passwords import (
 from .repository import IdentityRepository, InMemoryIdentityRepository
 from .service import (
     DEFAULT_SESSION_HOURS,
+    DEFAULT_TOKEN_DAYS,
+    TOKEN_PREFIX,
     AuthenticationFailed,
     AuthService,
     PermissionDenied,
@@ -29,8 +31,11 @@ from .service import (
 
 __all__ = [
     "DEFAULT_SESSION_HOURS",
+    "DEFAULT_TOKEN_DAYS",
     "ENV_SECURE_COOKIES",
     "MIN_PASSWORD_LENGTH",
+    "TOKEN_PREFIX",
+    "ApiToken",
     "AuthService",
     "AuthenticationFailed",
     "IdentityRepository",

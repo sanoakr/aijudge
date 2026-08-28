@@ -10,9 +10,9 @@ from datetime import datetime
 from typing import Protocol, runtime_checkable
 
 from aijudge_core import Course, Enrollment
-from aijudge_core.ids import CourseId, TenantId, UserId
+from aijudge_core.ids import ApiTokenId, CourseId, TenantId, UserId
 
-from .models import Session, User
+from .models import ApiToken, Session, User
 
 
 @runtime_checkable
@@ -30,6 +30,22 @@ class IdentityRepository(Protocol):
     def find_session_by_token_hash(self, token_hash: str) -> Session | None: ...
 
     def revoke_session(self, session_id: str, at: datetime) -> None: ...
+
+    # -- API トークン --
+
+    def save_api_token(self, token: ApiToken) -> None: ...
+
+    def find_api_token_by_hash(self, token_hash: str) -> ApiToken | None: ...
+
+    def touch_api_token(self, token_id: ApiTokenId, at: datetime) -> None:
+        """最終使用日時を記録する。使われていないトークンを見つけるため。"""
+        ...
+
+    def revoke_api_token(self, token_id: ApiTokenId, at: datetime) -> None: ...
+
+    def list_api_tokens(self, tenant_id: TenantId) -> tuple[ApiToken, ...]:
+        """発行済みトークン。**ハッシュしか持たないので平文は出ない。**"""
+        ...
 
     def revoke_sessions_for(self, user_id: UserId, at: datetime) -> None:
         """この利用者の全セッションを切る。
@@ -73,6 +89,7 @@ class InMemoryIdentityRepository:
         self._logins: dict[tuple[TenantId, str], UserId] = {}
         self._sessions: dict[str, Session] = {}
         self._by_token: dict[str, str] = {}
+        self._api_tokens: dict[ApiTokenId, ApiToken] = {}
         self._courses: dict[CourseId, Course] = {}
         self._enrollments: dict[tuple[CourseId, UserId], Enrollment] = {}
 
@@ -104,6 +121,33 @@ class InMemoryIdentityRepository:
         for session_id, session in list(self._sessions.items()):
             if session.user_id == user_id and session.revoked_at is None:
                 self._sessions[session_id] = session.model_copy(update={"revoked_at": at})
+
+    def save_api_token(self, token: ApiToken) -> None:
+        self._api_tokens[token.id] = token
+
+    def find_api_token_by_hash(self, token_hash: str) -> ApiToken | None:
+        for token in self._api_tokens.values():
+            if token.token_hash == token_hash:
+                return token
+        return None
+
+    def touch_api_token(self, token_id: ApiTokenId, at: datetime) -> None:
+        token = self._api_tokens.get(token_id)
+        if token is not None:
+            self._api_tokens[token_id] = token.model_copy(update={"last_used_at": at})
+
+    def revoke_api_token(self, token_id: ApiTokenId, at: datetime) -> None:
+        token = self._api_tokens.get(token_id)
+        if token is not None:
+            self._api_tokens[token_id] = token.model_copy(update={"revoked_at": at})
+
+    def list_api_tokens(self, tenant_id: TenantId) -> tuple[ApiToken, ...]:
+        return tuple(
+            sorted(
+                (t for t in self._api_tokens.values() if t.tenant_id == tenant_id),
+                key=lambda t: t.created_at,
+            )
+        )
 
     def save_course(self, course: Course) -> None:
         self._courses[course.id] = course

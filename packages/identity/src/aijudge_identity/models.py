@@ -12,7 +12,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from aijudge_core.ids import SessionId, TenantId, UserId
+from aijudge_core.ids import ApiTokenId, SessionId, TenantId, UserId
 
 
 class UserState(StrEnum):
@@ -80,3 +80,39 @@ class Session(BaseModel):
 
     def is_valid(self, now: datetime) -> bool:
         return self.revoked_at is None and self.expires_at > now
+
+
+class ApiToken(BaseModel):
+    """非対話の呼び出し元に渡す資格情報。
+
+    人が画面から使うセッションとは別に持つ。同じ表に混ぜると、セッションの
+    有効期限（12 時間）を長くするか、トークンを毎日作り直すかの二択になる。
+    用途が違うものは別の寿命を持つ。
+
+    **セッションと同じくハッシュだけを保存する。** 平文は発行時に一度だけ
+    返し、以降どこにも残さない。DB が漏れても API を叩けない。
+
+    `note` は「これは何のためのトークンか」を人が読むためのもの。運用が
+    続けば必ず「このトークンは何だったか分からないが消すのが怖い」が起きる。
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    id: ApiTokenId
+    tenant_id: TenantId
+    # 誰の権限で動くか。トークン独自の権限は持たせない ── 持たせると、
+    # 利用者の権限を落としてもトークンが生き残る。
+    user_id: UserId
+    token_hash: str = Field(min_length=1)
+    note: str = Field(min_length=1)
+    created_at: datetime
+    # 期限。None なら無期限（移行作業用に許すが、既定では付ける）。
+    expires_at: datetime | None = None
+    revoked_at: datetime | None = None
+    # 最後に使われた日時。使われていないトークンを見つけて消すため。
+    last_used_at: datetime | None = None
+
+    def is_valid(self, now: datetime) -> bool:
+        if self.revoked_at is not None:
+            return False
+        return self.expires_at is None or self.expires_at > now

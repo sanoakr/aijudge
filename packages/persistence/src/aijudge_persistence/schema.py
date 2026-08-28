@@ -332,6 +332,31 @@ class SessionRow(Base):
     )
 
 
+class ApiTokenRow(Base):
+    """非対話の呼び出し元の資格情報。
+
+    **セッションとは別の表にする。** 用途が違えば寿命も違い、同じ表に混ぜると
+    セッションの有効期限を長くするか、トークンを毎日作り直すかの二択になる。
+
+    セッションと同じく**ハッシュだけを保存する**。平文は発行時に一度返して
+    以降どこにも残らないので、DB が漏れても API を叩けない。
+    """
+
+    __tablename__ = "api_tokens"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    user_id: Mapped[str] = mapped_column(String(64), index=True)
+    # 引くための鍵。乱数なので辞書攻撃の対象にならず、ソルトは付けない。
+    token_hash: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    note: Mapped[str] = mapped_column(String(256))
+    created_at: Mapped[datetime] = mapped_column(Timestamp, index=True)
+    expires_at: Mapped[datetime | None] = mapped_column(Timestamp, nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(Timestamp, nullable=True, index=True)
+    # 使われていないトークンを見つけて消すため。
+    last_used_at: Mapped[datetime | None] = mapped_column(Timestamp, nullable=True)
+
+
 class CourseRow(Base):
     __tablename__ = "courses"
 

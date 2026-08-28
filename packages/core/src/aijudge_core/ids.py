@@ -21,6 +21,7 @@ KcId = NewType("KcId", str)
 SubmissionId = NewType("SubmissionId", str)
 GradingJobId = NewType("GradingJobId", str)
 SessionId = NewType("SessionId", str)
+ApiTokenId = NewType("ApiTokenId", str)
 ArtifactId = NewType("ArtifactId", str)
 GradingRunId = NewType("GradingRunId", str)
 EvaluatorResultId = NewType("EvaluatorResultId", str)
@@ -43,6 +44,7 @@ PREFIXES: dict[str, str] = {
     "sub": "Submission",
     "job": "GradingJob",
     "ses": "Session",
+    "tok": "ApiToken",
     "art": "Artifact",
     "grn": "GradingRun",
     "evr": "EvaluatorResult",

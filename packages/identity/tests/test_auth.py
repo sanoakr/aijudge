@@ -306,3 +306,109 @@ def test_an_assistant_can_grade(auth) -> None:
 def test_an_unknown_user_id_has_no_role(auth) -> None:
     service, _, _ = auth
     assert service.role_in(COURSE, UserId("usr_" + "f" * 32)) is None
+
+
+# --------------------------------------------------------------------------
+# API トークン — 非対話の呼び出し元
+# --------------------------------------------------------------------------
+
+
+def _service_with_user(login: str = "sano"):
+    from aijudge_identity import AuthService, InMemoryIdentityRepository
+
+    service = AuthService(InMemoryIdentityRepository())
+    principal = service.register(
+        tenant_id=TENANT, login=login, display_name=login, password="correct horse battery"
+    )
+    return service, principal
+
+
+def test_an_api_token_resolves_to_its_owner() -> None:
+    from aijudge_identity import TOKEN_PREFIX
+
+    service, principal = _service_with_user()
+    _record, token = service.issue_token(
+        tenant_id=TENANT, user_id=principal.user_id, note="初回移行の流し込み"
+    )
+
+    # 接頭辞を付けるのは、ログや issue に貼られた文字列がトークンだと
+    # 気づけるようにするため。気づけなければ失効させようがない。
+    assert token.startswith(TOKEN_PREFIX)
+    resolved = service.resolve_api_token(token)
+    assert resolved is not None
+    assert resolved.user_id == principal.user_id
+
+
+def test_the_plaintext_token_is_not_recoverable() -> None:
+    """**保存するのはハッシュだけ。** DB が漏れても API を叩けない。"""
+    service, principal = _service_with_user()
+    record, token = service.issue_token(
+        tenant_id=TENANT, user_id=principal.user_id, note="初回移行の流し込み"
+    )
+
+    assert token not in record.token_hash
+    assert record.token_hash.startswith("sha256:")
+    for listed in service.list_tokens(TENANT):
+        assert token not in listed.model_dump_json()
+
+
+def test_a_revoked_token_stops_working() -> None:
+    service, principal = _service_with_user()
+    record, token = service.issue_token(
+        tenant_id=TENANT, user_id=principal.user_id, note="初回移行の流し込み"
+    )
+    service.revoke_token(record.id)
+
+    assert service.resolve_api_token(token) is None
+
+
+def test_an_expired_token_stops_working() -> None:
+    from datetime import UTC, datetime, timedelta
+
+    from aijudge_identity import AuthService, InMemoryIdentityRepository
+
+    now = datetime(2026, 8, 28, 9, 0, tzinfo=UTC)
+    clock = {"t": now}
+    service = AuthService(InMemoryIdentityRepository(), clock=lambda: clock["t"])
+    principal = service.register(
+        tenant_id=TENANT, login="sano", display_name="sano", password="correct horse battery"
+    )
+    _record, token = service.issue_token(
+        tenant_id=TENANT, user_id=principal.user_id, note="短命トークン", days=1
+    )
+
+    assert service.resolve_api_token(token) is not None
+    clock["t"] = now + timedelta(days=2)
+    assert service.resolve_api_token(token) is None
+
+
+def test_disabling_the_user_stops_their_tokens() -> None:
+    """**権限は利用者に付いている。** トークンに独自の権限を持たせていない。
+
+    持たせると、利用者を無効化したのにトークンだけ生き残る経路ができる。
+    """
+    service, principal = _service_with_user()
+    _record, token = service.issue_token(
+        tenant_id=TENANT, user_id=principal.user_id, note="初回移行の流し込み"
+    )
+    service.disable(principal.user_id)
+
+    assert service.resolve_api_token(token) is None
+
+
+def test_a_token_needs_a_stated_purpose() -> None:
+    """用途の分からないトークンは、消してよいのか判断できないまま残る。"""
+    service, principal = _service_with_user()
+    for note in ("", "   "):
+        with pytest.raises(ValueError):
+            service.issue_token(tenant_id=TENANT, user_id=principal.user_id, note=note)
+
+
+def test_a_session_token_is_not_an_api_token() -> None:
+    """入口を分ける。片方が漏れてももう片方にはならない。"""
+    service, _principal = _service_with_user()
+    _p, session_token = service.login(
+        tenant_id=TENANT, login="sano", password="correct horse battery"
+    )
+
+    assert service.resolve_api_token(session_token) is None

@@ -19,9 +19,9 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
 from aijudge_core import Course, Enrollment, Role
-from aijudge_core.ids import CourseId, SessionId, TenantId, UserId, new_id
+from aijudge_core.ids import ApiTokenId, CourseId, SessionId, TenantId, UserId, new_id
 
-from .models import Principal, Session, User, UserState
+from .models import ApiToken, Principal, Session, User, UserState
 from .passwords import hash_password, needs_rehash, verify_password
 from .repository import IdentityRepository
 
@@ -29,6 +29,14 @@ from .repository import IdentityRepository
 # 共用端末に置き去りにされたまま延々と生きない程度。
 DEFAULT_SESSION_HOURS = 12
 TOKEN_BYTES = 32
+
+# API トークンの既定の有効期間。学期 1 つ分より少し長い。
+# 無期限を既定にすると、作ったことを忘れたトークンが残り続ける。
+DEFAULT_TOKEN_DAYS = 180
+
+# 平文トークンの見分けが付くように接頭辞を付ける。ログや issue に貼られた
+# 文字列がトークンだと分かれば、失効させるべきものだと気づける。
+TOKEN_PREFIX = "aij_"
 
 # 存在しない login に対しても検証を走らせるためのダミー。
 # 応答時間の差で「その ID は存在する」と分かってしまうのを防ぐ。
@@ -140,6 +148,71 @@ class AuthService:
             )
         )
         return _principal(user), token
+
+    # -- API トークン（非対話の呼び出し元）--------------------------------
+
+    def issue_token(
+        self,
+        *,
+        tenant_id: TenantId,
+        user_id: UserId,
+        note: str,
+        days: int | None = DEFAULT_TOKEN_DAYS,
+    ) -> tuple[ApiToken, str]:
+        """API トークンを発行する。返すのは記録と**平文トークン**。
+
+        平文を返すのはこの 1 回だけ。保存するのはハッシュなので、あとから
+        取り出す方法は無い（セッションと同じ）。
+
+        トークンに独自の権限は持たせない。**利用者の権限で動く。** 持たせると、
+        利用者を無効化したのにトークンだけ生き残る経路ができる。
+        """
+        text = (note or "").strip()
+        if not text:
+            # 用途の分からないトークンは、消してよいのか判断できないまま残る。
+            raise ValueError("API トークンには用途（note）が要ります")
+        user = self._repository.get_user(user_id)
+        if user is None or not user.is_active:
+            raise AuthenticationFailed("利用者が見つかりません")
+
+        now = self._clock()
+        token = TOKEN_PREFIX + secrets.token_urlsafe(TOKEN_BYTES)
+        record = ApiToken(
+            id=ApiTokenId(new_id("tok")),
+            tenant_id=tenant_id,
+            user_id=user_id,
+            token_hash=_token_hash(token),
+            note=text,
+            created_at=now,
+            expires_at=None if days is None else now + timedelta(days=days),
+        )
+        self._repository.save_api_token(record)
+        return record, token
+
+    def resolve_api_token(self, token: str) -> Principal | None:
+        """API トークンから主体を引く。無効なら None。
+
+        **利用者の状態も見る。** トークンが生きていても利用者が無効化されて
+        いれば通さない（権限は利用者に付いている）。
+        """
+        if not token:
+            return None
+        record = self._repository.find_api_token_by_hash(_token_hash(token))
+        if record is None or not record.is_valid(self._clock()):
+            return None
+        user = self._repository.get_user(record.user_id)
+        if user is None or not user.is_active:
+            return None
+        # 使われていないトークンを見つけて消せるように、最終使用を記録する。
+        self._repository.touch_api_token(record.id, self._clock())
+        return _principal(user)
+
+    def revoke_token(self, token_id: ApiTokenId) -> None:
+        self._repository.revoke_api_token(token_id, self._clock())
+
+    def list_tokens(self, tenant_id: TenantId) -> tuple[ApiToken, ...]:
+        """発行済みトークンの一覧。**ハッシュしか持たないので平文は出ない。**"""
+        return self._repository.list_api_tokens(tenant_id)
 
     def resolve(self, token: str) -> Principal | None:
         """トークンから主体を引く。無効なら None。"""
