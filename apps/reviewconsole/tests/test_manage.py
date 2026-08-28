@@ -260,83 +260,120 @@ def test_a_task_from_another_course_cannot_be_scheduled(world: World) -> None:
 
 
 # --------------------------------------------------------------------------
-# 課題の取り込み
+# 課題の追加（zip 取り込みは廃止した）
 # --------------------------------------------------------------------------
 
 
-def test_an_archive_is_imported(world: World) -> None:
+def test_a_task_can_be_added_from_the_form(world: World) -> None:
+    from aijudge_core.ids import TaskId
+
     world.register("teacher", Role.INSTRUCTOR)
-    payload = _zip(EXAMPLE_TASK)
     response = world.client("teacher").post(
         f"/manage/courses/{world.course.id}/tasks",
-        files={"archive": ("ex9.zip", payload, "application/zip")},
+        data={
+            "key": "ex02/p8",
+            "statement": "## [必須] カウントアップダウン ##\n\n本文",
+            "unit": "ex02",
+            "session": "2",
+            "position": "8",
+            "readability_weight": "0.3",
+        },
         follow_redirects=False,
     )
-    assert response.status_code == 303
+    assert response.status_code == 303, response.text
 
-    from aijudge_admin import list_tasks
-
-    assert len(list_tasks(world.database, world.course.id)) == 1
-
-
-def test_a_zip_slip_archive_is_refused(world: World) -> None:
-    """項目名は攻撃者が決められる。`../` を通すと展開先の外に書ける。"""
-    world.register("teacher", Role.INSTRUCTOR)
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w") as archive:
-        archive.writestr("../escaped.md", "pwned")
-    response = world.client("teacher").post(
-        f"/manage/courses/{world.course.id}/tasks",
-        files={"archive": ("bad.zip", buffer.getvalue(), "application/zip")},
-    )
-    assert response.status_code == 400
-    assert "不正なパス" in response.json()["detail"]
+    with world.database.unit_of_work() as uow:
+        tasks = uow.tasks.list_for_course(world.course.id)
+        assert len(tasks) == 1
+        version = uow.tasks.latest_version(TaskId(tasks[0].id))
+    assert tasks[0].title == "カウントアップダウン"
+    assert tasks[0].session == 2
+    # **画面から作った課題にも AI 観点が付く。** 付かないと、その課題では
+    # AI 評価器が一度も走らない（廃止した zip 取り込みがそうなっていた）。
+    assert [c.code for c in version.criteria] == ["correctness", "readability"]
 
 
-def test_an_absolute_path_in_the_archive_is_refused(world: World) -> None:
-    world.register("teacher", Role.INSTRUCTOR)
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w") as archive:
-        archive.writestr("/etc/passwd", "pwned")
-    response = world.client("teacher").post(
-        f"/manage/courses/{world.course.id}/tasks",
-        files={"archive": ("bad.zip", buffer.getvalue(), "application/zip")},
-    )
-    assert response.status_code == 400
+def test_the_form_and_the_api_produce_the_same_task(world: World) -> None:
+    """経路が違っても同じものができること。分かれると片方だけ観点が欠ける。"""
+    from aijudge_identity import AuthService
 
-
-def test_a_non_zip_upload_is_refused(world: World) -> None:
-    world.register("teacher", Role.INSTRUCTOR)
-    response = world.client("teacher").post(
-        f"/manage/courses/{world.course.id}/tasks",
-        files={"archive": ("x.zip", b"not a zip at all", "application/zip")},
-    )
-    assert response.status_code == 400
-
-
-def test_an_empty_upload_is_refused(world: World) -> None:
-    world.register("teacher", Role.INSTRUCTOR)
-    response = world.client("teacher").post(
-        f"/manage/courses/{world.course.id}/tasks",
-        files={"archive": ("x.zip", b"", "application/zip")},
-    )
-    assert response.status_code == 400
-
-
-def test_an_oversized_archive_is_refused(world: World) -> None:
-    from aijudge_reviewconsole import manage
-
-    world.register("teacher", Role.INSTRUCTOR)
-    original = manage.MAX_ARCHIVE_BYTES
-    manage.MAX_ARCHIVE_BYTES = 64
-    try:
-        response = world.client("teacher").post(
-            f"/manage/courses/{world.course.id}/tasks",
-            files={"archive": ("x.zip", b"x" * 1024, "application/zip")},
+    principal = world.register("teacher", Role.INSTRUCTOR)
+    with world.database.unit_of_work() as uow:
+        _record, token = AuthService(uow.identity).issue_token(
+            tenant_id=TENANT, user_id=principal.user_id, note="比較用"
         )
-        assert response.status_code == 413
-    finally:
-        manage.MAX_ARCHIVE_BYTES = original
+        uow.commit()
+
+    world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/tasks",
+        data={
+            "key": "ex02/p1",
+            "statement": "## [必須] 問 ##\n\n本文",
+            "readability_weight": "0.3",
+        },
+    )
+    api = TestClient(create_app(world.console)).post(
+        f"/api/courses/{world.course.id}/tasks",
+        json={"key": "ex02/p2", "statement": "## [必須] 問 ##\n\n本文", "readability_weight": 0.3},
+        headers={"Authorization": f"Bearer {token}"},
+    ).json()
+
+    with world.database.unit_of_work() as uow:
+        tasks = uow.tasks.list_for_course(world.course.id)
+        versions = [uow.tasks.latest_version(task.id) for task in tasks]
+    assert len(versions) == 2
+    assert {tuple(c.code for c in v.criteria) for v in versions} == {("correctness", "readability")}
+    assert api["criteria"] == ["correctness", "readability"]
+
+
+def test_a_duplicate_key_with_different_content_is_refused(world: World) -> None:
+    """過去の採点基準を書き換えない（P8）。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    base = {"key": "ex02/p8", "statement": "## [必須] 問 ##\n\n本文"}
+    assert client.post(
+        f"/manage/courses/{world.course.id}/tasks", data=base, follow_redirects=False
+    ).status_code == 303
+
+    response = client.post(
+        f"/manage/courses/{world.course.id}/tasks",
+        data={**base, "statement": "## [必須] 別 ##\n\n違う"},
+    )
+    assert response.status_code == 409
+
+
+def test_a_malformed_task_key_is_refused(world: World) -> None:
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    for key in ("../etc/passwd", "/absolute", "ex02 p8"):
+        response = client.post(
+            f"/manage/courses/{world.course.id}/tasks",
+            data={"key": key, "statement": "## [必須] 問 ##\n\n本文"},
+        )
+        assert response.status_code == 400, key
+
+
+def test_an_assistant_cannot_add_a_task(world: World) -> None:
+    world.register("ta", Role.ASSISTANT)
+    response = world.client("ta").post(
+        f"/manage/courses/{world.course.id}/tasks",
+        data={"key": "ex02/p8", "statement": "## [必須] 問 ##\n\n本文"},
+    )
+    assert response.status_code == 403
+
+
+def test_there_is_no_archive_upload_route(world: World) -> None:
+    """zip 取り込みは廃止した。
+
+    移行元（Sharif Judge）の形式をサーバの入口の語彙にしており、移行が
+    終わったあとも一生ついて回る形だった。まとまった投入は API で行う。
+    """
+    app = create_app(world.console)
+    for route in app.routes:
+        body = getattr(getattr(route, "endpoint", None), "__code__", None)
+        if body is None:
+            continue
+        assert "zipfile" not in (body.co_names or ()), route.path
 
 
 # --------------------------------------------------------------------------

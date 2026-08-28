@@ -5,6 +5,12 @@
 ── 締切の設定、受講者の追加、課題の追加 ── を教員がターミナルで行うのは
 現実的でない。
 
+課題の追加は**画面と API の両方から**でき、保存は同じ経路を通る
+（`aijudge_admin.save_task`）。zip での一括取り込みは廃止した ── 移行元
+（Sharif Judge）の形式をサーバの入口の語彙にしてしまっており、移行が
+終わったあとも一生ついて回る形だった。まとまった投入は API で行う
+（`api.py`）。
+
 **科目プロファイル（`subjects/*.yaml`）は編集させない。** 表示だけする。
 あれは評価器の指名とタイムアウトを持つ採点の設定であり、ブラウザから壊せる
 ようにすると、1 人の操作で全員の採点が止まる。コードと同じ扱いでレビューを
@@ -25,42 +31,34 @@
 
 from __future__ import annotations
 
-import io
-import zipfile
 from datetime import UTC, datetime
-from pathlib import Path
-from tempfile import TemporaryDirectory
 from typing import Annotated
 
-from fastapi import APIRouter, Form, HTTPException, Request, Response, UploadFile
+from fastapi import APIRouter, Form, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
+from pydantic import ValidationError
 
 from aijudge_admin import (
     AdminError,
     enrol_roster,
     ensure_course,
     finalize_task,
-    import_tasks,
     parse_roster,
     pending_counts,
+    save_task,
 )
 from aijudge_admin.roster import RosterError
+from aijudge_authoring import TaskSpec
 from aijudge_core import (
     MIN_JUSTIFICATION_LENGTH,
     Course,
     GradeWindow,
     Role,
-    Task,
     deadline_for,
     grade_window,
 )
 from aijudge_core.ids import CourseId, TaskId, UserId
 from aijudge_identity import AuthService, PermissionDenied, Principal
-
-# 取り込む zip の上限。課題ディレクトリはテキストとテストケースだけなので小さい。
-# 大きいものは事故か攻撃。
-MAX_ARCHIVE_BYTES = 8 * 1024 * 1024
-MAX_ARCHIVE_ENTRIES = 2000
 
 # ルータは `register()` の中で毎回作る。モジュール階層に置くと、
 # `create_app` を 2 回呼んだときに同じ経路が二重に登録される
@@ -265,6 +263,12 @@ def register(templates) -> APIRouter:
                 # このコースの結果だけを渡す。
                 "PROVISIONAL": GradeWindow.PROVISIONAL,
                 "ELAPSED": GradeWindow.ELAPSED,
+                "last_task": (
+                    console.last_task[1]
+                    if console.last_task is not None
+                    and console.last_task[0] == str(course.id)
+                    else None
+                ),
                 "last_finalize": (
                     console.last_finalize[1]
                     if console.last_finalize is not None
@@ -397,44 +401,60 @@ def register(templates) -> APIRouter:
         return RedirectResponse(f"/manage/courses/{course_id}", status_code=303)
 
     @router.post("/courses/{course_id}/tasks")
-    async def import_archive(request: Request, course_id: str, archive: UploadFile) -> Response:
-        """課題を zip で取り込む。
+    def add_task(
+        request: Request,
+        course_id: str,
+        key: Annotated[str, Form()],
+        statement: Annotated[str, Form()],
+        unit: Annotated[str, Form()] = "",
+        session: Annotated[str, Form()] = "",
+        position: Annotated[str, Form()] = "",
+        readability_weight: Annotated[str, Form()] = "0.3",
+        due_at: Annotated[str, Form()] = "",
+    ) -> Response:
+        """課題を 1 件足す。
 
-        サーバ上のパスを入力させない。ブラウザからサーバのファイルシステムを
-        指定させると、そこが読み取りの穴になる。
+        **保存の中身は API と同じ経路を通る**（`aijudge_admin.save_task`）。
+        経路ごとに組み立て方が分かれると、「画面から作った課題だけ観点が
+        1 つ足りない」が起きる。実際に起きた ── 廃止した zip 取り込みは
+        `readability_weight` が 0.0 固定で、画面から入れた課題には AI 観点が
+        付かなかった。
+
+        テストケースはここでは入れない。1 件ずつ貼らせる画面にすると、
+        実在する規模（1 課題 7 件 × 48 課題）で現実的でない。まとまった
+        投入は API を使う。
         """
         from .app import require_principal
 
         me = require_principal(request)
-        _require_instructor(request, me, CourseId(course_id))
+        course = _require_instructor(request, me, CourseId(course_id))
         console = _console(request)
 
-        payload = await archive.read()
-        if not payload:
-            raise HTTPException(status_code=400, detail="ファイルが空です")
-        if len(payload) > MAX_ARCHIVE_BYTES:
-            raise HTTPException(
-                status_code=413,
-                detail=f"アーカイブが大きすぎます（上限 {MAX_ARCHIVE_BYTES} バイト）",
+        try:
+            spec = TaskSpec(
+                key=key.strip(),
+                statement=statement,
+                unit=unit.strip() or None,
+                session=int(session) if session.strip() else None,
+                position=int(position) if position.strip() else None,
+                due_at=_parse_when(due_at),
+                readability_weight=float(readability_weight or 0.0),
             )
+        except (ValidationError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=f"課題の指定が不正です: {exc}") from None
 
-        with TemporaryDirectory() as staging:
-            root = Path(staging)
-            try:
-                _extract(payload, root)
-            except ValueError as exc:
-                raise HTTPException(status_code=400, detail=str(exc)) from exc
-            try:
-                report = import_tasks(
-                    console.database,
-                    course_id=CourseId(course_id),
-                    directory=_single_root(root),
-                    profiles_dir=console.profiles_dir,
-                )
-            except AdminError as exc:
-                raise HTTPException(status_code=400, detail=str(exc)) from exc
+        try:
+            saved = save_task(
+                console.database,
+                course_id=course.id,
+                spec=spec,
+                subject_profile=course.subject_profile,
+                authored_by=me.user_id,
+            )
+        except AdminError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-        console.last_import = report  # 表示のために保持する
+        console.last_task = (str(course.id), saved)
         return RedirectResponse(f"/manage/courses/{course_id}", status_code=303)
 
     @router.post("/courses/{course_id}/enrolments")
@@ -503,52 +523,3 @@ def register(templates) -> APIRouter:
         return RedirectResponse(f"/manage/courses/{course_id}", status_code=303)
 
     return router
-
-
-# -- zip の展開 --------------------------------------------------------------
-
-
-def _extract(payload: bytes, root: Path) -> None:
-    """zip を展開する。**パスの検証を必ず通す。**
-
-    zip の項目名は攻撃者が決められる。`../` や絶対パスを含む項目
-    （zip slip）をそのまま書くと、展開先の外にファイルを置ける。
-    """
-    try:
-        archive = zipfile.ZipFile(io.BytesIO(payload))
-    except zipfile.BadZipFile as exc:
-        raise ValueError("zip として読めません") from exc
-
-    names = archive.namelist()
-    if len(names) > MAX_ARCHIVE_ENTRIES:
-        raise ValueError(f"項目が多すぎます（上限 {MAX_ARCHIVE_ENTRIES}）")
-
-    total = 0
-    for info in archive.infolist():
-        name = info.filename
-        if name.startswith("/") or ".." in Path(name).parts:
-            raise ValueError(f"アーカイブに不正なパスが含まれています: {name!r}")
-        target = (root / name).resolve()
-        if not target.is_relative_to(root.resolve()):
-            raise ValueError(f"アーカイブに不正なパスが含まれています: {name!r}")
-        # 展開後の大きさも見る（圧縮爆弾）。
-        total += info.file_size
-        if total > MAX_ARCHIVE_BYTES * 8:
-            raise ValueError("展開後のサイズが大きすぎます")
-    archive.extractall(root)
-
-
-def _single_root(root: Path) -> Path:
-    """zip の中身が 1 ディレクトリだけならその中を返す。
-
-    `ex3.zip` を作ると中身が `ex3/p1 ex3/p2` になることも `p1 p2` になることも
-    あり、どちらでも取り込めるようにする。
-    """
-    children = [path for path in root.iterdir() if not path.name.startswith("__MACOSX")]
-    if len(children) == 1 and children[0].is_dir():
-        return children[0]
-    return root
-
-
-def _task_row(task: Task, version_count: int) -> dict[str, object]:  # pragma: no cover
-    return {"task": task, "versions": version_count}

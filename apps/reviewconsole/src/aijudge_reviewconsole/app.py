@@ -99,8 +99,9 @@ class Console:
         self.profiles_dir = profiles_dir
         self.observations = observations
         self._rates: dict[str, float] = {}
-        # 直近の課題取り込み結果。管理画面が表示に使う。
-        self.last_import = None
+        # 直近に足した課題。管理画面が「何が起きたか」を返すために持つ。
+        # コースを添えるのは Console が全利用者で共有だから。
+        self.last_task: tuple[str, object] | None = None
         # 直近の一括確定の結果を (course_id, outcome) で持つ。
         # **コースを添えるのは Console が全利用者で共有だから。** 添えないと、
         # 別のコースの教員に他コースの課題名が出る。
@@ -211,6 +212,12 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
     from .manage import register as register_manage
 
     app.include_router(register_manage(TEMPLATES))
+
+    # 課題を足す API。非対話の呼び出し元（移行のエージェント）のための入口で、
+    # 認証は API トークン。**Cookie を見ない**ので CSRF の経路が無い。
+    from .api import register as register_api
+
+    app.include_router(register_api())
 
     # -- ログイン ----------------------------------------------------------
 

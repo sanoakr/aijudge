@@ -20,13 +20,25 @@ from .repository import (
     TaskStoreError,
     substantive,
 )
+from .spec import (
+    AI_EVALUATOR,
+    DEFAULT_EVALUATOR,
+    TaskSpec,
+    TestCaseSpec,
+    build_task_version,
+)
 from .statement import render_statement
 
 __all__ = [
+    "AI_EVALUATOR",
+    "DEFAULT_EVALUATOR",
     "InMemoryTaskRepository",
     "TaskImmutabilityViolation",
     "TaskRepository",
+    "TaskSpec",
     "TaskStoreError",
+    "TestCaseSpec",
+    "build_task_version",
     "render_statement",
     "sharif_judge",
     "substantive",

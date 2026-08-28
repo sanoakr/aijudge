@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+from .authoring import SavedTask, save_task
 from .finalization import (
     FinalizeReport,
     TaskOutcome,
@@ -47,6 +48,7 @@ __all__ = [
     "ImportedTask",
     "RosterEntry",
     "RosterError",
+    "SavedTask",
     "TaskOutcome",
     "create_staff",
     "enrol_roster",
@@ -59,6 +61,7 @@ __all__ = [
     "load_roster",
     "parse_roster",
     "pending_counts",
+    "save_task",
     "set_password",
     "sweep_deadlines",
     "write_credentials",

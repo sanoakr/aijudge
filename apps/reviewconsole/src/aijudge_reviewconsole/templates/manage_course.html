@@ -99,20 +99,51 @@
   </tbody>
 </table>
 
-<h2>課題を取り込む</h2>
-<form method="post" action="/manage/courses/{{ course.id }}/tasks"
-      enctype="multipart/form-data" class="card">
+{% if last_task %}
+<div class="note">
+  <strong>{{ last_task.task.title }}</strong> を
+  {% if last_task.created %}追加しました{% else %}更新しました（既存の課題）{% endif %}。
+  {% if not last_task.auto_graded %}
+    テストケースが無いので <strong>AI 観点だけ</strong>で採点し、教員の確定が前提になります。
+  {% endif %}
+</div>
+{% endif %}
+
+<h2>課題を追加する</h2>
+<form method="post" action="/manage/courses/{{ course.id }}/tasks" class="card">
   <div class="field">
-    <label for="archive">課題ディレクトリの zip</label>
-    <input id="archive" name="archive" type="file" accept=".zip" required>
+    <label for="key">課題キー（例 <code>ex02/p8</code>・同一性の鍵）</label>
+    <input id="key" name="key" required placeholder="ex02/p8" style="max-width:20rem">
+  </div>
+  <div class="field">
+    <label for="statement">問題文（Markdown。1 行目を <code>## タイトル ##</code> にすると題名になります）</label>
+    <textarea id="statement" name="statement" rows="10" required
+      placeholder="## [必須] 最大値・最小値・平均値 ##&#10;&#10;自然数 n を入力し…"></textarea>
+  </div>
+  <div class="field" style="display:flex;gap:12px;flex-wrap:wrap">
+    <span><label for="unit">まとまり</label>
+      <input id="unit" name="unit" placeholder="ex02" style="max-width:8rem"></span>
+    <span><label for="session">回</label>
+      <input id="session" name="session" type="number" min="1" style="max-width:6rem"></span>
+    <span><label for="position">順序</label>
+      <input id="position" name="position" type="number" min="1" style="max-width:6rem"></span>
+    <span><label for="readability_weight">読みやすさの重み</label>
+      <input id="readability_weight" name="readability_weight" type="number"
+             step="0.05" min="0" max="0.95" value="0.3" style="max-width:8rem"></span>
+    <span><label for="due_at">締切</label>
+      <input id="due_at" name="due_at" type="datetime-local"></span>
   </div>
   <p class="desc">
-    <code>desc.md</code> と <code>in/</code> <code>out/</code> を含むディレクトリ、
-    またはその親（<code>p1 p2 p3</code>）を zip にしたもの。
-    同じ内容の取り込みは何度でも安全です。
-    クライアント／サーバ課題は <code>companion.yaml</code> を同梱してください。
+    <strong>読みやすさの重みを 0 にすると AI 評価器が走りません。</strong>
+    テスト実行の合否だけで採点することになり、「動くが読めない」提出が満点になります。
   </p>
-  <button type="submit">取り込む</button>
+  <p class="desc">
+    <strong>テストケースはこの画面からは入れられません。</strong>
+    1 課題あたり数件〜十数件を貼らせるのは現実的でないので、まとまった投入は
+    API（<code>POST /api/courses/{{ course.id }}/tasks</code>）で行います。
+    ここで作った課題はテストケースが 0 件なので、AI 観点だけで採点され、教員の確定が前提になります。
+  </p>
+  <button type="submit">追加する</button>
 </form>
 
 <h2>受講者（{{ people | length }} 名）</h2>
