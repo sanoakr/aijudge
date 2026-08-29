@@ -30,7 +30,13 @@ Architecture decisions: [`docs/adr/`](docs/adr/).
 > `packages/grading` by **zero lines**. Its accuracy gate could not be settled
 > in the harness and now settles against blind marks collected in use
 > ([ADR 0012](docs/adr/0012-judge-report-grading-in-operation-not-in-the-harness.md)).
-> Phase 4 (knowledge components, the Q-matrix, mastery estimation) is under way.
+> Phase 4 (knowledge components, the Q-matrix, mastery estimation) has its
+> skeleton running end to end: a blueprint names the components, a model drafts
+> the task, two gates and a solvability check run before anyone looks at it, and
+> only what an instructor approves is ever set. **None of its acceptance
+> criteria can be judged yet** - the approval rate reports NOT_MEASURED, and the
+> BKT parameters are still the textbook defaults rather than anything fitted to
+> data.
 >
 > The container escape suite passes: fork bomb contained, non-root, read-only
 > root, no host home visible, no network, memory and output capped. It runs on
@@ -62,6 +68,7 @@ Architecture decisions: [`docs/adr/`](docs/adr/).
 | `apps/studentweb` | The learner-facing app: submit, see results. What is visible lives in one module, not in templates. |
 | `apps/grader` | The grading worker. The only layer that knows both the queue and the pipeline. |
 | `apps/reviewconsole` | Instructor review console. Reads results, confirms grades. Never grades. |
+| `apps/admin` | Courses, enrolment, task import, and authoring (S2): drafting, the gates, solvability, and the review queue. |
 | `apps/evalrunner` | Reads recorded observations and measures agreement against the gates. Never grades. |
 | `apps/*` | Composition roots. The only layer allowed to combine subsystems. |
 | `packages/*` | One package per remaining subsystem (S1, S3–S11). |
@@ -280,6 +287,60 @@ certain, but only a person can decide whether to forgive it.
 The deduction is **recorded on the run**, not recomputed at display time. The
 rule is editable mid-term, and recomputing would silently move grades already
 returned. See [ADR 0013](docs/adr/0013-lateness-is-a-deduction-not-a-criterion.md).
+
+### A generated task has to earn its way in
+
+```fish
+aijudge-admin task draft  --course <id> --key gen/ex01 --author <id> \
+    --kc cs.loops.termination --model <drafter> --solver-model <other>
+aijudge-admin task review list
+aijudge-admin task review decide --version <id> --reviewer <id> \
+    --reject --reason "the statement never gives the input format"
+aijudge-admin task review rate --course <id>
+```
+
+Drafting is the easy half. What decides whether a generated task is usable is
+what throws it away, and that runs before an instructor spends attention on it.
+
+**Gate 1** asks whether the reference solution passes its own test cases.
+**Gate 2** mutates that solution and asks whether the tests notice
+([ADR 0008](docs/adr/0008-companion-processes-for-network-tasks.md)). Gate 2 is
+the one that matters: a suite that accepts anything sails through gate 1 with
+full marks. Mutants are textual - four operators, no parser - so C and Python
+go through the same code and adding a subject does not add a mutation backend.
+
+Three ways it lied, all found by running it rather than reading it, and all in
+the direction of making gate 2 *easier*: flipping the `<` in `#include
+<stdio.h>` produced a mutant that never compiled and was scored as killed;
+mutants that fail to build were counted in the denominator, which is exactly how
+a suite of `exit 0` earns a pass; and equivalent mutants failed an honest task
+outright - dropping `return 0;` cannot be killed by any test under C99, and two
+of six mutants being equivalent put a correct solution at 67% against a
+threshold of 80%. Equivalent mutants cannot be eliminated in general, which is
+why the threshold is not 1.0 and why the known shapes are skipped.
+
+**Solvability** then hands the statement alone - never the reference solution -
+to a *different* model and runs whatever comes back through gate 1's path. It is
+not compared against the reference: many programs are correct, and what is being
+asked is whether the statement is enough to reach one. Failing is not a
+rejection. A task can go unsolved because it is ambiguous or because it is hard,
+and nothing here can tell those apart, so discarding automatically would remove
+the difficult good questions first.
+
+**The instructor decides.** Rejection demands a reason, which is both what
+improves the prompt and what the approval rate needs in its denominator, and a
+decided version cannot be decided again - a change of mind is a new version.
+The rate counts generated versions only, since an instructor's own tasks are
+approved by construction, and a sample under thirty reports NOT_MEASURED.
+
+Knowledge components are the one thing the model never chooses: `TaskDraft` has
+no field for them and the blueprint is read instead. But **nothing verifies that
+a task actually asks about what it was tagged with** - every check above watches
+behaviour. A wrong tag would give a learner mastery in something the task never
+exercised, and BKT folds the sequence, so noticing later does not undo it. Two
+things stand in the way, neither automatic: the review packet always prints the
+components and says no machine checked them, and the solver reports which ones
+its own solution actually needed.
 
 ### Accuracy is measured, and "unmeasured" is not a pass
 
