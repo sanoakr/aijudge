@@ -14,6 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from aijudge_authoring import TaskRepository
+from aijudge_authoring.difficulty import DifficultyEstimate
 from aijudge_authoring.similarity import DuplicateReport
 from aijudge_authoring.solvability import SolvabilityReport
 from aijudge_authoring.verification import VerificationReport
@@ -134,6 +135,7 @@ class ReviewPacket:
     verification: VerificationReport
     solvability: SolvabilityReport | None = None
     duplicates: DuplicateReport | None = None
+    difficulty: DifficultyEstimate | None = None
     # この課題版が問うとされている知識要素の**正準キー**。
     #
     # **人が `Blueprint` に書いたものである。** モデルは決めない
@@ -172,6 +174,8 @@ class ReviewPacket:
                 lines += ["", note]
         if self.duplicates is not None:
             lines += ["", self.duplicates.summary()]
+        if self.difficulty is not None:
+            lines += ["", self.difficulty.summary()]
         lines += ["", "**承認するかどうかは教員が決めます。**"]
         return "\n".join(lines)
 
@@ -208,6 +212,7 @@ def build_packet(
     *,
     declared_kcs: tuple[str, ...] = (),
     duplicates: DuplicateReport | None = None,
+    difficulty: DifficultyEstimate | None = None,
 ) -> ReviewPacket:
     """レビュー前に走らせた検査を束ねる（設計方針 §5 の並び）。
 
@@ -221,6 +226,7 @@ def build_packet(
         verification=verification,
         solvability=solvability,
         duplicates=duplicates,
+        difficulty=difficulty,
         # 解答役に確認させた KC があればそちらを使う（同じ並びのはず）。
         declared_kcs=declared_kcs or (solvability.declared_kcs if solvability else ()),
     )

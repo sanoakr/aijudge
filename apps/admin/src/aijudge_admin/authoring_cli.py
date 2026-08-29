@@ -17,6 +17,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from aijudge_authoring import TaskChecks, build_task_version
+from aijudge_authoring.difficulty import (
+    DEFAULT_PASS_THRESHOLD,
+    DifficultyEstimate,
+    TaskOutcomeStats,
+    estimate,
+)
 from aijudge_authoring.drafting import Blueprint, Difficulty
 from aijudge_core import Task
 from aijudge_core.ids import CourseId, TaskVersionId, UserId
@@ -68,6 +74,7 @@ def cmd_task_draft(args: argparse.Namespace) -> int:
 
     # 重複は門と独立に測れる（実行が要らない）ので、門が落ちても走らせる。
     duplicates = None
+    difficulty = None
     if not args.no_duplicates:
         database = _open(args)
         try:
@@ -76,6 +83,9 @@ def cmd_task_draft(args: argparse.Namespace) -> int:
                 duplicates = DuplicateChecker(
                     uow.tasks, embedding_model=args.embedding_model
                 ).check(version, existing)
+                # **近傍は重複検出が選んだものをそのまま使う。** 別に選び直すと、
+                # 「重複していない」と「難度が近い」が違う近傍を根拠にすることになる。
+                difficulty = _estimate_difficulty(uow, duplicates)
                 uow.commit()
         finally:
             database.dispose()
@@ -86,6 +96,7 @@ def cmd_task_draft(args: argparse.Namespace) -> int:
         solvability,
         declared_kcs=blueprint.knowledge_components,
         duplicates=duplicates,
+        difficulty=difficulty,
     )
     print(packet.render())
 
@@ -114,6 +125,7 @@ def cmd_task_draft(args: argparse.Namespace) -> int:
                     solvability=solvability,
                     declared_kcs=blueprint.knowledge_components,
                     duplicates=duplicates,
+                    difficulty=difficulty,
                     checked_at=datetime.now(UTC),
                 ),
             )
@@ -203,6 +215,23 @@ def _kc_keys(uow, version) -> tuple[str, ...]:
         kc = uow.skills.get_kc(entry.kc_id)
         keys.append(kc.key if kc is not None else f"{entry.kc_id}（未登録）")
     return tuple(keys)
+
+
+def _estimate_difficulty(uow, duplicates) -> DifficultyEstimate | None:
+    """似た課題の実績から難度を見込む（設計方針 §5）。
+
+    **実績が無ければ推定しない。** 学期の頭は必ずこの状態になり、そこで
+    数字を出すと、根拠の無い難度が課題に付いたまま残る。
+    """
+    if duplicates is None or not duplicates.nearest:
+        return None
+    ids = tuple(TaskVersionId(item.task_version_id) for item in duplicates.nearest)
+    counted = uow.tasks.pass_rates(ids, threshold=DEFAULT_PASS_THRESHOLD)
+    stats = {
+        vid: TaskOutcomeStats(task_version_id=vid, attempts=attempts, passed=passed)
+        for vid, (attempts, passed) in counted.items()
+    }
+    return estimate(duplicates.nearest, stats, method=duplicates.method)
 
 
 def _existing_statements(uow, course_id: CourseId, exclude) -> dict:

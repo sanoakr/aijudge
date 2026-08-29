@@ -28,6 +28,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .difficulty import DifficultyEstimate
 from .similarity import DuplicateReport
 from .solvability import SolvabilityReport
 
@@ -317,4 +318,6 @@ class TaskChecks(BaseModel):
     declared_kcs: tuple[str, ...] = ()
     # 既存の課題との重複。埋め込みが無ければ字面で測った結果が入る。
     duplicates: DuplicateReport | None = None
+    # 似た課題の正答率から見込んだ難度。データが無ければ推定しない。
+    difficulty: DifficultyEstimate | None = None
     checked_at: datetime | None = None

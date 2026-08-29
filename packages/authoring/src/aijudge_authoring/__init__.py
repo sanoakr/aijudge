@@ -12,6 +12,7 @@ AI 作問はこのパッケージのワーカーとして Phase 4 で足す。�
 
 from __future__ import annotations
 
+from .difficulty import DifficultyEstimate, TaskOutcomeStats
 from .importers import sharif_judge
 from .repository import (
     InMemoryTaskRepository,
@@ -54,6 +55,7 @@ __all__ = [
     "DEFAULT_MIN_KILL_RATIO",
     "DEFAULT_SIMILARITY_THRESHOLD",
     "CriterionSpec",
+    "DifficultyEstimate",
     "DuplicateReport",
     "GateOutcome",
     "InMemoryTaskRepository",
@@ -68,6 +70,7 @@ __all__ = [
     "SolverAttempt",
     "TaskChecks",
     "TaskImmutabilityViolation",
+    "TaskOutcomeStats",
     "TaskRepository",
     "TaskSpec",
     "TaskStoreError",

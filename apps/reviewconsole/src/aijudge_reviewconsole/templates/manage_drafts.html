@@ -112,6 +112,26 @@
         </td>
       </tr>
       {% endif %}
+      {% if row.checks.difficulty %}
+      <tr>
+        <td class="fit">難度</td>
+        <td class="grow">
+          {% if row.checks.difficulty.predicted_pass_rate is none %}
+            推定していません。<span class="desc">{{ row.checks.difficulty.reason }}</span>
+          {% else %}
+            {{ row.checks.difficulty.label }}
+            （似た課題の正答率から
+            {{ "%.0f"|format(row.checks.difficulty.predicted_pass_rate * 100) }}% と見込む）
+            {% for item in row.checks.difficulty.basis %}
+              <br><span class="desc">類似度 {{ "%.2f"|format(item.score) }}
+                {{ item.title or item.task_version_id }}</span>
+            {% endfor %}
+            <br><span class="desc"><strong>正答率は難しさそのものではありません。</strong>
+              出題時期・任意か必須か・受講者によっても動きます。</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endif %}
     </tbody>
   </table>
   {% endif %}

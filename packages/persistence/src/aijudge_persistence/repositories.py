@@ -18,7 +18,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import datetime
 
-from sqlalchemy import func, select, update
+from sqlalchemy import case, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -856,6 +856,37 @@ class SqlTaskRepository:
             )
         ).scalars()
         return {row.task_version_id: tuple(float(v) for v in row.vector) for row in rows}
+
+    def pass_rates(
+        self, version_ids: tuple[TaskVersionId, ...], *, threshold: float
+    ) -> dict[str, tuple[int, int]]:
+        """課題版ごとの `(提出数, 通った数)`。難度推定の材料。
+
+        **最新の採点だけを数える**（`superseded_by` が空のもの）。二段階
+        キューは 1 提出につき採点を 2 つ作るので、素直に数えると提出数が
+        倍になる（ADR 0011）。
+
+        **提出そのものではなく採点を数えている。** 採点されていない提出は
+        入らない ── 通ったかどうかが分からないものを分母に入れると、
+        正答率が実際より低く出る。
+        """
+        if not version_ids:
+            return {}
+        rows = self._session.execute(
+            select(
+                GradingRunRow.task_version_id,
+                func.count(GradingRunRow.id),
+                func.sum(
+                    case((GradingRunRow.score_ratio >= threshold, 1), else_=0)
+                ),
+            )
+            .where(
+                GradingRunRow.task_version_id.in_([str(v) for v in version_ids]),
+                GradingRunRow.superseded_by.is_(None),
+            )
+            .group_by(GradingRunRow.task_version_id)
+        ).all()
+        return {row[0]: (int(row[1]), int(row[2] or 0)) for row in rows}
 
     def list_versions_in_review(self) -> tuple[TaskVersion, ...]:
         """教員のレビュー待ち。**生成物が溜まる場所。**"""
