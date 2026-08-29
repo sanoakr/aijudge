@@ -86,16 +86,24 @@ def calibrated(source: list[int], target: list[int], top: int) -> list[int]:
     return out
 
 
-def machine_totals(name: str) -> dict[str, int]:
-    """採点結果の合計。**採点に使ったルーブリックの尺度のまま返す。**"""
+def machine_totals(name: str) -> tuple[dict[str, int], int]:
+    """採点結果の合計。**採点に使ったルーブリックの尺度のまま返す。**
+
+    合計を出せなかった件数も返す。**出せない理由はたいてい観点の食い違い**
+    ── その採点は別のルーブリックで走っており、`AIJUDGE_EVAL_RUBRIC` の
+    指定が要る。黙って落とすと行ごと消えて、原因が見えなくなる。
+    """
     runs = json.loads((rubric.RUNS / f"{name}.json").read_text("utf-8"))
     out = {}
+    dropped = 0
     for row in runs:
         levels = {code: score["level"] for code, score in row["scores"].items()}
         value = rubric.total(levels)
-        if value is not None:
-            out[row["login"]] = value
-    return out
+        if value is None:
+            dropped += 1
+            continue
+        out[row["login"]] = value
+    return out, dropped
 
 
 def main() -> int:
@@ -118,19 +126,31 @@ def main() -> int:
     print(f"照合先: {rubric.DATASET} 年度の採点表（0〜{top} 段階）\n")
     print("**尺度が違うので生の QWK は比べない。** 順位（ρ・τ・r）が転移の本体で、")
     print("QWK は 1 次式で人の尺度に写したあと（1 件抜き交差検証）の値である。\n")
+    notes: list[str] = []
     print("| 実行 | n | ρ（順位） | τ | r | 較正後 QWK |")
     print("|---|--:|--:|--:|--:|--:|")
     for spec in args.runs:
         name, _, label = spec.partition(":")
         label = label or name
         try:
-            machine = machine_totals(name)
+            machine, dropped = machine_totals(name)
         except FileNotFoundError:
             print(f"| {label} | — | （{name}.json が無い） | | | |")
             continue
+        if not machine:
+            print(
+                f"| {label} | — | （{rubric.RUBRIC} の観点で合計が出せない ── "
+                f"{dropped} 件すべてで観点が欠けている。この採点を走らせた"
+                f"ルーブリックを `AIJUDGE_EVAL_RUBRIC` で指定すること） | | | |"
+            )
+            continue
         shared = sorted(set(human) & set(machine))
         if len(shared) < 4:
+            print(f"| {label} | {len(shared)} | （照合できる件数が少なすぎる） | | | |")
             continue
+        if dropped:
+            # 表の行にはしない（1 つの実行が 2 行になると読めなくなる）。
+            notes.append(f"- `{label}`: {dropped} 件は観点が欠けていて合計を出せない")
         h = [human[i] for i in shared]
         m = [machine[i] for i in shared]
         fixed = calibrated(m, h, top)
@@ -139,6 +159,10 @@ def main() -> int:
             f" | {pearson(m, h):+.3f}"
             f" | {quadratic_weighted_kappa(h, fixed, range(top + 1)):+.3f} |"
         )
+    if notes:
+        print()
+        for note in notes:
+            print(note)
     return 0
 
 
