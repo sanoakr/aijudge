@@ -94,8 +94,11 @@ def _pipeline(judge: RubricAiJudge, samples: int = 1) -> GradingPipeline:
     return GradingPipeline(registry, profile)
 
 
+# 版 2 で `observation` が必須になった。毎回書くと行が長くなるので前置きにする。
+OBS = '{"observation": "同時接続数を変えて測った", '
+
 VALID = (
-    '{"level": 2, "evidence": [{"start_line": 4, "end_line": 7, '
+    OBS + '"level": 2, "evidence": [{"start_line": 4, "end_line": 7, '
     '"quote": "do { scanf }"}], "rationale": "変数名は概ね説明的です。"}'
 )
 
@@ -172,7 +175,7 @@ def test_an_empty_evidence_list_is_sent_back_for_repair(task_version) -> None:
     空で返すことがある。`evidence` を必須にしてあるので、これはスキーマ
     違反として再試行に回る。
     """
-    empty = '{"level": 3, "evidence": [], "rationale": "よい"}'
+    empty = OBS + '"level": 3, "evidence": [], "rationale": "よい"}'
     judge, provider = _judge([empty, empty, VALID])
     run = _pipeline(judge).run(task_version, *_wire(task_version.reference_solution))
 
@@ -184,7 +187,7 @@ def test_an_empty_evidence_list_is_sent_back_for_repair(task_version) -> None:
 
 def test_a_model_that_never_cites_evidence_yields_no_score(task_version) -> None:
     """直らなければ点を付けない。根拠のない点数は出さない。"""
-    empty = '{"level": 3, "evidence": [], "rationale": "よい"}'
+    empty = OBS + '"level": 3, "evidence": [], "rationale": "よい"}'
     judge, _ = _judge([empty, empty, empty])
     run = _pipeline(judge).run(task_version, *_wire(task_version.reference_solution))
 
@@ -199,7 +202,7 @@ def test_fabricated_line_numbers_are_discarded(task_version) -> None:
     """存在しない行を指す根拠は捨てる。捏造を UI に出さないため。"""
     judge, _ = _judge(
         [
-            '{"level": 2, "evidence": [{"start_line": 9999, "end_line": 10000, '
+            OBS + '"level": 2, "evidence": [{"start_line": 9999, "end_line": 10000, '
             '"quote": "?"}], "rationale": "x"}'
         ]
     )
@@ -212,7 +215,7 @@ def test_evidence_beyond_the_last_line_is_clamped(task_version) -> None:
     """始点は実在し終点だけ行き過ぎている場合は、捨てずに末尾へ寄せる。"""
     judge, _ = _judge(
         [
-            '{"level": 2, "evidence": [{"start_line": 3, "end_line": 9999, '
+            OBS + '"level": 2, "evidence": [{"start_line": 3, "end_line": 9999, '
             '"quote": "?"}], "rationale": "x"}'
         ]
     )
@@ -254,11 +257,11 @@ def test_a_split_ai_vote_sends_the_submission_to_human_review(task_version) -> N
     """確信度が閾値を割ったら人間が見る（設計原則 P5）。"""
     provider = ScriptedProvider(
         [
-            '{"level": 1, "evidence": [{"start_line": 1, "end_line": 2, "quote": "a"}], '
+            OBS + '"level": 1, "evidence": [{"start_line": 1, "end_line": 2, "quote": "a"}], '
             '"rationale": "a"}',
-            '{"level": 3, "evidence": [{"start_line": 1, "end_line": 2, "quote": "b"}], '
+            OBS + '"level": 3, "evidence": [{"start_line": 1, "end_line": 2, "quote": "b"}], '
             '"rationale": "b"}',
-            '{"level": 2, "evidence": [{"start_line": 1, "end_line": 2, "quote": "c"}], '
+            OBS + '"level": 2, "evidence": [{"start_line": 1, "end_line": 2, "quote": "c"}], '
             '"rationale": "c"}',
         ]
     )
@@ -277,7 +280,7 @@ def test_the_run_records_which_model_and_prompt_produced_it(task_version) -> Non
     run = _pipeline(judge).run(task_version, *_wire(task_version.reference_solution))
 
     assert run.context.model_ids == {"rubric_ai_judge": "stub"}
-    assert run.context.prompt_versions == {"rubric_ai_judge": "rubric_criterion_judge_ja@1"}
+    assert run.context.prompt_versions == {"rubric_ai_judge": "rubric_criterion_judge_ja@2"}
 
 
 def test_grading_survives_the_llm_being_unavailable(task_version) -> None:

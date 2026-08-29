@@ -118,3 +118,33 @@ def test_binary_content_is_not_judged() -> None:
     request = _request(ArtifactKind.PDF, b"%PDF-1.4\n\x00\x01\x02\xff\xfe binary")
 
     assert judge._source(request) == (None, None)
+
+
+def test_the_verdict_must_name_what_the_learner_did() -> None:
+    """**観察を書かない判定は受け付けない**（プロンプト版 2）。
+
+    2025 年度の採点表のコメント欄を読むと、採点者は必ず「学生が具体的に
+    何をしたか」を名指ししてから点を付けている。名指しできない判定は
+    印象で付けた判定なので、`observation` を必須にしてある ── 既定値を
+    与えると任意になり、モデルは書かずに済ませる（evidence で実際に
+    そうなった）。
+    """
+    import pytest
+    from pydantic import ValidationError
+
+    from aijudge_eval_rubric_ai_judge import Verdict
+
+    with pytest.raises(ValidationError):
+        Verdict.model_validate(
+            {"level": 2, "evidence": [{"start_line": 1, "end_line": 2}], "rationale": "よい"}
+        )
+
+    ok = Verdict.model_validate(
+        {
+            "observation": "同時接続数を 1〜100 で変えて平均応答時間を測った",
+            "level": 2,
+            "evidence": [{"start_line": 1, "end_line": 2}],
+            "rationale": "1 つ上には異常値の扱いが要るが書かれていない",
+        }
+    )
+    assert ok.observation.startswith("同時接続数")
