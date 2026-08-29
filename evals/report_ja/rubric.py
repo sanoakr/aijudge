@@ -18,9 +18,14 @@ import os
 from pathlib import Path
 
 ENV_DATASET = "AIJUDGE_EVAL_DATASET"
+# **ルーブリックはデータセットと別に選べる。** ある年度のコメントから起こした
+# ルーブリックを、別の年度の提出に当てて汎化を測るため（転移テスト）。
+# 指定しなければデータセットと同じものを使う。
+ENV_RUBRIC = "AIJUDGE_EVAL_RUBRIC"
 DEFAULT_DATASET = "2025"
 
-_name = os.environ.get(ENV_DATASET, DEFAULT_DATASET)
+_dataset = os.environ.get(ENV_DATASET) or DEFAULT_DATASET
+_name = os.environ.get(ENV_RUBRIC) or _dataset
 try:
     _module = importlib.import_module(f"rubric_{_name}")
 except ModuleNotFoundError as exc:  # pragma: no cover - 打ち間違い
@@ -29,7 +34,8 @@ except ModuleNotFoundError as exc:  # pragma: no cover - 打ち間違い
     ) from exc
 
 # ルーブリックの中身をそのまま通す。
-DATASET = _module.DATASET
+DATASET = _dataset
+RUBRIC = _module.DATASET
 POINTS = _module.POINTS
 TOTAL_POINTS = _module.TOTAL_POINTS
 MAX_LEVEL = _module.MAX_LEVEL
@@ -46,10 +52,15 @@ CODES = [c["code"] for c in CRITERIA]
 
 # 設計検討ディレクトリ。提出物と採点表はここにある（repository には置かない）。
 DESIGN_DIR = Path.home() / "pCloud Drive/Agent Projects/aiJudge設計検討"
-SOURCE_DIR = DESIGN_DIR / _module.SOURCE
-HUMAN_CSV = DESIGN_DIR / _module.HUMAN_CSV
+# 提出物と採点表は**データセット側**から取る（ルーブリックは記述だけ差し替える）。
+_source = importlib.import_module(f"rubric_{_dataset}")
+SOURCE_DIR = DESIGN_DIR / _source.SOURCE
+HUMAN_CSV = DESIGN_DIR / _source.HUMAN_CSV
+STUDENT_RE = _source.STUDENT_RE
+load_human = _source.load_human
 
-# 作業用の置き場所。すべて .git/info/exclude で除外してある。
+# 作業用の置き場所。**提出物はデータセット側なので、抽出物はそちらに置く。**
+# 採点結果だけはルーブリックごとに名前を分ける（--name で付ける）。
 WORK = Path(__file__).parent / f"data-{DATASET}"
 INDEX = WORK / "index.json"
 BODIES = WORK / "bodies"
