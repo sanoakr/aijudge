@@ -32,6 +32,7 @@ from aijudge_core import (
 )
 from aijudge_core.ids import CriterionId, TaskId, TaskVersionId, UserId
 
+from ..spec import q_matrix_for
 from . import companion
 
 # `## [必須] 最大値・最小値・平均値 ##` から見出しを取る。
@@ -238,12 +239,17 @@ def import_problem(
     evaluator_id: str = DEFAULT_EVALUATOR,
     max_score: float = 100.0,
     readability_weight: float = 0.0,
+    knowledge_components: tuple[str, ...] = (),
 ) -> TaskVersion:
     """Sharif Judge の問題ディレクトリ 1 つを TaskVersion にする。
 
     `readability_weight` を 0 より大きくすると、AI 評価器が担当する
     「読みやすさ」の観点を加え、正しさの重みをその分下げる。
     既存課題をそのまま取り込むだけなら 0 のままでよい。
+
+    `knowledge_components` は課題が問う KC の正準キー（設計原則 P6）。
+    **取り込みにも口を開けておく** ── 既存の課題こそ KC を付ける対象で、
+    ここだけ付けられないと Q-matrix が新規課題のぶんしか埋まらない。
     """
     if not 0.0 <= readability_weight < 1.0:
         raise ImportError_("readability_weight must be in [0.0, 1.0)")
@@ -306,8 +312,9 @@ def import_problem(
     else:
         criteria = (correctness,)
 
+    version_id = TaskVersionId(derived_id("tsv", task_key, "1"))
     return TaskVersion(
-        id=TaskVersionId(derived_id("tsv", task_key, "1")),
+        id=version_id,
         task_id=task_id or TaskId(derived_id("tsk", task_key)),
         version=1,
         subject_profile=subject_profile,
@@ -315,7 +322,7 @@ def import_problem(
         reference_solution=find_reference_solution(problem_dir),
         criteria=criteria,
         test_cases=cases,
-        q_matrix=(),
+        q_matrix=q_matrix_for(knowledge_components, version_id),
         max_score=max_score,
         allow_handwriting=False,
         provenance=Provenance(

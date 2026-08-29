@@ -29,6 +29,7 @@ from .repositories import (
     SqlTaskRepository,
 )
 from .schema import Base
+from .skill_repository import SqlSkillRepository
 
 ENV_DATABASE_URL = "AIJUDGE_DATABASE_URL"
 DEFAULT_DATABASE_URL = "postgresql+psycopg://aijudge:aijudge@localhost:5432/aijudge"
@@ -93,6 +94,7 @@ class SqlUnitOfWork:
         self.tasks = SqlTaskRepository(self._session)
         self.reviews = SqlReviewRepository(self._session)
         self.identity = SqlIdentityRepository(self._session)
+        self.skills = SqlSkillRepository(self._session)
         return self
 
     def __exit__(self, *exc: object) -> None:

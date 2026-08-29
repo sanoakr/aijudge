@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from .feedback import build_feedback_generator
 from .relay import EventRelay
+from .skill_subscriber import SkillSubscriber, subscribe_skills
 from .worker import (
     DEFAULT_LEASE_SECONDS,
     GradingWorker,
@@ -24,7 +25,9 @@ __all__ = [
     "EventRelay",
     "GradingWorker",
     "PermanentGradingError",
+    "SkillSubscriber",
     "WorkResult",
     "build_feedback_generator",
     "import_task_version",
+    "subscribe_skills",
 ]

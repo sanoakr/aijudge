@@ -48,6 +48,7 @@ def _event(
     confidence: float = 1.0,
     kcs: tuple[KcId, ...] = (KC,),
     routing: Routing = Routing.AUTO,
+    provisional: bool = False,
 ) -> GradingCompleted:
     return GradingCompleted(
         event_id=EventId("evt_" + run * 32),
@@ -60,6 +61,7 @@ def _event(
         score_ratio=ratio,
         confidence=confidence,
         routing=routing,
+        provisional=provisional,
         kc_outcomes=tuple(
             KcOutcome(
                 kc_id=kc,
@@ -196,3 +198,27 @@ def test_evidence_is_capped_but_the_estimate_is_not() -> None:
     state = repository.get_state(TENANT, LEARNER, KC)
     assert len(state.evidence) == 3
     assert state.observation_count == 6
+
+
+def test_a_provisional_grading_does_not_count() -> None:
+    """**暫定の採点で学習者の記録を動かさない。**
+
+    二段階キュー（ADR 0011）は 1 提出につきイベントを 2 回出す。1 回目は
+    AI 観点が未採点で、総合点は決定的評価だけを比例配分したものである。
+    数えると、同じ提出を二度、しかも一度目は不完全な評価で数えることになる
+    ── 実際に配線して初めて出た（`observation_count` が 2 になった）。
+    """
+    service, repository = _service()
+    assert service.apply(_event(provisional=True)) == ()
+    assert repository.get_state(TENANT, LEARNER, KC) is None
+
+
+def test_the_settled_grading_of_the_same_submission_does_count() -> None:
+    """暫定を飛ばしても、確定した方は数える（飛ばしっぱなしにしない）。"""
+    service, repository = _service()
+    service.apply(_event(run="a", provisional=True))
+    service.apply(_event(run="e", provisional=False))
+
+    state = repository.get_state(TENANT, LEARNER, KC)
+    assert state is not None
+    assert state.observation_count == 1

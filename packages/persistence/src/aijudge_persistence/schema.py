@@ -437,3 +437,46 @@ class TaskVersionRow(Base):
         UniqueConstraint("task_id", "version", name="uq_task_version"),
         Index("ix_task_versions_task_version", "task_id", "version"),
     )
+
+
+class KnowledgeComponentRow(Base):
+    """知識要素（KC）。
+
+    正準キー（`namespace.path…`）で一意。**ID はキーから導出される**ので、
+    課題が KC を名指ししてから体系に足しても対応が繋がる。
+    """
+
+    __tablename__ = "knowledge_components"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    namespace: Mapped[str] = mapped_column(String(64), index=True)
+    key: Mapped[str] = mapped_column(String(256), index=True)
+    label: Mapped[str] = mapped_column(String(256))
+    parent_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    document: Mapped[dict] = mapped_column(JsonType)
+
+    __table_args__ = (UniqueConstraint("key", name="uq_kc_key"),)
+
+
+class SkillStateRow(Base):
+    """学習者 × KC の習熟度（S7）。
+
+    **採点結果とは別の表である。** 採点は追記のみだが、習熟度は最新の 1 行を
+    持ち替える推定値で、根拠（`SkillEvidence`）を通じて採点結果を指す。
+    """
+
+    __tablename__ = "skill_states"
+
+    tenant_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    learner_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    kc_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    mastery: Mapped[float] = mapped_column(Float)
+    model: Mapped[str] = mapped_column(String(32))
+    observation_count: Mapped[int] = mapped_column(Integer)
+    updated_at: Mapped[datetime] = mapped_column(Timestamp, index=True)
+    document: Mapped[dict] = mapped_column(JsonType)
+
+    __table_args__ = (
+        # 「この学習者の習熟度一覧」— ポートフォリオ（S8）が使う。
+        Index("ix_skill_tenant_learner", "tenant_id", "learner_id"),
+    )

@@ -74,6 +74,13 @@ class GradingCompleted(_Event):
     score_ratio: float = Field(ge=0.0, le=1.0)
     confidence: float = Field(ge=0.0, le=1.0)
     routing: Routing
+    # 採点できなかった観点が残っているか。
+    #
+    # **1 提出につきこのイベントは 2 回出る**（決定的段階と AI 段階、ADR 0011）。
+    # 1 回目は AI 観点が未採点の暫定で、2 回目がそれを supersede する。
+    # 購読側がこの区別を持たないと、同じ提出を二度数える ── しかも一度目は
+    # 不完全な評価で数えることになる（実配線して初めて出た）。
+    provisional: bool = False
     kc_outcomes: tuple[KcOutcome, ...] = ()
 
 

@@ -67,6 +67,15 @@ class SkillService:
         返り値は S8（ポートフォリオ）と S2（弱い KC を狙った作問）へ流す
         イベント。**購読者が居なくても S7 は成立する**（P2）。
         """
+        if event.provisional:
+            # **暫定の採点で学習者の記録を動かさない。**
+            #
+            # 二段階キュー（ADR 0011）は 1 提出につきこのイベントを 2 回出す。
+            # 1 回目は AI 観点が未採点で、その時点の総合点は決定的評価だけを
+            # 比例配分したものである。それを習熟度に入れると、同じ提出を
+            # 二度数えたうえ、一度目は不完全な評価で数えることになる。
+            return ()
+
         at = observed_at or event.occurred_at
         updates: list[SkillStateUpdated] = []
         for outcome in event.kc_outcomes:

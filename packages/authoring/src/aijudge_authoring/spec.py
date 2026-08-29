@@ -226,7 +226,7 @@ def _declared_version(
         reference_solution=spec.reference_solution,
         criteria=criteria,
         test_cases=cases,
-        q_matrix=_q_matrix(spec, version_id),
+        q_matrix=q_matrix_for(spec.knowledge_components, version_id),
         max_score=spec.max_score,
         allow_handwriting=False,
         provenance=Provenance(
@@ -237,6 +237,27 @@ def _declared_version(
         created_at=datetime.now(UTC),
     )
 
+
+def q_matrix_for(
+    keys: tuple[str, ...], task_version_id: TaskVersionId
+) -> tuple[QMatrixEntry, ...]:
+    """宣言した KC を Q-matrix の行にする（設計原則 P6）。
+
+    **KC の ID は正準キーから導く。** 体系を先に登録してから課題を書く、
+    という順序を強制しないためである。同じキーは同じ ID になるので、
+    KC の実体を後から足しても対応は繋がる（`derived_id` が決定的）。
+
+    重みは既定の 1.0 のまま置く。「どれだけ問うているか」を見積もらせる前に、
+    まず対応があるかどうかだけを集める。
+
+    **課題を足す経路が 3 つあるので、ここに 1 本化する**（宣言・画面・取り込み）。
+    経路ごとに書くと、取り込んだ課題にだけ KC が付かない、が起きる ──
+    `readability_weight` で実際に起きた形である。
+    """
+    return tuple(
+        QMatrixEntry(task_version_id=task_version_id, kc_id=KcId(derived_id("kc", key)))
+        for key in keys
+    )
 
 def build_task_version(
     spec: TaskSpec,
@@ -306,7 +327,7 @@ def build_task_version(
         reference_solution=spec.reference_solution,
         criteria=criteria,
         test_cases=cases,
-        q_matrix=_q_matrix(spec, version_id),
+        q_matrix=q_matrix_for(spec.knowledge_components, version_id),
         max_score=spec.max_score,
         allow_handwriting=False,
         provenance=Provenance(
@@ -319,25 +340,6 @@ def build_task_version(
     )
 
 
-def _q_matrix(spec: TaskSpec, task_version_id: TaskVersionId) -> tuple[QMatrixEntry, ...]:
-    """宣言した KC を Q-matrix の行にする（設計原則 P6）。
-
-    **KC の ID は正準キーから導く。** 体系を先に登録してから課題を書く、
-    という順序を強制しないためである。同じキーは同じ ID になるので、
-    KC の実体を後から足しても対応は繋がる（`derived_id` が決定的）。
-
-    重みは既定の 1.0 のまま置く。「どれだけ問うているか」を見積もらせる前に、
-    まず対応があるかどうかだけを集める。
-    """
-    return tuple(
-        QMatrixEntry(
-            task_version_id=task_version_id,
-            kc_id=KcId(derived_id("kc", key)),
-        )
-        for key in spec.knowledge_components
-    )
-
-
 __all__ = [
     "AI_EVALUATOR",
     "DEFAULT_EVALUATOR",
@@ -346,4 +348,5 @@ __all__ = [
     "TaskSpec",
     "TestCaseSpec",
     "build_task_version",
+    "q_matrix_for",
 ]

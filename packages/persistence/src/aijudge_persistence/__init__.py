@@ -33,6 +33,7 @@ from .repositories import (
     SqlTaskRepository,
 )
 from .schema import Base
+from .skill_repository import SqlSkillRepository
 
 __all__ = [
     "DEFAULT_DATABASE_URL",
@@ -47,6 +48,7 @@ __all__ = [
     "SqlJobQueue",
     "SqlOutbox",
     "SqlReviewRepository",
+    "SqlSkillRepository",
     "SqlSubmissionRepository",
     "SqlTaskRepository",
     "SqlUnitOfWork",
