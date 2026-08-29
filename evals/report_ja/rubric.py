@@ -36,6 +36,8 @@ except ModuleNotFoundError as exc:  # pragma: no cover - 打ち間違い
 # ルーブリックの中身をそのまま通す。
 DATASET = _dataset
 RUBRIC = _module.DATASET
+# **段階の記述の出どころはルーブリック側の性質**（データセット側ではない）。
+DESCRIPTOR_SOURCE = _module.DESCRIPTOR_SOURCE
 POINTS = _module.POINTS
 TOTAL_POINTS = _module.TOTAL_POINTS
 MAX_LEVEL = _module.MAX_LEVEL
@@ -56,6 +58,12 @@ DESIGN_DIR = Path.home() / "pCloud Drive/Agent Projects/aiJudge設計検討"
 _source = importlib.import_module(f"rubric_{_dataset}")
 SOURCE_DIR = DESIGN_DIR / _source.SOURCE
 HUMAN_CSV = DESIGN_DIR / _source.HUMAN_CSV
+# **採点表を誰が付けたかはデータセット側の性質**（ルーブリックを差し替えても
+# 変わらない）。報告書の冒頭がこれで決まる ── 一致度なのか精度なのか。
+SUBJECT = _source.SUBJECT
+HUMAN_LABEL = _source.HUMAN_LABEL
+HUMAN_IS_INSTRUCTOR = _source.HUMAN_IS_INSTRUCTOR
+HUMAN_NOTE = _source.HUMAN_NOTE
 STUDENT_RE = _source.STUDENT_RE
 load_human = _source.load_human
 

@@ -24,6 +24,23 @@ SOURCE = "ex-report-2023"
 HUMAN_CSV = "network2023-report.csv"
 STUDENT_RE = r"^([YyTt]\d{6})"
 
+# 報告書の見出しに出す情報（rubric_2025.py の同じ節を参照）。
+SUBJECT = "ネットワーク及び演習 2023 年度・HTTP サーバ性能評価レポート"
+HUMAN_LABEL = "教員"
+# **この採点表は教員本人が付けたものである。** 2023 年度なので AI を見る前
+# どころか AI を使う前に付いており、`BlindMark` と同じ意味を持つ。
+HUMAN_IS_INSTRUCTOR = True
+HUMAN_NOTE = (
+    f"**照合先の `{HUMAN_CSV}` は教員本人が付けた採点である。**"
+    "AI を使う前（2023 年度）に付いているので `BlindMark` と同じ意味を持ち"
+    "（ADR 0005）、以下は採点者間の一致度ではなく**精度**である。"
+    "ただし n は `evals/gates.yaml` の `min_sample_size: 30` を下回るので、"
+    "設計方針 §9.2 Phase 3 の合格基準を形式的に判定することはできない"
+    "（`NOT_MEASURED`）。"
+)
+
+DESCRIPTOR_SOURCE = "観点名から推測してこちらで書いたもの（採点コメントは参照していない）"
+
 # 教員の配点（25 点満点）。
 POINTS = {
     "format": 5,

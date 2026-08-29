@@ -1,4 +1,4 @@
-"""5 者の採点を細かく突き合わせ、報告書を 1 本の Markdown として書き出す。
+"""採点者どうしを細かく突き合わせ、報告書を 1 本の Markdown として書き出す。
 
 **採点はしない**（ADR 0007）。読むのは `runs/*.json` と `index.json` だけ。
 
@@ -6,11 +6,11 @@
 
   - 不一致を**偏り・尺度・順位**の 3 つに分解する
   - **較正で直るのか**を検定する（1 次式で写して QWK が上がるか。
-    同じ 19 件で当てはめると必ず上がるので、**1 件抜き交差検証**で見る）
-  - 採点者を 5 人まとめて扱う（Krippendorff の α）
+    同じ標本で当てはめると必ず上がるので、**1 件抜き交差検証**で見る）
+  - 採点者をまとめて扱う（Krippendorff の α）
   - **10 点上限の判定**という、実際に成績を左右する 1 つの決定だけを取り出す
   - 各採点者の点差が**どの観点から来ているか**を分解する
-  - 4 モデルの中央値（アンサンブル）が単独より良いか
+  - モデルの中央値（アンサンブル）が単独より良いか
 
 出力は学籍番号を含むので、repository ではなく設計検討ディレクトリに置く。
 """
@@ -38,9 +38,23 @@ from aijudge_analytics.metrics import (
 CODES = [c["code"] for c in rubric.CRITERIA]
 TITLES = {c["code"]: c["title"] for c in rubric.CRITERIA}
 
-# 既定の採点者。`実行名:表示名`。
+# **採点者ごとの条件。同条件ではないので、ここを省くと比較が読めなくなる。**
+# 観点の数はデータセットで変わるので `{criteria}` を埋める。
+RATER_CONDITIONS = {
+    "gemma4": ("ゲートウェイ", "1 観点ごとに 1 回", "3 本", "あり", "原文"),
+    "qwen3.8": ("ゲートウェイ", "1 観点ごとに 1 回", "2 本", "あり", "原文"),
+    "Sonnet5": ("サブエージェント", "**{criteria} 観点まとめて 1 回**",
+                "**1 本**", "**なし**", "**匿名化**"),
+    "Opus5": ("サブエージェント", "**{criteria} 観点まとめて 1 回**",
+              "**1 本**", "**なし**", "**匿名化**"),
+}
+# サブエージェント経由の採点者（§04 step 3 が禁じた形で採らざるを得なかったもの）。
+SUBAGENT_RATERS = {"Sonnet5", "Opus5"}
+
+# 既定の採点者。`実行名:表示名`。**人の採点の呼び名はデータセットが決める**
+# （2025 年度は LLM が付けた CSV、2023 年度は教員本人）。
 DEFAULT_RATERS = [
-    "csv:CSV",
+    f"csv:{rubric.HUMAN_LABEL}",
     "final:gemma4",
     "qwen27b:qwen3.8",
     "sonnet5:Sonnet5",
@@ -255,7 +269,7 @@ def affine_fit(xs: list[float], ys: list[float]) -> tuple[float, float]:
 def recalibrated_loo(source: list[int], target: list[int], top: int) -> list[int]:
     """1 件抜き交差検証で較正する。
 
-    **同じ 19 件で当てはめて測ると必ず良くなる。** 較正で直るかを見たいので、
+    **同じ標本で当てはめて測ると必ず良くなる。** 較正で直るかを見たいので、
     各件の変換は**その件を除いた 18 件**から決める。
     """
     out = []
@@ -318,15 +332,37 @@ def main() -> int:
     out: list[str] = []
     w = out.append
 
-    w("# レポート採点 — 5 者のモデル間比較")
+    # **見出しはデータセットとルーブリックから作る。固定文字列で書かない。**
+    # ここを固定していたため、2023 年度・教員採点との比較の報告書までが
+    # 「2025 年度 19 件、照合先も LLM」と名乗っていた（中身は 0〜50 段階で
+    # 教員との比較）。報告書の性質を決めるのは照合先が誰かである。
+    w(f"# レポート採点 — {len(names)} 者の比較（照合先 {base_name}）")
     w("")
-    w("ネットワーク及び演習 2025 年度・HTTP サーバ性能評価レポート 19 件。")
-    w("**照合先の `network2025-report.csv` も LLM が付けた採点である**")
-    w("（教員の正解ではない）。したがって以下は精度ではなく**採点者間の一致度**で、")
-    w("設計方針 §9.2 Phase 3 の合格基準（教員採点との QWK ≥ 0.60）の判定には使えない。")
-    w("判定には教員が AI を見ずに付けた段階（`BlindMark`、ADR 0005）が要る。")
+    w(f"{rubric.SUBJECT} {len(logins)} 件。")
     w("")
-    w("生成: `uv run python evals/report_ja/analyze.py`")
+    if synthetic:
+        w("**正解が無いので、観点ごとの中央値を「合意」として物差しにしている。**")
+        w("以下は精度ではなく、合意からの距離である。")
+    elif base_name == rubric.HUMAN_LABEL:
+        w(rubric.HUMAN_NOTE)
+    else:
+        w(f"**物差しは {base_name} で、人の採点ではない。**")
+        w(f"以下は精度ではなく {base_name} との一致度である。")
+    w("")
+    w(f"採点に使ったルーブリック: **{rubric.RUBRIC}**"
+      f"（{rubric.TOTAL_POINTS} 点満点、合計は 0〜{rubric.TOTAL_MAX} 段階）。")
+    w(f"**段階の記述は{rubric.DESCRIPTOR_SOURCE}。**")
+    w("")
+    _env = []
+    if rubric.DATASET != "2025":
+        _env.append(f"AIJUDGE_EVAL_DATASET={rubric.DATASET}")
+    if rubric.RUBRIC != rubric.DATASET:
+        _env.append(f"AIJUDGE_EVAL_RUBRIC={rubric.RUBRIC}")
+    _cmd = " ".join([*_env, "uv run python evals/report_ja/analyze.py",
+                     "--raters", *args.raters])
+    if args.reference:
+        _cmd += f" --reference {args.reference}"
+    w(f"生成: `{_cmd}`")
     w("")
     w("---")
     w("")
@@ -336,23 +372,46 @@ def main() -> int:
     w("")
     w("| 採点者 | 経路 | 観点の呼び方 | 自己一貫性 | 制約デコード | 本文 |")
     w("|---|---|---|---|---|---|")
-    if "CSV" in names:
-        w("| CSV | 不明（LLM） | 不明 | 不明 | 不明 | 不明 |")
-    w("| gemma4:e4b | ゲートウェイ | 1 観点ごとに 1 回 | 3 本 | あり | 原文 |")
-    w("| qwen3.8:27b-mlx | ゲートウェイ | 1 観点ごとに 1 回 | 2 本 | あり | 原文 |")
-    sub = "サブエージェント | **6 観点まとめて 1 回** | **1 本** | **なし** | **匿名化**"
-    w(f"| Sonnet 5 | {sub} |")
-    w(f"| Opus 5 | {sub} |")
+    for name in names:
+        if name == rubric.HUMAN_LABEL:
+            route = "教員本人" if rubric.HUMAN_IS_INSTRUCTOR else "不明（LLM）"
+            w(f"| {name} | {route} | 不明 | 不明 | 不明 | 不明 |")
+            continue
+        row = RATER_CONDITIONS.get(name)
+        if row is None:
+            w(f"| {name} | 不明 | 不明 | 不明 | 不明 | 不明 |")
+            continue
+        w(f"| {name} | " + " | ".join(
+            cell.format(criteria=len(CODES)) for cell in row
+        ) + " |")
     w("")
-    w("**同条件ではない。** Sonnet 5 / Opus 5 は API の資格情報が無いため")
-    w("サブエージェント経由で、観点をまとめて 1 回だけ聞いている。これは")
-    w("設計方針 §04 step 3 が禁じた形（観点間の引きずりが入る）で、")
-    w("**この 2 つが互いによく一致することには、構成の共通性も寄与しうる。**")
-    w("学外モデルには氏名・学籍番号を伏せて渡した（設計原則 P7）。")
-    w("")
-    w("また `qwen3.8` は 2 件で、`gemma4` の旧設定は 1 件で構造化出力に失敗して")
-    w("いる。**未採点は 0 点で埋めず、対から外している。**")
-    w("")
+    if any(name in SUBAGENT_RATERS for name in names):
+        w("**同条件ではない。** " + " / ".join(
+            n for n in names if n in SUBAGENT_RATERS
+        ) + " は API の資格情報が無いためサブエージェント経由で、")
+        w("観点をまとめて 1 回だけ聞いている。これは設計方針 §04 step 3 が")
+        w("禁じた形（観点間の引きずりが入る）で、**互いによく一致することには")
+        w("構成の共通性も寄与しうる。**")
+        w("学外モデルには氏名・学籍番号を伏せて渡した（設計原則 P7）。")
+        w("")
+    # **欠けは数える。** 以前ここに「qwen3.8 は 2 件で失敗」と固定で書いていて、
+    # 別のデータセットの報告書にもその数字が出ていた。
+    incomplete = {
+        name: sum(
+            1
+            for login in logins
+            if login not in raters[name]
+            or any(code not in raters[name][login] for code in CODES)
+        )
+        for name in names
+    }
+    missing = {name: count for name, count in incomplete.items() if count}
+    if missing:
+        w("観点が欠けている件数: " + " / ".join(
+            f"`{name}` {count} 件" for name, count in missing.items()
+        ) + "。")
+        w("**未採点は 0 点で埋めず、対から外している。**")
+        w("")
 
     # ---- 2. 生データ -----------------------------------------------------
     w("## 2. 生データ（観点別の段階）")
@@ -652,7 +711,7 @@ def main() -> int:
         )
     d = [y - x for x, y in zip(a, b, strict=True)]
     w(
-        f"| **4 モデルの中央値** | {len(a)} | {fmt(pearson(a, b))}"
+        f"| **{len(model_names)} モデルの中央値** | {len(a)} | {fmt(pearson(a, b))}"
         f" | {fmt(quadratic_weighted_kappa(a, b, range(rubric.TOTAL_MAX + 1)))}"
         f" | {statistics.fmean(d):+.2f} | {statistics.fmean(abs(v) for v in d):.2f} |"
     )
