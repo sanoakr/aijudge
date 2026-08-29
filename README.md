@@ -1,5 +1,7 @@
 # aiJudge
 
+日本語版: [README.ja.md](README.ja.md)
+
 AI-assisted assessment platform for STEM coursework — programming, mathematics,
 and written reports on one grading substrate.
 
@@ -21,6 +23,14 @@ Architecture decisions: [`docs/adr/`](docs/adr/).
 > learner web app, PostgreSQL persistence, the grading worker, next-step
 > feedback, and the instructor review console are all in place. See
 > [`docs/RUNNING.md`](docs/RUNNING.md) to run it.
+>
+> Phase 2 (two subjects on one instance, C and Python) and Phase 3 (reports —
+> a different kind of subject entirely) are built. Phase 3 was the architectural
+> test and it passed: adding reports changed `packages/core` and
+> `packages/grading` by **zero lines**. Its accuracy gate could not be settled
+> in the harness and now settles against blind marks collected in use
+> ([ADR 0012](docs/adr/0012-judge-report-grading-in-operation-not-in-the-harness.md)).
+> Phase 4 (knowledge components, the Q-matrix, mastery estimation) is under way.
 >
 > The container escape suite passes: fork bomb contained, non-root, read-only
 > root, no host home visible, no network, memory and output capped. It runs on
@@ -48,6 +58,7 @@ Architecture decisions: [`docs/adr/`](docs/adr/).
 | `packages/feedback` | Turns grading results into the learner's next step. Draws only on deterministic results. |
 | `packages/observation` | The observation record — what grading leaves behind for measurement to read. Depends on pydantic and nothing else. |
 | `packages/analytics` | Agreement metrics and gate evaluation (S9). Pure functions. Delete it and grading still runs — verified by deleting it. |
+| `packages/skill` | Knowledge components, the Q-matrix, and BKT mastery estimation (S7). Reads the `KcOutcome` an event carries and nothing else. |
 | `apps/studentweb` | The learner-facing app: submit, see results. What is visible lives in one module, not in templates. |
 | `apps/grader` | The grading worker. The only layer that knows both the queue and the pipeline. |
 | `apps/reviewconsole` | Instructor review console. Reads results, confirms grades. Never grades. |
@@ -55,6 +66,7 @@ Architecture decisions: [`docs/adr/`](docs/adr/).
 | `apps/*` | Composition roots. The only layer allowed to combine subsystems. |
 | `packages/*` | One package per remaining subsystem (S1, S3–S11). |
 | `evaluators/*` | Grading plugins. Depend on `packages/core` and nothing else. |
+| `normalizers/*` | Input normalisers (PDF/DOCX to text). Run before grading, never during it. |
 | `subjects/` | Subject profiles: which evaluators run, in what order, under what review policy. |
 | `evals/` | Gate thresholds, the golden-set format, and grading regression tests. |
 | `docs/adr/` | Architecture decision records. |
@@ -234,6 +246,40 @@ operational value of the same kind as a deadline, so it sits where deadlines sit
 Learners are told which route closed their grade. "The instructor confirmed this"
 and "a deadline passed" are not interchangeable sentences, and a grade closed
 without being read keeps its appeal link open.
+
+### Lateness is a deduction, not a criterion
+
+Grading does not know about deadlines. No evaluator receives one, and the
+pipeline never sees `due_at`. Handing in late is applied afterwards, from
+outside the evaluation:
+
+```
+evaluation (blind to lateness)        deduction (blind to the work)
+  GradingPipeline                     Course.late_penalty_steps × Task.due_at
+        └──→ CriterionScore ─┬────────────────┘
+                             ↓
+              aijudge_core.final_score(run, task_version, review)
+```
+
+It began the other way — a rung on the compliance criterion, copied from a
+marking sheet where the instructor wrote `遅延14h` in the format column. Folding
+it into a level broke three things. The criterion's κ measured reading agreement
+and clerical agreement mixed together. Waiving a deduction meant raising a level,
+which lands in `HumanReview.adjusted_levels` and reads as the instructor
+disagreeing with the AI — the mirror of the trap ADR 0010 closed. And the
+deduction rode into S7, mixing what a learner can do with when they handed it in.
+
+The ladder lives on the **course**, beside `auto_finalize_after_hours` and for
+the same reason. A course with no ladder deducts nothing and shows no deduction
+row at all: a rule left unset must not look like a rule that was applied and came
+to zero. Instructors can waive — a deduction nobody can lift contradicts P5 —
+and waiving leaves `agreed` true, because it is not disagreement. Where the
+deduction alone turns a pass into a fail, the run goes to review: the lateness is
+certain, but only a person can decide whether to forgive it.
+
+The deduction is **recorded on the run**, not recomputed at display time. The
+rule is editable mid-term, and recomputing would silently move grades already
+returned. See [ADR 0013](docs/adr/0013-lateness-is-a-deduction-not-a-criterion.md).
 
 ### Accuracy is measured, and "unmeasured" is not a pass
 
