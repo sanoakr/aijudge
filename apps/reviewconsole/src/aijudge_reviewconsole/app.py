@@ -403,6 +403,9 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
             )
         final = _parse_levels(context.task_version.criteria, form)
         comment = str(form.get("comment", ""))
+        # 遅延の減点の免除。**評価の修正とは別物**（ADR 0013）。減点の無い
+        # 採点で送られてきても害は無いが、意味を持つのは減点があるときだけ。
+        waived = context.run.penalty is not None and form.get("waive_penalty") is not None
 
         # 変更した観点だけを持つ。触っていない観点は AI に同意した意味。
         machine = {score.criterion_id: score.level for score in context.run.criterion_scores}
@@ -440,6 +443,7 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                         grading_run_id=context.run.id,
                         grader_id=me.user_id,
                         adjusted_levels=adjusted,
+                        penalty_waived=waived,
                         comment=text,
                         request_id=None if request is None else request.id,
                         reviewed_at=now,

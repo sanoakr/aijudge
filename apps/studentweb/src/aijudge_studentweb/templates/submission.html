@@ -29,6 +29,21 @@
   </p>
 {% else %}
   <div class="score">{{ '%.0f' | format(view.score_ratio * 100) }}<span class="unit">%</span></div>
+  {% if view.penalized %}
+    {# **評価と減点を分けて出す**（P4）。合計だけを出すと、点が低い理由が
+       「内容」なのか「遅れたこと」なのか学習者に区別できず、再確認を
+       依頼すべきかどうかも決められない。 #}
+    <p class="desc" style="margin:0 0 .4rem">
+      評価 {{ '%.0f' | format(view.evaluation_ratio * 100) }}%
+      − 遅延 {{ '%.0f' | format(view.penalty.ratio * 100) }} ポイント
+      = <strong>{{ '%.0f' | format(view.score_ratio * 100) }}%</strong><br>
+      <span style="color:var(--muted)">{{ view.penalty.reason }}</span>
+    </p>
+  {% elif view.penalty and view.penalty_waived %}
+    <p class="desc" style="margin:0 0 .4rem">
+      提出は締切を過ぎていますが、<strong>担当教員が減点を免除しました。</strong>
+    </p>
+  {% endif %}
   {# 確定の出所を出す。「確定済み」だけにすると、締切後に機械が確定した
      成績が「教員が確認しました」に見える（ADR 0010）。 #}
   {% if view.confirmed %}

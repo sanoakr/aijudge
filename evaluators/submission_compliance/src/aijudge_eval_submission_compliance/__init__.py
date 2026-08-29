@@ -23,19 +23,20 @@
 付けている。** 本文の構造を見る検査は捨てないが、それは採点の観点ではなく
 **受理の判定**（読めるか、採点に足るか）に回すものである。
 
-## 締切について
+## 締切を見ない理由
 
-**遅延は `Task.due_at` から決まるが、評価器に届くのは `TaskVersion` と
-`Submission` だけで Task は入っていない。** そのため締切は
-`evaluator_options` から渡す（`due_at`）。渡されなければ遅延は見ない
-── **見ていないことを理由に書く**。黙って満点にすると、締切を渡し忘れた
-設定ミスが「全員が期限内」に化ける。
+**遅延はここで見ない。** 評価は遅延と独立に行い、遅延は評価の結果に対する
+減点として別に持つ（ADR 0013）。混ぜると、この観点の κ が「提出の遵守」と
+「事務上の遅れ」の混合を測ることになり、しかも遅延の減点を教員が免除した
+ときに観点の段階まで動かす羽目になる。
+
+締切は `Task` が持ち、減点は採点ワーカーが採点のあとに当てる。だから
+この評価器は `Task` を知らないままでよい。
 """
 
 from __future__ import annotations
 
 import re
-from datetime import datetime
 
 from aijudge_core import (
     Artifact,
@@ -80,10 +81,6 @@ class SubmissionCompliance:
         reasons = ["提出あり（任意提出の課題なので、これが基礎点になる）"]
         faults = 0
 
-        late, late_reason = _lateness(request, options)
-        reasons.append(late_reason)
-        faults += late
-
         naming, naming_reason = _filename(artifacts, options)
         reasons.append(naming_reason)
         faults += naming
@@ -113,19 +110,6 @@ def _own_criterion(request: EvaluationRequest) -> RubricCriterion | None:
     return None
 
 
-def _lateness(request: EvaluationRequest, options: dict[str, object]) -> tuple[int, str]:
-    due = _as_datetime(options.get("due_at"))
-    submitted = request.submission.deadline_timestamp
-    if due is None:
-        return 0, "締切が渡されていないので遅延は見ていません"
-    if submitted is None:
-        return 0, "提出時刻が記録されていないので遅延は見ていません"
-    if submitted <= due:
-        return 0, "締切内の提出です"
-    hours = (submitted - due).total_seconds() / 3600
-    return 1, f"締切を {hours:.0f} 時間超えています"
-
-
 def _filename(artifacts: tuple[Artifact, ...], options: dict[str, object]) -> tuple[int, str]:
     pattern = options.get("filename_pattern")
     if not pattern:
@@ -148,17 +132,6 @@ def _kind(artifacts: tuple[Artifact, ...], options: dict[str, object]) -> tuple[
     if kinds & set(required):
         return 0, f"提出形式 {'・'.join(sorted(kinds))}"
     return 1, f"提出形式 {'・'.join(sorted(kinds))} — 指定は {'・'.join(required)}"
-
-
-def _as_datetime(value: object) -> datetime | None:
-    if isinstance(value, datetime):
-        return value
-    if isinstance(value, str):
-        try:
-            return datetime.fromisoformat(value)
-        except ValueError:
-            return None
-    return None
 
 
 def _score(

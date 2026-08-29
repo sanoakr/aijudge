@@ -27,7 +27,19 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from aijudge_authoring.repository import TaskStoreError
-from aijudge_core import GradingPhase, GradingRun, Submission, TaskVersion, new_id
+from aijudge_core import (
+    Course,
+    GradingPhase,
+    GradingRun,
+    Routing,
+    Submission,
+    Task,
+    TaskVersion,
+    final_score,
+    late_penalty_for,
+    new_id,
+    penalty_crosses_boundary,
+)
 from aijudge_core.ids import GradingJobId
 from aijudge_feedback import FeedbackGenerator
 from aijudge_grading import (
@@ -174,6 +186,10 @@ class GradingWorker:
             task_version = uow.tasks.get_version(job.task_version_id)
             if task_version is None:
                 raise PermanentGradingError(f"課題版が見つかりません: {job.task_version_id}")
+            # 遅延の減点に要る。**採点には渡さない** ── 評価器も採点エンジンも
+            # 締切を知らないままにする（評価は遅延と独立、ADR 0013）。
+            task = uow.tasks.get_task(task_version.task_id)
+            course = None if task is None else uow.identity.get_course(task.course_id)
 
         base: GradingRun | None = None
         if job.phase is GradingPhase.AI:
@@ -193,6 +209,14 @@ class GradingWorker:
             base=base,
         )
         run = self._with_feedback(run, task_version, contents)
+        run = self._with_late_penalty(
+            run,
+            submission=submission,
+            task=task,
+            course=course,
+            task_version=task_version,
+            profile=profile,
+        )
 
         if job.phase is GradingPhase.DETERMINISTIC and pipeline.has_ai_work(task_version, run):
             # AI 段階を積む。**決定的段階の結果を保存してから**（`_record_success`）
@@ -201,6 +225,43 @@ class GradingWorker:
         else:
             self._follow_up = None
         return run
+
+    def _with_late_penalty(
+        self,
+        run: GradingRun,
+        *,
+        submission: Submission,
+        task: Task | None,
+        course: Course | None,
+        task_version: TaskVersion,
+        profile: SubjectProfile,
+    ) -> GradingRun:
+        """遅延の減点を付ける。**採点したあとに、採点の外から当てる。**
+
+        ここに置くのは、ワーカーが S3（提出・締切）と S5（採点）を束ねる
+        唯一の場所だからである。採点エンジンに締切を渡すと、評価が遅延を
+        知ってしまう（ADR 0013）。
+
+        **保存前に確定させて記録する**（`GradingRun` は保存後不変、P8）。
+        表示のたびに計算し直す作りにすると、教員が学期の途中で規則を変えた
+        瞬間に過去の成績が黙って動く。
+        """
+        if task is None or course is None:
+            return run
+        penalty = late_penalty_for(
+            task.due_at, submission.deadline_timestamp, course.late_penalty_steps
+        )
+        if penalty is None:
+            return run
+
+        penalized = run.model_copy(update={"penalty": penalty})
+        score = final_score(penalized, task_version)
+        if penalty_crosses_boundary(score, profile.review_policy.boundary_score):
+            # 評価としては及第だったものが、遅延だけで不可になる。自動で
+            # 閉じずに教員が見る（P5）。遅延の事実に迷いは無いが、免除する
+            # かどうかの判断は人にしか無い。
+            penalized = penalized.model_copy(update={"routing": Routing.REVIEW_REQUIRED})
+        return penalized
 
     def _with_feedback(
         self, run: GradingRun, task_version: TaskVersion, contents: dict

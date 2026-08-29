@@ -14,7 +14,7 @@ from datetime import datetime
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session as DbSession
 
-from aijudge_core import Course, Enrollment, Role
+from aijudge_core import Course, Enrollment, LatePenaltyStep, Role
 from aijudge_core.ids import ApiTokenId, CourseId, SessionId, TenantId, UserId
 from aijudge_identity.models import ApiToken, Session, User, UserState
 
@@ -174,12 +174,14 @@ class SqlIdentityRepository:
                     term=course.term,
                     subject_profile=course.subject_profile,
                     auto_finalize_after_hours=course.auto_finalize_after_hours,
+                    late_penalty_steps=_steps_to_json(course),
                 )
             )
         else:
             row.title = course.title
             row.subject_profile = course.subject_profile
             row.auto_finalize_after_hours = course.auto_finalize_after_hours
+            row.late_penalty_steps = _steps_to_json(course)
         self._session.flush()
 
     def get_course(self, course_id: CourseId) -> Course | None:
@@ -302,4 +304,14 @@ def _course(row: CourseRow | None) -> Course | None:
         term=row.term,
         subject_profile=row.subject_profile,
         auto_finalize_after_hours=row.auto_finalize_after_hours,
+        late_penalty_steps=tuple(
+            LatePenaltyStep.model_validate(step) for step in (row.late_penalty_steps or ())
+        ),
     )
+
+
+def _steps_to_json(course: Course) -> list[dict[str, float]] | None:
+    """段を JSON にする。空なら NULL（「規則が無い」を型で残す）。"""
+    if not course.late_penalty_steps:
+        return None
+    return [step.model_dump() for step in course.late_penalty_steps]

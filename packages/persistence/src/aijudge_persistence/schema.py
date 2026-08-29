@@ -372,6 +372,9 @@ class CourseRow(Base):
     subject_profile: Mapped[str] = mapped_column(String(64), index=True)
     # 締切から何時間で成績を自動確定するか。NULL なら自動確定しない。
     auto_finalize_after_hours: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # 遅延の減点の段（`[{"after_hours": 24, "ratio": 0.3}, ...]`）。
+    # NULL・空なら遅延を見ない。**評価器の設定ではない**（評価と独立）。
+    late_penalty_steps: Mapped[list | None] = mapped_column(JsonType, nullable=True)
 
     __table_args__ = (UniqueConstraint("tenant_id", "code", "term", name="uq_courses_code_term"),)
 

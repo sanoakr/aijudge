@@ -131,6 +131,24 @@
     {% endif %}
   </fieldset>
   {% endfor %}
+  {% if run.penalty %}
+  {# 遅延の減点。**観点の段階とは別に置く**（ADR 0013）。評価は遅延を
+     知らずに付いており、ここで免除しても観点の段階は動かない ── だから
+     一致度（κ）にも影響しない。 #}
+  <fieldset>
+    <legend>遅延の減点</legend>
+    <p class="desc">
+      {{ run.penalty.reason }}<br>
+      締切 {{ run.penalty.due_at.strftime('%m/%d %H:%M') }} ／
+      提出 {{ run.penalty.submitted_at.strftime('%m/%d %H:%M') }}
+    </p>
+    <label>
+      <input type="checkbox" name="waive_penalty" value="1"
+        {% if review and review.penalty_waived %}checked{% endif %}>
+      この減点を免除する（理由は下の根拠欄に書いてください）
+    </label>
+  </fieldset>
+  {% endif %}
   <fieldset>
     <legend>確定の根拠（{{ min_reason }} 文字以上・必須）</legend>
     <p class="desc">

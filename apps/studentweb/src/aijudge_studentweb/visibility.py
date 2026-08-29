@@ -63,9 +63,11 @@ from aijudge_core import (
     GradeWindow,
     GradingRun,
     HumanReview,
+    LatePenalty,
     RubricCriterion,
     TaskVersion,
     deadline_for,
+    final_score,
     grade_window,
 )
 
@@ -99,10 +101,18 @@ class ResultView:
     """1 採点ぶんの表示内容。"""
 
     criteria: tuple[CriterionView, ...]
-    # 総合点。AI の判定に基づく暫定値でも見せる（`confirmed` で区別する）。
-    # ただし**採点できなかった観点があるあいだは None**（保留）。
+    # 総合点（遅延の減点を引いたあと）。AI の判定に基づく暫定値でも見せる
+    # （`confirmed` で区別する）。ただし**採点できなかった観点があるあいだは
+    # None**（保留）。
     score_ratio: float | None
     confirmed: bool
+    # 遅延の減点。**評価点と分けて見せる**（P4）。合計だけを出すと、
+    # 何点引かれたのかが学習者にも異議申立にも分からない。
+    penalty: LatePenalty | None = None
+    # 減点前の評価点。減点があるときだけ意味を持つ。
+    evaluation_ratio: float | None = None
+    # 教員が減点を免除したか。
+    penalty_waived: bool = False
     feedback: str | None = None
     # 確定の出所。確定していなければ None。
     finalized_by: FinalizationSource | None = None
@@ -120,6 +130,11 @@ class ResultView:
     @property
     def has_pending(self) -> bool:
         return any(view.pending for view in self.criteria)
+
+    @property
+    def penalized(self) -> bool:
+        """遅延の減点が実際に効いているか。免除されていれば偽。"""
+        return self.penalty is not None and not self.penalty_waived
 
     @property
     def score_withheld(self) -> bool:
@@ -263,10 +278,14 @@ def build_result_view(
     # 採点できなかった観点があるあいだは総合点を出さない（モジュール冒頭）。
     # 教員が確認して欠けを埋めれば出す。
     withhold = unscored and review is None
+    score = final_score(run, task_version, review)
 
     return ResultView(
         criteria=tuple(views),
-        score_ratio=None if withhold else _confirmed_score(run, task_version, review),
+        score_ratio=None if withhold else score.final,
+        penalty=run.penalty,
+        evaluation_ratio=None if withhold else score.evaluation,
+        penalty_waived=score.waived,
         confirmed=confirmed,
         feedback=run.feedback,
         finalized_by=_finalized_by(finalization, review),
@@ -306,25 +325,3 @@ def _evidence_lines(score: CriterionScore) -> tuple[int, ...]:
         if span.kind == "line":
             lines.update(range(span.start_line, span.end_line + 1))
     return tuple(sorted(lines))
-
-
-def _confirmed_score(
-    run: GradingRun, task_version: TaskVersion, review: HumanReview | None
-) -> float:
-    """確定した段階から総合点を出し直す。
-
-    教員が段階を変えたなら、総合点もそれに従う。`GradingRun.score_ratio` は
-    AI の判定に基づく値なので、そのまま成績として見せると教員の修正が
-    反映されない。
-    """
-    if review is None or review.agreed:
-        return run.score_ratio
-
-    total = 0.0
-    for score in run.criterion_scores:
-        criterion = next((c for c in task_version.criteria if c.id == score.criterion_id), None)
-        if criterion is None:  # pragma: no cover - 課題版が一致しない構成
-            continue
-        level = review.level_for(score.criterion_id, score.level)
-        total += criterion.level_for(level).score_ratio * score.weight
-    return round(min(1.0, max(0.0, total)), 10)

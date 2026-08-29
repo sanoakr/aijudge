@@ -8,8 +8,8 @@
                どこにも現れなくなる。
 不備は 1 段ずつ 教員が使った段階は 3 つだけ（比率 1.0 / 0.5 / 0.1）。
                連続的な質の尺度ではなく、事務的な減点である。
-見ていないことは言う 締切が渡されなければ遅延は見ない。**黙って満点に
-               すると、渡し忘れが「全員が期限内」に化ける。**
+遅延は見ない   **評価は遅延と独立に行う**（ADR 0013）。遅れたことは観点の
+               段階ではなく、評価の結果に対する減点として外から当てる。
 """
 
 from __future__ import annotations
@@ -145,19 +145,18 @@ def test_the_body_is_never_read() -> None:
     assert outcome.scores[0].evidence[0].note.endswith("本文は読んでいない）")
 
 
-def test_being_late_costs_one_rung() -> None:
-    outcome = SubmissionCompliance().evaluate(
-        _request(submitted_at=DUE + timedelta(hours=14), due_at=DUE)
-    )
-    assert _level(outcome) == 2
-    assert "14 時間" in outcome.scores[0].rationale
+def test_lateness_does_not_change_the_level() -> None:
+    """**遅延は観点の段階に効かない**（ADR 0013）。
 
-
-def test_a_deadline_that_was_not_passed_in_is_named_as_unchecked() -> None:
-    """**見ていないことを黙らない。** 渡し忘れが「全員が期限内」に化ける。"""
+    3 日遅れても、提出そのものが規則どおりなら満点の段。遅れたことは
+    採点ワーカーが評価のあとに減点として当てる。混ぜると 2 つ壊れる ──
+    この観点の κ が「提出の遵守」と「事務上の遅れ」の混合になり、教員が
+    減点を免除したときに観点の段階まで動かす羽目になる。
+    """
     outcome = SubmissionCompliance().evaluate(_request(submitted_at=DUE + timedelta(days=3)))
     assert _level(outcome) == 4
-    assert "締切が渡されていない" in outcome.scores[0].rationale
+    assert "遅" not in outcome.scores[0].rationale
+    assert "締切" not in outcome.scores[0].rationale
 
 
 def test_a_wrong_filename_costs_one_rung() -> None:
@@ -172,9 +171,9 @@ def test_two_faults_reach_the_bottom_rung() -> None:
     """不備は段ごとに下げる。3 段しかないので 2 つで最下段に着く。"""
     outcome = SubmissionCompliance().evaluate(
         _request(
-            submitted_at=DUE + timedelta(hours=1),
-            filename="report.pdf",
-            due_at=DUE,
+            filename="report.docx",
+            kind=ArtifactKind.DOCX,
+            required_kinds=["pdf"],
             filename_pattern=r"^[YT]\d{6}\.pdf$",
         )
     )

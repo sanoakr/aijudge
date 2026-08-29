@@ -7,9 +7,11 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import Self
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .grading import LatePenaltyStep
 from .ids import CourseId, TenantId, UserId
 
 
@@ -53,6 +55,19 @@ class Course(BaseModel):
     subject_profile: str = Field(min_length=1)
     # 締切から何時間で自動確定するか。None なら自動確定しない。
     auto_finalize_after_hours: float | None = Field(default=None, gt=0.0)
+    # 遅延の減点の段。空なら遅延を見ない（＝減点しない）。
+    #
+    # **評価器には入れない。** 評価は遅延と独立に行い、これは評価の結果に
+    # 対する減点である。置き場所を `auto_finalize_after_hours` に揃えるのは
+    # 同じ性質だから ── 成績に直接効き、教員が学期中に決める運用値。
+    late_penalty_steps: tuple[LatePenaltyStep, ...] = ()
+
+    @model_validator(mode="after")
+    def _check_penalty_steps(self) -> Self:
+        hours = [step.after_hours for step in self.late_penalty_steps]
+        if hours != sorted(set(hours)):
+            raise ValueError("late_penalty_steps must be sorted by after_hours and unique")
+        return self
 
 
 class Enrollment(BaseModel):

@@ -30,6 +30,7 @@ from .ids import (
     UserId,
 )
 from .spans import Evidence
+from .task import TaskVersion
 
 
 class EvaluatorKind(StrEnum):
@@ -236,6 +237,78 @@ class ReviewRequest(BaseModel):
         return self.resolved_by is not None
 
 
+class LatePenaltyStep(BaseModel):
+    """遅延の段。「この時間を超えたらこの割合を引く」。
+
+    `after_hours` は締切からの超過時間で、`ratio` は総合点比から差し引く量。
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    after_hours: float = Field(ge=0.0)
+    ratio: float = Field(ge=0.0, le=1.0)
+
+
+class LatePenalty(BaseModel):
+    """提出が遅れたことによる減点。**評価ではない。**
+
+    採点は遅延を知らない。評価器は本文と提出物だけを見て観点の段階を決め、
+    遅延はその結果に対する減点として外から当てる。混ぜると 2 つ壊れる。
+
+    - 観点の一致度（κ）が「読解」と「事務」の混合を測ることになる。実際に
+      2023 年度の採点表では体裁の段階に `遅延14h` が畳み込まれていた。
+    - 習熟度（S7）に遅延が混ざる。何ができるかと、いつ出したかは別の事実である。
+
+    **記録する。表示のたびに計算し直さない**（P8）。規則は `Course` が持ち、
+    学期の途中で教員が変えうる。計算し直す作りにすると、規則を変えた瞬間に
+    過去の成績が黙って動く。
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    # 総合点比から差し引く量。
+    ratio: float = Field(ge=0.0, le=1.0)
+    hours_late: float = Field(gt=0.0)
+    due_at: datetime
+    submitted_at: datetime
+    # 学習者に示す根拠（P4）。どの段が当たったかを言葉で持つ。
+    reason: str = Field(min_length=1)
+
+
+def late_penalty_for(
+    due_at: datetime | None,
+    submitted_at: datetime | None,
+    steps: tuple[LatePenaltyStep, ...],
+) -> LatePenalty | None:
+    """締切と提出時刻から減点を決める。当たらなければ None。
+
+    **締切も規則も無いときは減点しない。** 「見ていない」ことを黙って
+    満点に化けさせないために、見たかどうかは呼び出し側が理由に書く。
+    """
+    if due_at is None or submitted_at is None or not steps:
+        return None
+    if submitted_at <= due_at:
+        return None
+
+    hours = (submitted_at - due_at).total_seconds() / 3600
+    applicable = [step for step in steps if hours > step.after_hours]
+    if not applicable:
+        return None
+    step = max(applicable, key=lambda s: s.after_hours)
+    if step.ratio <= 0.0:
+        return None
+    return LatePenalty(
+        ratio=step.ratio,
+        hours_late=round(hours, 4),
+        due_at=due_at,
+        submitted_at=submitted_at,
+        reason=(
+            f"締切を {hours:.1f} 時間超えています"
+            f"（{step.after_hours:.0f} 時間超の段。総合点から {step.ratio:.0%} を引きます）"
+        ),
+    )
+
+
 class HumanReview(BaseModel):
     """教員が 1 件を読んで下した判断。GradingRun を上書きせず追記する。
 
@@ -263,11 +336,19 @@ class HumanReview(BaseModel):
     comment: str = Field(min_length=MIN_JUSTIFICATION_LENGTH)
     # 対応したレビュー依頼。教員が自発的に見た場合は None。
     request_id: ReviewRequestId | None = None
+    # 遅延の減点を免除したか。**教員が覆せない減点を作らない**（P5）。
+    # 病欠や事前の延長の合意はシステムの外で起きるので、規則の側では拾えない。
+    penalty_waived: bool = False
     reviewed_at: datetime
 
     @property
     def agreed(self) -> bool:
-        """AI の採点をそのまま承認したか。κ の算出に使う。"""
+        """AI の採点をそのまま承認したか。κ の算出に使う。
+
+        **減点の免除はここに含めない。** 免除は AI の判定への不同意ではなく
+        事務上の措置で、含めると一致度が「教員が AI に反対した」と読める
+        （ADR 0010 が Finalization と HumanReview を分けたのと同じ理由）。
+        """
         return not self.adjusted_levels
 
     def level_for(self, criterion_id: CriterionId, machine_level: int) -> int:
@@ -296,6 +377,9 @@ class GradingRun(BaseModel):
     # 評価器の失敗などで採点できなかった観点。空でなければ点は暫定であり、
     # routing は必ず REVIEW_REQUIRED になる。
     unscored_criteria: tuple[CriterionId, ...] = ()
+    # 遅延の減点。**評価には入っていない。** `score_ratio` は遅延を知らない
+    # 評価そのもので、学習者に見せる最終点は `final_score()` が両方から作る。
+    penalty: LatePenalty | None = None
     created_at: datetime
     superseded_by: GradingRunId | None = None
 
@@ -389,3 +473,71 @@ def resolve_conflicts(scores: tuple[CriterionScore, ...]) -> tuple[CriterionScor
             )
         resolved.append(deterministic[0] if deterministic else candidates[0])
     return tuple(resolved)
+
+
+class FinalScore(BaseModel):
+    """学習者に示す成績。評価と減点を**分けたまま**持つ。
+
+    合計だけを返すと、画面にも異議申立にも「何点引かれたのか」が出せない
+    （P4 は人間の判定にも根拠を要求する）。
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    # 遅延を知らない評価点。教員が段階を直していればそれを反映した値。
+    evaluation: float = Field(ge=0.0, le=1.0)
+    # 実際に引いた量。免除されていれば 0。
+    penalty_ratio: float = Field(ge=0.0, le=1.0)
+    final: float = Field(ge=0.0, le=1.0)
+    waived: bool = False
+
+    @property
+    def penalized(self) -> bool:
+        return self.penalty_ratio > 0.0
+
+
+def final_score(
+    run: GradingRun,
+    task_version: TaskVersion,
+    review: HumanReview | None = None,
+) -> FinalScore:
+    """評価 → 教員の修正 → 遅延の減点、の順に畳む。
+
+    **総合点を作る場所はここ 1 つだけにする。** 画面ごとに書くと、教員が
+    段階を直したときに減点が落ちる経路と落ちない経路ができる。
+    """
+    evaluation = run.score_ratio
+    if review is not None and not review.agreed:
+        # 教員が段階を変えたなら、評価点もそれに従う。`run.score_ratio` は
+        # AI の判定に基づく値なので、そのまま出すと修正が反映されない。
+        total = 0.0
+        for score in run.criterion_scores:
+            criterion = next(
+                (c for c in task_version.criteria if c.id == score.criterion_id), None
+            )
+            if criterion is None:  # pragma: no cover - 課題版が一致しない構成
+                continue
+            level = review.level_for(score.criterion_id, score.level)
+            total += criterion.level_for(level).score_ratio * score.weight
+        evaluation = min(1.0, max(0.0, total))
+
+    waived = bool(review is not None and review.penalty_waived)
+    penalty = 0.0 if (run.penalty is None or waived) else run.penalty.ratio
+    return FinalScore(
+        evaluation=round(evaluation, 10),
+        penalty_ratio=penalty,
+        final=round(min(1.0, max(0.0, evaluation - penalty)), 10),
+        waived=waived,
+    )
+
+
+def penalty_crosses_boundary(score: FinalScore, boundary: float | None) -> bool:
+    """減点だけで合否が入れ替わるか。
+
+    入れ替わるなら自動で閉じない ── 評価としては及第だったものが事務上の
+    理由で不可になる件は、**教員が見てから確定させる**（P5）。遅延の事実に
+    迷いは無いが、免除するかどうかの判断は人にしか無い。
+    """
+    if boundary is None or not score.penalized:
+        return False
+    return score.evaluation >= boundary > score.final

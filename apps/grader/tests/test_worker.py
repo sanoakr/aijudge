@@ -13,7 +13,16 @@ from pathlib import Path
 import pytest
 
 from aijudge_authoring.importers import sharif_judge
-from aijudge_core import ArtifactKind, GradingCompleted, Routing, Task
+from aijudge_core import (
+    ArtifactKind,
+    Course,
+    GradingCompleted,
+    LatePenaltyStep,
+    Routing,
+    Task,
+    aggregate,
+    final_score,
+)
 from aijudge_core.events import SubmissionCreated
 from aijudge_core.ids import CourseId, TenantId, UserId
 from aijudge_eval_rubric_ai_judge import EvidenceSpan, RubricAiJudge, Verdict
@@ -112,6 +121,32 @@ class World:
             subject_profile=PROFILE,
             files=[IncomingFile(filename="main.c", kind=ArtifactKind.CODE, payload=payload)],
         )
+
+    def set_course(self, steps=()) -> None:
+        """コースを作る（遅延の減点の規則はここが持つ）。
+
+        既定では作らない ── **規則の無いコースで減点が起きないこと**も
+        固定したい振る舞いだから。
+        """
+        with self.database.unit_of_work() as uow:
+            uow.identity.save_course(
+                Course(
+                    id=COURSE,
+                    tenant_id=TENANT,
+                    code="prog2",
+                    title="プログラミング演習 II",
+                    term="2026-前期",
+                    subject_profile=PROFILE,
+                    late_penalty_steps=tuple(steps),
+                )
+            )
+            uow.commit()
+
+    def set_due(self, due_at: datetime | None) -> None:
+        with self.database.unit_of_work() as uow:
+            task = uow.tasks.get_task(self.task_version.task_id)
+            uow.tasks.save_task(task.model_copy(update={"due_at": due_at}))
+            uow.commit()
 
     def close(self) -> None:
         self.database.dispose()
@@ -614,3 +649,79 @@ def test_a_deterministic_worker_does_not_take_ai_jobs(world: World) -> None:
 
     world.submit()
     assert world.worker.run_once(phase=GradingPhase.AI) is None, "土台が無いのに AI を取った"
+
+
+# --------------------------------------------------------------------------
+# 遅延の減点（ADR 0013）
+# --------------------------------------------------------------------------
+
+LADDER = (
+    LatePenaltyStep(after_hours=0.0, ratio=0.10),
+    LatePenaltyStep(after_hours=24.0, ratio=0.30),
+)
+
+
+@needs_c_compiler
+def test_a_late_submission_is_penalised_after_the_evaluation(world: World) -> None:
+    """**採点したあとに、採点の外から当てる。**
+
+    評価器も採点エンジンも締切を知らないままであること ── 観点の段階が
+    遅延で動いていないことを、評価点そのもので確かめる。
+    """
+    world.set_course(LADDER)
+    world.set_due(NOW - timedelta(hours=26))
+    world.submit()
+    world.worker.run_until_empty()
+
+    with world.database.unit_of_work() as uow:
+        run = uow.runs.latest_for(_only_submission(uow))
+
+    assert run.penalty is not None
+    assert run.penalty.ratio == 0.30
+    assert "26" in run.penalty.reason
+
+    # **評価点は観点の集約そのままである。** 減点は畳み込まれていない。
+    evaluation, _ = aggregate(run.criterion_scores)
+    assert run.score_ratio == evaluation, "遅延が評価点に混ざっている"
+
+    # 学習者に出る最終点でだけ引かれる。
+    score = final_score(run, world.task_version)
+    assert score.evaluation == evaluation
+    assert score.final == round(evaluation - 0.30, 10)
+
+
+@needs_c_compiler
+def test_an_on_time_submission_carries_no_penalty(world: World) -> None:
+    world.set_course(LADDER)
+    world.set_due(NOW + timedelta(hours=1))
+    world.submit()
+    world.worker.run_until_empty()
+
+    with world.database.unit_of_work() as uow:
+        assert uow.runs.latest_for(_only_submission(uow)).penalty is None
+
+
+@needs_c_compiler
+def test_a_course_without_a_rule_never_penalises(world: World) -> None:
+    """規則を置いていないコースでは、遅れていても減点しない。
+
+    **黙って減点する方が危ない。** 教員が決めていない罰則を機械が課す
+    ことになる（ADR 0002 の「採点の設定はコードと同じ扱い」の裏返しで、
+    運用値は置かれるまで効かない）。
+    """
+    world.set_course(())
+    world.set_due(NOW - timedelta(days=3))
+    world.submit()
+    world.worker.run_until_empty()
+
+    with world.database.unit_of_work() as uow:
+        assert uow.runs.latest_for(_only_submission(uow)).penalty is None
+
+
+def _only_submission(uow):
+    import sqlalchemy as sa
+
+    from aijudge_core.ids import SubmissionId
+
+    row = uow._session.execute(sa.text("select id from submissions limit 1")).one()
+    return SubmissionId(row[0])
