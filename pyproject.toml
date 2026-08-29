@@ -26,6 +26,7 @@ dependencies = [
     "aijudge-eval-network-test-runner",
     "aijudge-norm-document-text",
     "aijudge-eval-report-structure",
+    "aijudge-eval-submission-compliance",
 ]
 
 [project.optional-dependencies]
@@ -63,6 +64,7 @@ aijudge-toolchain = { workspace = true }
 aijudge-eval-network-test-runner = { workspace = true }
 aijudge-norm-document-text = { workspace = true }
 aijudge-eval-report-structure = { workspace = true }
+aijudge-eval-submission-compliance = { workspace = true }
 
 [tool.ruff]
 line-length = 100

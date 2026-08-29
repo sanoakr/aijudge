@@ -92,7 +92,8 @@ def build_profile(samples: int) -> SubjectProfile:
         description="実験レポート（教員の採点表に合わせたルーブリック）",
         input=InputPolicy(allow_handwriting=False),
         normalizers=("document_text",),
-        deterministic=("report_structure",),
+        # **どの決定的評価器を使うかはルーブリックが決める**（rubric.py 参照）。
+        deterministic=rubric.DETERMINISTIC,
         ai_evaluators=("rubric_ai_judge",),
         evaluator_options=options,
         # **確信度は自己一貫性から作られるので、サンプル数が閾値の意味を決める。**

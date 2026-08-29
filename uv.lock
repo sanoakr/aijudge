@@ -17,6 +17,7 @@ members = [
     "aijudge-eval-network-test-runner",
     "aijudge-eval-report-structure",
     "aijudge-eval-rubric-ai-judge",
+    "aijudge-eval-submission-compliance",
     "aijudge-evalrunner",
     "aijudge-feedback",
     "aijudge-grader",
@@ -46,6 +47,7 @@ dependencies = [
     { name = "aijudge-eval-network-test-runner" },
     { name = "aijudge-eval-report-structure" },
     { name = "aijudge-eval-rubric-ai-judge" },
+    { name = "aijudge-eval-submission-compliance" },
     { name = "aijudge-evalrunner" },
     { name = "aijudge-feedback" },
     { name = "aijudge-grader" },
@@ -87,6 +89,7 @@ requires-dist = [
     { name = "aijudge-eval-network-test-runner", editable = "evaluators/network_test_runner" },
     { name = "aijudge-eval-report-structure", editable = "evaluators/report_structure" },
     { name = "aijudge-eval-rubric-ai-judge", editable = "evaluators/rubric_ai_judge" },
+    { name = "aijudge-eval-submission-compliance", editable = "evaluators/submission_compliance" },
     { name = "aijudge-evalrunner", editable = "apps/evalrunner" },
     { name = "aijudge-feedback", editable = "packages/feedback" },
     { name = "aijudge-grader", editable = "apps/grader" },
@@ -247,6 +250,21 @@ requires-dist = [
     { name = "aijudge-core", editable = "packages/core" },
     { name = "aijudge-grading", editable = "packages/grading" },
     { name = "aijudge-llm-gateway", editable = "packages/llm_gateway" },
+]
+
+[[package]]
+name = "aijudge-eval-submission-compliance"
+version = "0.0.1"
+source = { editable = "evaluators/submission_compliance" }
+dependencies = [
+    { name = "aijudge-core" },
+    { name = "aijudge-grading" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aijudge-core", editable = "packages/core" },
+    { name = "aijudge-grading", editable = "packages/grading" },
 ]
 
 [[package]]

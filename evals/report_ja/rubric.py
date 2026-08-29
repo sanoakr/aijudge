@@ -38,6 +38,10 @@ DATASET = _dataset
 RUBRIC = _module.DATASET
 # **段階の記述の出どころはルーブリック側の性質**（データセット側ではない）。
 DESCRIPTOR_SOURCE = _module.DESCRIPTOR_SOURCE
+# **どの決定的評価器を使うかもルーブリックが決める。** 体裁を本文の構造から
+# 見るか、提出そのものから見るかはルーブリックの立場であって、科目の性質では
+# ない。既定は本文の構造を見る側（従来の挙動）。
+DETERMINISTIC = getattr(_module, "DETERMINISTIC", ("report_structure",))
 POINTS = _module.POINTS
 TOTAL_POINTS = _module.TOTAL_POINTS
 MAX_LEVEL = _module.MAX_LEVEL

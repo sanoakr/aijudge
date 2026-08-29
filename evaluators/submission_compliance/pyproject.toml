@@ -1,0 +1,23 @@
+[project]
+name = "aijudge-eval-submission-compliance"
+version = "0.0.1"
+description = "Deterministic evaluator: was it handed in, on time, under the name it was asked for"
+requires-python = ">=3.12"
+dependencies = [
+    "aijudge-core",
+    "aijudge-grading",
+]
+
+[project.entry-points."aijudge.evaluators"]
+submission_compliance = "aijudge_eval_submission_compliance:build"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/aijudge_eval_submission_compliance"]
+
+[tool.uv.sources]
+aijudge-core = { workspace = true }
+aijudge-grading = { workspace = true }
