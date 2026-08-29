@@ -39,11 +39,22 @@ from .roster import (
     parse_roster,
     write_credentials,
 )
+from .task_review import (
+    APPROVAL_RATE_GATE,
+    ApprovalRate,
+    approval_rate,
+    approve,
+    gate_advice,
+    pending_reviews,
+    reject,
+)
 from .task_verifier import DEFAULT_MUTATION_LIMIT, TaskVerifier
 
 __all__ = [
+    "APPROVAL_RATE_GATE",
     "DEFAULT_MUTATION_LIMIT",
     "AdminError",
+    "ApprovalRate",
     "EnrolReport",
     "FinalizeReport",
     "ImportReport",
@@ -53,10 +64,13 @@ __all__ = [
     "SavedTask",
     "TaskOutcome",
     "TaskVerifier",
+    "approval_rate",
+    "approve",
     "create_staff",
     "enrol_roster",
     "ensure_course",
     "finalize_task",
+    "gate_advice",
     "generate_password",
     "import_tasks",
     "list_courses",
@@ -64,6 +78,8 @@ __all__ = [
     "load_roster",
     "parse_roster",
     "pending_counts",
+    "pending_reviews",
+    "reject",
     "save_task",
     "set_password",
     "sweep_deadlines",

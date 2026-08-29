@@ -17,8 +17,8 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
-from aijudge_core import Task, TaskVersion
-from aijudge_core.ids import CourseId, TaskId, TaskVersionId
+from aijudge_core import ReviewState, Task, TaskVersion
+from aijudge_core.ids import CourseId, TaskId, TaskVersionId, UserId
 
 
 class TaskStoreError(Exception):
@@ -49,17 +49,50 @@ class TaskRepository(Protocol):
         """コースの課題一覧。学生 UI と教員 UI が使う。"""
         ...
 
+    def list_versions_in_review(self) -> tuple[TaskVersion, ...]:
+        """教員のレビュー待ちの課題版。**生成物が溜まる場所。**"""
+        ...
+
+    def record_review(
+        self, version_id: TaskVersionId, *, approved: bool, reviewer: UserId, reason: str | None
+    ) -> TaskVersion:
+        """レビューの結果を書き戻す。
+
+        `save_version` と分けてあるのは、**動いてよい項目が違う**からである
+        （`REVIEW_FIELDS`）。同じ口にすると、レビューのつもりで問題文を
+        差し替えられる ── 出題済みの課題が黙って変わる。
+        """
+        ...
+
 
 # 不変性の比較から外す項目。採点の基準ではないもの。
 VOLATILE_FIELDS = frozenset({"created_at"})
+
+# 出所のうち、レビューで動いてよい項目。
+#
+# **動いてよいのはここだけである。** `authored_by` / `generated_by` /
+# `generation_prompt_version` は「この課題がどこから来たか」という事実で、
+# 後から書き換われば承認率の測定が意味を失う（誰が書いたことにもできる）。
+# 一方 `review_state` は状態機械そのもので、動かなければレビューが成立しない。
+REVIEW_FIELDS = frozenset({"review_state", "reviewed_by", "reject_reason"})
 
 
 def substantive(version: TaskVersion) -> dict:
     """採点の基準になる部分だけを取り出す。
 
     `created_at` を含めないのがこの関数の存在理由（モジュール docstring 参照）。
+
+    **レビューの状態も外す。** 不変にしたいのは採点の基準（問題文・観点・
+    テストケース）であって、教員がまだ読んでいないという事実ではない。
+    含めると、課題を承認した瞬間に「内容が違う」と拒否される。
     """
-    return version.model_dump(mode="json", exclude=set(VOLATILE_FIELDS))
+    dumped = version.model_dump(mode="json", exclude=set(VOLATILE_FIELDS))
+    provenance = dumped.get("provenance")
+    if isinstance(provenance, dict):
+        dumped["provenance"] = {
+            key: value for key, value in provenance.items() if key not in REVIEW_FIELDS
+        }
+    return dumped
 
 
 class InMemoryTaskRepository:
@@ -101,6 +134,29 @@ class InMemoryTaskRepository:
         if not versions:
             return None
         return max(versions, key=lambda v: v.version)
+
+    def list_versions_in_review(self) -> tuple[TaskVersion, ...]:
+        return tuple(
+            self._versions[vid]
+            for vid in self._order
+            if self._versions[vid].provenance.review_state is ReviewState.IN_REVIEW
+        )
+
+    def record_review(
+        self, version_id: TaskVersionId, *, approved: bool, reviewer: UserId, reason: str | None
+    ) -> TaskVersion:
+        version = self._versions.get(version_id)
+        if version is None:
+            raise TaskStoreError(f"課題版が見つかりません: {version_id}")
+        updated = version.model_copy(
+            update={
+                "provenance": version.provenance.reviewed(
+                    approved=approved, reviewer=reviewer, reason=reason
+                )
+            }
+        )
+        self._versions[version_id] = updated
+        return updated
 
     def list_for_course(self, course_id: CourseId) -> tuple[Task, ...]:
         return tuple(

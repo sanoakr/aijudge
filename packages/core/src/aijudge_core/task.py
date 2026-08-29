@@ -42,6 +42,34 @@ class Provenance(BaseModel):
     reviewed_by: UserId | None = None
     reject_reason: str | None = None
 
+    def reviewed(
+        self, *, approved: bool, reviewer: UserId, reason: str | None = None
+    ) -> Provenance:
+        """教員が読んだ結果を載せた新しい出所を返す。
+
+        **却下理由は捨てない**（設計方針 §5）。生成の品質を上げる材料は
+        「何が却下されたか」ではなく「なぜ却下されたか」の方にある。
+        Phase 4 の合格基準（教員承認率 ≥ 60%）も、分母に却下が要る。
+
+        **二度目のレビューを拒む。** 承認済みの課題を後から却下できると、
+        既に出題した課題が「承認されていない」ことになりうる。やり直しは
+        新しい版を作る（P8）。
+        """
+        if self.review_state in (ReviewState.APPROVED, ReviewState.REJECTED):
+            raise ValueError(
+                f"this task version is already {self.review_state.value}; "
+                "a change of mind creates a new version (P8)"
+            )
+        if not approved and not (reason and reason.strip()):
+            raise ValueError("却下には理由が要ります")
+        return self.model_copy(
+            update={
+                "review_state": ReviewState.APPROVED if approved else ReviewState.REJECTED,
+                "reviewed_by": reviewer,
+                "reject_reason": None if approved else reason,
+            }
+        )
+
     @model_validator(mode="after")
     def _check_origin(self) -> Self:
         if self.authored_by is None and self.generated_by is None:

@@ -33,6 +33,7 @@ from aijudge_core import (
     GradingRun,
     HumanReview,
     ReviewRequest,
+    ReviewState,
     Submission,
     Task,
     TaskVersion,
@@ -788,6 +789,45 @@ class SqlTaskRepository:
             .first()
         )
         return None if row is None else TaskVersion.model_validate(row.document)
+
+    def list_versions_in_review(self) -> tuple[TaskVersion, ...]:
+        """教員のレビュー待ち。**生成物が溜まる場所。**"""
+        rows = self._session.execute(
+            select(TaskVersionRow)
+            .where(TaskVersionRow.review_state == ReviewState.IN_REVIEW.value)
+            .order_by(TaskVersionRow.created_at, TaskVersionRow.id)
+        ).scalars()
+        return tuple(TaskVersion.model_validate(row.document) for row in rows)
+
+    def record_review(
+        self,
+        version_id: TaskVersionId,
+        *,
+        approved: bool,
+        reviewer: UserId,
+        reason: str | None,
+    ) -> TaskVersion:
+        """レビューの結果だけを書き戻す。
+
+        **`save_version` と別の口にしてある。** 同じ口にすると、レビューの
+        つもりで問題文を差し替えられる（出題済みの課題が黙って変わる）。
+        ここが触るのは `review_state` / `reviewed_by` / `reject_reason` だけ。
+        """
+        row = self._session.get(TaskVersionRow, str(version_id))
+        if row is None:
+            raise TaskStoreError(f"課題版が見つかりません: {version_id}")
+        version = TaskVersion.model_validate(row.document)
+        updated = version.model_copy(
+            update={
+                "provenance": version.provenance.reviewed(
+                    approved=approved, reviewer=reviewer, reason=reason
+                )
+            }
+        )
+        row.review_state = updated.provenance.review_state.value
+        row.document = _dump(updated)
+        self._session.flush()
+        return updated
 
     def list_for_course(self, course_id: CourseId) -> tuple[Task, ...]:
         rows = self._session.execute(
