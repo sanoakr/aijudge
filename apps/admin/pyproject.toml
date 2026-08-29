@@ -10,6 +10,7 @@ dependencies = [
     "aijudge-grading",
     "aijudge-submission",
     "aijudge-persistence",
+    "aijudge-llm-gateway",
 ]
 
 [project.scripts]
@@ -30,3 +31,4 @@ aijudge-authoring = { workspace = true }
 aijudge-grading = { workspace = true }
 aijudge-submission = { workspace = true }
 aijudge-persistence = { workspace = true }
+aijudge-llm-gateway = { workspace = true }

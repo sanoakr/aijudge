@@ -39,8 +39,10 @@ from .roster import (
     parse_roster,
     write_credentials,
 )
+from .task_verifier import DEFAULT_MUTATION_LIMIT, TaskVerifier
 
 __all__ = [
+    "DEFAULT_MUTATION_LIMIT",
     "AdminError",
     "EnrolReport",
     "FinalizeReport",
@@ -50,6 +52,7 @@ __all__ = [
     "RosterError",
     "SavedTask",
     "TaskOutcome",
+    "TaskVerifier",
     "create_staff",
     "enrol_roster",
     "ensure_course",

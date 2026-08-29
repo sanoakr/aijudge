@@ -259,17 +259,45 @@ def q_matrix_for(
         for key in keys
     )
 
+
+def _provenance(
+    authored_by: UserId, generated_by: str | None, prompt_version: str | None
+) -> Provenance:
+    """出所。**生成物は承認済みにしない**（P5）。"""
+    if generated_by is None:
+        # 教員が明示的に足した課題なので、その時点で承認済みとする。
+        return Provenance(
+            authored_by=authored_by,
+            review_state=ReviewState.APPROVED,
+            reviewed_by=authored_by,
+        )
+    return Provenance(
+        authored_by=authored_by,
+        generated_by=generated_by,
+        generation_prompt_version=prompt_version,
+        # 教員が読むまでは提案。**却下も承認もされていない。**
+        review_state=ReviewState.IN_REVIEW,
+    )
+
+
 def build_task_version(
     spec: TaskSpec,
     *,
     subject_profile: str,
     authored_by: UserId,
     version: int = 1,
+    generated_by: str | None = None,
+    generation_prompt_version: str | None = None,
 ) -> TaskVersion:
     """宣言から課題版を作る。
 
     ID は `key` から決定的に導く。取り込みを何度流しても同じ課題を指し、
     保存済みの採点結果がどの観点の点なのかも辿れる（P8）。
+
+    **`generated_by` を渡すと承認済みにしない。** 教員が明示的に足した課題は
+    その時点で承認済みとしてよいが、生成物は違う ── AI の出力は提案であって
+    確定ではない（設計原則 P5）。ここを共通にしていると、生成した課題が
+    レビューを経ずにそのまま出題されうる。出所と版も残す（P8、承認率の測定）。
     """
     from .importers.sharif_judge import correctness_criterion, readability_criterion
 
@@ -330,12 +358,7 @@ def build_task_version(
         q_matrix=q_matrix_for(spec.knowledge_components, version_id),
         max_score=spec.max_score,
         allow_handwriting=False,
-        provenance=Provenance(
-            authored_by=authored_by,
-            # 教員が明示的に足した課題なので、その時点で承認済みとする。
-            review_state=ReviewState.APPROVED,
-            reviewed_by=authored_by,
-        ),
+        provenance=_provenance(authored_by, generated_by, generation_prompt_version),
         created_at=datetime.now(UTC),
     )
 
