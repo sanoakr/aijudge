@@ -33,7 +33,7 @@ from aijudge_core.ids import (
     UserId,
     new_id,
 )
-from aijudge_eval_rubric_ai_judge import RubricAiJudge
+from aijudge_eval_rubric_ai_judge import EvidenceSpan, RubricAiJudge, Verdict
 from aijudge_grader import GradingWorker
 from aijudge_grading import EvaluatorRegistry
 from aijudge_identity import AuthService
@@ -59,10 +59,14 @@ needs_c_compiler = pytest.mark.skipif(
 )
 
 AI_RATIONALE = "AIRATIONALEMARKER 変数名から役割が読み取れません。"
-AI_SAYS_1 = (
-    '{"level": 1, "evidence": [{"start_line": 5, "end_line": 5, '
-    f'"quote": "int b = 0, c = 0, d = 0;"}}], "rationale": "{AI_RATIONALE}"}}'
-)
+# **模型そのものから作る。** 文字列で書くと、`Verdict` に必須項目が
+# 増えたときに気づけない（実際に `observation` が増えて気づけなかった）。
+AI_SAYS_1 = Verdict(
+    observation="1 文字の変数名で最大・最小・合計を保持している。",
+    level=1,
+    evidence=[EvidenceSpan(start_line=5, end_line=5, quote="int b = 0, c = 0, d = 0;")],
+    rationale=AI_RATIONALE,
+).model_dump_json()
 
 
 class World:

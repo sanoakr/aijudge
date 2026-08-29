@@ -81,6 +81,15 @@ def database(request) -> Database:
     db.dispose()
 
 
+def a_service(database: Database) -> SubmissionService:
+    """時計を止めた提出サービス。
+
+    **既定の実時計を使わない。** ジョブの `available_at` が実時刻で入ると、
+    `NOW` を基準に予約するテストは日付が変わった翌日から落ちる（実際に落ちた）。
+    """
+    return SubmissionService(database.unit_of_work, _store(database), clock=lambda: NOW)
+
+
 def code(text: str = "int main(void){return 0;}") -> list[IncomingFile]:
     return [IncomingFile(filename="main.c", kind=ArtifactKind.CODE, payload=text.encode())]
 
@@ -148,7 +157,7 @@ def a_task_version(version: int = 1, statement: str = "問題文") -> TaskVersio
 
 
 def test_a_submission_round_trips(database: Database) -> None:
-    service = SubmissionService(database.unit_of_work, _store(database))
+    service = a_service(database)
     result = service.accept(
         tenant_id=TENANT,
         task_version_id=TASK_VERSION,
@@ -164,7 +173,7 @@ def test_a_submission_round_trips(database: Database) -> None:
 
 def test_the_idempotency_key_survives_a_commit(database: Database) -> None:
     """トランザクションを跨いで二重投入を防ぐ。ここが本番の要点。"""
-    service = SubmissionService(database.unit_of_work, _store(database))
+    service = a_service(database)
     kwargs = {
         "tenant_id": TENANT,
         "task_version_id": TASK_VERSION,
@@ -182,7 +191,7 @@ def test_the_idempotency_key_survives_a_commit(database: Database) -> None:
 
 
 def test_the_attempt_counter_survives_a_commit(database: Database) -> None:
-    service = SubmissionService(database.unit_of_work, _store(database))
+    service = a_service(database)
     base = {
         "tenant_id": TENANT,
         "task_version_id": TASK_VERSION,
@@ -195,7 +204,7 @@ def test_the_attempt_counter_survives_a_commit(database: Database) -> None:
 
 
 def test_a_learner_only_sees_their_own_submissions(database: Database) -> None:
-    service = SubmissionService(database.unit_of_work, _store(database))
+    service = a_service(database)
     other = UserId("usr_" + "9" * 32)
     service.accept(
         tenant_id=TENANT,
@@ -274,7 +283,7 @@ def test_superseding_twice_is_refused(database: Database) -> None:
 
 
 def test_a_job_is_reserved_and_completed(database: Database) -> None:
-    service = SubmissionService(database.unit_of_work, _store(database))
+    service = a_service(database)
     result = service.accept(
         tenant_id=TENANT,
         task_version_id=TASK_VERSION,
@@ -299,7 +308,7 @@ def test_a_job_is_reserved_and_completed(database: Database) -> None:
 
 
 def test_a_reserved_job_is_not_handed_out_twice(database: Database) -> None:
-    service = SubmissionService(database.unit_of_work, _store(database))
+    service = a_service(database)
     service.accept(
         tenant_id=TENANT,
         task_version_id=TASK_VERSION,
@@ -317,7 +326,7 @@ def test_a_reserved_job_is_not_handed_out_twice(database: Database) -> None:
 
 def test_an_expired_lease_is_handed_to_another_worker(database: Database) -> None:
     """ワーカーが死んだジョブを拾い直す。放置するとその学習者だけ返らない。"""
-    service = SubmissionService(database.unit_of_work, _store(database))
+    service = a_service(database)
     service.accept(
         tenant_id=TENANT,
         task_version_id=TASK_VERSION,
@@ -338,7 +347,7 @@ def test_an_expired_lease_is_handed_to_another_worker(database: Database) -> Non
 
 
 def test_a_worker_can_be_limited_to_one_subject(database: Database) -> None:
-    service = SubmissionService(database.unit_of_work, _store(database))
+    service = a_service(database)
     service.accept(
         tenant_id=TENANT,
         task_version_id=TASK_VERSION,
@@ -373,7 +382,7 @@ def test_row_locking_is_declared_honestly(database: Database) -> None:
 
 def test_the_event_is_stored_with_the_submission(database: Database) -> None:
     """提出とイベントが同時に成立する。片方だけ残らない。"""
-    service = SubmissionService(database.unit_of_work, _store(database))
+    service = a_service(database)
     result = service.accept(
         tenant_id=TENANT,
         task_version_id=TASK_VERSION,
@@ -389,7 +398,7 @@ def test_the_event_is_stored_with_the_submission(database: Database) -> None:
 
 def test_a_published_event_is_not_returned_again(database: Database) -> None:
     """購読側の再処理を無限に繰り返さない。"""
-    service = SubmissionService(database.unit_of_work, _store(database))
+    service = a_service(database)
     service.accept(
         tenant_id=TENANT,
         task_version_id=TASK_VERSION,
@@ -506,7 +515,7 @@ def test_datetimes_come_back_timezone_aware(database: Database) -> None:
     SQLite は落とす。naive な値が混ざると、締切判定がサーバのローカル時刻に
     依存するか、aware な値との比較で TypeError になる。
     """
-    service = SubmissionService(database.unit_of_work, _store(database))
+    service = a_service(database)
     result = service.accept(
         tenant_id=TENANT,
         task_version_id=TASK_VERSION,

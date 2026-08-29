@@ -22,7 +22,7 @@ from fastapi.testclient import TestClient
 from aijudge_authoring.importers import sharif_judge
 from aijudge_core import ArtifactKind, Course, Role, Task
 from aijudge_core.ids import CourseId, TenantId, UserId
-from aijudge_eval_rubric_ai_judge import RubricAiJudge
+from aijudge_eval_rubric_ai_judge import EvidenceSpan, RubricAiJudge, Verdict
 from aijudge_grader import GradingWorker
 from aijudge_grading import EvaluatorRegistry
 from aijudge_identity import AuthService
@@ -53,10 +53,14 @@ needs_c_compiler = pytest.mark.skipif(
 )
 
 AI_RATIONALE = "AIRATIONALEMARKER 変数名は明快で構造も追えます。"
-AI_SAYS_3 = (
-    '{"level": 3, "evidence": [{"start_line": 5, "end_line": 5, '
-    f'"quote": "int b = 0, c = 0, d = 0;"}}], "rationale": "{AI_RATIONALE}"}}'
-)
+# **模型そのものから作る。** 文字列で書くと、`Verdict` に必須項目が
+# 増えたときに気づけない（実際に `observation` が増えて気づけなかった）。
+AI_SAYS_3 = Verdict(
+    observation="変数の宣言がまとまっており、処理の流れが追える。",
+    level=3,
+    evidence=[EvidenceSpan(start_line=5, end_line=5, quote="int b = 0, c = 0, d = 0;")],
+    rationale=AI_RATIONALE,
+).model_dump_json()
 
 
 class World:
