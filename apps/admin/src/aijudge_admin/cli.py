@@ -26,6 +26,7 @@ from aijudge_core.ids import CourseId, TenantId
 from aijudge_identity import DEFAULT_TOKEN_DAYS, AuthenticationFailed, AuthService
 from aijudge_persistence import ENV_DATABASE_URL, Database
 
+from . import authoring_cli
 from .operations import (
     AdminError,
     create_staff,
@@ -421,6 +422,10 @@ def build_parser() -> argparse.ArgumentParser:
     tlist = task.add_parser("list", help="一覧")
     tlist.add_argument("--course", required=True)
     tlist.set_defaults(func=cmd_task_list)
+    # 作問とレビュー（S2）。**別モジュールに置く** ── このファイルは既に
+    # コース・受講・トークンを持っており、作問まで足すと何のための CLI か
+    # 読めなくなる。
+    authoring_cli.register(task)
 
     return parser
 
