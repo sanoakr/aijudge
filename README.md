@@ -342,6 +342,33 @@ things stand in the way, neither automatic: the review packet always prints the
 components and says no machine checked them, and the solver reports which ones
 its own solution actually needed.
 
+Two more checks run alongside the gates, and both refuse more often than they
+answer.
+
+**Duplicates.** Embeddings recognise a paraphrase; character trigrams recognise
+a copy. Which measure produced the number is always printed, because a lexical
+run that found nothing has not established that nothing is there. A provider
+with no embedding model is refused by the gateway rather than returning an
+empty result - empty is indistinguishable from no matches - and the checker
+catches that and drops to lexical, saying so. Embeddings go through the same
+P7 policy as generation, since the original text is partly recoverable from
+one, and vectors are only compared within the same model and subject.
+
+pgvector is deliberately absent. It is an index, not a capability: a course has
+tens to hundreds of tasks, brute-force cosine over that is faster than an index
+and runs on SQLite where the tests are. When a corpus needs one, only the column
+type changes - the comparison lives in the authoring package and knows nothing
+about storage.
+
+**Difficulty** predicts a pass rate from the same neighbours, weighted by
+similarity. A task under fifteen attempts contributes nothing rather than a
+noisy number, neighbours without history are dropped rather than filled in, and
+fewer than two survivors means no estimate - one task's quirks would become the
+prediction. Each of those reports NOT_MEASURED with its reason. What it measures
+is a pass rate, which moves with when the task was set, whether it was optional
+and who was enrolled; the summary says so every time rather than letting 40% be
+read as "hard".
+
 ### Accuracy is measured, and "unmeasured" is not a pass
 
 ```fish
