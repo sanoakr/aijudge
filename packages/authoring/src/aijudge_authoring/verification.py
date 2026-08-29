@@ -23,9 +23,12 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from .solvability import SolvabilityReport
 
 # 門 2 で殺せていなければならない変異の割合。
 #
@@ -289,3 +292,26 @@ class VerificationReport(BaseModel):
                 f"  生き残り {mutation.label}: {mutation.original!r} → {mutation.mutated!r}"
             )
         return "\n".join(lines)
+
+
+class TaskChecks(BaseModel):
+    """課題版 1 つに対して走らせた検査の記録。
+
+    **保存する。** 門はサンドボックスで実行するので数秒かかり、教員が
+    レビュー画面を開くたびに走らせるわけにいかない。走らせた結果を残さないと、
+    画面には「検査した」としか出せず、**何が生き残ったのかを教員に示せない**
+    ── それでは承認の判断材料にならない（設計原則 P4）。
+
+    採点結果（`GradingRun`）とは別物である。あちらは学習者の提出に対する
+    判定で、こちらは課題そのものに対する検査。混ぜない。
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    verification: VerificationReport
+    # 解答可能性。門が落ちたときは走らせないので None になる。
+    solvability: SolvabilityReport | None = None
+    # 宣言された知識要素の**正準キー**。ID から引き直さずに済むよう、
+    # 検査した時点のものを残す（KC が後から消えても教員には読める）。
+    declared_kcs: tuple[str, ...] = ()
+    checked_at: datetime | None = None

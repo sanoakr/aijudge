@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}生成課題のレビュー — {{ course.title }}{% endblock %}
+{% block body %}
+<p class="crumb"><a href="/manage/courses/{{ course.id }}">← {{ course.title }}</a></p>
+<h1>生成課題のレビュー</h1>
+
+{% if not rows %}
+<div class="note">レビュー待ちの生成課題はありません。</div>
+{% else %}
+<div class="note">
+  <strong>承認するまで出題されません。</strong>
+  下の検査は<strong>判断材料であって判定ではありません</strong> ──
+  門を通っていても課題文が妥当とは限らず、通っていなくても欠陥とは限りません
+  （生き残った変異が等価変異のことがあります）。
+</div>
+
+{% for row in rows %}
+<div class="card">
+  <h2>{{ row.task.title }}</h2>
+  <p class="desc" style="margin:0 0 12px">
+    課題版 <code>{{ row.version.id }}</code><br>
+    出所: {{ row.version.provenance.generated_by or "教員が作成" }}
+    （{{ row.version.provenance.generation_prompt_version or "—" }}）
+  </p>
+
+  {# **知識要素は必ず出す。** 宣言した KC をこの課題が実際に問うているかは
+     機械が検証していない。見せなければ誰も気づかないまま Q-matrix に残り、
+     学習者には問われていない KC の習熟度が付く。 #}
+  <h3>知識要素</h3>
+  {% if row.checks and row.checks.declared_kcs %}
+  <ul>
+    {% for kc in row.checks.declared_kcs %}<li><code>{{ kc }}</code></li>{% endfor %}
+  </ul>
+  <p class="desc" style="margin:0 0 12px">
+    <strong>課題文がこれを問うているか確認してください。</strong>
+    機械はここを検証していません。
+  </p>
+  {% else %}
+  <p class="desc">登録なし（この課題では習熟度が付きません）。</p>
+  {% endif %}
+
+  <h3>自動検査</h3>
+  {% if not row.checks %}
+  <p class="desc">検査の記録がありません。内容だけで判断してください。</p>
+  {% else %}
+  <table>
+    <tbody>
+      <tr>
+        <td class="fit">門 1 参照解答</td>
+        <td class="grow">{{ row.checks.verification.reference_passes.value }}
+          {% if row.checks.verification.reference_detail %}
+            <br><span class="desc">{{ row.checks.verification.reference_detail }}</span>
+          {% endif %}
+        </td>
+      </tr>
+      <tr>
+        <td class="fit">門 2 変異</td>
+        <td class="grow">
+          {{ row.checks.verification.gate_two.value }}
+          {% if row.checks.verification.kill_ratio is not none %}
+            — {{ row.checks.verification.mutants_killed }}/{{ row.checks.verification.mutants_total }}
+            が落ちた
+          {% endif %}
+          {% for m in row.checks.verification.survivors %}
+            <br><span class="desc">生き残り {{ m.label }}:
+              <code>{{ m.original }}</code> → <code>{{ m.mutated }}</code></span>
+          {% endfor %}
+        </td>
+      </tr>
+      {% if row.checks.solvability %}
+      <tr>
+        <td class="fit">解答可能性</td>
+        <td class="grow">
+          {{ row.checks.solvability.solver_model }}:
+          {{ row.checks.solvability.outcome.value }}
+          {% if row.checks.solvability.understanding %}
+            <br><span class="desc">解答役の読み: {{ row.checks.solvability.understanding }}</span>
+          {% endif %}
+          {% if not row.checks.solvability.solved %}
+            <br><span class="desc"><strong>解けなかったことは却下の理由ではありません。</strong>
+              課題文が曖昧なのか、単に難しいのかは機械には分かりません。</span>
+          {% endif %}
+          {% if row.checks.solvability.unexercised_kcs %}
+            <br><span class="desc"><strong>解くのに要らなかった知識要素:
+              {{ row.checks.solvability.unexercised_kcs | join("・") }}</strong>
+              — 別の書き方をしただけかもしれませんが、Q-matrix は習熟度の土台です。</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endif %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  <h3>課題文</h3>
+  <pre class="statement">{{ row.version.statement }}</pre>
+
+  <form method="post" action="/manage/courses/{{ course.id }}/drafts/{{ row.version.id }}">
+    <fieldset>
+      <legend>却下の理由（却下するなら {{ min_reason }} 文字以上・必須）</legend>
+      <p class="desc">
+        <strong>作問の改善に使います。</strong> 何が落ちたかではなく
+        なぜ落ちたかが、次の生成を良くします。承認するなら空で構いません。
+      </p>
+      <textarea name="reason" rows="3"
+        placeholder="例: 入力の形式が課題文に書かれておらず、解答者によって読みが分かれます。"></textarea>
+    </fieldset>
+    <button type="submit" name="decision" value="approve">承認して出題可能にする</button>
+    <button type="submit" name="decision" value="reject">却下する</button>
+  </form>
+</div>
+{% endfor %}
+{% endif %}
+{% endblock %}

@@ -20,6 +20,8 @@ from typing import Protocol, runtime_checkable
 from aijudge_core import ReviewState, Task, TaskVersion
 from aijudge_core.ids import CourseId, TaskId, TaskVersionId, UserId
 
+from .verification import TaskChecks
+
 
 class TaskStoreError(Exception):
     """課題の保存先の不整合。"""
@@ -64,6 +66,16 @@ class TaskRepository(Protocol):
         """
         ...
 
+    def save_checks(self, version_id: TaskVersionId, checks: TaskChecks) -> None:
+        """課題版に対して走らせた検査の結果を残す。
+
+        **上書きしてよい。** 課題版と違って検査は何度でも走らせられる
+        （門を直したら測り直す）。残すのは最後に走らせた結果である。
+        """
+        ...
+
+    def get_checks(self, version_id: TaskVersionId) -> TaskChecks | None: ...
+
 
 # 不変性の比較から外す項目。採点の基準ではないもの。
 VOLATILE_FIELDS = frozenset({"created_at"})
@@ -102,6 +114,7 @@ class InMemoryTaskRepository:
         self._tasks: dict[TaskId, Task] = {}
         self._versions: dict[TaskVersionId, TaskVersion] = {}
         self._order: list[TaskVersionId] = []
+        self._checks: dict[TaskVersionId, TaskChecks] = {}
 
     def save_task(self, task: Task) -> None:
         self._tasks[task.id] = task
@@ -134,6 +147,12 @@ class InMemoryTaskRepository:
         if not versions:
             return None
         return max(versions, key=lambda v: v.version)
+
+    def save_checks(self, version_id: TaskVersionId, checks: TaskChecks) -> None:
+        self._checks[version_id] = checks
+
+    def get_checks(self, version_id: TaskVersionId) -> TaskChecks | None:
+        return self._checks.get(version_id)
 
     def list_versions_in_review(self) -> tuple[TaskVersion, ...]:
         return tuple(

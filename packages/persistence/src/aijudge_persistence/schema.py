@@ -480,3 +480,18 @@ class SkillStateRow(Base):
         # 「この学習者の習熟度一覧」— ポートフォリオ（S8）が使う。
         Index("ix_skill_tenant_learner", "tenant_id", "learner_id"),
     )
+
+
+class TaskChecksRow(Base):
+    """課題版に対して走らせた検査（門・解答可能性）の結果。
+
+    **課題版とは別の表にする。** 課題版は公開後不変（P8）だが、検査は
+    門を直すたびに走らせ直せる。同じ行に置くと、測り直しが課題の改変に見える。
+    """
+
+    __tablename__ = "task_checks"
+
+    task_version_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    usable: Mapped[bool] = mapped_column(Boolean, index=True)
+    checked_at: Mapped[datetime | None] = mapped_column(Timestamp, nullable=True)
+    document: Mapped[dict] = mapped_column(JsonType)

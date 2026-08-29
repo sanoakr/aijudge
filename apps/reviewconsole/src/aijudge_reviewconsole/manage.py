@@ -57,7 +57,7 @@ from aijudge_core import (
     deadline_for,
     grade_window,
 )
-from aijudge_core.ids import CourseId, TaskId, UserId
+from aijudge_core.ids import CourseId, TaskId, TaskVersionId, UserId
 from aijudge_identity import AuthService, PermissionDenied, Principal
 
 # ルータは `register()` の中で毎回作る。モジュール階層に置くと、
@@ -521,5 +521,101 @@ def register(templates) -> APIRouter:
             uow.identity.remove_enrollment(CourseId(course_id), UserId(user_id))
             uow.commit()
         return RedirectResponse(f"/manage/courses/{course_id}", status_code=303)
+
+    # ------------------------------------------------------------------
+    # 生成された課題のレビュー（S2、設計方針 §5）
+    # ------------------------------------------------------------------
+
+    @router.get("/courses/{course_id}/drafts", response_class=HTMLResponse)
+    def draft_queue(request: Request, course_id: str) -> Response:
+        """レビュー待ちの生成課題。
+
+        **科目プロファイルと違い、ここはブラウザから触ってよい**（ADR 0002）。
+        あちらは評価器の指名とタイムアウトを持つ採点の設定で、壊すと全員の
+        採点が止まる。課題を承認するかどうかは、まさに教員が決めることである。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+
+        rows = []
+        with console.database.unit_of_work() as uow:
+            tasks = {task.id: task for task in uow.tasks.list_for_course(course.id)}
+            for version in uow.tasks.list_versions_in_review():
+                if version.task_id not in tasks:
+                    continue
+                checks = uow.tasks.get_checks(version.id)
+                rows.append(
+                    {
+                        "version": version,
+                        "task": tasks[version.task_id],
+                        "checks": checks,
+                        # 検査していない課題も並べる。**隠さない** ── 見えない
+                        # ものは承認も却下もされず、待ち行列に溜まり続ける。
+                        "clean": bool(checks and checks.verification.usable),
+                    }
+                )
+        return templates.TemplateResponse(
+            request,
+            "manage_drafts.html",
+            {
+                "me": me,
+                "course": course,
+                "rows": rows,
+                "min_reason": MIN_JUSTIFICATION_LENGTH,
+            },
+        )
+
+    @router.post("/courses/{course_id}/drafts/{version_id}")
+    def decide_draft(
+        request: Request,
+        course_id: str,
+        version_id: str,
+        decision: Annotated[str, Form()],
+        reason: Annotated[str, Form()] = "",
+    ) -> Response:
+        """承認または却下する。**却下には理由が要る。**
+
+        理由は作問の改善に還流する材料であり、承認率の分母でもある
+        （設計方針 §5）。「見た」だけでは何も残らない。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+
+        approved = decision == "approve"
+        text = reason.strip()
+        if not approved and len(text) < MIN_JUSTIFICATION_LENGTH:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"却下の理由を {MIN_JUSTIFICATION_LENGTH} 文字以上で書いてください"
+                    "（作問の改善に使います）"
+                ),
+            )
+
+        with console.database.unit_of_work() as uow:
+            version = uow.tasks.get_version(TaskVersionId(version_id))
+            task = None if version is None else uow.tasks.get_task(version.task_id)
+            if version is None or task is None or task.course_id != course.id:
+                # 存在と権限を区別しない（他コースの課題を探らせない）。
+                raise HTTPException(status_code=404, detail="課題版が見つかりません")
+            try:
+                uow.tasks.record_review(
+                    version.id,
+                    approved=approved,
+                    reviewer=me.user_id,
+                    reason=None if approved else text,
+                )
+            except ValueError as exc:
+                # 二度目のレビュー。やり直しは新しい版から（P8）。
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            uow.commit()
+
+        return RedirectResponse(f"/manage/courses/{course_id}/drafts", status_code=303)
 
     return router

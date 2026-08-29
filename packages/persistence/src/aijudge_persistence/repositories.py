@@ -27,6 +27,7 @@ from aijudge_authoring.repository import (
     TaskStoreError,
     substantive,
 )
+from aijudge_authoring.verification import TaskChecks
 from aijudge_core import (
     BlindMark,
     Finalization,
@@ -64,6 +65,7 @@ from .schema import (
     ReviewRequestRow,
     SubmissionKeyRow,
     SubmissionRow,
+    TaskChecksRow,
     TaskRow,
     TaskVersionRow,
 )
@@ -789,6 +791,29 @@ class SqlTaskRepository:
             .first()
         )
         return None if row is None else TaskVersion.model_validate(row.document)
+
+    def save_checks(self, version_id: TaskVersionId, checks: TaskChecks) -> None:
+        """検査の結果を残す。**上書きしてよい**（課題版と違い測り直せる）。"""
+        row = self._session.get(TaskChecksRow, str(version_id))
+        document = checks.model_dump(mode="json")
+        if row is None:
+            self._session.add(
+                TaskChecksRow(
+                    task_version_id=str(version_id),
+                    usable=checks.verification.usable,
+                    checked_at=checks.checked_at,
+                    document=document,
+                )
+            )
+        else:
+            row.usable = checks.verification.usable
+            row.checked_at = checks.checked_at
+            row.document = document
+        self._session.flush()
+
+    def get_checks(self, version_id: TaskVersionId) -> TaskChecks | None:
+        row = self._session.get(TaskChecksRow, str(version_id))
+        return None if row is None else TaskChecks.model_validate(row.document)
 
     def list_versions_in_review(self) -> tuple[TaskVersion, ...]:
         """教員のレビュー待ち。**生成物が溜まる場所。**"""

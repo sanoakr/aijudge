@@ -13,9 +13,10 @@ from __future__ import annotations
 
 import argparse
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
-from aijudge_authoring import build_task_version
+from aijudge_authoring import TaskChecks, build_task_version
 from aijudge_authoring.drafting import Blueprint, Difficulty
 from aijudge_core import Task
 from aijudge_core.ids import CourseId, TaskVersionId, UserId
@@ -85,6 +86,17 @@ def cmd_task_draft(args: argparse.Namespace) -> int:
                     )
                 )
             uow.tasks.save_version(version)
+            # **検査の結果を残す。** 残さないとレビュー画面に出せず、
+            # 教員には「検査した」としか示せない（何が生き残ったかが要る）。
+            uow.tasks.save_checks(
+                version.id,
+                TaskChecks(
+                    verification=verification,
+                    solvability=solvability,
+                    declared_kcs=blueprint.knowledge_components,
+                    checked_at=datetime.now(UTC),
+                ),
+            )
             uow.commit()
     finally:
         database.dispose()

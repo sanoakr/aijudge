@@ -20,6 +20,7 @@ from .repository import (
     TaskStoreError,
     substantive,
 )
+from .solvability import SolvabilityOutcome, SolvabilityReport, SolverAttempt
 from .spec import (
     AI_EVALUATOR,
     DEFAULT_EVALUATOR,
@@ -36,6 +37,7 @@ from .verification import (
     Mutation,
     MutationKind,
     MutationOutcome,
+    TaskChecks,
     VerificationReport,
     mutate,
 )
@@ -51,6 +53,10 @@ __all__ = [
     "Mutation",
     "MutationKind",
     "MutationOutcome",
+    "SolvabilityOutcome",
+    "SolvabilityReport",
+    "SolverAttempt",
+    "TaskChecks",
     "TaskImmutabilityViolation",
     "TaskRepository",
     "TaskSpec",
