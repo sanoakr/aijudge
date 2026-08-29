@@ -14,6 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from aijudge_authoring import TaskRepository
+from aijudge_authoring.solvability import SolvabilityReport
 from aijudge_authoring.verification import VerificationReport
 from aijudge_core import ReviewState, TaskVersion
 from aijudge_core.ids import TaskVersionId, UserId
@@ -116,6 +117,56 @@ def approval_rate(versions: tuple[TaskVersion, ...]) -> ApprovalRate:
             1 for v in generated if v.provenance.review_state is ReviewState.IN_REVIEW
         ),
     )
+
+
+@dataclass(frozen=True)
+class ReviewPacket:
+    """教員が 1 件を判断するために読むもの一式。
+
+    **どれも自動で承認も却下もしない**（設計原則 P5）。門と解答可能性は
+    材料であって判定ではない ── 特に解答可能性は、落ちた原因が「課題文が
+    曖昧」なのか「単に難しい」なのかを機械が分けられない。自動で捨てると
+    **難しい良問から先に消える。**
+    """
+
+    version: TaskVersion
+    verification: VerificationReport
+    solvability: SolvabilityReport | None = None
+
+    @property
+    def clean(self) -> bool:
+        """機械が見た範囲で気になる点が無いか。**承認の意味ではない。**"""
+        return self.verification.usable and (
+            self.solvability is None or self.solvability.solved
+        )
+
+    def render(self) -> str:
+        lines = [
+            f"課題版 {self.version.id}",
+            f"  出所: {self.version.provenance.generated_by or '教員が作成'}"
+            f"（{self.version.provenance.generation_prompt_version or '—'}）",
+            "",
+            gate_advice(self.verification),
+        ]
+        if self.solvability is not None:
+            lines += ["", self.solvability.summary()]
+        lines += ["", "**承認するかどうかは教員が決めます。**"]
+        return "\n".join(lines)
+
+
+def build_packet(
+    version: TaskVersion,
+    verification: VerificationReport,
+    solvability: SolvabilityReport | None = None,
+) -> ReviewPacket:
+    """レビュー前に走らせた検査を束ねる（設計方針 §5 の並び）。
+
+        生成 → 門 1・門 2 → 解答可能性 → **教員レビュー**
+
+    解答可能性を門の後ろに置くのは、門 1 が落ちる課題（参照解答が自分の
+    テストケースを通らない）を別のモデルに解かせても意味が無いからである。
+    """
+    return ReviewPacket(version=version, verification=verification, solvability=solvability)
 
 
 def gate_advice(report: VerificationReport) -> str:

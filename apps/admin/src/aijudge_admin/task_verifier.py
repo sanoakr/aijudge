@@ -70,7 +70,7 @@ class TaskVerifier:
                 min_kill_ratio=self._min_kill_ratio,
             )
 
-        passed, detail = self._passes(task_version, reference)
+        passed, detail = self.passes(task_version, reference)
         if not passed:
             # **門 1 で落ちたら門 2 は走らせない。** 参照解答が通らない課題で
             # 変異を測っても、測っているのは参照解答の誤りである。
@@ -108,7 +108,7 @@ class TaskVerifier:
     # -- internals ---------------------------------------------------------
 
     def _outcome(self, task_version: TaskVersion, mutation: Mutation) -> MutationOutcome:
-        passed, detail = self._passes(task_version, mutation.source)
+        passed, detail = self.passes(task_version, mutation.source)
         if passed:
             return MutationOutcome.SURVIVED
         if _is_build_failure(detail):
@@ -116,8 +116,12 @@ class TaskVerifier:
             return MutationOutcome.NOT_VIABLE
         return MutationOutcome.KILLED
 
-    def _passes(self, task_version: TaskVersion, source: str) -> tuple[bool, str]:
+    def passes(self, task_version: TaskVersion, source: str) -> tuple[bool, str]:
         """決定的評価器に通して、満点かどうかを見る。
+
+        **公開しているのは解答可能性の検査が使うためである**
+        （`solvability.py`）。別に実行系を書くと、門が通したものを
+        解答可能性が落とす、といった食い違いが実行系の違いから生まれる。
 
         AI 評価器は呼ばない。**門は決定的でなければならない** ── 同じ課題が
         走らせるたびに通ったり落ちたりすると、通ったこと自体が意味を失う。
