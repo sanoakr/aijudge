@@ -383,16 +383,16 @@ def test_there_is_no_archive_upload_route(world: World) -> None:
 
 def test_an_existing_user_can_be_enrolled(world: World) -> None:
     world.register("teacher", Role.INSTRUCTOR)
-    world.register("y230012", None)
+    world.register("y239999", None)
     response = world.client("teacher").post(
         f"/manage/courses/{world.course.id}/enrolments",
-        data={"roster": "y230012", "role": "learner"},
+        data={"roster": "y239999", "role": "learner"},
         follow_redirects=False,
     )
     assert response.status_code == 303
 
     with world.database.unit_of_work() as uow:
-        user = uow.identity.find_user_by_login(TENANT, "y230012")
+        user = uow.identity.find_user_by_login(TENANT, "y239999")
         assert user is not None
         assert AuthService(uow.identity).role_in(world.course.id, user.id) is Role.LEARNER
 
@@ -414,7 +414,7 @@ def test_a_broken_roster_is_refused(world: World) -> None:
     world.register("teacher", Role.INSTRUCTOR)
     response = world.client("teacher").post(
         f"/manage/courses/{world.course.id}/enrolments",
-        data={"roster": "y230012 a@b.c RANDOM[8] wizard", "role": "learner"},
+        data={"roster": "y239999 a@b.c RANDOM[8] wizard", "role": "learner"},
     )
     assert response.status_code == 400
 
@@ -422,7 +422,7 @@ def test_a_broken_roster_is_refused(world: World) -> None:
 def test_an_enrolment_can_be_removed_without_deleting_the_user(world: World) -> None:
     """利用者を消すと過去の提出と採点の参照が壊れる。"""
     world.register("teacher", Role.INSTRUCTOR)
-    student = world.register("y230012", Role.LEARNER)
+    student = world.register("y239999", Role.LEARNER)
     response = world.client("teacher").post(
         f"/manage/courses/{world.course.id}/enrolments/{student.user_id}/remove",
         follow_redirects=False,

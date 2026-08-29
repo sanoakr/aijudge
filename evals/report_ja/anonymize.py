@@ -44,7 +44,7 @@ def anonymize(text: str) -> tuple[str, int]:
     out = NAME_LABEL_SPACED.sub(redact_line, text)
     out = NAME_LABEL.sub(redact_line, out)
 
-    # 学籍番号の直後に続く氏名（「Y230056 三宅驍」）も同じ行なので、
+    # 学籍番号の直後に続く氏名（「Y999999 山田太郎」の形）も同じ行なので、
     # 学籍番号から行末までを伏せる ── ただし本文中の言及は消さないよう、
     # **行の先頭 30 字以内に現れる場合だけ**にする（表紙の署名の形）。
     lines = []

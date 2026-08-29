@@ -5,7 +5,9 @@
 それが移行元に実在するファイルだから（`2025shj-user.txt` 等）。
 
     <login> <email> <password|RANDOM[n]> <role>
-    t190054 t190054@mail.ryukoku.ac.jp RANDOM[8] student
+    t199999 t199999@mail.ryukoku.ac.jp RANDOM[8] student
+
+**例に実在の学籍番号を書かない。** 連番 9999 は割り当てられない架空値である。
 
 login だけを並べた素朴な形式も読む（`2025stdlist.txt`）。
 

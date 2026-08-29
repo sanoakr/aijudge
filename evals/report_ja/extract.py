@@ -24,7 +24,7 @@ from aijudge_norm_document_text import DocumentText
 from aijudge_core import Artifact, ArtifactKind, ArtifactRole
 from aijudge_core.ids import ArtifactId, SubmissionId, new_id
 
-# ファイル名から学籍番号を取る。`Y230035_HTTPサーバ性能評価...pdf` のように
+# ファイル名から学籍番号を取る。`Y999999_HTTPサーバ性能評価...pdf` のように
 # 後ろに題名が付くものがあるので、先頭の学籍番号だけを見る。
 STUDENT_RE = re.compile(rubric.STUDENT_RE)
 

@@ -18,3 +18,14 @@ node_modules/
 
 .DS_Store
 CLAUDE.md
+
+# 学生の提出物・採点結果・抽出した本文。**repository には絶対に置かない**
+# （学籍番号と氏名、教員のコメントが入る）。
+# .git/info/exclude はローカル専用で clone した人には効かないので、ここに置く。
+evals/report_ja/data-*/
+evals/report_ja/runs/
+evals/report_ja/index.json
+evals/report_ja/bodies/
+evals/report_ja/bodies_anon/
+evals/report_ja/prompts/
+evals/report_ja/agent_out/

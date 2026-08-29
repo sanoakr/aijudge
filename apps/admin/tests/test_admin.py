@@ -41,13 +41,13 @@ TENANT = TenantId("ten_" + "0" * 32)
 
 # 移行元に実在する形式（network2025/2025shj-user.txt）。
 SHARIF_ROSTER = """\
-t190054 t190054@mail.ryukoku.ac.jp RANDOM[8] student
-y230012 y230012@mail.ryukoku.ac.jp RANDOM[8] student
-sano sano@math.ryukoku.ac.jp RANDOM[12] instructor
+t199999 t199999@mail.ryukoku.ac.jp RANDOM[8] student
+y239999 y239999@mail.ryukoku.ac.jp RANDOM[8] student
+sano sano@example.jp RANDOM[12] instructor
 """
 
 # login だけの形式（network2025/2025stdlist.txt）。
-PLAIN_ROSTER = "t190054\ny230012\n"
+PLAIN_ROSTER = "t199999\ny239999\n"
 
 
 @pytest.fixture
@@ -79,8 +79,8 @@ def course(database: Database):
 def test_the_sharif_judge_roster_format_is_read() -> None:
     """移行元に実在するファイルをそのまま読む。"""
     entries = parse_roster(SHARIF_ROSTER)
-    assert [e.login for e in entries] == ["t190054", "y230012", "sano"]
-    assert entries[0].email == "t190054@mail.ryukoku.ac.jp"
+    assert [e.login for e in entries] == ["t199999", "y239999", "sano"]
+    assert entries[0].email == "t199999@mail.ryukoku.ac.jp"
     assert entries[0].role is Role.LEARNER
     assert entries[2].role is Role.INSTRUCTOR
     assert entries[2].password_length == 12
@@ -88,7 +88,7 @@ def test_the_sharif_judge_roster_format_is_read() -> None:
 
 def test_a_plain_login_list_is_read() -> None:
     entries = parse_roster(PLAIN_ROSTER)
-    assert [e.login for e in entries] == ["t190054", "y230012"]
+    assert [e.login for e in entries] == ["t199999", "y239999"]
     assert all(e.role is Role.LEARNER for e in entries)
 
 
@@ -101,17 +101,17 @@ def test_random_placeholders_do_not_become_passwords() -> None:
 def test_a_duplicate_login_is_refused() -> None:
     """重複を黙って 1 人にすると、受講者が 1 人足りないまま学期が始まる。"""
     with pytest.raises(RosterError, match="重複"):
-        parse_roster("t190054 a@b.c RANDOM[8] student\nt190054 a@b.c RANDOM[8] student\n")
+        parse_roster("t199999 a@b.c RANDOM[8] student\nt199999 a@b.c RANDOM[8] student\n")
 
 
 def test_an_unknown_role_is_refused() -> None:
     with pytest.raises(RosterError, match="役割"):
-        parse_roster("t190054 a@b.c RANDOM[8] wizard\n")
+        parse_roster("t199999 a@b.c RANDOM[8] wizard\n")
 
 
 def test_a_short_password_length_is_refused() -> None:
     with pytest.raises(RosterError, match="短すぎ"):
-        parse_roster("t190054 a@b.c RANDOM[4] student\n")
+        parse_roster("t199999 a@b.c RANDOM[4] student\n")
 
 
 def test_an_empty_roster_is_refused() -> None:
@@ -120,7 +120,7 @@ def test_an_empty_roster_is_refused() -> None:
 
 
 def test_comments_and_blank_lines_are_ignored() -> None:
-    entries = parse_roster("# 2025 後期\n\nt190054\n\n")
+    entries = parse_roster("# 2025 後期\n\nt199999\n\n")
     assert len(entries) == 1
 
 
@@ -140,10 +140,10 @@ def test_generated_passwords_avoid_confusable_characters() -> None:
 def test_credentials_are_written_with_restrictive_permissions(tmp_path: Path) -> None:
     """端末の履歴やログに残さないためファイルに書く。読めるのは所有者だけ。"""
     path = tmp_path / "creds" / "pw.tsv"
-    write_credentials(path, [("t190054", "abcdefgh")])
+    write_credentials(path, [("t199999", "abcdefgh")])
     mode = stat.S_IMODE(path.stat().st_mode)
     assert mode == 0o600, oct(mode)
-    assert "t190054\tabcdefgh" in path.read_text(encoding="utf-8")
+    assert "t199999\tabcdefgh" in path.read_text(encoding="utf-8")
     assert "削除" in path.read_text(encoding="utf-8")
 
 
@@ -234,7 +234,7 @@ def test_the_roster_becomes_users_and_enrolments(database: Database, course) -> 
         user = uow.identity.find_user_by_login(TENANT, "sano")
         assert user is not None
         assert auth.role_in(course.id, user.id) is Role.INSTRUCTOR
-        learner = uow.identity.find_user_by_login(TENANT, "t190054")
+        learner = uow.identity.find_user_by_login(TENANT, "t199999")
         assert learner is not None
         assert auth.role_in(course.id, learner.id) is Role.LEARNER
 
@@ -263,7 +263,7 @@ def test_re_enrolling_does_not_reset_passwords(database: Database, course) -> No
         database, tenant_id=TENANT, course_id=course.id, entries=parse_roster(PLAIN_ROSTER)
     )
     assert second.created == []
-    assert sorted(second.already) == ["t190054", "y230012"]
+    assert sorted(second.already) == ["t199999", "y239999"]
 
     with database.unit_of_work() as uow:
         user = uow.identity.find_user_by_login(TENANT, login)
@@ -273,16 +273,16 @@ def test_re_enrolling_does_not_reset_passwords(database: Database, course) -> No
 
 def test_a_role_change_is_applied(database: Database, course) -> None:
     """学生 → TA の昇格は反映する。"""
-    enrol_roster(database, tenant_id=TENANT, course_id=course.id, entries=parse_roster("y230012\n"))
+    enrol_roster(database, tenant_id=TENANT, course_id=course.id, entries=parse_roster("y239999\n"))
     report = enrol_roster(
         database,
         tenant_id=TENANT,
         course_id=course.id,
-        entries=parse_roster("y230012 y230012@example.jp RANDOM[8] ta\n"),
+        entries=parse_roster("y239999 y239999@example.jp RANDOM[8] ta\n"),
     )
-    assert report.enrolled == ["y230012"]
+    assert report.enrolled == ["y239999"]
     with database.unit_of_work() as uow:
-        user = uow.identity.find_user_by_login(TENANT, "y230012")
+        user = uow.identity.find_user_by_login(TENANT, "y239999")
         assert user is not None
         assert AuthService(uow.identity).role_in(course.id, user.id) is Role.ASSISTANT
 
@@ -297,7 +297,7 @@ def test_a_dry_run_changes_nothing(database: Database, course) -> None:
     )
     assert len(report.created) == 2
     with database.unit_of_work() as uow:
-        assert uow.identity.find_user_by_login(TENANT, "t190054") is None
+        assert uow.identity.find_user_by_login(TENANT, "t199999") is None
 
 
 def test_enrolling_into_an_unknown_course_is_refused(database: Database) -> None:
@@ -313,19 +313,19 @@ def test_enrolling_into_an_unknown_course_is_refused(database: Database) -> None
 def test_reissuing_a_password_replaces_it_and_cuts_sessions(database: Database, course) -> None:
     """平文を保存していないので、忘れた学生への正しい操作は再発行。"""
     report = enrol_roster(
-        database, tenant_id=TENANT, course_id=course.id, entries=parse_roster("y230012\n")
+        database, tenant_id=TENANT, course_id=course.id, entries=parse_roster("y239999\n")
     )
     _, old = report.created[0]
     with database.unit_of_work() as uow:
-        _, token = AuthService(uow.identity).login(tenant_id=TENANT, login="y230012", password=old)
+        _, token = AuthService(uow.identity).login(tenant_id=TENANT, login="y239999", password=old)
         uow.commit()
 
-    set_password(database, tenant_id=TENANT, login="y230012", password="a-brand-new-password")
+    set_password(database, tenant_id=TENANT, login="y239999", password="a-brand-new-password")
 
     with database.unit_of_work() as uow:
         auth = AuthService(uow.identity)
         assert auth.resolve(token) is None, "セッションが残っている"
-        assert auth.login(tenant_id=TENANT, login="y230012", password="a-brand-new-password")
+        assert auth.login(tenant_id=TENANT, login="y239999", password="a-brand-new-password")
 
 
 def test_staff_can_be_created_without_a_course(database: Database) -> None:
