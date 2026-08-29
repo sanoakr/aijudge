@@ -30,19 +30,35 @@ from .spec import (
     build_task_version,
 )
 from .statement import render_statement
+from .verification import (
+    DEFAULT_MIN_KILL_RATIO,
+    GateOutcome,
+    Mutation,
+    MutationKind,
+    MutationOutcome,
+    VerificationReport,
+    mutate,
+)
 
 __all__ = [
     "AI_EVALUATOR",
     "DEFAULT_EVALUATOR",
+    "DEFAULT_MIN_KILL_RATIO",
     "CriterionSpec",
+    "GateOutcome",
     "InMemoryTaskRepository",
     "LevelSpec",
+    "Mutation",
+    "MutationKind",
+    "MutationOutcome",
     "TaskImmutabilityViolation",
     "TaskRepository",
     "TaskSpec",
     "TaskStoreError",
     "TestCaseSpec",
+    "VerificationReport",
     "build_task_version",
+    "mutate",
     "render_statement",
     "sharif_judge",
     "substantive",

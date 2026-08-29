@@ -12,6 +12,7 @@ from __future__ import annotations
 from .feedback import build_feedback_generator
 from .relay import EventRelay
 from .skill_subscriber import SkillSubscriber, subscribe_skills
+from .task_verifier import DEFAULT_MUTATION_LIMIT, TaskVerifier
 from .worker import (
     DEFAULT_LEASE_SECONDS,
     GradingWorker,
@@ -22,10 +23,12 @@ from .worker import (
 
 __all__ = [
     "DEFAULT_LEASE_SECONDS",
+    "DEFAULT_MUTATION_LIMIT",
     "EventRelay",
     "GradingWorker",
     "PermanentGradingError",
     "SkillSubscriber",
+    "TaskVerifier",
     "WorkResult",
     "build_feedback_generator",
     "import_task_version",
