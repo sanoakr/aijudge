@@ -15,10 +15,12 @@ from .gateway import (
     StructuredResult,
     extract_json,
 )
-from .provider import OllamaProvider, Provider, ScriptedProvider
+from .provider import EmbeddingProvider, OllamaProvider, Provider, ScriptedProvider
 from .types import (
     ChatMessage,
     DataClass,
+    EmbeddingRequest,
+    EmbeddingResponse,
     LlmError,
     LlmRequest,
     LlmResponse,
@@ -55,6 +57,9 @@ __all__ = [
     "ENV_MODEL",
     "ChatMessage",
     "DataClass",
+    "EmbeddingProvider",
+    "EmbeddingRequest",
+    "EmbeddingResponse",
     "LlmError",
     "LlmGateway",
     "LlmRequest",

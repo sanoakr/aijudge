@@ -28,6 +28,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .similarity import DuplicateReport
 from .solvability import SolvabilityReport
 
 # 門 2 で殺せていなければならない変異の割合。
@@ -314,4 +315,6 @@ class TaskChecks(BaseModel):
     # 宣言された知識要素の**正準キー**。ID から引き直さずに済むよう、
     # 検査した時点のものを残す（KC が後から消えても教員には読める）。
     declared_kcs: tuple[str, ...] = ()
+    # 既存の課題との重複。埋め込みが無ければ字面で測った結果が入る。
+    duplicates: DuplicateReport | None = None
     checked_at: datetime | None = None

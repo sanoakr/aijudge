@@ -54,6 +54,28 @@ class Usage(BaseModel):
     duration_ms: int = 0
 
 
+class EmbeddingRequest(BaseModel):
+    """埋め込みの要求。
+
+    **生成とは別の型にする。** 温度も最大トークン数もスキーマも意味を持たず、
+    同じ型に載せると「埋め込みに温度を渡す」経路ができる。
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    texts: tuple[str, ...] = Field(min_length=1)
+    model: str = Field(min_length=1)
+    timeout_seconds: float = Field(default=120.0, gt=0.0)
+
+
+class EmbeddingResponse(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    vectors: tuple[tuple[float, ...], ...]
+    model: str
+    usage: Usage = Usage()
+
+
 class LlmRequest(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 

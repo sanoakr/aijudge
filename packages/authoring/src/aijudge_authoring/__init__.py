@@ -20,6 +20,12 @@ from .repository import (
     TaskStoreError,
     substantive,
 )
+from .similarity import (
+    DEFAULT_SIMILARITY_THRESHOLD,
+    DuplicateReport,
+    SimilarityMethod,
+    SimilarTask,
+)
 from .solvability import SolvabilityOutcome, SolvabilityReport, SolverAttempt
 from .spec import (
     AI_EVALUATOR,
@@ -46,13 +52,17 @@ __all__ = [
     "AI_EVALUATOR",
     "DEFAULT_EVALUATOR",
     "DEFAULT_MIN_KILL_RATIO",
+    "DEFAULT_SIMILARITY_THRESHOLD",
     "CriterionSpec",
+    "DuplicateReport",
     "GateOutcome",
     "InMemoryTaskRepository",
     "LevelSpec",
     "Mutation",
     "MutationKind",
     "MutationOutcome",
+    "SimilarTask",
+    "SimilarityMethod",
     "SolvabilityOutcome",
     "SolvabilityReport",
     "SolverAttempt",

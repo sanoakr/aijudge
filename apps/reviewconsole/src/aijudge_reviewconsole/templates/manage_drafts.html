@@ -88,6 +88,30 @@
         </td>
       </tr>
       {% endif %}
+      {% if row.checks.duplicates %}
+      <tr>
+        <td class="fit">重複</td>
+        <td class="grow">
+          {% if not row.checks.duplicates.checked %}
+            比較できる既存の課題がありません（検査していません）。
+          {% elif not row.checks.duplicates.too_close %}
+            既存 {{ row.checks.duplicates.compared }} 件と比べて近いものはありません。
+          {% else %}
+            <strong>近い課題があります。</strong>
+            {% for item in row.checks.duplicates.too_close %}
+              <br><span class="desc">{{ "%.2f"|format(item.score) }}
+                {{ item.title or item.task_version_id }}</span>
+            {% endfor %}
+            <br><span class="desc">同じ単元なら似るのが当然です。
+              <strong>捨てるかどうかは教員が決めます。</strong></span>
+          {% endif %}
+          {% if row.checks.duplicates.method.value == "lexical" %}
+            <br><span class="desc">字面だけで測っています ──
+              <strong>言い換えた重複は見つかりません。</strong></span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endif %}
     </tbody>
   </table>
   {% endif %}

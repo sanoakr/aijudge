@@ -66,6 +66,7 @@ from .schema import (
     SubmissionKeyRow,
     SubmissionRow,
     TaskChecksRow,
+    TaskEmbeddingRow,
     TaskRow,
     TaskVersionRow,
 )
@@ -814,6 +815,47 @@ class SqlTaskRepository:
     def get_checks(self, version_id: TaskVersionId) -> TaskChecks | None:
         row = self._session.get(TaskChecksRow, str(version_id))
         return None if row is None else TaskChecks.model_validate(row.document)
+
+    def save_embedding(
+        self,
+        version_id: TaskVersionId,
+        *,
+        model: str,
+        subject_profile: str,
+        vector: tuple[float, ...],
+    ) -> None:
+        row = self._session.get(TaskEmbeddingRow, (str(version_id), model))
+        values = [float(v) for v in vector]
+        if row is None:
+            self._session.add(
+                TaskEmbeddingRow(
+                    task_version_id=str(version_id),
+                    model=model,
+                    subject_profile=subject_profile,
+                    dimensions=len(values),
+                    vector=values,
+                )
+            )
+        else:
+            row.dimensions = len(values)
+            row.vector = values
+        self._session.flush()
+
+    def list_embeddings(
+        self, *, model: str, subject_profile: str
+    ) -> dict[str, tuple[float, ...]]:
+        """同じモデル・同じ科目のベクトルだけを返す。
+
+        **モデルを跨いで混ぜない。** 次元が同じでも意味空間が違うので、
+        混ぜると無関係な課題が似ていることになる。
+        """
+        rows = self._session.execute(
+            select(TaskEmbeddingRow).where(
+                TaskEmbeddingRow.model == model,
+                TaskEmbeddingRow.subject_profile == subject_profile,
+            )
+        ).scalars()
+        return {row.task_version_id: tuple(float(v) for v in row.vector) for row in rows}
 
     def list_versions_in_review(self) -> tuple[TaskVersion, ...]:
         """教員のレビュー待ち。**生成物が溜まる場所。**"""

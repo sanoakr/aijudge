@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 from .authoring import SavedTask, save_task
+from .duplicates import DuplicateChecker
 from .finalization import (
     FinalizeReport,
     TaskOutcome,
@@ -58,6 +59,7 @@ __all__ = [
     "DEFAULT_MUTATION_LIMIT",
     "AdminError",
     "ApprovalRate",
+    "DuplicateChecker",
     "EnrolReport",
     "FinalizeReport",
     "ImportReport",

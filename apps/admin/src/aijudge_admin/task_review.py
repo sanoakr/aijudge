@@ -14,6 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from aijudge_authoring import TaskRepository
+from aijudge_authoring.similarity import DuplicateReport
 from aijudge_authoring.solvability import SolvabilityReport
 from aijudge_authoring.verification import VerificationReport
 from aijudge_core import ReviewState, TaskVersion
@@ -132,6 +133,7 @@ class ReviewPacket:
     version: TaskVersion
     verification: VerificationReport
     solvability: SolvabilityReport | None = None
+    duplicates: DuplicateReport | None = None
     # この課題版が問うとされている知識要素の**正準キー**。
     #
     # **人が `Blueprint` に書いたものである。** モデルは決めない
@@ -150,6 +152,7 @@ class ReviewPacket:
             self.verification.usable
             and (self.solvability is None or self.solvability.solved)
             and (self.solvability is None or not self.solvability.unexercised_kcs)
+            and (self.duplicates is None or not self.duplicates.too_close)
         )
 
     def render(self) -> str:
@@ -167,6 +170,8 @@ class ReviewPacket:
             note = self.solvability.kc_note()
             if note:
                 lines += ["", note]
+        if self.duplicates is not None:
+            lines += ["", self.duplicates.summary()]
         lines += ["", "**承認するかどうかは教員が決めます。**"]
         return "\n".join(lines)
 
@@ -202,6 +207,7 @@ def build_packet(
     solvability: SolvabilityReport | None = None,
     *,
     declared_kcs: tuple[str, ...] = (),
+    duplicates: DuplicateReport | None = None,
 ) -> ReviewPacket:
     """レビュー前に走らせた検査を束ねる（設計方針 §5 の並び）。
 
@@ -214,6 +220,7 @@ def build_packet(
         version=version,
         verification=verification,
         solvability=solvability,
+        duplicates=duplicates,
         # 解答役に確認させた KC があればそちらを使う（同じ並びのはず）。
         declared_kcs=declared_kcs or (solvability.declared_kcs if solvability else ()),
     )

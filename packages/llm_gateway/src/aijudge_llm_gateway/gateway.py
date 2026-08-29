@@ -23,10 +23,12 @@ from typing import TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from .provider import Provider
+from .provider import EmbeddingProvider, Provider
 from .types import (
     ChatMessage,
     DataClass,
+    EmbeddingRequest,
+    LlmError,
     LlmRequest,
     PolicyViolation,
     StructuredOutputError,
@@ -138,6 +140,35 @@ class LlmGateway:
                 f"refusing to send learner data to non-local provider "
                 f"{self._provider.name!r}; see design principle P7"
             )
+
+    def embed(
+        self,
+        texts: tuple[str, ...],
+        *,
+        model: str,
+        data_class: DataClass,
+        timeout_seconds: float = 120.0,
+    ) -> tuple[tuple[float, ...], ...]:
+        """文をベクトルにする。
+
+        **生成と同じポリシーを通す**（P7）。埋め込みだからといって学習者の
+        データを外部に出してよいことにはならない ── 埋め込みからは元の文が
+        部分的に復元できる。
+
+        埋め込みを持たないプロバイダは**はっきり断る。** 黙って空を返すと、
+        「似た課題が 1 件も無い」と区別が付かない。
+        """
+        self._check_policy(data_class)
+        provider = self._provider
+        if not isinstance(provider, EmbeddingProvider):
+            raise LlmError(
+                f"provider {provider.name!r} does not produce embeddings; "
+                "類似度の検査には埋め込みモデルが要ります"
+            )
+        response = provider.embed(
+            EmbeddingRequest(texts=texts, model=model, timeout_seconds=timeout_seconds)
+        )
+        return response.vectors
 
     def complete_structured[TModel: BaseModel](
         self,

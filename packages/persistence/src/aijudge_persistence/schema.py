@@ -495,3 +495,25 @@ class TaskChecksRow(Base):
     usable: Mapped[bool] = mapped_column(Boolean, index=True)
     checked_at: Mapped[datetime | None] = mapped_column(Timestamp, nullable=True)
     document: Mapped[dict] = mapped_column(JsonType)
+
+
+class TaskEmbeddingRow(Base):
+    """課題文の埋め込み。重複検出に使う。
+
+    **ベクトルは JSON で持つ。** pgvector は索引であって能力ではなく、
+    1 コース数十〜数百件の規模では全件とのコサインの方が速い。索引が要る
+    規模になったらこの列を `vector` 型に替える ── 比較そのものは
+    `aijudge_authoring.similarity` にあり、保存先を知らない。
+
+    **モデル名と次元を持つ。** 埋め込みモデルを替えたら過去のベクトルとは
+    比較できない（次元が同じでも意味空間が違う）。混ぜると、無関係な課題が
+    似ていることになる。
+    """
+
+    __tablename__ = "task_embeddings"
+
+    task_version_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    model: Mapped[str] = mapped_column(String(128), primary_key=True)
+    subject_profile: Mapped[str] = mapped_column(String(64), index=True)
+    dimensions: Mapped[int] = mapped_column(Integer)
+    vector: Mapped[list] = mapped_column(JsonType)

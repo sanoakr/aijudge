@@ -6,13 +6,22 @@ ollama / vLLM / クラウド API を同じ形で扱う。
 
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 import urllib.error
 import urllib.request
 from typing import Protocol, runtime_checkable
 
-from .types import LlmError, LlmRequest, LlmResponse, ProviderCapabilities, Usage
+from .types import (
+    EmbeddingRequest,
+    EmbeddingResponse,
+    LlmError,
+    LlmRequest,
+    LlmResponse,
+    ProviderCapabilities,
+    Usage,
+)
 
 # 文法が保証するのは「形」だけ。値の制約は pydantic の検証に任せる。
 #
@@ -73,6 +82,21 @@ class Provider(Protocol):
     capabilities: ProviderCapabilities
 
     def complete(self, request: LlmRequest) -> LlmResponse: ...
+
+
+@runtime_checkable
+class EmbeddingProvider(Protocol):
+    """埋め込みを出せるプロバイダ。
+
+    **`Provider` と分けてある。** 埋め込みモデルを持たない構成は普通に
+    あるので、必須にすると生成しかしない環境でプロバイダが書けなくなる。
+    Gateway 側は持っているかどうかを見て、無ければはっきり断る。
+    """
+
+    name: str
+    capabilities: ProviderCapabilities
+
+    def embed(self, request: EmbeddingRequest) -> EmbeddingResponse: ...
 
 
 class OllamaProvider:
@@ -158,6 +182,38 @@ class OllamaProvider:
         return tuple(sorted(model["name"] for model in data.get("models", [])))
 
 
+    def embed(self, request: EmbeddingRequest) -> EmbeddingResponse:
+        """ollama の `/api/embed`。
+
+        **1 回の要求でまとめて渡す。** 課題を 1 件ずつ呼ぶと、既存 200 件との
+        突き合わせが 200 往復になる。
+        """
+        started = time.monotonic()
+        payload = json.dumps({"model": request.model, "input": list(request.texts)}).encode()
+        http_request = urllib.request.Request(
+            f"{self._base_url}/api/embed",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(http_request, timeout=request.timeout_seconds) as response:
+                data = json.load(response)
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")[:1000]
+            raise LlmError(f"{self.name}: HTTP {exc.code}: {detail}") from exc
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+            raise LlmError(f"{self.name}: {type(exc).__name__}: {exc}") from exc
+
+        vectors = data.get("embeddings")
+        if not isinstance(vectors, list) or len(vectors) != len(request.texts):
+            raise LlmError(f"{self.name}: 埋め込みの数が要求と合いません")
+        return EmbeddingResponse(
+            vectors=tuple(tuple(float(v) for v in vector) for vector in vectors),
+            model=request.model,
+            usage=Usage(duration_ms=int((time.monotonic() - started) * 1000)),
+        )
+
+
 class ScriptedProvider:
     """テスト用。決められた応答を順に返す。
 
@@ -179,6 +235,21 @@ class ScriptedProvider:
         )
         self._responses = list(responses)
         self.calls: list[LlmRequest] = []
+        self.embed_calls: list[EmbeddingRequest] = []
+
+    def embed(self, request: EmbeddingRequest) -> EmbeddingResponse:
+        """決定的な擬似埋め込み。
+
+        **同じ文には同じベクトル、違う文には違うベクトル**を返せば、
+        類似度の経路は試験できる。意味の近さは再現しないので、
+        「言い換えを捉える」ことの試験にはならない ── そこは実機で測る。
+        """
+        self.embed_calls.append(request)
+        vectors = []
+        for text in request.texts:
+            digest = hashlib.sha256(text.encode("utf-8")).digest()
+            vectors.append(tuple(byte / 255.0 for byte in digest[:16]))
+        return EmbeddingResponse(vectors=tuple(vectors), model=request.model)
 
     def complete(self, request: LlmRequest) -> LlmResponse:
         self.calls.append(request)

@@ -24,6 +24,7 @@ from aijudge_grading import EvaluatorRegistry, load_profile
 from aijudge_persistence import Database
 
 from .drafting import TaskDrafter
+from .duplicates import DuplicateChecker
 from .solvability import SolvabilityChecker
 from .task_review import approval_rate, approve, build_packet, pending_reviews, reject
 from .task_verifier import TaskVerifier
@@ -65,8 +66,26 @@ def cmd_task_draft(args: argparse.Namespace) -> int:
             verifier, solver_model=args.solver_model, language=args.language
         ).check(version, declared_kcs=blueprint.knowledge_components)
 
+    # 重複は門と独立に測れる（実行が要らない）ので、門が落ちても走らせる。
+    duplicates = None
+    if not args.no_duplicates:
+        database = _open(args)
+        try:
+            with database.unit_of_work() as uow:
+                existing = _existing_statements(uow, CourseId(args.course), version.id)
+                duplicates = DuplicateChecker(
+                    uow.tasks, embedding_model=args.embedding_model
+                ).check(version, existing)
+                uow.commit()
+        finally:
+            database.dispose()
+
     packet = build_packet(
-        version, verification, solvability, declared_kcs=blueprint.knowledge_components
+        version,
+        verification,
+        solvability,
+        declared_kcs=blueprint.knowledge_components,
+        duplicates=duplicates,
     )
     print(packet.render())
 
@@ -94,6 +113,7 @@ def cmd_task_draft(args: argparse.Namespace) -> int:
                     verification=verification,
                     solvability=solvability,
                     declared_kcs=blueprint.knowledge_components,
+                    duplicates=duplicates,
                     checked_at=datetime.now(UTC),
                 ),
             )
@@ -185,6 +205,21 @@ def _kc_keys(uow, version) -> tuple[str, ...]:
     return tuple(keys)
 
 
+def _existing_statements(uow, course_id: CourseId, exclude) -> dict:
+    """比較対象の既存課題。
+
+    **同じコースに限る。** どこまでを既存と見なすかは運用の判断だが、
+    既定を科目全体にすると、別のコースの課題と似ていることを理由に
+    教員が判断を迷う（そのコースの学習者には初見である）。
+    """
+    found = {}
+    for task in uow.tasks.list_for_course(course_id):
+        version = uow.tasks.latest_version(task.id)
+        if version is not None and version.id != exclude:
+            found[version.id] = (task.title, version.statement)
+    return found
+
+
 def _all_versions(uow, course_id: CourseId) -> tuple:
     versions = []
     for task in uow.tasks.list_for_course(course_id):
@@ -220,6 +255,14 @@ def register(task_parser) -> None:
     )
     draft.add_argument(
         "--no-solvability", action="store_true", help="解答可能性の検査を省く"
+    )
+    draft.add_argument(
+        "--embedding-model",
+        default=None,
+        help="重複検出に使う埋め込みモデル。指定しなければ字面だけで測る",
+    )
+    draft.add_argument(
+        "--no-duplicates", action="store_true", help="重複の検査を省く"
     )
     draft.add_argument("--dry-run", action="store_true", help="保存しない")
     draft.set_defaults(func=cmd_task_draft)
