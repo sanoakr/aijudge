@@ -26,6 +26,7 @@ root_packages =
     aijudge_feedback
     aijudge_admin
     aijudge_toolchain
+    aijudge_skill
     aijudge_eval_network_test_runner
 include_external_packages = True
 
@@ -118,6 +119,7 @@ modules =
     aijudge_analytics
     aijudge_submission
     aijudge_identity
+    aijudge_skill
 
 ; S9 は指標の計算だけを持つ純関数の層。採点の実装を知らないので、
 ; 採点器を差し替えても測定側は変わらない。
@@ -311,3 +313,24 @@ forbidden_modules =
     aijudge_portfolio
     aijudge_analytics
     aijudge_transcription
+
+; S7（スキル推定）は採点の実装を知らない。読むのは GradingCompleted が運ぶ
+; KcOutcome だけで、どの評価器がどう判定したかには触れない。これが
+; 設計原則 P6「Q-matrix を結節点にする」の実体であり、採点の実装を変えても
+; S7 が変わらない理由である。
+;
+; **この契約が破れた瞬間、S7 を削除しても採点が動くことが成立しなくなる**（P2）。
+[importlinter:contract:skill-does-not-depend-on-grading]
+name = スキル推定（S7）は採点にも保存先にも依存しない
+type = forbidden
+source_modules =
+    aijudge_skill
+forbidden_modules =
+    aijudge_grading
+    aijudge_authoring
+    aijudge_llm_gateway
+    aijudge_sandbox
+    aijudge_submission
+    aijudge_persistence
+    aijudge_analytics
+    sqlalchemy

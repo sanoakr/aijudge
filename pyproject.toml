@@ -27,6 +27,7 @@ dependencies = [
     "aijudge-norm-document-text",
     "aijudge-eval-report-structure",
     "aijudge-eval-submission-compliance",
+    "aijudge-skill",
 ]
 
 [project.optional-dependencies]
@@ -65,6 +66,7 @@ aijudge-eval-network-test-runner = { workspace = true }
 aijudge-norm-document-text = { workspace = true }
 aijudge-eval-report-structure = { workspace = true }
 aijudge-eval-submission-compliance = { workspace = true }
+aijudge-skill = { workspace = true }
 
 [tool.ruff]
 line-length = 100
@@ -98,6 +100,7 @@ known-first-party = [
     "aijudge_admin",
     "aijudge_toolchain",
     "aijudge_eval_network_test_runner",
+    "aijudge_skill",
 ]
 
 [tool.pytest.ini_options]

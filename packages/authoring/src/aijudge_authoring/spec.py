@@ -13,6 +13,7 @@ Sharif Judge のディレクトリ形式を知っているのは `importers/shar
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from typing import Self
 
@@ -20,6 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from aijudge_core import (
     Provenance,
+    QMatrixEntry,
     ReviewState,
     RubricCriterion,
     RubricLevel,
@@ -27,7 +29,7 @@ from aijudge_core import (
     TestCase,
     derived_id,
 )
-from aijudge_core.ids import TaskId, TaskVersionId, UserId
+from aijudge_core.ids import KcId, TaskId, TaskVersionId, UserId
 
 DEFAULT_EVALUATOR = "code_test_runner"
 AI_EVALUATOR = "rubric_ai_judge"
@@ -35,6 +37,10 @@ AI_EVALUATOR = "rubric_ai_judge"
 # 課題キーに許す文字。パスにもファイル名にもならないが、ID の素材になり、
 # 画面にも出るので、素性の知れない文字は入れない。
 _KEY_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_/.")
+
+# KC の正準キー（`namespace.path.path…`）。コアの KnowledgeComponent と
+# 同じ規則で、こちらは文字列のまま検査する。
+_KC_KEY_RE = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$")
 
 
 class TestCaseSpec(BaseModel):
@@ -113,6 +119,16 @@ class TaskSpec(BaseModel):
     test_cases: tuple[TestCaseSpec, ...] = ()
     # 課題が観点を宣言する場合。空なら「正しさ（＋読みやすさ）」を組み立てる。
     criteria: tuple[CriterionSpec, ...] = ()
+    # この課題が問う知識要素（KC）。正準キーで書く（例 `cs.loops.termination`）。
+    #
+    # **これが Q-matrix の入口である**（設計原則 P6）。空でよい ── 書かなければ
+    # 採点は変わらず動き、S7 に届く `KcOutcome` が空になるだけである
+    # （習熟度が付かない、という劣化で済む）。
+    #
+    # 重みは書かない。「この課題はこの KC をどれだけ問うているか」を教員に
+    # 見積もらせる前に、**まず対応があるかどうかだけを集める。** 重みが要ると
+    # 分かってから `QMatrixEntry.weight` を開ける。
+    knowledge_components: tuple[str, ...] = ()
 
     @model_validator(mode="after")
     def _check(self) -> Self:
@@ -128,6 +144,15 @@ class TaskSpec(BaseModel):
         names = [case.name for case in self.test_cases]
         if len(set(names)) != len(names):
             raise ValueError("テストケース名が重複しています")
+        keys = self.knowledge_components
+        if len(set(keys)) != len(keys):
+            raise ValueError("KC の指定が重複しています")
+        for key in keys:
+            # 形だけ検査する。**実在の検査はここではしない** ── 体系は
+            # 科目ごとに育つもので、課題を書く時点で全部揃っている前提を
+            # 置くと、KC を足すまで課題が登録できなくなる。
+            if not _KC_KEY_RE.match(key):
+                raise ValueError(f"KC の正準キーの形が不正です: {key!r}")
         if self.criteria:
             codes = [c.code for c in self.criteria]
             if len(set(codes)) != len(codes):
@@ -191,8 +216,9 @@ def _declared_version(
         )
         for declared in spec.criteria
     )
+    version_id = TaskVersionId(derived_id("tsv", spec.key, str(version)))
     return TaskVersion(
-        id=TaskVersionId(derived_id("tsv", spec.key, str(version))),
+        id=version_id,
         task_id=TaskId(derived_id("tsk", spec.key)),
         version=version,
         subject_profile=subject_profile,
@@ -200,7 +226,7 @@ def _declared_version(
         reference_solution=spec.reference_solution,
         criteria=criteria,
         test_cases=cases,
-        q_matrix=(),
+        q_matrix=_q_matrix(spec, version_id),
         max_score=spec.max_score,
         allow_handwriting=False,
         provenance=Provenance(
@@ -270,8 +296,9 @@ def build_task_version(
     else:
         criteria = (correctness,)
 
+    version_id = TaskVersionId(derived_id("tsv", spec.key, str(version)))
     return TaskVersion(
-        id=TaskVersionId(derived_id("tsv", spec.key, str(version))),
+        id=version_id,
         task_id=TaskId(derived_id("tsk", spec.key)),
         version=version,
         subject_profile=subject_profile,
@@ -279,7 +306,7 @@ def build_task_version(
         reference_solution=spec.reference_solution,
         criteria=criteria,
         test_cases=cases,
-        q_matrix=(),
+        q_matrix=_q_matrix(spec, version_id),
         max_score=spec.max_score,
         allow_handwriting=False,
         provenance=Provenance(
@@ -289,6 +316,25 @@ def build_task_version(
             reviewed_by=authored_by,
         ),
         created_at=datetime.now(UTC),
+    )
+
+
+def _q_matrix(spec: TaskSpec, task_version_id: TaskVersionId) -> tuple[QMatrixEntry, ...]:
+    """宣言した KC を Q-matrix の行にする（設計原則 P6）。
+
+    **KC の ID は正準キーから導く。** 体系を先に登録してから課題を書く、
+    という順序を強制しないためである。同じキーは同じ ID になるので、
+    KC の実体を後から足しても対応は繋がる（`derived_id` が決定的）。
+
+    重みは既定の 1.0 のまま置く。「どれだけ問うているか」を見積もらせる前に、
+    まず対応があるかどうかだけを集める。
+    """
+    return tuple(
+        QMatrixEntry(
+            task_version_id=task_version_id,
+            kc_id=KcId(derived_id("kc", key)),
+        )
+        for key in spec.knowledge_components
     )
 
 

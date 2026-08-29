@@ -29,6 +29,7 @@ members = [
     "aijudge-persistence",
     "aijudge-reviewconsole",
     "aijudge-sandbox",
+    "aijudge-skill",
     "aijudge-studentweb",
     "aijudge-submission",
     "aijudge-toolchain",
@@ -59,6 +60,7 @@ dependencies = [
     { name = "aijudge-persistence" },
     { name = "aijudge-reviewconsole" },
     { name = "aijudge-sandbox" },
+    { name = "aijudge-skill" },
     { name = "aijudge-studentweb" },
     { name = "aijudge-submission" },
     { name = "aijudge-toolchain" },
@@ -101,6 +103,7 @@ requires-dist = [
     { name = "aijudge-persistence", editable = "packages/persistence" },
     { name = "aijudge-reviewconsole", editable = "apps/reviewconsole" },
     { name = "aijudge-sandbox", editable = "packages/sandbox" },
+    { name = "aijudge-skill", editable = "packages/skill" },
     { name = "aijudge-studentweb", editable = "apps/studentweb" },
     { name = "aijudge-submission", editable = "packages/submission" },
     { name = "aijudge-toolchain", editable = "packages/toolchain" },
@@ -472,6 +475,17 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [{ name = "pydantic", specifier = ">=2.8" }]
+
+[[package]]
+name = "aijudge-skill"
+version = "0.0.1"
+source = { editable = "packages/skill" }
+dependencies = [
+    { name = "aijudge-core" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "aijudge-core", editable = "packages/core" }]
 
 [[package]]
 name = "aijudge-studentweb"

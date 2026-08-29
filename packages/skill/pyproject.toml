@@ -1,0 +1,20 @@
+[project]
+name = "aijudge-skill"
+version = "0.0.1"
+description = "S7: knowledge components, the Q-matrix, and mastery estimation"
+requires-python = ">=3.12"
+# **採点を知らない。** 読むのは GradingCompleted が運ぶ KcOutcome だけで、
+# 採点エンジンの内部構造には触れない（設計原則 P6 / 設計方針 §2.3）。
+dependencies = [
+    "aijudge-core",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/aijudge_skill"]
+
+[tool.uv.sources]
+aijudge-core = { workspace = true }
