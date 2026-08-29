@@ -132,12 +132,24 @@ class ReviewPacket:
     version: TaskVersion
     verification: VerificationReport
     solvability: SolvabilityReport | None = None
+    # この課題版が問うとされている知識要素の**正準キー**。
+    #
+    # **人が `Blueprint` に書いたものである。** モデルは決めない
+    # （`TaskDraft` に KC の欄が無い）── Q-matrix は S7 の習熟度が全面的に
+    # 依存する対応表なので、生成の揺れを流し込まない。
+    #
+    # `TaskVersion.q_matrix` が持つのはキーから導出した ID（`kc_9f3a…`）で、
+    # 教員には読めない。**呼び出し側が可読なキーに直して渡す** ── 作問直後は
+    # Blueprint から、あとからのレビューでは KC の保存先から引く。
+    declared_kcs: tuple[str, ...] = ()
 
     @property
     def clean(self) -> bool:
         """機械が見た範囲で気になる点が無いか。**承認の意味ではない。**"""
-        return self.verification.usable and (
-            self.solvability is None or self.solvability.solved
+        return (
+            self.verification.usable
+            and (self.solvability is None or self.solvability.solved)
+            and (self.solvability is None or not self.solvability.unexercised_kcs)
         )
 
     def render(self) -> str:
@@ -146,18 +158,50 @@ class ReviewPacket:
             f"  出所: {self.version.provenance.generated_by or '教員が作成'}"
             f"（{self.version.provenance.generation_prompt_version or '—'}）",
             "",
+            self._knowledge_section(),
+            "",
             gate_advice(self.verification),
         ]
         if self.solvability is not None:
             lines += ["", self.solvability.summary()]
+            note = self.solvability.kc_note()
+            if note:
+                lines += ["", note]
         lines += ["", "**承認するかどうかは教員が決めます。**"]
         return "\n".join(lines)
+
+    def _knowledge_section(self) -> str:
+        """知識要素を必ず出す。
+
+        **門も解答可能性も KC を見ていない。** 見ているのは「参照解答が
+        通るか」「変異が落ちるか」「別のモデルが解けるか」だけで、
+        **宣言した KC をこの課題が実際に問うているかは誰も検証していない。**
+        教員に見せなければ、誰も気づかないまま Q-matrix に残る ── そして
+        学習者には、問われていない KC の習熟度が付く。
+        """
+        declared = self.declared_kcs
+        if not declared:
+            if self.version.q_matrix:
+                return (
+                    f"知識要素: {len(self.version.q_matrix)} 件（キーが渡されていません）\n"
+                    "  **表示できていません。** 呼び出し側が正準キーを渡していない"
+                    "ので、\n  この課題が何を問うことになっているか教員に示せていません。"
+                )
+            return "知識要素: 登録なし（この課題では習熟度が付きません）"
+        listed = "\n".join(f"  - {kc}" for kc in declared)
+        return (
+            "知識要素（**課題文がこれを問うているか確認してください**）:\n"
+            + listed
+            + "\n  機械はここを検証していません。"
+        )
 
 
 def build_packet(
     version: TaskVersion,
     verification: VerificationReport,
     solvability: SolvabilityReport | None = None,
+    *,
+    declared_kcs: tuple[str, ...] = (),
 ) -> ReviewPacket:
     """レビュー前に走らせた検査を束ねる（設計方針 §5 の並び）。
 
@@ -166,7 +210,13 @@ def build_packet(
     解答可能性を門の後ろに置くのは、門 1 が落ちる課題（参照解答が自分の
     テストケースを通らない）を別のモデルに解かせても意味が無いからである。
     """
-    return ReviewPacket(version=version, verification=verification, solvability=solvability)
+    return ReviewPacket(
+        version=version,
+        verification=verification,
+        solvability=solvability,
+        # 解答役に確認させた KC があればそちらを使う（同じ並びのはず）。
+        declared_kcs=declared_kcs or (solvability.declared_kcs if solvability else ()),
+    )
 
 
 def gate_advice(report: VerificationReport) -> str:

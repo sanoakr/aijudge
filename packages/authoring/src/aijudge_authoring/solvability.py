@@ -45,6 +45,12 @@ class SolverAttempt(BaseModel):
     # 食い違いが起きたとき、それが読解の失敗か実装の失敗かを分けられる。
     understanding: str = Field(min_length=1, max_length=1000)
     solution: str = Field(min_length=1, max_length=20000)
+    # 宣言された KC のうち、解くのに実際に必要だったもの。
+    #
+    # **候補を示して選ばせる。** 体系の中から自由に挙げさせても、こちらの
+    # 正準キーを知らないモデルは似て非なる名前を返す。選択にすれば、
+    # 返ってくるのは宣言と突き合わせられる形になる。
+    exercised: tuple[str, ...] = ()
 
 
 class SolvabilityReport(BaseModel):
@@ -61,10 +67,26 @@ class SolvabilityReport(BaseModel):
     solver_model: str = ""
     understanding: str = ""
     detail: str = ""
+    # Blueprint が宣言した KC と、解答役が「実際に要った」と答えた KC。
+    declared_kcs: tuple[str, ...] = ()
+    exercised_kcs: tuple[str, ...] = ()
 
     @property
     def solved(self) -> bool:
         return self.outcome is SolvabilityOutcome.SOLVED
+
+    @property
+    def unexercised_kcs(self) -> tuple[str, ...]:
+        """宣言されているのに、解くのに要らなかった KC。
+
+        **欠陥とは限らない。** 解答役が別の書き方で解いた可能性があるし、
+        そもそも解けていなければ何も言えない。Q-matrix は S7 の習熟度が
+        全面的に依存する対応表なので、**食い違いは教員に見せる** ── 見せずに
+        通すと、問われていない KC の習熟度が学習者に付く。
+        """
+        if not self.solved:
+            return ()
+        return tuple(kc for kc in self.declared_kcs if kc not in set(self.exercised_kcs))
 
     def summary(self) -> str:
         if self.outcome is SolvabilityOutcome.NOT_RUN:
@@ -81,6 +103,19 @@ class SolvabilityReport(BaseModel):
         if self.detail:
             lines.append(f"  落ちた理由: {self.detail}")
         return "\n".join(lines)
+
+    def kc_note(self) -> str | None:
+        """KC の食い違いを教員に見せる文。無ければ None。"""
+        missing = self.unexercised_kcs
+        if not missing:
+            return None
+        return (
+            "**宣言した知識要素のうち、解くのに要らなかったもの: "
+            + "・".join(missing)
+            + "**\n  解答役は別の書き方をしただけかもしれません。ただし Q-matrix は"
+            "\n  習熟度の土台なので、問うていない KC が残ると、学習者に"
+            "\n  身に付いていない力が付いたことになります。"
+        )
 
 
 __all__ = [

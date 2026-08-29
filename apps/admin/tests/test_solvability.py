@@ -68,9 +68,21 @@ int main(void) {
 """
 
 
-def _attempt(solution: str, understanding: str = "2 つの整数を読んで和を出す") -> str:
+KCS = ("cs.io.formatted_input", "cs.loops.termination")
+
+
+def _attempt(
+    solution: str,
+    understanding: str = "2 つの整数を読んで和を出す",
+    exercised: tuple[str, ...] = KCS,
+) -> str:
     return json.dumps(
-        {"understanding": understanding, "solution": solution}, ensure_ascii=False
+        {
+            "understanding": understanding,
+            "solution": solution,
+            "exercised": list(exercised),
+        },
+        ensure_ascii=False,
     )
 
 
@@ -208,3 +220,90 @@ def test_an_unsolved_task_is_not_clean_but_is_still_shown() -> None:
     assert not packet.clean
     # 自動で捨てない。捨てると難しい良問から先に消える。
     assert "解けませんでした" in packet.render()
+
+
+# -- 知識要素の確認 ----------------------------------------------------------
+
+
+def test_the_solver_is_shown_the_declared_components() -> None:
+    """候補を示して選ばせる。自由に挙げさせると似て非なる名前が返る。"""
+    checker, provider = _checker(_attempt(DIFFERENT_BUT_CORRECT))
+    checker.check(_task(), declared_kcs=KCS)
+
+    sent = "\n".join(m.content for m in provider.calls[0].messages)
+    for kc in KCS:
+        assert kc in sent
+
+
+@needs_c_compiler
+def test_a_component_the_solution_did_not_need_is_surfaced() -> None:
+    """**宣言した KC を課題が実際に問うているかは、誰も検証していない。**
+
+    門も解答可能性も見ているのは振る舞いだけである。ここが黙って通ると、
+    学習者に「問われていない KC の習熟度」が付く（S7 は Q-matrix を土台に
+    習熟度を動かす）。
+    """
+    checker, _ = _checker(
+        _attempt(DIFFERENT_BUT_CORRECT, exercised=("cs.io.formatted_input",))
+    )
+    report = checker.check(_task(), declared_kcs=KCS)
+
+    assert report.solved
+    assert report.unexercised_kcs == ("cs.loops.termination",)
+    note = report.kc_note()
+    assert note is not None
+    assert "cs.loops.termination" in note
+
+
+@needs_c_compiler
+def test_nothing_is_claimed_about_components_when_the_task_was_not_solved() -> None:
+    """解けていなければ、どの KC が要ったかも分からない。"""
+    checker, _ = _checker(_attempt(WRONG, exercised=()))
+    report = checker.check(_task(), declared_kcs=KCS)
+
+    assert not report.solved
+    assert report.unexercised_kcs == ()
+    assert report.kc_note() is None
+
+
+@needs_c_compiler
+def test_components_outside_the_candidates_are_dropped() -> None:
+    """示した候補の外は捨てる。名前の揺れを「食い違い」と読まないため。"""
+    checker, _ = _checker(
+        _attempt(DIFFERENT_BUT_CORRECT, exercised=("cs.io.formatted_input", "cs.made.up"))
+    )
+    report = checker.check(_task(), declared_kcs=KCS)
+    assert set(report.exercised_kcs) == {"cs.io.formatted_input"}
+
+
+@needs_c_compiler
+def test_the_packet_always_shows_the_components_to_confirm() -> None:
+    """**教員に見せなければ誰も気づかない。**"""
+    task = _task()
+    verifier = TaskVerifier(EvaluatorRegistry().load_installed(), PROFILE, mutation_limit=8)
+    checker, _ = _checker(_attempt(DIFFERENT_BUT_CORRECT))
+
+    packet = build_packet(
+        task, verifier.verify(task), checker.check(task, declared_kcs=KCS), declared_kcs=KCS
+    )
+    text = packet.render()
+
+    assert "課題文がこれを問うているか確認してください" in text
+    for kc in KCS:
+        assert kc in text
+    assert "機械はここを検証していません" in text
+
+
+@needs_c_compiler
+def test_an_unexercised_component_makes_the_packet_unclean() -> None:
+    task = _task()
+    verifier = TaskVerifier(EvaluatorRegistry().load_installed(), PROFILE, mutation_limit=8)
+    checker, _ = _checker(
+        _attempt(DIFFERENT_BUT_CORRECT, exercised=("cs.io.formatted_input",))
+    )
+
+    packet = build_packet(
+        task, verifier.verify(task), checker.check(task, declared_kcs=KCS), declared_kcs=KCS
+    )
+    assert not packet.clean
+    assert "解くのに要らなかったもの" in packet.render()

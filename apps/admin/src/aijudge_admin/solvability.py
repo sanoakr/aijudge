@@ -44,7 +44,12 @@ PROMPT = PromptTemplate(
         "次の課題を {language} で解いてください。\n\n"
         "## 課題文\n{statement}\n\n"
         "まず課題を何をするものと読んだかを `understanding` に短く書き、"
-        "そのうえで `solution` に完全なプログラムを書いてください。\n"
+        "そのうえで `solution` に完全なプログラムを書いてください。\n\n"
+        "## 知識要素の確認\n"
+        "この課題は次の知識要素を問うものとして登録されています。\n"
+        "{knowledge_components}\n"
+        "**あなたの解答に実際に必要だったものだけ**を `exercised` に"
+        "そのままの表記で挙げてください。要らなかったものは挙げないでください。\n"
     ),
 )
 
@@ -65,12 +70,22 @@ class SolvabilityChecker:
         self._language = language
         self._max_tokens = max_tokens
 
-    def check(self, task_version: TaskVersion) -> SolvabilityReport:
+    def check(
+        self, task_version: TaskVersion, *, declared_kcs: tuple[str, ...] = ()
+    ) -> SolvabilityReport:
+        """課題文だけを渡して解かせる。
+
+        `declared_kcs` は Blueprint が宣言した知識要素の正準キー。
+        **解答役に候補として示し、実際に要ったものを選ばせる** ── Q-matrix が
+        課題の中身と食い違っていないかを、教員が見る材料にするため。
+        渡さなければ確認しない（従来どおり解けたかどうかだけを見る）。
+        """
         if not task_version.test_cases:
             # 通ったかどうかを判定する手段が無い。**合格にしない。**
             return SolvabilityReport(
                 outcome=SolvabilityOutcome.NOT_RUN,
                 solver_model=self._model,
+                declared_kcs=declared_kcs,
                 detail="テストケースが無いので、解けたかどうかを判定できません",
             )
 
@@ -84,6 +99,9 @@ class SolvabilityChecker:
                 max_tokens=self._max_tokens,
                 statement=task_version.statement,
                 language=self._language,
+                knowledge_components=(
+                    "\n".join(f"- {kc}" for kc in declared_kcs) or "（登録なし）"
+                ),
             )
         except LlmError as exc:
             # **モデルが答えられなかったことを「解けない課題」にしない。**
@@ -91,6 +109,7 @@ class SolvabilityChecker:
             return SolvabilityReport(
                 outcome=SolvabilityOutcome.NOT_RUN,
                 solver_model=self._model,
+                declared_kcs=declared_kcs,
                 detail=f"解答役のモデルが応答しませんでした: {exc}",
             )
 
@@ -102,5 +121,9 @@ class SolvabilityChecker:
             outcome=SolvabilityOutcome.SOLVED if passed else SolvabilityOutcome.UNSOLVED,
             solver_model=self._model,
             understanding=attempt.understanding,
+            declared_kcs=declared_kcs,
+            # **示した候補の外は捨てる。** 似て非なる名前が混じると、
+            # 宣言との突き合わせが名前の揺れを測ることになる。
+            exercised_kcs=tuple(kc for kc in attempt.exercised if kc in set(declared_kcs)),
             detail="" if passed else detail,
         )
