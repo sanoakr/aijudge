@@ -44,9 +44,9 @@ ADR 0007 の「部分的な総合点は、完全な総合点に見えるので�
 `GradingRun` が、機械の判定が無い理由を**別々のリストとして**持つ。
 
 ```python
-unscored_criteria: tuple[CriterionId, ...]   # 評価器が落ちた（既存の意味のまま）
-skipped_criteria:  tuple[CriterionId, ...]   # ゲートで打ち切った（#5）
-awaiting_human:    tuple[CriterionId, ...]   # 人が採点する（#7）
+unscored_criteria: tuple[CriterionId, ...]  # 評価器が落ちた（既存の意味のまま）
+skipped_criteria: tuple[CriterionId, ...]  # ゲートで打ち切った（#5）
+awaiting_human: tuple[CriterionId, ...]  # 人が採点する（#7）
 ```
 
 帰結は理由ごとに決める。
