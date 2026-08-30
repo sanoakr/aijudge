@@ -53,6 +53,8 @@ EVALUATOR_ID = "submission_compliance"
 
 
 class SubmissionCompliance:
+    """提出の形式が指示どおりか（ファイル名・拡張子・必要なファイルの有無）を見る。"""
+
     evaluator_id = EVALUATOR_ID
     kind = EvaluatorKind.DETERMINISTIC
 

@@ -87,6 +87,8 @@ def found_sections(text: str, sections: dict[str, tuple[str, ...]]) -> dict[str,
 
 
 class ReportStructure:
+    """必須の節・字数・引用形式など、レポートの体裁を機械的に確かめる。"""
+
     evaluator_id = EVALUATOR_ID
     kind = EvaluatorKind.DETERMINISTIC
 

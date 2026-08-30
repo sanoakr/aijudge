@@ -8,6 +8,8 @@ Evaluator は entry point で発見し、科目プロファイル（subjects/*.y
 from __future__ import annotations
 
 from .observations import project_observations
+from .overrides import ALLOWED_KEYS, LOCKED_KEYS, OverrideError
+from .overrides import effective as effective_profile
 from .pipeline import (
     PIPELINE_VERSION,
     ContentLoader,
@@ -35,7 +37,9 @@ from .registry import (
 )
 
 __all__ = [
+    "ALLOWED_KEYS",
     "ENTRY_POINT_GROUP",
+    "LOCKED_KEYS",
     "NORMALIZER_ENTRY_POINT_GROUP",
     "PIPELINE_VERSION",
     "ContentLoader",
@@ -49,11 +53,13 @@ __all__ = [
     "NoDeterministicWork",
     "Normalizer",
     "NormalizerRegistry",
+    "OverrideError",
     "SubjectProfile",
     "compute_input_hash",
     "default_normalizers",
     "default_registry",
     "derive_kc_outcomes",
+    "effective_profile",
     "grading_completed_event",
     "load_profile",
     "load_profiles",
