@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol, runtime_checkable
 
@@ -46,6 +47,21 @@ class ImmutabilityViolation(SubmissionStoreError):
     """不変であるべき記録を書き換えようとした（設計原則 P8）。"""
 
 
+@dataclass(frozen=True)
+class RunDecision:
+    """1 つの採点に付いた人間側の記録。一覧画面のための読み取り専用の束。
+
+    3 つは別々の表に載っているが、**1 つの採点について 3 つとも見ないと
+    段階が決まらない**（ADR 0010）。確定は `finalization`、教員が読んだ事実は
+    `review`、学習者の異議は `request` で、どれか 1 つだけを引くと「誰も
+    読んでいない自動確定」が「教員が確認した成績」に見える。まとめて返す。
+    """
+
+    review: HumanReview | None = None
+    request: ReviewRequest | None = None
+    finalization: Finalization | None = None
+
+
 @runtime_checkable
 class ArtifactStore(Protocol):
     """提出物の中身の置き場所。
@@ -81,6 +97,14 @@ class SubmissionRepository(Protocol):
         self, tenant_id: TenantId, learner_id: UserId, task_version_id: TaskVersionId | None = None
     ) -> tuple[Submission, ...]: ...
 
+    def list_for_course(self, course_id: CourseId, *, limit: int = 5000) -> tuple[Submission, ...]:
+        """このコースの全提出。**教員の一覧のためにある。**
+
+        提出は課題版を指しており、コースを直接持たない（持たせると課題の
+        移動で片方だけ古くなる）ので、課題 → コースの経路で絞る。
+        """
+        ...
+
     def next_attempt(
         self, tenant_id: TenantId, learner_id: UserId, task_version_id: TaskVersionId
     ) -> int:
@@ -110,6 +134,17 @@ class GradingRunRepository(Protocol):
 
     def latest_for(self, submission_id: SubmissionId) -> GradingRun | None:
         """最新の採点。再採点していれば新しい方。"""
+        ...
+
+    def latest_for_many(
+        self, submission_ids: Sequence[SubmissionId]
+    ) -> dict[SubmissionId, GradingRun]:
+        """複数の提出の最新採点をまとめて引く。一覧画面のためにある。
+
+        提出 1 件ずつ `latest_for` を呼ぶと、課題数 × 提出回数のクエリに
+        なる。**採点が無い提出は結果に現れない**（None を詰めない）ので、
+        呼び出し側は `.get()` で受ける。
+        """
         ...
 
     def list_for(self, submission_id: SubmissionId) -> tuple[GradingRun, ...]:
@@ -187,6 +222,16 @@ class ReviewRepository(Protocol):
         ...
 
     def find_finalization_for_run(self, run_id: GradingRunId) -> Finalization | None: ...
+
+    def decisions_for_runs(
+        self, run_ids: Sequence[GradingRunId]
+    ) -> dict[GradingRunId, RunDecision]:
+        """複数の採点について、レビュー・依頼・確定をまとめて引く。
+
+        一覧画面のためにある。1 件ずつ 3 回引くと採点数 × 3 のクエリになる。
+        何も付いていない採点は結果に現れない。
+        """
+        ...
 
     def unfinalized_for_task(
         self, task_id: TaskId, *, limit: int = 500

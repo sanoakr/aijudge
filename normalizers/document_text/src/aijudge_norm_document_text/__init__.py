@@ -75,6 +75,28 @@ class DocumentText:
         return cleaned.encode("utf-8")
 
 
+def text_of(payload: bytes, kind: ArtifactKind) -> str:
+    """文書の本文を取り出す。読めなければ `DocumentTextError`。
+
+    **採点の外からも使う。** シラバスの読み取り（`aijudge_admin.syllabus`）が
+    同じ抽出を要る ── 別に実装すると、片方だけが壊れた PDF を読めるという
+    差が出て、原因の切り分けができなくなる。
+    """
+    if kind is ArtifactKind.PDF:
+        text = _from_pdf(payload)
+    elif kind is ArtifactKind.DOCX:
+        text = _from_docx(payload)
+    else:
+        raise DocumentTextError(f"{kind.value} は本文を取り出せる形式ではありません")
+    cleaned = _BLANK_RUN.sub("\n\n", text).strip()
+    if len(cleaned) < MIN_TEXT_LENGTH:
+        # 文字が埋め込まれていない（スキャン画像の PDF）。
+        raise DocumentTextError(
+            "文字が埋め込まれていません（スキャン画像の PDF の可能性があります）"
+        )
+    return cleaned
+
+
 def _from_pdf(payload: bytes) -> str:
     try:
         from pypdf import PdfReader
@@ -165,4 +187,4 @@ def _from_docx(payload: bytes) -> str:
     return "\n".join(lines)
 
 
-__all__ = ["MIN_TEXT_LENGTH", "DocumentText", "DocumentTextError"]
+__all__ = ["MIN_TEXT_LENGTH", "DocumentText", "DocumentTextError", "text_of"]

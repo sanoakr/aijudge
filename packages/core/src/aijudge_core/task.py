@@ -154,6 +154,10 @@ class TaskVersion(BaseModel):
     q_matrix: tuple[QMatrixEntry, ...] = ()
     max_score: float = Field(gt=0.0)
     allow_handwriting: bool = False
+    # この版を作った `TaskSpec.key`。**訂正のときに要る** ── ID は鍵から
+    # 導いてあり（`derived_id`）、鍵が無いと次の版の ID も観点の ID も
+    # 作れない。古い版には入っていないので None を許す。
+    source_key: str | None = None
     provenance: Provenance
     created_at: datetime
 
@@ -188,9 +192,15 @@ class Task(BaseModel):
     1 回の授業で複数問（`p1 p2 p3`）出るので、一覧を平らに並べると
     学習者も教員も何回目の分を見ているのか分からなくなる。
 
-    `unit` は取り込み元のまとまりの名前（`ex03` など）で、同一性の鍵。
-    `session` は並べ替え用の数値。`unit` から機械的に取れないことがある
-    （`exam08` のような名前）ので別に持つ。
+    `unit` は問題セットの名前（`ex03` など）で、同一性の鍵。`session` は
+    並べ替え用の数値。`unit` から機械的に取れないことがある（`exam08` の
+    ような名前）ので別に持つ。
+
+    **日程は問題セットで揃える。** 公開・提出開始・締切・自動確定の猶予は
+    課題ごとに持つが、値を決めるのは問題セット単位である（画面がそう作って
+    ある）。課題ごとに持つのは、課題が課題セットへの参照ではなく `unit` と
+    いう名前でしか結びついていないため ── セットの実体を別に作ると、
+    取り込みのたびに 2 つの記録を揃えなければならなくなる。
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -205,13 +215,49 @@ class Task(BaseModel):
     # まとまりの中での順序（p1, p2, … の 1, 2, …）。
     position: int | None = Field(default=None, ge=1)
     current_version_id: TaskVersionId | None = None
-    # 提示日時。学習者に見せる「何日提示の課題か」がこれ。
+    # 公開日時。学習者に見せる「何日提示の課題か」がこれ。
     opens_at: datetime | None = None
+    # 提出を受け付け始める時刻。**空なら公開と同時に受け付ける。**
+    # 公開と分けるのは、課題文を先に配って提出は演習時間に開ける運用が
+    # あるため。ここが未来なら提出は受け付けない（学習者側で拒否する）。
+    submissions_open_at: datetime | None = None
     due_at: datetime | None = None
+    # 成績の自動確定までの猶予（分）。**空なら科目の設定**（`grace_minutes`）。
+    auto_finalize_after_minutes: int | None = Field(default=None, gt=0)
+    # この課題で受け付ける提出ファイル形式（拡張子）。空なら科目の既定
+    # （`aijudge_core.uploads.allowed_suffixes`）。日程と違い、**課題ごとに
+    # 決まる**性質である ── 同じ回でもコードで出す問題とレポートで出す問題が
+    # 並ぶ。
+    accepted_suffixes: tuple[str, ...] = ()
+
+    @model_validator(mode="after")
+    def _check_schedule(self) -> Self:
+        """日程の前後関係。**壊れた順序を保存させない。**
+
+        提出開始が締切より後の課題は、誰も提出できないまま締切を迎える。
+        画面で弾いても API から入りうるので、模型で止める。
+        """
+        if self.opens_at and self.submissions_open_at and self.submissions_open_at < self.opens_at:
+            raise ValueError("提出開始が公開より前になっています")
+        if self.due_at and self.submissions_open_at and self.due_at <= self.submissions_open_at:
+            raise ValueError("締切が提出開始より前になっています")
+        if self.due_at and self.opens_at and self.due_at <= self.opens_at:
+            raise ValueError("締切が公開より前になっています")
+        return self
+
+    def accepts_submissions_at(self, now: datetime) -> bool:
+        """いま提出を受け付けるか。
+
+        **締切は見ない。** 遅れた提出は受け付けたうえで減点する（ADR 0013）
+        ── 受け付けないと、遅れた学習者は何も出せず、何を間違えたのかも
+        分からないまま終わる。見るのは提出開始だけである。
+        """
+        opens = self.submissions_open_at or self.opens_at
+        return opens is None or now >= opens
 
     @property
     def unit_label(self) -> str:
-        """まとまりの表示名。
+        """問題セットの表示名。
 
         `session` があれば「第 3 回」、無ければ `unit` をそのまま出す
         （`exam08` のような、回に対応しないまとまりがある）。

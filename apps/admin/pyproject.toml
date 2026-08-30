@@ -11,6 +11,9 @@ dependencies = [
     "aijudge-submission",
     "aijudge-persistence",
     "aijudge-llm-gateway",
+    # シラバスの PDF を読むため。抽出は採点側と同じものを使う
+    # （別に実装すると、片方だけが壊れた PDF を読める差が出る）。
+    "aijudge-norm-document-text",
 ]
 
 [project.scripts]

@@ -35,7 +35,7 @@ class Tenant(BaseModel):
 class Course(BaseModel):
     """開講科目。
 
-    `auto_finalize_after_hours` は成績の自動確定までの猶予（時間）。
+    `auto_finalize_after_minutes` は成績の自動確定までの猶予（分）。
     None なら自動確定しない。
 
     **これは科目プロファイル（`subjects/*.yaml`）に置かない。** あちらは
@@ -53,12 +53,24 @@ class Course(BaseModel):
     title: str = Field(min_length=1)
     term: str = Field(min_length=1)
     subject_profile: str = Field(min_length=1)
-    # 締切から何時間で自動確定するか。None なら自動確定しない。
-    auto_finalize_after_hours: float | None = Field(default=None, gt=0.0)
+    # コースの概要・到達目標（Markdown）。シラバスから写して置く。
+    #
+    # **科目プロファイルには置かない。** あちらは採点の仕方の宣言で
+    # （ADR 0002）、コードと同じレビューを通す前提の設定である。学期ごとに
+    # 変わる事務データのためにブラウザから書ける口を開けると、1 人の操作で
+    # 全員の採点が止まる経路ができる。
+    description: str | None = None
+    # 締切から何分で自動確定するか。None なら自動確定しない。
+    # **分で持つ。** 「締切の 10 分後」を設定できないと、演習中に出して
+    # その場で返す使い方ができない。時間単位では表せない粒度である。
+    auto_finalize_after_minutes: int | None = Field(default=None, gt=0)
+    # この科目で既定とする提出ファイル形式（拡張子）。空なら組み込みの既定。
+    # **課題の指定が上書きする**（`aijudge_core.uploads.allowed_suffixes`）。
+    upload_suffixes: tuple[str, ...] = ()
     # 遅延の減点の段。空なら遅延を見ない（＝減点しない）。
     #
     # **評価器には入れない。** 評価は遅延と独立に行い、これは評価の結果に
-    # 対する減点である。置き場所を `auto_finalize_after_hours` に揃えるのは
+    # 対する減点である。置き場所を `auto_finalize_after_minutes` に揃えるのは
     # 同じ性質だから ── 成績に直接効き、教員が学期中に決める運用値。
     late_penalty_steps: tuple[LatePenaltyStep, ...] = ()
 

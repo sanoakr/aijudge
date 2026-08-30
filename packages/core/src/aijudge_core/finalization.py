@@ -118,15 +118,28 @@ class GradeWindow(StrEnum):
     ELAPSED = "elapsed"
 
 
-def deadline_for(due_at: datetime | None, after_hours: float | None) -> datetime | None:
-    """自動確定の時刻。締切か設定のどちらかが無ければ自動確定しない。"""
-    if due_at is None or after_hours is None:
+def deadline_for(due_at: datetime | None, after_minutes: int | None) -> datetime | None:
+    """自動確定の時刻。締切か設定のどちらかが無ければ自動確定しない。
+
+    猶予は**分**。時間単位だと「締切の 10 分後に確定」が表せず、演習中に
+    出してその場で返す使い方ができない。
+    """
+    if due_at is None or after_minutes is None:
         return None
-    return due_at + timedelta(hours=after_hours)
+    return due_at + timedelta(minutes=after_minutes)
+
+
+def grace_minutes(task_value: int | None, course_value: int | None) -> int | None:
+    """実際に効く猶予。**問題セットの指定が科目の既定を上書きする。**
+
+    問題セットに何も入れていなければ科目の値。科目にも無ければ自動確定
+    しない（既定はそれで、教員が明示的に入れて初めて始まる）。
+    """
+    return course_value if task_value is None else task_value
 
 
 def grade_window(
-    due_at: datetime | None, after_hours: float | None, now: datetime
+    due_at: datetime | None, after_minutes: int | None, now: datetime
 ) -> GradeWindow:
     """いまどの段階か。
 
@@ -134,7 +147,7 @@ def grade_window(
     「MM/DD に確定します」とは言えないし、期限を示していない以上、
     異議の受付を締め切ることもできない。
     """
-    settles_at = deadline_for(due_at, after_hours)
+    settles_at = deadline_for(due_at, after_minutes)
     if settles_at is None or due_at is None:
         return GradeWindow.OPEN
     if now < due_at:

@@ -459,13 +459,15 @@ def test_the_grade_window_moves_from_open_through_provisional_to_elapsed() -> No
 
     from aijudge_core import GradeWindow, grade_window
 
+    # 猶予は**分**（ADR 0010・「締切の 10 分後」を表せるようにするため）。
     due = datetime(2026, 9, 1, 23, 59, tzinfo=UTC)
-    assert grade_window(due, 24.0, due - timedelta(hours=1)) is GradeWindow.OPEN
+    grace = 24 * 60
+    assert grade_window(due, grace, due - timedelta(hours=1)) is GradeWindow.OPEN
     # 締切と同時に仮確定に入る。
-    assert grade_window(due, 24.0, due) is GradeWindow.PROVISIONAL
-    assert grade_window(due, 24.0, due + timedelta(hours=23)) is GradeWindow.PROVISIONAL
-    # 期限は境界を含む。「n 時間後まで受付」なのでその時刻には締め切る。
-    assert grade_window(due, 24.0, due + timedelta(hours=24)) is GradeWindow.ELAPSED
+    assert grade_window(due, grace, due) is GradeWindow.PROVISIONAL
+    assert grade_window(due, grace, due + timedelta(hours=23)) is GradeWindow.PROVISIONAL
+    # 期限は境界を含む。「n 分後まで受付」なのでその時刻には締め切る。
+    assert grade_window(due, grace, due + timedelta(hours=24)) is GradeWindow.ELAPSED
 
 
 def test_without_a_deadline_or_a_grace_the_window_stays_open() -> None:
@@ -477,5 +479,5 @@ def test_without_a_deadline_or_a_grace_the_window_stays_open() -> None:
     due = datetime(2026, 9, 1, 23, 59, tzinfo=UTC)
     far = due + timedelta(days=365)
     assert grade_window(due, None, far) is GradeWindow.OPEN
-    assert grade_window(None, 24.0, far) is GradeWindow.OPEN
+    assert grade_window(None, 24 * 60, far) is GradeWindow.OPEN
     assert grade_window(None, None, far) is GradeWindow.OPEN

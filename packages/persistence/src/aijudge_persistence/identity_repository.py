@@ -173,14 +173,18 @@ class SqlIdentityRepository:
                     title=course.title,
                     term=course.term,
                     subject_profile=course.subject_profile,
-                    auto_finalize_after_hours=course.auto_finalize_after_hours,
+                    description=course.description,
+                    auto_finalize_after_minutes=course.auto_finalize_after_minutes,
+                    upload_suffixes=list(course.upload_suffixes) or None,
                     late_penalty_steps=_steps_to_json(course),
                 )
             )
         else:
             row.title = course.title
             row.subject_profile = course.subject_profile
-            row.auto_finalize_after_hours = course.auto_finalize_after_hours
+            row.description = course.description
+            row.auto_finalize_after_minutes = course.auto_finalize_after_minutes
+            row.upload_suffixes = list(course.upload_suffixes) or None
             row.late_penalty_steps = _steps_to_json(course)
         self._session.flush()
 
@@ -303,7 +307,9 @@ def _course(row: CourseRow | None) -> Course | None:
         title=row.title,
         term=row.term,
         subject_profile=row.subject_profile,
-        auto_finalize_after_hours=row.auto_finalize_after_hours,
+        description=row.description,
+        auto_finalize_after_minutes=row.auto_finalize_after_minutes,
+        upload_suffixes=tuple(row.upload_suffixes or ()),
         late_penalty_steps=tuple(
             LatePenaltyStep.model_validate(step) for step in (row.late_penalty_steps or ())
         ),
