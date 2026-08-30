@@ -1202,6 +1202,7 @@ def register(templates) -> APIRouter:
                 failures.append(f"{key}: {exc}")
         if failures:
             raise HTTPException(status_code=400, detail=" / ".join(failures))
+        _scope_in(console, course, tuple(k.strip() for k in chosen if k.strip()))
         return RedirectResponse(
             f"/manage/courses/{course_id}/kc?saved=kc_added#kc", status_code=303
         )
@@ -2280,6 +2281,27 @@ def register(templates) -> APIRouter:
         chosen = set(course.knowledge_components)
         return [kc for kc in kcs if not chosen or kc.key in chosen]
 
+    def _scope_in(console, course, keys: tuple[str, ...]) -> None:
+        """足した知識要素を、このコースが使う範囲にも入れる。
+
+        **「このコースに追加する」は、登録と範囲の両方を意味する。** 片方だけ
+        だと、絞っているコースでは追加しても一覧に出てこない ── 範囲から外した
+        ものを戻す道が塞がる（外れたものは一覧から隠れるため、戻す唯一の道が
+        ここになる）。
+
+        **絞っていないコースでは何もしない。** 空は「絞っていない」であって
+        「何も選んでいない」ではないので、ここで書き込むと、宣言していない
+        コースが黙って絞られた状態に変わる。
+        """
+        if not course.knowledge_components:
+            return
+        merged = tuple(sorted(set(course.knowledge_components) | {k for k in keys if k}))
+        if merged == tuple(course.knowledge_components):
+            return
+        with console.database.unit_of_work() as uow:
+            uow.identity.save_course(course.model_copy(update={"knowledge_components": merged}))
+            uow.commit()
+
     def _kc_use_in_course(console, course) -> dict[str, int]:
         """**このコースの課題**が使っている知識要素と、その件数。
 
@@ -2306,10 +2328,20 @@ def register(templates) -> APIRouter:
         動かない（追記のみ・P8）ので、**外した後も「このコースの課題 N 件が
         使用中」として残す** ── 消してしまうと、その課題が何を問うているのかを
         画面から辿る手段が無くなる。
+
+        **範囲から外し、どの課題も使っていないものは出さない。** 同じ名前空間を
+        複数のコースが共有するので、出し続けると「このコースが使わないと決めた
+        もの」が一覧に残り、決めたこと自体が画面から読めなくなる。戻したく
+        なったら追加フォームか候補から入れ直す（どちらもコースの範囲に入れる）。
+
+        **絞っていないコースでは何も隠さない。** 「絞っていない」は「全部を
+        選んでいる」とは別の状態で、宣言するまで挙動を変えない。
         """
         chosen = set(course.knowledge_components)
         usage_rows = kc_usage(console.database, kcs)
         here = _kc_use_in_course(console, course)
+        if chosen:
+            kcs = tuple(kc for kc in kcs if kc.key in chosen or here.get(kc.key))
         return [
             {
                 "usage": usage_rows[kc.key],
@@ -2336,6 +2368,7 @@ def register(templates) -> APIRouter:
         profile = load_profile(console.profiles_dir / f"{course.subject_profile}.yaml")
         namespaces = allowed_namespaces(profile)
         kcs = list_for_namespaces(console.database, namespaces)
+        rows = _kc_rows(console, course, kcs)
         return templates.TemplateResponse(
             request,
             "manage_kc.html",
@@ -2344,7 +2377,7 @@ def register(templates) -> APIRouter:
                 "course": course,
                 "section": {"label": "知識要素", "href": f"/manage/courses/{course.id}/kc"},
                 "namespaces": namespaces,
-                "rows": _kc_rows(console, course, kcs),
+                "rows": rows,
                 # 何も選んでいなければ名前空間の全部（後方互換）。画面では
                 # 「まだ絞っていない」と言う ── 全部にチェックが入っているのと、
                 # 宣言していないのは違う状態である。
@@ -2354,7 +2387,10 @@ def register(templates) -> APIRouter:
                 "is_admin": _is_admin(request, me),
                 # 候補。**既にあるものは採用させない**ので、突き合わせる鍵を渡す。
                 "proposal": proposal,
-                "existing": [kc.key for kc in kcs if not kc.deprecated],
+                # **「既にある」はこのコースから見えているものを指す。** 体系に
+                # あっても範囲外なら選べるようにする ── 選べなければ、一度
+                # 外した知識要素を候補から戻す道が無くなる（採用すれば範囲に入る）。
+                "existing": [row["kc"].key for row in rows if not row["kc"].deprecated],
                 "has_basics": bool((course.description or "").strip()),
             },
         )
@@ -2393,6 +2429,7 @@ def register(templates) -> APIRouter:
             )
         except AdminError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        _scope_in(console, course, (key.strip(),))
         return RedirectResponse(
             f"/manage/courses/{course_id}/kc?saved=kc_added#kc", status_code=303
         )
