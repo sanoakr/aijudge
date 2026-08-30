@@ -190,6 +190,25 @@ def test_the_reference_solution_scores_full_marks(task_version) -> None:
 
 
 @needs_c_compiler
+def test_a_comma_separated_answer_says_what_is_wrong(task_version) -> None:
+    """**書式の食い違いは全ケースを同時に落とす。**
+
+    課題文は「1つの半角空白文字で区切られた一行に出力する」と書いている。
+    論理が正しくても区切りが違えば 0 件一致になり、根拠が「0 件が一致」
+    だけだと、解けていない提出と見分けが付かない。
+    """
+    source = task_version.reference_solution.replace('"%d %d %.3f', '"%d,%d,%.3f')
+    assert source != task_version.reference_solution
+    run, _ = _grade(source, task_version)
+
+    score = run.criterion_scores[0]
+    assert run.score_ratio == pytest.approx(0.0)
+    # 判定は変えない ── 書式指定も課題の一部。
+    assert "区切り方" in score.rationale
+    assert "課題文の出力形式" in score.rationale
+
+
+@needs_c_compiler
 def test_a_partially_correct_submission_gets_partial_credit(task_version) -> None:
     """n <= 0 の再入力を実装し忘れた提出。ケース 1 と 5 だけ落ちる。"""
     source = """

@@ -24,6 +24,7 @@ AI 評価器に問い合わせず、AI の判断で覆されることもない�
 from __future__ import annotations
 
 import math
+import re
 
 from aijudge_core import (
     CriterionScore,
@@ -67,6 +68,7 @@ __all__ = [
     "Language",
     "UnknownLanguage",
     "build",
+    "format_only_mismatch",
     "normalize_output",
     "resolve_language",
 ]
@@ -83,6 +85,53 @@ def normalize_output(text: str) -> list[str]:
     while lines and lines[-1] == "":
         lines.pop()
     return lines
+
+
+# 区切りとみなす文字。空白とコンマだけにしてある ── 「値は合っているか」を
+# 見るためのもので、これ以上増やすと別々の出力が同じに見え始める。
+_SEPARATORS = re.compile(r"[,\s]+")
+
+
+def _tokens(lines: list[str]) -> list[str]:
+    """行の並びを、区切りを問わない値の並びにする。"""
+    return [token for line in lines for token in _SEPARATORS.split(line.strip()) if token]
+
+
+def _as_numbers(tokens: list[str]) -> list[float] | None:
+    try:
+        return [float(token) for token in tokens]
+    except ValueError:
+        return None
+
+
+def format_only_mismatch(expected: list[str], actual: list[str]) -> str | None:
+    """**値は合っていて書き方だけが違う**なら、その説明。違えば None。
+
+    判定そのものは変えない ── 書式指定も課題の一部で、そこは
+    `normalize_output` の判断のままである。ここで足すのは**なぜ落ちたかを
+    言えるようにすること**だけ。
+
+    言えないと何が起きるか。書式の食い違いは全ケースを同時に落とすので、
+    学習者には「5 件中 0 件が一致しました」しか返らない。**解けていない
+    提出と見分けが付かない。** `_common_error` が全件共通の理由を伝えようと
+    しているのと同じ意図だが、あちらは stderr かシグナルがある場合
+    （クラッシュ・構文エラー）しか働かず、正常終了する書式違いは漏れる。
+    """
+    if expected == actual:
+        return None
+
+    wanted, given = _tokens(expected), _tokens(actual)
+    if wanted and wanted == given:
+        if len(expected) != len(actual):
+            return "出力の値は合っていますが、改行の位置が課題文の指定と違います。"
+        return "出力の値は合っていますが、区切り方が課題文の指定と違います。"
+
+    left, right = _as_numbers(wanted), _as_numbers(given)
+    if left is not None and right is not None and len(left) == len(right) and left == right:
+        return (
+            "出力は数値として同じですが、書き方（桁数や小数点以下の表示）が課題文の指定と違います。"
+        )
+    return None
 
 
 # テストケース 1 件あたりの実行上限（秒）。科目プロファイルの
@@ -443,9 +492,35 @@ class CodeTestRunner:
         if common is not None:
             return head + f"すべて同じエラーで停止しています: {common}"
 
+        # **書式だけが違う場合も、全件が同じ理由で落ちる。** 上の
+        # `_common_error` は stderr かシグナルがある場合しか働かないので、
+        # 正常終了する書式違いはそこを素通りする。言わないと、学習者には
+        # 「0 件が一致」しか返らず、解けていない提出と見分けが付かない。
+        shape = self._format_note(failed) if passed == 0 else None
+        if shape is not None:
+            return head + shape + "課題文の出力形式を確かめてください。"
+
         names = ", ".join(str(case["name"]) for case in failed[:5])
         suffix = " ほか" if len(failed) > 5 else ""
         return head + f"不一致: {names}{suffix}。"
+
+    def _format_note(self, failed: list[dict[str, object]]) -> str | None:
+        """全ケースが同じ書式の食い違いで落ちているなら、その説明。
+
+        **全件でなければ言わない。** 一部だけなら書式以外の誤りもあるので、
+        書式のせいだと伝えると直す先を取り違えさせる。
+        """
+        notes = set()
+        for case in failed:
+            expected = case.get("expected")
+            actual = case.get("actual")
+            if not isinstance(expected, list) or not isinstance(actual, list):
+                return None
+            note = format_only_mismatch(expected, actual)
+            if note is None:
+                return None
+            notes.add(note)
+        return next(iter(notes)) if len(notes) == 1 else None
 
     def _score(
         self,
