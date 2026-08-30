@@ -66,9 +66,9 @@ from aijudge_core import (
     LatePenalty,
     RubricCriterion,
     TaskVersion,
-    deadline_for,
     final_score,
     grade_window,
+    settles_at,
 )
 
 
@@ -185,7 +185,6 @@ def build_result_view(
     *,
     request: object | None = None,
     finalization: Finalization | None = None,
-    due_at: datetime | None = None,
     auto_finalize_after_minutes: int | None = None,
     now: datetime | None = None,
 ) -> ResultView:
@@ -194,9 +193,14 @@ def build_result_view(
     `request` はこの採点に対する再確認の依頼（`ReviewRequest`）。既に出して
     いれば二重に出させない。
 
-    `due_at` と `auto_finalize_after_minutes` から仮確定の窓を出す。片方でも
-    無ければ確定の予定は無く、窓は開いたまま（期限を示していないので
-    締め切れない）。
+    仮確定の窓は**この採点が終わった時刻**（`run.created_at`）と
+    `auto_finalize_after_minutes` から出す。**締切は起点にしない** ── 締切
+    起点だと、締切前に出した学習者は自分の点が確定するまで何日も待つ。
+    採点は提出直後に終わるので、そこから n 分で閉じれば締切前に確定し、
+    締切前に出し直せる（出し直しは確定に妨げられない）。
+
+    猶予が設定されていなければ確定の予定は無く、窓は開いたまま（期限を
+    示していないので締め切れない）。
 
     `finalization` が成績の確定である。`review` はそのうち「教員が読んだ」
     場合にだけ在り、段階の修正を持つ（ADR 0010）。片方だけを見て確定を
@@ -249,8 +253,8 @@ def build_result_view(
         )
 
     unscored = any(view.pending for view in views)
-    window = grade_window(due_at, auto_finalize_after_minutes, now or datetime.now(UTC))
-    settles_at = deadline_for(due_at, auto_finalize_after_minutes)
+    window = grade_window(run.created_at, auto_finalize_after_minutes, now or datetime.now(UTC))
+    closes_at = settles_at(run.created_at, auto_finalize_after_minutes)
     # 教員が読んだ証拠は `HumanReview` の存在。確定の出所ではない
     # （自動確定のあとに教員が読むことがある）。
     reviewed = review is not None
@@ -290,7 +294,7 @@ def build_result_view(
         feedback=run.feedback,
         finalized_by=_finalized_by(finalization, review),
         window=window,
-        settles_at=settles_at,
+        settles_at=closes_at,
         review_comment=_justification(finalization, review),
         can_request_review=can_request,
         request_reason=reason,

@@ -642,7 +642,7 @@ def test_an_automatically_finalized_grade_does_not_claim_a_human_read_it(world: 
 
     world.finalize(
         submission_id,
-        source=FinalizationSource.DEADLINE_ELAPSED,
+        source=FinalizationSource.AUTOMATIC,
         comment="締切から所定の時間が経過したため、AI の判定のまま確定しました。",
     )
 
@@ -686,7 +686,7 @@ def test_a_finalized_grade_can_no_longer_be_contested(world: World) -> None:
     location = world.submit().headers["location"]
     world.worker.run_until_empty()
     submission_id = location.split("/")[-1].split("?")[0]
-    world.finalize(submission_id, source=FinalizationSource.DEADLINE_ELAPSED)
+    world.finalize(submission_id, source=FinalizationSource.AUTOMATIC)
 
     response = world.client.post(
         f"/submissions/{submission_id}/request-review",
@@ -711,7 +711,7 @@ def test_an_instructor_can_still_settle_an_automatically_finalized_grade(world: 
     world.worker.run_until_empty()
     submission_id = location.split("/")[-1].split("?")[0]
 
-    world.finalize(submission_id, source=FinalizationSource.DEADLINE_ELAPSED)
+    world.finalize(submission_id, source=FinalizationSource.AUTOMATIC)
     world.client.post(
         f"/submissions/{submission_id}/request-review",
         data={"reason": "自動で確定しましたが、テストケース 3 の想定出力が違うと思います。"},
@@ -760,16 +760,56 @@ def _schedule(world: World, *, due_offset_hours: float, grace: float | None) -> 
         uow.commit()
 
 
+def _graded_hours_ago(world: World, hours: float) -> None:
+    """採点が終わった時刻を過去にずらす。**確定の窓はここから数える。**
+
+    リポジトリは採点結果を上書きしない（P8）ので、行を直接動かす。テストで
+    時間の経過を作るためだけの操作で、本番の経路には無い。
+    """
+    from datetime import timedelta
+
+    from aijudge_persistence.schema import GradingRunRow
+
+    moved = datetime.now(UTC) - timedelta(hours=hours)
+    with world.database.unit_of_work() as uow:
+        for row in uow.session.query(GradingRunRow).all():
+            document = dict(row.document)
+            document["created_at"] = moved.isoformat()
+            row.document = document
+            row.created_at = moved
+        uow.commit()
+
+
 @needs_c_compiler
-def test_before_the_deadline_the_confirmation_time_is_not_announced_as_provisional(
+def test_the_grade_becomes_provisional_as_soon_as_it_is_graded(
     world: World,
 ) -> None:
-    """締切前は仮確定ではない。まだ提出をやり直せる段階である。"""
+    """**締切を待たない。** 採点が終わればもう「いつ確定するか」を告げられる。
+
+    締切起点だと、締切前に出した学習者は自分の点が確定するまで何日も待ち、
+    その間は再提出の判断材料が暫定のままになる。
+    """
     world.register("s2400001")
     world.login("s2400001")
     location = world.submit().headers["location"]
     world.worker.run_until_empty()
+    # 締切はまだ 24 時間先。それでも仮確定に入る。
     _schedule(world, due_offset_hours=24, grace=24.0)
+
+    body = world.client.get(location).text
+    assert "仮確定です" in body
+
+
+@needs_c_compiler
+def test_without_a_grace_the_grade_never_announces_a_settling_time(
+    world: World,
+) -> None:
+    """自動確定を設定していなければ、確定の予定は無い。"""
+    world.register("s2400001")
+    world.login("s2400001")
+    location = world.submit().headers["location"]
+    world.worker.run_until_empty()
+    _schedule(world, due_offset_hours=24, grace=None)
 
     body = world.client.get(location).text
     assert "仮確定です" not in body
@@ -822,9 +862,10 @@ def test_the_window_closes_on_time_even_before_the_sweep_runs(world: World) -> N
     location = world.submit().headers["location"]
     world.worker.run_until_empty()
     submission_id = location.split("/")[-1].split("?")[0]
-    # 締切 25 時間前 + 猶予 24 時間 = 期限は 1 時間前。まだ確定処理は走って
-    # いない（Finalization は無い）。
-    _schedule(world, due_offset_hours=-25, grace=24.0)
+    # 採点 25 時間前 + 猶予 24 時間 = 期限は 1 時間前。まだ確定処理は走って
+    # いない（Finalization は無い）。締切はまだ先だが、窓は採点から数える。
+    _schedule(world, due_offset_hours=24, grace=24.0)
+    _graded_hours_ago(world, 25)
 
     response = world.client.post(
         f"/submissions/{submission_id}/request-review",

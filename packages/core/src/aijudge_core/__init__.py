@@ -27,16 +27,16 @@ from .events import (
     TaskPublished,
 )
 from .finalization import (
-    DEADLINE_JUSTIFICATION,
+    AUTOMATIC_JUSTIFICATION,
     Finalization,
     FinalizationSource,
     GradeWindow,
     auto_finalizable,
     blocks_finalization,
     bulk_finalizable,
-    deadline_for,
     grace_minutes,
     grade_window,
+    settles_at,
 )
 from .grading import (
     MIN_JUSTIFICATION_LENGTH,
@@ -107,7 +107,7 @@ from .uploads import (
 
 __all__ = [
     "ALL_UPLOAD_SUFFIXES",
-    "DEADLINE_JUSTIFICATION",
+    "AUTOMATIC_JUSTIFICATION",
     "DEFAULT_UPLOAD_SUFFIXES",
     "EVENT_TYPES",
     "MIN_JUSTIFICATION_LENGTH",
@@ -177,7 +177,6 @@ __all__ = [
     "blocks_finalization",
     "bulk_finalizable",
     "can_transition",
-    "deadline_for",
     "derived_id",
     "final_score",
     "grace_minutes",
@@ -192,4 +191,5 @@ __all__ = [
     "prefix_of",
     "renormalize",
     "resolve_conflicts",
+    "settles_at",
 ]

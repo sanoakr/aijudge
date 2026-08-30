@@ -73,7 +73,7 @@ class Row:
             return "確定（教員が確認）"
         if self.finalized_by is FinalizationSource.INSTRUCTOR_BULK:
             return "確定（一括）"
-        if self.finalized_by is FinalizationSource.DEADLINE_ELAPSED:
+        if self.finalized_by is FinalizationSource.AUTOMATIC:
             return "確定（自動）"
         if self.contested:
             return "再確認の依頼あり"

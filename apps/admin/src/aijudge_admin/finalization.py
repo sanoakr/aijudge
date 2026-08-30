@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from aijudge_core import (
-    DEADLINE_JUSTIFICATION,
+    AUTOMATIC_JUSTIFICATION,
     Course,
     Finalization,
     FinalizationSource,
@@ -30,9 +30,9 @@ from aijudge_core import (
     auto_finalizable,
     blocks_finalization,
     bulk_finalizable,
-    deadline_for,
     grace_minutes,
     new_id,
+    settles_at,
 )
 from aijudge_core.ids import CourseId, FinalizationId, TaskId, TenantId, UserId
 from aijudge_persistence import Database
@@ -57,6 +57,9 @@ class TaskOutcome:
     needs_review: int = 0
     # 未採点の観点があるので見送った。誰も見ていない観点を成績にしない。
     provisional: int = 0
+    # 採点からの猶予がまだ明けていない。**見送りではなく待ちである。**
+    # 一緒に数えると、運用者には「積み上がっている」ように見えてしまう。
+    not_due: int = 0
 
     @property
     def skipped(self) -> int:
@@ -121,12 +124,20 @@ def sweep_deadlines(
     course_id: CourseId | None = None,
     dry_run: bool = False,
 ) -> FinalizeReport:
-    """締切から所定の時間が過ぎた課題を自動確定する。
+    """採点から所定の時間が過ぎた提出を自動確定する。
+
+    **起点は提出ごとの採点完了時刻**（`GradingRun.created_at`）で、課題の
+    締切ではない。締切を起点にすると、締切前に出した学習者は自分の点が
+    確定するまで何日も待つことになる。採点は提出直後に終わるので、そこから
+    n 分で閉じれば締切前に確定し、締切前に出し直せる（出し直しは確定に
+    妨げられない ── `Task.accepts_submissions_at` は確定を見ない）。
 
     猶予は**問題セットの指定がコースの既定を上書きする**（`grace_minutes`）。
     どちらも None なら飛ばす（自動確定しないという設定であって、設定漏れでは
     ない ── 既定は None で、教員が明示的に入れて初めて自動確定が始まる）。
-    締切の無い課題も飛ばす。
+
+    **課題ごとではなく提出ごとに判定するので、締切の無い課題も対象になる。**
+    以前は締切が無いと確定しようがなかったが、採点完了は必ずあるため。
 
     **何度走らせても同じ結果になる。** 確定済みの採点は
     `unfinalized_for_task` が返さず、返ってきても保存が拒否される。
@@ -139,17 +150,17 @@ def sweep_deadlines(
                 grace = grace_minutes(
                     task.auto_finalize_after_minutes, course.auto_finalize_after_minutes
                 )
-                cutoff = deadline_for(task.due_at, grace)
-                if cutoff is None or at < cutoff:
+                if grace is None:
                     continue
                 report.outcomes.append(
                     _apply(
                         uow.reviews,
                         task,
-                        source=FinalizationSource.DEADLINE_ELAPSED,
+                        source=FinalizationSource.AUTOMATIC,
                         actor_id=None,
-                        justification=DEADLINE_JUSTIFICATION,
+                        justification=AUTOMATIC_JUSTIFICATION,
                         at=at,
+                        grace=grace,
                     )
                 )
             if not dry_run:
@@ -213,13 +224,19 @@ def _apply(
     actor_id: UserId | None,
     justification: str,
     at: datetime,
+    grace: int | None = None,
 ) -> TaskOutcome:
-    automatic = source is FinalizationSource.DEADLINE_ELAPSED
-    finalized = contested = needs_review = provisional = 0
+    automatic = source is FinalizationSource.AUTOMATIC
+    finalized = contested = needs_review = provisional = not_due = 0
 
     for _submission, run, request in reviews.unfinalized_for_task(task.id):
         if blocks_finalization(request):
             contested += 1
+            continue
+        if automatic and at < (settles_at(run.created_at, grace) or at):
+            # **猶予がまだ明けていない。** 提出ごとに数えるので、同じ課題の
+            # 中でも古い提出から順に確定していく。
+            not_due += 1
             continue
         if automatic and not auto_finalizable(run, request):
             # 何で見送ったのかを分けて数える。まとめると、運用者は
@@ -252,6 +269,7 @@ def _apply(
         contested=contested,
         needs_review=needs_review,
         provisional=provisional,
+        not_due=not_due,
     )
 
 

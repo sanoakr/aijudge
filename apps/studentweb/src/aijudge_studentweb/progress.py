@@ -212,7 +212,6 @@ def load_progress(
                 None if decision is None else decision.review,
                 request=None if decision is None else decision.request,
                 finalization=None if decision is None else decision.finalization,
-                due_at=task.due_at,
                 auto_finalize_after_minutes=grace_minutes(
                     task.auto_finalize_after_minutes, course.auto_finalize_after_minutes
                 ),

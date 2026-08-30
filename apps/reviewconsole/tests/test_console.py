@@ -805,7 +805,7 @@ def test_an_already_finalized_run_can_still_be_reviewed(world: World) -> None:
             Finalization(
                 id=FinalizationId(new_id("fin")),
                 grading_run_id=run.id,
-                source=FinalizationSource.DEADLINE_ELAPSED,
+                source=FinalizationSource.AUTOMATIC,
                 justification="締切から所定の時間が経過したため自動確定しました。",
                 finalized_at=datetime.now(UTC),
             )
@@ -826,7 +826,7 @@ def test_an_already_finalized_run_can_still_be_reviewed(world: World) -> None:
     assert review is not None, "教員が読んだ記録が残っていない"
     # 確定の記録は最初のものを残す。上書きしない。
     assert finalization is not None
-    assert finalization.source is FinalizationSource.DEADLINE_ELAPSED
+    assert finalization.source is FinalizationSource.AUTOMATIC
 
 
 # --------------------------------------------------------------------------
