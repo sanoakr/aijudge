@@ -1864,6 +1864,106 @@ def test_tasks_are_reordered_from_the_list(world: World) -> None:
     assert again[0].id == second.id
 
 
+def _add_task(client, course_id: str, unit: str, suffix: str) -> None:
+    client.post(
+        f"/manage/courses/{course_id}/tasks",
+        data={
+            "key_suffix": suffix,
+            "unit": unit,
+            "statement": f"## [必須] 課題 {suffix} ##\n\n本文",
+            "readability_weight": "0.3",
+        },
+    )
+
+
+def test_a_task_moves_to_another_unit_and_takes_that_unit_schedule(world: World) -> None:
+    """**日程は移動先に揃える。** セットの中で締切がずれると、学習者にも
+    教員にも「この回はいつまでか」が言えなくなる。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    _add_task(client, str(world.course.id), "ex04", "p1")
+    _add_task(client, str(world.course.id), "ex05", "p1")
+    client.post(
+        f"/manage/courses/{world.course.id}/units/ex05/schedule",
+        data={
+            "opens_at": "2026-09-01T09:00",
+            "submissions_open_at": "",
+            "due_at": "2026-09-08T23:59",
+        },
+    )
+    with world.database.unit_of_work() as uow:
+        moving = next(t for t in uow.tasks.list_for_course(world.course.id) if t.unit == "ex04")
+
+    response = client.post(
+        f"/manage/courses/{world.course.id}/tasks/{moving.id}/unit",
+        data={"unit": "ex05"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    with world.database.unit_of_work() as uow:
+        moved = uow.tasks.get_task(moving.id)
+        head = next(
+            t
+            for t in uow.tasks.list_for_course(world.course.id)
+            if t.unit == "ex05" and t.id != moving.id
+        )
+    assert moved.unit == "ex05"
+    assert moved.due_at == head.due_at
+    assert moved.opens_at == head.opens_at
+    # 並びは移動先の末尾。**番号を持たない課題も数に入れる** ── 画面から
+    # 足した課題は `position` が空なので、番号だけ見ると先頭に入ってしまう。
+    assert head.position is None
+    assert moved.position == 2
+
+
+def test_moving_a_task_keeps_its_identity(world: World) -> None:
+    """**移動しても同じ課題のまま。** `TaskId` は課題キーから導かれるので
+    （`derived_id("tsk", key)`）、鍵が動けばそれは別の課題であり、過去の
+    提出との対応が切れる（P8）。移動は所属だけを変える。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    _add_task(client, str(world.course.id), "ex04", "p1")
+    _add_task(client, str(world.course.id), "ex05", "p1")
+    with world.database.unit_of_work() as uow:
+        moving = next(t for t in uow.tasks.list_for_course(world.course.id) if t.unit == "ex04")
+        before = uow.tasks.latest_version(moving.id).source_key
+
+    client.post(f"/manage/courses/{world.course.id}/tasks/{moving.id}/unit", data={"unit": "ex05"})
+    with world.database.unit_of_work() as uow:
+        # 同じ ID で引けること自体が、鍵が動いていないことの確認になる。
+        moved = uow.tasks.get_task(moving.id)
+        assert moved is not None
+        assert uow.tasks.latest_version(moved.id).source_key == before
+
+
+def test_a_task_cannot_be_moved_to_the_unit_it_is_already_in(world: World) -> None:
+    """押しても何も起きない操作を選択肢に出さない（画面でも候補から外している）。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    _add_task(client, str(world.course.id), "ex04", "p1")
+    with world.database.unit_of_work() as uow:
+        task = uow.tasks.list_for_course(world.course.id)[0]
+    response = client.post(
+        f"/manage/courses/{world.course.id}/tasks/{task.id}/unit", data={"unit": "ex04"}
+    )
+    assert response.status_code == 400
+
+
+def test_the_move_form_lists_only_the_other_units(world: World) -> None:
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    _add_task(client, str(world.course.id), "ex04", "p1")
+    _add_task(client, str(world.course.id), "ex05", "p1")
+    with world.database.unit_of_work() as uow:
+        task = next(t for t in uow.tasks.list_for_course(world.course.id) if t.unit == "ex04")
+    body = client.get(f"/manage/courses/{world.course.id}/tasks/{task.id}/edit").text
+    form = body[body.index("別の問題セットへ移す") :]
+    assert 'value="ex05"' in form
+    assert 'value="ex04"' not in form
+
+
 def test_the_task_page_says_whether_the_rubric_is_the_course_one(world: World) -> None:
     """同じに見えて違う、が最も困る。既定と同じかどうかを示す。"""
     world.register("teacher", Role.INSTRUCTOR)

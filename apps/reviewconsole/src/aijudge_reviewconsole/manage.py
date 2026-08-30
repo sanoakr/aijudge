@@ -252,6 +252,7 @@ def _key_candidates(task) -> list[str]:
 # JavaScript も要らない。
 SAVED_MESSAGES: dict[str, str] = {
     "schedule": "日程を保存しました（この問題セットの全課題に反映）",
+    "moved": "課題を移しました（日程は移動先に揃えました）",
     "grace": "保存しました",
     "number": "保存しました",
     "course_grace": "保存しました",
@@ -1600,6 +1601,19 @@ def register(templates) -> APIRouter:
         registry = EvaluatorRegistry().load_installed()
         course_rows = _course_rubric_rows(course)
         rows = rubric.to_rows(version.criteria) if version is not None else course_rows
+        # 移動先の候補。**いまいるセットは出さない**（選べる先が「動かない」を
+        # 含むと、押してから何も起きないことになる）。追加のときは移動できる
+        # 課題がまだ無いので数えない。
+        others: list[dict[str, object]] = []
+        if task is not None:
+            console = _console(request)
+            with console.database.unit_of_work() as uow:
+                units = load_units(uow, course)
+            others = [
+                {"key": group.key, "unit": group.unit, "label": group.label, "due_at": group.due_at}
+                for group in units
+                if group.key != unit_key_value
+            ]
         return templates.TemplateResponse(
             request,
             "manage_task.html",
@@ -1628,6 +1642,7 @@ def register(templates) -> APIRouter:
                     or DEFAULT_UPLOAD_SUFFIXES
                 ),
                 "note": note or SAVED_MESSAGES.get(saved),
+                "other_units": others,
             },
         )
 
@@ -1745,6 +1760,79 @@ def register(templates) -> APIRouter:
             key = unit_key(ordered[index])
         return RedirectResponse(
             f"/manage/courses/{course_id}/units/{key}?saved=order", status_code=303
+        )
+
+    @router.post("/courses/{course_id}/tasks/{task_id}/unit")
+    def move_task_to_unit(
+        request: Request,
+        course_id: str,
+        task_id: str,
+        unit: Annotated[str, Form()] = "",
+    ) -> Response:
+        """課題を別の問題セットへ移す。**日程は移った先に揃える。**
+
+        セットの中で締切がずれると、学習者にも教員にも「この回はいつまでか」
+        が言えなくなる（`set_unit_schedule` と同じ理由）。移した課題だけが
+        元の締切を持ち続けると、まさにその状態になる。
+
+        **提出済みでも移せる。** 日程はもともと学期の途中で動くもので
+        （ADR 0013 の減点は run に記録済みなので、既に付いた成績は動かない）、
+        セットの日程を変える操作は提出の有無を問わず既に許してある。移動だけ
+        禁じると、同じことが遠回りにしかできない。
+
+        **鍵は変えない。** `TaskId` が鍵から導かれる（`derived_id("tsk", key)`）
+        ので、`ex02/p8` を `ex03/p8` にすることは移動ではなく**別の課題を作る
+        こと**である。鍵の前半は「どこで作られたか」の記録として残る。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+
+        target = unit.strip()
+        if not target:
+            raise HTTPException(status_code=400, detail="移動先の問題セットを選んでください")
+
+        with console.database.unit_of_work() as uow:
+            task = uow.tasks.get_task(TaskId(task_id))
+            if task is None or task.course_id != course.id:
+                raise HTTPException(status_code=404, detail="課題が見つかりません")
+            if (task.unit or "") == target:
+                raise HTTPException(status_code=400, detail="すでにその問題セットにあります")
+
+            siblings = [
+                other
+                for other in uow.tasks.list_for_course(course.id)
+                if other.id != task.id and unit_key(other) == quote(target, safe="")
+            ]
+            # **移動先の先頭から日程を引き継ぐ。** 空のセットへ移す場合は
+            # 引き継ぐ相手が居ないので、いまの日程のまま入る（セットの日程を
+            # あとから入れれば全課題に行き渡る）。
+            head = sorted(siblings, key=lambda item: item.sort_key)[0] if siblings else None
+            update: dict[str, object] = {"unit": target}
+            if head is not None:
+                update |= {
+                    "session": head.session,
+                    "opens_at": head.opens_at,
+                    "submissions_open_at": head.submissions_open_at,
+                    "due_at": head.due_at,
+                    "auto_finalize_after_minutes": head.auto_finalize_after_minutes,
+                }
+            # 並びは移動先の末尾。差し込む位置まで選ばせると、移動 1 回に
+            # 決めることが 2 つになる（並べ替えは移動後に前後で動かせる）。
+            #
+            # **番号を持たない課題も数に入れる。** 画面から足した課題は
+            # `position` が空のままで、番号だけを見て 1 を振ると末尾どころか
+            # 先頭に入る（`move_task` が並べ替えで番号を補うのと同じ事情）。
+            positions = [other.position for other in siblings if other.position is not None]
+            update["position"] = max(len(siblings), max(positions, default=0)) + 1
+            uow.tasks.save_task(task.model_copy(update=update))
+            uow.commit()
+
+        return RedirectResponse(
+            f"/manage/courses/{course_id}/units/{quote(target, safe='')}?saved=moved#tasks",
+            status_code=303,
         )
 
     @router.post("/courses/{course_id}/tasks/{task_id}/revise")
