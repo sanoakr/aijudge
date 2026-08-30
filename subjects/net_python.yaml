@@ -10,6 +10,9 @@ description: >
   ex1–ex3 は標準入出力で完結する。ex4 以降のクライアント／サーバ課題は
   伴走プロセスを立てて採点する（未実装）。
 
+# この科目が使う KC の名前空間（分野）。教員はここを増やせない。
+kc_namespaces: [cs]
+
 input:
   allow_handwriting: false
 

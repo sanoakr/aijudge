@@ -57,7 +57,7 @@ def ensure_course(
     except Exception as exc:
         raise AdminError(f"科目プロファイル {subject_profile!r} が不正です: {exc}") from exc
 
-    # コースの同一性は (テナント, 科目コード, 学期)。同じ授業を二度作らない。
+    # コースの同一性は (テナント, コースコード, 学期)。同じ授業を二度作らない。
     course_id = CourseId(derived_id("crs", str(tenant_id), code, term))
     with database.unit_of_work() as uow:
         existing = uow.identity.get_course(course_id)
@@ -93,7 +93,9 @@ def list_courses(database: Database, tenant_id: TenantId) -> tuple[Course, ...]:
                 title=row.title,
                 term=row.term,
                 subject_profile=row.subject_profile,
-                auto_finalize_after_hours=row.auto_finalize_after_hours,
+                description=row.description,
+                auto_finalize_after_minutes=row.auto_finalize_after_minutes,
+                upload_suffixes=tuple(row.upload_suffixes or ()),
             )
             for row in rows
         )
