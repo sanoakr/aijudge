@@ -113,9 +113,9 @@ class OllamaProvider:
 
     def __init__(
         self,
-        base_url: str = "http://slab-llm:11434",
+        base_url: str = "http://localhost:11434",
         *,
-        name: str = "slab-llm",
+        name: str = "ollama",
         local: bool = True,
         constrained_decoding: bool = True,
         vision: bool = True,
