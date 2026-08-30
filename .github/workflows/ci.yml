@@ -33,7 +33,16 @@ jobs:
       - name: Enforce module boundaries
         run: uv run lint-imports
 
+      # 決定的評価器はコンテナで提出物を動かす（ADR 0006）。gVisor は runner に
+      # 無いので docker に固定する。pull を先にしておくのは、最初のテストが
+      # 短いタイムアウト（compile_timeout_seconds 等）の中で pull 待ちに
+      # なって落ちるのを防ぐため。
+      - name: Pull the sandbox image
+        run: docker pull gcc:14-bookworm
+
       - name: Test
+        env:
+          AIJUDGE_SANDBOX: docker
         run: uv run pytest
 
   # 採点精度の測定。教員採点データはリポジトリに置けない（個人情報）ので、
