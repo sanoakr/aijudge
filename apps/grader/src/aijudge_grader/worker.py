@@ -45,7 +45,9 @@ from aijudge_feedback import FeedbackGenerator
 from aijudge_grading import (
     EvaluatorRegistry,
     GradingPipeline,
+    OverrideError,
     SubjectProfile,
+    effective_profile,
     grading_completed_event,
     load_profile,
     project_observations,
@@ -198,7 +200,10 @@ class GradingWorker:
             if base is None:
                 raise PermanentGradingError(f"土台の採点が見つかりません: {job.base_run_id}")
 
-        profile = self._profile(job.subject_profile)
+        # **コースの上書きを重ねる。** 雛形はファイル、差分はコース
+        # （`aijudge_grading.overrides`）。上書きが無ければ雛形そのもので、
+        # 今までと同じ挙動になる。
+        profile = self._profile(job.subject_profile, course)
         contents = gradable_contents(submission, self._store)
         pipeline = GradingPipeline(self._registry, profile)
         run = pipeline.run(
@@ -291,7 +296,13 @@ class GradingWorker:
             return run
         return run.model_copy(update={"feedback": result.message})
 
-    def _profile(self, name: str) -> SubjectProfile:
+    def _profile(self, name: str, course: Course | None = None) -> SubjectProfile:
+        """このコースに効く採点設定。
+
+        雛形（`subjects/*.yaml`）はキャッシュしてよいが、**上書きを重ねた
+        結果はキャッシュしない** ── コースごとに違い、教員が学期中に変える。
+        重ねる処理は辞書の合成だけで、ファイル読み込みのような費用は無い。
+        """
         if name not in self._profiles:
             path = self._profiles_dir / f"{name}.yaml"
             if not path.is_file():
@@ -301,7 +312,15 @@ class GradingWorker:
             except Exception as exc:
                 # 存在しない評価器名が書いてある等。人間が直すまで直らない。
                 raise PermanentGradingError(f"科目プロファイルが不正です: {exc}") from exc
-        return self._profiles[name]
+        base = self._profiles[name]
+        if course is None or not course.grading_overrides:
+            return base
+        try:
+            return effective_profile(base, course.grading_overrides, self._registry)
+        except OverrideError as exc:
+            # 保存時に検査しているので普通は起きない。起きたら人間が直すまで
+            # 直らないので、恒久的な失敗として扱う（再試行しても同じ）。
+            raise PermanentGradingError(f"コースの採点設定が不正です: {exc}") from exc
 
     def _record_success(self, job: GradingJob, run: GradingRun) -> GradingJob:
         now = self._clock()

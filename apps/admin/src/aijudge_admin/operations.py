@@ -94,6 +94,7 @@ def list_courses(database: Database, tenant_id: TenantId) -> tuple[Course, ...]:
                 term=row.term,
                 subject_profile=row.subject_profile,
                 description=row.description,
+                grading_overrides=dict(row.grading_overrides or {}),
                 auto_finalize_after_minutes=row.auto_finalize_after_minutes,
                 upload_suffixes=tuple(row.upload_suffixes or ()),
             )

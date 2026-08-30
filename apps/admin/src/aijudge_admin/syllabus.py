@@ -159,6 +159,35 @@ class SyllabusProposal(BaseModel):
     knowledge_components: tuple[KcHint, ...] = ()
 
 
+class CourseBasics(BaseModel):
+    """シラバスから読んだコースの基本情報。**そのまま保存しない。**"""
+
+    model_config = ConfigDict(extra="ignore")
+
+    code: str = Field(default="", max_length=64)
+    title: str = Field(default="", max_length=256)
+    term: str = Field(default="", max_length=64)
+    # 概要・到達目標・授業計画を Markdown に整えたもの。
+    markdown: str = Field(default="", max_length=12000)
+
+
+BASICS_PROMPT = PromptTemplate(
+    name="syllabus_to_basics_ja",
+    # 文面を変えたら必ず版を上げる（P8）。
+    version="1",
+    system=(
+        "あなたは大学のシラバスを読み、そのまま読める Markdown に整える助手です。"
+        "**中身を書き換えません。** 要約も補足もせず、見出し・箇条書き・表の体裁だけを"
+        "整えます ── 教員が「シラバスにこう書いてあったか」を確かめられなくなるためです。"
+        "PDF から抽出した本文は行が細かく割れているので、意味の切れ目で繋ぎ直します。"
+    ),
+    template=(
+        "次のシラバス本文を Markdown に整え、コース名・コード・学期も読み取ってください。\n\n"
+        "## シラバス本文\n{text}\n"
+    ),
+)
+
+
 PROMPT = PromptTemplate(
     name="syllabus_to_candidates_ja",
     # 文面を変えたら必ず版を上げる（P8）。
@@ -203,6 +232,24 @@ class SyllabusReader:
         self._model = model or default_model()
         self._max_tokens = max_tokens
 
+    def read_basics(self, text: str) -> CourseBasics:
+        """シラバス本文を Markdown に整え、コースの素性も読む。
+
+        **モデルに整えさせる。** 素の抽出は行が細かく割れていて、見出しも
+        表も崩れている。規則で直そうとすると科目ごとの体裁に負ける
+        （`to_markdown` はモデルが使えないときの控えである）。
+        """
+        result = self._gateway.complete_structured(
+            BASICS_PROMPT,
+            CourseBasics,
+            model=self._model,
+            # シラバスは公開情報。学習者のデータは含まない（P7）。
+            data_class=DataClass.NON_PERSONAL,
+            max_tokens=self._max_tokens,
+            text=text[:20000],
+        )
+        return result.value
+
     def propose(
         self,
         text: str,
@@ -232,6 +279,7 @@ __all__ = [
     "MAX_SYLLABUS_BYTES",
     "SYLLABUS_EXAMPLE",
     "SYLLABUS_URL_TEMPLATE",
+    "CourseBasics",
     "CourseHint",
     "KcHint",
     "ProposalResult",

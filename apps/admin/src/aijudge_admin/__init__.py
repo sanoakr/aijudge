@@ -20,6 +20,9 @@ from .finalization import (
     pending_counts,
     sweep_deadlines,
 )
+from .grading_settings import TrialResult, template_of, try_settings
+from .grading_settings import save as save_grading_settings
+from .grading_settings import validate as validate_grading_settings
 from .kc import (
     KcUsage,
     allowed_namespaces,
@@ -83,6 +86,7 @@ __all__ = [
     "SolvabilityChecker",
     "TaskOutcome",
     "TaskVerifier",
+    "TrialResult",
     "allowed_namespaces",
     "approval_rate",
     "approve",
@@ -108,8 +112,12 @@ __all__ = [
     "reject",
     "restore_kc",
     "retire_kc",
+    "save_grading_settings",
     "save_task",
     "set_password",
     "sweep_deadlines",
+    "template_of",
+    "try_settings",
+    "validate_grading_settings",
     "write_credentials",
 ]
