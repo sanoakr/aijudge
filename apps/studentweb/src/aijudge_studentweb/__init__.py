@@ -9,12 +9,11 @@
 
 from __future__ import annotations
 
-from .app import SESSION_COOKIE, SUFFIX_KINDS, StudentApp, create_app
+from .app import SESSION_COOKIE, StudentApp, create_app
 from .visibility import CriterionView, ResultView, build_result_view
 
 __all__ = [
     "SESSION_COOKIE",
-    "SUFFIX_KINDS",
     "CriterionView",
     "ResultView",
     "StudentApp",

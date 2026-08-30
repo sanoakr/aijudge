@@ -2,29 +2,63 @@
 {% block title %}{{ course.title }} — aiJudge{% endblock %}
 {% block body %}
 <h1>{{ course.title }}</h1>
-<p class="crumb"><a href="/">← コース一覧</a> / {{ course.code }} / {{ course.term }}</p>
 
-{% for unit in units %}
-<h2>{{ unit.label }}
-  <span class="desc" style="font-weight:400;font-size:.85rem">
-    {% if unit.opens_at %}{{ unit.opens_at.strftime('%Y-%m-%d') }} 提示{% endif %}
-    {% if unit.due_at %}／締切 {{ unit.due_at.strftime('%Y-%m-%d %H:%M') }}{% endif %}
+{# **段階で分けて、新しい順に並べる。** 学期が進むと課題が数十件になり、
+   平らな一覧では「いま出せるのはどれか」が読み取れない（app.py の
+   `_group_by_unit`）。日程は 3 つとも出す ── 未設定もそう書く。 #}
+{% for section in sections if section.groups %}
+<h2>{{ section.label }}</h2>
+{% for unit in section.groups %}
+<section class="unit">
+<h3>{{ unit.label }}
+  {% if unit.unit %}<span class="mono desc">{{ unit.unit }}</span>{% endif %}
+  <span class="dates desc">
+    <span>公開 {% if unit.opens_at %}{{ unit.opens_at.strftime('%m-%d %H:%M') }}{% else %}<em>未設定</em>{% endif %}</span>
+    <span>提出開始 {% if unit.submissions_open_at %}{{ unit.submissions_open_at.strftime('%m-%d %H:%M') }}{% elif unit.opens_at %}公開と同時{% else %}<em>未設定</em>{% endif %}</span>
+    <span>締切 {% if unit.due_at %}{{ unit.due_at.strftime('%m-%d %H:%M') }}{% else %}<em>未設定</em>{% endif %}</span>
   </span>
-</h2>
+</h3>
 <table>
-  <thead><tr><th class="fit">問</th><th class="grow">課題</th><th class="fit">締切</th><th class="fit"></th></tr></thead>
+  <thead><tr>
+    <th class="fit">問</th><th class="grow">課題</th>
+    {# 提出回数と採用される点。**一覧に出す。** 出さないと、学習者は自分の
+       到達点を知るのに課題を 1 つずつ開くことになる（progress.py）。 #}
+    <th class="fit">提出</th><th class="fit">得点</th><th class="fit"></th>
+  </tr></thead>
   <tbody>
   {% for task, version in unit.tasks %}
+    {% set p = progress.get(version.id, no_progress) %}
     <tr>
       <td class="fit mono">{{ 'p%d' | format(task.position) if task.position else '—' }}</td>
       <td class="grow">{{ task.title }}</td>
-      <td class="fit">{{ task.due_at.strftime('%m-%d %H:%M') if task.due_at else '—' }}</td>
+      <td class="fit">
+        {% if p.count %}{{ p.count }} 回{% else %}<span class="desc">未提出</span>{% endif %}
+      </td>
+      <td class="fit">
+        {% if p.best_ratio is not none %}
+          {# 最高得点が採用される（progress.py）。確定前ならそう添える ──
+             確定した点と AI の暫定値を同じ顔で並べると、学習者は暫定値を
+             成績として読む。 #}
+          <strong>{{ '%.0f' | format(p.best_ratio * 100) }}%</strong>
+          {% if not p.best_confirmed %}<span class="pill">暫定</span>{% endif %}
+          {# 採点待ちの提出が別にあるなら添える。添えないと、出したばかりの
+             提出が無かったことになって見える。 #}
+          {% if p.grading %}<span class="pill">採点中</span>{% endif %}
+        {% elif p.grading %}<span class="pill">採点中</span>
+        {% elif p.withheld %}<span class="pill no">保留</span>
+        {% else %}<span class="desc">—</span>{% endif %}
+      </td>
       <td class="fit"><a href="/tasks/{{ version.id }}">開く</a></td>
     </tr>
   {% endfor %}
   </tbody>
 </table>
-{% else %}
-<p class="desc">課題がまだ公開されていません。</p>
+</section>
 {% endfor %}
+{% else %}
+<p class="desc">公開されている課題がありません。</p>
+{% endfor %}
+
+<p class="desc">得点は<strong>提出のうち最も高いもの</strong>が採用されます。
+締切を過ぎても提出はできますが、遅延として減点されます。</p>
 {% endblock %}

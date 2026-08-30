@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from enum import StrEnum
 from pathlib import Path
 from typing import Annotated
 
@@ -25,12 +26,14 @@ from fastapi.templating import Jinja2Templates
 from aijudge_authoring import render_statement
 from aijudge_core import (
     MIN_JUSTIFICATION_LENGTH,
-    ArtifactKind,
     Course,
     ReviewRequest,
     Submission,
     Task,
     TaskVersion,
+    allowed_suffixes,
+    grace_minutes,
+    kind_for,
 )
 from aijudge_core.ids import CourseId, ReviewRequestId, SubmissionId, TaskVersionId, new_id
 from aijudge_identity import (
@@ -48,19 +51,15 @@ from aijudge_submission import (
     SubmissionService,
 )
 
+from .progress import EMPTY, load_progress
 from .visibility import ResultView, build_result_view
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
 SESSION_COOKIE = "aijudge_session"
-# 提出できる拡張子。増やすときは採点側（評価器）が扱えることを確かめてから。
-SUFFIX_KINDS: dict[str, ArtifactKind] = {
-    ".c": ArtifactKind.CODE,
-    ".py": ArtifactKind.CODE,
-    ".java": ArtifactKind.CODE,
-    ".tex": ArtifactKind.LATEX,
-    ".md": ArtifactKind.MARKDOWN,
-}
+# 提出できる拡張子は `aijudge_core.uploads` が持つ。**ここに表を作らない** ──
+# 画面が受け付ける形式と教員が指定した形式がずれると、出せるのに採点が
+# 種別を知らない提出が生まれる。
 # 1 ファイルの上限。学生のコードにこれを超えるものは無く、超えるなら
 # 事故か攻撃なので受け付ける前に止める。
 MAX_UPLOAD_BYTES = 1 * 1024 * 1024
@@ -176,13 +175,25 @@ def create_app(app_state: StudentApp) -> FastAPI:
     @app.get("/courses/{course_id}", response_class=HTMLResponse)
     def course(request: Request, course_id: str, me: Me) -> HTMLResponse:
         course_obj, tasks = _course_and_tasks(app_state, me, CourseId(course_id))
+        # 提出回数と採用される点を一覧に出す。出さないと、学習者は自分の
+        # 到達点を知るのに課題を 1 つずつ開くことになる（`progress.py`）。
+        with app_state.database.unit_of_work() as uow:
+            progress = load_progress(
+                uow,
+                tenant_id=me.tenant_id,
+                learner_id=me.user_id,
+                course=course_obj,
+                rows=tasks,
+            )
         return TEMPLATES.TemplateResponse(
             request,
             "course.html",
             {
                 "me": me,
                 "course": course_obj,
-                "units": _group_by_unit(tasks),
+                "sections": _group_by_unit(tasks),
+                "progress": progress,
+                "no_progress": EMPTY,
                 **build_context(course_obj),
             },
         )
@@ -192,8 +203,17 @@ def create_app(app_state: StudentApp) -> FastAPI:
         version, course_obj, task_obj = _task_and_course(
             app_state, me, TaskVersionId(task_version_id)
         )
+        accepts = allowed_suffixes(task_obj.accepted_suffixes, course_obj.upload_suffixes)
         with app_state.database.unit_of_work() as uow:
-            submissions = uow.submissions.list_for_learner(me.tenant_id, me.user_id, version.id)
+            # 一覧と個別画面で同じ規則の点・状態を出すため、
+            # ここも `load_progress` を通す（`progress.py`）。
+            progress = load_progress(
+                uow,
+                tenant_id=me.tenant_id,
+                learner_id=me.user_id,
+                course=course_obj,
+                rows=((task_obj, version),),
+            ).get(version.id, EMPTY)
         return TEMPLATES.TemplateResponse(
             request,
             "task.html",
@@ -201,8 +221,13 @@ def create_app(app_state: StudentApp) -> FastAPI:
                 "me": me,
                 "task": version,
                 "course": course_obj,
-                "submissions": tuple(reversed(submissions)),
-                "accepts": sorted(SUFFIX_KINDS),
+                "progress": progress,
+                # 新しい提出を上に出す。直前に出したものを探させない。
+                "attempts": tuple(reversed(progress.attempts)),
+                "accepts": accepts,
+                # 提出開始を過ぎているか。**過ぎるまで受け付けない**
+                # （`Task.accepts_submissions_at`）。
+                "open_for_submission": task_obj.accepts_submissions_at(now()),
                 # 課題文は Markdown。生のまま出すと `##` や ``` が見える。
                 "statement_html": render_statement(version.statement),
                 **build_context(course_obj, task_obj, version),
@@ -221,12 +246,23 @@ def create_app(app_state: StudentApp) -> FastAPI:
         version, course_obj, _task = _task_and_course(app_state, me, TaskVersionId(task_version_id))
         payload = await upload.read()
 
+        # **提出開始まで受け付けない。** 画面で隠すだけでは、URL を知って
+        # いれば出せてしまう（隠すのは表示の都合であって制限ではない）。
+        if not _task.accepts_submissions_at(now()):
+            opens = _task.submissions_open_at or _task.opens_at
+            raise HTTPException(
+                status_code=409,
+                detail=f"まだ提出できません（{opens.strftime('%Y-%m-%d %H:%M')} から受け付けます）",
+            )
+
+        accepts = allowed_suffixes(_task.accepted_suffixes, course_obj.upload_suffixes)
         filename = Path(upload.filename or "submission").name
-        kind = SUFFIX_KINDS.get(Path(filename).suffix.lower())
+        suffix = Path(filename).suffix.lower()
+        kind = kind_for(suffix) if suffix in accepts else None
         if kind is None:
             raise HTTPException(
                 status_code=400,
-                detail=f"この形式は提出できません（受付: {', '.join(sorted(SUFFIX_KINDS))}）",
+                detail=f"この形式は提出できません（受付: {', '.join(accepts)}）",
             )
         if not payload:
             raise HTTPException(status_code=400, detail="ファイルが空です")
@@ -327,13 +363,44 @@ def create_app(app_state: StudentApp) -> FastAPI:
     return app
 
 
-def _group_by_unit(rows: tuple) -> list[dict[str, object]]:
-    """課題を「何回目」でまとめる。
+class SetState(StrEnum):
+    """学習者から見た問題セットの段階。**分けて並べる。**
+
+    課題が数十件になると、平らな一覧では「いま出せるのはどれか」が
+    読み取れない。学習者が最初に知りたいのはそれである。
+    """
+
+    # 提出開始まで待つ。課題文は読める。
+    ANNOUNCED = "announced"
+    # いま出せる。
+    OPEN = "open"
+    # 締切を過ぎた。**出せなくなるわけではない**（遅延は減点で表す・ADR 0013）。
+    CLOSED = "closed"
+
+
+SET_LABELS: dict[SetState, str] = {
+    SetState.OPEN: "提出できる問題セット",
+    SetState.ANNOUNCED: "公開された問題セット（提出開始前）",
+    SetState.CLOSED: "締め切られた問題セット",
+}
+
+
+def _group_by_unit(rows: tuple, *, now: datetime | None = None) -> list[dict[str, object]]:
+    """課題を問題セットでまとめ、段階ごとに分けて新しい順に並べる。
 
     1 回の授業で複数問出るので、平らに並べると何回目の分か分からなくなる。
+    さらに学期が進むと数十件になるので、**段階で分けたうえで新しい順**に
+    出す ── 学習者が最初に知りたいのは「いま出せるのはどれか」である。
+
+    **公開前の問題セットは出さない。** 公開日時を持たせておいて何も
+    起きないなら、その日付は嘘になる。日程を入れていない課題（`opens_at`
+    が空）は今までどおり出る。
     """
+    moment = now or datetime.now(UTC)
     groups: dict[tuple, dict[str, object]] = {}
     for task, version in sorted(rows, key=lambda row: row[0].sort_key):
+        if task.opens_at and moment < task.opens_at:
+            continue
         key = (task.session, task.unit)
         group = groups.setdefault(
             key,
@@ -342,17 +409,53 @@ def _group_by_unit(rows: tuple) -> list[dict[str, object]]:
                 "unit": task.unit,
                 "session": task.session,
                 "opens_at": task.opens_at,
+                "submissions_open_at": task.submissions_open_at,
                 "due_at": task.due_at,
                 "tasks": [],
             },
         )
         group["tasks"].append((task, version))
-        # まとまりの提示日・締切は、その中で最も早い／遅いものを代表にする。
+        # まとまりの日程は、その中で最も早い提示・最も遅い締切を代表にする。
         if task.opens_at and (group["opens_at"] is None or task.opens_at < group["opens_at"]):
             group["opens_at"] = task.opens_at
+        if task.submissions_open_at and (
+            group["submissions_open_at"] is None
+            or task.submissions_open_at < group["submissions_open_at"]
+        ):
+            group["submissions_open_at"] = task.submissions_open_at
         if task.due_at and (group["due_at"] is None or task.due_at > group["due_at"]):
             group["due_at"] = task.due_at
-    return list(groups.values())
+
+    for group in groups.values():
+        group["state"] = _set_state(group, moment)
+        # 並べ替えの基準になる日付。**その段階で意味のある日付を使う** ──
+        # 締め切られたセットは締切、これからのセットは提出開始・公開。
+        group["sort_at"] = (
+            group["due_at"]
+            if group["state"] is SetState.CLOSED
+            else group["submissions_open_at"] or group["opens_at"] or group["due_at"]
+        )
+
+    ordered: list[dict[str, object]] = []
+    for state in (SetState.OPEN, SetState.ANNOUNCED, SetState.CLOSED):
+        members = [group for group in groups.values() if group["state"] is state]
+        # 新しい日付順。日付の無いセットは後ろに置く（並べる根拠が無い）。
+        members.sort(key=lambda g: (g["sort_at"] is None, g["sort_at"] or MIN_TIME), reverse=True)
+        ordered.append({"state": state, "label": SET_LABELS[state], "groups": members})
+    return ordered
+
+
+MIN_TIME = datetime.min.replace(tzinfo=UTC)
+
+
+def _set_state(group: dict[str, object], now: datetime) -> SetState:
+    due_at = group["due_at"]
+    if due_at is not None and now >= due_at:
+        return SetState.CLOSED
+    opens = group["submissions_open_at"] or group["opens_at"]
+    if opens is not None and now < opens:
+        return SetState.ANNOUNCED
+    return SetState.OPEN
 
 
 # -- 権限つきの読み出し ------------------------------------------------------
@@ -419,7 +522,7 @@ def _task_and_course(
 class LoadedSubmission:
     """結果画面が要るもの一式。
 
-    文脈（科目・回・課題・提出）をすべての画面に出すために、まとめて返す。
+    文脈（コース・問題セット・課題・提出）をすべての画面に出すために、まとめて返す。
     """
 
     submission: Submission
@@ -464,7 +567,9 @@ def _submission_view(
             finalization=finalization,
             # 仮確定の窓を出すのに要る。締切は課題、猶予はコースが持つ。
             due_at=task.due_at,
-            auto_finalize_after_hours=course.auto_finalize_after_hours,
+            auto_finalize_after_minutes=grace_minutes(
+                task.auto_finalize_after_minutes, course.auto_finalize_after_minutes
+            ),
         )
     )
     return LoadedSubmission(
@@ -487,9 +592,9 @@ def build_context(
     version: TaskVersion | None = None,
     submission: Submission | None = None,
 ) -> dict[str, object]:
-    """どの科目の何回目のどの課題か、誰の何回目の提出かを 1 つにまとめる。
+    """どのコースのどの問題セットのどの課題か、誰の何回目の提出かを 1 つにまとめる。
 
-    **すべての画面に出す。** 出さないと、複数の科目・回・提出を行き来する
+    **すべての画面に出す。** 出さないと、複数のコース・問題セット・提出を行き来する
     うちに「いま何を見ているか」が分からなくなる。ブラウザの戻る操作や
     リンクの共有で途中の画面から入ることもある。
     """

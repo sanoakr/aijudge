@@ -3,40 +3,79 @@
 {% block body %}
 <h1>{{ ctx_task.title }}</h1>
 <p class="crumb">
-  <a href="/courses/{{ course.id }}">← {{ course.title }}</a>
-  / {{ ctx_task.unit_label }}
-  {% if ctx_task.opens_at %}／{{ ctx_task.opens_at.strftime('%Y-%m-%d') }} 提示{% endif %}
-  {% if ctx_task.due_at %}／締切 {{ ctx_task.due_at.strftime('%Y-%m-%d %H:%M') }}{% endif %}
+  {# 経路は上部のパンくずが持つ。ここに残すのは、この課題そのものの日付。 #}
+  {% if ctx_task.opens_at %}{{ ctx_task.opens_at.strftime('%Y-%m-%d') }} 提示{% endif %}
+  {% if ctx_task.submissions_open_at %}<span class="sep">·</span> 提出開始 {{ ctx_task.submissions_open_at.strftime('%Y-%m-%d %H:%M') }}{% endif %}
+  {% if ctx_task.due_at %}<span class="sep">·</span> 締切 {{ ctx_task.due_at.strftime('%Y-%m-%d %H:%M') }}{% endif %}
 </p>
 
 <div class="statement">{{ statement_html | safe }}</div>
 
 <h2>提出する</h2>
+{% if open_for_submission %}
 <form method="post" action="/tasks/{{ task.id }}/submit" enctype="multipart/form-data" class="card">
-  <div class="field">
-    <label for="upload">ファイル（{{ accepts | join(', ') }}）</label>
-    <input id="upload" name="upload" type="file" required accept="{{ accepts | join(',') }}">
+  {# 入力が 1 つなので、ボタンは同じ行の右端に置く。 #}
+  <div class="inline-field">
+    <span class="body">
+      <label for="upload">ファイル（{{ accepts | join(', ') }}）</label>
+      <input id="upload" name="upload" type="file" required accept="{{ accepts | join(',') }}">
+    </span>
+    <button type="submit">提出する</button>
   </div>
-  <p class="desc">
+  <p class="desc" style="margin:12px 0 0">
     提出すると採点が始まります。<strong>観点別の評価はすぐに表示されます。</strong>
     担当教員の確認を経て成績が確定します。結果に疑問があれば、結果画面から
     再確認を依頼できます。
   </p>
-  <button type="submit">提出する</button>
 </form>
+{% else %}
+{# 提出開始まで受け付けない。**いつから出せるかを示す** ── 出せない理由が
+   分からないと、学習者は不具合と区別できない。 #}
+<div class="note warn">
+  <strong>まだ提出できません。</strong>
+  {% set opens = ctx_task.submissions_open_at or ctx_task.opens_at %}
+  {{ opens.strftime('%Y-%m-%d %H:%M') }} から受け付けます（{{ accepts | join(', ') }}）。
+</div>
+{% endif %}
 
-<h2>これまでの提出</h2>
+<h2>これまでの提出
+  <span class="desc" style="font-weight:400;font-size:.85rem">
+    {% if progress.count %}
+      {{ progress.count }} 回
+      {%- if progress.best_ratio is not none %}／採用 {{ '%.0f' | format(progress.best_ratio * 100) }}%
+        {%- if not progress.best_confirmed %}（暫定）{% endif %}
+      {%- endif %}
+    {% endif %}
+  </span>
+</h2>
 <table>
-  <thead><tr><th class="fit">回</th><th class="fit">提出日時</th><th class="grow"></th></tr></thead>
+  <thead><tr>
+    <th class="fit">回</th><th class="fit">提出日時</th><th class="fit">得点</th>
+    <th class="grow">状態</th><th class="fit"></th>
+  </tr></thead>
   <tbody>
-  {% for item in submissions %}
+  {% for item in attempts %}
     <tr>
-      <td>{{ item.attempt }}</td>
-      <td>{{ item.submitted_at.strftime('%Y-%m-%d %H:%M') if item.submitted_at else '—' }}</td>
-      <td><a href="/submissions/{{ item.id }}">結果を見る</a></td>
+      <td class="fit">{{ item.submission.attempt }}</td>
+      <td class="fit">{{ item.submission.submitted_at.strftime('%Y-%m-%d %H:%M') if item.submission.submitted_at else '—' }}</td>
+      <td class="fit">
+        {% if item.score_ratio is not none %}
+          <strong>{{ '%.0f' | format(item.score_ratio * 100) }}%</strong>
+          {# 最高得点が採用される。どの提出が採られているかを示さないと、
+             学習者は一覧の点と自分の成績を結び付けられない（progress.py）。 #}
+          {% if item.adopted %}<span class="pill ok">採用</span>{% endif %}
+        {% else %}<span class="desc">—</span>{% endif %}
+      </td>
+      <td class="grow">
+        {# 確定の出所まで区別する。「確認済み」でまとめると、誰も読んでいない
+           自動確定が「教員が確認しました」として並ぶ（ADR 0010）。 #}
+        <span class="pill {{ item.status_tone }}">{{ item.status_label }}</span>
+        {% if item.status_detail %}<span class="desc">{{ item.status_detail }}</span>{% endif %}
+      </td>
+      <td class="fit"><a href="/submissions/{{ item.submission.id }}">結果を見る</a></td>
     </tr>
   {% else %}
-    <tr><td colspan="3" class="desc">まだ提出がありません。</td></tr>
+    <tr><td colspan="5" class="desc">まだ提出がありません。</td></tr>
   {% endfor %}
   </tbody>
 </table>
