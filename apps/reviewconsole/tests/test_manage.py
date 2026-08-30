@@ -485,19 +485,20 @@ def test_an_instructor_cannot_remove_themselves(world: World) -> None:
 # --------------------------------------------------------------------------
 
 
-def test_the_subject_profile_is_shown_but_not_editable(world: World) -> None:
-    """ブラウザから採点の設定を壊せないこと。
+def test_the_template_itself_stays_read_only(world: World) -> None:
+    """雛形は共有の既定。**ブラウザからは変えられない。**
 
-    評価器の指名とタイムアウトを持つ設定で、1 人の操作で全員の採点が止まる。
+    同じ雛形を使う他のコースにも効くので、1 人の操作で全員の採点が止まる。
+    コースごとの調整は上書きで行う（`aijudge_grading.overrides`）。
     """
     world.register("teacher", Role.INSTRUCTOR)
     body = world.client("teacher").get(f"/manage/courses/{world.course.id}").text
 
-    assert "cs_intro_c.yaml" in body
-    assert "code_test_runner" in body, "プロファイルの内容が表示されていない"
-    # 編集の口が無いこと。
+    # 実効設定は見える（評価器の名前が並ぶ）。
+    assert "code_test_runner" in body
+    # 雛形そのものを書き換える口は無い。
     assert 'name="profile_text"' not in body
-    assert "この画面から変更できません" in body
+    assert "ここからは変えません" in body
 
 
 def test_there_is_no_route_that_writes_a_subject_profile(world: World) -> None:
@@ -692,7 +693,8 @@ def test_the_course_settings_page_no_longer_carries_the_tasks(world: World) -> N
 
     body = world.client("teacher").get(f"/manage/courses/{world.course.id}").text
     assert "成績の自動確定" in body
-    assert "受講登録" in body
+    # 採点設定は同じページに置く（別ページに分けない）。
+    assert "採点設定" in body
     assert 'name="statement"' not in body, "課題の追加フォームが残っている"
 
 
@@ -1319,8 +1321,6 @@ def test_the_candidate_page_takes_text_or_a_file(world: World) -> None:
     ).text
     assert 'name="text"' in body
     assert 'type="file"' in body
-    # deep link の作り方は画面に書いておく（本文を取りに行けないぶん）。
-    assert "Y001009010" in body
 
 
 def test_an_unreadable_attachment_says_why(world: World) -> None:
@@ -1412,4 +1412,189 @@ def test_the_basics_page_shows_the_reading_indicator(world: World) -> None:
     assert "読み取り中" in body
     assert 'type="file"' in body
     # 読み取りのボタンはファイル選択と同じ行に置く。
-    assert body.index('type="file"') < body.index("読み取って候補を出す")
+    assert body.index('type="file"') < body.index(">読み取り<")
+    # 読み取りと登録は別の操作。
+    assert ">登録<" in body
+
+
+def test_the_reading_indicator_starts_hidden(world: World) -> None:
+    """`display` を持つクラスに `hidden` を付けても消えない。
+
+    作者側の指定が利用者エージェントの `[hidden]{display:none}` に勝つので、
+    明示的に打ち消しておかないと「読み取り中」が出っぱなしになる。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    body = world.client("teacher").get(f"/manage/courses/{world.course.id}/basics").text
+    assert 'class="reading flash" hidden' in body
+    assert "[hidden]{display:none!important}" in body
+
+
+# --------------------------------------------------------------------------
+# 受講者（別ページ）
+# --------------------------------------------------------------------------
+
+
+def test_the_enrolments_have_their_own_page(world: World) -> None:
+    """受講 100 名規模。設定を 1 つ直しに来た教員に 100 行めくらせない。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    settings = client.get(f"/manage/courses/{world.course.id}").text
+    assert f"/manage/courses/{world.course.id}/enrolments" in settings
+
+    page = client.get(f"/manage/courses/{world.course.id}/enrolments").text
+    assert "受講登録" in page
+    # 龍大の認証を使うので、メールアドレスは扱わない。
+    assert "メールアドレス" not in page or "扱いません" in page
+
+
+def test_a_role_can_be_changed_afterwards(world: World) -> None:
+    world.register("teacher", Role.INSTRUCTOR)
+    student = world.register("s2400001", Role.LEARNER)
+    response = world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/enrolments/{student.user_id}/role",
+        data={"role": "assistant"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    with world.database.unit_of_work() as uow:
+        assert AuthService(uow.identity).role_in(world.course.id, student.user_id) is Role.ASSISTANT
+
+
+def test_an_instructor_cannot_change_their_own_role(world: World) -> None:
+    """学習者に落とすとコースが見えなくなり、戻す手段が無い。"""
+    teacher = world.register("teacher", Role.INSTRUCTOR)
+    response = world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/enrolments/{teacher.user_id}/role",
+        data={"role": "learner"},
+    )
+    assert response.status_code == 400
+
+
+def test_the_enrolments_can_be_filtered_by_prefix(world: World) -> None:
+    world.register("teacher", Role.INSTRUCTOR)
+    world.register("y239001", Role.LEARNER)
+    world.register("s2400001", Role.LEARNER)
+    client = world.client("teacher")
+    body = client.get(f"/manage/courses/{world.course.id}/enrolments?q=y23").text
+    assert "y239001" in body
+    assert "s2400001" not in body
+
+
+# --------------------------------------------------------------------------
+# 採点設定（コースごとの上書き）
+# --------------------------------------------------------------------------
+
+
+def test_grading_settings_are_scoped_to_the_course(world: World) -> None:
+    """**このコースにしか効かない。** だから教員が画面から変えてよい。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    other, _ = ensure_course(
+        world.database,
+        tenant_id=TENANT,
+        code="prog1",
+        title="プログラミング及び実習 I",
+        term="2025-後期",
+        subject_profile="cs_intro_c",
+        profiles_dir=PROFILES,
+    )
+    world.register("other_teacher", Role.INSTRUCTOR, other.id)
+
+    response = world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/grading",
+        data={"language": "python", "action": "save"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    with world.database.unit_of_work() as uow:
+        mine = uow.identity.get_course(world.course.id)
+        theirs = uow.identity.get_course(other.id)
+    assert mine.grading_overrides["evaluator_options"]["code_test_runner"]["language"] == "python"
+    # 同じ雛形を使う別のコースには効かない。
+    assert theirs.grading_overrides == {}
+
+
+def test_an_empty_field_leaves_the_template_alone(world: World) -> None:
+    """空欄は「雛形のまま」。0 として保存すると区別が付かなくなる。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/grading",
+        data={"language": "", "timeout_seconds": "", "action": "save"},
+    )
+    with world.database.unit_of_work() as uow:
+        course = uow.identity.get_course(world.course.id)
+    assert course.grading_overrides == {}
+
+
+def test_a_broken_setting_is_refused(world: World) -> None:
+    """保存時に起動時と同じ検査を通す。通らないものは入らない。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    response = world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/grading",
+        data={"timeout_seconds": "-5", "action": "save"},
+    )
+    assert response.status_code == 400
+
+
+def test_the_settings_page_offers_a_trial(world: World) -> None:
+    """`language` の取り違えは設定の検査では捕まらない。試す道具を置く。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    body = world.client("teacher").get(f"/manage/courses/{world.course.id}").text
+    assert "この設定で試す" in body
+    assert "このコースだけに効きます" in body
+
+
+def test_an_assistant_cannot_change_the_grading_settings(world: World) -> None:
+    world.register("ta", Role.ASSISTANT)
+    response = world.client("ta").post(
+        f"/manage/courses/{world.course.id}/grading", data={"language": "python"}
+    )
+    assert response.status_code == 403
+
+
+def test_the_grading_settings_explain_each_evaluator(world: World) -> None:
+    """名前だけでは何をするか分からない。説明は評価器が持つ（docstring）。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    body = world.client("teacher").get(f"/manage/courses/{world.course.id}").text
+    assert "コンパイルして実行し" in body
+    assert "ルーブリック観点を LLM に判定させる" in body
+
+
+def test_the_grading_settings_say_where_the_rubric_lives(world: World) -> None:
+    """ルーブリックの観点は課題ごと。ここには無い、と書いておく。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    body = world.client("teacher").get(f"/manage/courses/{world.course.id}").text
+    assert "読みやすさの重み" in body
+    assert "ここには観点の設定はありません" in body
+
+
+def test_the_compile_and_review_limits_can_be_set(world: World) -> None:
+    """数値計算の課題では実行もコンパイルも伸ばす。合否境界も科目で違う。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    response = world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/grading",
+        data={
+            "case_timeout_seconds": "30",
+            "compile_timeout_seconds": "60",
+            "samples": "5",
+            "boundary_score": "0.7",
+            "action": "save",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    with world.database.unit_of_work() as uow:
+        course = uow.identity.get_course(world.course.id)
+    runner = course.grading_overrides["evaluator_options"]["code_test_runner"]
+    assert runner["case_timeout_seconds"] == 30
+    assert runner["compile_timeout_seconds"] == 60
+    assert course.grading_overrides["evaluator_options"]["rubric_ai_judge"]["samples"] == 5
+    assert course.grading_overrides["review_policy"]["boundary_score"] == 0.7
+
+
+def test_a_ratio_outside_the_range_is_refused(world: World) -> None:
+    world.register("teacher", Role.INSTRUCTOR)
+    response = world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/grading",
+        data={"boundary_score": "1.5", "action": "save"},
+    )
+    assert response.status_code == 400

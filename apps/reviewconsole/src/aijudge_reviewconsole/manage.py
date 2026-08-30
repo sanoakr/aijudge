@@ -56,7 +56,10 @@ from aijudge_admin import (
     register_kc,
     restore_kc,
     retire_kc,
+    save_grading_settings,
     save_task,
+    template_of,
+    try_settings,
 )
 from aijudge_admin.drafting import TaskDrafter
 from aijudge_admin.roster import RosterError
@@ -66,6 +69,7 @@ from aijudge_admin.syllabus import (
     SyllabusError,
     SyllabusReader,
     read_document,
+    to_markdown,
 )
 from aijudge_authoring import TaskSpec
 from aijudge_authoring.drafting import Blueprint, Difficulty
@@ -74,13 +78,22 @@ from aijudge_core import (
     MIN_JUSTIFICATION_LENGTH,
     SUFFIX_GROUPS,
     Course,
+    EvaluatorKind,
     GradeWindow,
     Role,
     Task,
     normalize_suffixes,
 )
 from aijudge_core.ids import CourseId, TaskId, TaskVersionId, UserId, derived_id
-from aijudge_grading import load_profile
+from aijudge_eval_code_test_runner import LANGUAGES
+from aijudge_grading import (
+    LOCKED_KEYS,
+    EvaluatorRegistry,
+    OverrideError,
+    effective_profile,
+    load_profile,
+)
+from aijudge_grading.overrides import diff
 from aijudge_identity import AuthService, PermissionDenied, Principal
 
 from .overview import empty_unit, find_unit, load_units, unit_key
@@ -236,6 +249,8 @@ SAVED_MESSAGES: dict[str, str] = {
     "kc_retired": "知識要素を引退させました",
     "kc_restored": "引退を取り消しました",
     "basics": "基本情報を保存しました",
+    "role": "役割を変えました",
+    "grading": "採点設定を保存しました",
     "generated": "課題を生成しました。承認するまで出題されません",
 }
 
@@ -296,6 +311,92 @@ def _chosen_suffixes(raw: list[str], marker: str, course: Course) -> tuple[str, 
             status_code=400, detail="提出できるファイル形式を 1 つ以上選んでください"
         )
     return course.upload_suffixes or DEFAULT_UPLOAD_SUFFIXES
+
+
+def _collect_overrides(form) -> dict:
+    """画面から来た値を上書きの形にする。**空欄は上書きしない。**
+
+    空欄を 0 や空文字として保存すると、雛形に戻したいのか 0 にしたいのかが
+    区別できなくなる。空欄は「雛形のまま」である。
+    """
+    def value(name: str) -> str:
+        return str(form.get(name) or "").strip()
+
+    overrides: dict = {}
+
+    runner: dict = {}
+    if value("language"):
+        runner["language"] = value("language")
+    if value("case_timeout_seconds"):
+        runner["case_timeout_seconds"] = _positive_number(
+            value("case_timeout_seconds"), "テストケースの上限"
+        )
+    if value("compile_timeout_seconds"):
+        runner["compile_timeout_seconds"] = _positive_number(
+            value("compile_timeout_seconds"), "コンパイルの上限"
+        )
+    judge: dict = {}
+    if value("samples"):
+        judge["samples"] = int(_positive_number(value("samples"), "サンプル数"))
+    options = {}
+    if runner:
+        options["code_test_runner"] = runner
+    if judge:
+        options["rubric_ai_judge"] = judge
+    if options:
+        overrides["evaluator_options"] = options
+
+    if value("timeout_seconds"):
+        overrides["timeout_seconds"] = _positive_number(value("timeout_seconds"), "評価器の上限")
+
+    if value("blind_sample_rate"):
+        rate = _positive_number(value("blind_sample_rate"), "blind 抽出率", allow_zero=True)
+        if rate > 1:
+            raise HTTPException(status_code=400, detail="blind 抽出率は 0〜1 で指定してください")
+        overrides["measurement"] = {"blind_sample_rate": rate}
+
+    policy: dict = {}
+    for name, label in (
+        ("confidence_below", "確信度の水準"),
+        ("boundary_score", "合否の境界"),
+        ("boundary_margin", "境界の幅"),
+    ):
+        if value(name):
+            number = _positive_number(value(name), label, allow_zero=True)
+            if number > 1:
+                raise HTTPException(status_code=400, detail=f"{label}は 0〜1 で指定してください")
+            policy[name] = number
+    if policy:
+        overrides["review_policy"] = policy
+
+    for key, field in (("deterministic", "deterministic"), ("ai_evaluators", "ai_evaluators")):
+        chosen = [name for name in form.getlist(field) if name]
+        if chosen:
+            overrides[key] = chosen
+    return overrides
+
+
+def _evaluator_rows(registry, kind) -> list[dict[str, str]]:
+    """評価器の名前と 1 行説明。
+
+    **説明は評価器が持つ**（クラスの docstring の 1 行目）。画面が名前ごとの
+    表を持つと、評価器を足したときに説明だけ抜ける。
+    """
+    rows = []
+    for name in sorted(registry.ids_of_kind(kind)):
+        doc = (registry.get(name).__doc__ or "").strip()
+        rows.append({"name": name, "about": doc.splitlines()[0] if doc else ""})
+    return rows
+
+
+def _positive_number(raw: str, label: str, *, allow_zero: bool = False) -> float:
+    try:
+        value = float(raw)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"{label}の形式が不正です: {raw!r}") from None
+    if value < 0 or (value == 0 and not allow_zero):
+        raise HTTPException(status_code=400, detail=f"{label}は正の値にしてください")
+    return value
 
 
 def _parse_minutes(raw: str) -> int | None:
@@ -414,28 +515,45 @@ def register(templates) -> APIRouter:
 
     @router.get("/courses/{course_id}", response_class=HTMLResponse)
     def course_settings(request: Request, course_id: str, saved: str = "") -> Response:
-        """**科目全体**の設定 ── 自動確定・受講者・科目プロファイル。
+        """**コース全体**の設定 ── 基本情報・受講者・自動確定・提出形式・採点設定。
 
-        課題（締切・一括確定・追加）はここには出さない。回ごとのページに
-        分けてある（`unit_settings`）。1 枚に積むと、教員は「第 3 回の締切を
+        課題（日程・一括確定・追加）はここには出さない。問題セットのページに
+        分けてある（`unit_settings`）。1 枚に積むと、教員は「ex03 の締切を
         直す」ために縦に長い画面を目で探すことになる。
         """
         from .app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
+        return _course_page(request, me, course, saved=saved)
+
+    def _course_page(
+        request: Request,
+        me,
+        course,
+        *,
+        saved: str = "",
+        note: str | None = None,
+        trial=None,
+        values=None,
+    ) -> Response:
+        """コース全体の設定の画面。
+
+        採点設定もここに出す。**別のページに分けない** ── 雛形からの差分は
+        コースの設定の一部で、他の設定と行き来しながら決めるものだから。
+        """
         console = _console(request)
+        registry = EvaluatorRegistry().load_installed()
+        base = template_of(course, console.profiles_dir)
+        current = values if values is not None else course.grading_overrides
+        try:
+            applied = effective_profile(base, current, registry)
+        except OverrideError:
+            applied = base
 
         with console.database.unit_of_work() as uow:
-            enrollments = uow.identity.list_enrollments(course.id)
-            people = [
-                {"enrollment": enrollment, "user": uow.identity.get_user(enrollment.user_id)}
-                for enrollment in enrollments
-            ]
+            people_count = len(uow.identity.list_enrollments(course.id))
 
-        # 科目プロファイルは**表示だけ**。編集させない（モジュール docstring 参照）。
-        profile_path = console.profiles_dir / f"{course.subject_profile}.yaml"
-        profile_text = profile_path.read_text(encoding="utf-8") if profile_path.is_file() else None
         return templates.TemplateResponse(
             request,
             "manage_course.html",
@@ -443,14 +561,24 @@ def register(templates) -> APIRouter:
                 "me": me,
                 "course": course,
                 "section": {"label": "コース全体の設定", "href": f"/manage/courses/{course.id}"},
-                "saved": SAVED_MESSAGES.get(saved),
+                "saved": note or SAVED_MESSAGES.get(saved),
                 "saved_key": saved,
-                "people": sorted(people, key=lambda row: row["enrollment"].role.value),
-                "profile_text": profile_text,
-                "profile_path": profile_path.name,
+                "people_count": people_count,
                 "roles": [role.value for role in Role],
                 "suffix_groups": SUFFIX_GROUPS,
                 "course_suffixes": course.upload_suffixes or DEFAULT_UPLOAD_SUFFIXES,
+                # -- 採点設定 --
+                "base": base,
+                "profile": applied,
+                "overrides": current,
+                "changed": diff(base, current),
+                "locked": LOCKED_KEYS,
+                # インストール済みから選ばせる。**自由入力にしない** ── 存在しない
+                # 名前を書けると、その科目の採点が恒久的に失敗する。
+                "deterministic": _evaluator_rows(registry, EvaluatorKind.DETERMINISTIC),
+                "ai_evaluators": _evaluator_rows(registry, EvaluatorKind.AI),
+                "languages": sorted(LANGUAGES),
+                "trial": trial,
             },
         )
 
@@ -725,29 +853,47 @@ def register(templates) -> APIRouter:
                     "label": "コースの基本情報",
                     "href": f"/manage/courses/{course.id}/basics",
                 },
-                "example": SYLLABUS_EXAMPLE,
-                "proposal": None,
+                "title_value": course.title,
+                "description_value": course.description or "",
                 "saved": SAVED_MESSAGES.get(saved),
             },
         )
 
-    @router.post("/courses/{course_id}/basics", response_class=HTMLResponse)
+    @router.post("/courses/{course_id}/basics/read", response_class=HTMLResponse)
     async def read_basics(
         request: Request,
         course_id: str,
         text: Annotated[str, Form()] = "",
         upload: UploadFile | None = None,
     ) -> Response:
-        """シラバスからコースの基本情報の候補を出す。**保存はしない。**"""
+        """シラバスを読んで、本文を Markdown に整えて欄に入れる。**保存はしない。**
+
+        読み取りと登録を分ける ── 出てきたものを教員が確かめてから保存する
+        （モデルが整えた文であって、シラバスそのものではない）。
+        """
         from .app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
-        console = _console(request)
 
         payload = await upload.read() if upload is not None and upload.filename else None
         body = _read_body(text, upload, payload)
-        proposal, _namespaces, _existing = _propose(console, course, body)
+        if len(body) < 40:
+            raise HTTPException(
+                status_code=400,
+                detail="PDF を選ぶか、本文を貼り付けてください（40 文字以上）",
+            )
+        note = "読み取りました"
+        try:
+            basics = SyllabusReader().read_basics(body)
+            markdown = basics.markdown.strip() or body
+            title = basics.title.strip()
+        except Exception:
+            # **モデルが使えなくても読み取りは終わらせる。** 体裁が
+            # 整わないだけで、本文は取れている（規則での整形に落とす）。
+            markdown, title = to_markdown(body), ""
+            note = "読み取りました（本文の整形は簡易版です — S6 に繋がりませんでした）"
+
         return templates.TemplateResponse(
             request,
             "manage_basics.html",
@@ -758,9 +904,11 @@ def register(templates) -> APIRouter:
                     "label": "コースの基本情報",
                     "href": f"/manage/courses/{course.id}/basics",
                 },
-                "example": SYLLABUS_EXAMPLE,
-                "proposal": proposal,
-                "pasted": body,
+                "title_value": title or course.title,
+                "description_value": markdown,
+                # 読み取りの結果は読み取りのボタンの隣に出す。**登録の合図とは
+                # 別にする** ── どちらの操作が効いたのか分からなくなる。
+                "read_note": note,
                 "saved": None,
             },
         )
@@ -1343,6 +1491,84 @@ def register(templates) -> APIRouter:
         console.last_task = (str(course.id), saved)
         return RedirectResponse(_unit_href(course_id, saved.task), status_code=303)
 
+    @router.get("/courses/{course_id}/enrolments", response_class=HTMLResponse)
+    def enrolments(
+        request: Request, course_id: str, q: str = "", saved: str = ""
+    ) -> Response:
+        """受講者の一覧。**コースの設定とは別の画面にする。**
+
+        受講 100 名規模になると、設定を 1 つ直しに来た教員が毎回 100 行を
+        めくることになる。絞り込みは前方一致 ── 選択肢に並べても選べない
+        （提出の一覧と同じ理由）。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+
+        prefix = q.strip().lower()
+        with console.database.unit_of_work() as uow:
+            people = []
+            for enrollment in uow.identity.list_enrollments(course.id):
+                user = uow.identity.get_user(enrollment.user_id)
+                login = getattr(user, "login", "") or str(enrollment.user_id)
+                if prefix and not login.lower().startswith(prefix):
+                    continue
+                people.append({"enrollment": enrollment, "user": user, "login": login})
+        people.sort(key=lambda row: (row["enrollment"].role.value, row["login"]))
+        return templates.TemplateResponse(
+            request,
+            "manage_enrolments.html",
+            {
+                "me": me,
+                "course": course,
+                "section": {
+                    "label": "受講者",
+                    "href": f"/manage/courses/{course.id}/enrolments",
+                },
+                "people": people,
+                "q": q.strip(),
+                "roles": [role.value for role in Role],
+                "saved": SAVED_MESSAGES.get(saved),
+                "saved_key": saved,
+            },
+        )
+
+    @router.post("/courses/{course_id}/enrolments/{user_id}/role")
+    def set_role(
+        request: Request,
+        course_id: str,
+        user_id: str,
+        role: Annotated[str, Form()] = "",
+    ) -> Response:
+        """受講者の役割を変える。**自分の役割は変えられない。**
+
+        自分を学習者に落とすとそのコースが見えなくなり、戻す手段が無い
+        （受講の取り消しと同じ理由）。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        _require_instructor(request, me, CourseId(course_id))
+        if UserId(user_id) == me.user_id:
+            raise HTTPException(status_code=400, detail="自分の役割は変えられません")
+        try:
+            new_role = Role(role)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"役割が不正です: {role!r}") from None
+
+        console = _console(request)
+        with console.database.unit_of_work() as uow:
+            existing = uow.identity.find_enrollment(CourseId(course_id), UserId(user_id))
+            if existing is None:
+                raise HTTPException(status_code=404, detail="この受講者は登録されていません")
+            uow.identity.save_enrollment(existing.model_copy(update={"role": new_role}))
+            uow.commit()
+        return RedirectResponse(
+            f"/manage/courses/{course_id}/enrolments?saved=role", status_code=303
+        )
+
     @router.post("/courses/{course_id}/enrolments")
     def add_enrolments(
         request: Request,
@@ -1409,7 +1635,55 @@ def register(templates) -> APIRouter:
             uow.identity.remove_enrollment(CourseId(course_id), UserId(user_id))
             uow.commit()
         return RedirectResponse(
-            f"/manage/courses/{course_id}?saved=removed#enrolments", status_code=303
+            f"/manage/courses/{course_id}/enrolments?saved=removed", status_code=303
+        )
+
+    # ------------------------------------------------------------------
+    # 採点設定（コースごとの上書き）
+    # ------------------------------------------------------------------
+
+    @router.post("/courses/{course_id}/grading", response_class=HTMLResponse)
+    async def save_grading(request: Request, course_id: str) -> Response:
+        """保存、または試走。**試走は保存しない。**
+
+        項目が多いので、フォーム全体を読む（宣言した引数では追いつかない）。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+        registry = EvaluatorRegistry().load_installed()
+
+        form = await request.form()
+        overrides = _collect_overrides(form)
+        action = str(form.get("action") or "save")
+
+        if action == "try":
+            try:
+                trial = try_settings(
+                    console.database,
+                    course,
+                    overrides,
+                    profiles_dir=console.profiles_dir,
+                    registry=registry,
+                )
+            except AdminError as exc:
+                return _course_page(request, me, course, note=str(exc), values=overrides)
+            return _course_page(request, me, course, trial=trial, values=overrides)
+
+        try:
+            save_grading_settings(
+                console.database,
+                course,
+                overrides,
+                profiles_dir=console.profiles_dir,
+                registry=registry,
+            )
+        except AdminError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from None
+        return RedirectResponse(
+            f"/manage/courses/{course_id}?saved=grading#grading", status_code=303
         )
 
     # ------------------------------------------------------------------

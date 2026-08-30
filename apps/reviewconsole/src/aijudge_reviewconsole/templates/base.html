@@ -22,6 +22,7 @@
   }
 }
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 body{margin:0;background:var(--paper);color:var(--ink);
   font-family:"Hiragino Sans","Noto Sans JP",system-ui,sans-serif;line-height:1.75}
 main{max-width:1100px;margin:0 auto;padding:32px 24px 80px}
@@ -151,8 +152,13 @@ header.top button{background:none;color:var(--muted);border:1px solid var(--line
 .checks label .mono{white-space:nowrap}
 /* 性質ごとに 1 行。行の頭に何の並びかを書き、拡張子はその右に並べる。
    **チェックと拡張子は 1 つの塊**として扱い、間で折り返させない。 */
-.checkrow{display:flex;flex-wrap:wrap;align-items:center;gap:4px 14px;margin-bottom:8px}
+.checkrow{display:flex;flex-wrap:wrap;align-items:center;gap:2px 14px;margin-bottom:2px}
 .checkrow .rowlabel{flex:0 0 8.5em}
+/* 評価器の説明。チェックの下に並べる（名前だけでは何をするか分からない）。 */
+.evaluators{margin:6px 0 0;padding-left:1.2em}
+.evaluators li{margin:2px 0}
+h3{font-size:.95rem;margin:20px 0 8px;color:var(--ink)}
+h3:first-child{margin-top:0}
 .checkrow .checks{flex:1;gap:4px 18px}
 .checks input[type=checkbox]{width:auto;margin:0;flex:none}
 /* 一覧の直下に置く 1 行の追加フォーム。見出しを立てるほどの操作ではない。 */
@@ -199,8 +205,12 @@ h2[id]{scroll-margin-top:16px}
 .hist .fill{width:100%;background:var(--verd);border-radius:2px 2px 0 0;min-height:2px}
 .hist .n{line-height:1}
 .hist .x{color:var(--muted)}
-.row-form select{font:inherit;font-size:.9rem;padding:8px 10px;border-radius:3px;
-  border:1px solid var(--line);background:var(--surface);color:var(--ink)}
+/* 1 行に並ぶ入力は**高さを揃える**。select と input で既定の余白が違い、
+   並べると段差になる。 */
+.row-form input:not([type=checkbox]):not([type=radio]),.row-form select{
+  font:inherit;font-size:.9rem;padding:8px 10px;border-radius:3px;
+  border:1px solid var(--line);background:var(--surface);color:var(--ink);
+  box-sizing:border-box;line-height:1.4;height:2.45rem}
 .check{display:inline-flex;align-items:center;gap:6px;font-size:.9rem;padding:8px 0}
 .flash{display:inline-flex;align-items:center;gap:6px;font-size:.82rem;color:var(--verd);
   background:var(--verd-soft);border:1px solid var(--verd);border-radius:99px;padding:4px 12px}

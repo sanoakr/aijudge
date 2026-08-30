@@ -43,9 +43,16 @@
     <span><label for="f-learner">学習者（前方一致）</label>
       {# **前方一致。** 受講 91 名の学籍番号を選択肢に並べても選べない。
          打っている途中で送らないよう、少し待ってから送る。 #}
+      {# **打つたびに送らない。** 送ると読み直しで入力欄が作り直され、
+         往復のあいだに打った字が捨てられる（焦点を戻しても同じで、1 文字
+         ごとに手が止まる）。`change` は Enter と欄を離れたときに出るので、
+         それを確定の合図にする。
+
+         それでも読み直しは起きるので、焦点とキャレットは戻す。 #}
       <input id="f-learner" name="learner" value="{{ filters.learner }}" placeholder="y2399"
-             style="max-width:9rem" autocomplete="off"
-             oninput="clearTimeout(window._q); window._q = setTimeout(() =&gt; this.form.requestSubmit(), 400)"></span>
+             style="max-width:9rem" autocomplete="off" enterkeyhint="search"
+             {{ 'autofocus' if filters.learner }}
+             onfocus="this.setSelectionRange(this.value.length, this.value.length)"></span>
     <span><label for="f-role">役割</label>
       <select id="f-role" name="role">
         <option value="">すべて</option>
@@ -63,7 +70,8 @@
     <span><label for="f-adopted">採用提出</label>
       <label class="check"><input id="f-adopted" type="checkbox" name="adopted" value="1"
         {{ 'checked' if filters.adopted }}> 最高得点だけ</label></span>
-    {# JavaScript が無い環境のために残す。ある環境では出さない。 #}
+    {# 送信ボタンは置かない。選ぶ欄はその場で、打つ欄は Enter か
+       欄を離れたときに反映される。JavaScript が無い環境のためだけに残す。 #}
     <noscript><button type="submit">絞り込む</button></noscript>
   </div>
   <p class="desc" style="margin:10px 0 0">

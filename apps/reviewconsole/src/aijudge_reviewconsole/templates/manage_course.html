@@ -18,7 +18,17 @@
   <p class="desc" style="margin:0 0 10px">概要・到達目標は未入力です。</p>
   {% endif %}
   <div class="actions">
-    <a href="/manage/courses/{{ course.id }}/basics">基本情報を入力する（シラバスから読み取れます） →</a>
+    <a href="/manage/courses/{{ course.id }}/basics">基本情報を入力する（ファイルから読み取れます） →</a>
+  </div>
+</div>
+
+<h2 id="enrolments">受講者</h2>
+<div class="card">
+  <p class="desc" style="margin:0 0 10px">
+    {{ people_count }} 名が登録されています。役割の変更と受講登録は受講者のページで行います。
+  </p>
+  <div class="actions">
+    <a href="/manage/courses/{{ course.id }}/enrolments">受講者を見る →</a>
   </div>
 </div>
 
@@ -51,89 +61,183 @@
    一度決めておけば個々の課題では触らずに済み、レポート 1 問だけ PDF を
    許す、といった例外は課題側で足せる。 #}
 <form method="post" action="/manage/courses/{{ course.id }}/upload-formats" class="card">
-  <div class="inline-field">
-    <span class="body">
-      {# **性質で行を分ける。** コードとテキストは本文がそのまま採点器に
-         渡せるが、PDF と画像は読めず、採点の前に変換の段が要る。
-         並べて出すと「1 つ増やすだけ」のつもりで前提が変わる。 #}
-      {% for group, suffixes in suffix_groups %}
-      <div class="checkrow">
-        <span class="desc rowlabel">{{ group }}</span>
-        <span class="checks">
-          {% for shown, values in suffixes %}
-          <label><input type="checkbox" name="suffix" value="{{ values | join(',') }}"
-            {{ 'checked' if values | select('in', course_suffixes) | list }}>
-            <span class="mono">{{ shown }}</span></label>
-          {% endfor %}
-        </span>
-      </div>
-      {% endfor %}
-    </span>
-    {% if saved_key == 'formats' %}<span class="flash">{{ saved }}</span>{% endif %}
-    <button type="submit">保存</button>
+  {# **性質で行を分ける。** コードとテキストは本文がそのまま採点器に渡せるが、
+     PDF と画像は読めず、採点の前に変換の段が要る。並べて出すと「1 つ増やす
+     だけ」のつもりで前提が変わる。
+
+     2 行あるのでボタンは下端の右（1 行に収まらない入力の扱い・base.html）。 #}
+  <div class="field">
+    {% for group, suffixes in suffix_groups %}
+    <div class="checkrow">
+      <span class="desc rowlabel">{{ group }}</span>
+      <span class="checks">
+        {% for shown, values in suffixes %}
+        <label><input type="checkbox" name="suffix" value="{{ values | join(',') }}"
+          {{ 'checked' if values | select('in', course_suffixes) | list }}>
+          <span class="mono">{{ shown }}</span></label>
+        {% endfor %}
+      </span>
+    </div>
+    {% endfor %}
   </div>
-  <p class="desc" style="margin:8px 0 0">
+  <p class="desc">
     コースの既定です（課題ごとの指定が上書きします）。
     PDF・画像は<strong>本文が直接読めない</strong>ので、レポートや手書き答案の課題でだけ。
   </p>
+  <div class="actions">
+    {% if saved_key == 'formats' %}<span class="flash">{{ saved }}</span>{% endif %}
+    <button type="submit">保存</button>
+  </div>
 </form>
 
-<h2 id="enrolments">受講者（{{ people | length }} 名）</h2>
-<table>
-  <thead><tr><th>ID</th><th>氏名</th><th>役割</th><th></th></tr></thead>
-  <tbody>
-  {% for row in people %}
-    <tr>
-      <td class="mono">{{ row.user.login if row.user else row.enrollment.user_id }}</td>
-      <td>{{ row.user.display_name if row.user else '—' }}</td>
-      <td>{{ row.enrollment.role.value }}</td>
-      <td>
-        {% if row.enrollment.user_id != me.user_id %}
-        <form method="post"
-              action="/manage/courses/{{ course.id }}/enrolments/{{ row.enrollment.user_id }}/remove"
-              style="margin:0">
-          <button type="submit">受講を取り消す</button>
-        </form>
-        {% endif %}
-      </td>
-    </tr>
-  {% else %}
-    <tr><td colspan="4" class="desc">受講者がいません。</td></tr>
-  {% endfor %}
-  </tbody>
-</table>
+<h2 id="grading">採点設定</h2>
+{# **このコースにしか効かない。** 同じ雛形を使う他のコースには影響しないので、
+   教員が変えてよい（`aijudge_grading.overrides`）。 #}
+<div class="note">
+  <strong>ここでの変更はこのコースだけに効きます。</strong>
+  雛形（<span class="mono">{{ course.subject_profile }}</span>）は共有の既定で、ここからは変えません。
+  空欄の項目は雛形のままです。
+  {% if changed %}<br>いま雛形から変えているもの:
+    {% for key in changed %}<span class="mono">{{ key }}</span>{% if not loop.last %}, {% endif %}{% endfor %}
+  {% else %}<br>いまは雛形のままです。{% endif %}
+</div>
 
-<h2>受講登録</h2>
-<form method="post" action="/manage/courses/{{ course.id }}/enrolments" class="card">
-  <div class="field">
-    <label for="roster">名簿（1 行 1 名。学籍番号だけ、または <code>学籍番号 メールアドレス 役割</code>）</label>
-    <textarea id="roster" name="roster" rows="4" required placeholder="y239999&#10;y239998 y239998@mail.ryukoku.ac.jp"></textarea>
-  </div>
-  <div class="field">
-    <label for="role">役割が書かれていない行の既定</label>
-    <select id="role" name="role">
-      {% for name in roles %}<option value="{{ name }}">{{ name }}</option>{% endfor %}
-    </select>
+{% if trial %}
+{# 試走の結果。**設定の取り違えはここでしか現れない** ── `language` を
+   間違えても設定としては正しく、結果は「全員 0 点」になる。 #}
+<div class="note {{ 'warn' if trial.looks_wrong }}">
+  <strong>試走: {{ trial.message }}</strong>
+  {% if trial.looks_wrong %}
+    <br>参照解答が満点になりません。<strong>言語の指定を確かめてください</strong>
+    （課題そのものが誤っている可能性もあります）。
+  {% else %}
+    <br>参照解答が期待どおり通りました。
+  {% endif %}
+  <br><span class="desc">試走は保存されません（採点の履歴には残りません）。</span>
+</div>
+{% endif %}
+
+<form method="post" action="/manage/courses/{{ course.id }}/grading" class="card">
+  <h3>提出プログラムの実行</h3>
+  <div class="field row-form">
+    <span><label for="language">言語</label>
+      <select id="language" name="language">
+        <option value="">雛形のまま（{{ base.evaluator_options.get('code_test_runner', {}).get('language', 'c') }}）</option>
+        {% for lang in languages %}
+        <option value="{{ lang }}"
+          {{ 'selected' if overrides.get('evaluator_options', {}).get('code_test_runner', {}).get('language') == lang }}>{{ lang }}</option>
+        {% endfor %}
+      </select></span>
+    <span><label for="case_timeout_seconds">テストケース 1 件の実行上限（秒）</label>
+      <input id="case_timeout_seconds" name="case_timeout_seconds" type="number" step="0.5" min="0.5"
+             style="max-width:8rem"
+             placeholder="{{ base.evaluator_options.get('code_test_runner', {}).get('case_timeout_seconds', 2.0) }}"
+             value="{{ overrides.get('evaluator_options', {}).get('code_test_runner', {}).get('case_timeout_seconds', '') }}"></span>
+    <span><label for="compile_timeout_seconds">コンパイルの上限（秒）</label>
+      <input id="compile_timeout_seconds" name="compile_timeout_seconds" type="number" step="1" min="1"
+             style="max-width:8rem"
+             placeholder="{{ base.evaluator_options.get('code_test_runner', {}).get('compile_timeout_seconds', 30.0) }}"
+             value="{{ overrides.get('evaluator_options', {}).get('code_test_runner', {}).get('compile_timeout_seconds', '') }}"></span>
   </div>
   <p class="desc">
-    ログインは <code>@mail.ryukoku.ac.jp</code> の Google アカウントで行います。
-    パスワードはこの画面では扱いません。
+    <strong>入門課題なら 2 秒で足ります。数値計算の課題では上げてください。</strong>
+    メモリ（512 MB）・プロセス数・出力量の上限は評価器に固定してあり、ここでは変えられません
+    ── 提出物 1 プロセスに与える資源で、緩めるとホストごと巻き込まれます。
   </p>
+
+  <h3>AI の判定</h3>
+  <div class="field row-form">
+    <span><label for="samples">自己一貫性のサンプル数</label>
+      <input id="samples" name="samples" type="number" step="1" min="1" max="9" style="max-width:8rem"
+             placeholder="{{ base.evaluator_options.get('rubric_ai_judge', {}).get('samples', 3) }}"
+             value="{{ overrides.get('evaluator_options', {}).get('rubric_ai_judge', {}).get('samples', '') }}"></span>
+    <span><label for="timeout_seconds">評価器 1 回の上限（秒）</label>
+      <input id="timeout_seconds" name="timeout_seconds" type="number" step="1" min="1"
+             style="max-width:8rem" placeholder="{{ base.timeout_seconds }}"
+             value="{{ overrides.get('timeout_seconds', '') }}"></span>
+  </div>
+  <p class="desc">
+    同じ問いを何回か引いて、判定が割れるかどうかで確信度を測ります。多いほど確信度は信用できますが、その分遅くなります。
+    <strong>評価器 1 回の上限はモデルの応答待ちを含みます</strong>（テストケースの実行上限とは別物です）。
+    <br><strong>何を判定させるか（ルーブリックの観点）は課題ごとに決まります。</strong>
+    問題セットのページで課題を開き、「問題文・提出形式を直す」の<strong>読みやすさの重み</strong>で変えられます
+    （0 にすると AI 評価器は走りません）。ここには観点の設定はありません。
+  </p>
+
+  <h3>人が確認する条件</h3>
+  <div class="field row-form">
+    <span><label for="confidence_below">確信度がこれ未満なら人が見る</label>
+      <input id="confidence_below" name="confidence_below" type="number" step="0.05" min="0" max="1"
+             style="max-width:8rem" placeholder="{{ base.review_policy.confidence_below }}"
+             value="{{ overrides.get('review_policy', {}).get('confidence_below', '') }}"></span>
+    <span><label for="boundary_score">合否の境界</label>
+      <input id="boundary_score" name="boundary_score" type="number" step="0.05" min="0" max="1"
+             style="max-width:8rem" placeholder="{{ base.review_policy.boundary_score }}"
+             value="{{ overrides.get('review_policy', {}).get('boundary_score', '') }}"></span>
+    <span><label for="boundary_margin">境界の前後この幅は人が見る</label>
+      <input id="boundary_margin" name="boundary_margin" type="number" step="0.01" min="0" max="1"
+             style="max-width:8rem" placeholder="{{ base.review_policy.boundary_margin }}"
+             value="{{ overrides.get('review_policy', {}).get('boundary_margin', '') }}"></span>
+  </div>
+  <p class="desc">
+    合否の境が 0.6、幅が 0.05 なら、55〜65% の提出は自動確定せず教員の確認に回ります。
+    確信度の水準を上げるほど、人が見る件数が増えます。
+  </p>
+
+  <h3>測定</h3>
+  <div class="inline-field">
+    <span class="body">
+      <label for="blind_sample_rate">blind 採点に回す割合（0〜1）</label>
+      <input id="blind_sample_rate" name="blind_sample_rate" type="number" step="0.01" min="0" max="1"
+             style="max-width:8rem" placeholder="{{ base.measurement.blind_sample_rate }}"
+             value="{{ overrides.get('measurement', {}).get('blind_sample_rate', '') }}">
+    </span>
+  </div>
+  <p class="desc" style="margin:10px 0 0">
+    AI を見る前に教員が段階を付ける提出の割合です。一致度の測定にだけ使い、採点そのものは変わりません。
+    0 にすると集めなくなります。
+  </p>
+
+  <h3>使う評価器</h3>
+  {# **インストール済みから選ぶ。** 自由入力にすると、存在しない名前で
+     その科目の採点が恒久的に失敗する。説明は評価器が持つ。 #}
+  <div class="field">
+    <div class="checkrow">
+      <span class="desc rowlabel">決定的</span>
+      <span class="checks">
+        {% for row in deterministic %}
+        <label title="{{ row.about }}"><input type="checkbox" name="deterministic" value="{{ row.name }}"
+          {{ 'checked' if row.name in profile.deterministic }}> <span class="mono">{{ row.name }}</span></label>
+        {% endfor %}
+      </span>
+    </div>
+    <div class="checkrow">
+      <span class="desc rowlabel">AI</span>
+      <span class="checks">
+        {% for row in ai_evaluators %}
+        <label title="{{ row.about }}"><input type="checkbox" name="ai_evaluators" value="{{ row.name }}"
+          {{ 'checked' if row.name in profile.ai_evaluators }}> <span class="mono">{{ row.name }}</span></label>
+        {% endfor %}
+      </span>
+    </div>
+  </div>
+  <ul class="desc evaluators">
+    {% for row in deterministic + ai_evaluators %}
+    <li><span class="mono">{{ row.name }}</span> — {{ row.about or '説明がありません' }}</li>
+    {% endfor %}
+  </ul>
+  <p class="desc">
+    決定的評価が先で、そこで確定した観点は AI に問い合わせません（設計原則 P3）。
+    <strong>外した評価器が担当していた観点は未採点になります</strong> — 総合点は伏せられ、
+    教員の確認待ちになります（設計原則 P2）。
+    ここで変えられないもの:
+    {% for key, why in locked.items() %}<br><span class="mono">{{ key }}</span> — {{ why }}{% endfor %}
+  </p>
+
   <div class="actions">
-    {% if saved_key in ('enrolled', 'removed') %}<span class="flash">{{ saved }}</span>{% endif %}
-    <button type="submit">登録する</button>
+    {% if saved_key == 'grading' %}<span class="flash">{{ saved }}</span>{% endif %}
+    <button type="submit" name="action" value="try">この設定で試す</button>
+    <button type="submit" name="action" value="save">保存</button>
   </div>
 </form>
-
-<h2>科目プロファイル <span class="mono desc">{{ profile_path }}</span></h2>
-<div class="note">
-  採点の設定は<strong>この画面から変更できません</strong>。評価器の指名と
-  タイムアウトを持つ設定で、ブラウザから壊せるようにすると 1 人の操作で
-  全員の採点が止まります。コードと同じ扱いでレビューを通します。
-</div>
-{% if profile_text %}
-<pre class="code">{{ profile_text }}</pre>
-{% else %}
-<p class="desc">プロファイルが見つかりません（{{ profile_path }}）。</p>
-{% endif %}
 {% endblock %}

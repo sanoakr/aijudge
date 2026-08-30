@@ -883,11 +883,35 @@ def test_a_task_outside_the_chosen_set_is_dropped(world: World) -> None:
     assert "条件に合う提出がありません" in body
 
 
-def test_the_filters_do_not_need_a_button(world: World) -> None:
-    """絞り込みは見比べながら動かすもの。1 回ごとに押させると手が止まる。"""
+def test_the_choice_filters_apply_without_a_button(world: World) -> None:
+    """選ぶ欄は見比べながら動かすもの。1 回ごとに押させると手が止まる。"""
     world.register("instructor", role=Role.INSTRUCTOR)
     world.login("instructor")
     body = world.client.get(f"/courses/{COURSE}/submissions").text
     assert "requestSubmit()" in body
-    # JavaScript が無い環境のための送信ボタンは残す。
-    assert "<noscript>" in body
+
+
+def test_the_learner_box_is_not_submitted_per_keystroke(world: World) -> None:
+    """打つたびに送ると、読み直しの往復で打った字が捨てられる。
+
+    焦点を戻しても同じで、1 文字ごとに手が止まる。この欄だけは確定して
+    から送る（Enter か絞り込むボタン）。
+    """
+    world.register("instructor", role=Role.INSTRUCTOR)
+    world.login("instructor")
+    body = world.client.get(f"/courses/{COURSE}/submissions").text
+    assert "setTimeout" not in body, "打つたびに送っている"
+    # 確定は Enter か欄を離れたとき（`change`）。送信ボタンは置かない。
+    assert "onchange=" in body
+    assert body.count(">絞り込む<") == 1, "JavaScript 無しのための 1 つだけ"
+
+
+def test_the_learner_box_keeps_the_focus(world: World) -> None:
+    """読み直すたびに入力欄は作り直される。焦点を戻さないと続きが打てない。"""
+    world.register("instructor", role=Role.INSTRUCTOR)
+    world.login("instructor")
+    body = world.client.get(f"/courses/{COURSE}/submissions?learner=y23").text
+    assert "autofocus" in body
+    assert "setSelectionRange" in body
+    # 何も入っていないときは焦点を奪わない。
+    assert "autofocus" not in world.client.get(f"/courses/{COURSE}/submissions").text

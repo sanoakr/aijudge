@@ -4,36 +4,45 @@
 <h1>コースの基本情報</h1>
 <p class="crumb">{{ course.title }}・{{ course.code }} / {{ course.term }}</p>
 
-{% if saved %}<div class="note saved">{{ saved }}</div>{% endif %}
+{# **読み取りと登録を分ける。** 出てきたのはモデルが整えた文であって
+   シラバスそのものではないので、教員が確かめてから保存する。 #}
+<h2>ファイルから読み取る</h2>
+<form method="post" action="/manage/courses/{{ course.id }}/basics/read"
+      enctype="multipart/form-data" class="card"
+      onsubmit="this.querySelector('.reading').hidden = false; this.querySelector('button').disabled = true">
+  <div class="inline-field">
+    <span class="body">
+      <label for="upload">PDF・DOCX・テキストを選ぶ</label>
+      <input id="upload" name="upload" type="file" accept=".pdf,.docx,.txt,.md">
+    </span>
+    <span class="reading flash" hidden>読み取り中…</span>
+    {% if read_note %}<span class="flash">{{ read_note }}</span>{% endif %}
+    <button type="submit">読み取り</button>
+  </div>
+  <p class="desc" style="margin:10px 0 0">
+    読み取った内容は下の本文に Markdown で入ります（体裁を整えるだけで、中身は書き換えません）。
+    <strong>スキャン画像の PDF は読めません。</strong>
+  </p>
+</form>
 
-{% with action = '/manage/courses/' ~ course.id ~ '/basics', action_label = '読み取って候補を出す' %}
-  {% include "_document_input.html" %}
-{% endwith %}
-
-{% if proposal %}
-<h2>読み取った基本情報</h2>
-{# **そのまま登録しない。** コースコードと学期はコースの同一性
-   （テナント・コード・学期）で、変えると別のコースになる。ここでは
-   照合のために出すだけ。 #}
+<h2>基本情報</h2>
 <form method="post" action="/manage/courses/{{ course.id }}/basics/apply" class="card">
   <div class="field">
     <label for="title">コース名</label>
-    <input id="title" name="title" value="{{ proposal.course.title or course.title }}">
+    <input id="title" name="title" value="{{ title_value }}">
   </div>
   <div class="field">
-    <label for="description">概要・到達目標（Markdown）</label>
-    <textarea id="description" name="description" rows="10"
-      >{{ proposal.course.description or course.description or '' }}</textarea>
+    <label for="description">シラバスの本文（概要・到達目標・授業計画。Markdown）</label>
+    <textarea id="description" name="description" rows="18">{{ description_value }}</textarea>
   </div>
   <p class="desc">
-    読み取ったコードは <span class="mono">{{ proposal.course.code or '—' }}</span>、
-    学期は <span class="mono">{{ proposal.course.term or '—' }}</span> です
-    （現在は <span class="mono">{{ course.code }}</span> / <span class="mono">{{ course.term }}</span>）。
-    <strong>コードと学期はここでは変えられません</strong> — この 2 つがコースの同一性で、
-    変えると別のコースになります。新しいコースを作るなら
-    <a href="/">担当コース</a>の「コースを追加する」に入れてください。
+    <strong>コードと学期はここでは変えられません</strong>
+    （<span class="mono">{{ course.code }}</span> / <span class="mono">{{ course.term }}</span>）。
+    この 2 つがコースの同一性で、変えると別のコースになります。
   </p>
-  <div class="actions"><button type="submit">基本情報を保存する</button></div>
+  <div class="actions">
+    {% if saved %}<span class="flash">{{ saved }}</span>{% endif %}
+    <button type="submit">登録</button>
+  </div>
 </form>
-{% endif %}
 {% endblock %}
