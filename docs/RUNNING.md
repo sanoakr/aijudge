@@ -23,9 +23,38 @@ docker compose up -d                    # PostgreSQL + MinIO
 set -gx AIJUDGE_DATABASE_URL postgresql+psycopg://aijudge:aijudge@localhost:5432/aijudge
 
 uv sync --extra dev
-uv run aijudge-web --create-schema      # 初回だけスキーマを作る
+uv run alembic upgrade head             # スキーマを作る・更新する
 uv run aijudge-worker
 uv run aijudge-review
+```
+
+### スキーマの更新
+
+**運用中の DB は `alembic upgrade head` で更新する。** `--create-schema`
+（`create_all`）は**無いテーブルを作るだけで、既存テーブルに列を足さない**
+ので、運用に入ったあとは使えない。列が永久に作られず、その表を読む全ての
+クエリが落ちる（実際に起きた・#24）。
+
+```fish
+uv run alembic current                  # いまどの版か
+uv run alembic upgrade head             # 未適用の版を順に当てる
+uv run alembic history                  # 版の並び
+```
+
+模型（`packages/persistence/.../schema.py`）を変えたら、**必ず版を足す。**
+
+```fish
+uv run alembic revision --autogenerate -m "何を変えたか"
+```
+
+書き忘れは CI が落として教える（`packages/persistence/tests/test_migrations.py`
+が、移行だけで作った形とモデルの形を突き合わせる）。
+
+**既にテーブルがある DB を移行の管理下に入れる**ときは、作り直さずに
+「適用済み」と刻む。
+
+```fish
+uv run alembic stamp head
 ```
 
 `AIJUDGE_DATABASE_URL` を設定しない場合、既定は同じ PostgreSQL の URL。
