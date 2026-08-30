@@ -42,6 +42,7 @@ from aijudge_admin import allowed_namespaces, list_for_namespaces, pending_count
 from aijudge_admin.justification import JustificationWriter
 from aijudge_authoring import render_statement
 from aijudge_core import (
+    HUMAN_SCORED,
     MIN_JUSTIFICATION_LENGTH,
     BlindMark,
     Course,
@@ -88,6 +89,9 @@ from .submissions import (
 )
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+# 「人が採点する」を表す評価器の名前。**画面に値を書き写さない** ── 書き写すと、
+# 模型の側で変えたときに画面だけが古い値を送り続ける。
+TEMPLATES.env.globals["HUMAN_SCORED"] = HUMAN_SCORED
 
 SESSION_COOKIE = "aijudge_review_session"
 DEFAULT_TENANT = "ten_" + "0" * 32
@@ -1019,6 +1023,10 @@ def _comparison_rows(
                 "agrees": None if (human is None or score is None) else human == score.level,
                 "score": score,
                 "unscored": criterion.id in run.unscored_criteria,
+                # **人が採点する観点は「採点できず」ではない。** 評価器を
+                # 割り当てていないので、機械の判定が無いのが正しい状態で、
+                # 教員が段階を入れて初めて埋まる（Issue #7）。
+                "awaiting_human": criterion.id in run.awaiting_human,
             }
         )
     return rows

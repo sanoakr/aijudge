@@ -86,6 +86,7 @@ from .submission import (
     can_transition,
 )
 from .task import (
+    HUMAN_SCORED,
     Provenance,
     ReviewState,
     RubricCriterion,
@@ -110,6 +111,7 @@ __all__ = [
     "AUTOMATIC_JUSTIFICATION",
     "DEFAULT_UPLOAD_SUFFIXES",
     "EVENT_TYPES",
+    "HUMAN_SCORED",
     "MIN_JUSTIFICATION_LENGTH",
     "SCHEMA_VERSION",
     "SUFFIX_GROUPS",

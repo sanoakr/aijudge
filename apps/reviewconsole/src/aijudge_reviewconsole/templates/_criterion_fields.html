@@ -20,7 +20,16 @@
     <option value="{{ ev.name }}" {{ 'selected' if row.evaluator == ev.name }}>
       {{ ev.name }} — {{ ev.about }}</option>
     {% endfor %}
+    {# **空とは別の選択肢である。** 空は「どの AI 評価器からも対象」で、
+       画像のようにまだ機械が判定できない観点をそこへ入れると、AI が
+       見当違いの判定を返す（ADR 0015）。 #}
+    <option value="{{ HUMAN_SCORED }}" {{ 'selected' if row.evaluator == HUMAN_SCORED }}>
+      評価器を割り当てない（人が採点する）</option>
   </select>
+  <p class="desc">
+    「人が採点する」にした観点は機械に渡りません。提出は必ずレビューに回り、
+    <strong>教員が段階を入れるまで学習者に総合点は出ません</strong>（一括確定でも閉じません）。
+  </p>
   <label>段階（1 行 1 段・<span class="mono">名前 | 説明 | 割合</span>。空なら 4 段の既定）</label>
   <textarea name="criterion_levels" rows="6" class="mono"
     placeholder="未達 | 満たしていない | 0&#10;一部 | 一部を満たす | 0.34&#10;概ね | おおむね満たす | 0.67&#10;達成 | 満たしている | 1.0">{{ row.levels }}</textarea>

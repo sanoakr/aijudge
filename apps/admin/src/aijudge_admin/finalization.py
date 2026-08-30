@@ -57,13 +57,16 @@ class TaskOutcome:
     needs_review: int = 0
     # 未採点の観点があるので見送った。誰も見ていない観点を成績にしない。
     provisional: int = 0
+    # 人が採点する観点に段階が入っていないので見送った。**一括確定でも
+    # 見送る** ── 教員が署名しても、その観点には署名する対象が無い（#7）。
+    awaiting_human: int = 0
     # 採点からの猶予がまだ明けていない。**見送りではなく待ちである。**
     # 一緒に数えると、運用者には「積み上がっている」ように見えてしまう。
     not_due: int = 0
 
     @property
     def skipped(self) -> int:
-        return self.contested + self.needs_review + self.provisional
+        return self.contested + self.needs_review + self.provisional + self.awaiting_human
 
 
 @dataclass
@@ -228,6 +231,7 @@ def _apply(
 ) -> TaskOutcome:
     automatic = source is FinalizationSource.AUTOMATIC
     finalized = contested = needs_review = provisional = not_due = 0
+    awaiting = 0
 
     for _submission, run, request in reviews.unfinalized_for_task(task.id):
         if blocks_finalization(request):
@@ -246,8 +250,12 @@ def _apply(
             else:
                 needs_review += 1
             continue
-        if not automatic and not bulk_finalizable(run, request):  # pragma: no cover - 上で弾く
-            contested += 1
+        if not automatic and not bulk_finalizable(run, request):
+            # 一括確定でも人採点の観点は埋まらない。個別に開いて入れる。
+            awaiting += 1
+            continue
+        if automatic and run.awaiting_human:  # pragma: no cover - 上の provisional で弾く
+            awaiting += 1
             continue
 
         reviews.save_finalization(
@@ -269,6 +277,7 @@ def _apply(
         contested=contested,
         needs_review=needs_review,
         provisional=provisional,
+        awaiting_human=awaiting,
         not_due=not_due,
     )
 

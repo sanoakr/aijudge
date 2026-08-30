@@ -20,6 +20,7 @@ from typing import Self
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from aijudge_core import (
+    HUMAN_SCORED,
     Provenance,
     QMatrixEntry,
     ReviewState,
@@ -81,6 +82,10 @@ class CriterionSpec(BaseModel):
 
     `evaluator` を書かないと AI 評価器が担当する。決定的に判定できる観点
     （必須節が揃っているか、字数が足りているか）だけを評価器に指名する。
+
+    **機械に採点させない観点**（画像のように AI 判定をまだ持たないもの）は
+    `evaluator` に `HUMAN_SCORED` を書く。空とは別の状態で、空は「どの AI
+    評価器からも対象」を意味する（ADR 0015）。
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -91,6 +96,11 @@ class CriterionSpec(BaseModel):
     weight: float = Field(gt=0.0, le=1.0)
     evaluator: str | None = None
     levels: tuple[LevelSpec, ...] = Field(min_length=2)
+
+    @property
+    def scored_by_human(self) -> bool:
+        """機械に採点させない観点か（人が採点する）。"""
+        return self.evaluator == HUMAN_SCORED
 
 
 class TaskSpec(BaseModel):

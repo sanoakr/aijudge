@@ -62,6 +62,8 @@ def _report(report: FinalizeReport, *, dry_run: bool) -> None:
             parts.append(f"要レビュー（自動確定しない）: {outcome.needs_review} 件")
         if outcome.provisional:
             parts.append(f"未採点の観点あり: {outcome.provisional} 件")
+        if outcome.awaiting_human:
+            parts.append(f"人が採点する観点あり: {outcome.awaiting_human} 件")
         logging.info("%s [%s] %s", outcome.task.unit_label, outcome.task.title, " / ".join(parts))
     logging.info("合計 %d 件確定、%d 件見送り", report.finalized, report.skipped)
 
