@@ -150,7 +150,9 @@ class GradingPipeline:
         if not self._profile.ai_evaluators:
             return False
         settled = {score.criterion_id for score in base.criterion_scores if score.conclusive}
-        return any(c.id not in settled for c in task_version.criteria)
+        # 人が採点する観点は AI に渡さないので、それしか残っていなければ
+        # 積む意味が無い（ADR 0015）。
+        return any(c.id not in settled and not c.scored_by_human for c in task_version.criteria)
 
     def run(
         self,
@@ -229,6 +231,13 @@ class GradingPipeline:
             results.append(self._to_result(evaluator_id, EvaluatorKind.DETERMINISTIC, outcome))
             scores.extend(self._attach(outcome, results[-1].id))
 
+        # **人が採点する観点は、誰の判定も採らない。** 決定的評価器が
+        # 気を利かせて返してきても捨てる ── 「割り当てない」は宣言であって、
+        # 評価器の側の都合で覆るものではない（Issue #7）。
+        by_human = {c.id for c in task_version.criteria if c.scored_by_human}
+        if by_human:
+            scores = [score for score in scores if score.criterion_id not in by_human]
+
         settled = {score.criterion_id for score in scores if score.conclusive}
 
         # --- 3. AI 評価（ルーブリック観点ごとに 1 回） -----------------------
@@ -238,6 +247,12 @@ class GradingPipeline:
                 # 決定的評価が確定させた観点は AI に問い合わせない（P3）。
                 # 呼ばないので費用も掛からない。
                 if criterion.id in settled:
+                    continue
+                # 評価器を割り当てていない観点は AI にも渡さない。**空とは
+                # 別の状態である** ── 空は「どの AI 評価器からも対象」で、
+                # 画像のようにまだ機械が判定できない観点をそこへ入れると、
+                # AI が見当違いの判定を返す（Issue #7、ADR 0015）。
+                if criterion.scored_by_human:
                     continue
                 if criterion.evaluator_id not in (None, evaluator_id):
                     continue
@@ -257,13 +272,19 @@ class GradingPipeline:
                 results.append(self._to_result(evaluator_id, EvaluatorKind.AI, outcome))
                 scores.extend(self._attach(outcome, results[-1].id))
 
+        awaiting_human = tuple(c.id for c in task_version.criteria if c.scored_by_human)
+
         if not scores and phase is GradingPhase.DETERMINISTIC and not self._profile.deterministic:
             # 決定的評価器を宣言していない科目（レポート課題など）。この段階
             # では何も出ないのが正しいので、AI 段階に委ねる。
             raise NoDeterministicWork(
                 f"profile '{self._profile.name}' declares no deterministic evaluator"
             )
-        if not scores:
+        if not scores and len(awaiting_human) != len(task_version.criteria):
+            # **全観点が人採点の課題では落とさない。** 画像提出の課題を丸ごと
+            # 人手で採点する構成がそれで、機械が 1 件も点を付けないのが正しい
+            # （Issue #7）。落とすべきなのは「採点されるはずの観点があるのに
+            # 誰も答えなかった」場合だけ。
             raise RuntimeError(
                 f"no evaluator produced a score for submission {submission.id!r}; "
                 f"check the '{self._profile.name}' profile"
@@ -275,13 +296,26 @@ class GradingPipeline:
         # 誰も見ていない観点に点を与えることになる。どちらも取らず、
         # 採点できた観点で暫定の点を出し、必ず人間のレビューへ回す（P5）。
         scored = {score.criterion_id for score in scores}
-        unscored = tuple(c.id for c in task_version.criteria if c.id not in scored)
+        awaiting = set(awaiting_human)
+        unscored = tuple(
+            c.id for c in task_version.criteria if c.id not in scored and c.id not in awaiting
+        )
 
-        final = renormalize(tuple(scores)) if unscored else tuple(scores)
-        score_ratio, confidence = aggregate(final)
+        # 人が採点する観点は **0% として重みどおり数える**。ここを比例配分に
+        # 混ぜると、その観点が最初から無かったのと同じ点になる（ADR 0015）。
+        # 総合点そのものは `awaiting_human` があるあいだ学習者に出ない。
+        zero_weight = sum(c.weight for c in task_version.criteria if c.id in awaiting)
+        final = (
+            renormalize(tuple(scores), target=1.0 - zero_weight)
+            if unscored and scores
+            else tuple(scores)
+        )
+        score_ratio, confidence = aggregate(final, zero_weight=zero_weight)
         routing = (
             Routing.REVIEW_REQUIRED
-            if unscored or self._profile.review_policy.requires_review(final, score_ratio)
+            if unscored
+            or awaiting
+            or self._profile.review_policy.requires_review(final, score_ratio)
             else Routing.AUTO
         )
 
@@ -304,6 +338,7 @@ class GradingPipeline:
             confidence=confidence,
             routing=routing,
             unscored_criteria=unscored,
+            awaiting_human=awaiting_human,
             created_at=datetime.now(UTC),
         )
 

@@ -86,6 +86,7 @@ from .submission import (
     can_transition,
 )
 from .task import (
+    HUMAN_SCORED,
     Provenance,
     ReviewState,
     RubricCriterion,
@@ -155,6 +156,7 @@ __all__ = [
     "ReviewState",
     "Role",
     "Routing",
+    "HUMAN_SCORED",
     "RubricCriterion",
     "RubricLevel",
     "SkillEvidence",

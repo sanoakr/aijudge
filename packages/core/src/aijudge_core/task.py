@@ -91,6 +91,20 @@ class RubricLevel(BaseModel):
     score_ratio: float = Field(ge=0.0, le=1.0)
 
 
+# 「この観点は機械に採点させない（人が採点する）」を表す評価器の名前。
+#
+# **空（None）とは別の状態である。** 空は「どの AI 評価器からも対象」を
+# 意味しており（`pipeline` の `criterion.evaluator_id not in (None, evaluator_id)`）、
+# 画像の判定のようにまだ機械が持っていない観点をそこへ入れると、AI が
+# 見当違いの判定を返す。名前を持たせて、**誰にも渡さない**ことを宣言する。
+#
+# 名前にしたのは、宣言（`CriterionSpec`）から模型（`RubricCriterion`）、
+# 画面の `<select>` までを同じ 1 つの値で通せるため。読み落とした場所は
+# 「知らない評価器の名前」として扱われ、その観点は誰にも採点されずに
+# レビューへ回る ── 静かに間違った点が出るのではなく、止まる側に倒れる。
+HUMAN_SCORED = "__human__"
+
+
 class RubricCriterion(BaseModel):
     """ルーブリックの 1 観点。AI 評価器はこの単位で 1 回呼ばれる（§04）。"""
 
@@ -114,6 +128,16 @@ class RubricCriterion(BaseModel):
         if max(level.score_ratio for level in self.levels) != 1.0:
             raise ValueError("the top RubricLevel must have score_ratio 1.0")
         return self
+
+    @property
+    def scored_by_human(self) -> bool:
+        """機械に採点させない観点か（人が採点する）。
+
+        真なら決定的評価器にも AI 評価器にも渡さない。採点結果では
+        `GradingRun.awaiting_human` に入り、人が段階を入れるまで
+        総合点は出ない（ADR 0015）。
+        """
+        return self.evaluator_id == HUMAN_SCORED
 
     def level_for(self, level: int) -> RubricLevel:
         for candidate in self.levels:

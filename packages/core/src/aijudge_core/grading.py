@@ -368,7 +368,11 @@ class GradingRun(BaseModel):
     submission_id: SubmissionId
     context: GradingContext
     evaluator_results: tuple[EvaluatorResult, ...] = ()
-    criterion_scores: tuple[CriterionScore, ...] = Field(min_length=1)
+    # **空になりうる。** 全観点を人が採点する課題（画像提出など）では、
+    # 機械は 1 件も点を付けない。そのとき空を拒むと、そういう課題を
+    # そもそも採点に載せられない（`_check_unscored` が、理由の無い空を
+    # 落とす役を引き受ける）。
+    criterion_scores: tuple[CriterionScore, ...] = ()
     kc_outcomes: tuple[KcOutcome, ...] = ()
     score_ratio: float = Field(ge=0.0, le=1.0)
     confidence: float = Field(ge=0.0, le=1.0)
@@ -449,6 +453,10 @@ class GradingRun(BaseModel):
                     )
                 seen.add(criterion_id)
 
+        if not self.criterion_scores and not self.awaiting_human:
+            # 点も理由も無い採点は、ただの空の記録である。
+            raise ValueError("a run with no criterion score must say which criteria await a human")
+
         if self.is_provisional and self.routing is not Routing.REVIEW_REQUIRED:
             # 誰も見ていない観点がある採点を自動確定させない（設計原則 P5）。
             # **ゲートで打ち切った観点はここに含めない** ── 打ち切りは仕様
@@ -513,7 +521,9 @@ def aggregate(
     return round(score_ratio, 10), confidence
 
 
-def renormalize(scores: tuple[CriterionScore, ...]) -> tuple[CriterionScore, ...]:
+def renormalize(
+    scores: tuple[CriterionScore, ...], *, target: float = 1.0
+) -> tuple[CriterionScore, ...]:
     """**評価器が落ちた**とき、残った観点の重みを比例配分し直す。
 
     評価器が落ちた観点を 0 点にすると学習者に不当な不利益が出るし、
@@ -526,13 +536,21 @@ def renormalize(scores: tuple[CriterionScore, ...]) -> tuple[CriterionScore, ...
     その観点が最初から無かったのと同じ点になる ── 打ち切られた学習者の点が
     上がる（Issue #10）。そちらは `aggregate(..., zero_weight=...)` で
     重みどおり 0% として数える。
+
+    `target` は配分先の合計。0% として数える観点が同じ採点に居るときは、
+    **その分を除いた残り**へ配分する（1.0 まで膨らませると、0% の観点が
+    最初から無かったのと同じ点になる）。
     """
     if not scores:
         raise ValueError("cannot renormalize an empty score set")
+    if not 0.0 < target <= 1.0:
+        raise ValueError("renormalize target must be in (0.0, 1.0]")
     total = sum(score.weight for score in scores)
     if total <= 0.0:
         raise ValueError("total weight must be positive")
-    return tuple(score.model_copy(update={"weight": score.weight / total}) for score in scores)
+    return tuple(
+        score.model_copy(update={"weight": score.weight / total * target}) for score in scores
+    )
 
 
 def resolve_conflicts(scores: tuple[CriterionScore, ...]) -> tuple[CriterionScore, ...]:
@@ -592,14 +610,7 @@ def final_score(
     if review is not None and not review.agreed:
         # 教員が段階を変えたなら、評価点もそれに従う。`run.score_ratio` は
         # AI の判定に基づく値なので、そのまま出すと修正が反映されない。
-        total = 0.0
-        for score in run.criterion_scores:
-            criterion = next((c for c in task_version.criteria if c.id == score.criterion_id), None)
-            if criterion is None:  # pragma: no cover - 課題版が一致しない構成
-                continue
-            level = review.level_for(score.criterion_id, score.level)
-            total += criterion.level_for(level).score_ratio * score.weight
-        evaluation = min(1.0, max(0.0, total))
+        evaluation = _reviewed_evaluation(run, task_version, review)
 
     waived = bool(review is not None and review.penalty_waived)
     penalty = 0.0 if (run.penalty is None or waived) else run.penalty.ratio
@@ -609,6 +620,53 @@ def final_score(
         final=round(min(1.0, max(0.0, evaluation - penalty)), 10),
         waived=waived,
     )
+
+
+def _reviewed_evaluation(run: GradingRun, task_version: TaskVersion, review: HumanReview) -> float:
+    """教員が段階を直したあとの評価点。
+
+    **課題のルーブリックを基準に回す。`run.criterion_scores` ではない。**
+    以前はスコアの側を回していたので、**機械が一度も採点しなかった観点に
+    教員が入れた段階が、総合点に入らなかった** ── 監査記録
+    （`HumanReview.adjusted_levels`）には残るのに、点には出ない。評価器を
+    割り当てない観点（人が採点する）は定義上いつもこれに当たるので、
+    直さなければ人手の採点が成績に乗らない（Issue #7）。
+
+    重みの取り方は、段階が全観点そろったかどうかで変える。
+
+    そろっていれば**ルーブリックの重み**で数える。これが本来の配分で、
+    欠けが埋まった以上そのまま使える。そろっていなければ、機械が採点した
+    観点の重み（評価器が落ちた採点では比例配分済み）で暫定を出す ── 埋まって
+    いない観点の重みを混ぜると、合計が 1.0 を超えたり、入っていない観点を
+    0 点として数えたりする。どちらも学習者に見せる前に人が埋めるべき状態で、
+    その総合点は保留されている（`is_provisional`）。
+    """
+    by_criterion = {score.criterion_id: score for score in run.criterion_scores}
+
+    levels: dict[CriterionId, int] = {}
+    for criterion in task_version.criteria:
+        score = by_criterion.get(criterion.id)
+        if score is not None:
+            levels[criterion.id] = review.level_for(criterion.id, score.level)
+        elif criterion.id in review.adjusted_levels:
+            levels[criterion.id] = review.adjusted_levels[criterion.id]
+
+    complete = len(levels) == len(task_version.criteria)
+
+    total = 0.0
+    for criterion in task_version.criteria:
+        level = levels.get(criterion.id)
+        if level is None:
+            continue
+        if complete:
+            weight = criterion.weight
+        else:
+            score = by_criterion.get(criterion.id)
+            if score is None:
+                continue
+            weight = score.weight
+        total += criterion.level_for(level).score_ratio * weight
+    return min(1.0, max(0.0, total))
 
 
 def penalty_crosses_boundary(score: FinalScore, boundary: float | None) -> bool:
