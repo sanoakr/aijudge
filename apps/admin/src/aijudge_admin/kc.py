@@ -150,8 +150,15 @@ def register(
                 )
             parent_id = parent.id
         elif not allow_root:
+            # **名前空間は階層に数えない、と明示する。** `cs.c_language` は
+            # 点が 2 つに分かれて見えるので、これを「第 1 階層」とだけ言うと
+            # 何を指しているのか読めない（実際に読めなかった）。どこまでが
+            # 名前空間で、どう書けば子になるのかを、そのキーで示す。
             raise AdminError(
-                f"{key!r} は第 1 階層です。新しい分野の根を作るには管理者の操作が要ります。"
+                f"{key!r} は名前空間 {namespace!r} の第 1 階層（分野の根）です。"
+                f"**名前空間 {namespace!r} は階層に数えません。** "
+                f"この下に子を足す形（{key}.… ）なら第 2 階層で、教員が追加できます。"
+                "新しい分野の根を作るには管理者の操作が要ります。"
             )
 
         kc = KnowledgeComponent(
@@ -200,6 +207,88 @@ def retire(
         uow.skills.save_kc(retired)
         uow.commit()
     return retired
+
+
+def edit(
+    database: Database,
+    *,
+    key: str,
+    label: str,
+    description: str | None = None,
+) -> KnowledgeComponent:
+    """名前と説明を直す。**キーは直せない。**
+
+    規則 3（改名しない）が守っているのは**キー**である ── `KcId` はキーから
+    導かれ（`kc_id_for`）、Q-matrix は追記のみ（P8）。キーを変えることは別の
+    知識要素を作ることで、過去の課題が何を問うていたのか辿れなくなる。
+
+    **`label` と `description` はそこに関わらない。** ID もキーも Q-matrix も
+    動かないので、変えても過去の採点がどの知識要素を指していたかは変わらない。
+    打ち間違えた名前を直すために引退や削除を使うのは、同一性を壊す操作を
+    表示の都合で持ち出すことになる。
+    """
+    with database.unit_of_work() as uow:
+        kc = uow.skills.get_kc(kc_id_for(key))
+        if kc is None:
+            raise AdminError(f"知識要素 {key!r} がありません")
+        if not label.strip():
+            # 名前を空にすると一覧がキーだけになる。キーは人が読む名前ではない。
+            raise AdminError("名前を空にはできません")
+        updated = kc.model_copy(
+            update={
+                "label": label.strip(),
+                "description": (description or "").strip() or None,
+            }
+        )
+        uow.skills.save_kc(updated)
+        uow.commit()
+    return updated
+
+
+def delete(database: Database, *, key: str) -> KnowledgeComponent:
+    """**一度も使われていない KC だけを消す。** 使われていれば消さない。
+
+    「消さない」（`retire`）は**使われた KC の話**である ── Q-matrix が
+    指しているものを消すと、過去の課題が何を問うていたのか辿れなくなり、
+    その課題で付いた習熟度の出所も失われる（P8）。
+
+    一度も使われていない KC には、その履歴が無い。打ち間違えた根
+    （`cs.c_langauge`）を引退させて残すと、**コースをまたいで共有される
+    一覧に、誰の役にも立たない行が永久に並ぶ**。引退は「使っていたが今後は
+    使わない」を表す記録であって、打ち間違いの置き場所ではない。
+
+    子を持つ KC も消さない。親を消すと子の `parent_id` が宙に浮き、木が
+    壊れる（孤立キーを作らせない、という規則 2 の裏側）。子から先に消す。
+    """
+    with database.unit_of_work() as uow:
+        kc = uow.skills.get_kc(kc_id_for(key))
+        if kc is None:
+            raise AdminError(f"知識要素 {key!r} がありません")
+
+    counted = usage(database, (kc,))[kc.key]
+    if counted.used:
+        raise AdminError(
+            f"{key!r} は課題 {counted.tasks} 件・コース {counted.courses} 件で使われています。"
+            "消すと、その課題が何を問うていたのか辿れなくなります。"
+            "使わなくするだけなら引退させてください。"
+        )
+
+    children = [
+        other
+        for other in list_for_namespaces(database, (kc.namespace,))
+        if other.parent_id == kc.id
+    ]
+    if children:
+        raise AdminError(
+            f"{key!r} には子の知識要素があります（"
+            + ", ".join(sorted(child.key for child in children))
+            + "）。先に子を消してください。"
+        )
+
+    with database.unit_of_work() as uow:
+        uow.skills.delete_kc(kc.id)
+        uow.commit()
+    return kc
 
 
 def restore(database: Database, *, key: str) -> KnowledgeComponent:
@@ -252,6 +341,8 @@ __all__ = [
     "KcUsage",
     "allowed_namespaces",
     "assert_registered",
+    "delete",
+    "edit",
     "list_for_namespaces",
     "register",
     "restore",

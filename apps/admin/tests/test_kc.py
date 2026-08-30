@@ -19,6 +19,8 @@ import pytest
 from aijudge_admin import (
     AdminError,
     assert_registered,
+    delete_kc,
+    edit_kc,
     ensure_course,
     kc_usage,
     list_for_namespaces,
@@ -235,3 +237,127 @@ def test_usage_counts_tasks_and_courses(database: Database, course) -> None:
     assert rows["cs.loops.termination"].tasks == 1
     assert rows["cs.loops.termination"].courses == 1
     assert rows["cs.loops"].tasks == 0
+
+
+# --------------------------------------------------------------------------
+# 削除 — **一度も使われていないものだけ**
+# --------------------------------------------------------------------------
+
+
+def test_an_unused_component_can_be_deleted(database: Database) -> None:
+    """**打ち間違いの置き場所を引退にしない。**
+
+    引退は「使っていたが今後は使わない」を表す記録である。使われたことの
+    無いキーを引退させて残すと、コースをまたいで共有される一覧に、誰の
+    役にも立たない行が永久に並ぶ。
+    """
+    register_kc(
+        database, key="cs.c_langauge", label="打ち間違い", namespaces=SPACES, allow_root=True
+    )
+    assert delete_kc(database, key="cs.c_langauge").key == "cs.c_langauge"
+    assert [kc.key for kc in list_for_namespaces(database, SPACES)] == []
+
+
+def test_a_used_component_is_never_deleted(database: Database, course) -> None:
+    """**使われていれば消さない。** 消すと、その課題が何を問うていたのか
+    辿れなくなり、そこで付いた習熟度の出所も失われる（P8）。
+    """
+    _root(database)
+    register_kc(database, key="cs.loops.termination", label="停止条件", namespaces=SPACES)
+    save_task(
+        database,
+        course_id=course.id,
+        spec=TaskSpec(
+            key="ex01/p1",
+            statement="## 課題 ##\n\n本文",
+            knowledge_components=("cs.loops.termination",),
+        ),
+        subject_profile="cs_intro_c",
+        authored_by=TEACHER,
+    )
+
+    with pytest.raises(AdminError, match="使われています"):
+        delete_kc(database, key="cs.loops.termination")
+    assert "cs.loops.termination" in [kc.key for kc in list_for_namespaces(database, SPACES)]
+
+
+def test_a_component_with_children_is_not_deleted(database: Database) -> None:
+    """親を消すと子の `parent_id` が宙に浮き、木が壊れる。"""
+    _root(database)
+    register_kc(database, key="cs.loops.termination", label="停止条件", namespaces=SPACES)
+
+    with pytest.raises(AdminError, match="子の知識要素"):
+        delete_kc(database, key="cs.loops")
+    # 子から先に消せば、親も消せる。
+    delete_kc(database, key="cs.loops.termination")
+    delete_kc(database, key="cs.loops")
+    assert list_for_namespaces(database, SPACES) == ()
+
+
+def test_deleting_something_that_is_not_there_says_so(database: Database) -> None:
+    with pytest.raises(AdminError, match="がありません"):
+        delete_kc(database, key="cs.nope")
+
+
+def test_a_retired_component_can_still_be_deleted_if_unused(database: Database) -> None:
+    """引退させたあとで「そもそも打ち間違いだった」と気づくことがある。"""
+    register_kc(database, key="cs.typo", label="打ち間違い", namespaces=SPACES, allow_root=True)
+    retire_kc(database, key="cs.typo")
+    delete_kc(database, key="cs.typo")
+    assert list_for_namespaces(database, SPACES) == ()
+
+
+# --------------------------------------------------------------------------
+# 編集 — **名前と説明だけ。キーは動かさない**
+# --------------------------------------------------------------------------
+
+
+def test_the_label_and_description_can_be_corrected(database: Database) -> None:
+    """**規則 3 が守っているのはキーであって表示名ではない。**
+
+    打ち間違えた名前を直すために引退や削除を使うのは、同一性を壊す操作を
+    表示の都合で持ち出すことになる。
+    """
+    kc = register_kc(database, key="cs.loops", label="ルーブ", namespaces=SPACES, allow_root=True)
+    updated = edit_kc(database, key="cs.loops", label="ループ", description="繰り返しの制御")
+
+    assert updated.label == "ループ"
+    assert updated.description == "繰り返しの制御"
+    # **同一性は動かない。** ID もキーも変わらないので、過去の採点が指して
+    # いるものは同じまま。
+    assert updated.id == kc.id
+    assert updated.key == "cs.loops"
+
+
+def test_editing_a_used_component_is_allowed(database: Database, course) -> None:
+    """使われていても直せる。取り上げる操作ではないので。"""
+    _root(database)
+    register_kc(database, key="cs.loops.termination", label="停止", namespaces=SPACES)
+    save_task(
+        database,
+        course_id=course.id,
+        spec=TaskSpec(
+            key="ex01/p1",
+            statement="## 課題 ##\n\n本文",
+            knowledge_components=("cs.loops.termination",),
+        ),
+        subject_profile="cs_intro_c",
+        authored_by=TEACHER,
+    )
+
+    updated = edit_kc(database, key="cs.loops.termination", label="停止条件")
+    assert updated.label == "停止条件"
+    # 課題からの参照は生きたまま。
+    assert kc_usage(database, (updated,))[updated.key].tasks == 1
+
+
+def test_the_label_cannot_be_emptied(database: Database) -> None:
+    """名前を空にすると一覧がキーだけになる。キーは人が読む名前ではない。"""
+    register_kc(database, key="cs.loops", label="ループ", namespaces=SPACES, allow_root=True)
+    with pytest.raises(AdminError, match="名前を空"):
+        edit_kc(database, key="cs.loops", label="   ")
+
+
+def test_editing_something_that_is_not_there_says_so(database: Database) -> None:
+    with pytest.raises(AdminError, match="がありません"):
+        edit_kc(database, key="cs.nope", label="なにか")

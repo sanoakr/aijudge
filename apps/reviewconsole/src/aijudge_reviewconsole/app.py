@@ -75,6 +75,7 @@ from aijudge_identity import (
 from aijudge_persistence import Database, ObservationFileStore
 from aijudge_submission import ArtifactStore, ImmutabilityViolation
 
+from .manage import _role_counts
 from .overview import digests_for, load_units
 from .sampling import is_blind_sample
 from .submissions import (
@@ -332,6 +333,7 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 1 for version in uow.tasks.list_versions_in_review() if version.task_id in task_ids
             )
             enrollment = uow.identity.find_enrollment(course.id, me.user_id)
+            enrollments = uow.identity.list_enrollments(course.id)
         profile = load_profile(console.profiles_dir / f"{course.subject_profile}.yaml")
         kcs = list_for_namespaces(console.database, allowed_namespaces(profile))
         return TEMPLATES.TemplateResponse(
@@ -349,6 +351,11 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 "min_sample_size": min_sample_size,
                 "drafts": drafts,
                 "kc_count": len(kcs),
+                # 受講者はここに出す。**「コース全体の設定」の中ではない** ──
+                # 知識要素・未承認の課題と同じく自分のページを持つものなので
+                # 同じ並びに置く。設定の中に埋めると、開くまで人数が見えない。
+                "people_count": len(enrollments),
+                "role_counts": _role_counts(enrollments),
                 # TA にはコースの設定を開かせない（`manage.py` の権限と揃える）。
                 "can_manage": enrollment is not None
                 and enrollment.role in (Role.INSTRUCTOR, Role.ADMIN),

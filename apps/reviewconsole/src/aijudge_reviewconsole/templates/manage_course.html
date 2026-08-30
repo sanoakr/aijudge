@@ -28,24 +28,6 @@
   </div>
 </div>
 
-<h2 id="enrolments">受講者</h2>
-<div class="card">
-  <p class="desc" style="margin:0 0 10px">
-    {{ people_count }} 名が登録されています。役割の変更と受講登録は受講者のページで行います。
-  </p>
-  {# **0 名の役割も出す。** 総数だけでは、TA を登録し忘れているのか
-     0 名が正しいのかが読み取れない。 #}
-  <ul class="rolecounts">
-    {% for row in role_counts %}
-    <li><span class="mono">{{ row.role }}</span>
-      <b>{{ row.count }}</b> 名</li>
-    {% endfor %}
-  </ul>
-  <div class="actions">
-    <a href="/manage/courses/{{ course.id }}/enrolments">受講者を見る →</a>
-  </div>
-</div>
-
 <h2 id="course_grace">成績の自動確定</h2>
 <form method="post" action="/manage/courses/{{ course.id }}/auto-finalize" class="card">
   {# 入力が 1 つなので、ボタンは同じ行の右端に置く。 #}

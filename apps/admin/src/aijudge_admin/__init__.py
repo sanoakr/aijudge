@@ -30,6 +30,8 @@ from .kc import (
     assert_registered,
     list_for_namespaces,
 )
+from .kc import delete as delete_kc
+from .kc import edit as edit_kc
 from .kc import register as register_kc
 from .kc import restore as restore_kc
 from .kc import retire as retire_kc
@@ -94,6 +96,8 @@ __all__ = [
     "assert_registered",
     "build_packet",
     "create_staff",
+    "delete_kc",
+    "edit_kc",
     "enrol_roster",
     "ensure_course",
     "finalize_task",

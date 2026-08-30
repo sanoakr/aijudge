@@ -81,6 +81,34 @@
     <select id="role" name="role">
       {% for name in roles %}<option value="{{ name }}">{{ name }}</option>{% endfor %}
     </select>
+    {# **差分で書く。** 4 つの役割をそれぞれ列挙すると同じ項目が 4 回並び、
+       どこが違うのかを読み手が引き算することになる。上位は下位のできること
+       を全部含むので、増える分だけを書く。 #}
+    <table class="roles">
+      <thead><tr><th class="fit">役割</th><th class="grow">下位の役割に加えてできること</th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="fit mono">learner</td>
+          <td class="grow">提出する。自分の結果を見る。判定に疑問があれば再確認を依頼する。
+            <span class="desc">（教員コンソールの採点画面は開けません）</span></td>
+        </tr>
+        <tr>
+          <td class="fit mono">assistant</td>
+          <td class="grow"><strong>採点できる</strong> — 提出の一覧、再確認の依頼、確定処理、blind 採点。
+            <span class="desc">コースの設定は開けません（締切と受講の変更は成績に直接効くため）。</span></td>
+        </tr>
+        <tr>
+          <td class="fit mono">instructor</td>
+          <td class="grow"><strong>コースの設定を変えられる</strong> — 課題・問題セット・締切・ルーブリック・
+            受講者・採点設定・知識要素の追加・生成課題の承認。</td>
+        </tr>
+        <tr>
+          <td class="fit mono">admin</td>
+          <td class="grow"><strong>コースを作れる。知識要素の第 1 階層（分野の根）を作り、引退させられる。</strong>
+            <span class="desc">知識要素はコースをまたいで共有されるので、引退は他のコースにも効きます。</span></td>
+        </tr>
+      </tbody>
+    </table>
   </div>
   <p class="desc">
     ログインは <code>@mail.ryukoku.ac.jp</code> の Google アカウントで行います。
