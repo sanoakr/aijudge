@@ -97,6 +97,9 @@
     <a href="/manage/courses/{{ course.id }}#rubric">共通ルーブリックを見る</a>
   </p>
   {% with rows = rubric_rows %}{% include "_rubric_editor.html" %}{% endwith %}
+  {% with inherits = true, aggregation = task_aggregation, course_aggregation = course.rubric_aggregation %}
+    {% include "_aggregation_field.html" %}
+  {% endwith %}
 
   <h3>提出できるファイル形式</h3>
   <input type="hidden" name="formats" value="1">

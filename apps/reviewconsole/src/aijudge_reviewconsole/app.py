@@ -1027,6 +1027,9 @@ def _comparison_rows(
                 # 割り当てていないので、機械の判定が無いのが正しい状態で、
                 # 教員が段階を入れて初めて埋まる（Issue #7）。
                 "awaiting_human": criterion.id in run.awaiting_human,
+                # AND のゲートで打ち切った観点。**「採点できず」ではない** ──
+                # 0% は確定した結果で、人が埋めるものは何も無い（ADR 0015）。
+                "gated": criterion.id in run.skipped_criteria,
             }
         )
     return rows

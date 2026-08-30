@@ -30,7 +30,7 @@ from .ids import (
     UserId,
 )
 from .spans import Evidence
-from .task import TaskVersion
+from .task import Aggregation, RubricCriterion, TaskVersion
 
 
 class EvaluatorKind(StrEnum):
@@ -519,6 +519,38 @@ def aggregate(
     uncertain = [score.confidence for score in scores if not score.conclusive]
     confidence = min(uncertain) if uncertain else 1.0
     return round(score_ratio, 10), confidence
+
+
+# 0% と見なす境目。丸め誤差で「ほぼ 0」を通さないための幅で、段階の
+# `score_ratio` は 0.0 をそのまま持つので、これは誤差の吸収にしか効かない。
+GATE_ZERO = 1e-9
+
+
+def gate_skipped(
+    criteria: tuple[RubricCriterion, ...],
+    scores: tuple[CriterionScore, ...],
+    aggregation: Aggregation,
+) -> tuple[CriterionId, ...]:
+    """AND ゲートで打ち切る観点。評価順の上から見て、最初の 0% より後ろ。
+
+    **判定できないところで止める。** まだ点の付いていない観点に行き当たったら
+    そこで走査をやめて何も打ち切らない ── その観点が 0% になるかどうかは
+    あとの段階（AI 評価）で決まるので、先回りして後続を切ると、実際には
+    通っていた学習者の観点が 0% で確定してしまう。
+
+    OR では常に空。**宣言するまで何も変わらない。**
+    """
+    if aggregation is not Aggregation.AND:
+        return ()
+
+    by_criterion = {score.criterion_id: score for score in scores}
+    for index, criterion in enumerate(criteria):
+        score = by_criterion.get(criterion.id)
+        if score is None:
+            return ()
+        if score.score_ratio <= GATE_ZERO:
+            return tuple(later.id for later in criteria[index + 1 :])
+    return ()
 
 
 def renormalize(

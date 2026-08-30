@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .grading import LatePenaltyStep
 from .ids import CourseId, TenantId, UserId
+from .task import Aggregation
 
 
 class Role(StrEnum):
@@ -70,6 +71,9 @@ class Course(BaseModel):
     # 形は `aijudge_authoring.CriterionSpec` の並び。core は器だけを持つ
     # （模型そのものを持つと、core が作問の語彙に依存する）。
     rubric: tuple[dict[str, object], ...] = ()
+    # 共通ルーブリックの畳み方（AND / OR）。既定は OR ＝これまでの挙動。
+    # **課題が指定すればそちらが勝つ**（`effective_aggregation`）。
+    rubric_aggregation: Aggregation = Aggregation.OR
     # このコースが使う知識要素の正準キー。**空なら名前空間の全部。**
     #
     # 知識要素はコースに紐づかず、名前空間で共有される（設計原則 P6 の狙いで、

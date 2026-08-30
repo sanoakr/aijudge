@@ -39,6 +39,7 @@ from .finalization import (
     settles_at,
 )
 from .grading import (
+    GATE_ZERO,
     MIN_JUSTIFICATION_LENGTH,
     BlindMark,
     CriterionScore,
@@ -58,6 +59,7 @@ from .grading import (
     Routing,
     aggregate,
     final_score,
+    gate_skipped,
     late_penalty_for,
     penalty_crosses_boundary,
     renormalize,
@@ -87,6 +89,7 @@ from .submission import (
 )
 from .task import (
     HUMAN_SCORED,
+    Aggregation,
     Provenance,
     ReviewState,
     RubricCriterion,
@@ -94,6 +97,7 @@ from .task import (
     Task,
     TaskVersion,
     TestCase,
+    effective_aggregation,
 )
 from .tenancy import Course, Enrollment, Role, Tenant
 from .uploads import (
@@ -111,11 +115,13 @@ __all__ = [
     "AUTOMATIC_JUSTIFICATION",
     "DEFAULT_UPLOAD_SUFFIXES",
     "EVENT_TYPES",
+    "GATE_ZERO",
     "HUMAN_SCORED",
     "MIN_JUSTIFICATION_LENGTH",
     "SCHEMA_VERSION",
     "SUFFIX_GROUPS",
     "SUFFIX_KINDS",
+    "Aggregation",
     "Artifact",
     "ArtifactKind",
     "ArtifactRole",
@@ -180,7 +186,9 @@ __all__ = [
     "bulk_finalizable",
     "can_transition",
     "derived_id",
+    "effective_aggregation",
     "final_score",
+    "gate_skipped",
     "grace_minutes",
     "grade_window",
     "kc_id_for",

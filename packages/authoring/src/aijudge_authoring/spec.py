@@ -21,6 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from aijudge_core import (
     HUMAN_SCORED,
+    Aggregation,
     Provenance,
     QMatrixEntry,
     ReviewState,
@@ -125,6 +126,10 @@ class TaskSpec(BaseModel):
     max_score: float = Field(default=100.0, gt=0.0)
     # AI が担当する「読みやすさ」の重み。0 なら観点を作らない。
     readability_weight: float = Field(default=0.0, ge=0.0, lt=1.0)
+    # 観点の畳み方（AND / OR）。**None ならコースの設定に従う。**
+    # 課題ごとに例外を持てるようにしてあるのは、同じコースでも「動かなければ
+    # そこで終わり」の課題と、部分点を積む課題が混ざるため。
+    aggregation: Aggregation | None = None
     evaluator: str = DEFAULT_EVALUATOR
     reference_solution: str | None = None
     test_cases: tuple[TestCaseSpec, ...] = ()
@@ -236,6 +241,7 @@ def _declared_version(
         statement=spec.statement,
         reference_solution=spec.reference_solution,
         criteria=criteria,
+        aggregation=spec.aggregation,
         test_cases=cases,
         q_matrix=q_matrix_for(spec.knowledge_components, version_id),
         max_score=spec.max_score,
@@ -366,6 +372,7 @@ def build_task_version(
         statement=spec.statement,
         reference_solution=spec.reference_solution,
         criteria=criteria,
+        aggregation=spec.aggregation,
         test_cases=cases,
         q_matrix=q_matrix_for(spec.knowledge_components, version_id),
         max_score=spec.max_score,

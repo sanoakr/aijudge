@@ -16,6 +16,11 @@
 **重みの合計は 1.0。** 模型が要求する（`TaskVersion._check_weights`）ので、
 ここで先に確かめて教員に言葉で返す ── 保存の瞬間に pydantic の英語の例外を
 見せても直しようがない。
+
+**並びは評価順である。** 集約が AND のとき、上から評価して 0% が出た時点で
+打ち切る（`aijudge_core.gate_skipped`）。画面では観点ごとに数値で持たせ、
+保存のときにその順に並べ替える ── 上下ボタンだと 1 手ごとに保存が要り、
+10 観点を並べ替えるのに 10 回の往復になる。
 """
 
 from __future__ import annotations
@@ -91,6 +96,7 @@ def format_levels(levels) -> str:
 def parse(rows: list[dict[str, str]]) -> tuple[CriterionSpec, ...]:
     """画面から来た行を観点にする。空行は捨てる。"""
     criteria: list[CriterionSpec] = []
+    orders: list[float] = []
     codes: set[str] = set()
     for row in rows:
 
@@ -115,6 +121,12 @@ def parse(rows: list[dict[str, str]]) -> tuple[CriterionSpec, ...]:
         if not 0.0 < weight <= 1.0:
             raise AdminError(f"{code}: 重みは 0 より大きく 1 以下です")
         evaluator = text("evaluator") or None
+        try:
+            # 空欄は画面に出ていた順のまま（後ろに送らない）。
+            order = float(text("order")) if text("order") else float(len(criteria))
+        except ValueError:
+            raise AdminError(f"{code}: 評価順が数値ではありません") from None
+        orders.append(order)
         criteria.append(
             CriterionSpec(
                 code=code,
@@ -127,6 +139,14 @@ def parse(rows: list[dict[str, str]]) -> tuple[CriterionSpec, ...]:
         )
     if not criteria:
         return ()
+    # **評価順に並べ替える。** 同じ値なら画面の並びのまま（安定ソート）。
+    criteria = [
+        criterion
+        for _order, _index, criterion in sorted(
+            (order, index, criterion)
+            for index, (order, criterion) in enumerate(zip(orders, criteria, strict=True))
+        )
+    ]
     total = sum(criterion.weight for criterion in criteria)
     if abs(total - 1.0) > WEIGHT_TOLERANCE:
         raise AdminError(
@@ -145,6 +165,9 @@ def to_rows(criteria) -> list[dict[str, object]]:
         )
         rows.append(
             {
+                # 画面に出す評価順。**1 から振り直す** ── 保存のたびに詰めて
+                # おかないと、間に挿すために小数を書く運用になる。
+                "order": len(rows) + 1,
                 "code": criterion.code,
                 "title": criterion.title,
                 "description": criterion.description,

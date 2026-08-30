@@ -35,6 +35,7 @@ from aijudge_core import (
     Submission,
     Task,
     TaskVersion,
+    effective_aggregation,
     final_score,
     late_penalty_for,
     new_id,
@@ -204,6 +205,13 @@ class GradingWorker:
         # （`aijudge_grading.overrides`）。上書きが無ければ雛形そのもので、
         # 今までと同じ挙動になる。
         profile = self._profile(job.subject_profile, course)
+        # 観点の畳み方（AND / OR）。**課題の指定がコースの既定を上書きする。**
+        # 解決はここでやる ── パイプラインはコースを知らない（締切と同じで、
+        # 採点エンジンに運用値を持ち込まない）。
+        aggregation = effective_aggregation(
+            task_version.aggregation,
+            None if course is None else course.rubric_aggregation,
+        )
         contents = gradable_contents(submission, self._store)
         pipeline = GradingPipeline(self._registry, profile)
         run = pipeline.run(
@@ -212,6 +220,7 @@ class GradingWorker:
             lambda artifact: contents[artifact.id],
             phase=job.phase,
             base=base,
+            aggregation=aggregation,
         )
         run = self._with_feedback(run, task_version, contents)
         run = self._with_late_penalty(
@@ -223,7 +232,9 @@ class GradingWorker:
             profile=profile,
         )
 
-        if job.phase is GradingPhase.DETERMINISTIC and pipeline.has_ai_work(task_version, run):
+        if job.phase is GradingPhase.DETERMINISTIC and pipeline.has_ai_work(
+            task_version, run, aggregation=aggregation
+        ):
             # AI 段階を積む。**決定的段階の結果を保存してから**（`_record_success`）
             # にしないと、土台がまだ無いジョブが走りうる。ここでは印だけ付ける。
             self._follow_up = (job, task_version)

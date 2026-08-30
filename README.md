@@ -214,6 +214,34 @@ run keeps them apart, because mixing them either raises the score of a learner
 the gate cut off or closes a submission nobody scored. See
 [ADR 0015](docs/adr/0015-three-reasons-a-criterion-has-no-machine-score.md).
 
+### Criteria in order, and a gate that stops asking
+
+A rubric is a list, and until now the order of that list meant nothing: every
+criterion was judged independently and the weighted sum was the grade. Some
+rubrics do have an order, though — judging how readable a program is, after the
+tests showed it does not run, spends an LLM call to describe the readability of
+something that is already worth nothing.
+
+So a rubric declares how it is folded. **OR** (the default, and what every
+existing course keeps) judges every criterion and sums. **AND** walks the
+criteria in order and stops at the first one that scores 0%: the rest are not
+evaluated, and count as 0% at their own weight.
+
+Counting them at their own weight is the whole point. Treating them as
+"could not be scored" hands their weight to the survivors — with weights
+0.3/0.3/0.2/0.2 and the second criterion at 0%, the learner scores 50% instead
+of the 30% the gate meant, and the AND disappears. They are also not sent to
+review and do not block automatic finalisation: a cut is the specification
+working, not an anomaly.
+
+The gate stops where it cannot decide yet. If the criterion above has no verdict
+yet — the AI phase has not run — nothing is cut, because cutting on a guess
+would settle a learner's criterion at 0% that would have passed.
+
+The order is edited as a number per criterion rather than up/down buttons: ten
+criteria would otherwise be ten round trips through the server. A task inherits
+the course's setting unless it names its own.
+
 ### A criterion an instructor scores by hand
 
 Some criteria have no machine judgement to give — a hand-drawn diagram, a
