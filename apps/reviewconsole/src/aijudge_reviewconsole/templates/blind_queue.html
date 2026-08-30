@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}blind 採点 — {{ course.title }} — aiJudge{% endblock %}
+{% block body %}
+<h1>blind 採点</h1>
+<p class="crumb">{{ course.title }}・AI の判定を見る前に、教員が自分で段階を付ける作業です。</p>
+
+{# **再確認の依頼とは別の仕事。** あちらは学習者の申し出に答えるもの、
+   こちらは一致度を測るための正解データ作り（ADR 0005）。混ぜて並べると、
+   教員はどちらの理由でその行が出ているのか分からない。 #}
+<div class="note">
+  <strong>ここに出るのは、測定のために抽出された提出です。</strong>
+  AI を見たあとに付けた段階は正解データにならないので、先に自分で採点します。
+  <strong>採点の必須の作業ではありません</strong> — 貯まらなくても運用は続き、
+  一致度が測れないだけです（ADR 0007）。
+</div>
+
+<div class="card">
+  <strong>blind 採点の蓄積: {{ marked_count }} / {{ min_sample_size }} 件</strong>
+  <div class="progress">
+    <div style="width: {{ (100 * marked_count / min_sample_size) | round(1) if marked_count < min_sample_size else 100 }}%"></div>
+  </div>
+  <p class="desc" style="margin:0">
+    この件数に届くまで一致度は報告されません（足りない標本で出した数字は、
+    測れていないことを隠します）。
+  </p>
+</div>
+
+<table>
+  <thead><tr>
+    <th class="fit">提出</th><th class="fit">学習者</th><th class="grow">課題</th>
+    <th class="fit">回</th><th class="fit"></th>
+  </tr></thead>
+  <tbody>
+  {% for row in rows %}
+    <tr>
+      <td class="fit">{{ row.submission.submitted_at.strftime('%m-%d %H:%M') if row.submission.submitted_at else '—' }}</td>
+      <td class="fit mono">{{ row.learner.login if row.learner else '—' }}</td>
+      <td class="grow">
+        {% if row.task %}{{ row.task.unit_label }}
+          <span class="desc">{{ row.task.title }}</span>
+        {% else %}—{% endif %}
+      </td>
+      <td class="fit">{{ row.submission.attempt }} 回目</td>
+      <td class="fit"><a href="/review/{{ row.submission.id }}/blind">自分で採点する</a></td>
+    </tr>
+  {% else %}
+    <tr><td colspan="5" class="desc">blind 採点を待っている提出はありません。</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

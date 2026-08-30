@@ -29,6 +29,7 @@ from aijudge_core.ids import (
     CourseId,
     FinalizationId,
     HumanReviewId,
+    TaskVersionId,
     TenantId,
     UserId,
     new_id,
@@ -753,7 +754,9 @@ def _schedule(world: World, *, due_offset_hours: float, grace: float | None) -> 
             )
         )
         course = uow.identity.get_course(COURSE)
-        uow.identity.save_course(course.model_copy(update={"auto_finalize_after_hours": grace}))
+        # 猶予は**分**。テストは時間で書くので換算する。
+        minutes = None if grace is None else int(grace * 60)
+        uow.identity.save_course(course.model_copy(update={"auto_finalize_after_minutes": minutes}))
         uow.commit()
 
 
@@ -895,3 +898,193 @@ def test_the_page_renders_when_the_overall_score_is_withheld(world: World) -> No
     assert "確認中" in body, "採点できなかった観点が消えている"
     # 決定的評価の結果は返す。伏せるのは合計だけ。
     assert ">テスト実行<" in body
+
+
+# --------------------------------------------------------------------------
+# 一覧に出す到達状況 — 回数と採用される点（progress.py）
+# --------------------------------------------------------------------------
+
+
+def test_the_course_list_shows_the_attempt_count(world: World) -> None:
+    """課題一覧に提出回数を出す。
+
+    出さないと、学習者は自分が何回出したかを知るのに課題を 1 つずつ開く。
+    """
+    world.register("s2400001")
+    world.login("s2400001")
+    before = world.client.get(f"/courses/{COURSE}").text
+    assert "未提出" in before
+
+    world.submit()
+    after = world.client.get(f"/courses/{COURSE}").text
+    assert "1 回" in after
+    # 採点が届くまでは点を出さない。0% と区別できなくなる。
+    assert "採点中" in after
+
+
+@needs_c_compiler
+def test_the_course_list_shows_the_adopted_score(world: World) -> None:
+    """採用される点（最大値）を一覧に出す。確定前ならそう添える。"""
+    world.register("s2400001")
+    world.login("s2400001")
+    world.submit()
+    world.worker.run_until_empty()
+
+    body = world.client.get(f"/courses/{COURSE}").text
+    assert "%" in body
+    assert "暫定" in body, "確定前の点が確定した点と同じ顔で出ている"
+
+
+@needs_c_compiler
+def test_the_task_page_shows_each_attempts_time_score_and_state(world: World) -> None:
+    """提出ごとに、いつ出して何点で、いまどういう状態かを出す。"""
+    world.register("s2400001")
+    world.login("s2400001")
+    world.submit()
+    world.worker.run_until_empty()
+
+    body = world.client.get(f"/tasks/{world.task_version.id}").text
+    assert "確定前（AI の判定）" in body
+    assert "採用" in body, "どの提出が採用されるか示していない"
+
+
+# --------------------------------------------------------------------------
+# 提出できるファイル形式と提出開始（問題セットの日程）
+# --------------------------------------------------------------------------
+
+
+def _set_task(world: World, **update) -> None:
+    with world.database.unit_of_work() as uow:
+        task = uow.tasks.get_task(world.task_version.task_id)
+        uow.tasks.save_task(task.model_copy(update=update))
+        uow.commit()
+
+
+def test_a_pdf_is_refused_unless_the_task_accepts_it(world: World) -> None:
+    """既定はコードとテキストだけ。画像と PDF は本文が直接読めない。"""
+    world.register("s2400001")
+    world.login("s2400001")
+    response = world.client.post(
+        f"/tasks/{world.task_version.id}/submit",
+        files={"upload": ("report.pdf", b"%PDF-1.4", "application/pdf")},
+    )
+    assert response.status_code == 400
+    assert "提出できません" in response.json()["detail"]
+
+
+def test_a_task_that_accepts_pdf_takes_one(world: World) -> None:
+    world.register("s2400001")
+    world.login("s2400001")
+    _set_task(world, accepted_suffixes=(".pdf",))
+
+    response = world.client.post(
+        f"/tasks/{world.task_version.id}/submit",
+        files={"upload": ("report.pdf", b"%PDF-1.4 body", "application/pdf")},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303, response.text
+    # 課題が PDF だけを受け付けるなら、コードの方が弾かれる。
+    refused = world.client.post(
+        f"/tasks/{world.task_version.id}/submit",
+        files={"upload": ("main.c", b"int main(void){return 0;}", "text/plain")},
+    )
+    assert refused.status_code == 400
+
+
+def test_a_submission_before_the_window_opens_is_refused(world: World) -> None:
+    """提出開始まで受け付けない。**画面で隠すだけでは URL を知れば出せる。**"""
+    from datetime import timedelta
+
+    world.register("s2400001")
+    world.login("s2400001")
+    _set_task(world, submissions_open_at=datetime.now(UTC) + timedelta(hours=2))
+
+    response = world.client.post(
+        f"/tasks/{world.task_version.id}/submit",
+        files={"upload": ("main.c", EXAMPLE_SOURCE.read_bytes(), "text/plain")},
+    )
+    assert response.status_code == 409
+    assert "まだ提出できません" in response.json()["detail"]
+
+    body = world.client.get(f"/tasks/{world.task_version.id}").text
+    assert "まだ提出できません" in body
+    assert 'type="file"' not in body, "受け付けないのに提出欄が出ている"
+
+
+# --------------------------------------------------------------------------
+# 科目画面の階層化 — 問題セットごと・段階ごと
+# --------------------------------------------------------------------------
+
+
+def test_the_course_page_splits_the_sets_by_stage(world: World) -> None:
+    """学期が進むと課題が数十件になる。**いま出せるのはどれか**を先に出す。"""
+    from datetime import timedelta
+
+    world.register("s2400001")
+    world.login("s2400001")
+    now = datetime.now(UTC)
+    _set_task(world, opens_at=now - timedelta(days=7), due_at=now + timedelta(days=7))
+
+    body = world.client.get(f"/courses/{COURSE}").text
+    assert "提出できる問題セット" in body
+    assert "締め切られた問題セット" not in body
+
+
+def test_a_closed_set_is_listed_apart(world: World) -> None:
+    from datetime import timedelta
+
+    world.register("s2400001")
+    world.login("s2400001")
+    now = datetime.now(UTC)
+    _set_task(world, opens_at=now - timedelta(days=14), due_at=now - timedelta(days=1))
+
+    body = world.client.get(f"/courses/{COURSE}").text
+    assert "締め切られた問題セット" in body
+    assert "提出できる問題セット" not in body
+
+
+def test_a_set_before_its_opening_is_not_listed(world: World) -> None:
+    """公開日時を持たせておいて何も起きないなら、その日付は嘘になる。"""
+    from datetime import timedelta
+
+    world.register("s2400001")
+    world.login("s2400001")
+    _set_task(world, opens_at=datetime.now(UTC) + timedelta(days=1))
+
+    body = world.client.get(f"/courses/{COURSE}").text
+    assert "公開されている課題がありません" in body
+
+
+def test_the_three_dates_are_shown_including_the_unset_ones(world: World) -> None:
+    """空欄だと、設定し忘れと「その日程は使わない」が同じ見た目になる。"""
+    world.register("s2400001")
+    world.login("s2400001")
+    body = world.client.get(f"/courses/{COURSE}").text
+    assert "公開" in body
+    assert "提出開始" in body
+    assert "締切" in body
+    assert "未設定" in body
+
+
+def test_maths_in_a_statement_are_rendered(world: World) -> None:
+    """課題文の数式は MathML にして出す（生の `$...$` を見せない）。"""
+    world.register("s2400001")
+    world.login("s2400001")
+    with world.database.unit_of_work() as uow:
+        version = uow.tasks.get_version(world.task_version.id)
+        uow.tasks.save_version(
+            version.model_copy(
+                update={
+                    "id": TaskVersionId(new_id("tsv")),
+                    "version": version.version + 1,
+                    "statement": r"## 平均 ##" + "\n\n" + r"平均は $\bar{x}$ です。",
+                    "q_matrix": (),
+                }
+            )
+        )
+        uow.commit()
+        latest = uow.tasks.latest_version(world.task_version.task_id)
+
+    body = world.client.get(f"/tasks/{latest.id}").text
+    assert "<math" in body
+    assert r"\bar" not in body

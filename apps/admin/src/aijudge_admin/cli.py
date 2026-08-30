@@ -337,7 +337,7 @@ def build_parser() -> argparse.ArgumentParser:
         dest="course_command", required=True
     )
     create = course.add_parser("create", help="作成（既にあれば更新）")
-    create.add_argument("--code", required=True, help="科目コード（例: network）")
+    create.add_argument("--code", required=True, help="コースコード（例: network）")
     create.add_argument("--title", required=True)
     create.add_argument("--term", required=True, help="学期（例: 2025-後期）")
     create.add_argument("--profile", required=True, help="科目プロファイル名")

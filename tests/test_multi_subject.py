@@ -299,8 +299,8 @@ def test_each_teachers_queue_holds_only_their_own_submissions(campus: Campus) ->
     _contest(campus, c_accepted.submission)
     _contest(campus, py_accepted.submission)
 
-    c_queue = campus.login_teacher("c_teacher").get(f"/courses/{campus.c_course.id}").text
-    py_queue = campus.login_teacher("py_teacher").get(f"/courses/{campus.py_course.id}").text
+    c_queue = campus.login_teacher("c_teacher").get(f"/courses/{campus.c_course.id}/queue").text
+    py_queue = campus.login_teacher("py_teacher").get(f"/courses/{campus.py_course.id}/queue").text
 
     assert str(c_accepted.submission.id)[:12] in c_queue
     assert str(py_accepted.submission.id)[:12] not in c_queue

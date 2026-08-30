@@ -2,7 +2,6 @@
 {% block title %}AI の判定 — aiJudge レビュー{% endblock %}
 {% block body %}
 <h1>AI の判定 — <span class="mono">{{ submission.id[:12] }}…</span></h1>
-<p class="crumb"><a href="/courses/{{ course.id }}">← {{ course.title }}</a> / 提出 {{ submission.attempt }} 回目</p>
 
 {% if was_blind %}
 <div class="note">
@@ -160,7 +159,7 @@
       placeholder="例: テストケース 3 の想定出力を確認しました。仕様どおりで、判定は妥当です。"
       >{{ review.comment if review else '' }}</textarea>
   </fieldset>
-  <button type="submit">成績を確定する</button>
+  <div class="actions"><button type="submit">成績を確定する</button></div>
 </form>
 {% endif %}
 {% endblock %}

@@ -132,9 +132,7 @@ class SqlIdentityRepository:
 
     def find_api_token_by_hash(self, token_hash: str) -> ApiToken | None:
         row = (
-            self._session.execute(
-                select(ApiTokenRow).where(ApiTokenRow.token_hash == token_hash)
-            )
+            self._session.execute(select(ApiTokenRow).where(ApiTokenRow.token_hash == token_hash))
             .scalars()
             .first()
         )
@@ -173,14 +171,22 @@ class SqlIdentityRepository:
                     title=course.title,
                     term=course.term,
                     subject_profile=course.subject_profile,
-                    auto_finalize_after_hours=course.auto_finalize_after_hours,
+                    description=course.description,
+                    grading_overrides=dict(course.grading_overrides) or None,
+                    rubric=[dict(row) for row in course.rubric] or None,
+                    auto_finalize_after_minutes=course.auto_finalize_after_minutes,
+                    upload_suffixes=list(course.upload_suffixes) or None,
                     late_penalty_steps=_steps_to_json(course),
                 )
             )
         else:
             row.title = course.title
             row.subject_profile = course.subject_profile
-            row.auto_finalize_after_hours = course.auto_finalize_after_hours
+            row.description = course.description
+            row.grading_overrides = dict(course.grading_overrides) or None
+            row.rubric = [dict(item) for item in course.rubric] or None
+            row.auto_finalize_after_minutes = course.auto_finalize_after_minutes
+            row.upload_suffixes = list(course.upload_suffixes) or None
             row.late_penalty_steps = _steps_to_json(course)
         self._session.flush()
 
@@ -303,7 +309,11 @@ def _course(row: CourseRow | None) -> Course | None:
         title=row.title,
         term=row.term,
         subject_profile=row.subject_profile,
-        auto_finalize_after_hours=row.auto_finalize_after_hours,
+        description=row.description,
+        grading_overrides=dict(row.grading_overrides or {}),
+        rubric=tuple(row.rubric or ()),
+        auto_finalize_after_minutes=row.auto_finalize_after_minutes,
+        upload_suffixes=tuple(row.upload_suffixes or ()),
         late_penalty_steps=tuple(
             LatePenaltyStep.model_validate(step) for step in (row.late_penalty_steps or ())
         ),

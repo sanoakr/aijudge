@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}受講者 — {{ course.title }} — aiJudge{% endblock %}
+{% block body %}
+<h1>受講者</h1>
+<p class="crumb">{{ course.title }}・{{ people | length }} 名{% if q %}（<span class="mono">{{ q }}</span> で絞り込み）{% endif %}</p>
+
+{# 受講 100 名規模になるので、絞り込みは前方一致。選択肢に並べても選べない
+   （提出の一覧と同じ理由）。 #}
+<form method="get" action="/manage/courses/{{ course.id }}/enrolments" class="addline">
+  <label for="q" class="desc">学籍番号で絞り込む（前方一致）</label>
+  <input id="q" name="q" value="{{ q }}" placeholder="y2399" style="max-width:10rem"
+         {{ 'autofocus' if q }}
+         onfocus="this.setSelectionRange(this.value.length, this.value.length)">
+  <button type="submit">絞り込む</button>
+  {% if q %}<a href="/manage/courses/{{ course.id }}/enrolments" class="desc">解除</a>{% endif %}
+</form>
+
+{% if saved %}<div class="note saved">{{ saved }}</div>{% endif %}
+
+<table>
+  <thead><tr>
+    <th class="fit">学籍番号</th><th class="grow">氏名</th><th class="fit">役割</th><th class="fit"></th>
+  </tr></thead>
+  <tbody>
+  {% for row in people %}
+    <tr>
+      <td class="fit mono">{{ row.login }}</td>
+      <td class="grow">{{ row.user.display_name if row.user else '—' }}</td>
+      <td class="fit">
+        {% if row.enrollment.user_id == me.user_id %}
+          {# **自分の役割は変えられない。** 学習者に落とすとコースが見えなくなり、
+             戻す手段が無い（受講の取り消しと同じ理由）。 #}
+          {{ row.enrollment.role.value }}<br><span class="desc">自分</span>
+        {% else %}
+        <form method="post"
+              action="/manage/courses/{{ course.id }}/enrolments/{{ row.enrollment.user_id }}/role"
+              style="margin:0" onchange="this.requestSubmit()">
+          <select name="role">
+            {% for r in roles %}
+            <option value="{{ r }}" {{ 'selected' if r == row.enrollment.role.value }}>{{ r }}</option>
+            {% endfor %}
+          </select>
+          <noscript><button type="submit">変更</button></noscript>
+        </form>
+        {% endif %}
+      </td>
+      <td class="fit">
+        {% if row.enrollment.user_id != me.user_id %}
+        <form method="post"
+              action="/manage/courses/{{ course.id }}/enrolments/{{ row.enrollment.user_id }}/remove"
+              style="margin:0">
+          <button type="submit">受講を取り消す</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="4" class="desc">
+      {% if q %}この条件の受講者はいません。{% else %}受講者がいません。{% endif %}
+    </td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<h2>受講登録</h2>
+<form method="post" action="/manage/courses/{{ course.id }}/enrolments" class="card">
+  <div class="field">
+    <label for="roster">名簿（1 行 1 名。学籍番号を並べます）</label>
+    <textarea id="roster" name="roster" rows="5" required placeholder="y239999&#10;y239998"></textarea>
+  </div>
+  <div class="field">
+    <label for="role">役割の既定</label>
+    <select id="role" name="role">
+      {% for name in roles %}<option value="{{ name }}">{{ name }}</option>{% endfor %}
+    </select>
+  </div>
+  <p class="desc">
+    ログインは <code>@mail.ryukoku.ac.jp</code> の Google アカウントで行います。
+    メールアドレスとパスワードはこの画面では扱いません。
+  </p>
+  <div class="actions"><button type="submit">登録</button></div>
+</form>
+{% endblock %}

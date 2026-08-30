@@ -27,6 +27,7 @@ from aijudge_core import (
 )
 from aijudge_core.events import DomainEvent
 from aijudge_core.ids import (
+    CourseId,
     GradingJobId,
     GradingRunId,
     HumanReviewId,
@@ -38,7 +39,7 @@ from aijudge_core.ids import (
 )
 
 from .jobs import GradingJob, GradingPhase, JobState
-from .protocols import ImmutabilityViolation, SubmissionStoreError
+from .protocols import ImmutabilityViolation, RunDecision, SubmissionStoreError
 
 
 class InMemoryArtifactStore:
@@ -102,6 +103,11 @@ class InMemorySubmissionRepository:
             )
         )
 
+    def list_for_course(self, course_id: CourseId, *, limit: int = 5000) -> tuple[Submission, ...]:
+        # インメモリ実装は課題を持たないので、コースでは絞れない。
+        # 使うのは教員 UI（SQL 実装）だけなので、ここでは全件を返す。
+        return tuple(self._items[key] for key in self._order)[:limit]
+
     def next_attempt(
         self, tenant_id: TenantId, learner_id: UserId, task_version_id: TaskVersionId
     ) -> int:
@@ -134,6 +140,18 @@ class InMemoryGradingRunRepository:
     def latest_for(self, submission_id: SubmissionId) -> GradingRun | None:
         runs = self.list_for(submission_id)
         return runs[-1] if runs else None
+
+    def latest_for_many(
+        self, submission_ids: Sequence[SubmissionId]
+    ) -> dict[SubmissionId, GradingRun]:
+        wanted = set(submission_ids)
+        latest: dict[SubmissionId, GradingRun] = {}
+        for run_id in self._order:
+            run = self._items[run_id]
+            if run.submission_id in wanted:
+                # `_order` は保存順なので、後から来たものが最新。
+                latest[run.submission_id] = run
+        return latest
 
     def supersede(self, old_id: GradingRunId, new_id: GradingRunId) -> None:
         old = self._items.get(old_id)
@@ -209,6 +227,21 @@ class InMemoryReviewRepository:
 
     def find_finalization_for_run(self, run_id: GradingRunId) -> Finalization | None:
         return self._finalizations.get(run_id)
+
+    def decisions_for_runs(
+        self, run_ids: Sequence[GradingRunId]
+    ) -> dict[GradingRunId, RunDecision]:
+        decisions: dict[GradingRunId, RunDecision] = {}
+        for run_id in run_ids:
+            review = self.find_review_for_run(run_id)
+            request = self.find_request_for_run(run_id)
+            finalization = self._finalizations.get(run_id)
+            if review is None and request is None and finalization is None:
+                continue
+            decisions[run_id] = RunDecision(
+                review=review, request=request, finalization=finalization
+            )
+        return decisions
 
 
 class InMemoryJobQueue:

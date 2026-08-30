@@ -186,7 +186,7 @@ def build_result_view(
     request: object | None = None,
     finalization: Finalization | None = None,
     due_at: datetime | None = None,
-    auto_finalize_after_hours: float | None = None,
+    auto_finalize_after_minutes: int | None = None,
     now: datetime | None = None,
 ) -> ResultView:
     """採点結果を学習者向けの表示に畳む。
@@ -194,7 +194,7 @@ def build_result_view(
     `request` はこの採点に対する再確認の依頼（`ReviewRequest`）。既に出して
     いれば二重に出させない。
 
-    `due_at` と `auto_finalize_after_hours` から仮確定の窓を出す。片方でも
+    `due_at` と `auto_finalize_after_minutes` から仮確定の窓を出す。片方でも
     無ければ確定の予定は無く、窓は開いたまま（期限を示していないので
     締め切れない）。
 
@@ -249,8 +249,8 @@ def build_result_view(
         )
 
     unscored = any(view.pending for view in views)
-    window = grade_window(due_at, auto_finalize_after_hours, now or datetime.now(UTC))
-    settles_at = deadline_for(due_at, auto_finalize_after_hours)
+    window = grade_window(due_at, auto_finalize_after_minutes, now or datetime.now(UTC))
+    settles_at = deadline_for(due_at, auto_finalize_after_minutes)
     # 教員が読んだ証拠は `HumanReview` の存在。確定の出所ではない
     # （自動確定のあとに教員が読むことがある）。
     reviewed = review is not None

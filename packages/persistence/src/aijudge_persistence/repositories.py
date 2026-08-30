@@ -53,7 +53,11 @@ from aijudge_core.ids import (
     UserId,
 )
 from aijudge_submission import GradingJob, GradingPhase, JobState
-from aijudge_submission.protocols import ImmutabilityViolation, SubmissionStoreError
+from aijudge_submission.protocols import (
+    ImmutabilityViolation,
+    RunDecision,
+    SubmissionStoreError,
+)
 
 from .schema import (
     BlindMarkRow,
@@ -161,6 +165,25 @@ class SqlSubmissionRepository:
             for row in self._session.execute(statement).scalars()
         )
 
+    def list_for_course(self, course_id: CourseId, *, limit: int = 5000) -> tuple[Submission, ...]:
+        """このコースの全提出。古い順。教員の一覧が読む。
+
+        提出は課題版を指しており、コースを直接持たない（持たせると課題の
+        移動で片方だけ古くなる）ので、課題 → コースの経路で絞る。
+        """
+        statement = (
+            select(SubmissionRow)
+            .join(TaskVersionRow, TaskVersionRow.id == SubmissionRow.task_version_id)
+            .join(TaskRow, TaskRow.id == TaskVersionRow.task_id)
+            .where(TaskRow.course_id == str(course_id))
+            .order_by(SubmissionRow.created_at, SubmissionRow.id)
+            .limit(limit)
+        )
+        return tuple(
+            Submission.model_validate(row.document)
+            for row in self._session.execute(statement).scalars()
+        )
+
     def next_attempt(
         self, tenant_id: TenantId, learner_id: UserId, task_version_id: TaskVersionId
     ) -> int:
@@ -208,6 +231,40 @@ class SqlGradingRunRepository:
     def latest_for(self, submission_id: SubmissionId) -> GradingRun | None:
         runs = self.list_for(submission_id)
         return runs[-1] if runs else None
+
+    def latest_for_many(
+        self, submission_ids: Sequence[SubmissionId]
+    ) -> dict[SubmissionId, GradingRun]:
+        """複数の提出の最新採点を 1 クエリで引く。一覧画面のためにある。
+
+        `unfinalized_for_task` と同じ「提出ごとの最新 1 件」の絞り方を使う。
+        """
+        if not submission_ids:
+            return {}
+        keys = [str(submission_id) for submission_id in submission_ids]
+        latest = (
+            select(
+                GradingRunRow.submission_id.label("submission_id"),
+                func.max(GradingRunRow.created_at).label("created_at"),
+            )
+            .where(GradingRunRow.submission_id.in_(keys))
+            .group_by(GradingRunRow.submission_id)
+            .subquery()
+        )
+        rows = self._session.execute(
+            select(GradingRunRow)
+            .join(
+                latest,
+                (latest.c.submission_id == GradingRunRow.submission_id)
+                & (latest.c.created_at == GradingRunRow.created_at),
+            )
+            .order_by(GradingRunRow.created_at, GradingRunRow.id)
+        ).scalars()
+        # 同じ時刻の採点が 2 件あると 2 行返る。順序どおりに詰めれば
+        # 後の（= `latest_for` が返すのと同じ）ものが残る。
+        return {
+            SubmissionId(row.submission_id): GradingRun.model_validate(row.document) for row in rows
+        }
 
     def supersede(self, old_id: GradingRunId, new_id: GradingRunId) -> None:
         row = self._session.get(GradingRunRow, str(old_id))
@@ -409,8 +466,7 @@ class SqlReviewRepository:
         if existing is not None:
             # 二度確定できると成績が二つ存在する。やり直しは再採点から。
             raise ImmutabilityViolation(
-                f"GradingRun {finalization.grading_run_id} is already finalised "
-                f"({existing.source})"
+                f"GradingRun {finalization.grading_run_id} is already finalised ({existing.source})"
             )
         self._session.add(
             FinalizationRow(
@@ -434,6 +490,44 @@ class SqlReviewRepository:
             .first()
         )
         return None if row is None else Finalization.model_validate(row.document)
+
+    def decisions_for_runs(
+        self, run_ids: Sequence[GradingRunId]
+    ) -> dict[GradingRunId, RunDecision]:
+        """複数の採点のレビュー・依頼・確定をまとめて引く。一覧画面のためにある。
+
+        3 つの表を外部結合せず 3 クエリに分ける。どれも採点 1 件につき
+        高々 1 行なので結合しても正しいが、分けた方が読める。
+        """
+        if not run_ids:
+            return {}
+        keys = [str(run_id) for run_id in run_ids]
+        reviews = {
+            GradingRunId(row.grading_run_id): HumanReview.model_validate(row.document)
+            for row in self._session.execute(
+                select(HumanReviewRow).where(HumanReviewRow.grading_run_id.in_(keys))
+            ).scalars()
+        }
+        requests = {
+            GradingRunId(row.grading_run_id): ReviewRequest.model_validate(row.document)
+            for row in self._session.execute(
+                select(ReviewRequestRow).where(ReviewRequestRow.grading_run_id.in_(keys))
+            ).scalars()
+        }
+        finalizations = {
+            GradingRunId(row.grading_run_id): Finalization.model_validate(row.document)
+            for row in self._session.execute(
+                select(FinalizationRow).where(FinalizationRow.grading_run_id.in_(keys))
+            ).scalars()
+        }
+        return {
+            run_id: RunDecision(
+                review=reviews.get(run_id),
+                request=requests.get(run_id),
+                finalization=finalizations.get(run_id),
+            )
+            for run_id in reviews.keys() | requests.keys() | finalizations.keys()
+        }
 
     def unfinalized_for_task(
         self, task_id: TaskId, *, limit: int = 500
@@ -841,9 +935,7 @@ class SqlTaskRepository:
             row.vector = values
         self._session.flush()
 
-    def list_embeddings(
-        self, *, model: str, subject_profile: str
-    ) -> dict[str, tuple[float, ...]]:
+    def list_embeddings(self, *, model: str, subject_profile: str) -> dict[str, tuple[float, ...]]:
         """同じモデル・同じ科目のベクトルだけを返す。
 
         **モデルを跨いで混ぜない。** 次元が同じでも意味空間が違うので、
@@ -876,9 +968,7 @@ class SqlTaskRepository:
             select(
                 GradingRunRow.task_version_id,
                 func.count(GradingRunRow.id),
-                func.sum(
-                    case((GradingRunRow.score_ratio >= threshold, 1), else_=0)
-                ),
+                func.sum(case((GradingRunRow.score_ratio >= threshold, 1), else_=0)),
             )
             .where(
                 GradingRunRow.task_version_id.in_([str(v) for v in version_ids]),

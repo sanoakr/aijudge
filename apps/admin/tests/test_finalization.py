@@ -356,8 +356,10 @@ def test_a_run_cannot_be_finalized_twice(database: Database, course) -> None:
 
 
 def _with_grace(database: Database, course, hours: float | None):
+    """科目の既定の猶予を入れる。**猶予は分**なので時間から換算する。"""
+    minutes = None if hours is None else int(hours * 60)
     with database.unit_of_work() as uow:
-        uow.identity.save_course(course.model_copy(update={"auto_finalize_after_hours": hours}))
+        uow.identity.save_course(course.model_copy(update={"auto_finalize_after_minutes": minutes}))
         uow.commit()
 
 
@@ -478,9 +480,7 @@ def test_a_dry_run_changes_nothing(database: Database, course) -> None:
 # --------------------------------------------------------------------------
 
 
-def test_the_pending_count_is_visible_and_drops_on_finalization(
-    database: Database, course
-) -> None:
+def test_the_pending_count_is_visible_and_drops_on_finalization(database: Database, course) -> None:
     """設定したつもりで cron を忘れても、件数が減らないことで気づける。"""
     _world(database, course.id, routings=(Routing.AUTO,) * 3)
     assert pending_counts(database, course.id)[TASK_ID] == 3

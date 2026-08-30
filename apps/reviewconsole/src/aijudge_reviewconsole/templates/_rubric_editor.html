@@ -1,0 +1,31 @@
+{# ルーブリックの編集欄。コースの共通ルーブリックと課題の訂正で使う。
+
+   **観点ごとに畳む。** 開いていない観点は触れないので、直すつもりのない
+   ものを誤って書き換えない。追加も畳んであり、開いて初めて書ける ──
+   常に空の行が出ていると、新しい観点なのか既存なのかが読み取れない。 #}
+{% for row in rows %}
+<details class="criterion">
+  <summary>
+    <b>{{ row.title or row.code }}</b>
+    <span class="mono desc">{{ row.code }}</span>
+    <span class="desc">重み {{ row.weight }}</span>
+    <span class="desc">{{ row.evaluator if row.evaluator else 'AI が判定' }}</span>
+    <span class="desc open-hint">開いて直す</span>
+  </summary>
+  {% with row = row %}{% include "_criterion_fields.html" %}{% endwith %}
+</details>
+{% else %}
+<p class="desc">観点がありません。下から追加してください。</p>
+{% endfor %}
+
+<details class="criterion add">
+  <summary><b>＋ 観点を追加する</b><span class="desc">開いて書くと、保存のときに増えます</span></summary>
+  {% with row = {'code':'','title':'','description':'','weight':'','evaluator':'','levels':''} %}
+    {% include "_criterion_fields.html" %}
+  {% endwith %}
+</details>
+
+<p class="desc">
+  <strong>重みの合計を 1.0 にしてください</strong>（観点ごとの重みが成績の配分そのものです）。
+  観点を消すには、その観点を開いて<strong>コードを空にします</strong>。
+</p>

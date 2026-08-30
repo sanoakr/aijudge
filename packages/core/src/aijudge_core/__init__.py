@@ -35,6 +35,7 @@ from .finalization import (
     blocks_finalization,
     bulk_finalizable,
     deadline_for,
+    grace_minutes,
     grade_window,
 )
 from .grading import (
@@ -63,7 +64,7 @@ from .grading import (
     resolve_conflicts,
 )
 from .ids import derived_id, new_id, prefix_of
-from .knowledge import KnowledgeComponent, QMatrixEntry
+from .knowledge import KnowledgeComponent, QMatrixEntry, kc_id_for, parse_kc_key
 from .skill import Credential, CredentialExport, MasteryModel, SkillEvidence, SkillState
 from .spans import (
     ArtifactSpan,
@@ -94,12 +95,25 @@ from .task import (
     TestCase,
 )
 from .tenancy import Course, Enrollment, Role, Tenant
+from .uploads import (
+    ALL_UPLOAD_SUFFIXES,
+    DEFAULT_UPLOAD_SUFFIXES,
+    SUFFIX_GROUPS,
+    SUFFIX_KINDS,
+    allowed_suffixes,
+    kind_for,
+    normalize_suffixes,
+)
 
 __all__ = [
+    "ALL_UPLOAD_SUFFIXES",
     "DEADLINE_JUSTIFICATION",
+    "DEFAULT_UPLOAD_SUFFIXES",
     "EVENT_TYPES",
     "MIN_JUSTIFICATION_LENGTH",
     "SCHEMA_VERSION",
+    "SUFFIX_GROUPS",
+    "SUFFIX_KINDS",
     "Artifact",
     "ArtifactKind",
     "ArtifactRole",
@@ -157,6 +171,7 @@ __all__ = [
     "TranscriptionMeta",
     "WholeSpan",
     "aggregate",
+    "allowed_suffixes",
     "assert_transition",
     "auto_finalizable",
     "blocks_finalization",
@@ -165,9 +180,14 @@ __all__ = [
     "deadline_for",
     "derived_id",
     "final_score",
+    "grace_minutes",
     "grade_window",
+    "kc_id_for",
+    "kind_for",
     "late_penalty_for",
     "new_id",
+    "normalize_suffixes",
+    "parse_kc_key",
     "penalty_crosses_boundary",
     "prefix_of",
     "renormalize",

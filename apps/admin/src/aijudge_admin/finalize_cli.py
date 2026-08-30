@@ -5,7 +5,7 @@
     uv run aijudge-finalize --once --dry-run      # 何が確定するかだけ見る
     uv run aijudge-finalize --once --course crs_… # 1 コースに絞る
 
-猶予は**コースごと**の設定（`auto_finalize_after_hours`）。教員が
+猶予は**問題セットごと**の設定（無ければコースの既定・`auto_finalize_after_minutes`）。教員が
 `/manage` で入れる。入っていないコースは何もしない ── 既定は「自動確定
 しない」であり、設定漏れではなく設定内容である。
 

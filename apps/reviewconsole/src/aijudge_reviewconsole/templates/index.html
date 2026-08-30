@@ -1,20 +1,64 @@
 {% extends "base.html" %}
+{% block title %}担当コース — aiJudge{% endblock %}
 {% block body %}
 <h1>担当コース</h1>
-<p class="crumb">採点は <code>aijudge-worker</code> が済ませています。ここでは確認して確定します。</p>
 
-<table>
-  <thead><tr><th>コード</th><th>コース</th><th>学期</th></tr></thead>
-  <tbody>
-  {% for course in courses %}
-    <tr>
-      <td class="mono">{{ course.code }}</td>
-      <td><a href="/courses/{{ course.id }}">{{ course.title }}</a></td>
-      <td>{{ course.term }}</td>
-    </tr>
-  {% else %}
-    <tr><td colspan="3" class="desc">採点を担当しているコースがありません。</td></tr>
-  {% endfor %}
-  </tbody>
-</table>
+{# **開かずに判断できるだけの情報を出す**（overview.py）。コード・コース名・
+   学期の 3 列だけだと、どのコースに用があるのかを全部開くまで分からない。 #}
+<nav class="menu courses">
+{% for d in digests %}
+  <a class="row" href="/courses/{{ d.course.id }}">
+    <span class="what">
+      <b>{{ d.course.title }}</b>
+      <span class="mono desc">{{ d.course.code }}</span>
+      <span class="desc">{{ d.course.term }}</span>
+      <span class="desc">
+        {% if d.next_due %}次の締切 {{ d.next_due.strftime('%m-%d %H:%M') }}
+        {% else %}締切の設定された課題がありません{% endif %}
+      </span>
+    </span>
+    <span class="meta stats">
+      <span><b>{{ d.units }}</b> 問題セット</span>
+      <span><b>{{ d.tasks }}</b> 課題</span>
+      <span><b>{{ d.learners }}</b> 名</span>
+      <span>未確定 <b>{{ d.unfinalized }}</b></span>
+      {# 教員が手を動かす必要があるものだけ色を変える。全部を同じ濃さで
+         並べると、どれが待っているのか読み取れない。 #}
+      <span class="{{ 'attn' if d.contested }}">異議 <b>{{ d.contested }}</b></span>
+      <span class="{{ 'attn' if d.drafts }}">未承認 <b>{{ d.drafts }}</b></span>
+    </span>
+  </a>
+{% else %}
+  <p class="desc">採点を担当しているコースがありません。</p>
+{% endfor %}
+</nav>
+
+{% if is_admin %}
+<h2>コースを追加する</h2>
+<form method="post" action="/manage/courses" class="card">
+  <div class="field">
+    <label for="code">コースコード</label>
+    <input id="code" name="code" required placeholder="network">
+  </div>
+  <div class="field">
+    <label for="title">コース名</label>
+    <input id="title" name="title" required placeholder="ネットワーク及び演習">
+  </div>
+  <div class="field">
+    <label for="term">学期</label>
+    <input id="term" name="term" required placeholder="2025-後期">
+  </div>
+  <div class="field">
+    <label for="profile">科目プロファイル</label>
+    <select id="profile" name="profile" required>
+      {% for name in profiles %}<option value="{{ name }}">{{ name }}</option>{% endfor %}
+    </select>
+    <p class="desc" style="margin-top:6px">
+      採点の設定（言語・評価器・タイムアウト）はファイルで管理します。
+      この画面では選ぶだけです。
+    </p>
+  </div>
+  <div class="actions"><button type="submit">作成する</button></div>
+</form>
+{% endif %}
 {% endblock %}

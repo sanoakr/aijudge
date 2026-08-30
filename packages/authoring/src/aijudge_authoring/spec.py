@@ -28,8 +28,9 @@ from aijudge_core import (
     TaskVersion,
     TestCase,
     derived_id,
+    kc_id_for,
 )
-from aijudge_core.ids import KcId, TaskId, TaskVersionId, UserId
+from aijudge_core.ids import TaskId, TaskVersionId, UserId
 
 DEFAULT_EVALUATOR = "code_test_runner"
 AI_EVALUATOR = "rubric_ai_judge"
@@ -228,6 +229,7 @@ def _declared_version(
         test_cases=cases,
         q_matrix=q_matrix_for(spec.knowledge_components, version_id),
         max_score=spec.max_score,
+        source_key=spec.key,
         allow_handwriting=False,
         provenance=Provenance(
             authored_by=authored_by,
@@ -238,14 +240,14 @@ def _declared_version(
     )
 
 
-def q_matrix_for(
-    keys: tuple[str, ...], task_version_id: TaskVersionId
-) -> tuple[QMatrixEntry, ...]:
+def q_matrix_for(keys: tuple[str, ...], task_version_id: TaskVersionId) -> tuple[QMatrixEntry, ...]:
     """宣言した KC を Q-matrix の行にする（設計原則 P6）。
 
     **KC の ID は正準キーから導く。** 体系を先に登録してから課題を書く、
     という順序を強制しないためである。同じキーは同じ ID になるので、
-    KC の実体を後から足しても対応は繋がる（`derived_id` が決定的）。
+    KC の実体を後から足しても対応は繋がる（導出は `kc_id_for` に 1 本化）。
+    **登録済みかどうかはここでは見ない** ── 模型の層は保存先を知らない。
+    確かめるのは app 層（`aijudge_admin.kc.assert_registered`）である。
 
     重みは既定の 1.0 のまま置く。「どれだけ問うているか」を見積もらせる前に、
     まず対応があるかどうかだけを集める。
@@ -255,8 +257,7 @@ def q_matrix_for(
     `readability_weight` で実際に起きた形である。
     """
     return tuple(
-        QMatrixEntry(task_version_id=task_version_id, kc_id=KcId(derived_id("kc", key)))
-        for key in keys
+        QMatrixEntry(task_version_id=task_version_id, kc_id=kc_id_for(key)) for key in keys
     )
 
 
@@ -320,8 +321,9 @@ def build_task_version(
     # 課題」ではなく「**まだ**自動採点できない課題」で、実在する
     # （HTTP サーバ課題・自己採点課題・レポート課題）。
     if spec.criteria:
-        return _declared_version(spec, cases, subject_profile=subject_profile,
-                                 authored_by=authored_by, version=version)
+        return _declared_version(
+            spec, cases, subject_profile=subject_profile, authored_by=authored_by, version=version
+        )
 
     graded_by = spec.evaluator if spec.auto_graded else AI_EVALUATOR
     correctness = correctness_criterion(graded_by, spec.key)
@@ -357,6 +359,7 @@ def build_task_version(
         test_cases=cases,
         q_matrix=q_matrix_for(spec.knowledge_components, version_id),
         max_score=spec.max_score,
+        source_key=spec.key,
         allow_handwriting=False,
         provenance=_provenance(authored_by, generated_by, generation_prompt_version),
         created_at=datetime.now(UTC),

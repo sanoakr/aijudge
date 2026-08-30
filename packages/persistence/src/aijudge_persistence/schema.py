@@ -370,8 +370,17 @@ class CourseRow(Base):
     title: Mapped[str] = mapped_column(String(256))
     term: Mapped[str] = mapped_column(String(64), index=True)
     subject_profile: Mapped[str] = mapped_column(String(64), index=True)
-    # 締切から何時間で成績を自動確定するか。NULL なら自動確定しない。
-    auto_finalize_after_hours: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # コースの概要・到達目標（Markdown）。シラバスから写して置く。
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # このコースの共通ルーブリック（観点の宣言）。NULL・空なら組み込みの既定。
+    rubric: Mapped[list | None] = mapped_column(JsonType, nullable=True)
+    # このコースだけの採点設定の上書き。NULL・空なら雛形のまま。
+    grading_overrides: Mapped[dict | None] = mapped_column(JsonType, nullable=True)
+    # 締切から何分で成績を自動確定するか。NULL なら自動確定しない。
+    auto_finalize_after_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # この科目の既定の提出ファイル形式（`[".c", ".pdf"]`）。NULL・空なら
+    # 組み込みの既定。**課題ごとの指定が上書きする**（uploads.py）。
+    upload_suffixes: Mapped[list | None] = mapped_column(JsonType, nullable=True)
     # 遅延の減点の段（`[{"after_hours": 24, "ratio": 0.3}, ...]`）。
     # NULL・空なら遅延を見ない。**評価器の設定ではない**（評価と独立）。
     late_penalty_steps: Mapped[list | None] = mapped_column(JsonType, nullable=True)
@@ -408,7 +417,7 @@ class TaskRow(Base):
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     course_id: Mapped[str] = mapped_column(String(64), index=True)
-    # 何回目のまとまりか。一覧の階層化と並べ替えに使うので列にする
+    # どの問題セットか。一覧の階層化と並べ替えに使うので列にする
     # （JSON の中だと並べ替えられない）。
     unit: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     session: Mapped[int | None] = mapped_column(Integer, nullable=True)

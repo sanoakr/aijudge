@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% block title %}{{ course.title }} — aiJudge{% endblock %}
+{% block body %}
+<h1>{{ course.title }}</h1>
+<p class="crumb">{{ course.code }} / {{ course.term }} / 科目プロファイル
+  <span class="mono">{{ course.subject_profile }}</span></p>
+
+{# **よく使うものを上に。** 学期中に教員が開くのはほとんどが「いまの回」で、
+   コース全体の設定やプロファイルの確認は学期に数回しかない。全部を同じ濃さで
+   並べると、毎回そこから目で探すことになる。
+
+   問題セットは TA には開かせない（締切と一括確定は成績に直接効く）。 #}
+{% if can_manage %}
+<h2>問題セット</h2>
+{% if units %}
+<nav class="menu sets">
+  {# 学期を通すと 15 行前後になる。**1 セット 1 行に収める**うえ、列を
+     揃える ── 揃っていないと、締切や未確定の数を縦に読み比べられない。 #}
+  {% for unit in units %}
+  <a class="row" href="/manage/courses/{{ course.id }}/units/{{ unit.key }}">
+    <b class="c-key">{{ unit.unit or unit.label }}</b>
+    <span class="c-num desc">{% if unit.unit and unit.session %}{{ unit.label }}{% endif %}</span>
+    <span class="c-count desc">{{ unit.count }} 問</span>
+    <span class="c-date desc">公開 {% if unit.opens_at %}{{ unit.opens_at.strftime('%m-%d %H:%M') }}{% else %}<em>未設定</em>{% endif %}</span>
+    <span class="c-date desc">開始 {% if unit.submissions_open_at %}{{ unit.submissions_open_at.strftime('%m-%d %H:%M') }}{% elif unit.opens_at %}公開と同時{% else %}<em>未設定</em>{% endif %}</span>
+    <span class="c-date desc">締切 {% if unit.due_at %}{{ unit.due_at.strftime('%m-%d %H:%M') }}{% else %}<em>未設定</em>{% endif %}</span>
+    <span class="c-open">
+      {# 期限が過ぎたのに未確定が残っているのは、自動確定が動いていないか
+         異議申立が残っているかのどちらか。どちらも教員が見るべき状態。 #}
+      {% if unit.unfinalized %}
+        <span class="pill {{ 'no' if unit.needs_attention }}">未確定 {{ unit.unfinalized }}{% if unit.needs_attention %}・要対応{% endif %}</span>
+      {% else %}<span class="desc">未確定 0</span>{% endif %}
+    </span>
+  </a>
+  {% endfor %}
+</nav>
+{% else %}
+<p class="desc">問題セットがまだありません。下の欄に鍵を入れて始めてください。</p>
+{% endif %}
+
+{# 追加は一覧の直下に、1 行で。新しい問題セットは鍵を決めて開くところから
+   始まる ── 課題を 1 問も持たないセットでもページは開き、そこが最初の
+   1 問を足す場所になる（manage.py の unit_settings）。 #}
+<form method="post" action="/manage/courses/{{ course.id }}/units" class="addline">
+  <label for="unit" class="desc">問題セットを追加</label>
+  <input id="unit" name="unit" required placeholder="ex04" style="max-width:10rem">
+  <button type="submit">追加</button>
+</form>
+{% endif %}
+
+<h2>採点</h2>
+<nav class="menu">
+  <a class="row" href="/courses/{{ course.id }}/submissions">
+    <span class="what"><b>提出</b>
+      <span class="desc">すべての提出。問題セット・問題・学習者で絞り込めます</span></span>
+    <span class="meta">
+      <span class="desc">{{ submitted.total }} 件・{{ submitted.learners }} 名</span>
+      {% if submitted.latest %}<br><span class="desc">最新 {{ submitted.latest.strftime('%m-%d %H:%M') }}</span>{% endif %}
+    </span>
+  </a>
+  <a class="row" href="/courses/{{ course.id }}/queue">
+    <span class="what"><b>再確認の依頼</b>
+      <span class="desc">学習者が判定に疑問を出した提出</span></span>
+    <span class="meta">
+      {% if contested %}<span class="pill no">{{ contested }} 件</span>
+      {% else %}<span class="desc">0 件</span>{% endif %}
+    </span>
+  </a>
+  <a class="row" href="/courses/{{ course.id }}/finalize">
+    <span class="what"><b>確定処理</b>
+      <span class="desc">依頼が出なかった提出を閉じる。提出ごと・問題ごと・問題セットごと</span></span>
+    <span class="meta">
+      {% if unfinalized %}<span class="pill">未確定 {{ unfinalized }}</span>
+      {% else %}<span class="desc">未確定 0</span>{% endif %}
+    </span>
+  </a>
+  <a class="row" href="/courses/{{ course.id }}/blind">
+    <span class="what"><b>blind 採点</b>
+      <span class="desc">測定のために抽出された提出。AI を見る前に付けます（ADR 0005）</span></span>
+    <span class="meta">
+      {% if blind_pending %}<span class="pill">{{ blind_pending }} 件</span>
+      {% else %}<span class="desc">0 件</span>{% endif %}
+      <br><span class="desc">蓄積 {{ blind_marked }} / {{ min_sample_size }}</span>
+    </span>
+  </a>
+</nav>
+
+{% if can_manage %}
+<h2>コースの設定</h2>
+<nav class="menu">
+  <a class="row" href="/manage/courses/{{ course.id }}">
+    <span class="what"><b>コース全体の設定</b>
+      <span class="desc">成績の自動確定・受講者・科目プロファイル</span></span>
+    <span class="meta desc">
+      {% if course.auto_finalize_after_minutes %}自動確定 締切+{{ course.auto_finalize_after_minutes }} 分
+      {% else %}自動確定なし{% endif %}
+    </span>
+  </a>
+  <a class="row" href="/manage/courses/{{ course.id }}/kc">
+    <span class="what"><b>知識要素</b>
+      <span class="desc">課題が問う対象の体系。コースをまたいで共有されます</span></span>
+    <span class="meta desc">{{ kc_count }} 件</span>
+  </a>
+  <a class="row" href="/manage/courses/{{ course.id }}/drafts">
+    <span class="what"><b>未承認の課題</b>
+      <span class="desc">AI が生成した課題。承認するまで出題されません</span></span>
+    <span class="meta">
+      {% if drafts %}<span class="pill">{{ drafts }} 件</span>
+      {% else %}<span class="desc">0 件</span>{% endif %}
+    </span>
+  </a>
+</nav>
+
+{% endif %}
+{% endblock %}

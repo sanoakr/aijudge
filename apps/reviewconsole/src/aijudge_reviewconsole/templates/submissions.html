@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% block title %}提出 — {{ course.title }} — aiJudge{% endblock %}
+{% block body %}
+<h1>提出</h1>
+<p class="crumb">{{ course.title }}・{{ rows | length }} 件を表示（全 {{ total }} 件）</p>
+
+{# **絞り込みは URL に載せる。** 状態をサーバに持たない ── 絞った結果を
+   そのまま TA や学生に渡せないと、画面の説明から始めることになる
+   （submissions.py）。 #}
+{# **ボタンを押させない。** 絞り込みは見比べながら動かすもので、1 回ごとに
+   押させると手が止まる。使うのは教員だけで件数も知れているので、変更のたびに
+   読み直してよい。JavaScript は「フォームを送る」だけに留める ── 絞り込みの
+   規則をサーバと画面の 2 か所に書くと、必ず食い違う。 #}
+<form method="get" action="/courses/{{ course.id }}/submissions" class="card" id="filters"
+      onchange="this.requestSubmit()">
+  <div class="field row-form">
+    <span><label for="f-unit">問題セット</label>
+      <select id="f-unit" name="unit">
+        <option value="">すべて</option>
+        {% for u in units %}
+        <option value="{{ u.key }}" {{ 'selected' if filters.unit == u.key }}>
+          {{ u.unit or u.label }}{% if u.unit and u.session %}（{{ u.label }}）{% endif %}</option>
+        {% endfor %}
+      </select></span>
+    <span><label for="f-task">問題</label>
+      {# 問題セットを選んでいれば、その中の問題だけが並ぶ（app.py 側で絞る）。 #}
+      <select id="f-task" name="task">
+        <option value="">{{ 'この問題セットのすべて' if filters.unit else 'すべて' }}</option>
+        {% for u in task_choices %}
+          {% if filters.unit %}
+            {% for t, v in u.tasks %}
+              <option value="{{ t.id }}" {{ 'selected' if filters.task == t.id|string }}>{{ t.title }}</option>
+            {% endfor %}
+          {% else %}
+          <optgroup label="{{ u.unit or u.label }}">
+          {% for t, v in u.tasks %}
+            <option value="{{ t.id }}" {{ 'selected' if filters.task == t.id|string }}>{{ t.title }}</option>
+          {% endfor %}
+          </optgroup>
+          {% endif %}
+        {% endfor %}
+      </select></span>
+    <span><label for="f-learner">学習者（前方一致）</label>
+      {# **前方一致。** 受講 91 名の学籍番号を選択肢に並べても選べない。
+         打っている途中で送らないよう、少し待ってから送る。 #}
+      {# **打つたびに送らない。** 送ると読み直しで入力欄が作り直され、
+         往復のあいだに打った字が捨てられる（焦点を戻しても同じで、1 文字
+         ごとに手が止まる）。`change` は Enter と欄を離れたときに出るので、
+         それを確定の合図にする。
+
+         それでも読み直しは起きるので、焦点とキャレットは戻す。 #}
+      <input id="f-learner" name="learner" value="{{ filters.learner }}" placeholder="y2399"
+             style="max-width:9rem" autocomplete="off" enterkeyhint="search"
+             {{ 'autofocus' if filters.learner }}
+             onfocus="this.setSelectionRange(this.value.length, this.value.length)"></span>
+    <span><label for="f-role">役割</label>
+      <select id="f-role" name="role">
+        <option value="">すべて</option>
+        {% for r in roles %}
+        <option value="{{ r }}" {{ 'selected' if filters.role == r }}>{{ r }}</option>
+        {% endfor %}
+      </select></span>
+    <span><label for="f-state">状態</label>
+      <select id="f-state" name="state">
+        <option value="">すべて</option>
+        {% for key, label in states.items() %}
+        <option value="{{ key }}" {{ 'selected' if filters.state == key }}>{{ label }}</option>
+        {% endfor %}
+      </select></span>
+    <span><label for="f-adopted">採用提出</label>
+      <label class="check"><input id="f-adopted" type="checkbox" name="adopted" value="1"
+        {{ 'checked' if filters.adopted }}> 最高得点だけ</label></span>
+    {# 送信ボタンは置かない。選ぶ欄はその場で、打つ欄は Enter か
+       欄を離れたときに反映される。JavaScript が無い環境のためだけに残す。 #}
+    <noscript><button type="submit">絞り込む</button></noscript>
+  </div>
+  <p class="desc" style="margin:10px 0 0">
+    <strong>採用提出</strong>は、学習者ごと・課題ごとに最も点の高い提出です（成績に採用されるもの）。
+    全提出を平らに数えた分布は「何度も試した人ほど低い点が多い」形になり、到達度としては読めません。
+    {% if filters.unit or filters.task or filters.learner or filters.role or filters.state or filters.adopted %}
+      <a href="/courses/{{ course.id }}/submissions">絞り込みを解除</a>
+    {% endif %}
+  </p>
+</form>
+
+<h2>得点の分布</h2>
+{# **数字ではなく形を出す。** 平均だけでは、二山（できた人とまったく手が
+   付かなかった人）が片方の数字に潰れる。 #}
+<div class="card">
+  {% if chart.scored %}
+  <div class="hist">
+    {% for count in chart.counts %}
+    <div class="bar" title="{{ chart.label(loop.index0) }}% 台: {{ count }} 件">
+      <span class="n">{{ count if count else '' }}</span>
+      <span class="fill" style="height:{{ (100 * count / chart.peak) | round(1) if chart.peak else 0 }}%"></span>
+      <span class="x">{{ chart.label(loop.index0) }}</span>
+    </div>
+    {% endfor %}
+  </div>
+  <p class="desc" style="margin:10px 0 0">
+    採点済み {{ chart.scored }} 件／表示 {{ chart.total }} 件・平均
+    <strong>{{ '%.1f' | format(chart.mean) }}%</strong>
+  </p>
+  {% else %}
+  <p class="desc" style="margin:0">採点済みの提出がありません。</p>
+  {% endif %}
+</div>
+
+<h2>提出</h2>
+<table>
+  <thead><tr>
+    <th class="fit">提出日時</th><th class="fit">学習者</th><th class="grow">課題</th>
+    <th class="fit">回</th><th class="fit">得点</th><th class="fit">状態</th><th class="fit"></th>
+  </tr></thead>
+  <tbody>
+  {% for row in rows %}
+    <tr>
+      <td class="fit">{{ row.submission.submitted_at.strftime('%m-%d %H:%M') if row.submission.submitted_at else '—' }}</td>
+      <td class="fit mono">{{ row.login }}</td>
+      <td class="grow">
+        <span class="mono desc">{{ row.task.unit or row.task.unit_label }}</span> {{ row.task.title }}
+      </td>
+      <td class="fit">{{ row.submission.attempt }}</td>
+      <td class="fit">
+        {% if row.score is not none %}<strong>{{ '%.0f' | format(row.score * 100) }}%</strong>
+          {% if row.adopted %}<span class="pill ok">採用</span>{% endif %}
+        {% else %}<span class="desc">—</span>{% endif %}
+      </td>
+      <td class="fit">
+        <span class="pill {{ 'no' if row.contested }}">{{ row.state_label }}</span>
+      </td>
+      <td class="fit"><a href="/review/{{ row.submission.id }}/reveal">確認する</a></td>
+    </tr>
+  {% else %}
+    <tr><td colspan="7" class="desc">条件に合う提出がありません。</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

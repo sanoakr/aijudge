@@ -1,209 +1,261 @@
 {% extends "base.html" %}
-{% block title %}{{ course.title }} の管理 — aiJudge{% endblock %}
+{% block title %}{{ course.title }} の設定 — aiJudge{% endblock %}
 {% block body %}
-<h1>{{ course.title }}</h1>
-<p class="crumb">
-  <a href="/manage">← 科目の管理</a> / {{ course.code }} / {{ course.term }} /
-  <a href="/courses/{{ course.id }}">採点の待ち行列</a>
+<h1>コース全体の設定</h1>
+<p class="crumb">{{ course.title }}
+  {# 課題（日程・一括確定・追加）は問題セットのページにある。1 枚に積むと、
+     「ex03 の締切を直す」ために縦に長い画面を目で探すことになる。 #}
+  <span class="sep">·</span> 課題の設定は<a href="/courses/{{ course.id }}">問題セットのページ</a>から
 </p>
 
-<h2>成績の自動確定</h2>
-<form method="post" action="/manage/courses/{{ course.id }}/auto-finalize" class="card">
-  <div class="field">
-    <label for="after_hours">締切から何時間で自動確定するか（空欄なら自動確定しない）</label>
-    <input id="after_hours" name="after_hours" type="number" step="0.5" min="0.5"
-           style="max-width:12rem"
-           value="{{ course.auto_finalize_after_hours if course.auto_finalize_after_hours else '' }}">
+<h2 id="basics">基本情報</h2>
+<div class="card">
+  <p class="desc" style="margin:0 0 4px"><strong>{{ course.title }}</strong>
+    <span class="mono">{{ course.code }} / {{ course.term }}</span></p>
+  {% if course.description %}
+  <p class="desc" style="margin:0 0 10px">{{ course.description[:200] }}{% if course.description | length > 200 %}…{% endif %}</p>
+  {% else %}
+  <p class="desc" style="margin:0 0 10px">概要・到達目標は未入力です。</p>
+  {% endif %}
+  <div class="actions">
+    <a href="/manage/courses/{{ course.id }}/basics">基本情報を入力する（ファイルから読み取れます） →</a>
   </div>
+</div>
+
+<h2 id="enrolments">受講者</h2>
+<div class="card">
+  <p class="desc" style="margin:0 0 10px">
+    {{ people_count }} 名が登録されています。役割の変更と受講登録は受講者のページで行います。
+  </p>
+  <div class="actions">
+    <a href="/manage/courses/{{ course.id }}/enrolments">受講者を見る →</a>
+  </div>
+</div>
+
+<h2 id="course_grace">成績の自動確定</h2>
+<form method="post" action="/manage/courses/{{ course.id }}/auto-finalize" class="card">
+  {# 入力が 1 つなので、ボタンは同じ行の右端に置く。 #}
+  <div class="inline-field">
+    <span class="body">
+      <label for="after_minutes">締切から何分で自動確定するか（空欄なら自動確定しない）</label>
+      <input id="after_minutes" name="after_minutes" type="number" step="1" min="1"
+             style="max-width:12rem"
+             value="{{ course.auto_finalize_after_minutes if course.auto_finalize_after_minutes else '' }}">
+    </span>
+    {% if saved_key == 'course_grace' %}<span class="flash">{{ saved }}</span>{% endif %}
+    <button type="submit">保存</button>
+  </div>
+  <p class="desc" style="margin:10px 0 0">
+    これは<strong>コースの既定</strong>です。問題セットごとに指定があれば、そちらが効きます。
+    1 日 = 1440 分、2 日 = 2880 分。
+  </p>
   <p class="desc">
     猶予を過ぎた課題は、AI の判定のまま確定します。<strong>再確認の依頼が出ている提出と、
     レビューが必要と判定された提出（コンパイルエラー・合否境界の近傍など）は自動確定しません</strong>
-    — それらは下の一括確定か、待ち行列から個別に確定してください。
+    — それらは問題セットのページの一括確定か、「再確認の依頼」から個別に確定してください。
   </p>
-  <p class="desc">
-    自動確定を実際に走らせるのは <code>aijudge-finalize</code> です
-    （cron か常駐で回します）。設定だけでは動きません。下の「未確定」の件数が
-    減らないときは、その仕掛けを確認してください。
-  </p>
-  <button type="submit">保存</button>
 </form>
 
-{% if last_finalize %}
-<div class="note">
-  <strong>{{ last_finalize.task.title }}</strong>：{{ last_finalize.finalized }} 件を確定しました。
-  {% if last_finalize.contested %}
-    再確認の依頼が出ている {{ last_finalize.contested }} 件は確定していません（待ち行列で個別に確認してください）。
-  {% endif %}
-</div>
-{% endif %}
+<h2 id="formats">提出できるファイル形式</h2>
+{# 課題ごとの指定がこれを上書きする（`uploads.allowed_suffixes`）。コースで
+   一度決めておけば個々の課題では触らずに済み、レポート 1 問だけ PDF を
+   許す、といった例外は課題側で足せる。 #}
+<form method="post" action="/manage/courses/{{ course.id }}/upload-formats" class="card">
+  {# **性質で行を分ける。** コードとテキストは本文がそのまま採点器に渡せるが、
+     PDF と画像は読めず、採点の前に変換の段が要る。並べて出すと「1 つ増やす
+     だけ」のつもりで前提が変わる。
 
-<h2>課題</h2>
-<p class="desc" style="margin:0 0 12px">
-  AI が下書きした課題は<strong>承認するまで出題されません</strong>。
-  <a href="/manage/courses/{{ course.id }}/drafts">レビュー待ちを見る →</a>
-</p>
-<table>
-  <thead><tr><th>課題</th><th>テスト</th><th>評価器</th><th>未確定</th><th>公開 / 締切</th></tr></thead>
-  <tbody>
-  {% for row in tasks %}
-    <tr>
-      <td>{{ row.task.title }}
-        {% if not row.auto_graded %}<br><span class="pill">自動テストなし</span>{% endif %}
-      </td>
-      <td>{{ row.test_cases }}</td>
-      <td class="mono desc">{{ row.evaluators | join(', ') }}</td>
-      <td>
-        {% if row.unfinalized %}<span class="pill">{{ row.unfinalized }} 件</span>
-        {% else %}<span class="desc">—</span>{% endif %}
-        {% if row.auto_finalize_at %}
-          <br><span class="desc">
-            {% if row.window == PROVISIONAL %}仮確定中・{{ row.auto_finalize_at.strftime('%m-%d %H:%M') }} に確定
-            {% elif row.window == ELAPSED %}期限経過（{{ row.auto_finalize_at.strftime('%m-%d %H:%M') }}）
-            {% else %}自動確定 {{ row.auto_finalize_at.strftime('%m-%d %H:%M') }}{% endif %}
-          </span>
-        {% endif %}
-        {% if row.window == ELAPSED and row.unfinalized %}
-          <br><span class="desc"><strong>要対応</strong>：異議申立・要レビュー・採点失敗のいずれか、
-          または <code>aijudge-finalize</code> が動いていません。</span>
-        {% endif %}
-      </td>
-      <td>
-        <form method="post" action="/manage/courses/{{ course.id }}/tasks/{{ row.task.id }}/schedule"
-              style="display:flex;gap:8px;align-items:center;margin:0">
-          <input type="datetime-local" name="opens_at"
-                 value="{{ row.task.opens_at.strftime('%Y-%m-%dT%H:%M') if row.task.opens_at else '' }}">
-          <input type="datetime-local" name="due_at"
-                 value="{{ row.task.due_at.strftime('%Y-%m-%dT%H:%M') if row.task.due_at else '' }}">
-          <button type="submit">保存</button>
-        </form>
-        {% if row.unfinalized %}
-        <details style="margin-top:6px">
-          <summary class="desc">未確定の {{ row.unfinalized }} 件をまとめて確定する</summary>
-          <form method="post"
-                action="/manage/courses/{{ course.id }}/tasks/{{ row.task.id }}/finalize"
-                style="margin:6px 0 0">
-            <div class="field">
-              <label for="just-{{ row.task.id }}">確定の根拠（{{ min_reason }} 文字以上・学習者に表示されます）</label>
-              <textarea id="just-{{ row.task.id }}" name="justification" rows="2" required
-                        minlength="{{ min_reason }}"
-                        placeholder="例: テスト全通の提出について、抽出したものを確認した上で残りを確定します。"></textarea>
-            </div>
-            <p class="desc">
-              個別に読んでいない成績を確定させる操作です。再確認の依頼が出ている提出は確定しません。
-            </p>
-            <button type="submit">まとめて確定する</button>
-          </form>
-        </details>
-        {% endif %}
-      </td>
-    </tr>
+     2 行しかないので、ボタンは右に並べて 1 かたまりにする。 #}
+  <div class="formats">
+    <div class="rows">
+      {% for group, suffixes in suffix_groups %}
+      <div class="checkrow">
+        <span class="desc rowlabel">{{ group }}</span>
+        <span class="checks">
+          {% for shown, values in suffixes %}
+          <label><input type="checkbox" name="suffix" value="{{ values | join(',') }}"
+            {{ 'checked' if values | select('in', course_suffixes) | list }}>
+            <span class="mono">{{ shown }}</span></label>
+          {% endfor %}
+        </span>
+      </div>
+      {% endfor %}
+    </div>
+    {% if saved_key == 'formats' %}<span class="flash">{{ saved }}</span>{% endif %}
+    <button type="submit">保存</button>
+  </div>
+  <p class="desc" style="margin:8px 0 0">
+    コースの既定です（課題ごとの指定が上書きします）。PDF・画像は本文が直接読めないので、
+    レポートや手書き答案の課題でだけ。
+  </p>
+</form>
+
+<h2 id="rubric">共通ルーブリック</h2>
+{# **課題の宣言が勝つ。** ここはコースに共通の既定で、新しい課題が引き継ぐ。
+   既にある課題は変わらない ── 出題済みの版は書き換えない（P8）。 #}
+<div class="note">
+  ここで決めた観点を<strong>新しい課題が引き継ぎます</strong>。
+  {% if rubric_is_default %}いまは組み込みの既定（正しさ＋読みやすさ）です。{% endif %}
+  <strong>既にある課題は変わりません</strong> — 出題済みの採点基準は書き換えないためです。
+  個別に直すには、問題セットのページで課題を開いて「問題文・ルーブリックを直す」から変えてください。
+</div>
+<form method="post" action="/manage/courses/{{ course.id }}/rubric" class="card">
+  {% with rows = rubric_rows %}{% include "_rubric_editor.html" %}{% endwith %}
+  <div class="actions">
+    {% if saved_key == 'rubric' %}<span class="flash">{{ saved }}</span>{% endif %}
+    <button type="submit">保存</button>
+  </div>
+</form>
+
+<h2 id="grading">採点設定</h2>
+{# **このコースにしか効かない。** 同じ雛形を使う他のコースには影響しないので、
+   教員が変えてよい（`aijudge_grading.overrides`）。 #}
+<div class="note">
+  <strong>ここでの変更はこのコースだけに効きます。</strong>
+  雛形（<span class="mono">{{ course.subject_profile }}</span>）は共有の既定で、ここからは変えません。
+  空欄の項目は雛形のままです。
+  {% if changed %}<br>いま雛形から変えているもの:
+    {% for key in changed %}<span class="mono">{{ key }}</span>{% if not loop.last %}, {% endif %}{% endfor %}
+  {% else %}<br>いまは雛形のままです。{% endif %}
+</div>
+
+{% if trial %}
+{# 試走の結果。**設定の取り違えはここでしか現れない** ── `language` を
+   間違えても設定としては正しく、結果は「全員 0 点」になる。 #}
+<div class="note {{ 'warn' if trial.looks_wrong }}">
+  <strong>試走: {{ trial.message }}</strong>
+  {% if trial.looks_wrong %}
+    <br>参照解答が満点になりません。<strong>言語の指定を確かめてください</strong>
+    （課題そのものが誤っている可能性もあります）。
   {% else %}
-    <tr><td colspan="5" class="desc">課題がありません。</td></tr>
-  {% endfor %}
-  </tbody>
-</table>
-
-{% if last_task %}
-<div class="note">
-  <strong>{{ last_task.task.title }}</strong> を
-  {% if last_task.created %}追加しました{% else %}更新しました（既存の課題）{% endif %}。
-  {% if not last_task.auto_graded %}
-    テストケースが無いので <strong>AI 観点だけ</strong>で採点し、教員の確定が前提になります。
+    <br>参照解答が期待どおり通りました。
   {% endif %}
+  <br><span class="desc">試走は保存されません（採点の履歴には残りません）。</span>
 </div>
 {% endif %}
 
-<h2>課題を追加する</h2>
-<form method="post" action="/manage/courses/{{ course.id }}/tasks" class="card">
-  <div class="field">
-    <label for="key">課題キー（例 <code>ex02/p8</code>・同一性の鍵）</label>
-    <input id="key" name="key" required placeholder="ex02/p8" style="max-width:20rem">
-  </div>
-  <div class="field">
-    <label for="statement">問題文（Markdown。1 行目を <code>## タイトル ##</code> にすると題名になります）</label>
-    <textarea id="statement" name="statement" rows="10" required
-      placeholder="## [必須] 最大値・最小値・平均値 ##&#10;&#10;自然数 n を入力し…"></textarea>
-  </div>
-  <div class="field" style="display:flex;gap:12px;flex-wrap:wrap">
-    <span><label for="unit">まとまり</label>
-      <input id="unit" name="unit" placeholder="ex02" style="max-width:8rem"></span>
-    <span><label for="session">回</label>
-      <input id="session" name="session" type="number" min="1" style="max-width:6rem"></span>
-    <span><label for="position">順序</label>
-      <input id="position" name="position" type="number" min="1" style="max-width:6rem"></span>
-    <span><label for="readability_weight">読みやすさの重み</label>
-      <input id="readability_weight" name="readability_weight" type="number"
-             step="0.05" min="0" max="0.95" value="0.3" style="max-width:8rem"></span>
-    <span><label for="due_at">締切</label>
-      <input id="due_at" name="due_at" type="datetime-local"></span>
+<form method="post" action="/manage/courses/{{ course.id }}/grading" class="card">
+  <h3>提出プログラムの実行</h3>
+  <div class="field row-form">
+    <span><label for="language">言語</label>
+      <select id="language" name="language">
+        <option value="">雛形のまま（{{ base.evaluator_options.get('code_test_runner', {}).get('language', 'c') }}）</option>
+        {% for lang in languages %}
+        <option value="{{ lang }}"
+          {{ 'selected' if overrides.get('evaluator_options', {}).get('code_test_runner', {}).get('language') == lang }}>{{ lang }}</option>
+        {% endfor %}
+      </select></span>
+    <span><label for="case_timeout_seconds">テストケース 1 件の実行上限（秒）</label>
+      <input id="case_timeout_seconds" name="case_timeout_seconds" type="number" step="0.5" min="0.5"
+             style="max-width:8rem"
+             placeholder="{{ base.evaluator_options.get('code_test_runner', {}).get('case_timeout_seconds', 2.0) }}"
+             value="{{ overrides.get('evaluator_options', {}).get('code_test_runner', {}).get('case_timeout_seconds', '') }}"></span>
+    <span><label for="compile_timeout_seconds">コンパイルの上限（秒）</label>
+      <input id="compile_timeout_seconds" name="compile_timeout_seconds" type="number" step="1" min="1"
+             style="max-width:8rem"
+             placeholder="{{ base.evaluator_options.get('code_test_runner', {}).get('compile_timeout_seconds', 30.0) }}"
+             value="{{ overrides.get('evaluator_options', {}).get('code_test_runner', {}).get('compile_timeout_seconds', '') }}"></span>
   </div>
   <p class="desc">
-    <strong>読みやすさの重みを 0 にすると AI 評価器が走りません。</strong>
-    テスト実行の合否だけで採点することになり、「動くが読めない」提出が満点になります。
+    <strong>入門課題なら 2 秒で足ります。数値計算の課題では上げてください。</strong>
+    メモリ（512 MB）・プロセス数・出力量の上限は評価器に固定してあり、ここでは変えられません
+    ── 提出物 1 プロセスに与える資源で、緩めるとホストごと巻き込まれます。
   </p>
+
+  <h3>AI の判定</h3>
+  <div class="field row-form">
+    <span><label for="samples">自己一貫性のサンプル数</label>
+      <input id="samples" name="samples" type="number" step="1" min="1" max="9" style="max-width:8rem"
+             placeholder="{{ base.evaluator_options.get('rubric_ai_judge', {}).get('samples', 3) }}"
+             value="{{ overrides.get('evaluator_options', {}).get('rubric_ai_judge', {}).get('samples', '') }}"></span>
+    <span><label for="timeout_seconds">評価器 1 回の上限（秒）</label>
+      <input id="timeout_seconds" name="timeout_seconds" type="number" step="1" min="1"
+             style="max-width:8rem" placeholder="{{ base.timeout_seconds }}"
+             value="{{ overrides.get('timeout_seconds', '') }}"></span>
+  </div>
   <p class="desc">
-    <strong>テストケースはこの画面からは入れられません。</strong>
-    1 課題あたり数件〜十数件を貼らせるのは現実的でないので、まとまった投入は
-    API（<code>POST /api/courses/{{ course.id }}/tasks</code>）で行います。
-    ここで作った課題はテストケースが 0 件なので、AI 観点だけで採点され、教員の確定が前提になります。
+    同じ問いを何回か引いて、判定が割れるかどうかで確信度を測ります。多いほど確信度は信用できますが、その分遅くなります。
+    <strong>評価器 1 回の上限はモデルの応答待ちを含みます</strong>（テストケースの実行上限とは別物です）。
+    <br><strong>何を判定させるか（ルーブリックの観点）は課題ごとに決まります。</strong>
+    上の<a href="#rubric">共通ルーブリック</a>が新しい課題の既定になり、個別の課題は
+    問題セットのページの「問題文・ルーブリック・提出形式を直す」から変えられます。
+    ここには観点の設定はありません。
   </p>
-  <button type="submit">追加する</button>
+
+  <h3>人が確認する条件</h3>
+  <div class="field row-form">
+    <span><label for="confidence_below">確信度がこれ未満なら人が見る</label>
+      <input id="confidence_below" name="confidence_below" type="number" step="0.05" min="0" max="1"
+             style="max-width:8rem" placeholder="{{ base.review_policy.confidence_below }}"
+             value="{{ overrides.get('review_policy', {}).get('confidence_below', '') }}"></span>
+    <span><label for="boundary_score">合否の境界</label>
+      <input id="boundary_score" name="boundary_score" type="number" step="0.05" min="0" max="1"
+             style="max-width:8rem" placeholder="{{ base.review_policy.boundary_score }}"
+             value="{{ overrides.get('review_policy', {}).get('boundary_score', '') }}"></span>
+    <span><label for="boundary_margin">境界の前後この幅は人が見る</label>
+      <input id="boundary_margin" name="boundary_margin" type="number" step="0.01" min="0" max="1"
+             style="max-width:8rem" placeholder="{{ base.review_policy.boundary_margin }}"
+             value="{{ overrides.get('review_policy', {}).get('boundary_margin', '') }}"></span>
+  </div>
+  <p class="desc">
+    合否の境が 0.6、幅が 0.05 なら、55〜65% の提出は自動確定せず教員の確認に回ります。
+    確信度の水準を上げるほど、人が見る件数が増えます。
+  </p>
+
+  <h3>測定</h3>
+  <div class="inline-field">
+    <span class="body">
+      <label for="blind_sample_rate">blind 採点に回す割合（0〜1）</label>
+      <input id="blind_sample_rate" name="blind_sample_rate" type="number" step="0.01" min="0" max="1"
+             style="max-width:8rem" placeholder="{{ base.measurement.blind_sample_rate }}"
+             value="{{ overrides.get('measurement', {}).get('blind_sample_rate', '') }}">
+    </span>
+  </div>
+  <p class="desc" style="margin:10px 0 0">
+    AI を見る前に教員が段階を付ける提出の割合です。一致度の測定にだけ使い、採点そのものは変わりません。
+    0 にすると集めなくなります。
+  </p>
+
+  <h3>使う評価器</h3>
+  {# **インストール済みから選ぶ。** 自由入力にすると、存在しない名前で
+     その科目の採点が恒久的に失敗する。説明は評価器が持つ。 #}
+  <div class="field">
+    <div class="checkrow">
+      <span class="desc rowlabel">決定的</span>
+      <span class="checks">
+        {% for row in deterministic %}
+        <label title="{{ row.about }}"><input type="checkbox" name="deterministic" value="{{ row.name }}"
+          {{ 'checked' if row.name in profile.deterministic }}> <span class="mono">{{ row.name }}</span></label>
+        {% endfor %}
+      </span>
+    </div>
+    <div class="checkrow">
+      <span class="desc rowlabel">AI</span>
+      <span class="checks">
+        {% for row in ai_evaluators %}
+        <label title="{{ row.about }}"><input type="checkbox" name="ai_evaluators" value="{{ row.name }}"
+          {{ 'checked' if row.name in profile.ai_evaluators }}> <span class="mono">{{ row.name }}</span></label>
+        {% endfor %}
+      </span>
+    </div>
+  </div>
+  <ul class="desc evaluators">
+    {% for row in deterministic + ai_evaluators %}
+    <li><span class="mono">{{ row.name }}</span> — {{ row.about or '説明がありません' }}</li>
+    {% endfor %}
+  </ul>
+  <p class="desc">
+    決定的評価が先で、そこで確定した観点は AI に問い合わせません（設計原則 P3）。
+    <strong>外した評価器が担当していた観点は未採点になります</strong> — 総合点は伏せられ、
+    教員の確認待ちになります（設計原則 P2）。
+    ここで変えられないもの:
+    {% for key, why in locked.items() %}<br><span class="mono">{{ key }}</span> — {{ why }}{% endfor %}
+  </p>
+
+  <div class="actions">
+    {% if saved_key == 'grading' %}<span class="flash">{{ saved }}</span>{% endif %}
+    <button type="submit" name="action" value="try">この設定で試す</button>
+    <button type="submit" name="action" value="save">保存</button>
+  </div>
 </form>
-
-<h2>受講者（{{ people | length }} 名）</h2>
-<table>
-  <thead><tr><th>ID</th><th>氏名</th><th>役割</th><th></th></tr></thead>
-  <tbody>
-  {% for row in people %}
-    <tr>
-      <td class="mono">{{ row.user.login if row.user else row.enrollment.user_id }}</td>
-      <td>{{ row.user.display_name if row.user else '—' }}</td>
-      <td>{{ row.enrollment.role.value }}</td>
-      <td>
-        {% if row.enrollment.user_id != me.user_id %}
-        <form method="post"
-              action="/manage/courses/{{ course.id }}/enrolments/{{ row.enrollment.user_id }}/remove"
-              style="margin:0">
-          <button type="submit">受講を取り消す</button>
-        </form>
-        {% endif %}
-      </td>
-    </tr>
-  {% else %}
-    <tr><td colspan="4" class="desc">受講者がいません。</td></tr>
-  {% endfor %}
-  </tbody>
-</table>
-
-<h2>受講登録</h2>
-<form method="post" action="/manage/courses/{{ course.id }}/enrolments" class="card">
-  <div class="field">
-    <label for="roster">名簿（1 行 1 名。ID だけ、または <code>ID メール RANDOM[n] 役割</code>）</label>
-    <textarea id="roster" name="roster" rows="4" required placeholder="y239999&#10;y239998"></textarea>
-  </div>
-  <div class="field">
-    <label for="role">役割が書かれていない行の既定</label>
-    <select id="role" name="role">
-      {% for name in roles %}<option value="{{ name }}">{{ name }}</option>{% endfor %}
-    </select>
-  </div>
-  <p class="desc">
-    <strong>既に登録されている利用者だけ</strong>を追加できます。新規作成は
-    パスワードの配布が伴うため <code>aijudge-admin enrol --credentials &lt;path&gt;</code>
-    で行ってください（画面に平文を出さないため）。
-  </p>
-  <button type="submit">登録する</button>
-</form>
-
-<h2>科目プロファイル <span class="mono desc">{{ profile_path }}</span></h2>
-<div class="note">
-  採点の設定は<strong>この画面から変更できません</strong>。評価器の指名と
-  タイムアウトを持つ設定で、ブラウザから壊せるようにすると 1 人の操作で
-  全員の採点が止まります。コードと同じ扱いでレビューを通します。
-</div>
-{% if profile_text %}
-<pre class="code">{{ profile_text }}</pre>
-{% else %}
-<p class="desc">プロファイルが見つかりません（{{ profile_path }}）。</p>
-{% endif %}
 {% endblock %}

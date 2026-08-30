@@ -18,18 +18,51 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-# 数式は当面そのまま出す。KaTeX を入れるのは手書き数式（Phase 4）と同時が
-# 妥当で、いま入れると課題文の描画だけのために依存が増える。
-# `$$...$$` はコードブロック外ではそのまま表示される。
+# 数式は**サーバ側で MathML に変換する。**
+#
+# CDN の KaTeX を読むと、課題文が読めるかどうかが外向きの通信に依存する。
+# この配置（tailscale の内側の 1 台）でそれを前提にすると、回線が細い日に
+# 数式だけが崩れた課題文が出る ── しかも原因が学習者からは分からない。
+# MathML なら追加のスクリプトも要らず、`html=False` の方針とも矛盾しない。
+#
+# **変換できない数式は元の文字列のまま出す。** 課題文が読めないより、
+# `$\sum_{i=1}^{n}$` が見えている方がまし（提出はできる）。
 
 
 @lru_cache(maxsize=1)
 def _renderer():
     from markdown_it import MarkdownIt
+    from mdit_py_plugins.dollarmath import dollarmath_plugin
 
     # `html=False` が要点。課題文に埋め込まれた HTML をそのまま出さない。
     # `linkify` は URL を自動リンクにする（課題文に参考リンクが多い）。
-    return MarkdownIt("commonmark", {"html": False, "linkify": True, "typographer": False})
+    md = MarkdownIt("commonmark", {"html": False, "linkify": True, "typographer": False})
+    md.use(
+        dollarmath_plugin,
+        renderer=_math_renderer,
+        # `$100 と $200` を数式と読ませない。金額は課題文に普通に出る。
+        allow_space=False,
+        double_inline=True,
+    )
+    return md
+
+
+def _math_renderer(content: str, options: dict[str, object]) -> str:
+    """LaTeX の断片を MathML にする。失敗したら元の文字列を出す。
+
+    `options` は `dollarmath` が渡す描画時の情報で、`display_mode` が
+    `$$...$$`（別行立て）かどうかを表す。
+    """
+    import html
+
+    display = bool(options.get("display_mode"))
+    try:
+        from latex2mathml.converter import convert
+
+        return convert(content, display="block" if display else "inline")
+    except Exception:
+        marker = "$$" if display else "$"
+        return f"<code>{html.escape(marker + content + marker)}</code>"
 
 
 def render_statement(markdown: str) -> str:

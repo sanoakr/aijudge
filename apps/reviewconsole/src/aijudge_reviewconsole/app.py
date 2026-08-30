@@ -22,7 +22,7 @@ blind 抽出に当たった提出だけ、教員の段階を先に取る:
 blind 画面のレスポンスには AI の判定を一切含めない。CSS で隠すのでは
 不十分（ページのソースを見れば分かる）。これはテストで固定してある。
 
-`/manage` に科目・課題・受講の管理を載せている（`manage.py`）。学期中に
+`/manage` にコース・課題・受講の管理を載せている（`manage.py`）。学期中に
 発生する作業（締切の設定、受講者の追加、課題の追加）を教員がターミナルで
 行うのは現実的でないため。**科目プロファイルは表示だけで編集させない。**
 """
@@ -38,6 +38,7 @@ from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from aijudge_admin import allowed_namespaces, list_for_namespaces, pending_counts
 from aijudge_authoring import render_statement
 from aijudge_core import (
     MIN_JUSTIFICATION_LENGTH,
@@ -45,12 +46,15 @@ from aijudge_core import (
     Course,
     Finalization,
     FinalizationSource,
+    GradeWindow,
     GradingPhase,
     GradingRun,
     HumanReview,
+    Role,
     RubricCriterion,
     Submission,
     TaskVersion,
+    blocks_finalization,
     new_id,
 )
 from aijudge_core.ids import (
@@ -71,7 +75,16 @@ from aijudge_identity import (
 from aijudge_persistence import Database, ObservationFileStore
 from aijudge_submission import ArtifactStore, ImmutabilityViolation
 
+from .overview import digests_for, load_units
 from .sampling import is_blind_sample
+from .submissions import (
+    STATE_LABELS,
+    Filters,
+    distribution_of,
+    load_rows,
+    newest_first,
+    summarize,
+)
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
@@ -208,7 +221,7 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
     app = FastAPI(title="aiJudge instructor console")
     app.state.aijudge = console
 
-    # 管理画面（科目・課題・受講）。採点の待ち行列とは別の関心事だが、
+    # 管理画面（コース・課題・受講）。再確認の依頼とは別の関心事だが、
     # 教員に 2 つの Web アプリを使わせないため同じアプリに載せる。
     from .manage import register as register_manage
 
@@ -263,25 +276,89 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
         response.delete_cookie(SESSION_COOKIE, path="/")
         return response
 
-    # -- 待ち行列 ----------------------------------------------------------
+    # -- 担当コースとコースのメニュー ----------------------------------------
 
     @app.get("/", response_class=HTMLResponse)
     def index(request: Request) -> Response:
+        """担当コースの一覧。**開かずに判断できるだけの情報を出す**（`overview.py`）。
+
+        コード・コース名・学期の 3 列だけでは、どのコースに用があるのかを
+        全部開くまで判断できない。
+        """
         principal = current_principal(request)
         if principal is None:
             return RedirectResponse("/login", status_code=303)
         with console.database.unit_of_work() as uow:
             auth = AuthService(uow.identity)
-            courses = [
-                course
-                for course in auth.courses_for(principal.tenant_id, principal.user_id)
-                if _can_grade(auth, course.id, principal)
-            ]
+            courses = []
+            is_admin = False
+            for course in auth.courses_for(principal.tenant_id, principal.user_id):
+                enrollment = uow.identity.find_enrollment(course.id, principal.user_id)
+                if enrollment is not None and enrollment.role is Role.ADMIN:
+                    is_admin = True
+                if _can_grade(auth, course.id, principal):
+                    courses.append(course)
         return TEMPLATES.TemplateResponse(
-            request, "index.html", {"me": principal, "courses": courses}
+            request,
+            "index.html",
+            {
+                "me": principal,
+                "digests": digests_for(console.database, courses),
+                # コースを作れるのは管理者だけ。作る口をここに置くのは、
+                # 入口が 2 つあること自体が分かりにくさの元だったから。
+                "is_admin": is_admin,
+                "profiles": sorted(path.stem for path in console.profiles_dir.glob("*.yaml")),
+            },
         )
 
     @app.get("/courses/{course_id}", response_class=HTMLResponse)
+    def course_menu(request: Request, course_id: str, me: Me) -> HTMLResponse:
+        """コースの入口。**ここは分岐だけを持つ。**
+
+        1 枚に全部（自動確定・課題・受講者・プロファイル）を積むと、教員は
+        「第 3 回の締切を直す」ために縦に長い画面を目で探すことになる。
+        コース全体の設定と、問題セットごとの設定と、再確認の依頼を、同じ階層に並べる。
+        """
+        course, rows, _marked = _queue_rows(console, me, CourseId(course_id))
+        pending = pending_counts(console.database, course.id)
+        _course, blind, blind_marked = _blind_rows(console, me, CourseId(course_id))
+        unfinalized = sum(pending.values())
+        with console.database.unit_of_work() as uow:
+            submitted = summarize(load_rows(uow, course))
+        with console.database.unit_of_work() as uow:
+            units = load_units(uow, course, pending=pending)
+            task_ids = {task.id for task in uow.tasks.list_for_course(course.id)}
+            drafts = sum(
+                1 for version in uow.tasks.list_versions_in_review() if version.task_id in task_ids
+            )
+            enrollment = uow.identity.find_enrollment(course.id, me.user_id)
+        profile = load_profile(console.profiles_dir / f"{course.subject_profile}.yaml")
+        kcs = list_for_namespaces(console.database, allowed_namespaces(profile))
+        return TEMPLATES.TemplateResponse(
+            request,
+            "course_menu.html",
+            {
+                "me": me,
+                "course": course,
+                "units": units,
+                "contested": len(rows),
+                "unfinalized": unfinalized,
+                "submitted": submitted,
+                "blind_pending": len(blind),
+                "blind_marked": blind_marked,
+                "min_sample_size": min_sample_size,
+                "drafts": drafts,
+                "kc_count": len(kcs),
+                # TA にはコースの設定を開かせない（`manage.py` の権限と揃える）。
+                "can_manage": enrollment is not None
+                and enrollment.role in (Role.INSTRUCTOR, Role.ADMIN),
+                "ELAPSED": GradeWindow.ELAPSED,
+            },
+        )
+
+    # -- 待ち行列 ----------------------------------------------------------
+
+    @app.get("/courses/{course_id}/queue", response_class=HTMLResponse)
     def queue(request: Request, course_id: str, me: Me) -> HTMLResponse:
         course, rows, marked_count = _queue_rows(console, me, CourseId(course_id))
         return TEMPLATES.TemplateResponse(
@@ -290,6 +367,137 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
             {
                 "me": me,
                 "course": course,
+                "section": {"label": "再確認の依頼", "href": f"/courses/{course.id}/queue"},
+                "rows": rows,
+                "marked_count": marked_count,
+                "min_sample_size": min_sample_size,
+            },
+        )
+
+    @app.get("/courses/{course_id}/submissions", response_class=HTMLResponse)
+    def submissions_page(
+        request: Request,
+        course_id: str,
+        me: Me,
+        unit: str = "",
+        task: str = "",
+        learner: str = "",
+        role: str = "",
+        state: str = "",
+        adopted: int = 0,
+    ) -> HTMLResponse:
+        """提出の一覧。**実際に何が出ているかを見る場所**（`submissions.py`）。
+
+        待ち行列と確定処理は手を動かす必要があるものだけを出すので、全提出は
+        そこに混ぜない。絞り込みは URL に載せる ── 絞った結果をそのまま TA や
+        学生に渡せる。
+        """
+        course, _rows, _marked = _queue_rows(console, me, CourseId(course_id))
+        with console.database.unit_of_work() as uow:
+            rows = load_rows(uow, course)
+            units = load_units(uow, course)
+        # **問題セットを選んだら、問題の選択肢もそのセットに絞る。** 全課題を
+        # 並べたままにすると、選んだセットに無い問題を選べてしまい、結果が
+        # 常に空になる（教員には絞り込みが壊れたように見える）。
+        #
+        # 問題セットの選択肢そのものは絞らない ── 絞ると別のセットに移れなくなる。
+        choices = tuple(group for group in units if not unit or group.key == unit)
+        if unit:
+            known = {str(task_obj.id) for group in choices for task_obj, _v in group.tasks}
+            if task not in known:
+                task = ""
+        filters = Filters(
+            unit=unit,
+            task=task,
+            learner=learner.strip(),
+            role=role,
+            state=state,
+            adopted=bool(adopted),
+        )
+        shown = newest_first([row for row in rows if filters.matches(row)])
+        return TEMPLATES.TemplateResponse(
+            request,
+            "submissions.html",
+            {
+                "me": me,
+                "course": course,
+                "section": {"label": "提出", "href": f"/courses/{course.id}/submissions"},
+                "rows": shown,
+                "total": len(rows),
+                "filters": filters,
+                # 問題セットの選択肢は全部、問題の選択肢は選んだセットの中だけ。
+                "units": units,
+                "task_choices": choices,
+                "roles": [role.value for role in Role],
+                "states": STATE_LABELS,
+                "chart": distribution_of(shown),
+            },
+        )
+
+    @app.get("/courses/{course_id}/finalize", response_class=HTMLResponse)
+    def finalize_queue(request: Request, course_id: str, me: Me) -> HTMLResponse:
+        """確定処理。**依頼が出なかった提出を閉じる導線**（ADR 0010）。
+
+        再確認の依頼は学習者の申し出に答える仕事で、こちらは残りを閉じる
+        仕事である。学期末に成績が閉じるには後者が要る（依頼はごく一部に
+        しか出ない）。粒度は 3 つ ── 提出ごと・問題ごと・問題セットごと。
+        """
+        course, rows, _marked = _queue_rows(console, me, CourseId(course_id))
+        pending = pending_counts(console.database, course.id)
+        with console.database.unit_of_work() as uow:
+            units = load_units(uow, course, pending=pending)
+            enrollment = uow.identity.find_enrollment(course.id, me.user_id)
+            open_rows = []
+            for submission, run in uow.reviews.pending_for_course(course.id):
+                version = uow.tasks.get_version(submission.task_version_id)
+                task = None if version is None else uow.tasks.get_task(version.task_id)
+                request_row = uow.reviews.find_request_for_run(run.id)
+                open_rows.append(
+                    {
+                        "submission": submission,
+                        "run": run,
+                        "task": task,
+                        "learner": uow.identity.get_user(submission.learner_id),
+                        # 未対応の異議申立があるものは一括では閉じない。
+                        # **1 件ずつ読むもの**として印を付ける。
+                        "contested": blocks_finalization(request_row),
+                    }
+                )
+        return TEMPLATES.TemplateResponse(
+            request,
+            "finalize.html",
+            {
+                "me": me,
+                "course": course,
+                "section": {"label": "確定処理", "href": f"/courses/{course.id}/finalize"},
+                "rows": open_rows,
+                "units": [unit for unit in units if unit.unfinalized],
+                "pending": pending,
+                "contested": len(rows),
+                # 一括確定は担当教員以上（`manage.py` の権限と揃える）。
+                "can_manage": enrollment is not None
+                and enrollment.role in (Role.INSTRUCTOR, Role.ADMIN),
+                "min_reason": MIN_JUSTIFICATION_LENGTH,
+                "last_finalize": (
+                    console.last_finalize[1]
+                    if console.last_finalize is not None
+                    and console.last_finalize[0] == str(course.id)
+                    else None
+                ),
+            },
+        )
+
+    @app.get("/courses/{course_id}/blind", response_class=HTMLResponse)
+    def blind_queue(request: Request, course_id: str, me: Me) -> HTMLResponse:
+        """blind 採点の待ち。**再確認の依頼とは別の画面**（ADR 0005 / 0009）。"""
+        course, rows, marked_count = _blind_rows(console, me, CourseId(course_id))
+        return TEMPLATES.TemplateResponse(
+            request,
+            "blind_queue.html",
+            {
+                "me": me,
+                "course": course,
+                "section": {"label": "blind 採点", "href": f"/courses/{course.id}/blind"},
                 "rows": rows,
                 "marked_count": marked_count,
                 "min_sample_size": min_sample_size,
@@ -313,6 +521,10 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 "lines": _numbered(console.source_of(context.submission)),
                 "criteria": context.task_version.criteria,
                 "course": context.course,
+                "section": {
+                    "label": "再確認の依頼",
+                    "href": f"/courses/{context.course.id}/queue",
+                },
                 "task_meta": context.task,
                 "learner": context.learner,
                 "statement_html": render_statement(context.task_version.statement),
@@ -386,6 +598,10 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 "awaiting_ai": context.awaiting_ai,
                 "learner": context.learner,
                 "task_meta": context.task,
+                "section": {
+                    "label": "再確認の依頼",
+                    "href": f"/courses/{context.course.id}/queue",
+                },
                 "min_reason": MIN_JUSTIFICATION_LENGTH,
             },
         )
@@ -642,6 +858,46 @@ def _queue_rows(
                     "marked": mark is not None,
                     "needs_blind": mark is None
                     and console.needs_blind_mark(submission, course.subject_profile),
+                }
+            )
+    return course, tuple(rows), marked
+
+
+def _blind_rows(
+    console: Console, me: Principal, course_id: CourseId
+) -> tuple[Course, tuple[dict, ...], int]:
+    """blind 採点がまだ付いていない、抽出された提出。
+
+    **再確認の依頼とは別の仕事である。** あちらは学習者からの申し出に
+    答えるもので、こちらは一致度を測るための正解データ作り（ADR 0005）。
+    混ぜて並べると、教員はどちらの理由でその行が出ているのか分からない。
+    """
+    with console.database.unit_of_work() as uow:
+        auth = AuthService(uow.identity)
+        try:
+            auth.require_grader(course_id, me.user_id)
+        except PermissionDenied as exc:
+            raise HTTPException(status_code=404, detail="コースが見つかりません") from exc
+        course = uow.identity.get_course(course_id)
+        if course is None:
+            raise HTTPException(status_code=404, detail="コースが見つかりません")
+
+        rows = []
+        marked = 0
+        for submission, run in uow.reviews.pending_for_course(course_id, include_decided=True):
+            if not console.needs_blind_mark(submission, course.subject_profile):
+                continue
+            if uow.reviews.find_blind_mark(submission.id) is not None:
+                marked += 1
+                continue
+            version = uow.tasks.get_version(submission.task_version_id)
+            task = None if version is None else uow.tasks.get_task(version.task_id)
+            rows.append(
+                {
+                    "submission": submission,
+                    "run": run,
+                    "task": task,
+                    "learner": uow.identity.get_user(submission.learner_id),
                 }
             )
     return course, tuple(rows), marked

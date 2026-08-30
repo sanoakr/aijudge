@@ -55,6 +55,15 @@ class SubjectProfile(BaseModel):
 
     name: str = Field(min_length=1)
     description: str | None = None
+    # この科目が使う KC の名前空間（分野）。**教員はここを増やせない。**
+    # プロファイルはコードと同じ扱いでレビューを通る（ADR 0002）ので、
+    # 名前空間の増減が必ず人の目を通る ── `cs` と `csci` の分裂は、
+    # ブラウザから namespace を作れるようにした瞬間に起きる。
+    #
+    # 複数のプロファイルが同じ名前空間を宣言してよい（そのとき KC は
+    # コースをまたいで共有される）。1 つのプロファイルが複数を宣言しても
+    # よい（数値計算のように分野をまたぐ科目は実在する）。
+    kc_namespaces: tuple[str, ...] = ()
     input: InputPolicy = InputPolicy()
     normalizers: tuple[str, ...] = ()
     deterministic: tuple[str, ...] = ()

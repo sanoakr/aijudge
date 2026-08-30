@@ -10,15 +10,30 @@
 
 from __future__ import annotations
 
+from . import rubric
 from .authoring import SavedTask, save_task
 from .duplicates import DuplicateChecker
 from .finalization import (
     FinalizeReport,
     TaskOutcome,
     finalize_task,
+    finalize_tasks,
     pending_counts,
     sweep_deadlines,
 )
+from .grading_settings import TrialResult, template_of, try_settings
+from .grading_settings import save as save_grading_settings
+from .grading_settings import validate as validate_grading_settings
+from .kc import (
+    KcUsage,
+    allowed_namespaces,
+    assert_registered,
+    list_for_namespaces,
+)
+from .kc import register as register_kc
+from .kc import restore as restore_kc
+from .kc import retire as retire_kc
+from .kc import usage as kc_usage
 from .operations import (
     AdminError,
     EnrolReport,
@@ -64,6 +79,7 @@ __all__ = [
     "FinalizeReport",
     "ImportReport",
     "ImportedTask",
+    "KcUsage",
     "ReviewPacket",
     "RosterEntry",
     "RosterError",
@@ -71,25 +87,39 @@ __all__ = [
     "SolvabilityChecker",
     "TaskOutcome",
     "TaskVerifier",
+    "TrialResult",
+    "allowed_namespaces",
     "approval_rate",
     "approve",
+    "assert_registered",
     "build_packet",
     "create_staff",
     "enrol_roster",
     "ensure_course",
     "finalize_task",
+    "finalize_tasks",
     "gate_advice",
     "generate_password",
     "import_tasks",
+    "kc_usage",
     "list_courses",
+    "list_for_namespaces",
     "list_tasks",
     "load_roster",
     "parse_roster",
     "pending_counts",
     "pending_reviews",
+    "register_kc",
     "reject",
+    "restore_kc",
+    "retire_kc",
+    "rubric",
+    "save_grading_settings",
     "save_task",
     "set_password",
     "sweep_deadlines",
+    "template_of",
+    "try_settings",
+    "validate_grading_settings",
     "write_credentials",
 ]

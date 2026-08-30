@@ -6,7 +6,6 @@
   レンダリングの時点で持っていない。テストで固定してある。
 #}
 <h1>採点 — <span class="mono">{{ submission.id[:12] }}…</span></h1>
-<p class="crumb"><a href="/">← 担当コース</a> / 提出 {{ submission.attempt }} 回目</p>
 
 <div class="note">
   <strong>AI の判定は、あなたが段階を決めたあとに表示します。</strong>
@@ -48,7 +47,7 @@
         <textarea name="notes" rows="3" placeholder="判断の根拠など"></textarea>
       </fieldset>
 
-      <button type="submit">採点を確定して AI の判定を見る</button>
+      <div class="actions"><button type="submit">採点を確定して AI の判定を見る</button></div>
     </form>
   </div>
 </div>

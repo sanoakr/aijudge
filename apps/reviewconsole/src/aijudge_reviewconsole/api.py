@@ -1,6 +1,6 @@
 """課題を足す API。**非対話の呼び出し元のための入口。**
 
-既存科目の初回移行は、エージェントがディレクトリを読んでここに流し込む。
+既存コースの初回移行は、エージェントがディレクトリを読んでここに流し込む。
 移行元の形式（Sharif Judge のディレクトリ）を知っているのは呼び出し側で、
 **サーバは中立な宣言（`TaskSpec`）しか受け取らない**。移行元の語彙を HTTP に
 持ち込むと、移行が終わったあとも一生ついて回る。
@@ -119,9 +119,7 @@ def register() -> APIRouter:
         return out
 
     @router.post("/courses/{course_id}/tasks", status_code=201)
-    def create_task(
-        request: Request, course_id: str, spec: TaskSpec, me: Caller
-    ) -> TaskResponse:
+    def create_task(request: Request, course_id: str, spec: TaskSpec, me: Caller) -> TaskResponse:
         """課題を 1 件足す。**冪等**（同じ `key` に同じ内容なら増えない）。
 
         内容が違う場合は 409。過去の採点基準を書き換えないため（P8）で、

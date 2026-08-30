@@ -22,6 +22,7 @@
   }
 }
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 body{margin:0;background:var(--paper);color:var(--ink);
   font-family:"Hiragino Sans","Noto Sans JP",system-ui,sans-serif;line-height:1.75}
 main{max-width:1100px;margin:0 auto;padding:32px 24px 80px}
@@ -50,6 +51,11 @@ pre.code{margin:0;overflow-x:auto;background:var(--surface-2);border:1px solid v
 pre.code .ln{display:block;padding:0 16px;white-space:pre}
 pre.code .ln .n{display:inline-block;width:3em;color:var(--muted);user-select:none;text-align:right;margin-right:1em}
 pre.code .ln.hl{background:var(--shu-soft);border-left:3px solid var(--shu);padding-left:13px}
+/* 数式（サーバ側で MathML に変換済み・statement.py）。別行立ては中央、
+   長い式は横スクロールに逃がす ── 折り返せない要素なので、逃がさないと
+   ページ全体が横に伸びる。 */
+.statement .math.block{overflow-x:auto;margin:1em 0;text-align:center}
+.statement math{font-size:1.05em}
 .statement > *:first-child{margin-top:0}
 .statement > *:last-child{margin-bottom:0}
 .statement h2,.statement h3,.statement h4,.statement h5{font-size:1rem;margin:1.2em 0 .4em;color:var(--ink)}
@@ -98,16 +104,38 @@ header.top button{background:none;color:var(--muted);border:1px solid var(--line
   font-weight:400;padding:4px 12px;font-size:.8rem}
 .field{margin-bottom:14px}
 .field label{display:block;font-size:.85rem;color:var(--ink-2);margin-bottom:4px}
-.field input{width:100%;font:inherit;font-size:.9rem;padding:9px 12px;border-radius:3px;
+.field input:not([type=checkbox]):not([type=radio]){width:100%;font:inherit;font-size:.9rem;padding:9px 12px;border-radius:3px;
   border:1px solid var(--line);background:var(--surface);color:var(--ink)}
 .narrow{max-width:420px}
-/* 文脈バナー。どの科目の何回目のどの課題を見ているかを全ページに出す。 */
+/* 文脈バナー。どのコースの何回目のどの課題を見ているかを全ページに出す。 */
 .ctx{background:var(--surface-2);border-bottom:1px solid var(--line-soft)}
-.ctx .inner{max-width:1100px;margin:0 auto;padding:8px 24px;font-size:.8rem;
-  color:var(--muted);display:flex;flex-wrap:wrap;gap:6px 14px}
+.ctx .inner{max-width:1100px;margin:0 auto;padding:8px 24px;font-size:.8rem;color:var(--muted)}
 .ctx b{color:var(--ink-2);font-weight:600}
 .ctx a{color:var(--ink-2);text-decoration:none}
 .ctx a:hover{text-decoration:underline}
+/* パンくず。区切りは薄く、現在地だけ濃く。折り返しても経路が読めるように
+   区切りごと折り返させる。 */
+.trail{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 8px}
+.trail [aria-current]{color:var(--ink-2)}
+.sep{color:var(--muted);user-select:none}
+.crumb .sep{margin:0 2px}
+/* ボタンの置き場所。**原則は入力と同じ行の右端。** 目で追う順が
+   「何を入れるか → 押す」で閉じ、フォームの終わりが行の右端で分かる。
+   1 行に収まらない入力（textarea・項目が複数）だけ下に置き、そこでも
+   右端に寄せて同じ読み方にする。 */
+.inline-field{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:0}
+.inline-field .body{flex:1;min-width:12rem}
+.inline-field .body label{display:block;font-size:.85rem;color:var(--ink-2);margin-bottom:4px}
+.inline-field .body input,.inline-field .body select{width:100%;font:inherit;font-size:.9rem;
+  padding:9px 12px;border-radius:3px;border:1px solid var(--line);
+  background:var(--surface);color:var(--ink)}
+.inline-field > button{flex:none;margin-left:auto}
+.actions{display:flex;justify-content:flex-end;gap:10px;margin-top:12px}
+/* 問題セット。段階（提出できる／公開済／締切済）の見出しの下に並ぶ。 */
+.unit{margin-bottom:22px}
+.unit h3{font-size:.98rem;margin:0 0 6px;display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px}
+.unit h3 .dates{font-weight:400;display:flex;flex-wrap:wrap;gap:2px 14px}
+.unit h3 .dates em{font-style:normal;opacity:.65}
 .score{font-size:2rem;font-weight:700;color:var(--ink)}
 .score .unit{font-size:1rem;color:var(--muted);font-weight:400}
 @media (max-width:860px){.grid2{grid-template-columns:1fr}}
@@ -119,24 +147,30 @@ header.top button{background:none;color:var(--muted);border:1px solid var(--line
 <header class="top"><div class="inner">
   <a class="brand" href="/">aiJudge</a>
   <span class="spacer"></span>
-  <span>{{ me.display_name }}</span>
+  <span>{{ me.display_name }} <span class="mono">{{ me.login }}</span></span>
   <form method="post" action="/logout"><button type="submit">ログアウト</button></form>
 </div></header>
 {% endif %}
 {% if ctx_course is defined and ctx_course %}
 <div class="ctx"><div class="inner">
-  <span><b>科目</b> <a href="/courses/{{ ctx_course.id }}">{{ ctx_course.title }}</a>
-    <span class="mono">({{ ctx_course.code }} / {{ ctx_course.term }})</span></span>
-  {% if ctx_task %}
-  <span><b>{{ ctx_task.unit_label }}</b>
-    {% if ctx_task.opens_at %}{{ ctx_task.opens_at.strftime('%Y-%m-%d') }} 提示{% endif %}</span>
-  <span><b>課題</b> <a href="/tasks/{{ ctx_version.id }}">{{ ctx_task.title }}</a></span>
-  {% endif %}
-  {% if ctx_submission %}
-  <span><b>提出</b> {{ ctx_submission.attempt }} 回目
-    {% if ctx_submission.submitted_at %}({{ ctx_submission.submitted_at.strftime('%Y-%m-%d %H:%M') }}){% endif %}</span>
-  {% endif %}
-  {% if me is defined and me %}<span class="mono">{{ me.login }}</span>{% endif %}
+  {# **辿れる形で出す。** どのコースの何回目のどの課題を見ているかを示すだけでなく、
+     一段上へ戻れること。コースコードと開講期はここでは出さない ── 画面の見出しで
+     分かるものを二度出すと、肝心の経路が読み取りにくくなる。 #}
+  <nav class="trail" aria-label="現在地">
+    <a href="/">コース一覧</a>
+    <span class="sep">&gt;</span>
+    <a href="/courses/{{ ctx_course.id }}">{{ ctx_course.title }}</a>
+    {% if ctx_task %}
+      <span class="sep">&gt;</span>
+      <a href="/courses/{{ ctx_course.id }}">{{ ctx_task.unit_label }}</a>
+      <span class="sep">&gt;</span>
+      <a href="/tasks/{{ ctx_version.id }}">{{ ctx_task.title }}</a>
+    {% endif %}
+    {% if ctx_submission %}
+      <span class="sep">&gt;</span>
+      <span aria-current="page">提出 {{ ctx_submission.attempt }} 回目{% if ctx_submission.submitted_at %}（{{ ctx_submission.submitted_at.strftime('%Y-%m-%d %H:%M') }}）{% endif %}</span>
+    {% endif %}
+  </nav>
 </div></div>
 {% endif %}
 <main>{% block body %}{% endblock %}</main></body>

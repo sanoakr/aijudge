@@ -1,0 +1,27 @@
+{# 観点 1 つの入力欄。**縦に伸ばして読みやすさを優先する** ── 成績の配分と
+   段階の説明は、教員が読んで判断するものなので、狭い欄に押し込まない。 #}
+<div class="criterion-fields">
+  <div class="pair">
+    <span><label>観点コード（英数字・課題をまたいで同じ観点は同じコード）</label>
+      <input name="criterion_code" value="{{ row.code }}" placeholder="readability"></span>
+    <span class="narrow"><label>重み</label>
+      <input name="criterion_weight" type="number" step="0.05" min="0" max="1"
+             value="{{ row.weight }}"></span>
+  </div>
+  <label>題名（学習者の結果画面に出ます）</label>
+  <input name="criterion_title" value="{{ row.title }}" placeholder="変数名と構造の分かりやすさ">
+  <label>説明（何を見るか。AI 評価器はこれを読んで判定します）</label>
+  <textarea name="criterion_description" rows="2"
+    placeholder="変数名が役割を表しているか、処理の流れが追えるか。出力の正しさはこの観点では評価しない。">{{ row.description }}</textarea>
+  <label>判定する評価器</label>
+  <select name="criterion_evaluator">
+    <option value="">AI が判定する（rubric_ai_judge）</option>
+    {% for ev in deterministic %}
+    <option value="{{ ev.name }}" {{ 'selected' if row.evaluator == ev.name }}>
+      {{ ev.name }} — {{ ev.about }}</option>
+    {% endfor %}
+  </select>
+  <label>段階（1 行 1 段・<span class="mono">名前 | 説明 | 割合</span>。空なら 4 段の既定）</label>
+  <textarea name="criterion_levels" rows="6" class="mono"
+    placeholder="未達 | 満たしていない | 0&#10;一部 | 一部を満たす | 0.34&#10;概ね | おおむね満たす | 0.67&#10;達成 | 満たしている | 1.0">{{ row.levels }}</textarea>
+</div>

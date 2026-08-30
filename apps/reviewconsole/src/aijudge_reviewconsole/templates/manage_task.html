@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}{{ task.title if task else '課題を追加' }} — aiJudge{% endblock %}
+{% block body %}
+<h1>{{ task.title if task else '課題を追加' }}</h1>
+<p class="crumb">
+  {{ course.title }} <span class="sep">·</span>
+  <a href="/manage/courses/{{ course.id }}/units/{{ unit_key }}">問題セット {{ unit_key }}</a>
+  {% if version %}<span class="sep">·</span> {{ version.version }} 版{% endif %}
+</p>
+
+{% if note %}<div class="note saved">{{ note }}</div>{% endif %}
+
+{# **追加と訂正で同じ形を使う。** 別々に作ると、片方にだけ項目が足りない
+   状態が生まれる（実際に `readability_weight` でそうなった）。 #}
+<form method="post" class="card"
+      action="{{ '/manage/courses/%s/tasks/%s/revise' | format(course.id, task.id)
+                if task else '/manage/courses/%s/tasks' | format(course.id) }}">
+  {% if task %}
+    <p class="desc" style="margin:0 0 14px">
+      課題キー <span class="mono">{{ version.source_key or '(記録なし)' }}</span>
+      <span class="sep">·</span> キーは変えられません（同一性の鍵で、変えると別の課題になります）
+    </p>
+  {% else %}
+    <input type="hidden" name="unit" value="{{ unit_key }}">
+    <div class="field">
+      <label for="key_suffix">課題キー（この問題セットの中で重ならない名前）</label>
+      <div class="keyline">
+        <span class="fixed mono">{{ unit_key }}/</span>
+        <input id="key_suffix" name="key_suffix" required placeholder="p8" style="max-width:12rem">
+      </div>
+    </div>
+  {% endif %}
+
+  <div class="field">
+    <label for="statement">問題文（Markdown。1 行目を <code>## タイトル ##</code> にすると題名になります）</label>
+    <textarea id="statement" name="statement" rows="14" required
+      placeholder="## [必須] 課題の題名 ##&#10;&#10;自然数 n を入力し…">{{ version.statement if version else '' }}</textarea>
+  </div>
+
+  <h3>ルーブリック（この課題の観点）</h3>
+  {# **既定と同じか、変えてあるかを示す。** 同じに見えて違う、が最も困る。 #}
+  <p class="desc">
+    {% if not course_has_rubric %}
+      コースの共通ルーブリックは<strong>未設定</strong>です（組み込みの既定から作られています）。
+    {% elif rubric_is_course_default %}
+      いまは<strong>コースの共通ルーブリックと同じ</strong>です。
+    {% else %}
+      <strong>この課題だけの観点になっています</strong>（コースの共通とは違います）。
+    {% endif %}
+    <a href="/manage/courses/{{ course.id }}#rubric">共通ルーブリックを見る</a>
+  </p>
+  {% with rows = rubric_rows %}{% include "_rubric_editor.html" %}{% endwith %}
+
+  <h3>提出できるファイル形式</h3>
+  <input type="hidden" name="formats" value="1">
+  <div class="formats">
+    <div class="rows">
+      {% for group, suffixes in suffix_groups %}
+      <div class="checkrow">
+        <span class="desc rowlabel">{{ group }}</span>
+        <span class="checks">
+          {% for shown, values in suffixes %}
+          <label><input type="checkbox" name="suffix" value="{{ values | join(',') }}"
+            {{ 'checked' if values | select('in', course_suffixes) | list }}>
+            <span class="mono">{{ shown }}</span></label>
+          {% endfor %}
+        </span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <p class="desc" style="margin-top:14px">
+    {% if task %}
+      問題文か観点を変えると<strong>新しい版</strong>ができます（いま {{ version.version }} 版）。
+      過去の採点は元の版のまま残ります。提出形式だけを変えたときは版は上がりません。
+    {% else %}
+      日程と出題順は<strong>この問題セットの設定を引き継ぎます</strong>。
+      テストケースは API（<code>POST /api/courses/{{ course.id }}/tasks</code>）から入れます。
+    {% endif %}
+  </p>
+  <div class="actions"><button type="submit">保存</button></div>
+</form>
+
+{% if task %}
+<form method="post" action="/manage/courses/{{ course.id }}/tasks/{{ task.id }}/rubric/reset"
+      class="card">
+  <div class="inline-field">
+    <span class="body desc">
+      観点をコースの共通ルーブリックに戻します（問題文と提出形式はそのままです）。
+    </span>
+    <button type="submit">共通ルーブリックに戻す</button>
+  </div>
+</form>
+{% endif %}
+{% endblock %}

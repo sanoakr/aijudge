@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}コースの基本情報 — {{ course.title }} — aiJudge{% endblock %}
+{% block body %}
+<h1>コースの基本情報</h1>
+<p class="crumb">{{ course.title }}・{{ course.code }} / {{ course.term }}</p>
+
+{# **読み取りと登録を分ける。** 出てきたのはモデルが整えた文であって
+   シラバスそのものではないので、教員が確かめてから保存する。 #}
+<h2>ファイルから読み取る</h2>
+<form method="post" action="/manage/courses/{{ course.id }}/basics/read"
+      enctype="multipart/form-data" class="card"
+      onsubmit="this.querySelector('.reading').hidden = false; this.querySelector('button').disabled = true">
+  <div class="inline-field">
+    <span class="body">
+      <label for="upload">PDF・DOCX・テキストを選ぶ</label>
+      <input id="upload" name="upload" type="file" accept=".pdf,.docx,.txt,.md">
+    </span>
+    <span class="reading flash" hidden>読み取り中…</span>
+    {% if read_note %}<span class="flash">{{ read_note }}</span>{% endif %}
+    <button type="submit">読み取り</button>
+  </div>
+  <p class="desc" style="margin:10px 0 0">
+    読み取った内容は下の本文に Markdown で入ります（体裁を整えるだけで、中身は書き換えません）。
+    <strong>スキャン画像の PDF は読めません。</strong>
+  </p>
+</form>
+
+<h2>基本情報</h2>
+<form method="post" action="/manage/courses/{{ course.id }}/basics/apply" class="card">
+  <div class="field">
+    <label for="title">コース名</label>
+    <input id="title" name="title" value="{{ title_value }}">
+  </div>
+  <div class="field">
+    <label for="description">シラバスの本文（概要・到達目標・授業計画。Markdown）</label>
+    <textarea id="description" name="description" rows="18">{{ description_value }}</textarea>
+  </div>
+  <p class="desc">
+    <strong>コードと学期はここでは変えられません</strong>
+    （<span class="mono">{{ course.code }}</span> / <span class="mono">{{ course.term }}</span>）。
+    この 2 つがコースの同一性で、変えると別のコースになります。
+  </p>
+  <div class="actions">
+    {% if saved %}<span class="flash">{{ saved }}</span>{% endif %}
+    <button type="submit">登録</button>
+  </div>
+</form>
+{% endblock %}

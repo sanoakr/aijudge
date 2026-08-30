@@ -2,7 +2,6 @@
 {% block title %}提出 {{ submission.attempt }} 回目 — aiJudge{% endblock %}
 {% block body %}
 <h1>{{ task.statement.split("\n")[0] | replace("#", "") | trim }} — 提出 {{ submission.attempt }} 回目</h1>
-<p class="crumb"><a href="/tasks/{{ task.id }}">← 課題へ戻る</a></p>
 
 {% if duplicate %}
 <div class="note">同じ内容がすでに提出されています。新しい提出は作られていません。</div>
@@ -126,7 +125,7 @@
       <strong>{{ view.settles_at.strftime('%m/%d %H:%M') }} を過ぎるとこの欄からは依頼できなくなります。</strong>
     {% endif %}
   </p>
-  <button type="submit">再確認を依頼する</button>
+  <div class="actions"><button type="submit">再確認を依頼する</button></div>
 </form>
 {% else %}
 <div class="note">{{ view.request_reason }}</div>
