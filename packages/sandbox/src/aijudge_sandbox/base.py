@@ -270,6 +270,11 @@ class LocalSandboxBase:
     # であるバックエンドは True のまま。子プロセスが提出物を包む別のランタイム
     # （docker クライアントなど）であるバックエンドは False にして上書きする。
     apply_host_rlimits: bool = True
+    # 作業域を、ホストの作成者とは別の uid から読み書きできるようにするか。
+    # 同じホスト uid で提出物を動かすバックエンド（unsafe / seatbelt）は
+    # mkdtemp の既定（作成者のみ）で足りる。コンテナの中で固定の別 uid
+    # （nobody 等）から書く docker は、これが要る側で上書きする。
+    world_writable_workspace: bool = False
 
     def decode_signal(self, code: int) -> str | None:
         """終了コードからシグナル名を引く。
@@ -287,6 +292,12 @@ class LocalSandboxBase:
         directory = Path(
             tempfile.mkdtemp(prefix="aijudge-ws-", dir=None if root is None else str(root))
         ).resolve()
+        if self.world_writable_workspace:
+            # コンテナの中は固定の別 uid（docker では nobody）で動く。
+            # 「作業域は誰でも書ける前提」（backends.py の DockerSandbox.wrap）を
+            # 実際に成立させるのはここ。世代限りの一時ディレクトリなので、
+            # 世界書き込み可でも外に漏れる情報はない。
+            directory.chmod(0o777)
         try:
             yield LocalWorkspace(
                 directory,

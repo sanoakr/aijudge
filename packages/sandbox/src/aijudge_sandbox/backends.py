@@ -223,6 +223,9 @@ class DockerSandbox(LocalSandboxBase):
     # 提出物側の制限はコンテナ起動フラグ（--memory / --pids-limit / --ulimit）
     # が別途課しているので、ホスト側には掛けない。
     apply_host_rlimits = False
+    # コンテナの中は --user=65534:65534（nobody）で動く。ホストの作成者 uid
+    # にしか開いていない作業域では読み書きできない。
+    world_writable_workspace = True
 
     def __init__(
         self,
