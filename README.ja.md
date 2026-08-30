@@ -47,6 +47,15 @@ English: [README.md](README.md)
 > 精度のゲートは現在 NOT MEASURED を返す。
 > [ADR 0007](docs/adr/0007-phase-separation-and-optional-measurement.md) を参照。
 
+## ライセンス
+
+[Apache License 2.0](LICENSE)。特許条項があることが選定理由で、設計原則 P2 が
+求める「単体で他機関に配布・導入できる粒度」は、導入が技術ではなく法務の
+問題になった時点で成立しない。
+
+学生の提出物・教員の採点・そこから導いたものは、**この repository に無く**、
+このライセンスの対象でもない（`evals/golden/README.md`）。
+
 ## 構成
 
 | パス | 内容 |
@@ -122,8 +131,9 @@ review_policy:  {boundary_score: 0.6, boundary_margin: 0.05}
 スキーマで検証し、合わなければ**実際のエラーを添えて**再試行し、どのプロンプト版と
 モデルが結果を出したかを記録し、自己一貫性のばらつきから確信度を導く。
 
-既定は学内 GPU ホスト（`http://slab-llm:11434`、`gemma4:e4b`）。
-`AIJUDGE_LLM_BASE_URL` と `AIJUDGE_LLM_MODEL` で差し替える。
+既定はローカルの ollama（`http://localhost:11434`、`gemma4:e4b`）。**既定が
+学外へ送らない側に倒してある**（設計原則 P7）ので、GPU ホストを使うときは
+`AIJUDGE_LLM_BASE_URL` と `AIJUDGE_LLM_MODEL` で明示的に指す。
 
 ```fish
 AIJUDGE_LIVE_LLM=1 uv run pytest evals/test_llm_live.py -v -s

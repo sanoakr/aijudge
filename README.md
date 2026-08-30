@@ -50,6 +50,17 @@ Architecture decisions: [`docs/adr/`](docs/adr/).
 > grading does not depend on the measurement, and the accuracy gate currently
 > reports NOT MEASURED. See [ADR 0007](docs/adr/0007-phase-separation-and-optional-measurement.md).
 
+## License
+
+[Apache License 2.0](LICENSE). The patent grant is the point: design
+principle P2 asks that each subsystem stay small enough for another
+institution to adopt on its own, and a licence without one makes that
+adoption a legal question rather than a technical one.
+
+Student submissions, instructor marks, and anything derived from them are
+**not** in this repository and are not covered by it — see
+`evals/golden/README.md`.
+
 ## Layout
 
 | Path | Contents |
@@ -129,8 +140,10 @@ a schema and retries with the actual error when it does not match, records which
 prompt version and model produced a result, and derives confidence from
 self-consistency across samples.
 
-Defaults point at the lab GPU host (`http://slab-llm:11434`, `gemma4:e4b`);
-override with `AIJUDGE_LLM_BASE_URL` and `AIJUDGE_LLM_MODEL`.
+Defaults point at a local ollama (`http://localhost:11434`, `gemma4:e4b`) —
+a default must not send learner data off the machine, so it points where P7
+allows and you override it deliberately with `AIJUDGE_LLM_BASE_URL` and
+`AIJUDGE_LLM_MODEL`.
 
 ```fish
 AIJUDGE_LIVE_LLM=1 uv run pytest evals/test_llm_live.py -v -s
