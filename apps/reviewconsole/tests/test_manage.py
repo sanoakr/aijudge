@@ -1223,11 +1223,17 @@ def test_saving_the_course_settings_says_so(world: World) -> None:
 
 
 def test_the_kc_page_shows_the_namespaces_of_the_course(world: World) -> None:
+    """**共有されるのは語彙で、見えるかどうかはコースごとの宣言が決める。**
+
+    以前は「他のコースにも見えます」と書いていたが、#37 で範囲を絞っている
+    コースの一覧からは外したので、そのままでは嘘になっていた。
+    """
     world.register("teacher", Role.INSTRUCTOR)
     body = world.client("teacher").get(f"/manage/courses/{world.course.id}/kc").text
     assert "知識要素" in body
     assert "cs" in body
-    assert "コースをまたいで共有されます" in body
+    assert "コースには属しません" in body
+    assert "そのコースで選ぶまで一覧には出ません" in body
 
 
 def test_an_instructor_cannot_create_a_root_component(world: World) -> None:
@@ -1922,7 +1928,7 @@ def test_candidates_need_the_basics_to_be_filled_in(world: World) -> None:
 
 
 def test_an_already_registered_candidate_cannot_be_adopted_again(monkeypatch, world: World) -> None:
-    """登録済みは印だけ出して、選ばせない（押しても増えないので）。"""
+    """このコースで使用中のものは印だけ出して、選ばせない（押しても増えない）。"""
     world.register("teacher", Role.INSTRUCTOR)
     client = world.client("teacher")
     client.post(
@@ -1941,7 +1947,7 @@ def test_an_already_registered_candidate_cannot_be_adopted_again(monkeypatch, wo
     rows = body[body.index("候補（") :]
     assert '<button type="submit" name="use" value="cs.recursion">' in rows
     assert '<button type="submit" name="use" value="cs.arrays">' not in rows
-    assert "登録済み" in rows
+    assert "このコースで使用中" in rows
     # 名前はキーで結ぶ。位置で対応づけると、選ばなかった候補の名前が付く。
     assert 'name="label:cs.recursion"' in rows
 
@@ -2011,6 +2017,60 @@ def test_the_form_is_filled_with_the_candidate_that_was_chosen(world: World) -> 
     # 押していない候補の名前は入らない。
     assert 'value="繰り返し"' not in form
     assert "まだ登録されていません" in body
+
+
+def test_a_component_this_course_does_not_use_is_offered_as_existing(
+    monkeypatch, world: World
+) -> None:
+    """**体系にあるものを「新規」と出すのは嘘**（#41）。
+
+    #37 で範囲外の知識要素を一覧から隠したので、候補がその唯一の入口になる。
+    「新規」に見えると、押した教員は自分が体系に何を足したのかを誤解する。
+    """
+    world.register("boss", Role.ADMIN)
+    client = world.client("boss")
+    client.post(
+        f"/manage/courses/{world.course.id}/basics/apply",
+        data={"title": world.course.title, "description": "配列と再帰を扱える"},
+    )
+    for key, label in (("cs.arrays", "配列"), ("cs.loops", "ループ")):
+        client.post(f"/manage/courses/{world.course.id}/kc", data={"key": key, "label": label})
+    # このコースは cs.loops だけを使う ── cs.arrays は体系にあるが範囲外。
+    client.post(f"/manage/courses/{world.course.id}/kc/scope", data={"kc": ["cs.loops"]})
+
+    monkeypatch.setattr(
+        "aijudge_reviewconsole.manage.SyllabusReader", _proposal("cs.arrays", "cs.recursion")
+    )
+    body = client.post(f"/manage/courses/{world.course.id}/kc/candidates").text
+    rows = body[body.index("候補（") :]
+
+    assert "体系にあり" in rows
+    # 範囲外でも取り込める（取り込めば範囲に入る）。
+    assert '<button type="submit" name="use" value="cs.arrays">' in rows
+
+
+def test_taking_an_existing_component_shows_the_name_the_vocabulary_has(world: World) -> None:
+    """**体系の名前を出す。** `register` は既にあるものをそのまま返す。
+
+    モデルの書いた名前を欄に入れると、教員はそこで直せると思い、直した内容は
+    黙って捨てられる。
+    """
+    world.register("boss", Role.ADMIN)
+    client = world.client("boss")
+    client.post(
+        f"/manage/courses/{world.course.id}/kc",
+        data={"key": "cs.arrays", "label": "配列", "description": "添字でたどるまとまり"},
+    )
+
+    body = client.post(
+        f"/manage/courses/{world.course.id}/kc/draft",
+        data=_candidate_form(("cs.arrays", "配列型データ", "モデルの言い換え"), use="cs.arrays"),
+    ).text
+    form = body[body.index("知識要素を追加する") :]
+
+    assert 'value="配列"' in form
+    assert "モデルの言い換え" not in form
+    assert "名前と説明は変わりません" in body
 
 
 def test_a_candidate_that_was_not_offered_is_refused(world: World) -> None:

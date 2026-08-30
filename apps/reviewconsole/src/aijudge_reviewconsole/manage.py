@@ -1199,7 +1199,28 @@ def register(templates) -> APIRouter:
         draft = next((k for k in proposal.knowledge_components if k.key == chosen), None)
         if draft is None:
             raise HTTPException(status_code=400, detail="取り込む候補が選ばれていません")
-        return _kc_page(request, me, course, proposal=proposal, draft=draft)
+
+        # **既にあるキーなら、体系の名前と説明を出す。** `register` は既にある
+        # ものをそのまま返す（名前も説明も変わらない）ので、モデルの書いた
+        # 名前を欄に入れると、教員はそこで直せると思い、直した内容は黙って
+        # 捨てられる。直すのは行の「名前・説明を直す」（`edit_kc`）の仕事。
+        console = _console(request)
+        profile = load_profile(console.profiles_dir / f"{course.subject_profile}.yaml")
+        stored = next(
+            (
+                kc
+                for kc in list_for_namespaces(
+                    console.database, allowed_namespaces(profile), include_deprecated=False
+                )
+                if kc.key == chosen
+            ),
+            None,
+        )
+        if stored is not None:
+            draft = KcHint(key=stored.key, label=stored.label, description=stored.description or "")
+        return _kc_page(
+            request, me, course, proposal=proposal, draft=draft, draft_exists=stored is not None
+        )
 
     @router.post("/courses/{course_id}/rubric")
     async def save_course_rubric(request: Request, course_id: str) -> Response:
@@ -2351,7 +2372,14 @@ def register(templates) -> APIRouter:
         ]
 
     def _kc_page(
-        request: Request, me, course, *, saved: str = "", proposal=None, draft=None
+        request: Request,
+        me,
+        course,
+        *,
+        saved: str = "",
+        proposal=None,
+        draft=None,
+        draft_exists: bool = False,
     ) -> Response:
         """知識要素のページ。**候補が出ているかどうかだけが違う。**
 
@@ -2360,7 +2388,9 @@ def register(templates) -> APIRouter:
         無いことになる。
 
         `draft` は候補から追加フォームに取り込んだ 1 件（キー・名前・説明）。
-        **取り込んだだけでは何も登録されない。**
+        **取り込んだだけでは何も登録されない。** `draft_exists` は、そのキーが
+        既に体系にあるか ── あるなら登録は「このコースの範囲に入れる」だけを
+        意味し、名前と説明は変わらない。
         """
         console = _console(request)
 
@@ -2392,6 +2422,11 @@ def register(templates) -> APIRouter:
                 "existing": [row["kc"].key for row in rows if not row["kc"].deprecated],
                 # 候補から取り込んだ 1 件。追加フォームの初期値になる。
                 "draft": draft,
+                "draft_exists": draft_exists,
+                # **体系にあるか**と、**このコースから見えているか**は別。
+                # 候補には既にあるものも出る（#41）ので、3 つ目の状態
+                # 「体系にはあるが、このコースでは未使用」が現れる。
+                "vocabulary": [kc.key for kc in kcs if not kc.deprecated],
                 "has_basics": bool((course.description or "").strip()),
             },
         )
