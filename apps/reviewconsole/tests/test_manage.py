@@ -1939,8 +1939,8 @@ def test_an_already_registered_candidate_cannot_be_adopted_again(monkeypatch, wo
     )
     body = client.post(f"/manage/courses/{world.course.id}/kc/candidates").text
     rows = body[body.index("候補（") :]
-    assert '<input type="checkbox" name="kc" value="cs.recursion">' in rows
-    assert '<input type="checkbox" name="kc" value="cs.arrays">' not in rows
+    assert '<button type="submit" name="use" value="cs.recursion">' in rows
+    assert '<button type="submit" name="use" value="cs.arrays">' not in rows
     assert "登録済み" in rows
     # 名前はキーで結ぶ。位置で対応づけると、選ばなかった候補の名前が付く。
     assert 'name="label:cs.recursion"' in rows
@@ -1954,52 +1954,92 @@ def test_a_short_paste_is_refused(world: World) -> None:
     assert response.status_code == 400
 
 
-def test_adopting_a_candidate_follows_the_same_rules(world: World) -> None:
-    """候補だからといって規則は緩めない（名前空間・親の実在・第 1 階層）。"""
-    world.register("teacher", Role.INSTRUCTOR)
-    response = world.client("teacher").post(
-        f"/manage/courses/{world.course.id}/kc/adopt",
-        data={"kc": ["cs.loops.termination"], "label:cs.loops.termination": "停止条件"},
-    )
-    assert response.status_code == 400
-    assert "親" in response.json()["detail"]
+def _candidate_form(*candidates, use: str) -> dict[str, object]:
+    """候補の表が送る形。**全候補が隠し欄で、押した 1 件だけが `use`。**"""
+    data: dict[str, object] = {"candidate": [key for key, _label, _desc in candidates], "use": use}
+    for key, label, description in candidates:
+        data[f"label:{key}"] = label
+        data[f"description:{key}"] = description
+    return data
 
 
-def test_adopting_one_candidate_registers_its_own_name(world: World) -> None:
-    """**選んだ鍵に、その鍵の名前が付く。**
+def test_taking_a_candidate_into_the_form_registers_nothing(world: World) -> None:
+    """**候補は素材であって成果物ではない。** 取り込んだだけでは何も入らない。
 
-    以前は `kc` と `label` を 2 本のリストで受けて位置で対応づけていた。
-    チェックボックスは選んだものだけ、隠し欄は全候補ぶん送られるので、
-    3 件中 3 件目を選ぶと 1 件目の名前が付いた。**キーと名前が食い違う記録が
-    体系に残る** ── KC の ID はキーから決まるので、あとから直せるのは名前だけで、
-    そのあいだ画面と Q-matrix はその名前で読まれる。
+    KC の ID はキーから決まる（`kc_id_for`）ので、モデルの付けたキーが少しでも
+    違えば直す道は無く、使われたあとは消すこともできない。だから登録の前に
+    必ず人の手を通す。
     """
     world.register("boss", Role.ADMIN)
     response = world.client("boss").post(
-        f"/manage/courses/{world.course.id}/kc/adopt",
-        data={
-            # 3 件表示され、選ばれたのは 3 件目だけ、という送られ方。
-            "kc": ["cs.arrays"],
-            "label:cs.loops": "繰り返し",
-            "description:cs.loops": "while と for",
-            "label:cs.pointers": "ポインタ",
-            "description:cs.pointers": "アドレスを持つ変数",
-            "label:cs.arrays": "配列",
-            "description:cs.arrays": "添字でたどるまとまり",
-        },
-        follow_redirects=False,
+        f"/manage/courses/{world.course.id}/kc/draft",
+        data=_candidate_form(("cs.arrays", "配列", "添字でたどるまとまり"), use="cs.arrays"),
     )
-    assert response.status_code == 303
+    assert response.status_code == 200
 
     from aijudge_core import kc_id_for
 
     with world.database.unit_of_work() as uow:
-        stored = uow.skills.get_kc(kc_id_for("cs.arrays"))
-        # 選ばなかった候補は登録されない。
-        assert uow.skills.get_kc(kc_id_for("cs.loops")) is None
-    assert stored is not None
-    assert stored.label == "配列"
-    assert stored.description == "添字でたどるまとまり"
+        assert uow.skills.get_kc(kc_id_for("cs.arrays")) is None
+
+
+def test_the_form_is_filled_with_the_candidate_that_was_chosen(world: World) -> None:
+    """**選んだ鍵に、その鍵の名前が付く。**
+
+    隠し欄は全候補ぶん送られ、押されたのは 1 件だけ。位置で対応づけると、
+    3 件中 3 件目を押したときに 1 件目の名前が入る（#33 で直したのと同じ形）。
+    """
+    world.register("boss", Role.ADMIN)
+    body = (
+        world.client("boss")
+        .post(
+            f"/manage/courses/{world.course.id}/kc/draft",
+            data=_candidate_form(
+                ("cs.loops", "繰り返し", "while と for"),
+                ("cs.pointers", "ポインタ", "アドレスを持つ変数"),
+                ("cs.arrays", "配列", "添字でたどるまとまり"),
+                use="cs.arrays",
+            ),
+        )
+        .text
+    )
+    form = body[body.index("知識要素を追加する") :]
+
+    assert 'value="cs.arrays"' in form
+    assert 'value="配列"' in form
+    assert 'value="添字でたどるまとまり"' in form
+    # 押していない候補の名前は入らない。
+    assert 'value="繰り返し"' not in form
+    assert "まだ登録されていません" in body
+
+
+def test_a_candidate_that_was_not_offered_is_refused(world: World) -> None:
+    """取り込む候補が選ばれていないまま送られたら断る。"""
+    world.register("boss", Role.ADMIN)
+    response = world.client("boss").post(
+        f"/manage/courses/{world.course.id}/kc/draft",
+        data=_candidate_form(("cs.arrays", "配列", ""), use=""),
+    )
+    assert response.status_code == 400
+
+
+def test_a_candidate_taken_into_the_form_still_follows_the_same_rules(world: World) -> None:
+    """規則は手で足すときと同じ ── **取り込んだ先が同じ経路だから同じになる。**"""
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    body = client.post(
+        f"/manage/courses/{world.course.id}/kc/draft",
+        data=_candidate_form(("cs.loops.termination", "停止条件", ""), use="cs.loops.termination"),
+    ).text
+    assert 'value="cs.loops.termination"' in body
+
+    # そのまま登録しようとすれば、親が無いことで断られる（`add_kc` の規則）。
+    response = client.post(
+        f"/manage/courses/{world.course.id}/kc",
+        data={"key": "cs.loops.termination", "label": "停止条件"},
+    )
+    assert response.status_code == 400
+    assert "親" in response.json()["detail"]
 
 
 def test_the_course_settings_link_to_both_flows(world: World) -> None:

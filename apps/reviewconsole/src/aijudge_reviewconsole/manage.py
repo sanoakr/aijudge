@@ -69,7 +69,9 @@ from aijudge_admin.drafting import TaskDrafter
 from aijudge_admin.roster import RosterError
 from aijudge_admin.syllabus import (
     MAX_SYLLABUS_BYTES,
+    KcHint,
     SyllabusError,
+    SyllabusProposal,
     SyllabusReader,
     read_document,
     to_markdown,
@@ -1116,9 +1118,9 @@ def register(templates) -> APIRouter:
         保存したもの）。同じ本文をもう一度貼らせると、2 つの経路で入った
         別々のシラバスがコースの中に並ぶことになり、どちらが本当か分からない。
 
-        候補は候補のまま知識要素のページに戻す。**選ばれたものだけが
-        `adopt_candidates` で体系に入る**（`aijudge_admin.kc` の規則 4 ──
-        AI には KC を作らせない）。
+        候補は候補のまま知識要素のページに戻す。**ここから直接は登録しない**
+        （`aijudge_admin.kc` の規則 4 ── AI には KC を作らせない）。教員が
+        1 件ずつ追加フォームに取り込み、確かめてから登録する（`draft_candidate`）。
         """
         from .app import require_principal
 
@@ -1157,55 +1159,47 @@ def register(templates) -> APIRouter:
 
         return _kc_page(request, me, course, proposal=result.proposal)
 
-    @router.post("/courses/{course_id}/kc/adopt")
-    async def adopt_candidates(request: Request, course_id: str) -> Response:
-        """選ばれた候補だけを体系に登録する。
+    @router.post("/courses/{course_id}/kc/draft", response_class=HTMLResponse)
+    async def draft_candidate(request: Request, course_id: str) -> Response:
+        """候補を 1 件、追加フォームに取り込む。**登録はしない。**
 
-        **規則は手で足すときと同じ**（`aijudge_admin.kc`）── 名前空間・親の
-        実在・第 1 階層の権限。候補だから緩める、ということはしない。
-        親から順に並べて入れるので、`cs.loops` と `cs.loops.termination` を
-        同時に選んでも通る。
+        候補は素材であって成果物ではない。**KC の ID はキーから決まる**ので
+        （`kc_id_for`）、モデルの付けたキーが少しでも違えば直す道は無く、
+        使われたあとは消すこともできない。名前と説明も、モデルの言い回しが
+        そのまま共有の語彙に残る。だから登録の前に必ず人の手を通す ── 規則の
+        強制も説明も、手で足すときと同じ 1 本の経路（`add_kc`）に寄せる。
 
-        **名前と説明はキーで引く。位置で対応づけない。** 以前は `kc` と
-        `label` を 2 本のリストで受けて `zip` していたが、チェックボックスは
-        選んだものだけ、隠し欄は全候補ぶん送られる ── 3 件中 3 件目だけを
-        選ぶと、登録される名前は 1 件目のものになった。**キーと名前が食い違う
-        記録が体系に残り、KC の ID はキーから決まるので後から名前だけ直す
-        羽目になる。** 候補ごとに `label:<キー>` で送り、鍵で引く。
+        **候補は保存していない**（生成のたびに作られる）ので、取り込みの
+        POST が候補一覧そのものを持ち回る。JavaScript で欄を埋めない ──
+        この画面は他が全部サーバ描画で、JS を切った環境で「押しても何も
+        起きない」ボタンを作らないため。
+
+        **候補の値はキーで引く。位置で対応づけない**（#33 と同じ形の穴になる）。
         """
         from .app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
-        console = _console(request)
-        profile = load_profile(console.profiles_dir / f"{course.subject_profile}.yaml")
-        namespaces = allowed_namespaces(profile)
 
         form = await request.form()
-        chosen = [str(value) for value in form.getlist("kc")]
-
-        failures: list[str] = []
-        for key in sorted({k.strip() for k in chosen if k.strip()}, key=lambda k: k.count(".")):
-            label = str(form.get(f"label:{key}", "")).strip()
-            description = str(form.get(f"description:{key}", "")).strip()
-            try:
-                register_kc(
-                    console.database,
+        keys = [str(value).strip() for value in form.getlist("candidate") if str(value).strip()]
+        proposal = SyllabusProposal(
+            knowledge_components=tuple(
+                KcHint(
                     key=key,
-                    label=label or key,
-                    description=description or None,
-                    namespaces=namespaces,
-                    actor_id=me.user_id,
-                    allow_root=_is_admin(request, me),
+                    label=str(form.get(f"label:{key}", "")).strip() or key,
+                    description=str(form.get(f"description:{key}", "")).strip(),
+                    source=str(form.get(f"source:{key}", "")).strip(),
                 )
-            except AdminError as exc:
-                failures.append(f"{key}: {exc}")
-        if failures:
-            raise HTTPException(status_code=400, detail=" / ".join(failures))
-        _scope_in(console, course, tuple(k.strip() for k in chosen if k.strip()))
-        return RedirectResponse(
-            f"/manage/courses/{course_id}/kc?saved=kc_added#kc", status_code=303
+                for key in keys
+            )
         )
+
+        chosen = str(form.get("use") or "").strip()
+        draft = next((k for k in proposal.knowledge_components if k.key == chosen), None)
+        if draft is None:
+            raise HTTPException(status_code=400, detail="取り込む候補が選ばれていません")
+        return _kc_page(request, me, course, proposal=proposal, draft=draft)
 
     @router.post("/courses/{course_id}/rubric")
     async def save_course_rubric(request: Request, course_id: str) -> Response:
@@ -2356,12 +2350,17 @@ def register(templates) -> APIRouter:
             for kc in kcs
         ]
 
-    def _kc_page(request: Request, me, course, *, saved: str = "", proposal=None) -> Response:
+    def _kc_page(
+        request: Request, me, course, *, saved: str = "", proposal=None, draft=None
+    ) -> Response:
         """知識要素のページ。**候補が出ているかどうかだけが違う。**
 
         候補を別のページにすると、教員は「いま体系に何があるか」を見ずに
         候補を選ぶことになる。重複を作らせないための情報が、選ぶ画面に
         無いことになる。
+
+        `draft` は候補から追加フォームに取り込んだ 1 件（キー・名前・説明）。
+        **取り込んだだけでは何も登録されない。**
         """
         console = _console(request)
 
@@ -2391,6 +2390,8 @@ def register(templates) -> APIRouter:
                 # あっても範囲外なら選べるようにする ── 選べなければ、一度
                 # 外した知識要素を候補から戻す道が無くなる（採用すれば範囲に入る）。
                 "existing": [row["kc"].key for row in rows if not row["kc"].deprecated],
+                # 候補から取り込んだ 1 件。追加フォームの初期値になる。
+                "draft": draft,
                 "has_basics": bool((course.description or "").strip()),
             },
         )

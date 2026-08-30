@@ -160,7 +160,8 @@
       onsubmit="this.querySelector('.reading').hidden = false; this.querySelector('button').disabled = true">
   <div class="inline-field">
     <span class="body desc">
-      <strong>出てくるのは候補です。</strong>選んだものだけが体系に入ります。
+      <strong>出てくるのは候補です。</strong>ここからは登録しません
+      ── 1 件ずつ「知識要素を追加する」に取り込み、確かめてから登録します。
       既にある {{ existing | length }} 件に寄せるよう指示します（重複を作らないため）。
     </span>
     <span class="reading flash" hidden>読み取り中…</span>
@@ -178,25 +179,24 @@
 {% if proposal %}
 <h3>候補（{{ proposal.knowledge_components | length }} 件）</h3>
 {% if proposal.knowledge_components %}
-<form method="post" action="/manage/courses/{{ course.id }}/kc/adopt">
+{# **候補は保存していない**（生成のたびに作られる）ので、取り込みの POST が
+   候補一覧そのものを持ち回る。値は**キーで結ぶ** ── 位置で対応づけると、
+   選んでいない候補の名前が選んだ鍵に付く（#33 で直したのと同じ形）。 #}
+<form method="post" action="/manage/courses/{{ course.id }}/kc/draft#add">
+  {% for k in proposal.knowledge_components %}
+  <input type="hidden" name="candidate" value="{{ k.key }}">
+  <input type="hidden" name="label:{{ k.key }}" value="{{ k.label }}">
+  <input type="hidden" name="description:{{ k.key }}" value="{{ k.description or '' }}">
+  <input type="hidden" name="source:{{ k.key }}" value="{{ k.source or '' }}">
+  {% endfor %}
   <table>
     <thead><tr>
-      <th class="fit">採用</th><th class="fit">キー</th><th class="grow">名前・根拠</th><th class="fit">状態</th>
+      <th class="fit">キー</th><th class="grow">名前・根拠</th><th class="fit">状態</th><th class="fit"></th>
     </tr></thead>
     <tbody>
     {% for k in proposal.knowledge_components %}
       {% set known = k.key in existing %}
       <tr>
-        <td class="fit">
-          {% if not known %}
-          {# **名前と説明はキーで結ぶ。** `name="label"` を並べると、隠し欄は
-             全候補ぶん送られるのに、チェックした鍵だけが送られる ── 位置で
-             対応づけた瞬間、選ばなかった候補の名前が選んだ鍵に付く。 #}
-          <input type="checkbox" name="kc" value="{{ k.key }}">
-          <input type="hidden" name="label:{{ k.key }}" value="{{ k.label }}">
-          <input type="hidden" name="description:{{ k.key }}" value="{{ k.description or '' }}">
-          {% endif %}
-        </td>
         <td class="fit mono">{{ k.key }}</td>
         <td class="grow">{{ k.label }}
           {% if k.description %}<br><span class="desc">{{ k.description }}</span>{% endif %}
@@ -205,15 +205,21 @@
         <td class="fit">
           {% if known %}<span class="pill ok">登録済み</span>{% else %}<span class="desc">新規</span>{% endif %}
         </td>
+        <td class="fit">
+          {% if not known %}
+          <button type="submit" name="use" value="{{ k.key }}">この候補を使う</button>
+          {% endif %}
+        </td>
       </tr>
     {% endfor %}
     </tbody>
   </table>
   <p class="desc">
-    <strong>親が実在している必要があります。</strong>親と子を同時に選んだ場合は親から順に登録します。
+    <strong>押しても登録はされません。</strong>下の「知識要素を追加する」に入るので、
+    キー・名前・説明を確かめて（必要なら直して）から登録してください。<br>
+    <strong>親が実在している必要があります。</strong>親から順に足してください。
     第 1 階層（分野の根）を作るには管理者の操作が要ります。
   </p>
-  <div class="actions"><button type="submit">選んだものを登録する</button></div>
 </form>
 {% else %}
 {# **原因を決めつけない。** 0 件になる理由はいくつもある（プロンプト・
@@ -229,24 +235,35 @@
 {% endif %}
 {% endif %}
 
-<h2>知識要素を追加する</h2>
+<h2 id="add">知識要素を追加する</h2>
 {# 新しい KC は**既存 KC の子**としてのみ足せる（`aijudge_admin.kc`）。
    孤立キーの山ではなく木を保つため。 #}
+{% if draft %}
+<div class="note">
+  <strong>候補「{{ draft.key }}」を取り込みました。</strong>まだ登録されていません。
+  <strong>キーは登録すると変えられません</strong>（ID がキーから決まります）。
+  中身を確かめて「追加する」を押してください。
+</div>
+{% endif %}
 <form method="post" action="/manage/courses/{{ course.id }}/kc" class="card">
   <div class="inline-field">
     <span class="body">
       <label for="key">キー（<code>{{ namespaces[0] if namespaces else '名前空間' }}.親.子</code>）</label>
-      <input id="key" name="key" required placeholder="{{ namespaces[0] if namespaces else 'cs' }}.loops.termination">
+      <input id="key" name="key" required value="{{ draft.key if draft else '' }}"
+             placeholder="{{ namespaces[0] if namespaces else 'cs' }}.loops.termination">
     </span>
     {% if saved_key and saved_key.startswith('kc_') %}<span class="flash">{{ saved }}</span>{% endif %}
   </div>
   <div class="field">
     <label for="label">名前（人が読む短い名前）</label>
-    <input id="label" name="label" placeholder="ループの停止条件">
+    <input id="label" name="label" value="{{ draft.label if draft else '' }}"
+           placeholder="ループの停止条件">
   </div>
   <div class="field">
     <label for="description">説明（任意）</label>
-    <input id="description" name="description" placeholder="何ができれば身に付いたと言えるか">
+    <input id="description" name="description"
+           value="{{ draft.description if draft else '' }}"
+           placeholder="何ができれば身に付いたと言えるか">
   </div>
   <p class="desc">
     {# **名前空間は階層に数えない**ことを先に言う。`cs.c_language` は点で 2 つに
