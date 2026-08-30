@@ -83,6 +83,7 @@ from aijudge_core import (
     DEFAULT_UPLOAD_SUFFIXES,
     MIN_JUSTIFICATION_LENGTH,
     SUFFIX_GROUPS,
+    Aggregation,
     Course,
     EvaluatorKind,
     GradeWindow,
@@ -466,6 +467,21 @@ def _default_rubric_criteria():
     )
 
 
+def _aggregation_from_form(form) -> Aggregation | None:
+    """観点の畳み方をフォームから読む。空なら None（＝コースに従う）。
+
+    知らない値は落とす ── 黙って OR に倒すと、AND のつもりの課題が
+    重み付き和で採点され、画面には何も出ない。
+    """
+    raw = str(form.get("aggregation") or "").strip()
+    if not raw:
+        return None
+    try:
+        return Aggregation(raw)
+    except ValueError:
+        raise AdminError(f"観点の畳み方が不正です: {raw!r}") from None
+
+
 def _rubric_from_form(form) -> list[dict[str, str]]:
     """ルーブリックの表を行に戻す。**行数は画面が決める**（増減できる）。
 
@@ -485,6 +501,7 @@ def _rubric_from_form(form) -> list[dict[str, str]]:
                 "title": at("criterion_title"),
                 "description": at("criterion_description"),
                 "weight": at("criterion_weight"),
+                "order": at("criterion_order"),
                 "evaluator": at("criterion_evaluator"),
                 "levels": at("criterion_levels"),
             }
@@ -1205,12 +1222,18 @@ def register(templates) -> APIRouter:
         form = await request.form()
         try:
             criteria = rubric.parse(_rubric_from_form(form))
+            aggregation = _aggregation_from_form(form) or Aggregation.OR
         except AdminError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from None
 
         with console.database.unit_of_work() as uow:
             uow.identity.save_course(
-                course.model_copy(update={"rubric": tuple(c.model_dump() for c in criteria)})
+                course.model_copy(
+                    update={
+                        "rubric": tuple(c.model_dump() for c in criteria),
+                        "rubric_aggregation": aggregation,
+                    }
+                )
             )
             uow.commit()
         return RedirectResponse(f"/manage/courses/{course_id}?saved=rubric#rubric", status_code=303)
@@ -1642,7 +1665,17 @@ def register(templates) -> APIRouter:
         )
 
     def _save_revision(
-        console, me, course, task, version, *, statement, criteria, position, accepted
+        console,
+        me,
+        course,
+        task,
+        version,
+        *,
+        statement,
+        criteria,
+        position,
+        accepted,
+        aggregation=None,
     ):
         """課題を直して新しい版を作る。訂正と「共通に戻す」で共有する。
 
@@ -1660,6 +1693,10 @@ def register(templates) -> APIRouter:
                 # `readability_weight` は使わない（両方書けるとどちらが効くのか
                 # 読めない）。
                 criteria=criteria,
+                # None なら「コースに従う」。**画面の「コースに従う」と、
+                # コースと同じ値を選ぶのは別の状態**で、前者はコースを変えれば
+                # 追随し、後者はしない。
+                aggregation=aggregation,
             )
         except (ValidationError, ValueError) as exc:
             raise HTTPException(status_code=400, detail=f"課題の指定が不正です: {exc}") from None
@@ -1739,6 +1776,9 @@ def register(templates) -> APIRouter:
                 "task": task,
                 "version": version,
                 "rubric_rows": rows,
+                # None なら「コースに従う」。**コースと同じ値を選ぶのとは違う**
+                # 状態で、前者はコースを変えれば追随する。
+                "task_aggregation": None if version is None else version.aggregation,
                 # 共通ルーブリックのままか、この課題で変えてあるか。
                 # **共通が設定されているときだけ言う** ── 組み込みの既定は
                 # 課題の作られ方（テストケースの有無）で中身が変わるので、
@@ -1981,6 +2021,7 @@ def register(templates) -> APIRouter:
 
         try:
             criteria = rubric.parse(_rubric_from_form(form))
+            aggregation = _aggregation_from_form(form)
         except AdminError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from None
 
@@ -2003,6 +2044,7 @@ def register(templates) -> APIRouter:
             version,
             statement=statement,
             criteria=criteria,
+            aggregation=aggregation,
             position=int(position) if position.strip() else task.position,
             accepted=_chosen_suffixes(suffix, formats, course),
         )

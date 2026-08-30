@@ -104,6 +104,9 @@
 </div>
 <form method="post" action="/manage/courses/{{ course.id }}/rubric" class="card">
   {% with rows = rubric_rows %}{% include "_rubric_editor.html" %}{% endwith %}
+  {% with inherits = false, aggregation = course.rubric_aggregation %}
+    {% include "_aggregation_field.html" %}
+  {% endwith %}
   <div class="actions">
     {% if saved_key == 'rubric' %}<span class="flash">{{ saved }}</span>{% endif %}
     <button type="submit">保存</button>

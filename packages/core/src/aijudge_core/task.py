@@ -91,6 +91,42 @@ class RubricLevel(BaseModel):
     score_ratio: float = Field(ge=0.0, le=1.0)
 
 
+class Aggregation(StrEnum):
+    """観点どうしをどう畳むか。**ルーブリック単位の設定である。**
+
+    OR   評価順の上から最後まで独立に評価し、重み付き和を採る。**既定**で、
+         これまでの唯一の挙動。観点は互いに影響しない。
+    AND  評価順の上から評価し、**いずれかの観点が 0% になったらそこで止める。**
+         以降の観点は評価せず、0% として重みどおり数える。「動かないコードの
+         読みやすさを評価しても意味が無い」という順序関係を表すためにある。
+
+    **AND で打ち切った観点は「採点できなかった」ではない。** 0% は確定した
+    結果で、保留ではない。混ぜると重みが再配分されて**打ち切られた学習者の点が
+    上がる**（ADR 0015）ので、採点結果では `skipped_criteria` に分けて入る。
+
+    観点ごとの AND/OR ではない。ある観点だけを AND にすると「何より上なら
+    止まるのか」が観点の並びからは読めなくなる。
+    """
+
+    OR = "or"
+    AND = "and"
+
+
+def effective_aggregation(
+    task_value: Aggregation | None, course_value: Aggregation | None
+) -> Aggregation:
+    """実際に効く集約方式。**課題の指定が科目の既定を上書きする。**
+
+    課題に何も入れていなければコースの値。コースにも無ければ OR
+    （＝これまでの挙動。宣言するまで何も変わらない）。猶予
+    （`grace_minutes`）と同じ形にしてあるのは、同じ性質の設定だから ──
+    成績に直接効き、教員が学期中に決め、課題ごとに例外がありうる。
+    """
+    if task_value is not None:
+        return task_value
+    return course_value or Aggregation.OR
+
+
 # 「この観点は機械に採点させない（人が採点する）」を表す評価器の名前。
 #
 # **空（None）とは別の状態である。** 空は「どの AI 評価器からも対象」を
@@ -173,7 +209,10 @@ class TaskVersion(BaseModel):
     subject_profile: str = Field(min_length=1)
     statement: str = Field(min_length=1)
     reference_solution: str | None = None
+    # **並びが評価順である。** AND のときは上から評価して 0% で打ち切る。
     criteria: tuple[RubricCriterion, ...] = Field(min_length=1)
+    # 観点の畳み方。None ならコースの設定に従う（`effective_aggregation`）。
+    aggregation: Aggregation | None = None
     test_cases: tuple[TestCase, ...] = ()
     q_matrix: tuple[QMatrixEntry, ...] = ()
     max_score: float = Field(gt=0.0)

@@ -18,6 +18,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 
 from aijudge_core import (
+    Aggregation,
     Artifact,
     CriterionScore,
     EvaluatorKind,
@@ -32,6 +33,7 @@ from aijudge_core import (
     Submission,
     TaskVersion,
     aggregate,
+    gate_skipped,
     new_id,
     renormalize,
 )
@@ -139,7 +141,13 @@ class GradingPipeline:
     def profile(self) -> SubjectProfile:
         return self._profile
 
-    def has_ai_work(self, task_version: TaskVersion, base: GradingRun) -> bool:
+    def has_ai_work(
+        self,
+        task_version: TaskVersion,
+        base: GradingRun,
+        *,
+        aggregation: Aggregation = Aggregation.OR,
+    ) -> bool:
         """決定的評価のあとに AI 段階を走らせる意味があるか。
 
         意味が無いのは 2 つの場合。科目プロファイルが AI 評価器を宣言して
@@ -151,8 +159,15 @@ class GradingPipeline:
             return False
         settled = {score.criterion_id for score in base.criterion_scores if score.conclusive}
         # 人が採点する観点は AI に渡さないので、それしか残っていなければ
-        # 積む意味が無い（ADR 0015）。
-        return any(c.id not in settled and not c.scored_by_human for c in task_version.criteria)
+        # 積む意味が無い（ADR 0015）。ゲートで打ち切った観点も同じ ── 打ち切りは
+        # **LLM を呼ばないためにある**ので、ここで積んでしまえば意味が消える。
+        cut = set(base.skipped_criteria) | set(
+            gate_skipped(task_version.criteria, base.criterion_scores, aggregation)
+        )
+        return any(
+            c.id not in settled and c.id not in cut and not c.scored_by_human
+            for c in task_version.criteria
+        )
 
     def run(
         self,
@@ -162,6 +177,7 @@ class GradingPipeline:
         *,
         phase: GradingPhase | None = None,
         base: GradingRun | None = None,
+        aggregation: Aggregation = Aggregation.OR,
     ) -> GradingRun:
         """採点を走らせる。
 
@@ -254,6 +270,13 @@ class GradingPipeline:
                 # AI が見当違いの判定を返す（Issue #7、ADR 0015）。
                 if criterion.scored_by_human:
                     continue
+                # **AND のゲートで打ち切られた観点は呼ばない。** 打ち切りは
+                # 「動かないコードの読みやすさを評価しても意味が無い」という
+                # 順序関係の表明で、呼ばないこと自体が目的である（LLM の
+                # 呼び出しがそのまま費用と待ち時間になる）。判定は評価順に
+                # 上から見るので、ここまでに 0% が出ていれば以降は切れる。
+                if criterion.id in gate_skipped(task_version.criteria, tuple(scores), aggregation):
+                    continue
                 if criterion.evaluator_id not in (None, evaluator_id):
                     continue
                 outcome = self._invoke(
@@ -272,7 +295,12 @@ class GradingPipeline:
                 results.append(self._to_result(evaluator_id, EvaluatorKind.AI, outcome))
                 scores.extend(self._attach(outcome, results[-1].id))
 
-        awaiting_human = tuple(c.id for c in task_version.criteria if c.scored_by_human)
+        # ゲートで打ち切った観点。**人採点の宣言より強い** ── 打ち切られた
+        # 以上そこに入れるべき値は無く、人を待たせる理由も無い。
+        cut = set(gate_skipped(task_version.criteria, tuple(scores), aggregation))
+        awaiting_human = tuple(
+            c.id for c in task_version.criteria if c.scored_by_human and c.id not in cut
+        )
 
         if not scores and phase is GradingPhase.DETERMINISTIC and not self._profile.deterministic:
             # 決定的評価器を宣言していない科目（レポート課題など）。この段階
@@ -298,13 +326,17 @@ class GradingPipeline:
         scored = {score.criterion_id for score in scores}
         awaiting = set(awaiting_human)
         unscored = tuple(
-            c.id for c in task_version.criteria if c.id not in scored and c.id not in awaiting
+            c.id
+            for c in task_version.criteria
+            if c.id not in scored and c.id not in awaiting and c.id not in cut
         )
 
-        # 人が採点する観点は **0% として重みどおり数える**。ここを比例配分に
-        # 混ぜると、その観点が最初から無かったのと同じ点になる（ADR 0015）。
-        # 総合点そのものは `awaiting_human` があるあいだ学習者に出ない。
-        zero_weight = sum(c.weight for c in task_version.criteria if c.id in awaiting)
+        # 打ち切った観点と人が採点する観点は **0% として重みどおり数える**。
+        # ここを比例配分に混ぜると、その観点が最初から無かったのと同じ点に
+        # なる ── 打ち切られた学習者の点が上がる（ADR 0015）。人採点の分は
+        # `awaiting_human` があるあいだ学習者に総合点そのものを出さない。
+        zero = awaiting | cut
+        zero_weight = sum(c.weight for c in task_version.criteria if c.id in zero)
         final = (
             renormalize(tuple(scores), target=1.0 - zero_weight)
             if unscored and scores
@@ -338,6 +370,7 @@ class GradingPipeline:
             confidence=confidence,
             routing=routing,
             unscored_criteria=unscored,
+            skipped_criteria=tuple(c.id for c in task_version.criteria if c.id in cut),
             awaiting_human=awaiting_human,
             created_at=datetime.now(UTC),
         )

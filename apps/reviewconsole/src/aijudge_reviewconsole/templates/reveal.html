@@ -45,7 +45,8 @@
       <td class="fit">{{ row.human_level if row.human_level is not none else '—' }}</td>
       <td class="fit">{{ row.ai_level if row.ai_level is not none else '—' }}</td>
       <td class="fit">
-        {% if row.awaiting_human %}<span class="pill no">人が採点</span>
+        {% if row.gated %}<span class="pill no">打ち切り 0%</span>
+        {% elif row.awaiting_human %}<span class="pill no">人が採点</span>
         {% elif row.unscored %}<span class="pill no">採点できず</span>
         {% elif row.agrees is none %}<span class="desc">—</span>
         {% elif row.agrees %}<span class="pill ok">一致</span>
@@ -63,6 +64,8 @@
             / 確信度 {{ '%.2f' | format(row.score.confidence) }}
             </span>
           {% endif %}
+        {% elif row.gated %}
+          <span class="desc">上位の観点が 0% だったため、この観点は評価していません（0%）。</span>
         {% elif row.awaiting_human %}
           <span class="desc">この観点は評価器を割り当てていません。段階を選んでください。</span>
         {% else %}

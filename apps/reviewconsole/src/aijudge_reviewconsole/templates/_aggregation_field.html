@@ -1,0 +1,17 @@
+{# 観点の畳み方。**ルーブリック単位の設定である**（観点ごとではない）。
+   観点ごとに AND を選べるようにすると、「何より上なら止まるのか」が
+   観点の並びからは読めなくなる。 #}
+<label>観点の畳み方</label>
+<select name="aggregation">
+  {% if inherits %}
+  <option value="" {{ 'selected' if aggregation is none }}>コースの設定に従う（いまは {{ 'AND' if course_aggregation == 'and' else 'OR' }}）</option>
+  {% endif %}
+  <option value="or" {{ 'selected' if aggregation == 'or' }}>OR — 全観点を独立に評価し、重み付き和を採る（既定）</option>
+  <option value="and" {{ 'selected' if aggregation == 'and' }}>AND — 評価順に上から見て、0% が出たらそこで打ち切る</option>
+</select>
+<p class="desc">
+  <strong>AND は「動かないコードの読みやすさを評価しても意味が無い」を表すためのものです。</strong>
+  評価順の上から評価し、いずれかの観点が 0% になった時点で止めます。
+  以降の観点は<strong>評価せず 0%</strong>（重みどおり総合点に入ります）。
+  打ち切りは仕様どおりの結果なので、レビュー必須にも自動確定の停止にもなりません。
+</p>

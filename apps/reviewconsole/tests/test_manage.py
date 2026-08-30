@@ -2353,8 +2353,49 @@ def _rubric_form(*rows) -> dict[str, list[str]]:
         "criterion_description": [title for _c, title, _w, _l in rows],
         "criterion_weight": [weight for _c, _t, weight, _l in rows],
         "criterion_evaluator": ["" for _row in rows],
+        "criterion_order": [str(index + 1) for index, _row in enumerate(rows)],
         "criterion_levels": [levels for _c, _t, _w, levels in rows],
     }
+
+
+def test_the_rubric_is_saved_in_the_order_the_instructor_gave() -> None:
+    """**並びが評価順である**（AND のとき上から評価して 0% で打ち切る）。
+
+    画面の行の並びではなく、行に書いた「評価順」で決める ── 上下ボタンだと
+    1 手ごとに保存が要り、10 観点を並べ替えるのに 10 往復になる。
+    """
+    from aijudge_admin import rubric
+
+    rows = [
+        {"code": "readable", "title": "読める", "weight": "0.4", "order": "2", "levels": ""},
+        {"code": "runs", "title": "動く", "weight": "0.6", "order": "1", "levels": ""},
+    ]
+    assert [c.code for c in rubric.parse(rows)] == ["runs", "readable"]
+    # 画面に返すときは 1 から振り直す（間に挿すために小数を書かせない）。
+    assert [row["order"] for row in rubric.to_rows(rubric.parse(rows))] == [1, 2]
+
+
+def test_a_course_can_declare_how_its_criteria_are_folded(world: World) -> None:
+    """AND / OR はルーブリック単位の設定。**課題が指定すればそちらが勝つ。**"""
+    world.register("teacher", Role.INSTRUCTOR)
+    data = _rubric_form(("structure", "構成", "0.5", ""), ("discussion", "考察", "0.5", ""))
+    data["aggregation"] = ["and"]
+    response = world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/rubric", data=data, follow_redirects=False
+    )
+    assert response.status_code == 303
+    with world.database.unit_of_work() as uow:
+        course = uow.identity.get_course(world.course.id)
+    assert course.rubric_aggregation == "and"
+
+
+def test_an_unknown_way_of_folding_is_refused(world: World) -> None:
+    """**黙って OR に倒さない。** 倒すと、AND のつもりの課題が重み付き和になる。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    data = _rubric_form(("structure", "構成", "1.0", ""))
+    data["aggregation"] = ["xor"]
+    response = world.client("teacher").post(f"/manage/courses/{world.course.id}/rubric", data=data)
+    assert response.status_code == 400
 
 
 def test_a_course_can_declare_a_shared_rubric(world: World) -> None:

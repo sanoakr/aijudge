@@ -14,7 +14,7 @@ from datetime import datetime
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session as DbSession
 
-from aijudge_core import Course, Enrollment, LatePenaltyStep, Role
+from aijudge_core import Aggregation, Course, Enrollment, LatePenaltyStep, Role
 from aijudge_core.ids import ApiTokenId, CourseId, SessionId, TenantId, UserId
 from aijudge_identity.models import ApiToken, Session, User, UserState
 
@@ -174,6 +174,7 @@ class SqlIdentityRepository:
                     description=course.description,
                     grading_overrides=dict(course.grading_overrides) or None,
                     rubric=[dict(row) for row in course.rubric] or None,
+                    rubric_aggregation=course.rubric_aggregation.value,
                     knowledge_components=list(course.knowledge_components) or None,
                     auto_finalize_after_minutes=course.auto_finalize_after_minutes,
                     upload_suffixes=list(course.upload_suffixes) or None,
@@ -186,6 +187,7 @@ class SqlIdentityRepository:
             row.description = course.description
             row.grading_overrides = dict(course.grading_overrides) or None
             row.rubric = [dict(item) for item in course.rubric] or None
+            row.rubric_aggregation = course.rubric_aggregation.value
             row.knowledge_components = list(course.knowledge_components) or None
             row.auto_finalize_after_minutes = course.auto_finalize_after_minutes
             row.upload_suffixes = list(course.upload_suffixes) or None
@@ -314,6 +316,8 @@ def _course(row: CourseRow | None) -> Course | None:
         description=row.description,
         grading_overrides=dict(row.grading_overrides or {}),
         rubric=tuple(row.rubric or ()),
+        # NULL は「宣言していない」＝ OR（従来の挙動）。過去の行がそのまま読める。
+        rubric_aggregation=Aggregation(row.rubric_aggregation or Aggregation.OR),
         knowledge_components=tuple(row.knowledge_components or ()),
         auto_finalize_after_minutes=row.auto_finalize_after_minutes,
         upload_suffixes=tuple(row.upload_suffixes or ()),
