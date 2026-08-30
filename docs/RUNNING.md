@@ -273,6 +273,35 @@ https://syllabus.ws.ryukoku.ac.jp/acrsw/CSylNoSSO/CNoSSO.do?i=Y001009010&n=2026
 
 出典: <https://hig3r.hatenadiary.com/entry/2023/03/13/220000>
 
+### コースごとの採点設定
+
+`subjects/*.yaml` は**雛形**である。同じ雛形を複数のコースが使い、コースは
+そこからの差分だけを持つ。
+
+    実効設定 = 雛形（ファイル） ← コースの上書き（DB の `grading_overrides`）
+
+上書きが空なら雛形そのもので、既存のコースは今までと同じ挙動になる。
+
+**上書きはそのコースにしか効かない。** だから教員が画面から触ってよい
+（コース全体の設定 →「採点設定」）。ADR 0002 が避けたかったのは「1 人の
+操作で全員の採点が止まる」ことで、それは雛形そのものを書き換えられる場合の
+話である。雛形は読み取り専用のまま残る。
+
+触れるのは言語・時間の上限・blind 抽出率・評価器の組み合わせ。評価器は
+**インストール済みから選ぶ**（存在しない名前を書けると、その科目の採点が
+恒久的に失敗する）。`kc_namespaces` は他のコースと共有する語彙の範囲なので
+上書きできない。
+
+保存時に起動時と同じ検査を通す。**それでも捕まらない誤りが 1 つある** ──
+`language` の取り違えは設定として正しく、結果は「全員 0 点」で原因が提出側に
+見える。「この設定で試す」がそれを拾う（そのコースの参照解答を 1 件走らせる。
+**保存はしない**ので採点の履歴には残らない）。
+
+新しい評価器が要るのは、判定の種類そのものが新しいときだけである（数学の
+CAS 同値、物理の単位検査など）。`code_test_runner` は 1 つの評価器で言語を
+選び、`rubric_ai_judge` は言語を知らないので、**コースを増やすたびに評価器を
+作ることにはならない。**
+
 ### 既存の DB に入れるとき
 
 マイグレーション機構はまだ無い（`--create-schema` が
@@ -301,6 +330,7 @@ ALTER TABLE courses DROP COLUMN auto_finalize_after_hours;
 ```sql
 ALTER TABLE courses ADD COLUMN upload_suffixes JSONB;
 ALTER TABLE courses ADD COLUMN description TEXT;
+ALTER TABLE courses ADD COLUMN grading_overrides JSONB;
 ```
 
 課題側で増えた項目（提出開始・課題ごとの猶予・課題ごとの提出形式・
