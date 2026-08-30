@@ -374,6 +374,8 @@ class CourseRow(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     # このコースの共通ルーブリック（観点の宣言）。NULL・空なら組み込みの既定。
     rubric: Mapped[list | None] = mapped_column(JsonType, nullable=True)
+    # このコースが使う知識要素の正準キー。**空（NULL）なら名前空間の全部。**
+    knowledge_components: Mapped[list | None] = mapped_column(JsonType, nullable=True)
     # このコースだけの採点設定の上書き。NULL・空なら雛形のまま。
     grading_overrides: Mapped[dict | None] = mapped_column(JsonType, nullable=True)
     # 締切から何分で成績を自動確定するか。NULL なら自動確定しない。

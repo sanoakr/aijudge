@@ -1313,6 +1313,103 @@ def test_the_key_is_not_editable_from_the_page(world: World) -> None:
     assert 'キー（<span class="mono">cs.loops</span>）は変わりません' in form
 
 
+def test_the_course_can_narrow_which_components_it_uses(world: World) -> None:
+    """**共有の語彙からの削除ではない。** 外しても知識要素は残る。"""
+    world.register("boss", Role.ADMIN)
+    client = world.client("boss")
+    for key, label in (("cs.loops", "ループ"), ("cs.python", "Python")):
+        client.post(f"/manage/courses/{world.course.id}/kc", data={"key": key, "label": label})
+
+    response = client.post(
+        f"/manage/courses/{world.course.id}/kc/scope",
+        data={"kc": ["cs.loops"]},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    with world.database.unit_of_work() as uow:
+        assert uow.identity.get_course(world.course.id).knowledge_components == ("cs.loops",)
+    # 語彙からは消えない。一覧には両方出る。
+    page = client.get(f"/manage/courses/{world.course.id}/kc").text
+    assert "cs.loops" in page and "cs.python" in page
+
+
+def test_the_drafting_form_offers_only_the_selected_components(world: World) -> None:
+    """**同じ名前空間を複数のコースが使うほど関係のない候補が増える。**
+
+    C の科目に `cs.python.*` が並ぶのは見にくいだけでなく、誤った知識要素を
+    課題に付けられるということでもある（設計原則 P6）。
+    """
+    world.register("boss", Role.ADMIN)
+    client = world.client("boss")
+    _import_example(world)
+    for key, label in (("cs.loops", "ループ"), ("cs.python", "Python")):
+        client.post(f"/manage/courses/{world.course.id}/kc", data={"key": key, "label": label})
+
+    unit = _unit_of(world)
+    body = client.get(f"/manage/courses/{world.course.id}/units/{unit}").text
+    assert "cs.python" in body  # 絞る前は両方出る
+
+    client.post(f"/manage/courses/{world.course.id}/kc/scope", data={"kc": ["cs.loops"]})
+    body = client.get(f"/manage/courses/{world.course.id}/units/{unit}").text
+    assert "cs.loops" in body
+    assert "cs.python" not in body
+
+
+def test_a_component_the_course_still_uses_stays_visible_when_unselected(
+    world: World,
+) -> None:
+    """**外しても、このコースの課題が使っていれば一覧に残す。**
+
+    消すと、その課題が何を問うているのかを画面から辿れなくなる。
+    """
+    from aijudge_admin import save_task
+    from aijudge_authoring import TaskSpec
+
+    world.register("boss", Role.ADMIN)
+    client = world.client("boss")
+    client.post(
+        f"/manage/courses/{world.course.id}/kc", data={"key": "cs.loops", "label": "ループ"}
+    )
+    save_task(
+        world.database,
+        course_id=world.course.id,
+        spec=TaskSpec(
+            key="ex01/p1",
+            statement="## 課題 ##\n\n本文",
+            knowledge_components=("cs.loops",),
+        ),
+        subject_profile="cs_intro_c",
+        authored_by=world.register("t2", Role.INSTRUCTOR).user_id,
+    )
+
+    # 選択から外す。
+    client.post(f"/manage/courses/{world.course.id}/kc/scope", data={"kc": []})
+    client.post(f"/manage/courses/{world.course.id}/kc/scope", data={"kc": ["cs.nothing"]})
+    page = client.get(f"/manage/courses/{world.course.id}/kc").text
+    assert "cs.loops" in page
+    # このコースの課題が使っていることが分かる。
+    assert "課題 1" in page
+
+
+def test_an_unscoped_course_says_it_is_not_narrowed(world: World) -> None:
+    """**全部を選んだ状態と、絞らないままは別物。**
+
+    あとから名前空間に足された知識要素の扱いが変わる。
+    """
+    world.register("boss", Role.ADMIN)
+    client = world.client("boss")
+    client.post(
+        f"/manage/courses/{world.course.id}/kc", data={"key": "cs.loops", "label": "ループ"}
+    )
+
+    page = client.get(f"/manage/courses/{world.course.id}/kc").text
+    assert "まだ絞っていません" in page
+
+    client.post(f"/manage/courses/{world.course.id}/kc/scope", data={"kc": ["cs.loops"]})
+    page = client.get(f"/manage/courses/{world.course.id}/kc").text
+    assert "使う知識要素を絞っています" in page
+
+
 def test_only_an_admin_can_delete_a_component(world: World) -> None:
     """削除もコースをまたいで効く。1 コースの教員が他の語彙を消せない。"""
     world.register("boss", Role.ADMIN)
