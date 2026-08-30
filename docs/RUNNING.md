@@ -225,9 +225,53 @@ cron に置くなら 1 時間ごとで十分（猶予は時間単位の話）。
 
 ### 一括確定（課題ごと・教員の操作）
 
-`/manage` の課題一覧から、未確定分をまとめて確定できる。根拠説明が必須で、
+科目ページ → 問題セットのページから、未確定分をまとめて確定できる。根拠説明が必須で、
 **学習者にそのまま表示される**。自動確定と違い `review_required` も含める
 （教員が書面で責任を取る操作なので）。未対応の依頼だけは確定しない。
+
+### シラバスから基本情報と知識要素の候補を作る
+
+入口は 2 つに分かれている。**コースの基本情報**（コース全体の設定 →「基本情報を
+入力する」）と、**知識要素の候補**（知識要素 →「本文から候補を作る」）。どちらも
+**本文を貼り付ける**か **PDF / DOCX / テキストを選ぶ**。
+
+コース名と概要・到達目標は `courses` に保存する。**科目プロファイルには置かない** ──
+あちらは採点の仕方の宣言（ADR 0002）で、コードと同じレビューを通す前提の設定である。
+学期ごとに変わる事務データのためにブラウザから書ける口を開けると、1 人の操作で
+全員の採点が止まる経路ができる。コースコードと学期は（テナント・コード・学期）で
+コースの同一性を作っているので、この画面では変えられない。
+
+URL は受け付けない ── 龍谷大学のシラバスは
+JavaScript で描画されるページで、取得しても空の外枠しか返らない（実測
+1815 バイト、`<title>acslb-client</title>` だけ）。取りに行かないので、
+サーバが任意の URL を叩く経路も作らずに済む。
+
+PDF の抽出は提出物の採点と同じもの（`aijudge_norm_document_text.text_of`）を
+使い、Markdown に均して入力欄に入れる（見出しと「第 N 回」を整えるだけで中身は
+書き換えない）。**スキャン画像の PDF は読めない**（文字が埋め込まれている必要がある）。
+読めなければそう言って断る ── 黙って OCR に流すと、読み取り誤りがそのまま
+候補になり、出所が分からなくなる。
+
+出てくるのは**候補**で、教員が選んだものだけが体系に入る。規則は手で足すときと
+同じ（名前空間・親の実在・第 1 階層は管理者のみ）。
+
+シラバスを開くには deep link が使える。
+
+```
+https://syllabus.ws.ryukoku.ac.jp/acrsw/CSylNoSSO/CNoSSO.do?i=<管理番号>&n=<年度>
+```
+
+- `i` … シラバス管理番号。**履修登録コードとは別物**で、シラバス一覧の
+  検索結果に出ている
+- `n` … 年度（`2026` のような文字列）
+
+例（プログラミング及び実習Ⅱ）:
+
+```
+https://syllabus.ws.ryukoku.ac.jp/acrsw/CSylNoSSO/CNoSSO.do?i=Y001009010&n=2026
+```
+
+出典: <https://hig3r.hatenadiary.com/entry/2023/03/13/220000>
 
 ### 既存の DB に入れるとき
 
@@ -240,6 +284,28 @@ cron に置くなら 1 時間ごとで十分（猶予は時間単位の話）。
 ALTER TABLE courses ADD COLUMN auto_finalize_after_hours DOUBLE PRECISION;
 ALTER TABLE grading_jobs ADD COLUMN phase VARCHAR(32) DEFAULT 'deterministic';
 ```
+
+猶予は**分**に変わった（「締切の 10 分後に確定」を表せるようにするため）。
+列を足して換算し、古い列を落とす。
+
+```sql
+ALTER TABLE courses ADD COLUMN auto_finalize_after_minutes INTEGER;
+UPDATE courses SET auto_finalize_after_minutes = ROUND(auto_finalize_after_hours * 60)
+  WHERE auto_finalize_after_hours IS NOT NULL;
+ALTER TABLE courses DROP COLUMN auto_finalize_after_hours;
+```
+
+提出できるファイル形式を科目が持つようになったので、その列も足す
+（NULL なら組み込みの既定）。
+
+```sql
+ALTER TABLE courses ADD COLUMN upload_suffixes JSONB;
+ALTER TABLE courses ADD COLUMN description TEXT;
+```
+
+課題側で増えた項目（提出開始・課題ごとの猶予・課題ごとの提出形式・
+課題キーの記録）は `tasks` / `task_versions` の JSON の中なので、
+**列の追加は要らない**。古い行は既定値（空・NULL）として読める。
 
 `finalizations` 表の方は `--create-schema` で作られる。**開発機でデータを
 捨ててよいなら**、作り直す方が確実。

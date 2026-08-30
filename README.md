@@ -244,8 +244,11 @@ learner has contested — a verdict nobody looked at does not become a grade
 because a clock ran out (P5). The bulk route includes what the policy flagged,
 because an instructor is signing for it in writing.
 
-The grace period lives on the **course** (`auto_finalize_after_hours`, editable in
-`/manage` by INSTRUCTOR and above, default off), not in `subjects/*.yaml`. The
+The grace period is expressed **in minutes**: the course carries the default and a
+problem set may override it (`auto_finalize_after_minutes`, editable in `/manage`
+by INSTRUCTOR and above, default off), not in `subjects/*.yaml`. Minutes rather
+than hours because "settle ten minutes after the deadline" is a real lab
+workflow that hours cannot express. The
 subject profile is grading configuration and stays out of the browser
 ([ADR 0002](docs/adr/0002-evaluator-plugin-boundary.md)); a grace period is an
 operational value of the same kind as a deadline, so it sits where deadlines sit.
@@ -276,7 +279,7 @@ which lands in `HumanReview.adjusted_levels` and reads as the instructor
 disagreeing with the AI — the mirror of the trap ADR 0010 closed. And the
 deduction rode into S7, mixing what a learner can do with when they handed it in.
 
-The ladder lives on the **course**, beside `auto_finalize_after_hours` and for
+The ladder lives on the **course**, beside `auto_finalize_after_minutes` and for
 the same reason. A course with no ladder deducts nothing and shows no deduction
 row at all: a rule left unset must not look like a rule that was applied and came
 to zero. Instructors can waive — a deduction nobody can lift contradicts P5 —
