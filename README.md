@@ -260,8 +260,8 @@ Miss that window and the page points at the instructor instead of the form. The
 stage is derived, never stored.
 
 The automatic route is the stricter one. It skips anything the review policy
-flagged (`review_required`), anything with an unscored criterion, and anything a
-learner has contested — a verdict nobody looked at does not become a grade
+flagged (`review_required`), anything whose score is not settled yet
+(`is_provisional`), and anything a learner has contested — a verdict nobody looked at does not become a grade
 because a clock ran out (P5). The bulk route includes what the policy flagged,
 because an instructor is signing for it in writing.
 

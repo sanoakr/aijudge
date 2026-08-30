@@ -66,6 +66,9 @@ TENANT = TenantId("ten_" + "0" * 32)
 TASK_ID = TaskId("tsk_" + "2" * 32)
 TASK_VERSION = TaskVersionId("tsv_" + "3" * 32)
 CRITERION = CriterionId("crt_" + "6" * 32)
+# 評価器が落ちた観点。**点の付いている観点とは別の観点である** ── 同じ
+# 観点を「採点済み」と「未採点」の両方に置くと、コアの検証が落とす。
+UNSCORED = CriterionId("crt_" + "7" * 32)
 INSTRUCTOR = UserId("usr_" + "9" * 32)
 
 DUE = datetime(2026, 8, 20, 23, 59, tzinfo=UTC)
@@ -151,7 +154,7 @@ def _run(submission_id: SubmissionId, *, routing: Routing, unscored: bool = Fals
         score_ratio=1.0,
         confidence=1.0,
         routing=routing,
-        unscored_criteria=(CRITERION,) if unscored else (),
+        unscored_criteria=(UNSCORED,) if unscored else (),
         created_at=DUE,
     )
 

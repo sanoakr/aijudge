@@ -184,8 +184,13 @@ def auto_finalizable(run: GradingRun, request: ReviewRequest | None) -> bool:
 
     - `review_required` は対象外。レビュー方針が「人が見るべき」と判定した
       ものを、人を通さずに成績にしない（設計原則 P5）
-    - 未採点の観点があるものも対象外。誰も見ていない観点が成績に入る
+    - 点が定まっていないもの（`is_provisional`）も対象外。評価器が落ちた
+      観点や、人の採点を待っている観点が成績に入る
     - 未対応の異議申立があるものも対象外
+
+    **集約のゲートで打ち切った観点は止めない。** 0% は確定した結果なので、
+    人が見るべきものは何も残っていない（Issue #10）。`is_provisional` が
+    その観点を暫定に数えないことでそうなっている。
     """
     if blocks_finalization(request):
         return False
