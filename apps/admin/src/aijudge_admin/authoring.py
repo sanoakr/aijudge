@@ -22,6 +22,7 @@ from aijudge_persistence import Database
 
 from .kc import assert_registered
 from .operations import AdminError
+from .rubric import from_stored
 
 
 @dataclass(frozen=True)
@@ -54,6 +55,7 @@ def save_task(
     subject_profile: str,
     authored_by: UserId,
     revise: bool = False,
+    course_rubric: tuple[dict, ...] = (),
 ) -> SavedTask:
     """課題を保存する。既にあれば内容の同一性を確かめ、無ければ作る。
 
@@ -65,6 +67,16 @@ def save_task(
     # **登録済みの KC しか名指しできない**（`kc.assert_registered`）。
     # 綴り違いが静かに新しい KC を作ると、Q-matrix は同じものを 2 つに
     # 割ったまま habits を積み上げる（設計原則 P6 が壊れる）。
+    # **課題の宣言が勝つ。** 宣言が無ければコースの共通ルーブリック、
+    # それも無ければ組み込みの既定（正しさ＋読みやすさ）。
+    if not spec.criteria and course_rubric:
+        # 観点を宣言する課題では `readability_weight` は使えない（両方書けると
+        # どちらが効くのか読めない・`TaskSpec` の検証）。読みやすさを入れたい
+        # なら、共通ルーブリックの観点として書く。
+        spec = spec.model_copy(
+            update={"criteria": from_stored(course_rubric), "readability_weight": 0.0}
+        )
+
     assert_registered(database, spec.knowledge_components)
     version = build_task_version(spec, subject_profile=subject_profile, authored_by=authored_by)
     if revise:

@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+from . import rubric
 from .authoring import SavedTask, save_task
 from .duplicates import DuplicateChecker
 from .finalization import (
@@ -112,6 +113,7 @@ __all__ = [
     "reject",
     "restore_kc",
     "retire_kc",
+    "rubric",
     "save_grading_settings",
     "save_task",
     "set_password",
