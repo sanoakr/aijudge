@@ -89,6 +89,8 @@ class CriterionView:
     pending: bool
     # 集約のゲートで打ち切られた観点。**保留ではなく確定した 0%。**
     gated: bool = False
+    # 評価器を割り当てていない観点（人が採点する）。**壊れているのではない。**
+    by_human: bool = False
     # 教員が AI の判定を変えた。
     adjusted: bool = False
     # AI が判定した観点か。決定的評価（テスト実行）と区別して見せる。
@@ -100,6 +102,10 @@ class CriterionView:
             # 打ち切りは仕様どおりの結果なので「確認中」ではない。0% である
             # ことと、なぜ評価されなかったのかを同じ行で示す。
             return "評価していません（前の観点が 0% のため・0%）"
+        if self.by_human:
+            # 「確認中」だと機械が動いている最中に読める。この観点は待って
+            # いるのが人の採点であって、機械の結果ではない。
+            return "担当教員が採点します"
         if self.pending:
             return "確認中"
         if self.level is None:
@@ -228,6 +234,7 @@ def build_result_view(
     }
     # 機械の判定が無い理由。**理由で見え方が変わる**（Issue #10）。
     gated = set(run.skipped_criteria)
+    by_human = set(run.awaiting_human)
     confirmed = finalization is not None or review is not None
 
     views: list[CriterionView] = []
@@ -245,6 +252,7 @@ def build_result_view(
                     evidence_lines=(),
                     pending=criterion.id not in gated,
                     gated=criterion.id in gated,
+                    by_human=criterion.id in by_human,
                 )
             )
             continue
@@ -293,6 +301,8 @@ def build_result_view(
         reason = "確定済みの成績です。申し出は担当教員に直接お願いします。"
     elif request is not None:
         reason = "再確認を依頼済みです。担当教員の対応をお待ちください。"
+    elif run.awaiting_human:
+        reason = "担当教員が採点する観点があります。採点をお待ちください。"
     elif unscored:
         reason = "採点できなかった観点があります。担当教員が確認します。"
 

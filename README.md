@@ -207,6 +207,28 @@ where a score belongs is indistinguishable from a zero.
 Instructors still see it. Closing the gap is their job, and what the
 deterministic side returned is what they need to do it.
 
+Three different situations leave a criterion without a machine score, and they
+do not want the same treatment: an evaluator that fell over (above), a criterion
+an instructor scores by hand, and a criterion an aggregation gate cut off. The
+run keeps them apart, because mixing them either raises the score of a learner
+the gate cut off or closes a submission nobody scored. See
+[ADR 0015](docs/adr/0015-three-reasons-a-criterion-has-no-machine-score.md).
+
+### A criterion an instructor scores by hand
+
+Some criteria have no machine judgement to give — a hand-drawn diagram, a
+photograph of an apparatus. The rubric editor can leave a criterion **unassigned**
+(`人が採点する`), which is not the same as leaving the evaluator blank: blank
+means "any AI evaluator may take it", and pointing an AI at a criterion it cannot
+see produces a confident judgement of nothing.
+
+An unassigned criterion goes to no evaluator, records as `awaiting_human`, and
+holds the grade open until someone enters a level — including against the bulk
+route, which normally closes whatever an instructor signs for. Bulk finalisation
+means "I take responsibility without reading each one"; here there is nothing to
+take responsibility for, because no one has judged the criterion at all. A whole
+task may be scored this way; the machine then scores nothing and says so.
+
 ### Finalising a grade is not the same as reviewing it
 
 The instructor's queue holds only the submissions learners contested
