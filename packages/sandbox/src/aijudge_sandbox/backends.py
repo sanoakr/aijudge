@@ -216,6 +216,13 @@ class DockerSandbox(LocalSandboxBase):
     """
 
     name = "docker"
+    # 起動するのは docker クライアント（Go 製）で、提出物そのものではない。
+    # RLIMIT_AS をこのプロセスに掛けると、既定の 512MB 程度でも Go ランタイムの
+    # 起動時メモリ予約が失敗して落ちる（Linux で実測。macOS は RLIMIT_AS の
+    # setrlimit 自体が失敗して黙って無視されるため、気づかれずにいた）。
+    # 提出物側の制限はコンテナ起動フラグ（--memory / --pids-limit / --ulimit）
+    # が別途課しているので、ホスト側には掛けない。
+    apply_host_rlimits = False
 
     def __init__(
         self,

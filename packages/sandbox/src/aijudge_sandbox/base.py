@@ -155,11 +155,20 @@ class LocalWorkspace:
         isolation: Isolation,
         wrap: Callable[[list[str], ExecRequest, Path], tuple[list[str], dict[str, str]]],
         decode_signal: Callable[[int], str | None] | None = None,
+        *,
+        apply_host_rlimits: bool = True,
     ) -> None:
         self.path = path
         self._isolation = isolation
         self._wrap = wrap
         self._decode_signal = decode_signal or _signal_of_negative_code
+        # docker では起動するのはコンテナではなく docker クライアント自身
+        # （Go 製バイナリ）。RLIMIT_AS を提出物のつもりでここへ掛けると、
+        # Go ランタイムの起動時メモリ予約が失敗してクライアントごと落ちる
+        # （実測: page summary memory の確保失敗）。コンテナ側の制限は
+        # 別途 --memory / --pids-limit / --ulimit で掛かっているので、
+        # このバックエンドではホスト側の rlimit を掛けない。
+        self._apply_host_rlimits = apply_host_rlimits
 
     def write(self, name: str, content: bytes | str) -> Path:
         target = self.path / name
@@ -187,7 +196,7 @@ class LocalWorkspace:
                 env=env,
                 # 独立したセッションにして、孫まで一括で落とせるようにする。
                 start_new_session=True,
-                preexec_fn=make_limiter(request.limits),
+                preexec_fn=make_limiter(request.limits) if self._apply_host_rlimits else None,
             )
         except OSError as exc:
             return ExecResult(
@@ -257,6 +266,10 @@ class LocalSandboxBase:
         }
     )
     workspace_root: Path | None = None
+    # 起動する子プロセスが提出物そのもの（またはそこへ exec する薄いラッパー）
+    # であるバックエンドは True のまま。子プロセスが提出物を包む別のランタイム
+    # （docker クライアントなど）であるバックエンドは False にして上書きする。
+    apply_host_rlimits: bool = True
 
     def decode_signal(self, code: int) -> str | None:
         """終了コードからシグナル名を引く。
@@ -275,7 +288,13 @@ class LocalSandboxBase:
             tempfile.mkdtemp(prefix="aijudge-ws-", dir=None if root is None else str(root))
         ).resolve()
         try:
-            yield LocalWorkspace(directory, self.isolation, self.wrap, self.decode_signal)
+            yield LocalWorkspace(
+                directory,
+                self.isolation,
+                self.wrap,
+                self.decode_signal,
+                apply_host_rlimits=self.apply_host_rlimits,
+            )
         finally:
             shutil.rmtree(directory, ignore_errors=True)
 
