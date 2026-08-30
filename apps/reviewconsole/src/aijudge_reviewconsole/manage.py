@@ -72,8 +72,11 @@ from aijudge_admin.syllabus import (
     read_document,
     to_markdown,
 )
-from aijudge_authoring import TaskSpec, render_markdown
+from aijudge_admin.task_verifier import TaskVerifier
+from aijudge_admin.test_cases import TestCaseWriter
+from aijudge_authoring import TaskChecks, TaskSpec, render_markdown
 from aijudge_authoring.drafting import Blueprint, Difficulty
+from aijudge_authoring.spec import TestCaseSpec
 from aijudge_core import (
     DEFAULT_UPLOAD_SUFFIXES,
     MIN_JUSTIFICATION_LENGTH,
@@ -87,6 +90,7 @@ from aijudge_core import (
     normalize_suffixes,
 )
 from aijudge_core.ids import CourseId, TaskId, TaskVersionId, UserId, derived_id
+from aijudge_eval_code_test_runner import EVALUATOR_ID as CODE_TEST_RUNNER
 from aijudge_eval_code_test_runner import LANGUAGES
 from aijudge_grading import (
     LOCKED_KEYS,
@@ -173,6 +177,40 @@ def _merged(outcomes) -> _Merged:
         finalized=sum(outcome.finalized for outcome in outcomes),
         contested=sum(outcome.contested for outcome in outcomes),
     )
+
+
+def _wants_tests(request: Request, course) -> bool:
+    """この科目はテスト実行で正しさを確定させるか。
+
+    宣言していない科目（レポートなど）では、テストケースが無いのが正常で
+    あって落ちたわけではない。両者を同じ顔で警告すると、警告が読まれなくなる。
+    """
+    profile = load_profile(_console(request).profiles_dir / f"{course.subject_profile}.yaml")
+    return CODE_TEST_RUNNER in profile.deterministic
+
+
+def _record_gates(console, profile, version) -> None:
+    """門 1・門 2 を通して結果を残す。**残さないと教員に何も示せない。**
+
+    生成物は承認待ちで保存されるので、教員は未承認の一覧でこの結果を読んで
+    承認するかどうかを決める（ADR 0008）。門が落ちても保存は取り消さない ──
+    落ちたこと自体が教員の判断材料で、黙って消すと何も残らない。
+    """
+    from datetime import UTC, datetime
+
+    try:
+        verifier = TaskVerifier(EvaluatorRegistry().load_installed(), profile)
+        report = verifier.verify(version)
+    except Exception:
+        # 検査そのものが動かないことはある（サンドボックス不在など）。
+        # **保存は成立させる。** 検査が無いことは未承認の一覧に出る。
+        return
+    with console.database.unit_of_work() as uow:
+        uow.tasks.save_checks(
+            version.id,
+            TaskChecks(verification=report, checked_at=datetime.now(UTC)),
+        )
+        uow.commit()
 
 
 def _language_of(profile) -> str:
@@ -267,6 +305,19 @@ SAVED_MESSAGES: dict[str, str] = {
     "grading": "採点設定を保存しました",
     "order": "並びを変えました",
     "task": "課題を保存しました",
+    # **黙って落とさない。** テストケースが無いと正しさの観点は AI 判定に
+    # なる（`TaskSpec.auto_graded`）。保存できたことだけ伝えると、教員は
+    # テスト実行で確定する課題を作ったつもりのまま学期を過ごす。
+    "task_without_tests": (
+        "課題を保存しました。テストケースが無いので、正しさは AI が判定します"
+        "（テスト実行では確定しません）"
+    ),
+    # **作れなかったことと、作らないことは別。** 前者は直せる（S6 が戻れば
+    # 作り直せる）ので、そう言えるようにしておく。
+    "task_generation_failed": (
+        "課題を保存しました。**テストケースを作れなかったので**、正しさは AI が"
+        "判定します（S6 が止まっている可能性があります）。あとで作り直せます"
+    ),
     "rubric": "共通ルーブリックを保存しました（新しい課題から使われます）",
     "generated": "課題を生成しました。承認するまで出題されません",
 }
@@ -1302,6 +1353,8 @@ def register(templates) -> APIRouter:
         readability_weight: Annotated[str, Form()] = "0.3",
         suffix: Annotated[list[str], Form()] = [],  # noqa: B006 - FastAPI の複数値
         formats: Annotated[str, Form()] = "",
+        no_auto_tests: Annotated[str, Form()] = "",
+        test_case_count: Annotated[str, Form()] = "5",
     ) -> Response:
         """課題を 1 件足す。
 
@@ -1311,9 +1364,18 @@ def register(templates) -> APIRouter:
         `readability_weight` が 0.0 固定で、画面から入れた課題には AI 観点が
         付かなかった。
 
-        テストケースはここでは入れない。1 件ずつ貼らせる画面にすると、
+        テストケースはここでは**貼らせない**。1 件ずつ入力させる画面にすると、
         実在する規模（1 課題 7 件 × 48 課題）で現実的でない。まとまった
         投入は API を使う。
+
+        **科目が `code_test_runner` を宣言していれば、代わりに生成する。**
+        テストケースの無い課題は正しさの観点が AI 判定に落ちる
+        （`TaskSpec.auto_graded`）ので、テスト実行で確定できるはずの科目でも
+        全課題が教員の確定待ちになる。生成物は**参照解答と一緒に作らせて門を
+        通し、承認待ちで保存する**（`aijudge_admin.test_cases`）。
+
+        「自動テストを使わない」を選べば従来どおり ── C の科目にも設計を問う
+        記述課題はあり、そこに自動テストを強いる理由が無い。
 
         **日程は指定させない。** 問題セットの値をそのまま引き継ぐ ── 課題
         ごとに違う締切を持てると、同じセットの中で締切がずれる。変えたい
@@ -1343,6 +1405,26 @@ def register(templates) -> APIRouter:
             ]
         head = siblings[0] if siblings else None
 
+        # **テストで確定できる科目なら、テストケースを用意する。**
+        profile = load_profile(console.profiles_dir / f"{course.subject_profile}.yaml")
+        wants_tests = CODE_TEST_RUNNER in profile.deterministic and not no_auto_tests.strip()
+        generated = None
+        generation_failed = False
+        if wants_tests:
+            try:
+                generated = TestCaseWriter().write(
+                    statement,
+                    language=_language_of(profile),
+                    count=int(test_case_count or 5),
+                )
+            except Exception:
+                # **課題を作れなくしない**（設計原則 P2）。S6 が止まっている
+                # あいだ作問が止まると、教員は授業の準備そのものができない。
+                # テストケースの無い課題として保存し、**そうなったことを言う**
+                # ── 黙って落とすと、テスト実行で確定する課題を作ったつもりの
+                # まま学期を過ごすことになる。
+                generation_failed = True
+
         try:
             spec = TaskSpec(
                 key=full_key,
@@ -1350,6 +1432,15 @@ def register(templates) -> APIRouter:
                 unit=unit.strip() or None,
                 position=int(position) if position.strip() else None,
                 readability_weight=float(readability_weight or 0.0),
+                reference_solution=None if generated is None else generated.reference_solution,
+                test_cases=(
+                    ()
+                    if generated is None
+                    else tuple(
+                        TestCaseSpec(name=case.name, input=case.input, expected=case.expected)
+                        for case in generated.test_cases
+                    )
+                ),
             )
         except (ValidationError, ValueError) as exc:
             raise HTTPException(status_code=400, detail=f"課題の指定が不正です: {exc}") from None
@@ -1362,9 +1453,18 @@ def register(templates) -> APIRouter:
                 subject_profile=course.subject_profile,
                 authored_by=me.user_id,
                 course_rubric=course.rubric,
+                # **生成したなら承認待ちにする**（P5）。門は「参照解答とテストが
+                # 整合している」までしか言わず、問題文の意図と合っているかは
+                # 見ていない。人が一度見るまで出題しない。
+                generated_by=None if generated is None else generated.model,
+                generation_prompt_version=None if generated is None else generated.prompt_id,
             )
         except AdminError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+        # 門 1・門 2 を通し、結果を残す（生成課題と同じ・ADR 0008）。
+        if generated is not None:
+            _record_gates(console, profile, saved.version)
 
         # 日程と回番号は問題セットから引き継ぐ。`TaskSpec` を通さないのは、
         # あれが API の語彙でもあり、日程を課題単位で受け取る口を増やすと
@@ -1392,8 +1492,15 @@ def register(templates) -> APIRouter:
                 uow.commit()
 
         console.last_task = (str(course.id), saved)
+        # テストで確定できる科目なのにテストケースが無いなら、そう言う。
+        if saved.version.test_cases or CODE_TEST_RUNNER not in profile.deterministic:
+            landed = "task"
+        elif generation_failed:
+            landed = "task_generation_failed"
+        else:
+            landed = "task_without_tests"
         return RedirectResponse(
-            f"/manage/courses/{course_id}/tasks/{saved.task.id}/edit?saved=task",
+            f"/manage/courses/{course_id}/tasks/{saved.task.id}/edit?saved={landed}",
             status_code=303,
         )
 
@@ -1637,6 +1744,18 @@ def register(templates) -> APIRouter:
                 ),
                 "note": note or SAVED_MESSAGES.get(saved),
                 "other_units": others,
+                # テストで確定できる科目か。宣言していない科目（レポートなど）
+                # には出さない ── 選べない選択肢を見せない。
+                "wants_tests": _wants_tests(request, course),
+                # **既にある課題にも出す。** #15 より前に画面から作った課題は
+                # テストケースを持てず、正しさが AI 判定のまま残っている。
+                # 課題を開いたときに分からなければ、直す機会が無い。
+                "falls_back_to_ai": (
+                    task is not None
+                    and version is not None
+                    and not version.test_cases
+                    and _wants_tests(request, course)
+                ),
             },
         )
 
