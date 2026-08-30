@@ -92,5 +92,33 @@
     <button type="submit">共通ルーブリックに戻す</button>
   </div>
 </form>
+
+{# 別の問題セットへ移す。**日程は移動先に揃う** ── セットの中で締切がずれると
+   「この回はいつまでか」が言えなくなる。移動先を選ぶときに、その回の締切を
+   並べて出しておく（移動してから気づくことにならないように）。 #}
+{% if other_units %}
+<form method="post" action="/manage/courses/{{ course.id }}/tasks/{{ task.id }}/unit"
+      class="card">
+  <div class="inline-field">
+    <span class="body">
+      <label for="move-unit">別の問題セットへ移す</label>
+      <select id="move-unit" name="unit">
+        {% for group in other_units %}
+        <option value="{{ group.unit or group.label }}">{{ group.unit or group.label }}
+          — 締切 {% if group.due_at %}{{ group.due_at.strftime('%m-%d %H:%M') }}{% else %}未設定{% endif %}</option>
+        {% endfor %}
+      </select>
+    </span>
+    <button type="submit">移す</button>
+  </div>
+  <p class="desc" style="margin:10px 0 0">
+    <strong>日程は移動先のセットに揃います</strong>（公開・提出開始・締切・自動確定の猶予）。
+    並びは移動先の末尾に入ります。課題キー{% if version and version.source_key %}
+    <span class="mono">{{ version.source_key }}</span>{% endif %}は変わりません
+    — 課題 ID がこの鍵から導かれるので（<span class="mono">derived_id</span>）、
+    変えると<strong>別の課題になり</strong>、過去の提出との対応が切れます。
+  </p>
+</form>
+{% endif %}
 {% endif %}
 {% endblock %}
