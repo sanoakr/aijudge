@@ -186,6 +186,31 @@ details.criterion.add > summary{color:var(--shu)}
 .criterion-fields .pair > span{flex:1}
 .criterion-fields .pair > span.narrow{flex:0 0 7rem}
 .criterion-fields .pair label{margin-top:0}
+/* 役割ごとの人数。**0 名も並べる** ── 総数だけでは、TA を登録し忘れて
+   いるのか 0 名が正しいのかが読み取れない。 */
+ul.rolecounts{list-style:none;margin:0 0 10px;padding:0;display:flex;flex-wrap:wrap;gap:6px 18px}
+ul.rolecounts li{font-size:.85rem;color:var(--ink-2)}
+ul.rolecounts b{color:var(--ink);font-size:.95rem}
+/* シラバスの本文。**畳んで置く** ── 開いたままだと、下にある自動確定・
+   提出形式・採点設定にたどり着くのに毎回スクロールすることになる。 */
+details.syllabus > summary{cursor:pointer;font-size:.9rem;color:var(--ink-2);
+  display:flex;align-items:baseline;gap:4px 14px;margin-bottom:10px}
+details.syllabus > summary::-webkit-details-marker{display:none}
+details.syllabus > summary::before{content:"▸";color:var(--muted);margin-right:2px}
+details.syllabus[open] > summary::before{content:"▾"}
+details.syllabus .open-hint{margin-left:auto}
+/* 描画した Markdown。見出しが本文より小さくならない程度に抑える
+   （シラバスは節が多く、既定の h1/h2 では画面が見出しで埋まる）。 */
+.markdown{font-size:.9rem;line-height:1.75;border-left:2px solid var(--line-soft);
+  padding-left:14px;margin-bottom:10px}
+.markdown h1,.markdown h2,.markdown h3,.markdown h4{font-size:.95rem;margin:16px 0 6px}
+.markdown h1:first-child,.markdown h2:first-child{margin-top:0}
+.markdown p,.markdown ul,.markdown ol,.markdown table{margin:0 0 10px}
+.markdown ul,.markdown ol{padding-left:1.4em}
+.markdown code{font-family:ui-monospace,"SFMono-Regular",monospace;font-size:.85em}
+.markdown pre{overflow-x:auto;background:var(--surface-2);padding:10px 12px;border-radius:3px}
+.markdown table{border-collapse:collapse}
+.markdown th,.markdown td{border:1px solid var(--line-soft);padding:4px 10px;text-align:left}
 /* 課題ごとの編集。**畳んでおく** ── 開かなければ触れないので、直すつもりの
    ない課題を誤って書き換えない。 */
 details.task-edit > summary{cursor:pointer;display:flex;flex-wrap:wrap;align-items:baseline;

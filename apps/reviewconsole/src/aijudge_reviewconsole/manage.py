@@ -31,6 +31,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -72,7 +73,7 @@ from aijudge_admin.syllabus import (
     read_document,
     to_markdown,
 )
-from aijudge_authoring import TaskSpec
+from aijudge_authoring import TaskSpec, render_markdown
 from aijudge_authoring.drafting import Blueprint, Difficulty
 from aijudge_core import (
     DEFAULT_UPLOAD_SUFFIXES,
@@ -182,6 +183,17 @@ def _language_of(profile) -> str:
     """
     options = profile.evaluator_options.get("code_test_runner", {})
     return str(options.get("language") or "c")
+
+
+def _role_counts(enrollments) -> list[dict[str, object]]:
+    """役割ごとの人数。**0 名の役割も並べる。**
+
+    総数だけでは、TA を登録し忘れているのか 0 名が正しいのかが読み取れない。
+    並びは `Role` の宣言順にする（多い順にすると、コースを開くたびに順番が
+    変わって目で追えない）。
+    """
+    counted = Counter(str(enrollment.role.value) for enrollment in enrollments)
+    return [{"role": role.value, "count": counted.get(role.value, 0)} for role in Role]
 
 
 def _normalized_unit(raw: str) -> str:
@@ -599,7 +611,8 @@ def register(templates) -> APIRouter:
             applied = base
 
         with console.database.unit_of_work() as uow:
-            people_count = len(uow.identity.list_enrollments(course.id))
+            enrollments = uow.identity.list_enrollments(course.id)
+        people_count = len(enrollments)
 
         return templates.TemplateResponse(
             request,
@@ -611,7 +624,13 @@ def register(templates) -> APIRouter:
                 "saved": note or SAVED_MESSAGES.get(saved),
                 "saved_key": saved,
                 "people_count": people_count,
+                "role_counts": _role_counts(enrollments),
                 "roles": [role.value for role in Role],
+                # シラバスの本文は Markdown。素のまま出すと見出しも箇条書きも
+                # 記号のまま並ぶ（課題文で実際に起きた・`statement.py`）。
+                "description_html": (
+                    render_markdown(course.description) if course.description else None
+                ),
                 "suffix_groups": SUFFIX_GROUPS,
                 "course_suffixes": course.upload_suffixes or DEFAULT_UPLOAD_SUFFIXES,
                 # 共通ルーブリック。未設定なら組み込みの既定を出して、
@@ -1796,8 +1815,9 @@ def register(templates) -> APIRouter:
 
         prefix = q.strip().lower()
         with console.database.unit_of_work() as uow:
+            all_enrollments = uow.identity.list_enrollments(course.id)
             people = []
-            for enrollment in uow.identity.list_enrollments(course.id):
+            for enrollment in all_enrollments:
                 user = uow.identity.get_user(enrollment.user_id)
                 login = getattr(user, "login", "") or str(enrollment.user_id)
                 if prefix and not login.lower().startswith(prefix):
@@ -1815,6 +1835,10 @@ def register(templates) -> APIRouter:
                     "href": f"/manage/courses/{course.id}/enrolments",
                 },
                 "people": people,
+                # **内訳は絞り込みの前に数える。** 絞り込んだ結果の内訳を出すと、
+                # 「TA が 0 名」が登録漏れなのか絞り込みの結果なのか分からない。
+                "role_counts": _role_counts(all_enrollments),
+                "total": len(all_enrollments),
                 "q": q.strip(),
                 "roles": [role.value for role in Role],
                 "saved": SAVED_MESSAGES.get(saved),

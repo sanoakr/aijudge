@@ -1456,6 +1456,79 @@ def test_the_enrolments_have_their_own_page(world: World) -> None:
     assert "メールアドレス" not in page or "扱いません" in page
 
 
+def test_the_enrolment_pages_break_the_headcount_down_by_role(world: World) -> None:
+    """**0 名の役割も出す。** 総数だけでは、TA を登録し忘れているのか
+    0 名が正しいのかが読み取れない。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    world.register("s2400001", Role.LEARNER)
+    world.register("s2400002", Role.LEARNER)
+    client = world.client("teacher")
+
+    for url in (
+        f"/manage/courses/{world.course.id}",
+        f"/manage/courses/{world.course.id}/enrolments",
+    ):
+        page = client.get(url).text
+        rows = page[page.index("rolecounts") :]
+        assert ">2</b>" in rows, url  # learner
+        assert ">1</b>" in rows, url  # instructor
+        assert ">0</b>" in rows, url  # assistant / admin は 0 名でも並ぶ
+        assert "assistant" in rows, url
+
+
+def test_the_role_breakdown_ignores_the_search_filter(world: World) -> None:
+    """内訳は**絞り込みの前**の数。絞り込んだ結果の内訳を出すと、
+    「TA が 0 名」が登録漏れなのか絞り込みの結果なのか分からない。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    world.register("s2400001", Role.LEARNER)
+    page = world.client("teacher").get(f"/manage/courses/{world.course.id}/enrolments?q=zzz").text
+    rows = page[page.index("rolecounts") :]
+    # 絞り込みは 0 件でも、内訳は登録済みの数を出す。
+    assert ">1</b>" in rows
+
+
+def test_the_syllabus_is_rendered_as_markdown_and_folded(world: World) -> None:
+    """素のまま出すと見出しも箇条書きも記号のまま並ぶ（課題文で実際に起きた）。
+
+    畳んで置くのは、開いたままだと下にある自動確定・提出形式・採点設定に
+    たどり着くのに毎回スクロールすることになるため。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    client.post(
+        f"/manage/courses/{world.course.id}/basics/apply",
+        data={"title": world.course.title, "description": "## 到達目標\n\n- 配列を使える"},
+    )
+    page = client.get(f"/manage/courses/{world.course.id}").text
+    assert '<details class="syllabus"' in page
+    assert "<li>配列を使える</li>" in page
+    # 記号のまま出ていない。
+    assert "## 到達目標" not in page
+
+
+def test_the_syllabus_never_carries_raw_html(world: World) -> None:
+    """本文はいずれモデルの出力にもなる（#3）。`<script>` を通す経路を作らない。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    client.post(
+        f"/manage/courses/{world.course.id}/basics/apply",
+        data={"title": world.course.title, "description": "概要<script>alert(1)</script>"},
+    )
+    page = client.get(f"/manage/courses/{world.course.id}").text
+    assert "<script>alert(1)</script>" not in page
+
+
+def test_a_course_without_a_syllabus_says_so(world: World) -> None:
+    """空欄は「未入力」と書く。畳んだ見出しだけ出ていると、
+    開けば何かあるように見える。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    page = world.client("teacher").get(f"/manage/courses/{world.course.id}").text
+    assert "概要・到達目標は未入力です" in page
+
+
 def test_a_role_can_be_changed_afterwards(world: World) -> None:
     world.register("teacher", Role.INSTRUCTOR)
     student = world.register("s2400001", Role.LEARNER)

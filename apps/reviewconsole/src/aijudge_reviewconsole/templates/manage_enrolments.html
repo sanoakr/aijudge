@@ -2,7 +2,15 @@
 {% block title %}受講者 — {{ course.title }} — aiJudge{% endblock %}
 {% block body %}
 <h1>受講者</h1>
-<p class="crumb">{{ course.title }}・{{ people | length }} 名{% if q %}（<span class="mono">{{ q }}</span> で絞り込み）{% endif %}</p>
+<p class="crumb">{{ course.title }}・{{ total }} 名{% if q %}（<span class="mono">{{ q }}</span> で {{ people | length }} 名に絞り込み）{% endif %}</p>
+
+{# 内訳は**絞り込みの前**の数。絞り込んだ結果の内訳を出すと、「TA が 0 名」が
+   登録漏れなのか絞り込みの結果なのか分からない。 #}
+<ul class="rolecounts">
+  {% for row in role_counts %}
+  <li><span class="mono">{{ row.role }}</span> <b>{{ row.count }}</b> 名</li>
+  {% endfor %}
+</ul>
 
 {# 受講 100 名規模になるので、絞り込みは前方一致。選択肢に並べても選べない
    （提出の一覧と同じ理由）。 #}
