@@ -12,7 +12,7 @@
 
 from __future__ import annotations
 
-from aijudge_authoring import render_statement
+from aijudge_authoring import render_markdown, render_statement
 
 
 def test_markdown_is_rendered() -> None:
@@ -54,3 +54,32 @@ def test_broken_math_falls_back_to_the_source() -> None:
     assert "<h1" not in html
     # 例外にしない。何らかの形で本文が残っていること。
     assert html.strip()
+
+
+def test_a_single_newline_stays_a_line_break() -> None:
+    """**日本語の本文は改行を意味の切れ目として使う。**
+
+    CommonMark の既定は段落内の改行を空白に潰す。実測（2026-08-30）で
+    シラバスの授業計画が 1 つの段落に潰れ、第 1 回から第 15 回までが
+    繋がって出た。
+    """
+    html = render_markdown("第1回 ガイダンス\n第2回 変数と型")
+    assert "<br />" in html
+    assert "第1回 ガイダンス" in html
+    assert "第2回 変数と型" in html
+
+
+def test_a_blank_line_still_starts_a_paragraph() -> None:
+    """改行を残すことと、段落を分けることは別。両方が要る。"""
+    html = render_markdown("段落1です。\n\n段落2です。")
+    assert html.count("<p>") == 2
+    assert "<br />" not in html
+
+
+def test_a_statement_is_unaffected_by_the_line_break_setting() -> None:
+    """取り込む `desc.md` は段落内で改行せず（空行で段落を分けて）書かれる。
+
+    潰れる改行がそもそも無いので、課題文の見え方は変わらない。
+    """
+    html = render_statement("本文の一行目です。\n\n二段落目です。\n")
+    assert "<br />" not in html

@@ -41,7 +41,18 @@ def _renderer():
 
     # `html=False` が要点。課題文に埋め込まれた HTML をそのまま出さない。
     # `linkify` は URL を自動リンクにする（課題文に参考リンクが多い）。
-    md = MarkdownIt("commonmark", {"html": False, "linkify": True, "typographer": False})
+    #
+    # **`breaks=True`。単一の改行をそのまま改行として出す。** CommonMark の
+    # 既定は段落内の改行を空白に潰すが、日本語で書かれた本文は改行を
+    # 意味の切れ目として使う ── 実測（2026-08-30）でシラバスの授業計画が
+    # 1 つの段落に潰れ、第 1 回から第 15 回までが繋がって出た。
+    #
+    # 課題文への影響は無い。取り込み対象の `desc.md` は段落内で改行せず
+    # （空行で段落を分ける）書かれており、潰れる改行がそもそも無い。
+    md = MarkdownIt(
+        "commonmark",
+        {"html": False, "linkify": True, "typographer": False, "breaks": True},
+    )
     md.use(
         dollarmath_plugin,
         renderer=_math_renderer,
