@@ -711,7 +711,8 @@ def test_a_unit_page_carries_only_its_own_tasks(world: World) -> None:
     assert task.title in body
     assert 'name="due_at"' in body, "締切を設定できない"
     assert 'name="submissions_open_at"' in body, "提出開始を設定できない"
-    assert 'name="statement"' in body, "この問題セットに課題を追加できない"
+    # 課題の追加と訂正は課題のページで行う（一覧からたどる）。
+    assert f"/units/{key}/tasks/new" in body
 
     # 別の問題セットには出てこない。
     other = client.get(f"/manage/courses/{world.course.id}/units/nosuchunit").text
@@ -828,7 +829,8 @@ def test_the_unit_fixes_the_first_half_of_the_task_key(world: World) -> None:
         follow_redirects=False,
     )
     assert response.status_code == 303, response.text
-    assert response.headers["location"].endswith("/units/ex04")
+    # 保存すると、その課題のページに残る（続けて観点を直せる）。
+    assert "/edit" in response.headers["location"]
 
     with world.database.unit_of_work() as uow:
         (task,) = uow.tasks.list_for_course(world.course.id)
@@ -881,7 +883,9 @@ def test_a_task_without_any_key_is_refused(world: World) -> None:
 def test_the_unit_page_does_not_let_you_retype_the_unit(world: World) -> None:
     """「まとまり」の自由入力は置かない。別の回の課題をここから作れてしまう。"""
     world.register("teacher", Role.INSTRUCTOR)
-    body = world.client("teacher").get(f"/manage/courses/{world.course.id}/units/ex04").text
+    body = world.client("teacher").get(
+        f"/manage/courses/{world.course.id}/units/ex04/tasks/new"
+    ).text
     assert 'name="key_suffix"' in body
     assert 'name="unit" value="ex04"' in body
     assert 'id="unit"' not in body, "まとまりの自由入力が残っている"
@@ -1563,7 +1567,7 @@ def test_the_grading_settings_say_where_the_rubric_lives(world: World) -> None:
     """ルーブリックの観点は課題ごと。ここには無い、と書いておく。"""
     world.register("teacher", Role.INSTRUCTOR)
     body = world.client("teacher").get(f"/manage/courses/{world.course.id}").text
-    assert "読みやすさの重み" in body
+    assert "共通ルーブリック" in body
     assert "ここには観点の設定はありません" in body
 
 
@@ -1598,3 +1602,252 @@ def test_a_ratio_outside_the_range_is_refused(world: World) -> None:
         data={"boundary_score": "1.5", "action": "save"},
     )
     assert response.status_code == 400
+
+
+# --------------------------------------------------------------------------
+# ルーブリック（コース共通と課題ごと）
+# --------------------------------------------------------------------------
+
+
+def _rubric_form(*rows) -> dict[str, list[str]]:
+    """観点の表をフォームの形にする。
+
+    同名のフィールドが行数ぶん並ぶ（画面の表がそうなっている）ので、
+    **値を並びで渡す** ── タプルの並びで渡すと httpx が本文に載せない。
+    """
+    return {
+        "criterion_code": [code for code, _t, _w, _l in rows],
+        "criterion_title": [title for _c, title, _w, _l in rows],
+        "criterion_description": [title for _c, title, _w, _l in rows],
+        "criterion_weight": [weight for _c, _t, weight, _l in rows],
+        "criterion_evaluator": ["" for _row in rows],
+        "criterion_levels": [levels for _c, _t, _w, levels in rows],
+    }
+
+
+def test_a_course_can_declare_a_shared_rubric(world: World) -> None:
+    world.register("teacher", Role.INSTRUCTOR)
+    response = world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/rubric",
+        data=_rubric_form(
+            ("structure", "構成", "0.5", ""),
+            ("discussion", "考察", "0.5", ""),
+        ),
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    with world.database.unit_of_work() as uow:
+        course = uow.identity.get_course(world.course.id)
+    assert [c["code"] for c in course.rubric] == ["structure", "discussion"]
+    # 段階を書かなければ 4 段の既定が入る。
+    assert len(course.rubric[0]["levels"]) == 4
+
+
+def test_weights_that_do_not_add_up_are_refused(world: World) -> None:
+    """観点ごとの重みが成績の配分そのもの。合計 1.0 でないと成立しない。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    response = world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/rubric",
+        data=_rubric_form(("a", "A", "0.5", ""), ("b", "B", "0.9", "")),
+    )
+    assert response.status_code == 400
+    assert "1.0" in response.json()["detail"]
+
+
+def test_a_new_task_inherits_the_course_rubric(world: World) -> None:
+    """レポートの観点を課題ごとに書き写させない（写し間違いが増えるだけ）。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    client.post(
+        f"/manage/courses/{world.course.id}/rubric",
+        data=_rubric_form(("structure", "構成", "0.6", ""), ("discussion", "考察", "0.4", "")),
+    )
+    client.post(
+        f"/manage/courses/{world.course.id}/tasks",
+        data={
+            "key_suffix": "p1",
+            "unit": "ex04",
+            "statement": "## [必須] レポート ##\n\n本文",
+            "position": "1",
+            "readability_weight": "0.3",
+        },
+    )
+    with world.database.unit_of_work() as uow:
+        (task,) = uow.tasks.list_for_course(world.course.id)
+        version = uow.tasks.latest_version(task.id)
+    assert [c.code for c in version.criteria] == ["structure", "discussion"]
+
+
+def test_an_existing_task_rubric_can_be_edited(world: World) -> None:
+    """出題済みの版は書き換えず、版を上げる（P8）。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    client.post(
+        f"/manage/courses/{world.course.id}/tasks",
+        data={
+            "key_suffix": "p1",
+            "unit": "ex04",
+            "statement": "## [必須] 課題 ##\n\n本文",
+            "position": "1",
+            "readability_weight": "0.3",
+        },
+    )
+    with world.database.unit_of_work() as uow:
+        (task,) = uow.tasks.list_for_course(world.course.id)
+        first = uow.tasks.latest_version(task.id)
+
+    response = client.post(
+        f"/manage/courses/{world.course.id}/tasks/{task.id}/revise",
+        data={
+            "statement": "## [必須] 課題 ##\n\n本文",
+            "readability_weight": "0.3",
+            **_rubric_form(
+                ("correctness", "正しさ", "0.5", ""),
+                ("design", "設計", "0.5", "だめ | 追えない | 0\nよい | 追える | 1.0"),
+            ),
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303, response.text
+
+    with world.database.unit_of_work() as uow:
+        latest = uow.tasks.latest_version(task.id)
+        original = uow.tasks.get_version(first.id)
+    assert latest.version == first.version + 1
+    assert [c.code for c in latest.criteria] == ["correctness", "design"]
+    design = next(c for c in latest.criteria if c.code == "design")
+    assert len(design.levels) == 2
+    # 元の版はそのまま残る。
+    assert [c.code for c in original.criteria] == ["correctness", "readability"]
+
+
+def test_the_rubric_editor_is_on_both_screens(world: World) -> None:
+    world.register("teacher", Role.INSTRUCTOR)
+    _import_example(world)
+    client = world.client("teacher")
+    assert "共通ルーブリック" in client.get(f"/manage/courses/{world.course.id}").text
+    with world.database.unit_of_work() as uow:
+        task = uow.tasks.list_for_course(world.course.id)[0]
+    page = client.get(f"/manage/courses/{world.course.id}/tasks/{task.id}/edit").text
+    assert "この課題の観点" in page
+    assert 'name="criterion_code"' in page
+
+
+def test_each_criterion_is_folded_away(world: World) -> None:
+    """開いていない観点は触れない。直すつもりのないものを誤って書き換えない。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    body = world.client("teacher").get(f"/manage/courses/{world.course.id}").text
+    assert 'class="criterion"' in body
+    # 追加は明示的に開いてから。常に空の行を出さない。
+    assert "＋ 観点を追加する" in body
+    assert body.count('name="criterion_code"') == 3  # 既定の 2 観点 + 追加の 1
+
+
+def test_the_task_editor_uses_the_full_width(world: World) -> None:
+    """ルーブリックは成績の配分そのもの。狭い列に押し込むと段階が読めない。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    _import_example(world)
+    with world.database.unit_of_work() as uow:
+        task = uow.tasks.list_for_course(world.course.id)[0]
+    body = world.client("teacher").get(
+        f"/manage/courses/{world.course.id}/tasks/{task.id}/edit"
+    ).text
+    assert 'name="criterion_levels"' in body
+    # 出題順は打たせない（一覧の並び替えで決める）。
+    assert 'name="position"' not in body
+
+
+def test_tasks_are_reordered_from_the_list(world: World) -> None:
+    """**数字を打たせない。** 1 問差し込むたびに全部を打ち直すことになる。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    for suffix in ("p1", "p2"):
+        client.post(
+            f"/manage/courses/{world.course.id}/tasks",
+            data={
+                "key_suffix": suffix,
+                "unit": "ex04",
+                "statement": f"## [必須] 課題 {suffix} ##\n\n本文",
+                "readability_weight": "0.3",
+            },
+        )
+    with world.database.unit_of_work() as uow:
+        ordered = sorted(uow.tasks.list_for_course(world.course.id), key=lambda t: t.sort_key)
+    second = ordered[1]
+
+    response = client.post(
+        f"/manage/courses/{world.course.id}/tasks/{second.id}/move",
+        data={"direction": "up"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    with world.database.unit_of_work() as uow:
+        again = sorted(uow.tasks.list_for_course(world.course.id), key=lambda t: t.sort_key)
+    assert again[0].id == second.id
+
+
+def test_the_task_page_says_whether_the_rubric_is_the_course_one(world: World) -> None:
+    """同じに見えて違う、が最も困る。既定と同じかどうかを示す。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    client.post(
+        f"/manage/courses/{world.course.id}/rubric",
+        data=_rubric_form(("correctness", "正しさ", "0.7", ""), ("style", "書き方", "0.3", "")),
+    )
+    client.post(
+        f"/manage/courses/{world.course.id}/tasks",
+        data={
+            "key_suffix": "p1",
+            "unit": "ex04",
+            "statement": "## [必須] 課題 ##\n\n本文",
+        },
+    )
+    with world.database.unit_of_work() as uow:
+        (task,) = uow.tasks.list_for_course(world.course.id)
+    page = f"/manage/courses/{world.course.id}/tasks/{task.id}/edit"
+    assert "コースの共通ルーブリックと同じ" in client.get(page).text
+
+    client.post(
+        f"/manage/courses/{world.course.id}/tasks/{task.id}/revise",
+        data={
+            "statement": "## [必須] 課題 ##\n\n本文",
+            **_rubric_form(("only", "唯一", "1.0", "")),
+        },
+    )
+    assert "この課題だけの観点になっています" in client.get(page).text
+
+
+def test_a_task_rubric_can_go_back_to_the_course_one(world: World) -> None:
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    client.post(
+        f"/manage/courses/{world.course.id}/rubric",
+        data=_rubric_form(("correctness", "正しさ", "0.7", ""), ("style", "書き方", "0.3", "")),
+    )
+    client.post(
+        f"/manage/courses/{world.course.id}/tasks",
+        data={
+            "key_suffix": "p1",
+            "unit": "ex04",
+            "statement": "## [必須] 課題 ##\n\n本文",
+            "readability_weight": "0.3",
+        },
+    )
+    with world.database.unit_of_work() as uow:
+        (task,) = uow.tasks.list_for_course(world.course.id)
+    client.post(
+        f"/manage/courses/{world.course.id}/tasks/{task.id}/revise",
+        data={
+            "statement": "## [必須] 課題 ##\n\n本文",
+            **_rubric_form(("only", "唯一", "1.0", "")),
+        },
+    )
+
+    response = client.post(
+        f"/manage/courses/{world.course.id}/tasks/{task.id}/rubric/reset",
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    with world.database.unit_of_work() as uow:
+        latest = uow.tasks.latest_version(task.id)
+    assert [c.code for c in latest.criteria] == ["correctness", "style"]

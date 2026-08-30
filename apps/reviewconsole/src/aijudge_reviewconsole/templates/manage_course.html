@@ -65,27 +65,44 @@
      PDF と画像は読めず、採点の前に変換の段が要る。並べて出すと「1 つ増やす
      だけ」のつもりで前提が変わる。
 
-     2 行あるのでボタンは下端の右（1 行に収まらない入力の扱い・base.html）。 #}
-  <div class="field">
-    {% for group, suffixes in suffix_groups %}
-    <div class="checkrow">
-      <span class="desc rowlabel">{{ group }}</span>
-      <span class="checks">
-        {% for shown, values in suffixes %}
-        <label><input type="checkbox" name="suffix" value="{{ values | join(',') }}"
-          {{ 'checked' if values | select('in', course_suffixes) | list }}>
-          <span class="mono">{{ shown }}</span></label>
-        {% endfor %}
-      </span>
+     2 行しかないので、ボタンは右に並べて 1 かたまりにする。 #}
+  <div class="formats">
+    <div class="rows">
+      {% for group, suffixes in suffix_groups %}
+      <div class="checkrow">
+        <span class="desc rowlabel">{{ group }}</span>
+        <span class="checks">
+          {% for shown, values in suffixes %}
+          <label><input type="checkbox" name="suffix" value="{{ values | join(',') }}"
+            {{ 'checked' if values | select('in', course_suffixes) | list }}>
+            <span class="mono">{{ shown }}</span></label>
+          {% endfor %}
+        </span>
+      </div>
+      {% endfor %}
     </div>
-    {% endfor %}
-  </div>
-  <p class="desc">
-    コースの既定です（課題ごとの指定が上書きします）。
-    PDF・画像は<strong>本文が直接読めない</strong>ので、レポートや手書き答案の課題でだけ。
-  </p>
-  <div class="actions">
     {% if saved_key == 'formats' %}<span class="flash">{{ saved }}</span>{% endif %}
+    <button type="submit">保存</button>
+  </div>
+  <p class="desc" style="margin:8px 0 0">
+    コースの既定です（課題ごとの指定が上書きします）。PDF・画像は本文が直接読めないので、
+    レポートや手書き答案の課題でだけ。
+  </p>
+</form>
+
+<h2 id="rubric">共通ルーブリック</h2>
+{# **課題の宣言が勝つ。** ここはコースに共通の既定で、新しい課題が引き継ぐ。
+   既にある課題は変わらない ── 出題済みの版は書き換えない（P8）。 #}
+<div class="note">
+  ここで決めた観点を<strong>新しい課題が引き継ぎます</strong>。
+  {% if rubric_is_default %}いまは組み込みの既定（正しさ＋読みやすさ）です。{% endif %}
+  <strong>既にある課題は変わりません</strong> — 出題済みの採点基準は書き換えないためです。
+  個別に直すには、問題セットのページで課題を開いて「問題文・ルーブリックを直す」から変えてください。
+</div>
+<form method="post" action="/manage/courses/{{ course.id }}/rubric" class="card">
+  {% with rows = rubric_rows %}{% include "_rubric_editor.html" %}{% endwith %}
+  <div class="actions">
+    {% if saved_key == 'rubric' %}<span class="flash">{{ saved }}</span>{% endif %}
     <button type="submit">保存</button>
   </div>
 </form>
@@ -160,8 +177,9 @@
     同じ問いを何回か引いて、判定が割れるかどうかで確信度を測ります。多いほど確信度は信用できますが、その分遅くなります。
     <strong>評価器 1 回の上限はモデルの応答待ちを含みます</strong>（テストケースの実行上限とは別物です）。
     <br><strong>何を判定させるか（ルーブリックの観点）は課題ごとに決まります。</strong>
-    問題セットのページで課題を開き、「問題文・提出形式を直す」の<strong>読みやすさの重み</strong>で変えられます
-    （0 にすると AI 評価器は走りません）。ここには観点の設定はありません。
+    上の<a href="#rubric">共通ルーブリック</a>が新しい課題の既定になり、個別の課題は
+    問題セットのページの「問題文・ルーブリック・提出形式を直す」から変えられます。
+    ここには観点の設定はありません。
   </p>
 
   <h3>人が確認する条件</h3>

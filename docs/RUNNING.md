@@ -273,6 +273,24 @@ https://syllabus.ws.ryukoku.ac.jp/acrsw/CSylNoSSO/CNoSSO.do?i=Y001009010&n=2026
 
 出典: <https://hig3r.hatenadiary.com/entry/2023/03/13/220000>
 
+### ルーブリック（観点）をどこで決めるか
+
+観点は 2 か所で決まり、**課題の宣言が勝つ**。
+
+    課題の宣言（`TaskVersion.criteria`）… 個別に変えたい課題だけ
+    コースの共通（`Course.rubric`）……… その科目に共通の観点
+    組み込みの既定 ………………………… 正しさ（0.7）＋読みやすさ（0.3）
+
+共通ルーブリックはコース全体の設定で決める。**新しい課題がこれを引き継ぐ**が、
+既にある課題は変わらない ── 出題済みの採点基準を書き換えないため（P8）。
+個別の課題は問題セットのページから直す。**直すと版が上がる**（過去の採点は
+元の版のまま残る）。
+
+段階は `名前 | 説明 | 割合` の行で書く。観点 1 つにつき 4 段、それぞれ名前・
+説明・割合があるので、入力欄に分けると 1 画面に 12 個以上並ぶ。空にすると
+4 段の既定（未達／一部／概ね／達成）が入る。**重みの合計は 1.0**（観点ごとの
+重みが成績の配分そのもの）。
+
 ### コースごとの採点設定
 
 `subjects/*.yaml` は**雛形**である。同じ雛形を複数のコースが使い、コースは
@@ -331,6 +349,7 @@ ALTER TABLE courses DROP COLUMN auto_finalize_after_hours;
 ALTER TABLE courses ADD COLUMN upload_suffixes JSONB;
 ALTER TABLE courses ADD COLUMN description TEXT;
 ALTER TABLE courses ADD COLUMN grading_overrides JSONB;
+ALTER TABLE courses ADD COLUMN rubric JSONB;
 ```
 
 課題側で増えた項目（提出開始・課題ごとの猶予・課題ごとの提出形式・

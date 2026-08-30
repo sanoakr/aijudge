@@ -150,6 +150,10 @@ header.top button{background:none;color:var(--muted);border:1px solid var(--line
    含む表記があり、折り返すと箱と名前が離れて対応が読めなくなる。 */
 .checks label{display:inline-flex;align-items:center;gap:5px;cursor:pointer;white-space:nowrap}
 .checks label .mono{white-space:nowrap}
+/* ファイル形式の 2 行とボタンを 1 かたまりにする。行が 2 つしかないので、
+   下にボタンを置くより縦が詰まる。 */
+.formats{display:flex;align-items:center;gap:16px}
+.formats .rows{flex:1;min-width:0}
 /* 性質ごとに 1 行。行の頭に何の並びかを書き、拡張子はその右に並べる。
    **チェックと拡張子は 1 つの塊**として扱い、間で折り返させない。 */
 .checkrow{display:flex;flex-wrap:wrap;align-items:center;gap:2px 14px;margin-bottom:2px}
@@ -158,6 +162,42 @@ header.top button{background:none;color:var(--muted);border:1px solid var(--line
 .evaluators{margin:6px 0 0;padding-left:1.2em}
 .evaluators li{margin:2px 0}
 h3{font-size:.95rem;margin:20px 0 8px;color:var(--ink)}
+/* ルーブリックの編集。**観点ごとに畳む** ── 開いていないものは触れないので、
+   直すつもりのない観点を誤って書き換えない。開いたときは縦に伸ばして、
+   段階の説明まで読める幅と高さを取る（成績の配分そのものなので）。 */
+details.criterion{border:1px solid var(--line-soft);border-radius:4px;margin-bottom:8px;
+  background:var(--surface)}
+details.criterion > summary{padding:10px 14px;cursor:pointer;display:flex;flex-wrap:wrap;
+  align-items:baseline;gap:4px 14px;font-size:.9rem}
+details.criterion > summary::-webkit-details-marker{display:none}
+details.criterion > summary::before{content:"▸";color:var(--muted);margin-right:2px}
+details.criterion[open] > summary::before{content:"▾"}
+details.criterion[open] > summary{border-bottom:1px solid var(--line-soft);background:var(--surface-2)}
+details.criterion .open-hint{margin-left:auto}
+details.criterion.add > summary{color:var(--shu)}
+.criterion-fields{padding:14px}
+.criterion-fields label{display:block;font-size:.82rem;color:var(--ink-2);margin:10px 0 4px}
+.criterion-fields > label:first-child{margin-top:0}
+.criterion-fields input,.criterion-fields select,.criterion-fields textarea{width:100%;
+  font:inherit;font-size:.9rem;padding:8px 10px;border-radius:3px;border:1px solid var(--line);
+  background:var(--surface);color:var(--ink);box-sizing:border-box}
+.criterion-fields textarea.mono{font-family:ui-monospace,"SFMono-Regular",monospace;font-size:.85rem}
+.criterion-fields .pair{display:flex;gap:12px;align-items:flex-end}
+.criterion-fields .pair > span{flex:1}
+.criterion-fields .pair > span.narrow{flex:0 0 7rem}
+.criterion-fields .pair label{margin-top:0}
+/* 課題ごとの編集。**畳んでおく** ── 開かなければ触れないので、直すつもりの
+   ない課題を誤って書き換えない。 */
+details.task-edit > summary{cursor:pointer;display:flex;flex-wrap:wrap;align-items:baseline;
+  gap:4px 14px;font-size:.95rem}
+details.task-edit > summary::-webkit-details-marker{display:none}
+details.task-edit > summary::before{content:"▸";color:var(--muted);margin-right:2px}
+details.task-edit[open] > summary::before{content:"▾"}
+/* 並び替え。数字を打たせず前後だけを動かす。 */
+td.move button{background:none;color:var(--ink-2);border:1px solid var(--line);
+  padding:2px 8px;font-weight:400;line-height:1.2}
+td.move button:disabled{opacity:.35;cursor:default}
+td.move button:hover:not(:disabled){background:var(--surface-2);filter:none}
 h3:first-child{margin-top:0}
 .checkrow .checks{flex:1;gap:4px 18px}
 .checks input[type=checkbox]{width:auto;margin:0;flex:none}

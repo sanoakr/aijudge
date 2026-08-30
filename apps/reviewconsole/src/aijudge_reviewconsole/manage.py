@@ -56,6 +56,7 @@ from aijudge_admin import (
     register_kc,
     restore_kc,
     retire_kc,
+    rubric,
     save_grading_settings,
     save_task,
     template_of,
@@ -251,6 +252,9 @@ SAVED_MESSAGES: dict[str, str] = {
     "basics": "基本情報を保存しました",
     "role": "役割を変えました",
     "grading": "採点設定を保存しました",
+    "order": "並びを変えました",
+    "task": "課題を保存しました",
+    "rubric": "共通ルーブリックを保存しました（新しい課題から使われます）",
     "generated": "課題を生成しました。承認するまで出題されません",
 }
 
@@ -374,6 +378,49 @@ def _collect_overrides(form) -> dict:
         if chosen:
             overrides[key] = chosen
     return overrides
+
+
+def _default_rubric_criteria():
+    """組み込みの既定（正しさ＋読みやすさ）を宣言の形で返す。
+
+    未設定のコースでも**いま何が使われているか**を画面に出すため。空欄を
+    見せると、観点が無いのか既定なのかが分からない。
+    """
+    from aijudge_authoring.importers.sharif_judge import (
+        correctness_criterion,
+        readability_criterion,
+    )
+
+    correctness = correctness_criterion()
+    return (
+        correctness.model_copy(update={"weight": 0.7}),
+        readability_criterion(0.3),
+    )
+
+
+def _rubric_from_form(form) -> list[dict[str, str]]:
+    """ルーブリックの表を行に戻す。**行数は画面が決める**（増減できる）。
+
+    `code`・`title`… の同名フィールドが行数ぶん並ぶので、位置で組み直す。
+    """
+    codes = form.getlist("criterion_code")
+    rows: list[dict[str, str]] = []
+    for index in range(len(codes)):
+        def at(field: str, index: int = index) -> str:
+            values = form.getlist(field)
+            return str(values[index]) if index < len(values) else ""
+
+        rows.append(
+            {
+                "code": at("criterion_code"),
+                "title": at("criterion_title"),
+                "description": at("criterion_description"),
+                "weight": at("criterion_weight"),
+                "evaluator": at("criterion_evaluator"),
+                "levels": at("criterion_levels"),
+            }
+        )
+    return rows
 
 
 def _evaluator_rows(registry, kind) -> list[dict[str, str]]:
@@ -567,6 +614,14 @@ def register(templates) -> APIRouter:
                 "roles": [role.value for role in Role],
                 "suffix_groups": SUFFIX_GROUPS,
                 "course_suffixes": course.upload_suffixes or DEFAULT_UPLOAD_SUFFIXES,
+                # 共通ルーブリック。未設定なら組み込みの既定を出して、
+                # **いま何が使われているか**を見えるようにする。
+                "rubric_rows": rubric.to_rows(
+                    rubric.from_stored(course.rubric)
+                    if course.rubric
+                    else _default_rubric_criteria()
+                ),
+                "rubric_is_default": not course.rubric,
                 # -- 採点設定 --
                 "base": base,
                 "profile": applied,
@@ -646,6 +701,8 @@ def register(templates) -> APIRouter:
                     "readability_weight": next(
                         (c.weight for c in version.criteria if c.code == "readability"), 0.0
                     ),
+                    # 訂正フォームで直せるように、いまの観点を行にして渡す。
+                    "rubric_rows": rubric.to_rows(version.criteria),
                 }
             )
 
@@ -668,6 +725,14 @@ def register(templates) -> APIRouter:
                 "saved_key": saved,
                 "suffix_groups": SUFFIX_GROUPS,
                 "course_suffixes": course.upload_suffixes or DEFAULT_UPLOAD_SUFFIXES,
+                # 共通ルーブリック。未設定なら組み込みの既定を出して、
+                # **いま何が使われているか**を見えるようにする。
+                "rubric_rows": rubric.to_rows(
+                    rubric.from_stored(course.rubric)
+                    if course.rubric
+                    else _default_rubric_criteria()
+                ),
+                "rubric_is_default": not course.rubric,
                 # **生成は登録済み KC からの選択だけ**（`aijudge_admin.kc` の
                 # 規則 4）。引退したものは選ばせない。
                 "kcs": list_for_namespaces(
@@ -678,6 +743,10 @@ def register(templates) -> APIRouter:
                     include_deprecated=False,
                 ),
                 "difficulties": [d.value for d in Difficulty],
+                # ルーブリックの編集で、観点に指名できる評価器を出す。
+                "deterministic": _evaluator_rows(
+                    EvaluatorRegistry().load_installed(), EvaluatorKind.DETERMINISTIC
+                ),
                 "PROVISIONAL": GradeWindow.PROVISIONAL,
                 "ELAPSED": GradeWindow.ELAPSED,
                 "last_task": (
@@ -1055,6 +1124,36 @@ def register(templates) -> APIRouter:
             f"/manage/courses/{course_id}/kc?saved=kc_added#kc", status_code=303
         )
 
+    @router.post("/courses/{course_id}/rubric")
+    async def save_course_rubric(request: Request, course_id: str) -> Response:
+        """コースの共通ルーブリック。**新しい課題がこれを引き継ぐ。**
+
+        既にある課題は変わらない ── 出題済みの版は書き換えない（P8）。
+        個別に直したい課題は、その課題の訂正から観点を宣言する。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+
+        form = await request.form()
+        try:
+            criteria = rubric.parse(_rubric_from_form(form))
+        except AdminError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from None
+
+        with console.database.unit_of_work() as uow:
+            uow.identity.save_course(
+                course.model_copy(
+                    update={"rubric": tuple(c.model_dump() for c in criteria)}
+                )
+            )
+            uow.commit()
+        return RedirectResponse(
+            f"/manage/courses/{course_id}?saved=rubric#rubric", status_code=303
+        )
+
     @router.post("/courses/{course_id}/upload-formats")
     def set_upload_formats(
         request: Request,
@@ -1262,6 +1361,7 @@ def register(templates) -> APIRouter:
                 spec=spec,
                 subject_profile=course.subject_profile,
                 authored_by=me.user_id,
+                course_rubric=course.rubric,
             )
         except AdminError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -1294,7 +1394,10 @@ def register(templates) -> APIRouter:
                 uow.commit()
 
         console.last_task = (str(course.id), saved)
-        return RedirectResponse(_unit_href(course_id, saved.task), status_code=303)
+        return RedirectResponse(
+            f"/manage/courses/{course_id}/tasks/{saved.task.id}/edit?saved=task",
+            status_code=303,
+        )
 
     @router.post("/courses/{course_id}/units/{unit}/generate")
     def generate_task(
@@ -1418,45 +1521,25 @@ def register(templates) -> APIRouter:
             f"/manage/courses/{course_id}/units/{key}?saved=generated#generate", status_code=303
         )
 
-    @router.post("/courses/{course_id}/tasks/{task_id}/revise")
-    def revise_task(
-        request: Request,
-        course_id: str,
-        task_id: str,
-        statement: Annotated[str, Form()],
-        readability_weight: Annotated[str, Form()] = "0.3",
-        position: Annotated[str, Form()] = "",
-        suffix: Annotated[list[str], Form()] = [],  # noqa: B006 - FastAPI の複数値
-        formats: Annotated[str, Form()] = "",
-    ) -> Response:
-        """既にある課題を直す。**出題済みの版は書き換えず、版を上げる**（P8）。
+    def _save_revision(
+        console, me, course, task, version, *, statement, criteria, position, accepted
+    ):
+        """課題を直して新しい版を作る。訂正と「共通に戻す」で共有する。
 
-        過去の採点がどの基準で付いたのかを辿れなくなるので、上書きはしない。
-        内容が同じなら版は上がらない（提出形式だけ変えたい場合がこれ）。
+        課題キーは変えられない ── 同一性の鍵で、変えれば別の課題になる。
+        保存済みの版から取り出す（`TaskVersion.source_key`）。
         """
-        from .app import require_principal
-
-        me = require_principal(request)
-        course = _require_instructor(request, me, CourseId(course_id))
-        console = _console(request)
-
-        with console.database.unit_of_work() as uow:
-            task = uow.tasks.get_task(TaskId(task_id))
-            version = uow.tasks.latest_version(TaskId(task_id))
-        if task is None or version is None or task.course_id != CourseId(course_id):
-            raise HTTPException(status_code=404, detail="課題が見つかりません")
-
-        # 課題キーは変えられない ── 同一性の鍵で、変えれば別の課題になる。
-        # 保存済みの版から取り出す（`TaskVersion` は生成元の鍵を持たないので、
-        # 版と同じ ID を作れる `key` を課題の題名から復元はできない）。
         try:
             spec = TaskSpec(
                 key=_key_of(task, version),
                 statement=statement,
                 unit=task.unit,
                 session=task.session,
-                position=int(position) if position.strip() else task.position,
-                readability_weight=float(readability_weight or 0.0),
+                position=position,
+                # **画面で編集した観点が勝つ。** 観点を宣言する課題では
+                # `readability_weight` は使わない（両方書けるとどちらが効くのか
+                # 読めない）。
+                criteria=criteria,
             )
         except (ValidationError, ValueError) as exc:
             raise HTTPException(status_code=400, detail=f"課題の指定が不正です: {exc}") from None
@@ -1469,6 +1552,7 @@ def register(templates) -> APIRouter:
                 subject_profile=course.subject_profile,
                 authored_by=me.user_id,
                 revise=True,
+                course_rubric=course.rubric,
             )
         except AdminError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -1482,14 +1566,235 @@ def register(templates) -> APIRouter:
                         "submissions_open_at": task.submissions_open_at,
                         "due_at": task.due_at,
                         "auto_finalize_after_minutes": task.auto_finalize_after_minutes,
-                        "accepted_suffixes": _chosen_suffixes(suffix, formats, course),
+                        "accepted_suffixes": accepted,
                     }
                 )
             )
             uow.commit()
-
         console.last_task = (str(course.id), saved)
-        return RedirectResponse(_unit_href(course_id, saved.task), status_code=303)
+        return saved
+
+    def _course_rubric_rows(course):
+        """このコースの既定の観点（共通ルーブリック、無ければ組み込み）。"""
+        criteria = (
+            rubric.from_stored(course.rubric) if course.rubric else _default_rubric_criteria()
+        )
+        return rubric.to_rows(criteria)
+
+    def _task_page(
+        request, me, course, *, unit_key_value, task=None, version=None, note=None, saved=""
+    ):
+        """課題の編集／追加の画面。**追加と訂正で同じ形を使う。**
+
+        別々に作ると、片方にだけ項目が足りない状態が生まれる（実際に
+        `readability_weight` でそうなった）。
+        """
+        registry = EvaluatorRegistry().load_installed()
+        course_rows = _course_rubric_rows(course)
+        rows = rubric.to_rows(version.criteria) if version is not None else course_rows
+        return templates.TemplateResponse(
+            request,
+            "manage_task.html",
+            {
+                "me": me,
+                "course": course,
+                "section": {
+                    "label": task.title if task is not None else "課題を追加",
+                    "href": f"/manage/courses/{course.id}/units/{unit_key_value}",
+                },
+                "unit_key": unit_key_value,
+                "task": task,
+                "version": version,
+                "rubric_rows": rows,
+                # 共通ルーブリックのままか、この課題で変えてあるか。
+                # **共通が設定されているときだけ言う** ── 組み込みの既定は
+                # 課題の作られ方（テストケースの有無）で中身が変わるので、
+                # 「同じ」と言い切れない。
+                "course_has_rubric": bool(course.rubric),
+                "rubric_is_course_default": bool(course.rubric) and rows == course_rows,
+                "deterministic": _evaluator_rows(registry, EvaluatorKind.DETERMINISTIC),
+                "suffix_groups": SUFFIX_GROUPS,
+                "course_suffixes": (
+                    (task.accepted_suffixes if task is not None else ())
+                    or course.upload_suffixes
+                    or DEFAULT_UPLOAD_SUFFIXES
+                ),
+                "note": note or SAVED_MESSAGES.get(saved),
+            },
+        )
+
+    @router.get("/courses/{course_id}/tasks/{task_id}/edit", response_class=HTMLResponse)
+    def edit_task(
+        request: Request, course_id: str, task_id: str, saved: str = ""
+    ) -> Response:
+        """既にある課題を直す画面。**問題セットのページには展開しない。**
+
+        ルーブリックと問題文は横幅いっぱいで読むものなので、一覧の中に
+        畳んで置くと段階の説明が読めない。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+        with console.database.unit_of_work() as uow:
+            task = uow.tasks.get_task(TaskId(task_id))
+            version = uow.tasks.latest_version(TaskId(task_id))
+        if task is None or version is None or task.course_id != CourseId(course_id):
+            raise HTTPException(status_code=404, detail="課題が見つかりません")
+        return _task_page(
+            request,
+            me,
+            course,
+            unit_key_value=unit_key(task),
+            task=task,
+            version=version,
+            saved=saved,
+        )
+
+    @router.get("/courses/{course_id}/units/{unit}/tasks/new", response_class=HTMLResponse)
+    def new_task(request: Request, course_id: str, unit: str) -> Response:
+        """課題を追加する画面。訂正と同じ形。"""
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        return _task_page(request, me, course, unit_key_value=_normalized_unit(unit))
+
+    @router.post("/courses/{course_id}/tasks/{task_id}/rubric/reset")
+    def reset_task_rubric(request: Request, course_id: str, task_id: str) -> Response:
+        """この課題の観点をコースの共通ルーブリックに戻す。
+
+        **版が上がる。** 出題済みの採点基準は書き換えないので、戻すことも
+        新しい版を作ることになる（P8）。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+
+        with console.database.unit_of_work() as uow:
+            task = uow.tasks.get_task(TaskId(task_id))
+            version = uow.tasks.latest_version(TaskId(task_id))
+        if task is None or version is None or task.course_id != CourseId(course_id):
+            raise HTTPException(status_code=404, detail="課題が見つかりません")
+
+        criteria = (
+            rubric.from_stored(course.rubric) if course.rubric else _default_rubric_criteria()
+        )
+        _save_revision(
+            console,
+            me,
+            course,
+            task,
+            version,
+            statement=version.statement,
+            criteria=rubric.parse(rubric.to_rows(criteria)),
+            position=task.position,
+            accepted=task.accepted_suffixes,
+        )
+        return RedirectResponse(
+            f"/manage/courses/{course_id}/tasks/{task_id}/edit", status_code=303
+        )
+
+    @router.post("/courses/{course_id}/tasks/{task_id}/move")
+    def move_task(
+        request: Request,
+        course_id: str,
+        task_id: str,
+        direction: Annotated[str, Form()] = "up",
+    ) -> Response:
+        """課題の並びを 1 つ入れ替える。
+
+        **数字を打たせない。** 出題順は「この問題セットの中で何番目か」で
+        あって、教員が意識するのは前後関係だけである。数字で持たせると、
+        1 問差し込むたびに全部を打ち直すことになる。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+
+        with console.database.unit_of_work() as uow:
+            tasks = [
+                task
+                for task in uow.tasks.list_for_course(CourseId(course_id))
+                if unit_key(task) == unit_key(uow.tasks.get_task(TaskId(task_id)))
+            ]
+            ordered = sorted(tasks, key=lambda item: item.sort_key)
+            index = next(
+                (i for i, task in enumerate(ordered) if str(task.id) == task_id), None
+            )
+            if index is None:
+                raise HTTPException(status_code=404, detail="課題が見つかりません")
+            swap = index - 1 if direction == "up" else index + 1
+            if 0 <= swap < len(ordered):
+                first, second = ordered[index], ordered[swap]
+                # 位置を入れ替える。番号が無い課題には並び順から与える。
+                first_position = first.position or index + 1
+                second_position = second.position or swap + 1
+                uow.tasks.save_task(first.model_copy(update={"position": second_position}))
+                uow.tasks.save_task(second.model_copy(update={"position": first_position}))
+                uow.commit()
+            key = unit_key(ordered[index])
+        return RedirectResponse(
+            f"/manage/courses/{course_id}/units/{key}?saved=order", status_code=303
+        )
+
+    @router.post("/courses/{course_id}/tasks/{task_id}/revise")
+    async def revise_task(request: Request, course_id: str, task_id: str) -> Response:
+        """既にある課題を直す。**出題済みの版は書き換えず、版を上げる**（P8）。
+
+        過去の採点がどの基準で付いたのかを辿れなくなるので、上書きはしない。
+        内容が同じなら版は上がらない（提出形式だけ変えたい場合がこれ）。
+
+        観点が行数ぶん並ぶので、フォーム全体を読む。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+
+        form = await request.form()
+        statement = str(form.get("statement") or "")
+        position = str(form.get("position") or "")
+        suffix = [str(v) for v in form.getlist("suffix")]
+        formats = str(form.get("formats") or "")
+
+        try:
+            criteria = rubric.parse(_rubric_from_form(form))
+        except AdminError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from None
+
+        with console.database.unit_of_work() as uow:
+            task = uow.tasks.get_task(TaskId(task_id))
+            version = uow.tasks.latest_version(TaskId(task_id))
+        if task is None or version is None or task.course_id != CourseId(course_id):
+            raise HTTPException(status_code=404, detail="課題が見つかりません")
+
+        # 観点を送ってこない経路（問題文だけ直す等）では、**いまの観点を
+        # そのまま引き継ぐ**。空で作り直すと、読みやすさの観点が黙って消えて
+        # 次の版から採点されなくなる。
+        criteria = criteria or rubric.from_criteria(version.criteria)
+
+        _save_revision(
+            console,
+            me,
+            course,
+            task,
+            version,
+            statement=statement,
+            criteria=criteria,
+            position=int(position) if position.strip() else task.position,
+            accepted=_chosen_suffixes(suffix, formats, course),
+        )
+        return RedirectResponse(
+            f"/manage/courses/{course_id}/tasks/{task_id}/edit?saved=task", status_code=303
+        )
+
 
     @router.get("/courses/{course_id}/enrolments", response_class=HTMLResponse)
     def enrolments(
