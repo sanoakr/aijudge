@@ -407,7 +407,11 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
             if task not in known:
                 task = ""
         filters = Filters(
-            unit=unit, task=task, learner=learner.strip(), role=role, state=state,
+            unit=unit,
+            task=task,
+            learner=learner.strip(),
+            role=role,
+            state=state,
             adopted=bool(adopted),
         )
         shown = newest_first([row for row in rows if filters.matches(row)])

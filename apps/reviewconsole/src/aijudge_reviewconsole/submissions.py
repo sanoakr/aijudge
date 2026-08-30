@@ -261,7 +261,7 @@ def _mark_adopted(rows: list[Row]) -> list[Row]:
 def newest_first(rows: list[Row]) -> list[Row]:
     return sorted(
         rows,
-        key=lambda row: (row.submission.submitted_at or row.submission.created_at),
+        key=lambda row: row.submission.submitted_at or row.submission.created_at,
         reverse=True,
     )
 

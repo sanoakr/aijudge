@@ -263,8 +263,7 @@ class SqlGradingRunRepository:
         # 同じ時刻の採点が 2 件あると 2 行返る。順序どおりに詰めれば
         # 後の（= `latest_for` が返すのと同じ）ものが残る。
         return {
-            SubmissionId(row.submission_id): GradingRun.model_validate(row.document)
-            for row in rows
+            SubmissionId(row.submission_id): GradingRun.model_validate(row.document) for row in rows
         }
 
     def supersede(self, old_id: GradingRunId, new_id: GradingRunId) -> None:
@@ -467,8 +466,7 @@ class SqlReviewRepository:
         if existing is not None:
             # 二度確定できると成績が二つ存在する。やり直しは再採点から。
             raise ImmutabilityViolation(
-                f"GradingRun {finalization.grading_run_id} is already finalised "
-                f"({existing.source})"
+                f"GradingRun {finalization.grading_run_id} is already finalised ({existing.source})"
             )
         self._session.add(
             FinalizationRow(
@@ -937,9 +935,7 @@ class SqlTaskRepository:
             row.vector = values
         self._session.flush()
 
-    def list_embeddings(
-        self, *, model: str, subject_profile: str
-    ) -> dict[str, tuple[float, ...]]:
+    def list_embeddings(self, *, model: str, subject_profile: str) -> dict[str, tuple[float, ...]]:
         """同じモデル・同じ科目のベクトルだけを返す。
 
         **モデルを跨いで混ぜない。** 次元が同じでも意味空間が違うので、
@@ -972,9 +968,7 @@ class SqlTaskRepository:
             select(
                 GradingRunRow.task_version_id,
                 func.count(GradingRunRow.id),
-                func.sum(
-                    case((GradingRunRow.score_ratio >= threshold, 1), else_=0)
-                ),
+                func.sum(case((GradingRunRow.score_ratio >= threshold, 1), else_=0)),
             )
             .where(
                 GradingRunRow.task_version_id.in_([str(v) for v in version_ids]),

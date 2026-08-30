@@ -480,9 +480,7 @@ def test_a_dry_run_changes_nothing(database: Database, course) -> None:
 # --------------------------------------------------------------------------
 
 
-def test_the_pending_count_is_visible_and_drops_on_finalization(
-    database: Database, course
-) -> None:
+def test_the_pending_count_is_visible_and_drops_on_finalization(database: Database, course) -> None:
     """設定したつもりで cron を忘れても、件数が減らないことで気づける。"""
     _world(database, course.id, routings=(Routing.AUTO,) * 3)
     assert pending_counts(database, course.id)[TASK_ID] == 3

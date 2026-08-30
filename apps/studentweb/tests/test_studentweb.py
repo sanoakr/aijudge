@@ -756,9 +756,7 @@ def _schedule(world: World, *, due_offset_hours: float, grace: float | None) -> 
         course = uow.identity.get_course(COURSE)
         # 猶予は**分**。テストは時間で書くので換算する。
         minutes = None if grace is None else int(grace * 60)
-        uow.identity.save_course(
-            course.model_copy(update={"auto_finalize_after_minutes": minutes})
-        )
+        uow.identity.save_course(course.model_copy(update={"auto_finalize_after_minutes": minutes}))
         uow.commit()
 
 

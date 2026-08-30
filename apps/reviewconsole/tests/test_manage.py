@@ -225,9 +225,7 @@ def test_the_schedule_is_set_for_the_whole_problem_set(world: World) -> None:
         f"/manage/courses/{world.course.id}/units/{unit}/auto-finalize",
         data={"after_minutes": "90"},
     )
-    client.post(
-        f"/manage/courses/{world.course.id}/units/{unit}/number", data={"session": "3"}
-    )
+    client.post(f"/manage/courses/{world.course.id}/units/{unit}/number", data={"session": "3"})
 
     with world.database.unit_of_work() as uow:
         tasks = uow.tasks.list_for_course(world.course.id)
@@ -349,11 +347,19 @@ def test_the_form_and_the_api_produce_the_same_task(world: World) -> None:
             "readability_weight": "0.3",
         },
     )
-    api = TestClient(create_app(world.console)).post(
-        f"/api/courses/{world.course.id}/tasks",
-        json={"key": "ex02/p2", "statement": "## [必須] 問 ##\n\n本文", "readability_weight": 0.3},
-        headers={"Authorization": f"Bearer {token}"},
-    ).json()
+    api = (
+        TestClient(create_app(world.console))
+        .post(
+            f"/api/courses/{world.course.id}/tasks",
+            json={
+                "key": "ex02/p2",
+                "statement": "## [必須] 問 ##\n\n本文",
+                "readability_weight": 0.3,
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        .json()
+    )
 
     with world.database.unit_of_work() as uow:
         tasks = uow.tasks.list_for_course(world.course.id)
@@ -368,9 +374,12 @@ def test_a_duplicate_key_with_different_content_is_refused(world: World) -> None
     world.register("teacher", Role.INSTRUCTOR)
     client = world.client("teacher")
     base = {"key": "ex02/p8", "statement": "## [必須] 問 ##\n\n本文"}
-    assert client.post(
-        f"/manage/courses/{world.course.id}/tasks", data=base, follow_redirects=False
-    ).status_code == 303
+    assert (
+        client.post(
+            f"/manage/courses/{world.course.id}/tasks", data=base, follow_redirects=False
+        ).status_code
+        == 303
+    )
 
     response = client.post(
         f"/manage/courses/{world.course.id}/tasks",
@@ -779,9 +788,7 @@ def test_a_new_task_inherits_the_schedule_of_its_problem_set(world: World) -> No
         f"/manage/courses/{world.course.id}/units/{unit}/auto-finalize",
         data={"after_minutes": "90"},
     )
-    client.post(
-        f"/manage/courses/{world.course.id}/units/{unit}/number", data={"session": "3"}
-    )
+    client.post(f"/manage/courses/{world.course.id}/units/{unit}/number", data={"session": "3"})
 
     client.post(
         f"/manage/courses/{world.course.id}/tasks",
@@ -883,9 +890,9 @@ def test_a_task_without_any_key_is_refused(world: World) -> None:
 def test_the_unit_page_does_not_let_you_retype_the_unit(world: World) -> None:
     """「まとまり」の自由入力は置かない。別の回の課題をここから作れてしまう。"""
     world.register("teacher", Role.INSTRUCTOR)
-    body = world.client("teacher").get(
-        f"/manage/courses/{world.course.id}/units/ex04/tasks/new"
-    ).text
+    body = (
+        world.client("teacher").get(f"/manage/courses/{world.course.id}/units/ex04/tasks/new").text
+    )
     assert 'name="key_suffix"' in body
     assert 'name="unit" value="ex04"' in body
     assert 'id="unit"' not in body, "まとまりの自由入力が残っている"
@@ -1320,9 +1327,7 @@ def test_the_candidate_page_takes_text_or_a_file(world: World) -> None:
     だから本文そのものを受け取る ── 貼り付けか、PDF の添付。
     """
     world.register("teacher", Role.INSTRUCTOR)
-    body = world.client("teacher").get(
-        f"/manage/courses/{world.course.id}/kc/candidates"
-    ).text
+    body = world.client("teacher").get(f"/manage/courses/{world.course.id}/kc/candidates").text
     assert 'name="text"' in body
     assert 'type="file"' in body
 
@@ -1749,9 +1754,9 @@ def test_the_task_editor_uses_the_full_width(world: World) -> None:
     _import_example(world)
     with world.database.unit_of_work() as uow:
         task = uow.tasks.list_for_course(world.course.id)[0]
-    body = world.client("teacher").get(
-        f"/manage/courses/{world.course.id}/tasks/{task.id}/edit"
-    ).text
+    body = (
+        world.client("teacher").get(f"/manage/courses/{world.course.id}/tasks/{task.id}/edit").text
+    )
     assert 'name="criterion_levels"' in body
     # 出題順は打たせない（一覧の並び替えで決める）。
     assert 'name="position"' not in body

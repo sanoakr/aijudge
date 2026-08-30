@@ -50,13 +50,22 @@ ALL_UPLOAD_SUFFIXES: tuple[str, ...] = tuple(sorted(SUFFIX_KINDS))
 SUFFIX_GROUPS: tuple[tuple[str, tuple[tuple[str, tuple[str, ...]], ...]], ...] = (
     (
         "コード・テキスト",
-        ((".c", (".c",)), (".py", (".py",)), (".java", (".java",)),
-         (".tex", (".tex",)), (".md", (".md",))),
+        (
+            (".c", (".c",)),
+            (".py", (".py",)),
+            (".java", (".java",)),
+            (".tex", (".tex",)),
+            (".md", (".md",)),
+        ),
     ),
     (
         "PDF・画像",
-        ((".pdf", (".pdf",)), (".jpg / .jpeg", (".jpg", ".jpeg")),
-         (".png", (".png",)), (".gif", (".gif",))),
+        (
+            (".pdf", (".pdf",)),
+            (".jpg / .jpeg", (".jpg", ".jpeg")),
+            (".png", (".png",)),
+            (".gif", (".gif",)),
+        ),
     ),
 )
 

@@ -877,9 +877,7 @@ def test_a_task_outside_the_chosen_set_is_dropped(world: World) -> None:
     with world.database.unit_of_work() as uow:
         task = uow.tasks.list_for_course(COURSE)[0]
 
-    body = world.client.get(
-        f"/courses/{COURSE}/submissions?unit=nosuchunit&task={task.id}"
-    ).text
+    body = world.client.get(f"/courses/{COURSE}/submissions?unit=nosuchunit&task={task.id}").text
     assert "条件に合う提出がありません" in body
 
 

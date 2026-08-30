@@ -240,9 +240,7 @@ def _declared_version(
     )
 
 
-def q_matrix_for(
-    keys: tuple[str, ...], task_version_id: TaskVersionId
-) -> tuple[QMatrixEntry, ...]:
+def q_matrix_for(keys: tuple[str, ...], task_version_id: TaskVersionId) -> tuple[QMatrixEntry, ...]:
     """宣言した KC を Q-matrix の行にする（設計原則 P6）。
 
     **KC の ID は正準キーから導く。** 体系を先に登録してから課題を書く、
@@ -259,8 +257,7 @@ def q_matrix_for(
     `readability_weight` で実際に起きた形である。
     """
     return tuple(
-        QMatrixEntry(task_version_id=task_version_id, kc_id=kc_id_for(key))
-        for key in keys
+        QMatrixEntry(task_version_id=task_version_id, kc_id=kc_id_for(key)) for key in keys
     )
 
 
@@ -324,8 +321,9 @@ def build_task_version(
     # 課題」ではなく「**まだ**自動採点できない課題」で、実在する
     # （HTTP サーバ課題・自己採点課題・レポート課題）。
     if spec.criteria:
-        return _declared_version(spec, cases, subject_profile=subject_profile,
-                                 authored_by=authored_by, version=version)
+        return _declared_version(
+            spec, cases, subject_profile=subject_profile, authored_by=authored_by, version=version
+        )
 
     graded_by = spec.evaluator if spec.auto_graded else AI_EVALUATOR
     correctness = correctness_criterion(graded_by, spec.key)

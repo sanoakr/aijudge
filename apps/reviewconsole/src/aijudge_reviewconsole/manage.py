@@ -277,9 +277,7 @@ def _update_unit(
     key = _normalized_unit(unit)
     with console.database.unit_of_work() as uow:
         tasks = [
-            task
-            for task in uow.tasks.list_for_course(CourseId(course_id))
-            if unit_key(task) == key
+            task for task in uow.tasks.list_for_course(CourseId(course_id)) if unit_key(task) == key
         ]
         if not tasks:
             raise HTTPException(status_code=404, detail="この問題セットには課題がありません")
@@ -323,6 +321,7 @@ def _collect_overrides(form) -> dict:
     空欄を 0 や空文字として保存すると、雛形に戻したいのか 0 にしたいのかが
     区別できなくなる。空欄は「雛形のまま」である。
     """
+
     def value(name: str) -> str:
         return str(form.get(name) or "").strip()
 
@@ -406,6 +405,7 @@ def _rubric_from_form(form) -> list[dict[str, str]]:
     codes = form.getlist("criterion_code")
     rows: list[dict[str, str]] = []
     for index in range(len(codes)):
+
         def at(field: str, index: int = index) -> str:
             values = form.getlist(field)
             return str(values[index]) if index < len(values) else ""
@@ -751,8 +751,7 @@ def register(templates) -> APIRouter:
                 "ELAPSED": GradeWindow.ELAPSED,
                 "last_task": (
                     console.last_task[1]
-                    if console.last_task is not None
-                    and console.last_task[0] == str(course.id)
+                    if console.last_task is not None and console.last_task[0] == str(course.id)
                     else None
                 ),
                 "last_finalize": (
@@ -827,9 +826,7 @@ def register(templates) -> APIRouter:
         何が変わったのか教員に分からない。
         """
         number = int(session) if session.strip() else None
-        return _update_unit(
-            request, course_id, unit, update={"session": number}, saved="number"
-        )
+        return _update_unit(request, course_id, unit, update={"session": number}, saved="number")
 
     @router.post("/courses/{course_id}/auto-finalize")
     def set_auto_finalize(
@@ -1010,9 +1007,7 @@ def register(templates) -> APIRouter:
                 )
             )
             uow.commit()
-        return RedirectResponse(
-            f"/manage/courses/{course_id}/basics?saved=basics", status_code=303
-        )
+        return RedirectResponse(f"/manage/courses/{course_id}/basics?saved=basics", status_code=303)
 
     # -- 知識要素の候補 ----------------------------------------------------
 
@@ -1145,14 +1140,10 @@ def register(templates) -> APIRouter:
 
         with console.database.unit_of_work() as uow:
             uow.identity.save_course(
-                course.model_copy(
-                    update={"rubric": tuple(c.model_dump() for c in criteria)}
-                )
+                course.model_copy(update={"rubric": tuple(c.model_dump() for c in criteria)})
             )
             uow.commit()
-        return RedirectResponse(
-            f"/manage/courses/{course_id}?saved=rubric#rubric", status_code=303
-        )
+        return RedirectResponse(f"/manage/courses/{course_id}?saved=rubric#rubric", status_code=303)
 
     @router.post("/courses/{course_id}/upload-formats")
     def set_upload_formats(
@@ -1373,9 +1364,7 @@ def register(templates) -> APIRouter:
         accepted = _chosen_suffixes(suffix, formats, course)
         if head is None:
             with console.database.unit_of_work() as uow:
-                uow.tasks.save_task(
-                    saved.task.model_copy(update={"accepted_suffixes": accepted})
-                )
+                uow.tasks.save_task(saved.task.model_copy(update={"accepted_suffixes": accepted}))
                 uow.commit()
         else:
             with console.database.unit_of_work() as uow:
@@ -1624,9 +1613,7 @@ def register(templates) -> APIRouter:
         )
 
     @router.get("/courses/{course_id}/tasks/{task_id}/edit", response_class=HTMLResponse)
-    def edit_task(
-        request: Request, course_id: str, task_id: str, saved: str = ""
-    ) -> Response:
+    def edit_task(request: Request, course_id: str, task_id: str, saved: str = "") -> Response:
         """既にある課題を直す画面。**問題セットのページには展開しない。**
 
         ルーブリックと問題文は横幅いっぱいで読むものなので、一覧の中に
@@ -1724,9 +1711,7 @@ def register(templates) -> APIRouter:
                 if unit_key(task) == unit_key(uow.tasks.get_task(TaskId(task_id)))
             ]
             ordered = sorted(tasks, key=lambda item: item.sort_key)
-            index = next(
-                (i for i, task in enumerate(ordered) if str(task.id) == task_id), None
-            )
+            index = next((i for i, task in enumerate(ordered) if str(task.id) == task_id), None)
             if index is None:
                 raise HTTPException(status_code=404, detail="課題が見つかりません")
             swap = index - 1 if direction == "up" else index + 1
@@ -1795,11 +1780,8 @@ def register(templates) -> APIRouter:
             f"/manage/courses/{course_id}/tasks/{task_id}/edit?saved=task", status_code=303
         )
 
-
     @router.get("/courses/{course_id}/enrolments", response_class=HTMLResponse)
-    def enrolments(
-        request: Request, course_id: str, q: str = "", saved: str = ""
-    ) -> Response:
+    def enrolments(request: Request, course_id: str, q: str = "", saved: str = "") -> Response:
         """受講者の一覧。**コースの設定とは別の画面にする。**
 
         受講 100 名規模になると、設定を 1 つ直しに来た教員が毎回 100 行を
@@ -2099,9 +2081,7 @@ def register(templates) -> APIRouter:
         except AdminError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         saved = "kc_restored" if restore else "kc_retired"
-        return RedirectResponse(
-            f"/manage/courses/{course_id}/kc?saved={saved}#kc", status_code=303
-        )
+        return RedirectResponse(f"/manage/courses/{course_id}/kc?saved={saved}#kc", status_code=303)
 
     # ------------------------------------------------------------------
     # 生成された課題のレビュー（S2、設計方針 §5）

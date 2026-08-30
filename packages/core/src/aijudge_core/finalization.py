@@ -138,9 +138,7 @@ def grace_minutes(task_value: int | None, course_value: int | None) -> int | Non
     return course_value if task_value is None else task_value
 
 
-def grade_window(
-    due_at: datetime | None, after_minutes: int | None, now: datetime
-) -> GradeWindow:
+def grade_window(due_at: datetime | None, after_minutes: int | None, now: datetime) -> GradeWindow:
     """いまどの段階か。
 
     自動確定を設定していないコースでは常に OPEN。確定の予定が無いのに

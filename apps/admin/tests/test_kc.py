@@ -60,9 +60,7 @@ def course(database: Database):
 
 
 def _root(database: Database):
-    return register_kc(
-        database, key="cs.loops", label="ループ", namespaces=SPACES, allow_root=True
-    )
+    return register_kc(database, key="cs.loops", label="ループ", namespaces=SPACES, allow_root=True)
 
 
 # --------------------------------------------------------------------------
@@ -91,17 +89,13 @@ def test_the_declared_namespace_is_accepted(database: Database) -> None:
 def test_a_child_needs_its_parent(database: Database) -> None:
     """孤立キーの山ではなく木を保つ。"""
     with pytest.raises(AdminError) as exc:
-        register_kc(
-            database, key="cs.loops.termination", label="停止条件", namespaces=SPACES
-        )
+        register_kc(database, key="cs.loops.termination", label="停止条件", namespaces=SPACES)
     assert "親" in str(exc.value)
 
 
 def test_a_child_is_accepted_once_the_parent_exists(database: Database) -> None:
     parent = _root(database)
-    child = register_kc(
-        database, key="cs.loops.termination", label="停止条件", namespaces=SPACES
-    )
+    child = register_kc(database, key="cs.loops.termination", label="停止条件", namespaces=SPACES)
     assert child.parent_id == parent.id
     assert child.parent_key == "cs.loops"
 

@@ -127,9 +127,7 @@ def _kind(artifacts: tuple[Artifact, ...], options: dict[str, object]) -> tuple[
     declared = options.get("required_kinds")
     if not declared:
         return 0, None
-    required = (
-        (str(declared),) if isinstance(declared, str) else tuple(str(k) for k in declared)
-    )
+    required = (str(declared),) if isinstance(declared, str) else tuple(str(k) for k in declared)
     kinds = {a.kind.value for a in artifacts}
     if kinds & set(required):
         return 0, f"提出形式 {'・'.join(sorted(kinds))}"

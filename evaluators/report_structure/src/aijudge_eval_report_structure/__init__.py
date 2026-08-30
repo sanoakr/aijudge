@@ -80,9 +80,7 @@ def found_sections(text: str, sections: dict[str, tuple[str, ...]]) -> dict[str,
     headings = [h for h in (_heading(line) for line in text.splitlines()) if h]
     out: dict[str, bool] = {}
     for name, synonyms in sections.items():
-        out[name] = any(
-            any(synonym in heading for synonym in synonyms) for heading in headings
-        )
+        out[name] = any(any(synonym in heading for synonym in synonyms) for heading in headings)
     return out
 
 
@@ -98,9 +96,7 @@ class ReportStructure:
             # 決定的評価器は観点を指定せずに呼ばれる（パイプラインの作り）。
             # 自分が担当する観点を課題版から探す。
             candidates = [
-                c
-                for c in request.task_version.criteria
-                if c.evaluator_id == self.evaluator_id
+                c for c in request.task_version.criteria if c.evaluator_id == self.evaluator_id
             ]
             if not candidates:
                 return EvaluationOutcome(
@@ -123,8 +119,7 @@ class ReportStructure:
             return EvaluationOutcome(
                 status=EvaluatorStatus.FAILED,
                 error=(
-                    "提出物から本文を取り出せませんでした"
-                    "（PDF に文字が埋め込まれていない可能性）"
+                    "提出物から本文を取り出せませんでした（PDF に文字が埋め込まれていない可能性）"
                 ),
                 raw_output={"readable": False},
             )

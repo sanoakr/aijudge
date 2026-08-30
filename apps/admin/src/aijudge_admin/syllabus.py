@@ -38,7 +38,9 @@ from aijudge_llm_gateway import (
 
 # 龍谷大学のシラバスの deep link。`i` がシラバス管理番号、`n` が年度。
 # 履修登録コードとは別物である。
-SYLLABUS_URL_TEMPLATE = "https://syllabus.ws.ryukoku.ac.jp/acrsw/CSylNoSSO/CNoSSO.do?i={code}&n={year}"
+SYLLABUS_URL_TEMPLATE = (
+    "https://syllabus.ws.ryukoku.ac.jp/acrsw/CSylNoSSO/CNoSSO.do?i={code}&n={year}"
+)
 SYLLABUS_EXAMPLE = SYLLABUS_URL_TEMPLATE.format(code="Y001009010", year=2026)
 
 
@@ -62,8 +64,20 @@ def deep_link(code: str, year: int | str) -> str:
 # 付け方だけを直し、中身は触らない** ── 書き換えると、教員が「シラバスに
 # こう書いてあったか」を確かめられなくなる。
 _HEADINGS = (
-    "科目名", "担当者", "担当教員", "開講", "単位", "授業のねらい", "講義概要",
-    "到達目標", "授業計画", "成績評価", "評価方法", "教科書", "参考書", "履修上の注意",
+    "科目名",
+    "担当者",
+    "担当教員",
+    "開講",
+    "単位",
+    "授業のねらい",
+    "講義概要",
+    "到達目標",
+    "授業計画",
+    "成績評価",
+    "評価方法",
+    "教科書",
+    "参考書",
+    "履修上の注意",
 )
 
 
@@ -107,9 +121,7 @@ def read_document(payload: bytes, suffix: str) -> str:
     """
     kind = DOCUMENT_SUFFIXES.get(suffix.lower())
     if kind is None:
-        raise SyllabusError(
-            f"この形式は読めません（{', '.join(sorted(DOCUMENT_SUFFIXES))}）"
-        )
+        raise SyllabusError(f"この形式は読めません（{', '.join(sorted(DOCUMENT_SUFFIXES))}）")
     if kind == "txt":
         return payload.decode("utf-8", "replace").strip()
 
@@ -269,9 +281,7 @@ class SyllabusReader:
             existing="\n".join(f"- {k}" for k in existing_keys) or "（まだありません）",
             text=text[:20000],
         )
-        return ProposalResult(
-            proposal=result.value, prompt_id=PROMPT.id, model=self._model
-        )
+        return ProposalResult(proposal=result.value, prompt_id=PROMPT.id, model=self._model)
 
 
 __all__ = [

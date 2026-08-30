@@ -50,8 +50,7 @@ ALLOWED_KEYS: tuple[str, ...] = (
 # 上書きできない項目とその理由。画面に出す。
 LOCKED_KEYS: dict[str, str] = {
     "kc_namespaces": (
-        "知識要素の語彙は他のコースと共有します"
-        "（コース単位で変えると体系が分裂します）"
+        "知識要素の語彙は他のコースと共有します（コース単位で変えると体系が分裂します）"
     ),
     "name": "雛形の名前です",
     "aggregation": "集約の方式は採点エンジンの前提です",
@@ -77,9 +76,7 @@ def effective(
     for key, value in overrides.items():
         if key not in ALLOWED_KEYS:
             continue
-        if key in ("evaluator_options", "measurement", "review_policy") and isinstance(
-            value, dict
-        ):
+        if key in ("evaluator_options", "measurement", "review_policy") and isinstance(value, dict):
             merged = deepcopy(data.get(key) or {})
             for name, option in value.items():
                 if isinstance(option, dict) and isinstance(merged.get(name), dict):

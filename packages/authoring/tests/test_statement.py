@@ -41,7 +41,7 @@ def test_display_math_becomes_a_block() -> None:
     assert "math block" in html
 
 
-def test_a_bare_dollar_amount_is_not_math(  ) -> None:
+def test_a_bare_dollar_amount_is_not_math() -> None:
     """金額は課題文に普通に出る。`$100 と $200` を数式と読ませない。"""
     html = render_statement("参加費は $100 と $200 です。")
     assert "<math" not in html

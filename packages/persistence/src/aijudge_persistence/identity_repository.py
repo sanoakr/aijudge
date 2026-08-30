@@ -132,9 +132,7 @@ class SqlIdentityRepository:
 
     def find_api_token_by_hash(self, token_hash: str) -> ApiToken | None:
         row = (
-            self._session.execute(
-                select(ApiTokenRow).where(ApiTokenRow.token_hash == token_hash)
-            )
+            self._session.execute(select(ApiTokenRow).where(ApiTokenRow.token_hash == token_hash))
             .scalars()
             .first()
         )

@@ -119,9 +119,7 @@ def register() -> APIRouter:
         return out
 
     @router.post("/courses/{course_id}/tasks", status_code=201)
-    def create_task(
-        request: Request, course_id: str, spec: TaskSpec, me: Caller
-    ) -> TaskResponse:
+    def create_task(request: Request, course_id: str, spec: TaskSpec, me: Caller) -> TaskResponse:
         """課題を 1 件足す。**冪等**（同じ `key` に同じ内容なら増えない）。
 
         内容が違う場合は 409。過去の採点基準を書き換えないため（P8）で、

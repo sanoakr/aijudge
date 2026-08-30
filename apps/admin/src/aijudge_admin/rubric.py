@@ -93,6 +93,7 @@ def parse(rows: list[dict[str, str]]) -> tuple[CriterionSpec, ...]:
     criteria: list[CriterionSpec] = []
     codes: set[str] = set()
     for row in rows:
+
         def text(field: str, row: dict = row) -> str:
             # `to_rows` は重みを数値で返すので、画面から来た文字列と両方受ける。
             value = row.get(field)
