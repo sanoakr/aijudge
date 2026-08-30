@@ -32,7 +32,9 @@ PROMPT = PromptTemplate(
     name="task_draft_ja",
     # 文面を変えたら必ず版を上げる（P8）。版が同じで文面が違うと、
     # 過去に生成した課題が何から出たのか追えなくなる。
-    version="1",
+    #
+    # 2: コースの範囲（題名・到達目標）を渡すようにした。
+    version="2",
     system=(
         "あなたは大学の理工系科目の課題を作る教員です。"
         "**問題文・参照解答・テストケースを必ず同時に作ります。**"
@@ -42,6 +44,7 @@ PROMPT = PromptTemplate(
     ),
     template=(
         "次の条件で課題を 1 つ作ってください。\n\n"
+        "{course}"
         "## 問う知識要素\n{knowledge_components}\n\n"
         "## 難度\n{difficulty}\n\n"
         "## 言語\n{language}\n\n"
@@ -51,6 +54,28 @@ PROMPT = PromptTemplate(
         "うち少なくとも 1 件は境界値（最小の入力、値が等しい場合など）にすること。\n"
     ),
 )
+
+
+def _course_section(blueprint: Blueprint) -> str:
+    """コースの範囲を伝える節。**素性が無ければ節ごと出さない。**
+
+    空の節を渡すと、モデルは「範囲の指定が無い」ではなく「範囲は空」と
+    読む余地がある。書かれていない条件は、書かないことで伝える。
+    """
+    lines = []
+    if blueprint.course_title.strip():
+        lines.append(f"科目名: {blueprint.course_title.strip()}")
+    if blueprint.course_outline.strip():
+        lines.append(f"概要・到達目標:\n{blueprint.course_outline.strip()}")
+    if not lines:
+        return ""
+    body = "\n".join(lines)
+    return (
+        "## コースの範囲\n"
+        f"{body}\n"
+        "**この範囲を超える前提を使わないこと。** ここに無い話題を持ち込むと、"
+        "まだ習っていないことを問う課題になります。\n\n"
+    )
 
 
 @dataclass(frozen=True)
@@ -87,6 +112,7 @@ class TaskDrafter:
             # **個人データを含まない。** 渡すのは KC のキーと制約だけ。
             data_class=DataClass.NON_PERSONAL,
             max_tokens=self._max_tokens,
+            course=_course_section(blueprint),
             knowledge_components="\n".join(f"- {kc}" for kc in blueprint.knowledge_components),
             difficulty=blueprint.difficulty.value,
             language=blueprint.language,

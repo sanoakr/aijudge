@@ -137,6 +137,13 @@
 
   <h3>課題文</h3>
   <pre class="statement">{{ row.version.statement }}</pre>
+  {# **直してから承認できるようにする。** 却下は理由を書いて作問の改善に
+     還流させる操作で、「少し直せば使える」課題まで却下に回すと、その理由が
+     プロンプトの改善材料として役に立たない。 #}
+  <p class="desc">
+    <a href="/manage/courses/{{ course.id }}/tasks/{{ row.task.id }}/edit">問題文・ルーブリックを直す →</a>
+    直したうえで承認できます（直すと版が上がります）。
+  </p>
 
   <form method="post" action="/manage/courses/{{ course.id }}/drafts/{{ row.version.id }}">
     <fieldset>

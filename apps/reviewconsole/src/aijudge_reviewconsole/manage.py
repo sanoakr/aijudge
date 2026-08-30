@@ -82,6 +82,7 @@ from aijudge_core import (
     Course,
     EvaluatorKind,
     GradeWindow,
+    ReviewState,
     Role,
     Task,
     normalize_suffixes,
@@ -716,6 +717,12 @@ def register(templates) -> APIRouter:
                         {c.evaluator_id for c in version.criteria if c.evaluator_id}
                     ),
                     "unfinalized": pending.get(task.id, 0),
+                    # **承認済みと同じ見た目で並べない。** 一覧は
+                    # `latest_version` をレビュー状態で絞らないので、生成した
+                    # ままの課題もここに出る。印が無いと、教員は「この回は
+                    # 5 問」と読むのに出題されるのは承認済みのぶんだけになる。
+                    "in_review": (version.provenance.review_state is ReviewState.IN_REVIEW),
+                    "rejected": version.provenance.review_state is ReviewState.REJECTED,
                     # 訂正フォームの初期値。読みやすさの観点の重みは
                     # 版の中にあるので、そこから取り出す。
                     "readability_weight": next(
@@ -1473,6 +1480,11 @@ def register(templates) -> APIRouter:
             blueprint = Blueprint(
                 knowledge_components=chosen,
                 subject_profile=course.subject_profile,
+                # **コースの範囲を渡す。** KC は「何を問うか」を決めるが、
+                # 「どこまでを既習として書いてよいか」は決めない。空なら
+                # 節ごと出さない（`aijudge_admin.drafting._course_section`）。
+                course_title=course.title,
+                course_outline=course.description or "",
                 difficulty=Difficulty(difficulty),
                 language=_language_of(profile),
                 constraints=tuple(

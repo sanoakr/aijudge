@@ -181,6 +181,17 @@ def test_the_queue_says_approval_is_what_publishes(world: World) -> None:
     assert "承認するまで出題されません" in world.client.get(_url()).text
 
 
+def test_the_queue_offers_a_way_to_fix_the_draft(world: World) -> None:
+    """**直してから承認できるようにする。** 却下は理由を作問の改善に還流させる
+    操作で、「少し直せば使える」課題まで却下に回すと、その理由が材料として
+    役に立たない。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    world.login("teacher")
+    body = world.client.get(_url()).text
+    assert f"/manage/courses/{COURSE}/tasks/tsk_{'3' * 32}/edit" in body
+
+
 def test_approving_publishes_the_version(world: World) -> None:
     world.register("teacher", Role.INSTRUCTOR)
     world.login("teacher")
