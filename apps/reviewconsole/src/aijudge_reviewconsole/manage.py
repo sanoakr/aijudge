@@ -1141,18 +1141,20 @@ def register(templates) -> APIRouter:
         return _kc_page(request, me, course, proposal=result.proposal)
 
     @router.post("/courses/{course_id}/kc/adopt")
-    def adopt_candidates(
-        request: Request,
-        course_id: str,
-        kc: Annotated[list[str], Form()] = [],  # noqa: B006 - FastAPI の複数値
-        label: Annotated[list[str], Form()] = [],  # noqa: B006 - FastAPI の複数値
-    ) -> Response:
+    async def adopt_candidates(request: Request, course_id: str) -> Response:
         """選ばれた候補だけを体系に登録する。
 
         **規則は手で足すときと同じ**（`aijudge_admin.kc`）── 名前空間・親の
         実在・第 1 階層の権限。候補だから緩める、ということはしない。
         親から順に並べて入れるので、`cs.loops` と `cs.loops.termination` を
         同時に選んでも通る。
+
+        **名前と説明はキーで引く。位置で対応づけない。** 以前は `kc` と
+        `label` を 2 本のリストで受けて `zip` していたが、チェックボックスは
+        選んだものだけ、隠し欄は全候補ぶん送られる ── 3 件中 3 件目だけを
+        選ぶと、登録される名前は 1 件目のものになった。**キーと名前が食い違う
+        記録が体系に残り、KC の ID はキーから決まるので後から名前だけ直す
+        羽目になる。** 候補ごとに `label:<キー>` で送り、鍵で引く。
         """
         from .app import require_principal
 
@@ -1161,15 +1163,20 @@ def register(templates) -> APIRouter:
         console = _console(request)
         profile = load_profile(console.profiles_dir / f"{course.subject_profile}.yaml")
         namespaces = allowed_namespaces(profile)
-        labels = dict(zip(kc, label, strict=False))
+
+        form = await request.form()
+        chosen = [str(value) for value in form.getlist("kc")]
 
         failures: list[str] = []
-        for key in sorted({k.strip() for k in kc if k.strip()}, key=lambda k: k.count(".")):
+        for key in sorted({k.strip() for k in chosen if k.strip()}, key=lambda k: k.count(".")):
+            label = str(form.get(f"label:{key}", "")).strip()
+            description = str(form.get(f"description:{key}", "")).strip()
             try:
                 register_kc(
                     console.database,
                     key=key,
-                    label=labels.get(key, "").strip() or key,
+                    label=label or key,
+                    description=description or None,
                     namespaces=namespaces,
                     actor_id=me.user_id,
                     allow_root=_is_admin(request, me),

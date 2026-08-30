@@ -186,8 +186,12 @@
       <tr>
         <td class="fit">
           {% if not known %}
+          {# **名前と説明はキーで結ぶ。** `name="label"` を並べると、隠し欄は
+             全候補ぶん送られるのに、チェックした鍵だけが送られる ── 位置で
+             対応づけた瞬間、選ばなかった候補の名前が選んだ鍵に付く。 #}
           <input type="checkbox" name="kc" value="{{ k.key }}">
-          <input type="hidden" name="label" value="{{ k.label }}">
+          <input type="hidden" name="label:{{ k.key }}" value="{{ k.label }}">
+          <input type="hidden" name="description:{{ k.key }}" value="{{ k.description or '' }}">
           {% endif %}
         </td>
         <td class="fit mono">{{ k.key }}</td>
