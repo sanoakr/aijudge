@@ -6,14 +6,35 @@
   {% for n in namespaces %}<span class="mono">{{ n }}</span>{% else %}<em>なし</em>{% endfor %}
 </p>
 
-{# **コースをまたいで共有される語彙である。** 同じ名前空間を使う他のコースにも
-   同じものが見える（設計原則 P6 の狙いで、習熟度が学期をまたいで積み上がる
-   のもこの性質による）。だから利用状況を添える。 #}
+{# **語彙は名前空間ごとに共有され、コースには属さない**（設計原則 P6 の狙いで、
+   習熟度が学期をまたいで積み上がるのもこの性質による）。
+
+   **ただし「共有される」と「他のコースに見える」は別のことである。** 範囲を
+   絞っているコースの一覧には出ない（#37）ので、以前ここに書いていた「他の
+   コースにも見えます」は、いまの挙動と食い違っていた。共有されているのは
+   語彙で、見えるかどうかはコースごとの宣言が決める。
+
+   範囲の説明と 1 つにまとめてある ── 2 つに分けると、同じ「共有」という語が
+   離れた場所で別の意味に読まれる。 #}
 <div class="note">
-  <strong>この一覧はコースをまたいで共有されます。</strong>
-  同じ名前空間（{{ namespaces | join(', ') or 'なし' }}）を使う他のコースにも、ここで足した
-  知識要素が見えます。名前空間そのものを増やすには科目プロファイルの変更が必要です
-  （ブラウザからは増やせません）。
+  <strong>知識要素は名前空間（{{ namespaces | join(', ') or 'なし' }}）ごとに共有され、
+  コースには属しません。</strong>
+  ここで足したものは、同じ名前空間を使う他のコースからも<strong>取り込めます</strong>
+  ── ただし、そのコースが使う知識要素を絞っていれば、そのコースで選ぶまで一覧には出ません。
+  <br>
+  {% if scoped %}
+    <strong>このコースは使う知識要素を絞っています。</strong>
+    チェックを外したものは作問の候補に出ず、<strong>この一覧からも消えます</strong>
+    （このコースの課題が使っているものは残ります）。戻すには下の
+    「知識要素を追加する」に同じキーを入れてください。
+  {% else %}
+    <strong>このコースはまだ絞っていません</strong>
+    — いまは名前空間の全部が作問の候補に出ます。チェックして保存すると、選んだものだけになります。
+    全部にチェックを入れて保存するのと絞らないままにするのは<strong>別の状態</strong>で、
+    あとから名前空間に足された知識要素は、絞っていなければ自動で入り、絞っていれば入りません。
+  {% endif %}
+  <br><span class="desc">名前空間そのものを増やすには科目プロファイルの変更が要ります
+  （ブラウザからは増やせません）。</span>
 </div>
 
 {% if not namespaces %}
@@ -25,24 +46,9 @@
 
 {# **このコースが使う範囲を宣言する。** 同じ名前空間を複数のコースが共有する
    ので、絞らないと関係のない候補が作問フォームに並ぶ。外しても語彙からは
-   消えない（他のコースの Q-matrix は壊れない）。 #}
+   消えない（他のコースの Q-matrix は壊れない）。**説明は冒頭の注意書きに
+   まとめてある** ── 同じ話を 2 か所に書くと、片方だけが古くなる。 #}
 <form method="post" action="/manage/courses/{{ course.id }}/kc/scope">
-<div class="note">
-  {% if scoped %}
-    <strong>このコースは使う知識要素を絞っています。</strong>
-    チェックを外したものは作問の候補に出ません（語彙からは消えません）。
-    <br><span class="desc">外して保存すると<strong>この一覧からも消えます</strong>
-    （このコースの課題が使っているものは残ります）。戻すには下の
-    「知識要素を追加する」に同じキーを入れてください。</span>
-  {% else %}
-    <strong>このコースはまだ絞っていません</strong>
-    — いまは名前空間の全部が作問の候補に出ます。
-    チェックして保存すると、選んだものだけになります。
-    <br><span class="desc">全部にチェックを入れて保存するのと、絞らないままにするのは
-    <strong>別の状態</strong>です。あとから名前空間に足された知識要素は、
-    絞っていなければ自動で入り、絞っていれば入りません。</span>
-  {% endif %}
-</div>
 <table>
   <thead><tr>
     <th class="fit">使う</th>
@@ -160,8 +166,9 @@
       onsubmit="this.querySelector('.reading').hidden = false; this.querySelector('button').disabled = true">
   <div class="inline-field">
     <span class="body desc">
-      <strong>出てくるのは候補です。</strong>ここからは登録しません
-      ── 1 件ずつ「知識要素を追加する」に取り込み、確かめてから登録します。
+      <strong>出てくるのは、このコースが扱う知識要素です。</strong>
+      既にあるものも並びます（このコースが使う範囲を決める材料になります）。
+      ここからは登録しません ── 1 件ずつ「知識要素を追加する」に取り込み、確かめてから登録します。
       既にある {{ existing | length }} 件に寄せるよう指示します（重複を作らないため）。
     </span>
     <span class="reading flash" hidden>読み取り中…</span>
@@ -195,7 +202,10 @@
     </tr></thead>
     <tbody>
     {% for k in proposal.knowledge_components %}
+      {# **3 つの状態を分ける。** 体系にあるものを「新規」と出すのは嘘で、
+         押した教員は自分が何を足したのかを誤解する（#41）。 #}
       {% set known = k.key in existing %}
+      {% set in_vocabulary = k.key in vocabulary %}
       <tr>
         <td class="fit mono">{{ k.key }}</td>
         <td class="grow">{{ k.label }}
@@ -203,7 +213,9 @@
           {% if k.source %}<br><span class="desc">出典: {{ k.source }}</span>{% endif %}
         </td>
         <td class="fit">
-          {% if known %}<span class="pill ok">登録済み</span>{% else %}<span class="desc">新規</span>{% endif %}
+          {% if known %}<span class="pill ok">このコースで使用中</span>
+          {% elif in_vocabulary %}<span class="pill">体系にあり</span>
+          {% else %}<span class="desc">新規</span>{% endif %}
         </td>
         <td class="fit">
           {% if not known %}
@@ -217,6 +229,8 @@
   <p class="desc">
     <strong>押しても登録はされません。</strong>下の「知識要素を追加する」に入るので、
     キー・名前・説明を確かめて（必要なら直して）から登録してください。<br>
+    <strong>「体系にあり」は、他のコースが既に作ったものです。</strong>
+    取り込んで登録すると<strong>このコースで使う範囲に入るだけ</strong>で、名前と説明は変わりません。<br>
     <strong>親が実在している必要があります。</strong>親から順に足してください。
     第 1 階層（分野の根）を作るには管理者の操作が要ります。
   </p>
@@ -241,8 +255,14 @@
 {% if draft %}
 <div class="note">
   <strong>候補「{{ draft.key }}」を取り込みました。</strong>まだ登録されていません。
-  <strong>キーは登録すると変えられません</strong>（ID がキーから決まります）。
-  中身を確かめて「追加する」を押してください。
+  {% if draft_exists %}
+    <strong>これは既に体系にあります。</strong>名前と説明は体系のものを出しています ──
+    「追加する」を押すと<strong>このコースで使う範囲に入るだけ</strong>で、
+    <strong>名前と説明は変わりません</strong>（直すには一覧のその行を開いてください）。
+  {% else %}
+    <strong>キーは登録すると変えられません</strong>（ID がキーから決まります）。
+    中身を確かめて「追加する」を押してください。
+  {% endif %}
 </div>
 {% endif %}
 <form method="post" action="/manage/courses/{{ course.id }}/kc" class="card">
