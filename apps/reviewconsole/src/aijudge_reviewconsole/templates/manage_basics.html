@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}コースの基本情報 — {{ course.title }} — aiJudge{% endblock %}
+{% block body %}
+<h1>コースの基本情報</h1>
+<p class="crumb">{{ course.title }}・{{ course.code }} / {{ course.term }}</p>
+
+{% if saved %}<div class="note saved">{{ saved }}</div>{% endif %}
+
+{% with action = '/manage/courses/' ~ course.id ~ '/basics', action_label = '読み取って候補を出す' %}
+  {% include "_document_input.html" %}
+{% endwith %}
+
+{% if proposal %}
+<h2>読み取った基本情報</h2>
+{# **そのまま登録しない。** コースコードと学期はコースの同一性
+   （テナント・コード・学期）で、変えると別のコースになる。ここでは
+   照合のために出すだけ。 #}
+<form method="post" action="/manage/courses/{{ course.id }}/basics/apply" class="card">
+  <div class="field">
+    <label for="title">コース名</label>
+    <input id="title" name="title" value="{{ proposal.course.title or course.title }}">
+  </div>
+  <div class="field">
+    <label for="description">概要・到達目標（Markdown）</label>
+    <textarea id="description" name="description" rows="10"
+      >{{ proposal.course.description or course.description or '' }}</textarea>
+  </div>
+  <p class="desc">
+    読み取ったコードは <span class="mono">{{ proposal.course.code or '—' }}</span>、
+    学期は <span class="mono">{{ proposal.course.term or '—' }}</span> です
+    （現在は <span class="mono">{{ course.code }}</span> / <span class="mono">{{ course.term }}</span>）。
+    <strong>コードと学期はここでは変えられません</strong> — この 2 つがコースの同一性で、
+    変えると別のコースになります。新しいコースを作るなら
+    <a href="/">担当コース</a>の「コースを追加する」に入れてください。
+  </p>
+  <div class="actions"><button type="submit">基本情報を保存する</button></div>
+</form>
+{% endif %}
+{% endblock %}

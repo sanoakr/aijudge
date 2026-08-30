@@ -1,11 +1,10 @@
 {% extends "base.html" %}
-{% block title %}生成課題のレビュー — {{ course.title }}{% endblock %}
+{% block title %}未承認の課題 — {{ course.title }}{% endblock %}
 {% block body %}
-<p class="crumb"><a href="/manage/courses/{{ course.id }}">← {{ course.title }}</a></p>
-<h1>生成課題のレビュー</h1>
+<h1>未承認の課題</h1>
 
 {% if not rows %}
-<div class="note">レビュー待ちの生成課題はありません。</div>
+<div class="note">未承認の課題はありません。</div>
 {% else %}
 <div class="note">
   <strong>承認するまで出題されません。</strong>
@@ -149,8 +148,10 @@
       <textarea name="reason" rows="3"
         placeholder="例: 入力の形式が課題文に書かれておらず、解答者によって読みが分かれます。"></textarea>
     </fieldset>
-    <button type="submit" name="decision" value="approve">承認して出題可能にする</button>
-    <button type="submit" name="decision" value="reject">却下する</button>
+    <div class="actions">
+      <button type="submit" name="decision" value="reject">却下する</button>
+      <button type="submit" name="decision" value="approve">承認して出題可能にする</button>
+    </div>
   </form>
 </div>
 {% endfor %}

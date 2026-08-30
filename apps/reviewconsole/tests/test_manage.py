@@ -194,50 +194,86 @@ def _import_example(world: World) -> str:
     return str(task.id)
 
 
-def test_a_deadline_can_be_set(world: World) -> None:
-    world.register("teacher", Role.INSTRUCTOR)
-    task_id = _import_example(world)
-    client = world.client("teacher")
+def _unit_of(world: World) -> str:
+    with world.database.unit_of_work() as uow:
+        task = uow.tasks.list_for_course(world.course.id)[0]
+    return task.unit or "_"
 
+
+def test_the_schedule_is_set_for_the_whole_problem_set(world: World) -> None:
+    """**日程は問題セットで揃える。** 課題ごとに違う締切を持てると、
+
+    同じセットの中で締切がずれ、「この回はいつまでか」が言えなくなる。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    _import_example(world)
+    unit = _unit_of(world)
+
+    client = world.client("teacher")
     response = client.post(
-        f"/manage/courses/{world.course.id}/tasks/{task_id}/schedule",
-        data={"opens_at": "2025-10-01T09:00", "due_at": "2025-10-08T23:59"},
+        f"/manage/courses/{world.course.id}/units/{unit}/schedule",
+        data={
+            "opens_at": "2025-10-01T09:00",
+            "submissions_open_at": "2025-10-01T13:00",
+            "due_at": "2025-10-08T23:59",
+        },
         follow_redirects=False,
     )
     assert response.status_code == 303
+    # 猶予と回番号は別のフォーム。効き方が違うものを 1 つの保存に混ぜない。
+    client.post(
+        f"/manage/courses/{world.course.id}/units/{unit}/auto-finalize",
+        data={"after_minutes": "90"},
+    )
+    client.post(
+        f"/manage/courses/{world.course.id}/units/{unit}/number", data={"session": "3"}
+    )
 
     with world.database.unit_of_work() as uow:
-        from aijudge_core.ids import TaskId
-
-        task = uow.tasks.get_task(TaskId(task_id))
-    assert task is not None
-    assert task.due_at is not None
-    # 締切判定がサーバのローカル時刻に依存しないこと。
-    assert task.due_at.tzinfo is not None
-    assert task.opens_at is not None
+        tasks = uow.tasks.list_for_course(world.course.id)
+    assert tasks
+    for task in tasks:
+        assert task.opens_at is not None
+        assert task.submissions_open_at is not None
+        assert task.due_at is not None
+        # 締切判定がサーバのローカル時刻に依存しないこと。
+        assert task.due_at.tzinfo is not None
+        assert task.auto_finalize_after_minutes == 90
+        assert task.session == 3
 
 
 def test_a_deadline_before_the_opening_is_refused(world: World) -> None:
     world.register("teacher", Role.INSTRUCTOR)
-    task_id = _import_example(world)
+    _import_example(world)
     response = world.client("teacher").post(
-        f"/manage/courses/{world.course.id}/tasks/{task_id}/schedule",
+        f"/manage/courses/{world.course.id}/units/{_unit_of(world)}/schedule",
         data={"opens_at": "2025-10-08T09:00", "due_at": "2025-10-01T09:00"},
+    )
+    assert response.status_code == 400
+
+
+def test_a_deadline_before_the_submissions_open_is_refused(world: World) -> None:
+    """提出開始より前に締め切る課題は、誰も提出できないまま締切を迎える。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    _import_example(world)
+    response = world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/units/{_unit_of(world)}/schedule",
+        data={"submissions_open_at": "2025-10-08T09:00", "due_at": "2025-10-01T09:00"},
     )
     assert response.status_code == 400
 
 
 def test_a_malformed_date_is_refused(world: World) -> None:
     world.register("teacher", Role.INSTRUCTOR)
-    task_id = _import_example(world)
+    _import_example(world)
     response = world.client("teacher").post(
-        f"/manage/courses/{world.course.id}/tasks/{task_id}/schedule",
+        f"/manage/courses/{world.course.id}/units/{_unit_of(world)}/schedule",
         data={"due_at": "来週"},
     )
     assert response.status_code == 400
 
 
-def test_a_task_from_another_course_cannot_be_scheduled(world: World) -> None:
+def test_a_problem_set_from_another_course_cannot_be_scheduled(world: World) -> None:
     world.register("teacher", Role.INSTRUCTOR)
     other, _ = ensure_course(
         world.database,
@@ -249,11 +285,12 @@ def test_a_task_from_another_course_cannot_be_scheduled(world: World) -> None:
         profiles_dir=PROFILES,
     )
     world.register("other_teacher", Role.INSTRUCTOR, other.id)
-    task_id = _import_example(world)
+    _import_example(world)
+    unit = _unit_of(world)
 
-    # 他コースの教員が、こちらの課題の締切を変えられないこと。
+    # 他コースの教員が、こちらの問題セットの締切を変えられないこと。
     response = world.client("other_teacher").post(
-        f"/manage/courses/{other.id}/tasks/{task_id}/schedule",
+        f"/manage/courses/{other.id}/units/{unit}/schedule",
         data={"due_at": "2025-10-08T23:59"},
     )
     assert response.status_code == 404
@@ -274,7 +311,6 @@ def test_a_task_can_be_added_from_the_form(world: World) -> None:
             "key": "ex02/p8",
             "statement": "## [必須] カウントアップダウン ##\n\n本文",
             "unit": "ex02",
-            "session": "2",
             "position": "8",
             "readability_weight": "0.3",
         },
@@ -287,7 +323,8 @@ def test_a_task_can_be_added_from_the_form(world: World) -> None:
         assert len(tasks) == 1
         version = uow.tasks.latest_version(TaskId(tasks[0].id))
     assert tasks[0].title == "カウントアップダウン"
-    assert tasks[0].session == 2
+    # 回番号は問題セットから引き継ぐ。最初の 1 問なので空のまま。
+    assert tasks[0].session is None
     # **画面から作った課題にも AI 観点が付く。** 付かないと、その課題では
     # AI 評価器が一度も走らない（廃止した zip 取り込みがそうなっていた）。
     assert [c.code for c in version.criteria] == ["correctness", "readability"]
@@ -489,7 +526,7 @@ def test_the_grace_is_saved_on_the_course(world: World) -> None:
 
     response = world.client("teacher").post(
         f"/manage/courses/{world.course.id}/auto-finalize",
-        data={"after_hours": "48"},
+        data={"after_minutes": "2880"},
         follow_redirects=False,
     )
     assert response.status_code == 303
@@ -497,20 +534,20 @@ def test_the_grace_is_saved_on_the_course(world: World) -> None:
     with world.database.unit_of_work() as uow:
         course = uow.identity.get_course(world.course.id)
     assert course is not None
-    assert course.auto_finalize_after_hours == 48.0
+    assert course.auto_finalize_after_minutes == 2880
 
 
 def test_an_empty_grace_turns_automatic_finalization_off(world: World) -> None:
     """空欄は「自動確定しない」。既定はそれである。"""
     world.register("teacher", Role.INSTRUCTOR)
     client = world.client("teacher")
-    client.post(f"/manage/courses/{world.course.id}/auto-finalize", data={"after_hours": "24"})
-    client.post(f"/manage/courses/{world.course.id}/auto-finalize", data={"after_hours": ""})
+    client.post(f"/manage/courses/{world.course.id}/auto-finalize", data={"after_minutes": "1440"})
+    client.post(f"/manage/courses/{world.course.id}/auto-finalize", data={"after_minutes": ""})
 
     with world.database.unit_of_work() as uow:
         course = uow.identity.get_course(world.course.id)
     assert course is not None
-    assert course.auto_finalize_after_hours is None
+    assert course.auto_finalize_after_minutes is None
 
 
 def test_a_zero_grace_is_refused(world: World) -> None:
@@ -520,7 +557,7 @@ def test_a_zero_grace_is_refused(world: World) -> None:
     for value in ("0", "-1", "しばらく"):
         assert (
             client.post(
-                f"/manage/courses/{world.course.id}/auto-finalize", data={"after_hours": value}
+                f"/manage/courses/{world.course.id}/auto-finalize", data={"after_minutes": value}
             ).status_code
             == 400
         ), value
@@ -530,7 +567,7 @@ def test_an_assistant_cannot_change_the_grace(world: World) -> None:
     """猶予は成績に直接効く。採点を分担する TA の権限とは別（既存の締切と同じ）。"""
     world.register("ta", Role.ASSISTANT)
     response = world.client("ta").post(
-        f"/manage/courses/{world.course.id}/auto-finalize", data={"after_hours": "24"}
+        f"/manage/courses/{world.course.id}/auto-finalize", data={"after_minutes": "1440"}
     )
     assert response.status_code == 403
 
@@ -603,5 +640,776 @@ def test_a_bulk_finalization_result_does_not_leak_to_another_course(world: World
         data={"justification": "テスト全通の提出をまとめて確定します。"},
     )
 
-    body = world.client("other_teacher").get(f"/manage/courses/{other.id}").text
+    # 結果は回ごとのページに出る。別コースの回を開いて漏れていないことを見る。
+    body = world.client("other_teacher").get(f"/manage/courses/{other.id}/units/_").text
     assert "件を確定しました" not in body
+
+
+# --------------------------------------------------------------------------
+# 画面の構成 — 担当コース → 科目のメニュー → 回
+# --------------------------------------------------------------------------
+
+
+def test_the_course_list_shows_a_digest(world: World) -> None:
+    """コード・コース名・学期だけでは、どのコースに用があるか開くまで分からない。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    _import_example(world)
+
+    body = world.client("teacher").get("/").text
+    assert "問題セット" in body
+    assert "課題" in body
+    assert "未確定" in body
+    assert "異議" in body
+    assert "未承認" in body
+
+
+def test_the_management_index_is_folded_into_the_course_list(world: World) -> None:
+    """コースの一覧は 1 つだけ。入口が 2 つあること自体が分かりにくさの元だった。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    response = world.client("teacher").get("/manage", follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers["location"] == "/"
+
+
+def test_the_course_page_is_a_menu(world: World) -> None:
+    """科目ページは分岐だけを持つ。設定を 1 枚に積むと目で探すことになる。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    _import_example(world)
+
+    body = world.client("teacher").get(f"/courses/{world.course.id}").text
+    assert "コース全体の設定" in body
+    assert f"/manage/courses/{world.course.id}" in body
+    assert f"/courses/{world.course.id}/queue" in body
+    assert "再確認の依頼" in body
+    # 課題そのものの操作（締切の入力欄）はここには無い。
+    assert 'name="due_at"' not in body
+
+
+def test_the_course_settings_page_no_longer_carries_the_tasks(world: World) -> None:
+    """課題は回ごとのページへ移した。科目全体の設定と混ぜない。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    _import_example(world)
+
+    body = world.client("teacher").get(f"/manage/courses/{world.course.id}").text
+    assert "成績の自動確定" in body
+    assert "受講登録" in body
+    assert 'name="statement"' not in body, "課題の追加フォームが残っている"
+
+
+def test_a_unit_page_carries_only_its_own_tasks(world: World) -> None:
+    world.register("teacher", Role.INSTRUCTOR)
+    _import_example(world)
+    client = world.client("teacher")
+
+    with world.database.unit_of_work() as uow:
+        task = uow.tasks.list_for_course(world.course.id)[0]
+    key = task.unit or "_"
+
+    body = client.get(f"/manage/courses/{world.course.id}/units/{key}").text
+    assert task.title in body
+    assert 'name="due_at"' in body, "締切を設定できない"
+    assert 'name="submissions_open_at"' in body, "提出開始を設定できない"
+    assert 'name="statement"' in body, "この問題セットに課題を追加できない"
+
+    # 別の問題セットには出てこない。
+    other = client.get(f"/manage/courses/{world.course.id}/units/nosuchunit").text
+    assert task.title not in other
+
+
+def test_an_unknown_unit_opens_as_an_empty_one(world: World) -> None:
+    """回は課題が持つ属性で、それ自体の記録は無い。
+
+    知らない鍵を 404 にすると、新しい回に最初の 1 問を足す導線が無くなる。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    response = world.client("teacher").get(f"/manage/courses/{world.course.id}/units/ex04")
+    assert response.status_code == 200
+    assert "課題がありません" in response.text
+
+
+def test_opening_a_new_unit_redirects_to_its_page(world: World) -> None:
+    world.register("teacher", Role.INSTRUCTOR)
+    response = world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/units",
+        data={"unit": "ex04"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert response.headers["location"] == f"/manage/courses/{world.course.id}/units/ex04"
+
+
+def test_an_assistant_cannot_open_a_unit_page(world: World) -> None:
+    """締切と一括確定は成績に直接効く。TA には開けない。"""
+    world.register("ta", Role.ASSISTANT)
+    response = world.client("ta").get(f"/manage/courses/{world.course.id}/units/ex01")
+    assert response.status_code == 403
+
+
+def test_setting_the_schedule_returns_to_the_problem_set(world: World) -> None:
+    """日程を触る操作は、その問題セットのページから来てそこへ戻る。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    _import_example(world)
+    unit = _unit_of(world)
+
+    response = world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/units/{unit}/schedule",
+        data={"due_at": "2025-10-08T23:59"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert response.headers["location"].startswith(
+        f"/manage/courses/{world.course.id}/units/{unit}"
+    )
+
+
+def test_a_new_task_inherits_the_schedule_of_its_problem_set(world: World) -> None:
+    """日程はセットの性質。追加した課題だけ締切が無い、が起きないこと。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    _import_example(world)
+    unit = _unit_of(world)
+    client = world.client("teacher")
+    client.post(
+        f"/manage/courses/{world.course.id}/units/{unit}/schedule",
+        data={"opens_at": "2025-10-01T09:00", "due_at": "2025-10-08T23:59"},
+    )
+    client.post(
+        f"/manage/courses/{world.course.id}/units/{unit}/auto-finalize",
+        data={"after_minutes": "90"},
+    )
+    client.post(
+        f"/manage/courses/{world.course.id}/units/{unit}/number", data={"session": "3"}
+    )
+
+    client.post(
+        f"/manage/courses/{world.course.id}/tasks",
+        data={
+            "key_suffix": "p9",
+            "unit": unit,
+            "statement": "## [必須] 追加した課題 ##\n\n本文",
+            "position": "9",
+            "readability_weight": "0.3",
+        },
+    )
+
+    with world.database.unit_of_work() as uow:
+        added = next(
+            task
+            for task in uow.tasks.list_for_course(world.course.id)
+            if task.title == "追加した課題"
+        )
+    assert added.due_at is not None
+    assert added.auto_finalize_after_minutes == 90
+    assert added.session == 3
+
+
+# --------------------------------------------------------------------------
+# 課題キーの前半は問題セットが決める
+# --------------------------------------------------------------------------
+
+
+def test_the_unit_fixes_the_first_half_of_the_task_key(world: World) -> None:
+    """鍵は同一性そのもの。打ち間違えたぶんは別の課題として増える。
+
+    回のページから追加する限り `ex04/` は動かず、教員が打つのは `p1` だけ。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    response = world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/tasks",
+        data={
+            "key_suffix": "p1",
+            "unit": "ex04",
+            "statement": "## 課題 ##\n\n本文",
+            "session": "4",
+            "position": "1",
+            "readability_weight": "0.3",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303, response.text
+    assert response.headers["location"].endswith("/units/ex04")
+
+    with world.database.unit_of_work() as uow:
+        (task,) = uow.tasks.list_for_course(world.course.id)
+    assert task.unit == "ex04"
+
+
+def test_a_suffix_that_already_carries_the_prefix_is_not_doubled(world: World) -> None:
+    """取り込み済みの課題と鍵を揃えたい場合に、前半を二重に付けない。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    body = {
+        "unit": "ex04",
+        "statement": "## 課題 ##\n\n本文",
+        "session": "4",
+        "position": "1",
+        "readability_weight": "0.3",
+    }
+    assert (
+        client.post(
+            f"/manage/courses/{world.course.id}/tasks",
+            data={**body, "key_suffix": "ex04/p1"},
+            follow_redirects=False,
+        ).status_code
+        == 303
+    )
+    # 同じ鍵なので、二度目は増えずに同じ課題を更新する（`derived_id`）。
+    assert (
+        client.post(
+            f"/manage/courses/{world.course.id}/tasks",
+            data={**body, "key_suffix": "p1"},
+            follow_redirects=False,
+        ).status_code
+        == 303
+    )
+    with world.database.unit_of_work() as uow:
+        tasks = uow.tasks.list_for_course(world.course.id)
+    assert len(tasks) == 1, "前半が二重に付いて別の課題になっている"
+
+
+def test_a_task_without_any_key_is_refused(world: World) -> None:
+    world.register("teacher", Role.INSTRUCTOR)
+    response = world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/tasks",
+        data={"unit": "ex04", "statement": "## 課題 ##\n\n本文"},
+    )
+    assert response.status_code == 400
+    assert "課題キー" in response.json()["detail"]
+
+
+def test_the_unit_page_does_not_let_you_retype_the_unit(world: World) -> None:
+    """「まとまり」の自由入力は置かない。別の回の課題をここから作れてしまう。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    body = world.client("teacher").get(f"/manage/courses/{world.course.id}/units/ex04").text
+    assert 'name="key_suffix"' in body
+    assert 'name="unit" value="ex04"' in body
+    assert 'id="unit"' not in body, "まとまりの自由入力が残っている"
+
+
+def test_the_course_menu_puts_the_units_first(world: World) -> None:
+    """よく使うのは「いまの回」。設定と同じ濃さで並べると毎回目で探すことになる。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    _import_example(world)
+
+    body = world.client("teacher").get(f"/courses/{world.course.id}").text
+    assert body.index("問題セット") < body.index("コース全体の設定")
+
+
+# --------------------------------------------------------------------------
+# 提出できるファイル形式
+# --------------------------------------------------------------------------
+
+
+def test_the_course_declares_a_default_upload_format(world: World) -> None:
+    world.register("teacher", Role.INSTRUCTOR)
+    response = world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/upload-formats",
+        data={"suffix": [".c", ".pdf", ".png"]},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    with world.database.unit_of_work() as uow:
+        course = uow.identity.get_course(world.course.id)
+    assert course.upload_suffixes == (".c", ".pdf", ".png")
+
+
+def test_an_empty_format_selection_is_refused(world: World) -> None:
+    """1 つも選ばせないと、その科目には何も提出できなくなる。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    response = world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/upload-formats", data={}
+    )
+    assert response.status_code == 400
+
+
+def test_a_task_can_declare_its_own_upload_formats(world: World) -> None:
+    """レポート 1 問だけ PDF を許す、が課題側でできること。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    client.post(
+        f"/manage/courses/{world.course.id}/tasks",
+        data={
+            "key_suffix": "p1",
+            "unit": "ex04",
+            "statement": "## [必須] レポート ##\n\n本文",
+            "position": "1",
+            "readability_weight": "0.3",
+            "suffix": [".pdf", ".jpg"],
+        },
+        follow_redirects=False,
+    )
+    with world.database.unit_of_work() as uow:
+        (task,) = uow.tasks.list_for_course(world.course.id)
+    assert task.accepted_suffixes == (".jpg", ".pdf")
+
+
+# --------------------------------------------------------------------------
+# 既にある課題を直す（P8 — 版を上げる）
+# --------------------------------------------------------------------------
+
+
+def test_revising_a_task_creates_a_new_version(world: World) -> None:
+    """出題済みの版は書き換えない。過去の採点がどの基準で付いたか辿れなくなる。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    client.post(
+        f"/manage/courses/{world.course.id}/tasks",
+        data={
+            "key_suffix": "p1",
+            "unit": "ex04",
+            "statement": "## [必須] 元の題名 ##\n\n元の本文",
+            "position": "1",
+            "readability_weight": "0.3",
+        },
+    )
+    with world.database.unit_of_work() as uow:
+        (task,) = uow.tasks.list_for_course(world.course.id)
+        first = uow.tasks.latest_version(task.id)
+
+    response = client.post(
+        f"/manage/courses/{world.course.id}/tasks/{task.id}/revise",
+        data={
+            "statement": "## [必須] 元の題名 ##\n\n直した本文",
+            "readability_weight": "0.3",
+            "suffix": [".pdf"],
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303, response.text
+
+    with world.database.unit_of_work() as uow:
+        latest = uow.tasks.latest_version(task.id)
+        again = uow.tasks.get_version(first.id)
+        updated = uow.tasks.get_task(task.id)
+    assert latest.version == first.version + 1
+    assert "直した本文" in latest.statement
+    # 元の版はそのまま残る。
+    assert again is not None
+    assert "元の本文" in again.statement
+    assert updated.accepted_suffixes == (".pdf",)
+
+
+def test_revising_without_changing_anything_does_not_bump_the_version(world: World) -> None:
+    """提出形式だけ変えたいときに版が増えないこと。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    statement = "## [必須] 題名 ##\n\n本文"
+    client.post(
+        f"/manage/courses/{world.course.id}/tasks",
+        data={
+            "key_suffix": "p1",
+            "unit": "ex04",
+            "statement": statement,
+            "position": "1",
+            "readability_weight": "0.3",
+        },
+    )
+    with world.database.unit_of_work() as uow:
+        (task,) = uow.tasks.list_for_course(world.course.id)
+
+    client.post(
+        f"/manage/courses/{world.course.id}/tasks/{task.id}/revise",
+        data={"statement": statement, "readability_weight": "0.3", "suffix": [".png"]},
+    )
+    with world.database.unit_of_work() as uow:
+        latest = uow.tasks.latest_version(task.id)
+        updated = uow.tasks.get_task(task.id)
+    assert latest.version == 1
+    assert updated.accepted_suffixes == (".png",)
+
+
+def test_an_assistant_cannot_revise_a_task(world: World) -> None:
+    world.register("teacher", Role.INSTRUCTOR)
+    world.register("ta", Role.ASSISTANT)
+    task_id = _import_example(world)
+    response = world.client("ta").post(
+        f"/manage/courses/{world.course.id}/tasks/{task_id}/revise",
+        data={"statement": "## 題名 ##\n\n本文"},
+    )
+    assert response.status_code == 403
+
+
+# --------------------------------------------------------------------------
+# 確定処理 — 提出ごと・問題ごと・問題セットごと
+# --------------------------------------------------------------------------
+
+
+def test_the_finalization_page_lists_the_open_submissions(world: World) -> None:
+    world.register("teacher", Role.INSTRUCTOR)
+    _import_example(world)
+    body = world.client("teacher").get(f"/courses/{world.course.id}/finalize").text
+    assert "確定処理" in body
+    assert "提出ごとに確定する" in body
+    assert "問題セットごとにまとめて確定する" in body
+
+
+def test_a_problem_set_can_be_finalized_in_one_go(world: World) -> None:
+    """問題セット単位の一括確定。学期末に成績を閉じる導線（ADR 0010）。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    _import_example(world)
+    unit = _unit_of(world)
+    response = world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/units/{unit}/finalize",
+        data={"justification": "テスト全通の提出について、抽出して確認の上まとめて確定します。"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert response.headers["location"] == f"/courses/{world.course.id}/finalize"
+
+
+def test_finalizing_a_problem_set_requires_a_justification(world: World) -> None:
+    """根拠は学習者にそのまま出る。個別に読んでいない成績を閉じる操作だから。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    _import_example(world)
+    response = world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/units/{_unit_of(world)}/finalize",
+        data={"justification": "短い"},
+    )
+    assert response.status_code == 400
+
+
+def test_an_assistant_cannot_finalize_a_problem_set(world: World) -> None:
+    world.register("teacher", Role.INSTRUCTOR)
+    world.register("ta", Role.ASSISTANT)
+    _import_example(world)
+    response = world.client("ta").post(
+        f"/manage/courses/{world.course.id}/units/{_unit_of(world)}/finalize",
+        data={"justification": "テスト全通の提出をまとめて確定します。"},
+    )
+    assert response.status_code == 403
+
+
+def test_an_empty_problem_set_cannot_be_finalized(world: World) -> None:
+    world.register("teacher", Role.INSTRUCTOR)
+    response = world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/units/nosuchunit/finalize",
+        data={"justification": "テスト全通の提出をまとめて確定します。"},
+    )
+    assert response.status_code == 404
+
+
+def test_the_grace_and_the_number_are_separate_forms(world: World) -> None:
+    """効き方が違うものを 1 つの保存ボタンに混ぜない。
+
+    締切を直しに来たときに猶予まで書き換える（あるいはその逆）事故を、
+    フォームの単位で防ぐ。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    _import_example(world)
+    unit = _unit_of(world)
+    client = world.client("teacher")
+    client.post(
+        f"/manage/courses/{world.course.id}/units/{unit}/auto-finalize",
+        data={"after_minutes": "45"},
+    )
+    client.post(f"/manage/courses/{world.course.id}/units/{unit}/number", data={"session": "7"})
+
+    # 日程だけを保存しても、猶予と回番号は残る。
+    client.post(
+        f"/manage/courses/{world.course.id}/units/{unit}/schedule",
+        data={"due_at": "2025-10-08T23:59"},
+    )
+    with world.database.unit_of_work() as uow:
+        (task,) = uow.tasks.list_for_course(world.course.id)
+    assert task.auto_finalize_after_minutes == 45
+    assert task.session == 7
+    assert task.due_at is not None
+
+
+def test_an_empty_grace_falls_back_to_the_course(world: World) -> None:
+    world.register("teacher", Role.INSTRUCTOR)
+    _import_example(world)
+    unit = _unit_of(world)
+    client = world.client("teacher")
+    client.post(
+        f"/manage/courses/{world.course.id}/units/{unit}/auto-finalize",
+        data={"after_minutes": "45"},
+    )
+    client.post(
+        f"/manage/courses/{world.course.id}/units/{unit}/auto-finalize", data={"after_minutes": ""}
+    )
+    with world.database.unit_of_work() as uow:
+        (task,) = uow.tasks.list_for_course(world.course.id)
+    assert task.auto_finalize_after_minutes is None
+
+
+def test_a_new_task_carries_the_course_default_formats(world: World) -> None:
+    """**空で保存しない。** 画面は科目の既定をチェック済みで出す。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    client.post(
+        f"/manage/courses/{world.course.id}/upload-formats", data={"suffix": [".py", ".md"]}
+    )
+    client.post(
+        f"/manage/courses/{world.course.id}/tasks",
+        data={
+            "key_suffix": "p1",
+            "unit": "ex04",
+            "statement": "## [必須] 課題 ##\n\n本文",
+            "position": "1",
+            "readability_weight": "0.3",
+        },
+    )
+    with world.database.unit_of_work() as uow:
+        (task,) = uow.tasks.list_for_course(world.course.id)
+    assert task.accepted_suffixes == (".md", ".py")
+
+
+def test_clearing_every_format_on_the_form_is_refused(world: World) -> None:
+    """空で保存できると、その課題には何も提出できなくなる。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    response = world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/tasks",
+        data={
+            "key_suffix": "p1",
+            "unit": "ex04",
+            "statement": "## [必須] 課題 ##\n\n本文",
+            "readability_weight": "0.3",
+            # 画面から来たことの印。チェックは 1 つも無い。
+            "formats": "1",
+        },
+    )
+    assert response.status_code == 400
+    assert "1 つ以上" in response.json()["detail"]
+
+
+def test_saving_the_schedule_says_so_on_the_next_screen(world: World) -> None:
+    """同じ画面に戻る操作は、成功しても見た目が変わらない。
+
+    押せていないのか効いていないのかを教員が区別できないので、合図を出す。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    _import_example(world)
+    unit = _unit_of(world)
+    client = world.client("teacher")
+
+    response = client.post(
+        f"/manage/courses/{world.course.id}/units/{unit}/schedule",
+        data={"due_at": "2025-10-08T23:59"},
+        follow_redirects=False,
+    )
+    # **その場に戻す。** 錨が付いていないと、保存のたびに画面の先頭に飛ぶ。
+    assert response.headers["location"].endswith("?saved=schedule#schedule")
+    assert "日程を保存しました" in client.get(response.headers["location"]).text
+
+
+def test_saving_the_course_settings_says_so(world: World) -> None:
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    response = client.post(
+        f"/manage/courses/{world.course.id}/auto-finalize",
+        data={"after_minutes": "60"},
+        follow_redirects=False,
+    )
+    assert response.headers["location"].endswith("?saved=course_grace#course_grace")
+    assert "保存しました" in client.get(response.headers["location"]).text
+
+
+# --------------------------------------------------------------------------
+# 知識要素の体系（設計原則 P6）
+# --------------------------------------------------------------------------
+
+
+def test_the_kc_page_shows_the_namespaces_of_the_course(world: World) -> None:
+    world.register("teacher", Role.INSTRUCTOR)
+    body = world.client("teacher").get(f"/manage/courses/{world.course.id}/kc").text
+    assert "知識要素" in body
+    assert "cs" in body
+    assert "コースをまたいで共有されます" in body
+
+
+def test_an_instructor_cannot_create_a_root_component(world: World) -> None:
+    """新しい分野の根を作るのは管理者の操作。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    response = world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/kc",
+        data={"key": "cs.loops", "label": "ループ"},
+    )
+    assert response.status_code == 400
+    assert "第 1 階層" in response.json()["detail"]
+
+
+def test_an_admin_creates_a_root_and_an_instructor_extends_it(world: World) -> None:
+    """禁止ではなく、追加を明示的な行為にする。"""
+    world.register("boss", Role.ADMIN)
+    world.register("teacher", Role.INSTRUCTOR)
+    assert (
+        world.client("boss")
+        .post(
+            f"/manage/courses/{world.course.id}/kc",
+            data={"key": "cs.loops", "label": "ループ"},
+            follow_redirects=False,
+        )
+        .status_code
+        == 303
+    )
+    response = world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/kc",
+        data={"key": "cs.loops.termination", "label": "停止条件"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    body = world.client("teacher").get(f"/manage/courses/{world.course.id}/kc").text
+    assert "cs.loops.termination" in body
+
+
+def test_a_namespace_outside_the_profile_is_refused(world: World) -> None:
+    world.register("boss", Role.ADMIN)
+    response = world.client("boss").post(
+        f"/manage/courses/{world.course.id}/kc",
+        data={"key": "csci.loops", "label": "ループ"},
+    )
+    assert response.status_code == 400
+    assert "名前空間" in response.json()["detail"]
+
+
+def test_only_an_admin_can_retire_a_component(world: World) -> None:
+    """引退はコースをまたいで効く。1 コースの教員が他の語彙を畳めない。"""
+    world.register("boss", Role.ADMIN)
+    world.register("teacher", Role.INSTRUCTOR)
+    world.client("boss").post(
+        f"/manage/courses/{world.course.id}/kc", data={"key": "cs.loops", "label": "ループ"}
+    )
+    response = world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/kc/retire", data={"key": "cs.loops"}
+    )
+    assert response.status_code == 403
+
+
+def test_generation_needs_a_registered_component(world: World) -> None:
+    """AI に KC を作らせない。生成は登録済みからの選択だけ。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    _import_example(world)
+    response = world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/units/{_unit_of(world)}/generate",
+        data={"key_suffix": "p9", "kc": ["cs.made.up"]},
+    )
+    assert response.status_code == 400
+
+
+def test_the_unit_page_offers_generation_only_with_components(world: World) -> None:
+    world.register("teacher", Role.INSTRUCTOR)
+    _import_example(world)
+    client = world.client("teacher")
+
+    body = client.get(f"/manage/courses/{world.course.id}/units/{_unit_of(world)}").text
+    assert "知識要素が登録されていないので生成できません" in body
+
+    world.register("boss", Role.ADMIN)
+    world.client("boss").post(
+        f"/manage/courses/{world.course.id}/kc", data={"key": "cs.loops", "label": "ループ"}
+    )
+    body = client.get(f"/manage/courses/{world.course.id}/units/{_unit_of(world)}").text
+    assert "AI に課題を作らせる" in body
+    assert 'name="kc"' in body
+
+
+# --------------------------------------------------------------------------
+# 科目情報の URL とシラバスからの候補
+# --------------------------------------------------------------------------
+
+
+def test_the_candidate_page_takes_text_or_a_file(world: World) -> None:
+    """シラバスはブラウザ側で描画されるページで、URL からは本文を取れない。
+
+    だから本文そのものを受け取る ── 貼り付けか、PDF の添付。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    body = world.client("teacher").get(
+        f"/manage/courses/{world.course.id}/kc/candidates"
+    ).text
+    assert 'name="text"' in body
+    assert 'type="file"' in body
+    # deep link の作り方は画面に書いておく（本文を取りに行けないぶん）。
+    assert "Y001009010" in body
+
+
+def test_an_unreadable_attachment_says_why(world: World) -> None:
+    """スキャン画像の PDF を黙って OCR に流さない。読めないとそう言う。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    response = world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/kc/candidates",
+        files={"upload": ("syllabus.pdf", b"not really a pdf", "application/pdf")},
+    )
+    assert response.status_code == 400
+    assert "本文を取り出せませんでした" in response.json()["detail"]
+
+
+def test_an_unsupported_attachment_is_refused(world: World) -> None:
+    world.register("teacher", Role.INSTRUCTOR)
+    response = world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/kc/candidates",
+        files={"upload": ("syllabus.xlsx", b"binary", "application/octet-stream")},
+    )
+    assert response.status_code == 400
+    assert "読めません" in response.json()["detail"]
+
+
+def test_a_short_paste_is_refused(world: World) -> None:
+    world.register("teacher", Role.INSTRUCTOR)
+    response = world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/kc/candidates", data={"text": "短い"}
+    )
+    assert response.status_code == 400
+
+
+def test_adopting_a_candidate_follows_the_same_rules(world: World) -> None:
+    """候補だからといって規則は緩めない（名前空間・親の実在・第 1 階層）。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    response = world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/kc/adopt",
+        data={"kc": ["cs.loops.termination"], "label": ["停止条件"]},
+    )
+    assert response.status_code == 400
+    assert "親" in response.json()["detail"]
+
+
+def test_the_course_settings_link_to_both_flows(world: World) -> None:
+    """基本情報と知識要素は別の作業。入口も分ける。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    settings = client.get(f"/manage/courses/{world.course.id}").text
+    assert f"/manage/courses/{world.course.id}/basics" in settings
+    kc_page = client.get(f"/manage/courses/{world.course.id}/kc").text
+    assert f"/manage/courses/{world.course.id}/kc/candidates" in kc_page
+
+
+def test_the_basics_page_saves_the_title_and_description(world: World) -> None:
+    """基本情報はコースが持つ。**科目プロファイルには置かない**（ADR 0002）。
+
+    あちらは採点の仕方の宣言で、コードと同じレビューを通す前提の設定である。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    response = client.post(
+        f"/manage/courses/{world.course.id}/basics/apply",
+        data={"title": "プログラミング及び実習 II", "description": "## 到達目標\n\n配列を使える"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    with world.database.unit_of_work() as uow:
+        course = uow.identity.get_course(world.course.id)
+    assert course.title == "プログラミング及び実習 II"
+    assert "到達目標" in course.description
+
+
+def test_the_basics_page_cannot_change_the_identity(world: World) -> None:
+    """コードと学期はコースの同一性。変えると別のコースになる。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/basics/apply",
+        data={"title": "別名", "code": "other", "term": "2099-通年"},
+    )
+    with world.database.unit_of_work() as uow:
+        course = uow.identity.get_course(world.course.id)
+    assert course.code == "prog2"
+    assert course.term == "2025-後期"
+
+
+def test_the_basics_page_shows_the_reading_indicator(world: World) -> None:
+    """PDF の抽出とモデルの応答で十数秒かかる。何も出ないと押せたか分からない。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    body = world.client("teacher").get(f"/manage/courses/{world.course.id}/basics").text
+    assert "読み取り中" in body
+    assert 'type="file"' in body
+    # 読み取りのボタンはファイル選択と同じ行に置く。
+    assert body.index('type="file"') < body.index("読み取って候補を出す")

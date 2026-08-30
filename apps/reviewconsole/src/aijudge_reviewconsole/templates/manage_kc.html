@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block title %}知識要素 — {{ course.title }} — aiJudge{% endblock %}
+{% block body %}
+<h1 id="kc">知識要素（KC）</h1>
+<p class="crumb">{{ course.title }}・名前空間
+  {% for n in namespaces %}<span class="mono">{{ n }}</span>{% else %}<em>なし</em>{% endfor %}
+</p>
+
+{# **コースをまたいで共有される語彙である。** 同じ名前空間を使う他のコースにも
+   同じものが見える（設計原則 P6 の狙いで、習熟度が学期をまたいで積み上がる
+   のもこの性質による）。だから利用状況を添える。 #}
+<div class="note">
+  <strong>この一覧はコースをまたいで共有されます。</strong>
+  同じ名前空間（{{ namespaces | join(', ') or 'なし' }}）を使う他のコースにも、ここで足した
+  知識要素が見えます。名前空間そのものを増やすには科目プロファイルの変更が必要です
+  （ブラウザからは増やせません）。
+</div>
+
+{% if not namespaces %}
+<div class="note warn">
+  このコースの科目プロファイルは知識要素の名前空間を宣言していません。
+  <code>subjects/{{ course.subject_profile }}.yaml</code> に <code>kc_namespaces</code> を書いてください。
+</div>
+{% endif %}
+
+<table>
+  <thead><tr>
+    <th class="grow">キー</th><th class="fit">名前</th>
+    <th class="fit">課題</th><th class="fit">コース</th><th class="fit">追加</th>
+    {% if is_admin %}<th class="fit"></th>{% endif %}
+  </tr></thead>
+  <tbody>
+  {% for row in rows %}
+    <tr>
+      <td class="grow mono">{{ row.kc.key }}
+        {% if row.kc.deprecated %}<span class="pill no">引退</span>{% endif %}
+      </td>
+      <td class="fit">{{ row.kc.label }}
+        {% if row.kc.description %}<br><span class="desc">{{ row.kc.description }}</span>{% endif %}
+      </td>
+      {# **利用状況を出す。** 引退させてよいかの判断材料で、自分のコースで
+         使っていなくても他のコースが使っていれば影響がある。 #}
+      <td class="fit">{{ row.tasks }}</td>
+      <td class="fit">{{ row.courses }}</td>
+      <td class="fit desc">{{ row.kc.created_at.strftime('%Y-%m-%d') if row.kc.created_at else '—' }}</td>
+      {% if is_admin %}
+      <td class="fit">
+        <details>
+          <summary class="desc">{% if row.kc.deprecated %}引退を取り消す{% else %}引退させる{% endif %}</summary>
+          <form method="post" action="/manage/courses/{{ course.id }}/kc/retire" style="margin:6px 0 0">
+            <input type="hidden" name="key" value="{{ row.kc.key }}">
+            {% if row.kc.deprecated %}
+              <input type="hidden" name="restore" value="1">
+              <div class="actions"><button type="submit">引退を取り消す</button></div>
+            {% else %}
+              <div class="inline-field">
+                <span class="body">
+                  <label for="sup-{{ loop.index }}">後継のキー（空欄なら後継なし）</label>
+                  <input id="sup-{{ loop.index }}" name="superseded_by" placeholder="{{ namespaces[0] if namespaces }}.…">
+                </span>
+                <button type="submit">引退させる</button>
+              </div>
+              <p class="desc" style="margin:8px 0 0">
+                <strong>消しません。</strong>ID はキーから導かれ、Q-matrix は追記のみなので、
+                消すと過去の課題が何を問うていたのか辿れなくなります。
+              </p>
+            {% endif %}
+          </form>
+        </details>
+      </td>
+      {% endif %}
+    </tr>
+  {% else %}
+    <tr><td colspan="{{ 6 if is_admin else 5 }}" class="desc">まだ知識要素がありません。</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<p class="desc">
+  シラバスがあるなら、<a href="/manage/courses/{{ course.id }}/kc/candidates">本文から候補を作る</a>
+  こともできます（出てくるのは候補で、選んだものだけが登録されます）。
+</p>
+
+<h2>知識要素を追加する</h2>
+{# 新しい KC は**既存 KC の子**としてのみ足せる（`aijudge_admin.kc`）。
+   孤立キーの山ではなく木を保つため。 #}
+<form method="post" action="/manage/courses/{{ course.id }}/kc" class="card">
+  <div class="inline-field">
+    <span class="body">
+      <label for="key">キー（<code>{{ namespaces[0] if namespaces else '名前空間' }}.親.子</code>）</label>
+      <input id="key" name="key" required placeholder="{{ namespaces[0] if namespaces else 'cs' }}.loops.termination">
+    </span>
+    {% if saved_key and saved_key.startswith('kc_') %}<span class="flash">{{ saved }}</span>{% endif %}
+  </div>
+  <div class="field">
+    <label for="label">名前（人が読む短い名前）</label>
+    <input id="label" name="label" placeholder="ループの停止条件">
+  </div>
+  <div class="field">
+    <label for="description">説明（任意）</label>
+    <input id="description" name="description" placeholder="何ができれば身に付いたと言えるか">
+  </div>
+  <p class="desc">
+    <strong>親が実在している必要があります。</strong>
+    <code>{{ namespaces[0] if namespaces else 'cs' }}.loops.termination</code> を足すには
+    <code>{{ namespaces[0] if namespaces else 'cs' }}.loops</code> が先に要ります。
+    {% if not is_admin %}第 1 階層（分野の根）を作るには管理者の操作が必要です。{% endif %}
+    <strong>改名はできません</strong> — ID がキーから決まり、過去の採点がそれを指しているためです。
+    誤って作ったものは引退させてください。
+  </p>
+  <div class="actions"><button type="submit">追加する</button></div>
+</form>
+{% endblock %}

@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}確定処理 — {{ course.title }} — aiJudge{% endblock %}
+{% block body %}
+<h1>確定処理</h1>
+<p class="crumb">{{ course.title }}・依頼が出なかった提出をここで閉じます。</p>
+
+{# **再確認の依頼とは別の仕事。** あちらは学習者の申し出に答えるもので、
+   こちらは残りを閉じるもの。依頼はごく一部にしか出ないので、学期末に
+   成績が閉じるにはこちらが要る（ADR 0010）。 #}
+<div class="note">
+  <strong>個別に読んでいない成績を確定させる操作です。</strong>
+  根拠説明は学習者にそのまま表示されます。
+  <strong>未対応の再確認の依頼は確定しません</strong> —
+  そこは <a href="/courses/{{ course.id }}/queue">再確認の依頼</a>（{{ contested }} 件）で
+  1 件ずつ読んでください。
+</div>
+
+{% if last_finalize %}
+<div class="note">
+  {{ last_finalize.finalized }} 件を確定しました。
+  {% if last_finalize.contested %}
+    再確認の依頼が出ている {{ last_finalize.contested }} 件は確定していません。
+  {% endif %}
+</div>
+{% endif %}
+
+{% if can_manage %}
+<h2>問題セットごとにまとめて確定する</h2>
+{% for unit in units %}
+<details class="card">
+  <summary>
+    <strong>{{ unit.unit or unit.label }}</strong>
+    <span class="desc">{{ unit.count }} 問・未確定 {{ unit.unfinalized }} 件</span>
+  </summary>
+  <form method="post" action="/manage/courses/{{ course.id }}/units/{{ unit.key }}/finalize"
+        style="margin-top:10px">
+    <div class="field">
+      <label for="uj-{{ unit.key }}">確定の根拠（{{ min_reason }} 文字以上・学習者に表示されます）</label>
+      <textarea id="uj-{{ unit.key }}" name="justification" rows="2" required minlength="{{ min_reason }}"
+        placeholder="例: テスト全通の提出について、抽出したものを確認した上で残りを確定します。"></textarea>
+    </div>
+    <div class="actions"><button type="submit">この問題セットをまとめて確定する</button></div>
+  </form>
+
+  <h3>問題ごとに確定する</h3>
+  <table>
+    <thead><tr><th class="grow">課題</th><th class="fit">未確定</th><th class="fit"></th></tr></thead>
+    <tbody>
+    {% for task, version in unit.tasks %}
+      <tr>
+        <td class="grow">{{ task.title }}</td>
+        <td class="fit">{{ pending.get(task.id, 0) }} 件</td>
+        <td class="fit">
+          {% if pending.get(task.id, 0) %}
+          <details>
+            <summary class="desc">この問題を確定する</summary>
+            <form method="post" action="/manage/courses/{{ course.id }}/tasks/{{ task.id }}/finalize"
+                  style="margin:6px 0 0">
+              <div class="field">
+                <label for="tj-{{ task.id }}">確定の根拠（{{ min_reason }} 文字以上）</label>
+                <textarea id="tj-{{ task.id }}" name="justification" rows="2" required
+                          minlength="{{ min_reason }}"></textarea>
+              </div>
+              <div class="actions"><button type="submit">まとめて確定する</button></div>
+            </form>
+          </details>
+          {% else %}<span class="desc">—</span>{% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</details>
+{% else %}
+<p class="desc">未確定の提出はありません。</p>
+{% endfor %}
+{% endif %}
+
+<h2>提出ごとに確定する（未確定 {{ rows | length }} 件）</h2>
+<table>
+  <thead><tr>
+    <th class="fit">提出</th><th class="fit">学習者</th><th class="grow">課題</th>
+    <th class="fit">回</th><th class="fit">AI の総合</th><th class="fit"></th>
+  </tr></thead>
+  <tbody>
+  {% for row in rows %}
+    <tr>
+      <td class="fit">{{ row.submission.submitted_at.strftime('%m-%d %H:%M') if row.submission.submitted_at else '—' }}</td>
+      <td class="fit mono">{{ row.learner.login if row.learner else '—' }}</td>
+      <td class="grow">
+        {% if row.task %}<span class="mono desc">{{ row.task.unit or row.task.unit_label }}</span>
+          {{ row.task.title }}{% else %}—{% endif %}
+      </td>
+      <td class="fit">{{ row.submission.attempt }} 回目</td>
+      <td class="fit">{{ '%.0f' | format(row.run.score_ratio * 100) }}%</td>
+      <td class="fit">
+        <a href="/review/{{ row.submission.id }}/reveal">確認して確定する</a>
+        {% if row.contested %}<br><span class="desc">再確認の依頼あり</span>{% endif %}
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="6" class="desc">未確定の提出はありません。</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

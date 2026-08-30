@@ -1,4 +1,4 @@
-"""科目・課題・受講の管理（教員向け）。
+"""コース・課題・受講の管理（教員向け）。
 
 **YAML の直接編集を運用の前提にしない**（設計方針 §9.2 Phase 2）。学期の頭に
 やることは CLI（`aijudge-admin`）でもできるが、学期中に発生する作業
@@ -31,34 +31,59 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Annotated
+from urllib.parse import quote, unquote
 
-from fastapi import APIRouter, Form, HTTPException, Request, Response
+from fastapi import APIRouter, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import ValidationError
 
 from aijudge_admin import (
     AdminError,
+    allowed_namespaces,
+    assert_registered,
     enrol_roster,
     ensure_course,
     finalize_task,
+    finalize_tasks,
+    kc_usage,
+    list_for_namespaces,
     parse_roster,
     pending_counts,
+    register_kc,
+    restore_kc,
+    retire_kc,
     save_task,
 )
+from aijudge_admin.drafting import TaskDrafter
 from aijudge_admin.roster import RosterError
+from aijudge_admin.syllabus import (
+    MAX_SYLLABUS_BYTES,
+    SYLLABUS_EXAMPLE,
+    SyllabusError,
+    SyllabusReader,
+    read_document,
+)
 from aijudge_authoring import TaskSpec
+from aijudge_authoring.drafting import Blueprint, Difficulty
 from aijudge_core import (
+    DEFAULT_UPLOAD_SUFFIXES,
     MIN_JUSTIFICATION_LENGTH,
+    SUFFIX_GROUPS,
     Course,
     GradeWindow,
     Role,
-    deadline_for,
-    grade_window,
+    Task,
+    normalize_suffixes,
 )
-from aijudge_core.ids import CourseId, TaskId, TaskVersionId, UserId
+from aijudge_core.ids import CourseId, TaskId, TaskVersionId, UserId, derived_id
+from aijudge_grading import load_profile
 from aijudge_identity import AuthService, PermissionDenied, Principal
+
+from .overview import empty_unit, find_unit, load_units, unit_key
 
 # ルータは `register()` の中で毎回作る。モジュール階層に置くと、
 # `create_app` を 2 回呼んだときに同じ経路が二重に登録される
@@ -87,6 +112,15 @@ def _require_admin(request: Request, me: Principal) -> None:
     raise HTTPException(status_code=403, detail="コースの作成には管理者権限が必要です")
 
 
+def _is_admin(request: Request, me: Principal) -> bool:
+    """テナント内に ADMIN の受講が 1 つでもあるか（`_require_admin` の判定版）。"""
+    try:
+        _require_admin(request, me)
+    except HTTPException:
+        return False
+    return True
+
+
 def _require_instructor(request: Request, me: Principal, course_id: CourseId) -> Course:
     """そのコースの教員であること。**TA には開けない。**
 
@@ -109,6 +143,210 @@ def _require_instructor(request: Request, me: Principal, course_id: CourseId) ->
     return course
 
 
+@dataclass(frozen=True)
+class _Merged:
+    """複数課題の確定結果を 1 つに畳んだもの。画面が読む形は 1 件と同じ。"""
+
+    task: object
+    finalized: int
+    contested: int
+
+
+def _merged(outcomes) -> _Merged:
+    return _Merged(
+        task=outcomes[0].task if outcomes else None,
+        finalized=sum(outcome.finalized for outcome in outcomes),
+        contested=sum(outcome.contested for outcome in outcomes),
+    )
+
+
+def _language_of(profile) -> str:
+    """この科目の言語。`code_test_runner` の設定から取る。
+
+    プロファイルが言語を持っているのに生成側で別に指定させると、
+    「C の科目に Python の課題が生成される」が起きる。
+    """
+    options = profile.evaluator_options.get("code_test_runner", {})
+    return str(options.get("language") or "c")
+
+
+def _normalized_unit(raw: str) -> str:
+    """URL から来た問題セットの鍵を、`unit_key` と同じ形に揃える。
+
+    経路パラメータは復号された状態で届くので、`quote` した鍵と直接
+    比べると、記号を含む鍵（`ex 03` など）が一致しない。往復させて
+    どちらの形で来ても同じ鍵になるようにする。
+    """
+    return quote(unquote(raw), safe="")
+
+
+def _key_of(task, version) -> str:
+    """この課題を作った `TaskSpec.key`。
+
+    ID は鍵から導いてある（`derived_id`）ので、次の版の ID も観点の ID も
+    鍵が無いと作れない。新しい版は鍵を持っている（`TaskVersion.source_key`）。
+
+    **持っていない古い版のために復元を試す。** 鍵は取り込み元の
+    `<まとまり>/p<番号>` の形をしており、課題 ID と突き合わせれば当たりを
+    確かめられる ── 当たらなければ諦めて断る（間違った鍵で保存すると、
+    別の課題を上書きする）。
+    """
+    if version.source_key:
+        return str(version.source_key)
+    for candidate in _key_candidates(task):
+        if derived_id("tsk", candidate) == str(task.id):
+            return candidate
+    raise HTTPException(
+        status_code=409,
+        detail=(
+            "この課題は画面から直せません（取り込み時の課題キーが記録されて "
+            "いない古い課題です）。API から同じキーで入れ直してください。"
+        ),
+    )
+
+
+def _key_candidates(task) -> list[str]:
+    unit = task.unit or ""
+    position = task.position
+    names: list[str] = []
+    if unit and position:
+        names += [f"{unit}/p{position}", f"{unit}/{position}", f"{unit}/p{position:02d}"]
+    if unit:
+        names += [unit, f"{unit}/p1"]
+    names.append(task.title)
+    return names
+
+
+# 保存の合図。**押したことが分かるようにする。** 同じ画面に戻る操作は、
+# 成功しても見た目が変わらないので、押せていないのか効いていないのかを
+# 教員が区別できない。
+# 保存後の戻り先。**その場に戻す。** 画面の先頭に飛ぶと、教員は自分が
+# どこを触っていたのかを探し直すことになる（設定が縦に並ぶ画面ほど効く）。
+# 素の HTML でこれをやるには、リダイレクト先に錨を付けるのが確実で、
+# JavaScript も要らない。
+SAVED_MESSAGES: dict[str, str] = {
+    "schedule": "日程を保存しました（この問題セットの全課題に反映）",
+    "grace": "保存しました",
+    "number": "保存しました",
+    "course_grace": "保存しました",
+    "formats": "保存しました",
+    "enrolled": "受講登録を保存しました",
+    "removed": "受講を取り消しました",
+    "kc_added": "知識要素を追加しました",
+    "kc_retired": "知識要素を引退させました",
+    "kc_restored": "引退を取り消しました",
+    "basics": "基本情報を保存しました",
+    "generated": "課題を生成しました。承認するまで出題されません",
+}
+
+
+def _update_unit(
+    request: Request, course_id: str, unit: str, *, update: dict, saved: str
+) -> Response:
+    """問題セット内の全課題に同じ更新を当てる。
+
+    **`model_copy` を使わない。** あれは検証を走らせないので、締切が公開より
+    前の課題がそのまま保存され、次に読むときに初めて落ちる（実際にそうなった）。
+    作り直して検証を通す。
+    """
+    from .app import require_principal
+
+    me = require_principal(request)
+    _require_instructor(request, me, CourseId(course_id))
+    console = _console(request)
+
+    key = _normalized_unit(unit)
+    with console.database.unit_of_work() as uow:
+        tasks = [
+            task
+            for task in uow.tasks.list_for_course(CourseId(course_id))
+            if unit_key(task) == key
+        ]
+        if not tasks:
+            raise HTTPException(status_code=404, detail="この問題セットには課題がありません")
+        for task in tasks:
+            try:
+                updated = Task.model_validate(task.model_dump() | update)
+            except ValidationError as exc:
+                # 日程の前後関係は模型が見ている（`Task._check_schedule`）。
+                raise HTTPException(status_code=400, detail=_first_error(exc)) from None
+            uow.tasks.save_task(updated)
+        uow.commit()
+    return RedirectResponse(
+        f"/manage/courses/{course_id}/units/{key}?saved={saved}#{saved}", status_code=303
+    )
+
+
+def _chosen_suffixes(raw: list[str], marker: str, course: Course) -> tuple[str, ...]:
+    """課題に入れる提出形式を決める。**空で保存しない。**
+
+    画面はコースの既定をチェック済みで出すので、送られてくるのは常に
+    「教員が選んだ結果」である。**1 つも選ばずに保存させない** ── 空で
+    保存できると、その課題には何も提出できなくなり、原因が学習者側の
+    問題に見える。
+
+    `marker` はフォームから来たことの印。画面を経由しない呼び出し
+    （API・移行）は形式を送らないので、そこではコースの既定を入れる。
+    """
+    chosen = normalize_suffixes(raw)
+    if chosen:
+        return chosen
+    if marker:
+        raise HTTPException(
+            status_code=400, detail="提出できるファイル形式を 1 つ以上選んでください"
+        )
+    return course.upload_suffixes or DEFAULT_UPLOAD_SUFFIXES
+
+
+def _parse_minutes(raw: str) -> int | None:
+    """自動確定までの猶予（分）。空なら未指定。
+
+    0 を許すと締切と同時に確定し、締切直前の提出が採点前に確定しうる。
+    猶予は正の値でなければ意味がない。
+    """
+    text = raw.strip()
+    if not text:
+        return None
+    try:
+        minutes = int(text)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"分の形式が不正です: {raw!r}") from None
+    if minutes <= 0:
+        raise HTTPException(status_code=400, detail="猶予は 1 分以上にしてください")
+    return minutes
+
+
+def _first_error(exc: ValidationError) -> str:
+    """模型の検証エラーを 1 行にする。教員に読める文だけを出す。"""
+    for error in exc.errors():
+        message = str(error.get("msg", ""))
+        return message.removeprefix("Value error, ")
+    return "指定が不正です"
+
+
+def _compose_key(unit: str, suffix: str) -> str:
+    """問題セットの鍵と、その中での鍵を繋ぐ。
+
+    `ex02` + `p8` → `ex02/p8`。まとまりが無い課題（未分類）は後半だけを
+    鍵にする。後半に `/` が入っていればそれを尊重する ── 取り込み済みの
+    課題と鍵を揃えたい場合があり、そこで縛ると直す手段が無くなる。
+    """
+    if not suffix:
+        return ""
+    if not unit or suffix.startswith(f"{unit}/"):
+        return suffix
+    return f"{unit}/{suffix}"
+
+
+def _unit_href(course_id: str, task) -> str:
+    """その課題が属する回のページ。
+
+    課題を触る操作（締切・一括確定・追加）は**その回のページから来る**ので、
+    そこへ戻す。コースのトップに返すと、教員は毎回同じ回を開き直すことになる。
+    """
+    return f"/manage/courses/{course_id}/units/{unit_key(task)}"
+
+
 def _parse_when(raw: str) -> datetime | None:
     """`YYYY-MM-DDTHH:MM` を読む。空なら None（締切なし）。
 
@@ -129,29 +367,14 @@ def register(templates) -> APIRouter:
     router = APIRouter(prefix="/manage")
 
     @router.get("", response_class=HTMLResponse)
-    def index(request: Request) -> Response:
-        from .app import require_principal
+    def index() -> Response:
+        """コースの一覧は担当コース（`/`）に 1 つだけ置く。
 
-        me = require_principal(request)
-        console = _console(request)
-        with console.database.unit_of_work() as uow:
-            auth = AuthService(uow.identity)
-            rows = []
-            is_admin = False
-            for course in auth.courses_for(me.tenant_id, me.user_id):
-                enrollment = uow.identity.find_enrollment(course.id, me.user_id)
-                if enrollment is None:
-                    continue
-                if enrollment.role is Role.ADMIN:
-                    is_admin = True
-                if enrollment.role in (Role.INSTRUCTOR, Role.ADMIN):
-                    rows.append(course)
-        profiles = sorted(path.stem for path in console.profiles_dir.glob("*.yaml"))
-        return templates.TemplateResponse(
-            request,
-            "manage_index.html",
-            {"me": me, "courses": rows, "is_admin": is_admin, "profiles": profiles},
-        )
+        以前はここにも一覧があり、採点の入口（`/`）と管理の入口（`/manage`）で
+        同じコースが 2 度並んでいた。**入口が 2 つあること自体が構成の
+        分かりにくさの元**だったので、古い経路は残したまま集約する。
+        """
+        return RedirectResponse("/", status_code=303)
 
     @router.post("/courses")
     def create_course(
@@ -187,63 +410,28 @@ def register(templates) -> APIRouter:
                 role=Role.INSTRUCTOR,
             )
             uow.commit()
-        return RedirectResponse(f"/manage/courses/{course.id}", status_code=303)
+        return RedirectResponse(f"/courses/{course.id}", status_code=303)
 
     @router.get("/courses/{course_id}", response_class=HTMLResponse)
-    def course_detail(request: Request, course_id: str) -> Response:
+    def course_settings(request: Request, course_id: str, saved: str = "") -> Response:
+        """**科目全体**の設定 ── 自動確定・受講者・科目プロファイル。
+
+        課題（締切・一括確定・追加）はここには出さない。回ごとのページに
+        分けてある（`unit_settings`）。1 枚に積むと、教員は「第 3 回の締切を
+        直す」ために縦に長い画面を目で探すことになる。
+        """
         from .app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
         console = _console(request)
 
-        # 課題ごとの未確定件数。**画面に出す。** 自動確定を設定したつもりで
-        # cron を仕掛け忘れても、件数が減らないことで気づける。
-        pending = pending_counts(console.database, course.id)
-        now = datetime.now(UTC)
-
         with console.database.unit_of_work() as uow:
-            tasks = []
-            for task in uow.tasks.list_for_course(course.id):
-                version = uow.tasks.latest_version(task.id)
-                if version is None:
-                    continue
-                tasks.append(
-                    {
-                        "task": task,
-                        "version": version,
-                        "test_cases": len(version.test_cases),
-                        # 自動採点できるか。できない課題は AI 観点だけで、
-                        # 教員の確定が前提になる（ADR 0008）。
-                        "auto_graded": bool(version.test_cases),
-                        "evaluators": sorted(
-                            {c.evaluator_id for c in version.criteria if c.evaluator_id}
-                        ),
-                        "unfinalized": pending.get(task.id, 0),
-                        # 自動確定が走る時刻。締切か猶予が無ければ None。
-                        "auto_finalize_at": deadline_for(
-                            task.due_at, course.auto_finalize_after_hours
-                        ),
-                        # いまどの段階か。**期限経過なのに未確定が残っている
-                        # ことが見えるようにする** ── 自動確定が動いていないか、
-                        # 教員の対応を待っているものがあるかのどちらかである。
-                        "window": grade_window(
-                            task.due_at, course.auto_finalize_after_hours, now
-                        ),
-                    }
-                )
             enrollments = uow.identity.list_enrollments(course.id)
-            members = {
-                user.id: user
-                for user in uow.identity.list_users(
-                    me.tenant_id,
-                    tuple(),  # login では引けないので下で個別に引く
-                )
-            }
-            people = []
-            for enrollment in enrollments:
-                user = members.get(enrollment.user_id) or uow.identity.get_user(enrollment.user_id)
-                people.append({"enrollment": enrollment, "user": user})
+            people = [
+                {"enrollment": enrollment, "user": uow.identity.get_user(enrollment.user_id)}
+                for enrollment in enrollments
+            ]
 
         # 科目プロファイルは**表示だけ**。編集させない（モジュール docstring 参照）。
         profile_path = console.profiles_dir / f"{course.subject_profile}.yaml"
@@ -254,13 +442,114 @@ def register(templates) -> APIRouter:
             {
                 "me": me,
                 "course": course,
-                "tasks": tasks,
+                "section": {"label": "コース全体の設定", "href": f"/manage/courses/{course.id}"},
+                "saved": SAVED_MESSAGES.get(saved),
+                "saved_key": saved,
                 "people": sorted(people, key=lambda row: row["enrollment"].role.value),
                 "profile_text": profile_text,
                 "profile_path": profile_path.name,
                 "roles": [role.value for role in Role],
+                "suffix_groups": SUFFIX_GROUPS,
+                "course_suffixes": course.upload_suffixes or DEFAULT_UPLOAD_SUFFIXES,
+            },
+        )
+
+    @router.post("/courses/{course_id}/units")
+    def open_unit(
+        request: Request,
+        course_id: str,
+        unit: Annotated[str, Form()] = "",
+    ) -> Response:
+        """回のページを開く（無ければ空の回として開く）。
+
+        新しい回を作る導線がこれである。**保存は伴わない** ── 回は課題が
+        持つ属性であって、それ自体の記録は無い。最初の 1 問を足した時点で
+        回が実在する。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        _require_instructor(request, me, CourseId(course_id))
+        key = quote(unit.strip() or "_", safe="")
+        return RedirectResponse(f"/manage/courses/{course_id}/units/{key}", status_code=303)
+
+    @router.get("/courses/{course_id}/units/{unit}", response_class=HTMLResponse)
+    def unit_settings(request: Request, course_id: str, unit: str, saved: str = "") -> Response:
+        """**1 回ぶん**の設定 ── その回の課題の締切、一括確定、課題の追加。
+
+        まとまりの鍵は `unit`（`overview.unit_key`）。教員が用があるのは
+        たいてい「いまの回」で、その単位で開けることが構成の分かりやすさに
+        直結する。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+
+        # 課題ごとの未確定件数。**画面に出す。** 自動確定を設定したつもりで
+        # cron を仕掛け忘れても、件数が減らないことで気づける。
+        pending = pending_counts(console.database, course.id)
+        now = datetime.now(UTC)
+        with console.database.unit_of_work() as uow:
+            units = load_units(uow, course, pending=pending, now=now)
+        # **知らない鍵でも 404 にしない。** 課題を 1 問も持たない回は
+        # 「まだ何も無い回」であって存在しない回ではなく、ここが最初の
+        # 1 問を足す場所になる。404 にすると新しい回を作る導線が無くなる。
+        key = _normalized_unit(unit)
+        group = find_unit(units, key) or empty_unit(key, course)
+
+        rows = []
+        for task, version in group.tasks:
+            rows.append(
+                {
+                    "task": task,
+                    "version": version,
+                    "test_cases": len(version.test_cases),
+                    # 自動採点できるか。できない課題は AI 観点だけで、
+                    # 教員の確定が前提になる（ADR 0008）。
+                    "auto_graded": bool(version.test_cases),
+                    "evaluators": sorted(
+                        {c.evaluator_id for c in version.criteria if c.evaluator_id}
+                    ),
+                    "unfinalized": pending.get(task.id, 0),
+                    # 訂正フォームの初期値。読みやすさの観点の重みは
+                    # 版の中にあるので、そこから取り出す。
+                    "readability_weight": next(
+                        (c.weight for c in version.criteria if c.code == "readability"), 0.0
+                    ),
+                }
+            )
+
+        return templates.TemplateResponse(
+            request,
+            "manage_unit.html",
+            {
+                "me": me,
+                "course": course,
+                "section": {
+                    "label": group.label,
+                    "href": f"/manage/courses/{course.id}/units/{group.key}",
+                },
+                "unit": group,
+                "tasks": rows,
                 "min_reason": MIN_JUSTIFICATION_LENGTH,
-                # このコースの結果だけを渡す。
+                # コースの既定。問題セットで指定しなければこれが効く。
+                "course_grace": course.auto_finalize_after_minutes,
+                "saved": SAVED_MESSAGES.get(saved),
+                "saved_key": saved,
+                "suffix_groups": SUFFIX_GROUPS,
+                "course_suffixes": course.upload_suffixes or DEFAULT_UPLOAD_SUFFIXES,
+                # **生成は登録済み KC からの選択だけ**（`aijudge_admin.kc` の
+                # 規則 4）。引退したものは選ばせない。
+                "kcs": list_for_namespaces(
+                    console.database,
+                    allowed_namespaces(
+                        load_profile(console.profiles_dir / f"{course.subject_profile}.yaml")
+                    ),
+                    include_deprecated=False,
+                ),
+                "difficulties": [d.value for d in Difficulty],
                 "PROVISIONAL": GradeWindow.PROVISIONAL,
                 "ELAPSED": GradeWindow.ELAPSED,
                 "last_task": (
@@ -278,44 +567,82 @@ def register(templates) -> APIRouter:
             },
         )
 
-    @router.post("/courses/{course_id}/tasks/{task_id}/schedule")
-    def set_schedule(
+    @router.post("/courses/{course_id}/units/{unit}/schedule")
+    def set_unit_schedule(
         request: Request,
         course_id: str,
-        task_id: str,
+        unit: str,
         opens_at: Annotated[str, Form()] = "",
+        submissions_open_at: Annotated[str, Form()] = "",
         due_at: Annotated[str, Form()] = "",
     ) -> Response:
-        """公開日時と締切を設定する。
+        """**問題セットの日程。その中の全課題に同じ値を入れる。**
+
+        課題ごとに違う締切を持てると、同じセットの中で締切がずれ、学習者にも
+        教員にも「この回はいつまでか」が言えなくなる。日程はセットの性質で
+        あって課題の性質ではない。
 
         締切の判定は `Submission.submitted_at`（提出確定の時刻）で行う。
         ここで入れる値がその基準になる。
         """
-        from .app import require_principal
+        return _update_unit(
+            request,
+            course_id,
+            unit,
+            update={
+                "opens_at": _parse_when(opens_at),
+                "submissions_open_at": _parse_when(submissions_open_at),
+                "due_at": _parse_when(due_at),
+            },
+            saved="schedule",
+        )
 
-        me = require_principal(request)
-        _require_instructor(request, me, CourseId(course_id))
-        console = _console(request)
-        opens = _parse_when(opens_at)
-        due = _parse_when(due_at)
-        if opens is not None and due is not None and due <= opens:
-            raise HTTPException(status_code=400, detail="締切が公開日時より前になっています")
+    @router.post("/courses/{course_id}/units/{unit}/auto-finalize")
+    def set_unit_grace(
+        request: Request,
+        course_id: str,
+        unit: str,
+        after_minutes: Annotated[str, Form()] = "",
+    ) -> Response:
+        """この問題セットの自動確定までの猶予（分）。空ならコースの既定に戻す。
 
-        with console.database.unit_of_work() as uow:
-            task = uow.tasks.get_task(TaskId(task_id))
-            if task is None or task.course_id != CourseId(course_id):
-                raise HTTPException(status_code=404, detail="課題が見つかりません")
-            uow.tasks.save_task(task.model_copy(update={"opens_at": opens, "due_at": due}))
-            uow.commit()
-        return RedirectResponse(f"/manage/courses/{course_id}", status_code=303)
+        **日程とは別のフォームにする。** 締切を直しに来たときに猶予まで
+        書き換えてしまう（あるいはその逆）事故を、フォームの単位で防ぐ。
+        """
+        return _update_unit(
+            request,
+            course_id,
+            unit,
+            update={"auto_finalize_after_minutes": _parse_minutes(after_minutes)},
+            saved="grace",
+        )
+
+    @router.post("/courses/{course_id}/units/{unit}/number")
+    def set_unit_number(
+        request: Request,
+        course_id: str,
+        unit: str,
+        session: Annotated[str, Form()] = "",
+    ) -> Response:
+        """回番号。**並べ替えと表示のためだけの値**で、採点には効かない。
+
+        日程と混ぜない ── 効き方が違うものを 1 つの保存ボタンにまとめると、
+        何が変わったのか教員に分からない。
+        """
+        number = int(session) if session.strip() else None
+        return _update_unit(
+            request, course_id, unit, update={"session": number}, saved="number"
+        )
 
     @router.post("/courses/{course_id}/auto-finalize")
     def set_auto_finalize(
         request: Request,
         course_id: str,
-        after_hours: Annotated[str, Form()] = "",
+        after_minutes: Annotated[str, Form()] = "",
     ) -> Response:
-        """締切から成績を自動確定するまでの猶予（時間）。
+        """締切から成績を自動確定するまでの猶予（分）。**コースの既定である。**
+
+        問題セットで指定があればそちらが勝つ（`grace_minutes`）。
 
         空なら自動確定しない。**既定はそれ**で、教員が明示的に入れて初めて
         自動確定が始まる。既定で自動確定させると、設定を知らない教員の
@@ -327,26 +654,285 @@ def register(templates) -> APIRouter:
         course = _require_instructor(request, me, CourseId(course_id))
         console = _console(request)
 
-        text = after_hours.strip()
-        hours: float | None = None
-        if text:
-            try:
-                hours = float(text)
-            except ValueError:
-                raise HTTPException(
-                    status_code=400, detail=f"時間の形式が不正です: {after_hours!r}"
-                ) from None
-            if hours <= 0:
-                # 0 を許すと締切と同時に確定し、締切直前の提出が採点前に
-                # 確定しうる。猶予は正の値でなければ意味がない。
-                raise HTTPException(status_code=400, detail="猶予は 0 より大きい値にしてください")
+        minutes = _parse_minutes(after_minutes)
 
         with console.database.unit_of_work() as uow:
             uow.identity.save_course(
-                course.model_copy(update={"auto_finalize_after_hours": hours})
+                course.model_copy(update={"auto_finalize_after_minutes": minutes})
             )
             uow.commit()
-        return RedirectResponse(f"/manage/courses/{course_id}", status_code=303)
+        return RedirectResponse(
+            f"/manage/courses/{course_id}?saved=course_grace#course_grace", status_code=303
+        )
+
+    def _read_body(text: str, upload: UploadFile | None, payload: bytes | None) -> str:
+        """本文を決める。ファイルが選ばれていればそちらを読む。
+
+        ファイルからの読み取りは Markdown に均して返す（`syllabus.to_markdown`）。
+        そのままだと行が細かく割れていて、教員が直すにも読みにくい。
+        """
+        if upload is not None and upload.filename and payload:
+            if len(payload) > MAX_SYLLABUS_BYTES:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"ファイルが大きすぎます（上限 {MAX_SYLLABUS_BYTES // 1024} KB）",
+                )
+            try:
+                return read_document(payload, Path(upload.filename).suffix)
+            except SyllabusError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from None
+        return text.strip()
+
+    def _propose(console, course, body: str):
+        """本文から候補を作る。名前空間と既存の体系を添えて渡す。"""
+        if len(body) < 40:
+            raise HTTPException(
+                status_code=400,
+                detail="シラバスの本文を貼り付けるか、PDF を選んでください（40 文字以上）",
+            )
+        profile = load_profile(console.profiles_dir / f"{course.subject_profile}.yaml")
+        namespaces = allowed_namespaces(profile)
+        existing = [
+            kc.key
+            for kc in list_for_namespaces(console.database, namespaces, include_deprecated=False)
+        ]
+        try:
+            result = SyllabusReader().propose(
+                body, namespaces=namespaces, existing_keys=tuple(existing)
+            )
+        except Exception as exc:  # 生成の失敗は運用の事象。理由を画面に返す。
+            raise HTTPException(
+                status_code=502,
+                detail=f"候補を作れませんでした（S6 が止まっている可能性があります）: {exc}",
+            ) from exc
+        return result.proposal, namespaces, existing
+
+    # -- コースの基本情報 --------------------------------------------------
+
+    @router.get("/courses/{course_id}/basics", response_class=HTMLResponse)
+    def basics(request: Request, course_id: str, saved: str = "") -> Response:
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        return templates.TemplateResponse(
+            request,
+            "manage_basics.html",
+            {
+                "me": me,
+                "course": course,
+                "section": {
+                    "label": "コースの基本情報",
+                    "href": f"/manage/courses/{course.id}/basics",
+                },
+                "example": SYLLABUS_EXAMPLE,
+                "proposal": None,
+                "saved": SAVED_MESSAGES.get(saved),
+            },
+        )
+
+    @router.post("/courses/{course_id}/basics", response_class=HTMLResponse)
+    async def read_basics(
+        request: Request,
+        course_id: str,
+        text: Annotated[str, Form()] = "",
+        upload: UploadFile | None = None,
+    ) -> Response:
+        """シラバスからコースの基本情報の候補を出す。**保存はしない。**"""
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+
+        payload = await upload.read() if upload is not None and upload.filename else None
+        body = _read_body(text, upload, payload)
+        proposal, _namespaces, _existing = _propose(console, course, body)
+        return templates.TemplateResponse(
+            request,
+            "manage_basics.html",
+            {
+                "me": me,
+                "course": course,
+                "section": {
+                    "label": "コースの基本情報",
+                    "href": f"/manage/courses/{course.id}/basics",
+                },
+                "example": SYLLABUS_EXAMPLE,
+                "proposal": proposal,
+                "pasted": body,
+                "saved": None,
+            },
+        )
+
+    @router.post("/courses/{course_id}/basics/apply")
+    def apply_basics(
+        request: Request,
+        course_id: str,
+        title: Annotated[str, Form()] = "",
+        description: Annotated[str, Form()] = "",
+    ) -> Response:
+        """基本情報を保存する。**コードと学期は変えない。**
+
+        あの 2 つは（テナント・コード・学期）でコースの同一性を作っており、
+        変えると別のコースになる。作り直しは新しいコースの追加で行う。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+
+        name = title.strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="コース名を入れてください")
+        with console.database.unit_of_work() as uow:
+            uow.identity.save_course(
+                course.model_copy(
+                    update={"title": name, "description": description.strip() or None}
+                )
+            )
+            uow.commit()
+        return RedirectResponse(
+            f"/manage/courses/{course_id}/basics?saved=basics", status_code=303
+        )
+
+    # -- 知識要素の候補 ----------------------------------------------------
+
+    @router.get("/courses/{course_id}/kc/candidates", response_class=HTMLResponse)
+    def kc_candidates(request: Request, course_id: str) -> Response:
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+        profile = load_profile(console.profiles_dir / f"{course.subject_profile}.yaml")
+        namespaces = allowed_namespaces(profile)
+        return templates.TemplateResponse(
+            request,
+            "manage_kc_candidates.html",
+            {
+                "me": me,
+                "course": course,
+                "section": {
+                    "label": "知識要素の候補",
+                    "href": f"/manage/courses/{course.id}/kc/candidates",
+                },
+                "namespaces": namespaces,
+                "existing": [
+                    kc.key
+                    for kc in list_for_namespaces(
+                        console.database, namespaces, include_deprecated=False
+                    )
+                ],
+                "example": SYLLABUS_EXAMPLE,
+                "proposal": None,
+            },
+        )
+
+    @router.post("/courses/{course_id}/kc/candidates", response_class=HTMLResponse)
+    async def propose_kcs(
+        request: Request,
+        course_id: str,
+        text: Annotated[str, Form()] = "",
+        upload: UploadFile | None = None,
+    ) -> Response:
+        """シラバスから知識要素の候補を出す。**登録はしない。**"""
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+
+        payload = await upload.read() if upload is not None and upload.filename else None
+        body = _read_body(text, upload, payload)
+        proposal, namespaces, existing = _propose(console, course, body)
+        return templates.TemplateResponse(
+            request,
+            "manage_kc_candidates.html",
+            {
+                "me": me,
+                "course": course,
+                "section": {
+                    "label": "知識要素の候補",
+                    "href": f"/manage/courses/{course.id}/kc/candidates",
+                },
+                "namespaces": namespaces,
+                "existing": existing,
+                "example": SYLLABUS_EXAMPLE,
+                "proposal": proposal,
+                "pasted": body,
+            },
+        )
+
+    @router.post("/courses/{course_id}/kc/adopt")
+    def adopt_candidates(
+        request: Request,
+        course_id: str,
+        kc: Annotated[list[str], Form()] = [],  # noqa: B006 - FastAPI の複数値
+        label: Annotated[list[str], Form()] = [],  # noqa: B006 - FastAPI の複数値
+    ) -> Response:
+        """選ばれた候補だけを体系に登録する。
+
+        **規則は手で足すときと同じ**（`aijudge_admin.kc`）── 名前空間・親の
+        実在・第 1 階層の権限。候補だから緩める、ということはしない。
+        親から順に並べて入れるので、`cs.loops` と `cs.loops.termination` を
+        同時に選んでも通る。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+        profile = load_profile(console.profiles_dir / f"{course.subject_profile}.yaml")
+        namespaces = allowed_namespaces(profile)
+        labels = dict(zip(kc, label, strict=False))
+
+        failures: list[str] = []
+        for key in sorted({k.strip() for k in kc if k.strip()}, key=lambda k: k.count(".")):
+            try:
+                register_kc(
+                    console.database,
+                    key=key,
+                    label=labels.get(key, "").strip() or key,
+                    namespaces=namespaces,
+                    actor_id=me.user_id,
+                    allow_root=_is_admin(request, me),
+                )
+            except AdminError as exc:
+                failures.append(f"{key}: {exc}")
+        if failures:
+            raise HTTPException(status_code=400, detail=" / ".join(failures))
+        return RedirectResponse(
+            f"/manage/courses/{course_id}/kc?saved=kc_added#kc", status_code=303
+        )
+
+    @router.post("/courses/{course_id}/upload-formats")
+    def set_upload_formats(
+        request: Request,
+        course_id: str,
+        suffix: Annotated[list[str], Form()] = [],  # noqa: B006 - FastAPI の複数値
+    ) -> Response:
+        """コースの既定の提出形式。**課題ごとの指定がこれを上書きする。**
+
+        コースで一度決めておけば個々の課題では触らずに済み、レポート 1 問だけ
+        PDF を許す、といった例外は課題側で足せる（`uploads.allowed_suffixes`）。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+
+        suffixes = normalize_suffixes(suffix)
+        if not suffixes:
+            raise HTTPException(status_code=400, detail="形式を 1 つ以上選んでください")
+        with console.database.unit_of_work() as uow:
+            uow.identity.save_course(course.model_copy(update={"upload_suffixes": suffixes}))
+            uow.commit()
+        return RedirectResponse(
+            f"/manage/courses/{course_id}?saved=formats#formats", status_code=303
+        )
 
     @router.post("/courses/{course_id}/tasks/{task_id}/finalize")
     def finalize_remaining(
@@ -398,19 +984,77 @@ def register(templates) -> APIRouter:
         # 表示のために保持する。**コースを添える**（Console は全利用者で共有で、
         # 添えないと別コースの教員に他コースの課題名が出る）。
         console.last_finalize = (str(course_id), outcome)
-        return RedirectResponse(f"/manage/courses/{course_id}", status_code=303)
+        return RedirectResponse(_unit_href(course_id, task), status_code=303)
+
+    @router.post("/courses/{course_id}/units/{unit}/finalize")
+    def finalize_unit(
+        request: Request,
+        course_id: str,
+        unit: str,
+        justification: Annotated[str, Form()] = "",
+    ) -> Response:
+        """問題セットの未確定分を、その中の全課題についてまとめて確定する。
+
+        **根拠説明を必須にする。** 学習者にそのまま表示される。個別に読んで
+        いない成績を確定させる操作なので、何を根拠にそうしたのかが残らないと
+        学習者は何も分からない（設計原則 P4 を一括操作にも適用する）。
+
+        未対応の異議申立は確定しない。そこは 1 件ずつ読むべきものとして
+        「再確認の依頼」に残す。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+
+        text = justification.strip()
+        if len(text) < MIN_JUSTIFICATION_LENGTH:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"確定の根拠を {MIN_JUSTIFICATION_LENGTH} 文字以上で書いてください"
+                    "（学習者に表示されます）"
+                ),
+            )
+
+        key = _normalized_unit(unit)
+        with console.database.unit_of_work() as uow:
+            task_ids = [
+                task.id
+                for task in uow.tasks.list_for_course(CourseId(course_id))
+                if unit_key(task) == key
+            ]
+        if not task_ids:
+            raise HTTPException(status_code=404, detail="この問題セットには課題がありません")
+
+        try:
+            outcomes = finalize_tasks(
+                console.database,
+                task_ids=task_ids,
+                actor_id=me.user_id,
+                justification=text,
+            )
+        except AdminError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        # 表示のために保持する。**コースを添える**（Console は全利用者で共有で、
+        # 添えないと別コースの教員に他コースの課題名が出る）。
+        console.last_finalize = (str(course_id), _merged(outcomes))
+        return RedirectResponse(f"/courses/{course_id}/finalize", status_code=303)
 
     @router.post("/courses/{course_id}/tasks")
     def add_task(
         request: Request,
         course_id: str,
-        key: Annotated[str, Form()],
         statement: Annotated[str, Form()],
+        key: Annotated[str, Form()] = "",
+        key_suffix: Annotated[str, Form()] = "",
         unit: Annotated[str, Form()] = "",
-        session: Annotated[str, Form()] = "",
         position: Annotated[str, Form()] = "",
         readability_weight: Annotated[str, Form()] = "0.3",
-        due_at: Annotated[str, Form()] = "",
+        suffix: Annotated[list[str], Form()] = [],  # noqa: B006 - FastAPI の複数値
+        formats: Annotated[str, Form()] = "",
     ) -> Response:
         """課題を 1 件足す。
 
@@ -423,6 +1067,10 @@ def register(templates) -> APIRouter:
         テストケースはここでは入れない。1 件ずつ貼らせる画面にすると、
         実在する規模（1 課題 7 件 × 48 課題）で現実的でない。まとまった
         投入は API を使う。
+
+        **日程は指定させない。** 問題セットの値をそのまま引き継ぐ ── 課題
+        ごとに違う締切を持てると、同じセットの中で締切がずれる。変えたい
+        ときはセットの日程を変える（`set_unit_schedule`）。
         """
         from .app import require_principal
 
@@ -430,14 +1078,30 @@ def register(templates) -> APIRouter:
         course = _require_instructor(request, me, CourseId(course_id))
         console = _console(request)
 
+        # **キーの前半は問題セットが決める。** 回のページから追加する限り
+        # `ex02/p8` の `ex02/` は動かず、教員が打つのは `p8` だけである。
+        # 打たせると `ex2/p8` のような取り違えが混ざり、鍵は同一性そのもの
+        # なので、取り違えたぶんは別の課題として増える。
+        full_key = key.strip() or _compose_key(unit.strip(), key_suffix.strip())
+        if not full_key:
+            raise HTTPException(status_code=400, detail="課題キーを入力してください")
+
+        # 日程と回番号は問題セットから引き継ぐ。空のセット（最初の 1 問）は
+        # まだ日程を持たないので、そのまま空で入る。
+        with console.database.unit_of_work() as uow:
+            siblings = [
+                task
+                for task in uow.tasks.list_for_course(course.id)
+                if unit_key(task) == quote(unit.strip() or "_", safe="")
+            ]
+        head = siblings[0] if siblings else None
+
         try:
             spec = TaskSpec(
-                key=key.strip(),
+                key=full_key,
                 statement=statement,
                 unit=unit.strip() or None,
-                session=int(session) if session.strip() else None,
                 position=int(position) if position.strip() else None,
-                due_at=_parse_when(due_at),
                 readability_weight=float(readability_weight or 0.0),
             )
         except (ValidationError, ValueError) as exc:
@@ -454,8 +1118,230 @@ def register(templates) -> APIRouter:
         except AdminError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
+        # 日程と回番号は問題セットから引き継ぐ。`TaskSpec` を通さないのは、
+        # あれが API の語彙でもあり、日程を課題単位で受け取る口を増やすと
+        # 「セットで揃える」という規則が守られない経路ができるため。
+        # 提出形式は課題ごとの性質。日程と違い、最初の 1 問でも指定できる。
+        accepted = _chosen_suffixes(suffix, formats, course)
+        if head is None:
+            with console.database.unit_of_work() as uow:
+                uow.tasks.save_task(
+                    saved.task.model_copy(update={"accepted_suffixes": accepted})
+                )
+                uow.commit()
+        else:
+            with console.database.unit_of_work() as uow:
+                uow.tasks.save_task(
+                    saved.task.model_copy(
+                        update={
+                            "session": head.session,
+                            "opens_at": head.opens_at,
+                            "submissions_open_at": head.submissions_open_at,
+                            "due_at": head.due_at,
+                            "auto_finalize_after_minutes": head.auto_finalize_after_minutes,
+                            "accepted_suffixes": accepted,
+                        }
+                    )
+                )
+                uow.commit()
+
         console.last_task = (str(course.id), saved)
-        return RedirectResponse(f"/manage/courses/{course_id}", status_code=303)
+        return RedirectResponse(_unit_href(course_id, saved.task), status_code=303)
+
+    @router.post("/courses/{course_id}/units/{unit}/generate")
+    def generate_task(
+        request: Request,
+        course_id: str,
+        unit: str,
+        key_suffix: Annotated[str, Form()],
+        kc: Annotated[list[str], Form()] = [],  # noqa: B006 - FastAPI の複数値
+        difficulty: Annotated[str, Form()] = "standard",
+        constraints: Annotated[str, Form()] = "",
+        test_cases: Annotated[str, Form()] = "5",
+        readability_weight: Annotated[str, Form()] = "0.3",
+    ) -> Response:
+        """AI に課題を 1 つ作らせる。**承認するまで出題されない**（P5）。
+
+        **KC は登録済みからの選択だけ。** モデルはもっともらしいキーを
+        いくらでも作るので、自由入力にすると体系が静かに荒れる
+        （`aijudge_admin.kc` の規則 4）。
+
+        `avoid_similar_to` にはこのコースの既存課題を入れる ── 「似せない」
+        材料が無いと、既存課題の言い換えが出てくる。
+
+        生成物はここでは保存するだけで、門・解答可能性・重複の検査は
+        `aijudge-authoring` が担う（ADR 0008）。ここが返すのは候補であって
+        課題ではない。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+
+        chosen = tuple(k.strip() for k in kc if k.strip())
+        if not chosen:
+            raise HTTPException(status_code=400, detail="知識要素を 1 つ以上選んでください")
+        try:
+            # 選択肢は登録済みから出しているが、直接叩かれる経路もある。
+            assert_registered(console.database, chosen)
+        except AdminError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        key = _normalized_unit(unit)
+        profile = load_profile(console.profiles_dir / f"{course.subject_profile}.yaml")
+        with console.database.unit_of_work() as uow:
+            siblings = [
+                task
+                for task in uow.tasks.list_for_course(CourseId(course_id))
+                if unit_key(task) == key
+            ]
+            # **似せないための材料。** 既存課題の本文を渡す（学習者のデータは
+            # 含まないので、外部モデルにも渡してよい・設計原則 P7）。
+            avoid = []
+            for task in uow.tasks.list_for_course(CourseId(course_id)):
+                version = uow.tasks.latest_version(task.id)
+                if version is not None:
+                    avoid.append(version.statement)
+
+        head = siblings[0] if siblings else None
+        full_key = _compose_key(head.unit if head else unit, key_suffix.strip())
+        if not full_key:
+            raise HTTPException(status_code=400, detail="課題キーを入力してください")
+
+        try:
+            blueprint = Blueprint(
+                knowledge_components=chosen,
+                subject_profile=course.subject_profile,
+                difficulty=Difficulty(difficulty),
+                language=_language_of(profile),
+                constraints=tuple(
+                    line.strip() for line in constraints.splitlines() if line.strip()
+                ),
+                avoid_similar_to=tuple(avoid[:20]),
+                test_case_count=int(test_cases or 5),
+            )
+        except (ValidationError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=f"生成の指定が不正です: {exc}") from None
+
+        try:
+            result = TaskDrafter().draft(blueprint, key=full_key)
+        except Exception as exc:  # 生成の失敗は運用の事象。画面に理由を返す。
+            raise HTTPException(
+                status_code=502,
+                detail=f"課題を生成できませんでした（S6 が止まっている可能性があります）: {exc}",
+            ) from exc
+
+        spec = result.spec.model_copy(
+            update={"readability_weight": float(readability_weight or 0.0)}
+        )
+        try:
+            saved = save_task(
+                console.database,
+                course_id=course.id,
+                spec=spec,
+                subject_profile=course.subject_profile,
+                authored_by=me.user_id,
+                generated_by=result.model,
+                generation_prompt_version=result.prompt_id,
+            )
+        except AdminError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+        # 日程と提出形式は問題セットから引き継ぐ（手で足した課題と同じ）。
+        if head is not None:
+            with console.database.unit_of_work() as uow:
+                uow.tasks.save_task(
+                    saved.task.model_copy(
+                        update={
+                            "session": head.session,
+                            "opens_at": head.opens_at,
+                            "submissions_open_at": head.submissions_open_at,
+                            "due_at": head.due_at,
+                            "auto_finalize_after_minutes": head.auto_finalize_after_minutes,
+                            "accepted_suffixes": head.accepted_suffixes,
+                        }
+                    )
+                )
+                uow.commit()
+
+        console.last_task = (str(course.id), saved)
+        return RedirectResponse(
+            f"/manage/courses/{course_id}/units/{key}?saved=generated#generate", status_code=303
+        )
+
+    @router.post("/courses/{course_id}/tasks/{task_id}/revise")
+    def revise_task(
+        request: Request,
+        course_id: str,
+        task_id: str,
+        statement: Annotated[str, Form()],
+        readability_weight: Annotated[str, Form()] = "0.3",
+        position: Annotated[str, Form()] = "",
+        suffix: Annotated[list[str], Form()] = [],  # noqa: B006 - FastAPI の複数値
+        formats: Annotated[str, Form()] = "",
+    ) -> Response:
+        """既にある課題を直す。**出題済みの版は書き換えず、版を上げる**（P8）。
+
+        過去の採点がどの基準で付いたのかを辿れなくなるので、上書きはしない。
+        内容が同じなら版は上がらない（提出形式だけ変えたい場合がこれ）。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+
+        with console.database.unit_of_work() as uow:
+            task = uow.tasks.get_task(TaskId(task_id))
+            version = uow.tasks.latest_version(TaskId(task_id))
+        if task is None or version is None or task.course_id != CourseId(course_id):
+            raise HTTPException(status_code=404, detail="課題が見つかりません")
+
+        # 課題キーは変えられない ── 同一性の鍵で、変えれば別の課題になる。
+        # 保存済みの版から取り出す（`TaskVersion` は生成元の鍵を持たないので、
+        # 版と同じ ID を作れる `key` を課題の題名から復元はできない）。
+        try:
+            spec = TaskSpec(
+                key=_key_of(task, version),
+                statement=statement,
+                unit=task.unit,
+                session=task.session,
+                position=int(position) if position.strip() else task.position,
+                readability_weight=float(readability_weight or 0.0),
+            )
+        except (ValidationError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=f"課題の指定が不正です: {exc}") from None
+
+        try:
+            saved = save_task(
+                console.database,
+                course_id=course.id,
+                spec=spec,
+                subject_profile=course.subject_profile,
+                authored_by=me.user_id,
+                revise=True,
+            )
+        except AdminError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+        # 日程・提出形式は `TaskSpec` を通らないので、ここで書き戻す。
+        with console.database.unit_of_work() as uow:
+            uow.tasks.save_task(
+                saved.task.model_copy(
+                    update={
+                        "opens_at": task.opens_at,
+                        "submissions_open_at": task.submissions_open_at,
+                        "due_at": task.due_at,
+                        "auto_finalize_after_minutes": task.auto_finalize_after_minutes,
+                        "accepted_suffixes": _chosen_suffixes(suffix, formats, course),
+                    }
+                )
+            )
+            uow.commit()
+
+        console.last_task = (str(course.id), saved)
+        return RedirectResponse(_unit_href(course_id, saved.task), status_code=303)
 
     @router.post("/courses/{course_id}/enrolments")
     def add_enrolments(
@@ -504,7 +1390,9 @@ def register(templates) -> APIRouter:
             course_id=CourseId(course_id),
             entries=entries,
         )
-        return RedirectResponse(f"/manage/courses/{course_id}", status_code=303)
+        return RedirectResponse(
+            f"/manage/courses/{course_id}?saved=enrolled#enrolments", status_code=303
+        )
 
     @router.post("/courses/{course_id}/enrolments/{user_id}/remove")
     def remove_enrolment(request: Request, course_id: str, user_id: str) -> Response:
@@ -520,7 +1408,121 @@ def register(templates) -> APIRouter:
         with console.database.unit_of_work() as uow:
             uow.identity.remove_enrollment(CourseId(course_id), UserId(user_id))
             uow.commit()
-        return RedirectResponse(f"/manage/courses/{course_id}", status_code=303)
+        return RedirectResponse(
+            f"/manage/courses/{course_id}?saved=removed#enrolments", status_code=303
+        )
+
+    # ------------------------------------------------------------------
+    # 知識要素（KC）の体系（設計原則 P6）
+    # ------------------------------------------------------------------
+
+    @router.get("/courses/{course_id}/kc", response_class=HTMLResponse)
+    def kc_index(request: Request, course_id: str, saved: str = "") -> Response:
+        """このコースが使える KC の一覧。
+
+        **コースをまたいで共有される語彙である。** 同じ名前空間を使う他の
+        コースにも同じものが見えるので、どれだけ使われているかを添える。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+
+        profile = load_profile(console.profiles_dir / f"{course.subject_profile}.yaml")
+        namespaces = allowed_namespaces(profile)
+        kcs = list_for_namespaces(console.database, namespaces)
+        return templates.TemplateResponse(
+            request,
+            "manage_kc.html",
+            {
+                "me": me,
+                "course": course,
+                "section": {"label": "知識要素", "href": f"/manage/courses/{course.id}/kc"},
+                "namespaces": namespaces,
+                "rows": [kc_usage(console.database, kcs)[kc.key] for kc in kcs],
+                "saved": SAVED_MESSAGES.get(saved),
+                "saved_key": saved,
+                "is_admin": _is_admin(request, me),
+            },
+        )
+
+    @router.post("/courses/{course_id}/kc")
+    def add_kc(
+        request: Request,
+        course_id: str,
+        key: Annotated[str, Form()],
+        label: Annotated[str, Form()] = "",
+        description: Annotated[str, Form()] = "",
+    ) -> Response:
+        """KC を 1 つ足す。規則の強制は `aijudge_admin.kc` にある。
+
+        **追加は明示的な行為にする**（禁止はしない）。科目の専門家は教員
+        しかおらず、禁止すれば既存の近いキーに無理やり寄せられるだけで、
+        構造としてはより悪くなる。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+
+        profile = load_profile(console.profiles_dir / f"{course.subject_profile}.yaml")
+        try:
+            register_kc(
+                console.database,
+                key=key.strip(),
+                label=label.strip() or key.strip(),
+                description=description,
+                namespaces=allowed_namespaces(profile),
+                actor_id=me.user_id,
+                # 第 1 階層（分野の根）を作れるのは管理者だけ。
+                allow_root=_is_admin(request, me),
+            )
+        except AdminError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return RedirectResponse(
+            f"/manage/courses/{course_id}/kc?saved=kc_added#kc", status_code=303
+        )
+
+    @router.post("/courses/{course_id}/kc/retire")
+    def retire_kc_route(
+        request: Request,
+        course_id: str,
+        key: Annotated[str, Form()],
+        superseded_by: Annotated[str, Form()] = "",
+        restore: Annotated[str, Form()] = "",
+    ) -> Response:
+        """KC を引退させる（または引退を取り消す）。**消さない**（P8）。
+
+        引退は管理者のみ。**コースをまたいで効く**操作で、1 コースの教員が
+        他のコースの語彙を畳めてはいけない。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        _require_instructor(request, me, CourseId(course_id))
+        if not _is_admin(request, me):
+            raise HTTPException(
+                status_code=403,
+                detail="知識要素の引退には管理者権限が必要です（他のコースにも効きます）",
+            )
+        console = _console(request)
+        try:
+            if restore:
+                restore_kc(console.database, key=key.strip())
+            else:
+                retire_kc(
+                    console.database,
+                    key=key.strip(),
+                    superseded_by_key=superseded_by.strip() or None,
+                )
+        except AdminError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        saved = "kc_restored" if restore else "kc_retired"
+        return RedirectResponse(
+            f"/manage/courses/{course_id}/kc?saved={saved}#kc", status_code=303
+        )
 
     # ------------------------------------------------------------------
     # 生成された課題のレビュー（S2、設計方針 §5）
@@ -563,6 +1565,10 @@ def register(templates) -> APIRouter:
             {
                 "me": me,
                 "course": course,
+                "section": {
+                    "label": "未承認の課題",
+                    "href": f"/manage/courses/{course.id}/drafts",
+                },
                 "rows": rows,
                 "min_reason": MIN_JUSTIFICATION_LENGTH,
             },

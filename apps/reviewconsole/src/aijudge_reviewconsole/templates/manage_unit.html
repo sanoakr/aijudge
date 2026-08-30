@@ -1,0 +1,324 @@
+{% extends "base.html" %}
+{% block title %}{{ unit.label }} — {{ course.title }} — aiJudge{% endblock %}
+{% block body %}
+<h1>問題セット {{ unit.unit or unit.label }}</h1>
+<p class="crumb">
+  {{ course.title }} <span class="sep">·</span> {{ unit.count }} 問
+  {% if unit.session %}<span class="sep">·</span> {{ unit.label }}{% endif %}
+</p>
+
+{% if last_finalize %}
+<div class="note">
+  {# 問題セット単位の確定は複数課題を畳んで来るので、課題名が無いことがある。 #}
+  {% if last_finalize.task %}<strong>{{ last_finalize.task.title }}</strong>：{% endif %}
+  {{ last_finalize.finalized }} 件を確定しました。
+  {% if last_finalize.contested %}
+    再確認の依頼が出ている {{ last_finalize.contested }} 件は確定していません（「再確認の依頼」で個別に確認してください）。
+  {% endif %}
+</div>
+{% endif %}
+
+{% if unit.mixed %}
+{# 取り込み済みの課題は 1 件ずつ日程を持っていることがある。黙って代表値
+   だけを出すと、揃っていないことに気づけないまま学期が進む。 #}
+<div class="note warn">
+  <strong>この問題セットの日程が課題ごとにばらついています。</strong>
+  下の「日程」を保存すると、セット内のすべての課題に同じ値が入ります。
+</div>
+{% endif %}
+
+<h2 id="schedule">日程</h2>
+{# **日程は問題セットの性質。** 課題ごとに違う締切を持てると、同じセットの
+   中で締切がずれ、学習者にも教員にも「この回はいつまでか」が言えなくなる。
+
+   自動確定と回番号は別のフォームにしてある ── 効き方が違うものを 1 つの
+   保存ボタンにまとめると、何が変わったのか教員に分からない。 #}
+<form method="post" action="/manage/courses/{{ course.id }}/units/{{ unit.key }}/schedule"
+      class="card">
+  {# 3 つとも 1 行に収まるので、ボタンも同じ行の右端に置く。 #}
+  <div class="field row-form">
+    <span><label for="opens_at">公開</label>
+      <input id="opens_at" name="opens_at" type="datetime-local"
+             value="{{ unit.opens_at.strftime('%Y-%m-%dT%H:%M') if unit.opens_at else '' }}"></span>
+    <span><label for="submissions_open_at">提出開始</label>
+      <input id="submissions_open_at" name="submissions_open_at" type="datetime-local"
+             value="{{ unit.submissions_open_at.strftime('%Y-%m-%dT%H:%M') if unit.submissions_open_at else '' }}"></span>
+    <span><label for="due_at">提出締切</label>
+      <input id="due_at" name="due_at" type="datetime-local"
+             value="{{ unit.due_at.strftime('%Y-%m-%dT%H:%M') if unit.due_at else '' }}"></span>
+    {% if saved_key == 'schedule' %}<span class="flash">{{ saved }}</span>{% endif %}
+    <button type="submit">日程を保存する</button>
+  </div>
+  <p class="desc" style="margin:10px 0 0">
+    <strong>提出開始が空なら、公開と同時に受け付けます。</strong>
+    公開前の問題セットは学習者の画面に出ません。
+    締切を過ぎた提出は受け付けたうえで減点します。
+  </p>
+</form>
+
+<h2 id="grace">成績の自動確定</h2>
+<form method="post" action="/manage/courses/{{ course.id }}/units/{{ unit.key }}/auto-finalize"
+      class="card">
+  <div class="inline-field">
+    <span class="body">
+      <label for="after_minutes">締切から何分で確定するか（空欄ならコースの設定）</label>
+      <input id="after_minutes" name="after_minutes" type="number" min="1" step="1"
+             style="max-width:10rem"
+             placeholder="{{ course_grace if course_grace else '設定なし' }}"
+             value="{{ unit.grace if unit.grace is not none and not unit.grace_from_course else '' }}">
+    </span>
+    {% if saved_key == 'grace' %}<span class="flash">{{ saved }}</span>{% endif %}
+    <button type="submit">保存</button>
+  </div>
+  <p class="desc" style="margin:10px 0 0">
+    いまは<strong>コースの設定</strong>（{% if course_grace %}{{ course_grace }} 分{% else %}自動確定なし{% endif %}）が
+    効いています。<a href="/manage/courses/{{ course.id }}">コース全体の設定</a>で変えられます。
+    {% if unit.auto_finalize_at %}
+      この問題セットは <strong>{{ unit.auto_finalize_at.strftime('%m-%d %H:%M') }}</strong> に確定します。
+    {% endif %}
+  </p>
+</form>
+
+<h2 id="number">回番号</h2>
+<form method="post" action="/manage/courses/{{ course.id }}/units/{{ unit.key }}/number"
+      class="card">
+  <div class="inline-field">
+    <span class="body">
+      <label for="session">第 N 回（並べ替えと表示に使います。採点には効きません）</label>
+      <input id="session" name="session" type="number" min="1" style="max-width:8rem"
+             value="{{ unit.session or '' }}">
+    </span>
+    {% if saved_key == 'number' %}<span class="flash">{{ saved }}</span>{% endif %}
+    <button type="submit">保存</button>
+  </div>
+</form>
+
+<h2>この問題セットの課題</h2>
+<table>
+  <thead><tr><th>課題</th><th class="fit">テスト</th><th class="fit">評価器</th>
+    <th class="fit">未確定</th><th class="grow"></th></tr></thead>
+  <tbody>
+  {% for row in tasks %}
+    <tr>
+      <td>{{ row.task.title }}
+        {% if not row.auto_graded %}<br><span class="pill">自動テストなし</span>{% endif %}
+      </td>
+      <td class="fit">{{ row.test_cases }}</td>
+      <td class="fit mono desc">{{ row.evaluators | join(', ') }}</td>
+      <td class="fit">
+        {% if row.unfinalized %}<span class="pill {{ 'no' if unit.window == ELAPSED }}">{{ row.unfinalized }} 件</span>
+        {% else %}<span class="desc">—</span>{% endif %}
+      </td>
+      <td class="grow">
+        {# **既にある課題も画面から直せる。** 出題済みの版は書き換えず、
+           版を上げる（P8）。提出形式だけ変えたときは版は上がらない。 #}
+        <details>
+          <summary class="desc">問題文・提出形式を直す</summary>
+          <form method="post" action="/manage/courses/{{ course.id }}/tasks/{{ row.task.id }}/revise"
+                style="margin:6px 0 0">
+            <div class="field">
+              <label for="st-{{ row.task.id }}">問題文（Markdown）</label>
+              <textarea id="st-{{ row.task.id }}" name="statement" rows="8" required
+                >{{ row.version.statement }}</textarea>
+            </div>
+            <div class="field">
+              <label>提出できるファイル形式</label>
+              <input type="hidden" name="formats" value="1">
+              {% for group, suffixes in suffix_groups %}
+              <div class="checkrow">
+                <span class="desc rowlabel">{{ group }}</span>
+                {% set current = row.task.accepted_suffixes or course_suffixes %}
+                <span class="checks">
+                  {% for shown, values in suffixes %}
+                  <label><input type="checkbox" name="suffix" value="{{ values | join(',') }}"
+                    {{ 'checked' if values | select('in', current) | list }}>
+                    <span class="mono">{{ shown }}</span></label>
+                  {% endfor %}
+                </span>
+              </div>
+              {% endfor %}
+            </div>
+            <div class="field" style="display:flex;gap:12px;flex-wrap:wrap">
+              <span><label for="pos-{{ row.task.id }}">出題順</label>
+                <input id="pos-{{ row.task.id }}" name="position" type="number" min="1"
+                       value="{{ row.task.position or '' }}" style="max-width:6rem"></span>
+              <span><label for="rw-{{ row.task.id }}">読みやすさの重み</label>
+                <input id="rw-{{ row.task.id }}" name="readability_weight" type="number"
+                       step="0.05" min="0" max="0.95" value="{{ row.readability_weight }}"
+                       style="max-width:8rem"></span>
+            </div>
+            <p class="desc">
+              問題文を変えると<strong>新しい版</strong>ができます（いま {{ row.version.version }} 版）。
+              過去の採点は元の版のまま残ります。
+            </p>
+            <div class="actions"><button type="submit">保存する</button></div>
+          </form>
+        </details>
+        {% if row.unfinalized %}
+        <details>
+          <summary class="desc">未確定の {{ row.unfinalized }} 件をまとめて確定する</summary>
+          <form method="post"
+                action="/manage/courses/{{ course.id }}/tasks/{{ row.task.id }}/finalize"
+                style="margin:6px 0 0">
+            <div class="field">
+              <label for="just-{{ row.task.id }}">確定の根拠（{{ min_reason }} 文字以上・学習者に表示されます）</label>
+              <textarea id="just-{{ row.task.id }}" name="justification" rows="2" required
+                        minlength="{{ min_reason }}"
+                        placeholder="例: テスト全通の提出について、抽出したものを確認した上で残りを確定します。"></textarea>
+            </div>
+            <p class="desc">
+              個別に読んでいない成績を確定させる操作です。再確認の依頼が出ている提出は確定しません。
+            </p>
+            <div class="actions"><button type="submit">まとめて確定する</button></div>
+          </form>
+        </details>
+        {% else %}<span class="desc">—</span>{% endif %}
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="5" class="desc">この問題セットにはまだ課題がありません。下から追加してください。</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+{% if unit.window == ELAPSED and unit.unfinalized %}
+<div class="note warn">
+  <strong>期限が過ぎたのに未確定が {{ unit.unfinalized }} 件あります。</strong>
+  異議申立・要レビュー・採点失敗のいずれか、または <code>aijudge-finalize</code> が
+  動いていません。
+</div>
+{% endif %}
+
+{% if last_task %}
+<div class="note">
+  <strong>{{ last_task.task.title }}</strong> を
+  {% if last_task.created %}追加しました{% else %}更新しました（既存の課題）{% endif %}。
+  {% if not last_task.auto_graded %}
+    テストケースが無いので <strong>AI 観点だけ</strong>で採点し、教員の確定が前提になります。
+  {% endif %}
+</div>
+{% endif %}
+
+{# **KC は登録済みからの選択だけ。** モデルはもっともらしいキーをいくらでも
+   作るので、自由入力にすると体系が静かに荒れる（aijudge_admin.kc の規則 4）。 #}
+<h2 id="generate">AI に課題を作らせる</h2>
+{% if kcs %}
+<form method="post" action="/manage/courses/{{ course.id }}/units/{{ unit.key }}/generate"
+      class="card">
+  <div class="field">
+    <label>問う知識要素（1 つ以上・登録済みのものから選びます）</label>
+    <div class="checks">
+      {% for k in kcs %}
+      <label><input type="checkbox" name="kc" value="{{ k.key }}">
+        <span class="mono">{{ k.key }}</span> <span class="desc">{{ k.label }}</span></label>
+      {% endfor %}
+    </div>
+    <p class="desc" style="margin:6px 0 0">
+      足りないものは<a href="/manage/courses/{{ course.id }}/kc">知識要素</a>から追加してください。
+    </p>
+  </div>
+  <div class="field">
+    <label for="g-key">課題キー</label>
+    <div class="keyline">
+      {% if unit.unit %}<span class="fixed mono">{{ unit.unit }}/</span>{% endif %}
+      <input id="g-key" name="key_suffix" required placeholder="p9" style="max-width:12rem">
+    </div>
+  </div>
+  <div class="field row-form">
+    <span><label for="g-difficulty">難度</label>
+      <select id="g-difficulty" name="difficulty">
+        {% for d in difficulties %}
+        <option value="{{ d }}" {{ 'selected' if d == 'standard' }}>{{ d }}</option>
+        {% endfor %}
+      </select></span>
+    <span><label for="g-cases">テストケース数</label>
+      <input id="g-cases" name="test_cases" type="number" min="2" max="20" value="5"
+             style="max-width:6rem"></span>
+    <span><label for="g-weight">読みやすさの重み</label>
+      <input id="g-weight" name="readability_weight" type="number" step="0.05" min="0" max="0.95"
+             value="0.3" style="max-width:8rem"></span>
+  </div>
+  <div class="field">
+    <label for="g-constraints">制約（1 行 1 件・課題文に必ず書かせたいこと）</label>
+    <textarea id="g-constraints" name="constraints" rows="3"
+      placeholder="標準入力から読むこと&#10;標準ライブラリの qsort を使わないこと"></textarea>
+  </div>
+  <p class="desc">
+    このコースの既存課題を「似せないための材料」として渡します。
+    生成には十数秒かかります。
+    <strong>できたものは候補であって課題ではありません</strong> —
+    <a href="/manage/courses/{{ course.id }}/drafts">未承認の課題</a>に入り、承認するまで出題されません。
+  </p>
+  <div class="actions">
+    {% if saved_key == 'generated' %}<span class="flash">{{ saved }}</span>{% endif %}
+    <button type="submit">生成する</button>
+  </div>
+</form>
+{% else %}
+<div class="note warn">
+  <strong>知識要素が登録されていないので生成できません。</strong>
+  何を問う課題かを決めずに生成させると、既存の課題と見分けの付かないものが出ます。
+  <a href="/manage/courses/{{ course.id }}/kc">知識要素</a>から追加してください。
+</div>
+{% endif %}
+
+<h2>この問題セットに課題を追加する</h2>
+<form method="post" action="/manage/courses/{{ course.id }}/tasks" class="card">
+  {# **キーの前半はこの問題セットが決める。** 鍵は同一性そのもので、
+     打ち間違えたぶんは別の課題として増える。教員が打つのは後半だけ。 #}
+  <input type="hidden" name="unit" value="{{ unit.unit or '' }}">
+  <div class="field">
+    <label for="key_suffix">課題キー（同一性の鍵。この問題セットの中で重ならない名前）</label>
+    <div class="keyline">
+      {% if unit.unit %}<span class="fixed mono">{{ unit.unit }}/</span>{% endif %}
+      <input id="key_suffix" name="key_suffix" required placeholder="p8" style="max-width:12rem">
+    </div>
+    <p class="desc" style="margin:6px 0 0">
+      前半は問題セット{% if unit.unit %}（<code>{{ unit.unit }}</code>）{% endif %}に固定されます。
+      同じ鍵で入れ直すと同じ課題を更新します（増えません）。
+    </p>
+  </div>
+  <div class="field">
+    <label for="statement">問題文（Markdown。1 行目を <code>## タイトル ##</code> にすると題名になります）</label>
+    <textarea id="statement" name="statement" rows="10" required
+      placeholder="## [必須] 課題の題名 ##&#10;&#10;自然数 n を入力し…"></textarea>
+  </div>
+  <div class="field">
+    {# **コースの既定をチェック済みで出す。** 空欄を「コースの既定」と読ませると、
+       画面の見た目と実際に効く形式が食い違う（manage.py の `_chosen_suffixes`）。 #}
+    <label>提出できるファイル形式</label>
+    <input type="hidden" name="formats" value="1">
+    {% for group, suffixes in suffix_groups %}
+    <div class="checkrow">
+      <span class="desc rowlabel">{{ group }}</span>
+      <span class="checks">
+        {% for shown, values in suffixes %}
+        <label><input type="checkbox" name="suffix" value="{{ values | join(',') }}"
+          {{ 'checked' if values | select('in', course_suffixes) | list }}>
+          <span class="mono">{{ shown }}</span></label>
+        {% endfor %}
+      </span>
+    </div>
+    {% endfor %}
+  </div>
+  <div class="field" style="display:flex;gap:12px;flex-wrap:wrap">
+    {# 日程と問題セットは指定させない。**この問題セットの値をそのまま引き継ぐ。** #}
+    <span><label for="position">この問題セットでの出題順</label>
+      <input id="position" name="position" type="number" min="1"
+             value="{{ unit.count + 1 }}" style="max-width:8rem"></span>
+    <span><label for="readability_weight">読みやすさの重み</label>
+      <input id="readability_weight" name="readability_weight" type="number"
+             step="0.05" min="0" max="0.95" value="0.3" style="max-width:8rem"></span>
+  </div>
+  <p class="desc">
+    <strong>日程はこの問題セットの設定を引き継ぎます。</strong>
+    {% if unit.due_at %}締切は {{ unit.due_at.strftime('%Y-%m-%d %H:%M') }} になります。
+    {% else %}まだ日程が入っていないので、上の「日程」で設定してください。{% endif %}
+  </p>
+  <p class="desc">
+    <strong>読みやすさの重みを 0 にすると AI 評価器が走りません。</strong>
+    テスト実行の合否だけで採点することになり、「動くが読めない」提出が満点になります。
+  </p>
+  <div class="actions"><button type="submit">追加する</button></div>
+</form>
+{% endblock %}

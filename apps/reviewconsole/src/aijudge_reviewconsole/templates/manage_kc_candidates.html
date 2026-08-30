@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}知識要素の候補 — {{ course.title }} — aiJudge{% endblock %}
+{% block body %}
+<h1>知識要素の候補</h1>
+<p class="crumb">{{ course.title }}・名前空間
+  {% for n in namespaces %}<span class="mono">{{ n }}</span>{% else %}<em>なし</em>{% endfor %}
+</p>
+
+<div class="note">
+  <strong>出てくるのは候補です。</strong>選んだものだけが体系に入ります。
+  既にある知識要素 {{ existing | length }} 件に寄せるよう指示します（重複を作らないため）。
+  <a href="/manage/courses/{{ course.id }}/kc">知識要素の一覧へ</a>
+</div>
+
+{% with action = '/manage/courses/' ~ course.id ~ '/kc/candidates', action_label = '読み取って候補を出す' %}
+  {% include "_document_input.html" %}
+{% endwith %}
+
+{% if proposal %}
+<h2>知識要素の候補（{{ proposal.knowledge_components | length }} 件）</h2>
+{% if proposal.knowledge_components %}
+<form method="post" action="/manage/courses/{{ course.id }}/kc/adopt">
+  <table>
+    <thead><tr>
+      <th class="fit">採用</th><th class="fit">キー</th><th class="grow">名前・根拠</th><th class="fit">状態</th>
+    </tr></thead>
+    <tbody>
+    {% for k in proposal.knowledge_components %}
+      {% set known = k.key in existing %}
+      <tr>
+        <td class="fit">
+          {% if not known %}
+          <input type="checkbox" name="kc" value="{{ k.key }}">
+          <input type="hidden" name="label" value="{{ k.label }}">
+          {% endif %}
+        </td>
+        <td class="fit mono">{{ k.key }}</td>
+        <td class="grow">{{ k.label }}
+          {% if k.description %}<br><span class="desc">{{ k.description }}</span>{% endif %}
+          {% if k.source %}<br><span class="desc">出典: {{ k.source }}</span>{% endif %}
+        </td>
+        <td class="fit">
+          {% if known %}<span class="pill ok">登録済み</span>{% else %}<span class="desc">新規</span>{% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p class="desc">
+    <strong>親が実在している必要があります。</strong>親と子を同時に選んだ場合は親から順に登録します。
+    第 1 階層（分野の根）を作るには管理者の操作が要ります。
+  </p>
+  <div class="actions"><button type="submit">選んだものを登録する</button></div>
+</form>
+{% else %}
+<p class="desc">候補が出ませんでした。到達目標や授業計画が含まれているか確かめてください。</p>
+{% endif %}
+{% endif %}
+{% endblock %}

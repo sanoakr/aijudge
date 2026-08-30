@@ -50,6 +50,11 @@ pre.code{margin:0;overflow-x:auto;background:var(--surface-2);border:1px solid v
 pre.code .ln{display:block;padding:0 16px;white-space:pre}
 pre.code .ln .n{display:inline-block;width:3em;color:var(--muted);user-select:none;text-align:right;margin-right:1em}
 pre.code .ln.hl{background:var(--shu-soft);border-left:3px solid var(--shu);padding-left:13px}
+/* 数式（サーバ側で MathML に変換済み・statement.py）。別行立ては中央、
+   長い式は横スクロールに逃がす ── 折り返せない要素なので、逃がさないと
+   ページ全体が横に伸びる。 */
+.statement .math.block{overflow-x:auto;margin:1em 0;text-align:center}
+.statement math{font-size:1.05em}
 .statement > *:first-child{margin-top:0}
 .statement > *:last-child{margin-bottom:0}
 .statement h2,.statement h3,.statement h4,.statement h5{font-size:1rem;margin:1.2em 0 .4em;color:var(--ink)}
@@ -98,14 +103,113 @@ header.top button{background:none;color:var(--muted);border:1px solid var(--line
   font-weight:400;padding:4px 12px;font-size:.8rem}
 .field{margin-bottom:14px}
 .field label{display:block;font-size:.85rem;color:var(--ink-2);margin-bottom:4px}
-.field input{width:100%;font:inherit;font-size:.9rem;padding:9px 12px;border-radius:3px;
+.field input:not([type=checkbox]):not([type=radio]){width:100%;font:inherit;font-size:.9rem;padding:9px 12px;border-radius:3px;
   border:1px solid var(--line);background:var(--surface);color:var(--ink)}
 .narrow{max-width:420px}
 .ctx{background:var(--surface-2);border-bottom:1px solid var(--line-soft)}
-.ctx .inner{max-width:1100px;margin:0 auto;padding:8px 24px;font-size:.8rem;
-  color:var(--muted);display:flex;flex-wrap:wrap;gap:6px 14px}
+.ctx .inner{max-width:1100px;margin:0 auto;padding:8px 24px;font-size:.8rem;color:var(--muted)}
 .ctx b{color:var(--ink-2);font-weight:600}
 .ctx a{color:var(--ink-2);text-decoration:none}
+.ctx a:hover{text-decoration:underline}
+/* パンくず。区切りは薄く、現在地だけ濃く。折り返しても経路が読めるように
+   区切りごと折り返させる。 */
+.trail{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 8px}
+.trail [aria-current]{color:var(--ink-2)}
+.sep{color:var(--muted);user-select:none}
+.crumb .sep{margin:0 2px}
+/* コースのメニュー。1 行 1 分岐で、右端に「いま何件待っているか」を出す。 */
+.menu{display:flex;flex-direction:column;border:1px solid var(--line-soft);
+  border-radius:4px;overflow:hidden;background:var(--surface)}
+.menu .row{display:flex;align-items:center;gap:16px;padding:14px 18px;
+  border-bottom:1px solid var(--line-soft);color:var(--ink);text-decoration:none}
+.menu .row:last-child{border-bottom:0}
+.menu .row:hover{background:var(--surface-2)}
+.menu .what{flex:1;display:flex;flex-direction:column;gap:2px}
+/* 問題セットの一覧。**列を揃える。** 揃っていないと、締切や未確定の数を
+   縦に読み比べられない。狭い画面では 1 列に落として折り返す。 */
+.menu.sets .row{display:grid;align-items:baseline;padding:9px 18px;gap:2px 14px;
+  grid-template-columns:6rem 5rem 4rem repeat(3, 11rem) 1fr}
+.menu.sets .c-open{text-align:right}
+.menu.sets em{font-style:normal;opacity:.65}
+@media (max-width:900px){
+  .menu.sets .row{grid-template-columns:6rem 5rem 4rem 1fr}
+  .menu.sets .c-open{grid-column:1 / -1;text-align:left}
+}
+.menu .what b{font-size:.95rem}
+.menu .meta{text-align:right;font-size:.85rem;white-space:nowrap}
+/* 固定された接頭辞つきの入力。前半が動かないことが見て分かる形にする。 */
+.keyline{display:flex;align-items:stretch;max-width:22rem}
+.keyline .fixed{display:flex;align-items:center;padding:0 10px;font-size:.9rem;
+  color:var(--muted);background:var(--surface-2);
+  border:1px solid var(--line);border-right:0;border-radius:3px 0 0 3px}
+.keyline input{border-radius:0 3px 3px 0}
+/* 拡張子の選択。1 行に流して折り返す。 */
+.checks{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:.9rem}
+/* チェックと拡張子の間で折り返させない。`.jpg / .jpeg` のように空白を
+   含む表記があり、折り返すと箱と名前が離れて対応が読めなくなる。 */
+.checks label{display:inline-flex;align-items:center;gap:5px;cursor:pointer;white-space:nowrap}
+.checks label .mono{white-space:nowrap}
+/* 性質ごとに 1 行。行の頭に何の並びかを書き、拡張子はその右に並べる。
+   **チェックと拡張子は 1 つの塊**として扱い、間で折り返させない。 */
+.checkrow{display:flex;flex-wrap:wrap;align-items:center;gap:4px 14px;margin-bottom:8px}
+.checkrow .rowlabel{flex:0 0 8.5em}
+.checkrow .checks{flex:1;gap:4px 18px}
+.checks input[type=checkbox]{width:auto;margin:0;flex:none}
+/* 一覧の直下に置く 1 行の追加フォーム。見出しを立てるほどの操作ではない。 */
+.addline{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;
+  gap:10px;margin:10px 0 24px;font-size:.85rem}
+.addline label{margin:0}
+.addline input{font:inherit;font-size:.9rem;padding:7px 10px;border-radius:3px;
+  border:1px solid var(--line);background:var(--surface);color:var(--ink)}
+.addline button{padding:7px 16px}
+/* 担当コースのダイジェスト。**他の一覧と同じ 1 行の形**にして、
+   ページ幅いっぱいに使う。段組みにすると、コースごとの数字を横に
+   読み比べられない。 */
+.menu.courses .row .what{flex-direction:row;flex-wrap:wrap;align-items:baseline;gap:2px 12px}
+.stats{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:2px 16px;
+  font-size:.85rem;color:var(--muted)}
+.stats b{color:var(--ink);font-weight:700}
+.stats .attn{color:var(--shu)}
+.stats .attn b{color:var(--shu)}
+/* ボタンの置き場所。**原則は入力と同じ行の右端。** 目で追う順が
+   「何を入れるか → 押す」で閉じ、フォームの終わりが行の右端で分かる。
+   1 行に収まらない入力（textarea・項目が複数）だけ下に置き、そこでも
+   右端に寄せて同じ読み方にする。 */
+.inline-field{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:0}
+.inline-field .body{flex:1;min-width:12rem}
+.inline-field .body label{display:block;font-size:.85rem;color:var(--ink-2);margin-bottom:4px}
+.inline-field .body input:not([type=checkbox]),.inline-field .body select{width:100%;font:inherit;font-size:.9rem;
+  padding:9px 12px;border-radius:3px;border:1px solid var(--line);
+  background:var(--surface);color:var(--ink)}
+.inline-field > button{flex:none;margin-left:auto}
+.actions{display:flex;justify-content:flex-end;gap:10px;margin-top:12px}
+/* 複数の入力が 1 行に収まるフォーム。ボタンはその行の右端。 */
+.row-form{display:flex;flex-wrap:wrap;align-items:flex-end;gap:16px}
+.row-form > button{margin-left:auto}
+.row-form label{display:block;font-size:.85rem;color:var(--ink-2);margin-bottom:4px}
+/* 保存できたことの合図。**押したボタンの隣に出す** ── 同じ画面に戻る操作は
+   見た目が変わらないので、押せていないのか効いていないのか区別できない。
+   離れた場所に出すと、どの操作の結果なのかが分からない。 */
+h2[id]{scroll-margin-top:16px}
+/* 得点の分布。**画像も外部スクリプトも使わない** ── 課題文の数式と同じ
+   理由で、この配置では外向きの通信に依存させない。棒の高さだけで足りる。 */
+.hist{display:flex;align-items:flex-end;gap:6px;height:150px}
+.hist .bar{flex:1;display:flex;flex-direction:column;justify-content:flex-end;
+  align-items:center;height:100%;gap:3px;font-size:.72rem;color:var(--muted)}
+.hist .fill{width:100%;background:var(--verd);border-radius:2px 2px 0 0;min-height:2px}
+.hist .n{line-height:1}
+.hist .x{color:var(--muted)}
+.row-form select{font:inherit;font-size:.9rem;padding:8px 10px;border-radius:3px;
+  border:1px solid var(--line);background:var(--surface);color:var(--ink)}
+.check{display:inline-flex;align-items:center;gap:6px;font-size:.9rem;padding:8px 0}
+.flash{display:inline-flex;align-items:center;gap:6px;font-size:.82rem;color:var(--verd);
+  background:var(--verd-soft);border:1px solid var(--verd);border-radius:99px;padding:4px 12px}
+.flash::before{content:"✓"}
+.actions .flash{margin-right:auto}
+/* 読み取り中の表示。PDF の抽出とモデルの応答で十数秒かかることがあり、
+   何も出ないと押せていないのかどうか分からない。 */
+.flash.reading{color:var(--muted);border-color:var(--line);background:var(--surface-2)}
+.flash.reading::before{content:"⋯"}
 .score{font-size:2rem;font-weight:700;color:var(--ink)}
 .score .unit{font-size:1rem;color:var(--muted);font-weight:400}
 @media (max-width:860px){.grid2{grid-template-columns:1fr}}
@@ -123,19 +227,36 @@ header.top button{background:none;color:var(--muted);border:1px solid var(--line
 {% endif %}
 {% if course is defined and course %}
 <div class="ctx"><div class="inner">
-  <span><b>科目</b> <a href="/courses/{{ course.id }}">{{ course.title }}</a>
-    <span class="mono">({{ course.code }} / {{ course.term }})</span></span>
-  {% if task_meta is defined and task_meta %}
-  <span><b>{{ task_meta.unit_label }}</b>
-    {% if task_meta.opens_at %}{{ task_meta.opens_at.strftime('%Y-%m-%d') }} 提示{% endif %}</span>
-  <span><b>課題</b> {{ task_meta.title }}</span>
-  {% endif %}
-  {% if submission is defined and submission %}
-  <span><b>提出</b>
-    {% if learner is defined and learner %}<span class="mono">{{ learner.login }}</span>{% endif %}
-    {{ submission.attempt }} 回目
-    {% if submission.submitted_at %}({{ submission.submitted_at.strftime('%Y-%m-%d %H:%M') }}){% endif %}</span>
-  {% endif %}
+  {# **辿れる形で出す。** いまどのコースのどこを見ているかを示すだけでなく、
+     一段上へ戻れること。コースコードと開講期はここでは出さない ── 画面の見出しで
+     分かるものを二度出すと、肝心の経路が読み取りにくくなる。
+
+     階層は 担当コース > コース > 区画 > 課題 > 提出。区画（`section`）は
+     「コース全体の設定」「問題セット」「再確認の依頼」などで、コースのメニュー
+     （/courses/{id}）から分岐した先を表す。 #}
+  <nav class="trail" aria-label="現在地">
+    <a href="/">担当コース</a>
+    <span class="sep">&gt;</span>
+    <a href="/courses/{{ course.id }}">{{ course.title }}</a>
+    {% if section is defined and section %}
+      <span class="sep">&gt;</span>
+      <a href="{{ section.href }}">{{ section.label }}</a>
+    {% endif %}
+    {% if task_meta is defined and task_meta %}
+      <span class="sep">&gt;</span>
+      <span>{{ task_meta.unit_label }}</span>
+      <span class="sep">&gt;</span>
+      <span>{{ task_meta.title }}</span>
+    {% endif %}
+    {% if submission is defined and submission %}
+      <span class="sep">&gt;</span>
+      <span aria-current="page">
+        {%- if learner is defined and learner %}<span class="mono">{{ learner.login }}</span> {% endif -%}
+        提出 {{ submission.attempt }} 回目
+        {%- if submission.submitted_at %}（{{ submission.submitted_at.strftime('%Y-%m-%d %H:%M') }}）{% endif -%}
+      </span>
+    {% endif %}
+  </nav>
 </div></div>
 {% endif %}
 <main>{% block body %}{% endblock %}</main></body>

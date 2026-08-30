@@ -261,11 +261,11 @@ def test_the_queue_lists_only_review_requests(world: World) -> None:
     _, accepted = _instructor_and_submission(world)
     world.worker.run_until_empty()
 
-    body = world.client.get(f"/courses/{COURSE}").text
+    body = world.client.get(f"/courses/{COURSE}/queue").text
     assert str(accepted.submission.id)[:12] not in body, "依頼が無いのに並んでいる"
 
     _request_review(world, accepted.submission.id)
-    body = world.client.get(f"/courses/{COURSE}").text
+    body = world.client.get(f"/courses/{COURSE}/queue").text
     assert str(accepted.submission.id)[:12] in body
 
 
@@ -282,7 +282,7 @@ def test_a_resolved_request_leaves_the_queue(world: World) -> None:
     world.client.post(
         f"/review/{accepted.submission.id}/finalize", data=_agree_form(world, machine)
     )
-    body = world.client.get(f"/courses/{COURSE}").text
+    body = world.client.get(f"/courses/{COURSE}/queue").text
     assert str(accepted.submission.id)[:12] not in body
 
 
@@ -800,3 +800,94 @@ def test_an_already_finalized_run_can_still_be_reviewed(world: World) -> None:
     # 確定の記録は最初のものを残す。上書きしない。
     assert finalization is not None
     assert finalization.source is FinalizationSource.DEADLINE_ELAPSED
+
+
+# --------------------------------------------------------------------------
+# 提出の一覧と絞り込み
+# --------------------------------------------------------------------------
+
+
+@needs_c_compiler
+def test_the_submissions_page_lists_every_submission(world: World) -> None:
+    """待ち行列と違い、**依頼の有無に関係なく全部出す**（submissions.py）。"""
+    _, accepted = _instructor_and_submission(world)
+    world.worker.run_until_empty()
+
+    body = world.client.get(f"/courses/{COURSE}/submissions").text
+    assert str(accepted.submission.id)[:12] in body or "確認する" in body
+    assert "得点の分布" in body
+
+
+@needs_c_compiler
+def test_the_submissions_page_filters_by_learner_prefix(world: World) -> None:
+    """受講 91 名の学籍番号を選択肢に並べても選べない。前方一致で絞る。"""
+    _instructor_and_submission(world)
+    world.worker.run_until_empty()
+
+    hit = world.client.get(f"/courses/{COURSE}/submissions?learner=s24").text
+    miss = world.client.get(f"/courses/{COURSE}/submissions?learner=zzz").text
+    assert "条件に合う提出がありません" not in hit
+    assert "条件に合う提出がありません" in miss
+
+
+@needs_c_compiler
+def test_the_submissions_page_can_show_only_the_adopted_ones(world: World) -> None:
+    """採用提出だけに絞れること。全提出の分布は到達度として読めない。"""
+    _instructor_and_submission(world)
+    world.worker.run_until_empty()
+
+    body = world.client.get(f"/courses/{COURSE}/submissions?adopted=1").text
+    assert "採用" in body
+
+
+def test_an_unknown_task_filter_shows_nothing(world: World) -> None:
+    """絞り込みは URL に載る。壊れた値でも 500 にしない。"""
+    world.register("instructor", role=Role.INSTRUCTOR)
+    world.login("instructor")
+    response = world.client.get(f"/courses/{COURSE}/submissions?task=tsk_x")
+    assert response.status_code == 200
+    assert "条件に合う提出がありません" in response.text
+
+
+@needs_c_compiler
+def test_choosing_a_set_narrows_the_task_choices(world: World) -> None:
+    """選んだセットに無い問題を選べると、結果が常に空になる。
+
+    絞り込みが壊れたように見えるので、選択肢の方を絞る。
+    """
+    _instructor_and_submission(world)
+    world.worker.run_until_empty()
+    with world.database.unit_of_work() as uow:
+        task = uow.tasks.list_for_course(COURSE)[0]
+    unit = task.unit or "_"
+
+    narrowed = world.client.get(f"/courses/{COURSE}/submissions?unit={unit}").text
+    other = world.client.get(f"/courses/{COURSE}/submissions?unit=nosuchunit").text
+    assert str(task.id) in narrowed
+    assert str(task.id) not in other
+    # 問題セットの選択肢そのものは絞らない（別のセットに移れなくなる）。
+    assert unit in other
+
+
+@needs_c_compiler
+def test_a_task_outside_the_chosen_set_is_dropped(world: World) -> None:
+    """URL に残った古い問題の指定で、結果が黙って空にならないこと。"""
+    _instructor_and_submission(world)
+    world.worker.run_until_empty()
+    with world.database.unit_of_work() as uow:
+        task = uow.tasks.list_for_course(COURSE)[0]
+
+    body = world.client.get(
+        f"/courses/{COURSE}/submissions?unit=nosuchunit&task={task.id}"
+    ).text
+    assert "条件に合う提出がありません" in body
+
+
+def test_the_filters_do_not_need_a_button(world: World) -> None:
+    """絞り込みは見比べながら動かすもの。1 回ごとに押させると手が止まる。"""
+    world.register("instructor", role=Role.INSTRUCTOR)
+    world.login("instructor")
+    body = world.client.get(f"/courses/{COURSE}/submissions").text
+    assert "requestSubmit()" in body
+    # JavaScript が無い環境のための送信ボタンは残す。
+    assert "<noscript>" in body
