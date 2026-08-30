@@ -1321,36 +1321,105 @@ def test_the_unit_page_offers_generation_only_with_components(world: World) -> N
 # --------------------------------------------------------------------------
 
 
-def test_the_candidate_page_takes_text_or_a_file(world: World) -> None:
-    """シラバスはブラウザ側で描画されるページで、URL からは本文を取れない。
+def _proposal(*keys: str):
+    """候補を返す `SyllabusReader` の代わり。生成そのものは測らない。"""
+    from aijudge_admin.syllabus import KcHint, ProposalResult, SyllabusProposal
 
-    だから本文そのものを受け取る ── 貼り付けか、PDF の添付。
+    class _Reader:
+        def __init__(self) -> None:
+            self.seen: list[str] = []
+
+        def propose(self, text, *, namespaces, existing_keys=()):
+            self.seen.append(text)
+            return ProposalResult(
+                proposal=SyllabusProposal(
+                    knowledge_components=tuple(
+                        KcHint(key=key, label=key.rsplit(".", 1)[-1]) for key in keys
+                    )
+                ),
+                prompt_id="test",
+                model="test",
+            )
+
+    return _Reader
+
+
+def test_candidates_come_from_the_course_basics(monkeypatch, world: World) -> None:
+    """**本文を貼り直させない。** 材料はコースが既に持っている。
+
+    ここで貼らせると、2 つの経路で入った別々のシラバスがコースの中に並び、
+    どちらが本当か分からなくなる。
     """
     world.register("teacher", Role.INSTRUCTOR)
-    body = world.client("teacher").get(f"/manage/courses/{world.course.id}/kc/candidates").text
-    assert 'name="text"' in body
-    assert 'type="file"' in body
-
-
-def test_an_unreadable_attachment_says_why(world: World) -> None:
-    """スキャン画像の PDF を黙って OCR に流さない。読めないとそう言う。"""
-    world.register("teacher", Role.INSTRUCTOR)
-    response = world.client("teacher").post(
-        f"/manage/courses/{world.course.id}/kc/candidates",
-        files={"upload": ("syllabus.pdf", b"not really a pdf", "application/pdf")},
+    client = world.client("teacher")
+    client.post(
+        f"/manage/courses/{world.course.id}/basics/apply",
+        data={"title": world.course.title, "description": "## 到達目標\n\n配列を扱える"},
     )
-    assert response.status_code == 400
-    assert "本文を取り出せませんでした" in response.json()["detail"]
+    reader = _proposal("cs.arrays")
+    monkeypatch.setattr("aijudge_reviewconsole.manage.SyllabusReader", reader)
+
+    body = client.post(f"/manage/courses/{world.course.id}/kc/candidates").text
+    assert "cs.arrays" in body
+    # 一覧と同じページに出る（体系を見ながら選べるように）。
+    assert "知識要素を追加する" in body
 
 
-def test_an_unsupported_attachment_is_refused(world: World) -> None:
+def test_the_candidates_are_built_from_the_saved_description(monkeypatch, world: World) -> None:
+    """渡しているのが本当にコースの基本情報であることを確かめる。"""
     world.register("teacher", Role.INSTRUCTOR)
-    response = world.client("teacher").post(
-        f"/manage/courses/{world.course.id}/kc/candidates",
-        files={"upload": ("syllabus.xlsx", b"binary", "application/octet-stream")},
+    client = world.client("teacher")
+    client.post(
+        f"/manage/courses/{world.course.id}/basics/apply",
+        data={"title": "計算機科学入門", "description": "ポインタと再帰を扱う"},
     )
+    made = []
+
+    class _Recording(_proposal("cs.pointers")):
+        def propose(self, text, *, namespaces, existing_keys=()):
+            made.append(text)
+            return super().propose(text, namespaces=namespaces, existing_keys=existing_keys)
+
+    monkeypatch.setattr("aijudge_reviewconsole.manage.SyllabusReader", _Recording)
+    client.post(f"/manage/courses/{world.course.id}/kc/candidates")
+    assert "ポインタと再帰を扱う" in made[0]
+    assert "計算機科学入門" in made[0]
+
+
+def test_candidates_need_the_basics_to_be_filled_in(world: World) -> None:
+    """**候補を出せないことと、候補が無いことは違う。** 何をすればよいか言う。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    response = client.post(f"/manage/courses/{world.course.id}/kc/candidates")
     assert response.status_code == 400
-    assert "読めません" in response.json()["detail"]
+    assert "基本情報" in response.json()["detail"]
+
+    # 出せないときはボタンも出さず、基本情報への導線を出す。
+    page = client.get(f"/manage/courses/{world.course.id}/kc").text
+    assert f"/manage/courses/{world.course.id}/basics" in page
+
+
+def test_an_already_registered_candidate_cannot_be_adopted_again(monkeypatch, world: World) -> None:
+    """登録済みは印だけ出して、選ばせない（押しても増えないので）。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    client.post(
+        f"/manage/courses/{world.course.id}/basics/apply",
+        data={"title": world.course.title, "description": "配列を扱える"},
+    )
+    # 第 1 階層は管理者の操作（`aijudge_admin.kc` の規則 2）。
+    world.register("boss", Role.ADMIN)
+    world.client("boss").post(
+        f"/manage/courses/{world.course.id}/kc", data={"key": "cs.arrays", "label": "配列"}
+    )
+    monkeypatch.setattr(
+        "aijudge_reviewconsole.manage.SyllabusReader", _proposal("cs.arrays", "cs.recursion")
+    )
+    body = client.post(f"/manage/courses/{world.course.id}/kc/candidates").text
+    rows = body[body.index("候補（") :]
+    assert '<input type="checkbox" name="kc" value="cs.recursion">' in rows
+    assert '<input type="checkbox" name="kc" value="cs.arrays">' not in rows
+    assert "登録済み" in rows
 
 
 def test_a_short_paste_is_refused(world: World) -> None:
@@ -1373,11 +1442,20 @@ def test_adopting_a_candidate_follows_the_same_rules(world: World) -> None:
 
 
 def test_the_course_settings_link_to_both_flows(world: World) -> None:
-    """基本情報と知識要素は別の作業。入口も分ける。"""
+    """基本情報と知識要素は別の作業。入口も分ける。
+
+    候補づくりは知識要素のページにあるが、**基本情報が入っていて初めて出る**
+    （材料がそこにあるので）。
+    """
     world.register("teacher", Role.INSTRUCTOR)
     client = world.client("teacher")
     settings = client.get(f"/manage/courses/{world.course.id}").text
     assert f"/manage/courses/{world.course.id}/basics" in settings
+
+    client.post(
+        f"/manage/courses/{world.course.id}/basics/apply",
+        data={"title": world.course.title, "description": "配列を扱える"},
+    )
     kc_page = client.get(f"/manage/courses/{world.course.id}/kc").text
     assert f"/manage/courses/{world.course.id}/kc/candidates" in kc_page
 

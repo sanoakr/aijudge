@@ -67,7 +67,6 @@ from aijudge_admin.drafting import TaskDrafter
 from aijudge_admin.roster import RosterError
 from aijudge_admin.syllabus import (
     MAX_SYLLABUS_BYTES,
-    SYLLABUS_EXAMPLE,
     SyllabusError,
     SyllabusReader,
     read_document,
@@ -1030,71 +1029,55 @@ def register(templates) -> APIRouter:
 
     # -- 知識要素の候補 ----------------------------------------------------
 
-    @router.get("/courses/{course_id}/kc/candidates", response_class=HTMLResponse)
-    def kc_candidates(request: Request, course_id: str) -> Response:
+    @router.post("/courses/{course_id}/kc/candidates", response_class=HTMLResponse)
+    def propose_kcs(request: Request, course_id: str) -> Response:
+        """コースの基本情報から知識要素の候補を出す。**登録はしない。**
+
+        **本文を貼り直させない。** 材料はコースが既に持っている
+        （`Course.description` ── 基本情報のページでシラバスから読み取って
+        保存したもの）。同じ本文をもう一度貼らせると、2 つの経路で入った
+        別々のシラバスがコースの中に並ぶことになり、どちらが本当か分からない。
+
+        候補は候補のまま知識要素のページに戻す。**選ばれたものだけが
+        `adopt_candidates` で体系に入る**（`aijudge_admin.kc` の規則 4 ──
+        AI には KC を作らせない）。
+        """
         from .app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
         console = _console(request)
+
+        if not (course.description or "").strip():
+            # 材料が無い。**候補を出せないことと、候補が無いことは違う。**
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "コースの基本情報が空です。先に「基本情報」でシラバスを"
+                    "読み取るか、概要・到達目標を書いてください。"
+                ),
+            )
+
         profile = load_profile(console.profiles_dir / f"{course.subject_profile}.yaml")
         namespaces = allowed_namespaces(profile)
-        return templates.TemplateResponse(
-            request,
-            "manage_kc_candidates.html",
-            {
-                "me": me,
-                "course": course,
-                "section": {
-                    "label": "知識要素の候補",
-                    "href": f"/manage/courses/{course.id}/kc/candidates",
-                },
-                "namespaces": namespaces,
-                "existing": [
-                    kc.key
-                    for kc in list_for_namespaces(
-                        console.database, namespaces, include_deprecated=False
-                    )
-                ],
-                "example": SYLLABUS_EXAMPLE,
-                "proposal": None,
-            },
-        )
+        existing = [
+            kc.key
+            for kc in list_for_namespaces(console.database, namespaces, include_deprecated=False)
+        ]
+        # 題名も渡す。「プログラミング及び実習 II」だけで分野が決まることは
+        # ないが、本文が到達目標だけのときに科目の見当が付く。
+        body = f"# {course.title}\n\n{course.description}"
+        try:
+            result = SyllabusReader().propose(
+                body, namespaces=namespaces, existing_keys=tuple(existing)
+            )
+        except Exception as exc:  # 生成の失敗は運用の事象。理由を画面に返す。
+            raise HTTPException(
+                status_code=502,
+                detail=f"候補を作れませんでした（S6 が止まっている可能性があります）: {exc}",
+            ) from exc
 
-    @router.post("/courses/{course_id}/kc/candidates", response_class=HTMLResponse)
-    async def propose_kcs(
-        request: Request,
-        course_id: str,
-        text: Annotated[str, Form()] = "",
-        upload: UploadFile | None = None,
-    ) -> Response:
-        """シラバスから知識要素の候補を出す。**登録はしない。**"""
-        from .app import require_principal
-
-        me = require_principal(request)
-        course = _require_instructor(request, me, CourseId(course_id))
-        console = _console(request)
-
-        payload = await upload.read() if upload is not None and upload.filename else None
-        body = _read_body(text, upload, payload)
-        proposal, namespaces, existing = _propose(console, course, body)
-        return templates.TemplateResponse(
-            request,
-            "manage_kc_candidates.html",
-            {
-                "me": me,
-                "course": course,
-                "section": {
-                    "label": "知識要素の候補",
-                    "href": f"/manage/courses/{course.id}/kc/candidates",
-                },
-                "namespaces": namespaces,
-                "existing": existing,
-                "example": SYLLABUS_EXAMPLE,
-                "proposal": proposal,
-                "pasted": body,
-            },
-        )
+        return _kc_page(request, me, course, proposal=result.proposal)
 
     @router.post("/courses/{course_id}/kc/adopt")
     def adopt_candidates(
@@ -2012,6 +1995,15 @@ def register(templates) -> APIRouter:
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
+        return _kc_page(request, me, course, saved=saved)
+
+    def _kc_page(request: Request, me, course, *, saved: str = "", proposal=None) -> Response:
+        """知識要素のページ。**候補が出ているかどうかだけが違う。**
+
+        候補を別のページにすると、教員は「いま体系に何があるか」を見ずに
+        候補を選ぶことになる。重複を作らせないための情報が、選ぶ画面に
+        無いことになる。
+        """
         console = _console(request)
 
         profile = load_profile(console.profiles_dir / f"{course.subject_profile}.yaml")
@@ -2029,6 +2021,10 @@ def register(templates) -> APIRouter:
                 "saved": SAVED_MESSAGES.get(saved),
                 "saved_key": saved,
                 "is_admin": _is_admin(request, me),
+                # 候補。**既にあるものは採用させない**ので、突き合わせる鍵を渡す。
+                "proposal": proposal,
+                "existing": [kc.key for kc in kcs if not kc.deprecated],
+                "has_basics": bool((course.description or "").strip()),
             },
         )
 

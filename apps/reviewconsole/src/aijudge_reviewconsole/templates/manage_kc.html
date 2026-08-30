@@ -76,10 +76,70 @@
   </tbody>
 </table>
 
-<p class="desc">
-  シラバスがあるなら、<a href="/manage/courses/{{ course.id }}/kc/candidates">本文から候補を作る</a>
-  こともできます（出てくるのは候補で、選んだものだけが登録されます）。
-</p>
+{# **材料はコースが既に持っている。** 基本情報でシラバスから読み取って保存した
+   本文（`Course.description`）をそのまま使う。ここで貼り直させると、2 つの
+   経路で入った別々のシラバスがコースの中に並ぶことになる。 #}
+<h2 id="candidates">コースの基本情報から候補を出す</h2>
+{% if has_basics %}
+<form method="post" action="/manage/courses/{{ course.id }}/kc/candidates" class="card"
+      onsubmit="this.querySelector('.reading').hidden = false; this.querySelector('button').disabled = true">
+  <div class="inline-field">
+    <span class="body desc">
+      <strong>出てくるのは候補です。</strong>選んだものだけが体系に入ります。
+      既にある {{ existing | length }} 件に寄せるよう指示します（重複を作らないため）。
+    </span>
+    <span class="reading flash" hidden>読み取り中…</span>
+    <button type="submit">候補を出す</button>
+  </div>
+</form>
+{% else %}
+<div class="note">
+  コースの基本情報が空です。
+  <a href="/manage/courses/{{ course.id }}/basics">基本情報</a>でシラバスを読み取るか、
+  概要・到達目標を書いてから候補を出してください。
+</div>
+{% endif %}
+
+{% if proposal %}
+<h3>候補（{{ proposal.knowledge_components | length }} 件）</h3>
+{% if proposal.knowledge_components %}
+<form method="post" action="/manage/courses/{{ course.id }}/kc/adopt">
+  <table>
+    <thead><tr>
+      <th class="fit">採用</th><th class="fit">キー</th><th class="grow">名前・根拠</th><th class="fit">状態</th>
+    </tr></thead>
+    <tbody>
+    {% for k in proposal.knowledge_components %}
+      {% set known = k.key in existing %}
+      <tr>
+        <td class="fit">
+          {% if not known %}
+          <input type="checkbox" name="kc" value="{{ k.key }}">
+          <input type="hidden" name="label" value="{{ k.label }}">
+          {% endif %}
+        </td>
+        <td class="fit mono">{{ k.key }}</td>
+        <td class="grow">{{ k.label }}
+          {% if k.description %}<br><span class="desc">{{ k.description }}</span>{% endif %}
+          {% if k.source %}<br><span class="desc">出典: {{ k.source }}</span>{% endif %}
+        </td>
+        <td class="fit">
+          {% if known %}<span class="pill ok">登録済み</span>{% else %}<span class="desc">新規</span>{% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p class="desc">
+    <strong>親が実在している必要があります。</strong>親と子を同時に選んだ場合は親から順に登録します。
+    第 1 階層（分野の根）を作るには管理者の操作が要ります。
+  </p>
+  <div class="actions"><button type="submit">選んだものを登録する</button></div>
+</form>
+{% else %}
+<p class="desc">候補が出ませんでした。基本情報に到達目標や授業計画が含まれているか確かめてください。</p>
+{% endif %}
+{% endif %}
 
 <h2>知識要素を追加する</h2>
 {# 新しい KC は**既存 KC の子**としてのみ足せる（`aijudge_admin.kc`）。
