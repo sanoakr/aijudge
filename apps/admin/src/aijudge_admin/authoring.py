@@ -56,6 +56,8 @@ def save_task(
     authored_by: UserId,
     revise: bool = False,
     course_rubric: tuple[dict, ...] = (),
+    generated_by: str | None = None,
+    generation_prompt_version: str | None = None,
 ) -> SavedTask:
     """課題を保存する。既にあれば内容の同一性を確かめ、無ければ作る。
 
@@ -78,7 +80,16 @@ def save_task(
         )
 
     assert_registered(database, spec.knowledge_components)
-    version = build_task_version(spec, subject_profile=subject_profile, authored_by=authored_by)
+    # **出所を落とさない。** `generated_by` を渡さないと `Provenance` は
+    # 「教員が書いた」になり、版は承認待ちにならずそのまま出題可能になる
+    # （`ReviewState`）。生成物が誰の検査も通らずに出る経路ができる（P5）。
+    version = build_task_version(
+        spec,
+        subject_profile=subject_profile,
+        authored_by=authored_by,
+        generated_by=generated_by,
+        generation_prompt_version=generation_prompt_version,
+    )
     if revise:
         with database.unit_of_work() as uow:
             latest = uow.tasks.latest_version(version.task_id)

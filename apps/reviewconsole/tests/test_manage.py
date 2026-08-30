@@ -1288,6 +1288,69 @@ def test_only_an_admin_can_retire_a_component(world: World) -> None:
     assert response.status_code == 403
 
 
+def test_a_generated_task_is_saved_awaiting_approval(monkeypatch, world: World) -> None:
+    """**生成物は承認まで出題されない**（P5）。
+
+    出所（`generated_by`）が版に載らないと `Provenance` は「教員が書いた」に
+    なり、承認を経ずにそのまま出題可能になる。この経路は一度も通されて
+    おらず、`save_task` が出所を受け取らないまま呼ばれていた。
+    """
+    from aijudge_authoring.drafting import DraftTestCase, TaskDraft
+    from aijudge_core import ReviewState
+
+    world.register("boss", Role.ADMIN)
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    _import_example(world)
+    world.client("boss").post(
+        f"/manage/courses/{world.course.id}/kc", data={"key": "cs.loops", "label": "ループ"}
+    )
+
+    class _Drafter:
+        def __init__(self, *a, **kw) -> None: ...
+
+        def draft(self, blueprint, *, key):
+            from aijudge_admin.drafting import DraftResult
+            from aijudge_authoring.drafting import draft_to_spec
+
+            draft = TaskDraft(
+                title="生成された課題",
+                statement="## 生成 ##\n\n2 つの整数を読み、和を出力しなさい。",
+                reference_solution="int main(void){return 0;}",
+                test_cases=(
+                    DraftTestCase(name="case1", input="1 2", expected="3"),
+                    DraftTestCase(name="case2", input="2 3", expected="5"),
+                ),
+            )
+            return DraftResult(
+                spec=draft_to_spec(draft, blueprint, key=key),
+                draft=draft,
+                prompt_id="task_draft_ja@2",
+                model="stub-model",
+            )
+
+    monkeypatch.setattr("aijudge_reviewconsole.manage.TaskDrafter", _Drafter)
+
+    response = client.post(
+        f"/manage/courses/{world.course.id}/units/{_unit_of(world)}/generate",
+        data={"key_suffix": "p9", "kc": ["cs.loops"], "readability_weight": "0.3"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303, response.text
+
+    with world.database.unit_of_work() as uow:
+        made = next(
+            uow.tasks.latest_version(task.id)
+            for task in uow.tasks.list_for_course(world.course.id)
+            if uow.tasks.latest_version(task.id).provenance.generated_by
+        )
+    assert made.provenance.generated_by == "stub-model"
+    assert made.provenance.generation_prompt_version == "task_draft_ja@2"
+    # **承認まで出題されない。**
+    assert made.provenance.review_state is ReviewState.IN_REVIEW
+    assert not made.is_published
+
+
 def test_generation_needs_a_registered_component(world: World) -> None:
     """AI に KC を作らせない。生成は登録済みからの選択だけ。"""
     world.register("teacher", Role.INSTRUCTOR)
