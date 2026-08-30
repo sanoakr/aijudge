@@ -65,11 +65,19 @@ def create_db_engine(url: str | None = None, *, echo: bool = False) -> Engine:
 
 
 def create_schema(engine: Engine) -> None:
-    """スキーマを作る。
+    """スキーマを作る。**テストと使い捨ての開発 DB 用。**
 
-    Phase 0 は `create_all` で足りる。最初のスキーマ変更で Alembic に移す
-    （運用中のデータがある状態で `create_all` は使えない）。それまでは
-    「壊して作り直せる」段階だと明示しておく。
+    `create_all` は無いテーブルを作るが、**既存テーブルに列を足さない。**
+    運用中の DB をこれで更新しようとすると、列は永久に作られず、その表を
+    読む全てのクエリが落ちる（実際に起きた・#24 / #26）。
+
+    **運用中の DB は `alembic upgrade head` で更新する。** ここが残って
+    いるのは、テストが毎回まっさらな DB を作るからで（`create=True` は
+    25 箇所ある）、そこに移行を通しても遅くなるだけだから。
+
+    両者がずれないことは `packages/persistence/tests/test_migrations.py`
+    が確かめる ── 移行だけで作った形とモデルの形を突き合わせる。ずれれば
+    CI が落ちるので、モデルを変えて移行を書き忘れたまま進めない。
     """
     Base.metadata.create_all(engine)
 
