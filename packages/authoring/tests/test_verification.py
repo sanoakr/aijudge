@@ -55,9 +55,10 @@ def test_language_declarations_are_never_mutated() -> None:
 def test_every_mutation_changes_the_source() -> None:
     for mutation in mutate(C_SOURCE):
         assert mutation.source != C_SOURCE
-        assert mutation.source.splitlines()[mutation.line - 1] != C_SOURCE.splitlines()[
-            mutation.line - 1
-        ]
+        assert (
+            mutation.source.splitlines()[mutation.line - 1]
+            != C_SOURCE.splitlines()[mutation.line - 1]
+        )
 
 
 def test_the_four_kinds_are_all_reachable() -> None:
@@ -133,6 +134,6 @@ def test_a_known_equivalent_mutant_is_not_created() -> None:
     「テストケースが弱い」ではなく「等価変異が混じった」を測ることになる
     （実際に、まともな解答が 67% で門 2 に落ちた）。
     """
-    source = "int main(void) {\n    printf(\"x\");\n    return 0;\n}\n"
+    source = 'int main(void) {\n    printf("x");\n    return 0;\n}\n'
     dropped = [m for m in mutate(source) if m.kind is MutationKind.DROP_STATEMENT]
     assert all("return 0" not in m.original for m in dropped), dropped

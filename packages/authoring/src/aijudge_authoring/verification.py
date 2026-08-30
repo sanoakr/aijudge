@@ -100,9 +100,7 @@ _STRING_RE = re.compile(r'"((?:[^"\\\n]|\\.){1,80})"')
 #
 # 等価変異を完全に無くすことはできない（一般には決定不能）。だから閾値も
 # 1.0 にしない。ここで落とせるのは、**よく出る形が分かっているもの**だけである。
-_SKIP_DROP_RE = re.compile(
-    r"^\s*(?:$|//|#|/\*|\*|\}|\{|else\b|return\s+0\s*;\s*$|return\s*;\s*$)"
-)
+_SKIP_DROP_RE = re.compile(r"^\s*(?:$|//|#|/\*|\*|\}|\{|else\b|return\s+0\s*;\s*$|return\s*;\s*$)")
 
 # **どの変異の対象にもしない行。** import と `#include` は言語の宣言で、
 # ここを壊すと「テストケースが何を見ているか」ではなく
@@ -269,17 +267,12 @@ class VerificationReport(BaseModel):
         `NOT_RUN` は合格ではない ── 測れなかったことを合格として扱うのは
         ADR 0005 が測定について禁じたのと同じ形である。
         """
-        return (
-            self.reference_passes is GateOutcome.PASSED
-            and self.gate_two is GateOutcome.PASSED
-        )
+        return self.reference_passes is GateOutcome.PASSED and self.gate_two is GateOutcome.PASSED
 
     def summary(self) -> str:
         ratio = self.kill_ratio
         killed = (
-            "—"
-            if ratio is None
-            else f"{self.mutants_killed}/{self.mutants_total}（{ratio:.0%}）"
+            "—" if ratio is None else f"{self.mutants_killed}/{self.mutants_total}（{ratio:.0%}）"
         )
         lines = [
             f"門 1 参照解答が通る: {self.reference_passes.value}",

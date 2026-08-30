@@ -79,9 +79,7 @@ def calibrated(source: list[int], target: list[int], top: int) -> list[int]:
         ys = [target[j] for j in range(len(target)) if j != i]
         mx, my = statistics.fmean(xs), statistics.fmean(ys)
         var = sum((x - mx) ** 2 for x in xs)
-        a = 0.0 if var == 0 else sum(
-            (x - mx) * (y - my) for x, y in zip(xs, ys, strict=True)
-        ) / var
+        a = 0.0 if var == 0 else sum((x - mx) * (y - my) for x, y in zip(xs, ys, strict=True)) / var
         out.append(max(0, min(top, round(a * source[i] + (my - a * mx)))))
     return out
 

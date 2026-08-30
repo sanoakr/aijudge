@@ -22,12 +22,8 @@ class SqlSkillRepository:
 
     # -- 習熟度 ------------------------------------------------------------
 
-    def get_state(
-        self, tenant_id: TenantId, learner_id: UserId, kc_id: KcId
-    ) -> SkillState | None:
-        row = self._session.get(
-            SkillStateRow, (str(tenant_id), str(learner_id), str(kc_id))
-        )
+    def get_state(self, tenant_id: TenantId, learner_id: UserId, kc_id: KcId) -> SkillState | None:
+        row = self._session.get(SkillStateRow, (str(tenant_id), str(learner_id), str(kc_id)))
         return None if row is None else SkillState.model_validate(row.document)
 
     def save_state(self, state: SkillState) -> None:

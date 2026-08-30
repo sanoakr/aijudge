@@ -73,9 +73,7 @@ def main() -> int:
         kappa = cohen_kappa(human, machine)
         # 段階は 0 から配点まで。出現しなかった段階も期待値に効くので
         # 全部渡す。
-        qwk = quadratic_weighted_kappa(
-            human, machine, range(rubric.MAX_LEVEL[code] + 1)
-        )
+        qwk = quadratic_weighted_kappa(human, machine, range(rubric.MAX_LEVEL[code] + 1))
         bias = statistics.fmean(m - h for h, m in pairs)
         print(
             f"{spec['title']:16} {rubric.POINTS[code]:2} {len(pairs):2}"
@@ -115,14 +113,14 @@ def main() -> int:
         )
         print("\n  学生       教員  AI   差   振り分け")
         for login, ht, mt, routing in sorted(rows, key=lambda x: x[1] - x[2]):
-            print(f"  {login:9} {ht:4} {mt:4} {mt-ht:+4}   {routing}")
+            print(f"  {login:9} {ht:4} {mt:4} {mt - ht:+4}   {routing}")
 
     # --- 振り分けと未採点 -------------------------------------------------
     review = sum(1 for r in runs if r["routing"] != "auto")
     print("\n## 振り分け\n")
     print(
-        f"  レビュー行き {review}/{len(runs)} = {review/len(runs):.0%}"
-        f"  {mark(GATE_REVIEW_RATE - review/len(runs), 0.0)}（基準 30% 以下）"
+        f"  レビュー行き {review}/{len(runs)} = {review / len(runs):.0%}"
+        f"  {mark(GATE_REVIEW_RATE - review / len(runs), 0.0)}（基準 30% 以下）"
     )
     unscored = [(r["login"], r["unscored"]) for r in runs if r["unscored"]]
     if unscored:

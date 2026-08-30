@@ -27,9 +27,7 @@ STUDENT_ID = re.compile(r"[YyＹｙ][\s　]*[0-9０-９][\s　]*(?:[0-9０-９][
 # 氏名の行。「名前：」「氏名：」に続くもの、または学籍番号と同じ行に並ぶもの。
 NAME_LABEL = re.compile(r"^[\s　]*(?:名前|氏名|Name)[\s　]*[:：].*$", re.MULTILINE)
 # PDF 抽出で 1 文字ずつ割れた見出し（「名 前 ： 柏 田  聡」）も拾う。
-NAME_LABEL_SPACED = re.compile(
-    r"^[\s　]*(?:名[\s　]*前|氏[\s　]*名)[\s　]*[:：].*$", re.MULTILINE
-)
+NAME_LABEL_SPACED = re.compile(r"^[\s　]*(?:名[\s　]*前|氏[\s　]*名)[\s　]*[:：].*$", re.MULTILINE)
 
 
 def anonymize(text: str) -> tuple[str, int]:

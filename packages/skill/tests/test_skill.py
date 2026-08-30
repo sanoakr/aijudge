@@ -170,9 +170,7 @@ def test_a_low_confidence_judgement_does_not_move_the_record() -> None:
     確信の無い AI 判定がポートフォリオに残り続ける。
     """
     service, repository = _service()
-    assert service.apply(
-        _event(confidence=0.3, routing=Routing.REVIEW_REQUIRED)
-    ) == ()
+    assert service.apply(_event(confidence=0.3, routing=Routing.REVIEW_REQUIRED)) == ()
     assert repository.get_state(TENANT, LEARNER, KC) is None
 
 

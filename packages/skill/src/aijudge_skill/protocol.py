@@ -31,9 +31,7 @@ class InMemorySkillRepository:
         self._states: dict[tuple[str, str, str], SkillState] = {}
         self._kcs = {kc.id: kc for kc in kcs}
 
-    def get_state(
-        self, tenant_id: TenantId, learner_id: UserId, kc_id: KcId
-    ) -> SkillState | None:
+    def get_state(self, tenant_id: TenantId, learner_id: UserId, kc_id: KcId) -> SkillState | None:
         return self._states.get((str(tenant_id), str(learner_id), str(kc_id)))
 
     def save_state(self, state: SkillState) -> None:

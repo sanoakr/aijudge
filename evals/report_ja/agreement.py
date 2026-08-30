@@ -44,9 +44,7 @@ def load_csv_rater(index: dict) -> dict[str, dict[str, int]]:
 
 def load_run(name: str) -> dict[str, dict[str, int]]:
     runs = json.loads((rubric.RUNS / f"{name}.json").read_text("utf-8"))
-    return {
-        r["login"]: {code: s["level"] for code, s in r["scores"].items()} for r in runs
-    }
+    return {r["login"]: {code: s["level"] for code, s in r["scores"].items()} for r in runs}
 
 
 def pairwise(a: dict, b: dict, code: str) -> tuple[list[int], list[int]]:
@@ -114,8 +112,7 @@ def main() -> int:
         for name in names:
             vals = [lv[code] for lv in raters[name].values() if code in lv]
             spread.append(
-                f"{name} 平均 {statistics.fmean(vals):.2f}"
-                f"（σ {statistics.pstdev(vals):.2f}）"
+                f"{name} 平均 {statistics.fmean(vals):.2f}（σ {statistics.pstdev(vals):.2f}）"
             )
         print(f"  {' / '.join(spread)}\n")
 

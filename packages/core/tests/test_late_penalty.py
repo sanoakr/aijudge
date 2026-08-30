@@ -138,9 +138,7 @@ def _review(*, waived: bool = False, levels: dict | None = None) -> HumanReview:
     ("hours", "expected"),
     [(0.5, 0.10), (23.9, 0.10), (24.1, 0.30), (100.0, 0.50)],
 )
-def test_the_ladder_picks_the_highest_step_the_delay_reaches(
-    hours: float, expected: float
-) -> None:
+def test_the_ladder_picks_the_highest_step_the_delay_reaches(hours: float, expected: float) -> None:
     penalty = late_penalty_for(DUE, DUE + timedelta(hours=hours), LADDER)
     assert penalty is not None
     assert penalty.ratio == expected

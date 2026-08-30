@@ -116,9 +116,7 @@ def _request(
         submitted_at=submitted_at,
         created_at=DUE,
     )
-    return EvaluationRequest(
-        task_version=task_version, submission=submission, options=options
-    )
+    return EvaluationRequest(task_version=task_version, submission=submission, options=options)
 
 
 def _level(outcome) -> int:

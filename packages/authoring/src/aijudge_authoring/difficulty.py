@@ -101,8 +101,7 @@ class DifficultyEstimate(BaseModel):
         )
         if self.method is SimilarityMethod.LEXICAL:
             lines.append(
-                "  近傍は字面だけで選んでいます ── **言い回しが似ているだけ**の"
-                "課題かもしれません。"
+                "  近傍は字面だけで選んでいます ── **言い回しが似ているだけ**の課題かもしれません。"
             )
         return "\n".join(lines)
 
@@ -137,9 +136,7 @@ def estimate(
 
     total_weight = sum(item.score for item, _ in usable)
     if total_weight <= 0.0:
-        return DifficultyEstimate(
-            method=method, reason="近傍の類似度がすべて 0 でした"
-        )
+        return DifficultyEstimate(method=method, reason="近傍の類似度がすべて 0 でした")
     predicted = sum(item.score * rate for item, rate in usable) / total_weight
     return DifficultyEstimate(
         predicted_pass_rate=round(predicted, 4),

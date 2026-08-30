@@ -54,8 +54,7 @@ SHAPE = ",\n".join(
 )
 
 CRITERIA_BLOCK = "\n\n".join(
-    f"### 観点 `{c['code']}`: {c['title']}\n\n{c['description']}\n\n段階:\n"
-    + describe_levels(c)
+    f"### 観点 `{c['code']}`: {c['title']}\n\n{c['description']}\n\n段階:\n" + describe_levels(c)
     for c in rubric.CRITERIA
 )
 

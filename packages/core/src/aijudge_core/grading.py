@@ -512,9 +512,7 @@ def final_score(
         # AI の判定に基づく値なので、そのまま出すと修正が反映されない。
         total = 0.0
         for score in run.criterion_scores:
-            criterion = next(
-                (c for c in task_version.criteria if c.id == score.criterion_id), None
-            )
+            criterion = next((c for c in task_version.criteria if c.id == score.criterion_id), None)
             if criterion is None:  # pragma: no cover - 課題版が一致しない構成
                 continue
             level = review.level_for(score.criterion_id, score.level)

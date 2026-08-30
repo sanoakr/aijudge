@@ -292,8 +292,7 @@ CRITERIA = [
         "code": "results",
         "title": "結果の提示（2 点）",
         "description": (
-            "測定値が表やグラフで示され、単位・条件・軸が対応しているか。"
-            "数値を並べただけでないか。"
+            "測定値が表やグラフで示され、単位・条件・軸が対応しているか。数値を並べただけでないか。"
         ),
         "weight": POINTS["results"] / TOTAL_POINTS,
         "levels": _levels(
@@ -336,9 +335,7 @@ def load_human(path):
     with open(path, encoding="utf-8-sig", newline="") as fh:
         for row in csv.DictReader(fh):
             login = row["学籍番号"].strip().upper()
-            out[login] = {
-                code: int(row[column]) for code, column in _CSV_COLUMN.items()
-            }
+            out[login] = {code: int(row[column]) for code, column in _CSV_COLUMN.items()}
     return out
 
 

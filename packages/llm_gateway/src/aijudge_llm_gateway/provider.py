@@ -181,7 +181,6 @@ class OllamaProvider:
             raise LlmError(f"{self.name}: cannot list models: {exc}") from exc
         return tuple(sorted(model["name"] for model in data.get("models", [])))
 
-
     def embed(self, request: EmbeddingRequest) -> EmbeddingResponse:
         """ollama の `/api/embed`。
 

@@ -600,9 +600,7 @@ def test_the_ai_phase_does_not_run_the_sandbox_again(world: World) -> None:
     world.worker.run_once(phase=GradingPhase.DETERMINISTIC)
     with world.database.unit_of_work() as uow:
         interim = uow.runs.latest_for(accepted.submission.id)
-    deterministic = [
-        r for r in interim.evaluator_results if r.evaluator_id == "code_test_runner"
-    ]
+    deterministic = [r for r in interim.evaluator_results if r.evaluator_id == "code_test_runner"]
 
     world.worker.run_once(phase=GradingPhase.AI)
 
@@ -610,9 +608,9 @@ def test_the_ai_phase_does_not_run_the_sandbox_again(world: World) -> None:
         final = uow.runs.latest_for(accepted.submission.id)
     carried = [r for r in final.evaluator_results if r.evaluator_id == "code_test_runner"]
     assert len(carried) == len(deterministic)
-    assert {r.id for r in carried} == {
-        r.id for r in deterministic
-    }, "サンドボックスを回し直している"
+    assert {r.id for r in carried} == {r.id for r in deterministic}, (
+        "サンドボックスを回し直している"
+    )
 
 
 @needs_c_compiler
@@ -638,9 +636,12 @@ def test_the_weights_come_back_from_the_rubric_in_the_ai_phase(world: World) -> 
         world.task_version.criterion(score.criterion_id).code: score.weight
         for score in final.criterion_scores
     }
-    assert by_code["correctness"] == world.task_version.criterion(
-        next(c.id for c in world.task_version.criteria if c.code == "correctness")
-    ).weight
+    assert (
+        by_code["correctness"]
+        == world.task_version.criterion(
+            next(c.id for c in world.task_version.criteria if c.code == "correctness")
+        ).weight
+    )
 
 
 def test_a_deterministic_worker_does_not_take_ai_jobs(world: World) -> None:

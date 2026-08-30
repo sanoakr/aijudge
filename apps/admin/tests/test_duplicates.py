@@ -143,9 +143,9 @@ def test_only_statements_are_sent() -> None:
     database = Database.connect("sqlite+pysqlite:///:memory:", create=True)
     try:
         with database.unit_of_work() as uow:
-            DuplicateChecker(
-                uow.tasks, LlmGateway(provider), embedding_model="emb"
-            ).check(_version(MINE, STATEMENT), _existing())
+            DuplicateChecker(uow.tasks, LlmGateway(provider), embedding_model="emb").check(
+                _version(MINE, STATEMENT), _existing()
+            )
     finally:
         database.dispose()
 

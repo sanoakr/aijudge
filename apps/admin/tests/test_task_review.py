@@ -181,9 +181,10 @@ def test_pending_tasks_are_not_in_the_denominator() -> None:
 def test_a_small_sample_is_not_a_pass() -> None:
     """ADR 0005 と同じ規則を作問にも当てる。3 件中 2 件は 67% の証拠ではない。"""
     assert ApprovalRate(approved=2, rejected=1, pending=0).verdict == "NOT_MEASURED"
-    assert "測れていないことは合格ではありません" in ApprovalRate(
-        approved=2, rejected=1, pending=0
-    ).render()
+    assert (
+        "測れていないことは合格ではありません"
+        in ApprovalRate(approved=2, rejected=1, pending=0).render()
+    )
 
 
 def test_the_gate_is_sixty_percent() -> None:

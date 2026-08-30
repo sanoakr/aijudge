@@ -169,9 +169,7 @@ def test_an_unregistered_component_is_named_as_such(database, capsys) -> None:
             update={
                 "id": stray,
                 "task_id": TaskId("tsk_" + "9" * 32),
-                "q_matrix": (
-                    QMatrixEntry(task_version_id=stray, kc_id=KcId("kc_" + "e" * 32)),
-                ),
+                "q_matrix": (QMatrixEntry(task_version_id=stray, kc_id=KcId("kc_" + "e" * 32)),),
             }
         )
         uow.tasks.save_task(Task(id=version.task_id, course_id=COURSE, title="別"))

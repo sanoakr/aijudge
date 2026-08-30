@@ -57,9 +57,7 @@ def build_task_version() -> TaskVersion:
             RubricCriterion(
                 # 観点 ID を内容から決めておく。走らせ直しても同じ ID になり、
                 # 結果の突き合わせが名前ではなく ID でできる。
-                id=CriterionId(
-                    "crt_" + hashlib.sha256(spec["code"].encode()).hexdigest()[:32]
-                ),
+                id=CriterionId("crt_" + hashlib.sha256(spec["code"].encode()).hexdigest()[:32]),
                 code=spec["code"],
                 title=spec["title"],
                 description=spec["description"],
@@ -142,6 +140,7 @@ def build_submission(login: str, path: Path) -> tuple[Submission, bytes]:
 
 def grade_one(pipeline, task_version, login, filename):
     submission, payload = build_submission(login, rubric.SOURCE_DIR / filename)
+
     # ContentLoader は Artifact を受け取る（ID ではない）。
     def load(artifact):
         return payload
@@ -210,7 +209,7 @@ def main() -> int:
             results.append(result)
             unscored = f"  未採点 {result['unscored']}" if result["unscored"] else ""
             print(
-                f"  {result['login']:9} {result['score_ratio']*100:5.1f}%"
+                f"  {result['login']:9} {result['score_ratio'] * 100:5.1f}%"
                 f"  {result['routing']:16} {result['seconds']:6.1f} 秒{unscored}",
                 flush=True,
             )

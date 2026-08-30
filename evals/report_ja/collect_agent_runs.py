@@ -87,8 +87,7 @@ def main() -> int:
                 "score_ratio": (
                     None
                     if unscored
-                    else rubric.total({c: v["level"] for c, v in scores.items()})
-                    / rubric.TOTAL_MAX
+                    else rubric.total({c: v["level"] for c, v in scores.items()}) / rubric.TOTAL_MAX
                 ),
                 # 確信度が無いので振り分けは決められない。
                 "routing": "not_routed",

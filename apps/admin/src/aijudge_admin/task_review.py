@@ -84,9 +84,7 @@ def pending_reviews(repository: TaskRepository) -> tuple[TaskVersion, ...]:
 def approve(
     repository: TaskRepository, version_id: TaskVersionId, *, reviewer: UserId
 ) -> TaskVersion:
-    return repository.record_review(
-        version_id, approved=True, reviewer=reviewer, reason=None
-    )
+    return repository.record_review(version_id, approved=True, reviewer=reviewer, reason=None)
 
 
 def reject(
@@ -96,9 +94,7 @@ def reject(
 
     理由は作問の改善に還流させる材料で、捨てると生成が同じ誤りを繰り返す。
     """
-    return repository.record_review(
-        version_id, approved=False, reviewer=reviewer, reason=reason
-    )
+    return repository.record_review(version_id, approved=False, reviewer=reviewer, reason=reason)
 
 
 def approval_rate(versions: tuple[TaskVersion, ...]) -> ApprovalRate:
@@ -109,15 +105,9 @@ def approval_rate(versions: tuple[TaskVersion, ...]) -> ApprovalRate:
     """
     generated = [v for v in versions if v.provenance.generated_by is not None]
     return ApprovalRate(
-        approved=sum(
-            1 for v in generated if v.provenance.review_state is ReviewState.APPROVED
-        ),
-        rejected=sum(
-            1 for v in generated if v.provenance.review_state is ReviewState.REJECTED
-        ),
-        pending=sum(
-            1 for v in generated if v.provenance.review_state is ReviewState.IN_REVIEW
-        ),
+        approved=sum(1 for v in generated if v.provenance.review_state is ReviewState.APPROVED),
+        rejected=sum(1 for v in generated if v.provenance.review_state is ReviewState.REJECTED),
+        pending=sum(1 for v in generated if v.provenance.review_state is ReviewState.IN_REVIEW),
     )
 
 

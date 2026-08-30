@@ -116,9 +116,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if args.once:
-            graded, errors = worker.run_until_empty(
-                subject_profile=args.subject, phase=phase
-            )
+            graded, errors = worker.run_until_empty(subject_profile=args.subject, phase=phase)
             print(f"採点した提出: {graded} 件")
             for error in errors:
                 print(f"  失敗: {error}", file=sys.stderr)

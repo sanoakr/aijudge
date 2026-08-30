@@ -146,7 +146,7 @@ def test_the_reference_solution_is_never_shown_to_the_solver() -> None:
 
     sent = "\n".join(m.content for m in provider.calls[0].messages)
     assert "2 つの整数を読み" in sent, "課題文が渡っていない"
-    assert "scanf(\"%d %d\"" not in sent, "参照解答がプロンプトに入っている"
+    assert 'scanf("%d %d"' not in sent, "参照解答がプロンプトに入っている"
 
 
 @needs_c_compiler
@@ -243,9 +243,7 @@ def test_a_component_the_solution_did_not_need_is_surfaced() -> None:
     学習者に「問われていない KC の習熟度」が付く（S7 は Q-matrix を土台に
     習熟度を動かす）。
     """
-    checker, _ = _checker(
-        _attempt(DIFFERENT_BUT_CORRECT, exercised=("cs.io.formatted_input",))
-    )
+    checker, _ = _checker(_attempt(DIFFERENT_BUT_CORRECT, exercised=("cs.io.formatted_input",)))
     report = checker.check(_task(), declared_kcs=KCS)
 
     assert report.solved
@@ -298,9 +296,7 @@ def test_the_packet_always_shows_the_components_to_confirm() -> None:
 def test_an_unexercised_component_makes_the_packet_unclean() -> None:
     task = _task()
     verifier = TaskVerifier(EvaluatorRegistry().load_installed(), PROFILE, mutation_limit=8)
-    checker, _ = _checker(
-        _attempt(DIFFERENT_BUT_CORRECT, exercised=("cs.io.formatted_input",))
-    )
+    checker, _ = _checker(_attempt(DIFFERENT_BUT_CORRECT, exercised=("cs.io.formatted_input",)))
 
     packet = build_packet(
         task, verifier.verify(task), checker.check(task, declared_kcs=KCS), declared_kcs=KCS

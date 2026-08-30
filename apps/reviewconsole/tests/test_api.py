@@ -220,16 +220,20 @@ def test_posting_the_same_task_twice_changes_nothing(world: World) -> None:
 
     assert second["created"] is False
     assert second["task_id"] == first["task_id"]
-    assert len(world.client.get(f"/api/courses/{world.course.id}/tasks",
-                                headers=world.auth(token)).json()) == 1
+    assert (
+        len(
+            world.client.get(
+                f"/api/courses/{world.course.id}/tasks", headers=world.auth(token)
+            ).json()
+        )
+        == 1
+    )
 
 
 def test_changing_the_statement_is_refused(world: World) -> None:
     """過去の採点基準を書き換えない（P8）。直すなら版を上げる操作が要る。"""
     token = world.token("teacher")
-    world.client.post(
-        f"/api/courses/{world.course.id}/tasks", json=SPEC, headers=world.auth(token)
-    )
+    world.client.post(f"/api/courses/{world.course.id}/tasks", json=SPEC, headers=world.auth(token))
     changed = {**SPEC, "statement": "## [必須] 別の問題 ##\n\n違う内容"}
 
     response = world.client.post(
@@ -255,9 +259,7 @@ def test_reimporting_does_not_wipe_a_deadline_set_in_the_ui(world: World) -> Non
         uow.tasks.save_task(task.model_copy(update={"due_at": due}))
         uow.commit()
 
-    world.client.post(
-        f"/api/courses/{world.course.id}/tasks", json=SPEC, headers=world.auth(token)
-    )
+    world.client.post(f"/api/courses/{world.course.id}/tasks", json=SPEC, headers=world.auth(token))
 
     with world.database.unit_of_work() as uow:
         task = uow.tasks.get_task(TaskId(created["task_id"]))

@@ -102,9 +102,7 @@ class NormalizerRegistry:
             return self._normalizers[normalizer_id]
         except KeyError:
             known = ", ".join(sorted(self._normalizers)) or "(none)"
-            raise KeyError(
-                f"unknown normalizer {normalizer_id!r}; registered: {known}"
-            ) from None
+            raise KeyError(f"unknown normalizer {normalizer_id!r}; registered: {known}") from None
 
     def __contains__(self, normalizer_id: object) -> bool:
         return normalizer_id in self._normalizers

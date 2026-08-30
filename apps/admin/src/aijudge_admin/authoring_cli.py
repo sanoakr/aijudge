@@ -282,17 +282,13 @@ def register(task_parser) -> None:
         default=None,
         help="解答可能性を試すモデル。**下書きとは別のモデルにすること**",
     )
-    draft.add_argument(
-        "--no-solvability", action="store_true", help="解答可能性の検査を省く"
-    )
+    draft.add_argument("--no-solvability", action="store_true", help="解答可能性の検査を省く")
     draft.add_argument(
         "--embedding-model",
         default=None,
         help="重複検出に使う埋め込みモデル。指定しなければ字面だけで測る",
     )
-    draft.add_argument(
-        "--no-duplicates", action="store_true", help="重複の検査を省く"
-    )
+    draft.add_argument("--no-duplicates", action="store_true", help="重複の検査を省く")
     draft.add_argument("--dry-run", action="store_true", help="保存しない")
     draft.set_defaults(func=cmd_task_draft)
 

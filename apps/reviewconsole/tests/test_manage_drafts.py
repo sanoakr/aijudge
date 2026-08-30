@@ -95,9 +95,7 @@ class World:
             principal = service.register(
                 tenant_id=TENANT, login=login, display_name=login, password=PASSWORD
             )
-            service.enroll(
-                tenant_id=TENANT, course_id=course, user_id=principal.user_id, role=role
-            )
+            service.enroll(tenant_id=TENANT, course_id=course, user_id=principal.user_id, role=role)
             uow.commit()
         return principal
 
@@ -187,7 +185,8 @@ def test_approving_publishes_the_version(world: World) -> None:
     world.register("teacher", Role.INSTRUCTOR)
     world.login("teacher")
     response = world.client.post(
-        f"{_url()}/{VERSION}", data={"decision": "approve", "reason": ""},
+        f"{_url()}/{VERSION}",
+        data={"decision": "approve", "reason": ""},
         follow_redirects=False,
     )
     assert response.status_code == 303
@@ -200,7 +199,8 @@ def test_rejecting_without_a_reason_is_refused(world: World) -> None:
     world.register("teacher", Role.INSTRUCTOR)
     world.login("teacher")
     response = world.client.post(
-        f"{_url()}/{VERSION}", data={"decision": "reject", "reason": "短い"},
+        f"{_url()}/{VERSION}",
+        data={"decision": "reject", "reason": "短い"},
         follow_redirects=False,
     )
     assert response.status_code == 400
@@ -214,7 +214,8 @@ def test_rejecting_records_the_reason(world: World) -> None:
     world.login("teacher")
     reason = "入力の形式が課題文に書かれておらず、解答者によって読みが分かれます。"
     response = world.client.post(
-        f"{_url()}/{VERSION}", data={"decision": "reject", "reason": reason},
+        f"{_url()}/{VERSION}",
+        data={"decision": "reject", "reason": reason},
         follow_redirects=False,
     )
     assert response.status_code == 303
@@ -232,7 +233,8 @@ def test_a_decided_version_cannot_be_decided_again(world: World) -> None:
     world.client.post(f"{_url()}/{VERSION}", data={"decision": "approve", "reason": ""})
 
     again = world.client.post(
-        f"{_url()}/{VERSION}", data={"decision": "approve", "reason": ""},
+        f"{_url()}/{VERSION}",
+        data={"decision": "approve", "reason": ""},
         follow_redirects=False,
     )
     assert again.status_code == 409

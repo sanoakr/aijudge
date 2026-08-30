@@ -43,10 +43,20 @@ TITLES = {c["code"]: c["title"] for c in rubric.CRITERIA}
 RATER_CONDITIONS = {
     "gemma4": ("ゲートウェイ", "1 観点ごとに 1 回", "3 本", "あり", "原文"),
     "qwen3.8": ("ゲートウェイ", "1 観点ごとに 1 回", "2 本", "あり", "原文"),
-    "Sonnet5": ("サブエージェント", "**{criteria} 観点まとめて 1 回**",
-                "**1 本**", "**なし**", "**匿名化**"),
-    "Opus5": ("サブエージェント", "**{criteria} 観点まとめて 1 回**",
-              "**1 本**", "**なし**", "**匿名化**"),
+    "Sonnet5": (
+        "サブエージェント",
+        "**{criteria} 観点まとめて 1 回**",
+        "**1 本**",
+        "**なし**",
+        "**匿名化**",
+    ),
+    "Opus5": (
+        "サブエージェント",
+        "**{criteria} 観点まとめて 1 回**",
+        "**1 本**",
+        "**なし**",
+        "**匿名化**",
+    ),
 }
 # サブエージェント経由の採点者（§04 step 3 が禁じた形で採らざるを得なかったもの）。
 SUBAGENT_RATERS = {"Sonnet5", "Opus5"}
@@ -81,9 +91,7 @@ def load_raters(specs: list[str]) -> tuple[dict[str, dict], dict]:
             }
             continue
         runs = json.loads((rubric.RUNS / f"{name}.json").read_text("utf-8"))
-        raters[label] = {
-            r["login"]: {c: s["level"] for c, s in r["scores"].items()} for r in runs
-        }
+        raters[label] = {r["login"]: {c: s["level"] for c, s in r["scores"].items()} for r in runs}
     return raters, index
 
 
@@ -101,11 +109,7 @@ def consensus(raters: dict[str, dict], logins: list[str]) -> dict[str, dict[str,
     for login in logins:
         levels = {}
         for code in CODES:
-            values = [
-                r[login][code]
-                for r in raters.values()
-                if login in r and code in r[login]
-            ]
+            values = [r[login][code] for r in raters.values() if login in r and code in r[login]]
             if values:
                 levels[code] = int(statistics.median_low(values))
         if levels:
@@ -207,17 +211,11 @@ def krippendorff_alpha_ordinal(units: list[list[int | None]], levels: list[int])
         inner = sum(marginal[g] for g in range(low, high + 1))
         return (inner - (marginal[c] + marginal[d]) / 2) ** 2
 
-    observed = sum(
-        coincidence[c][d] * delta2(c, d) for c in range(size) for d in range(size)
-    )
+    observed = sum(coincidence[c][d] * delta2(c, d) for c in range(size) for d in range(size))
     expected = 0.0
     for c in range(size):
         for d in range(size):
-            pairs = (
-                marginal[c] * marginal[d]
-                if c != d
-                else marginal[c] * (marginal[c] - 1)
-            )
+            pairs = marginal[c] * marginal[d] if c != d else marginal[c] * (marginal[c] - 1)
             expected += pairs / (n - 1) * delta2(c, d)
     if math.isclose(expected, 0.0):
         return None
@@ -236,9 +234,7 @@ def average_linkage(labels: list[str], distance: dict[tuple[str, str], float]):
 
     def between(a: frozenset[str], b: frozenset[str]) -> float:
         values = [
-            distance[(x, y)] if (x, y) in distance else distance[(y, x)]
-            for x in a
-            for y in b
+            distance[(x, y)] if (x, y) in distance else distance[(y, x)] for x in a for y in b
         ]
         return statistics.fmean(values)
 
@@ -349,8 +345,10 @@ def main() -> int:
         w(f"**物差しは {base_name} で、人の採点ではない。**")
         w(f"以下は精度ではなく {base_name} との一致度である。")
     w("")
-    w(f"採点に使ったルーブリック: **{rubric.RUBRIC}**"
-      f"（{rubric.TOTAL_POINTS} 点満点、合計は 0〜{rubric.TOTAL_MAX} 段階）。")
+    w(
+        f"採点に使ったルーブリック: **{rubric.RUBRIC}**"
+        f"（{rubric.TOTAL_POINTS} 点満点、合計は 0〜{rubric.TOTAL_MAX} 段階）。"
+    )
     w(f"**段階の記述は{rubric.DESCRIPTOR_SOURCE}。**")
     w("")
     _env = []
@@ -358,8 +356,7 @@ def main() -> int:
         _env.append(f"AIJUDGE_EVAL_DATASET={rubric.DATASET}")
     if rubric.RUBRIC != rubric.DATASET:
         _env.append(f"AIJUDGE_EVAL_RUBRIC={rubric.RUBRIC}")
-    _cmd = " ".join([*_env, "uv run python evals/report_ja/analyze.py",
-                     "--raters", *args.raters])
+    _cmd = " ".join([*_env, "uv run python evals/report_ja/analyze.py", "--raters", *args.raters])
     if args.reference:
         _cmd += f" --reference {args.reference}"
     w(f"生成: `{_cmd}`")
@@ -381,14 +378,14 @@ def main() -> int:
         if row is None:
             w(f"| {name} | 不明 | 不明 | 不明 | 不明 | 不明 |")
             continue
-        w(f"| {name} | " + " | ".join(
-            cell.format(criteria=len(CODES)) for cell in row
-        ) + " |")
+        w(f"| {name} | " + " | ".join(cell.format(criteria=len(CODES)) for cell in row) + " |")
     w("")
     if any(name in SUBAGENT_RATERS for name in names):
-        w("**同条件ではない。** " + " / ".join(
-            n for n in names if n in SUBAGENT_RATERS
-        ) + " は API の資格情報が無いためサブエージェント経由で、")
+        w(
+            "**同条件ではない。** "
+            + " / ".join(n for n in names if n in SUBAGENT_RATERS)
+            + " は API の資格情報が無いためサブエージェント経由で、"
+        )
         w("観点をまとめて 1 回だけ聞いている。これは設計方針 §04 step 3 が")
         w("禁じた形（観点間の引きずりが入る）で、**互いによく一致することには")
         w("構成の共通性も寄与しうる。**")
@@ -400,27 +397,32 @@ def main() -> int:
         name: sum(
             1
             for login in logins
-            if login not in raters[name]
-            or any(code not in raters[name][login] for code in CODES)
+            if login not in raters[name] or any(code not in raters[name][login] for code in CODES)
         )
         for name in names
     }
     missing = {name: count for name, count in incomplete.items() if count}
     if missing:
-        w("観点が欠けている件数: " + " / ".join(
-            f"`{name}` {count} 件" for name, count in missing.items()
-        ) + "。")
+        w(
+            "観点が欠けている件数: "
+            + " / ".join(f"`{name}` {count} 件" for name, count in missing.items())
+            + "。"
+        )
         w("**未採点は 0 点で埋めず、対から外している。**")
         w("")
 
     # ---- 2. 生データ -----------------------------------------------------
     w("## 2. 生データ（観点別の段階）")
     w("")
-    w("配点: " + " / ".join(
-        f"{TITLES[c].split('（')[0]} {rubric.POINTS[c]}" for c in CODES
-    ) + f" = {rubric.TOTAL_POINTS} 点。")
-    w(f"段階は 0〜{max(rubric.MAX_LEVEL.values())}（教員の付け方をそのまま写す）。"
-      f"合計は 0〜{rubric.TOTAL_MAX} 段階。`—` は未採点。")
+    w(
+        "配点: "
+        + " / ".join(f"{TITLES[c].split('（')[0]} {rubric.POINTS[c]}" for c in CODES)
+        + f" = {rubric.TOTAL_POINTS} 点。"
+    )
+    w(
+        f"段階は 0〜{max(rubric.MAX_LEVEL.values())}（教員の付け方をそのまま写す）。"
+        f"合計は 0〜{rubric.TOTAL_MAX} 段階。`—` は未採点。"
+    )
     w("")
     columns = " | ".join(TITLES[c].split("（")[0] for c in CODES)
     header = f"| 学生 | 採点者 | {columns} | 合計 |"
@@ -431,9 +433,7 @@ def main() -> int:
             levels = raters[name].get(login)
             if levels is None:
                 continue
-            cells = " | ".join(
-                str(levels[c]) if c in levels else "—" for c in CODES
-            )
+            cells = " | ".join(str(levels[c]) if c in levels else "—" for c in CODES)
             value = total(levels)
             w(f"| {login} | {name} | {cells} | {value if value is not None else '—'} |")
     w("")
@@ -457,8 +457,10 @@ def main() -> int:
     widest = max(spreads, key=lambda n: spreads[n])
     rest = [spreads[n] for n in names if n != widest]
     if rest and spreads[widest] >= 1.8 * max(rest):
-        w(f"**尺度を使い切っているのは {widest} だけである**"
-          f"（σ {spreads[widest]:.2f} に対し他は {min(rest):.2f}〜{max(rest):.2f}）。")
+        w(
+            f"**尺度を使い切っているのは {widest} だけである**"
+            f"（σ {spreads[widest]:.2f} に対し他は {min(rest):.2f}〜{max(rest):.2f}）。"
+        )
         w("系統の違う採点者が揃って同じ向きに詰まる以上、これは個々のモデルの")
         w("癖ではなく**段階の記述だけで実例（アンカー）を持たないルーブリックの")
         w("性質**と読むべきである。")
@@ -572,10 +574,7 @@ def main() -> int:
             f" | {statistics.fmean(diffs):+.2f}"
             f" | {statistics.fmean(abs(d) for d in diffs):.2f} |"
         )
-    units = [
-        [tot[n].get(login) for n in names]
-        for login in logins
-    ]
+    units = [[tot[n].get(login) for n in names] for login in logins]
     alpha = krippendorff_alpha_ordinal(units, list(range(rubric.TOTAL_MAX + 1)))
     w("")
     w(f"{len(names)} 者まとめて: **Krippendorff の α = {fmt(alpha)}**")
@@ -611,8 +610,7 @@ def main() -> int:
     w("上がるはず**である。これを検定する。")
     w("")
     w(f"**同じ {len(logins)} 件で当てはめて測ると必ず上がる**ので、各件の変換は")
-    w(f"その件を除いた {len(logins) - 1} 件から決める（1 件抜き交差検証）。"
-      "上がらなければ、")
+    w(f"その件を除いた {len(logins) - 1} 件から決める（1 件抜き交差検証）。上がらなければ、")
     w("問題は較正ではなく**何を見ているかの違い**である。")
     w("")
     w(f"| モデル → {base_name} | QWK（そのまま） | QWK（較正後） | 変化 | 平均絶対差 前→後 |")
@@ -625,19 +623,11 @@ def main() -> int:
             continue
         source = [tot[name][i] for i in shared]
         target = [base_tot[i] for i in shared]
-        before = quadratic_weighted_kappa(
-            target, source, range(rubric.TOTAL_MAX + 1)
-        )
+        before = quadratic_weighted_kappa(target, source, range(rubric.TOTAL_MAX + 1))
         mapped = recalibrated_loo(source, target, rubric.TOTAL_MAX)
-        after = quadratic_weighted_kappa(
-            target, mapped, range(rubric.TOTAL_MAX + 1)
-        )
-        mae_before = statistics.fmean(
-            abs(s - t) for s, t in zip(source, target, strict=True)
-        )
-        mae_after = statistics.fmean(
-            abs(m - t) for m, t in zip(mapped, target, strict=True)
-        )
+        after = quadratic_weighted_kappa(target, mapped, range(rubric.TOTAL_MAX + 1))
+        mae_before = statistics.fmean(abs(s - t) for s, t in zip(source, target, strict=True))
+        mae_after = statistics.fmean(abs(m - t) for m, t in zip(mapped, target, strict=True))
         w(
             f"| {name} | {fmt(before)} | {fmt(after)} | {after - before:+.3f}"
             f" | {mae_before:.2f} → {mae_after:.2f} |"
@@ -687,13 +677,12 @@ def main() -> int:
         w("ここで意味があるのは各採点者が合意からどれだけ離れているかで、")
         w("それが下の表である ── **合意から遠い採点者ほど、他の 3 人と違う**。")
     else:
-        w(f"観点ごとにモデルの**中央値**を取った仮想の採点者を作り、"
-          f"{base_name} と比べる。")
+        w(f"観点ごとにモデルの**中央値**を取った仮想の採点者を作り、{base_name} と比べる。")
     w("")
     model_names = [n for n in names if synthetic or n != base_name]
-    ens_tot = base_tot if synthetic else totals(consensus(
-        {n: raters[n] for n in model_names}, logins
-    ))
+    ens_tot = (
+        base_tot if synthetic else totals(consensus({n: raters[n] for n in model_names}, logins))
+    )
     shared = sorted(set(base_tot) & set(ens_tot))
     a = [base_tot[i] for i in shared]
     b = [ens_tot[i] for i in shared]
@@ -741,9 +730,7 @@ def main() -> int:
             position = "最も辛い"
         else:
             position = "中間"
-        cells = " | ".join(
-            str(values[n]) if values[n] is not None else "—" for n in names
-        )
+        cells = " | ".join(str(values[n]) if values[n] is not None else "—" for n in names)
         w(f"| {login} | {cells} | {span} | {position} |")
     w("")
 
@@ -788,9 +775,9 @@ def main() -> int:
     w("支えていた**（外すと失う）。**上がれば、その観点が一致を壊していた。**")
     w("配点の大きさではなく、実際に効いている観点が分かる。")
     w("")
-    header13 = "| 採点者 | 全観点 | " + " | ".join(
-        f"−{TITLES[c].split('（')[0]}" for c in CODES
-    ) + " |"
+    header13 = (
+        "| 採点者 | 全観点 | " + " | ".join(f"−{TITLES[c].split('（')[0]}" for c in CODES) + " |"
+    )
     w(header13)
     w("|---" * (len(CODES) + 2) + "|")
     for name in names:
@@ -842,7 +829,8 @@ def main() -> int:
             if not synthetic and name == base_name:
                 continue
             shared = sorted(
-                i for i in set(base) & set(raters[name])
+                i
+                for i in set(base) & set(raters[name])
                 if code in base[i] and code in raters[name][i]
             )
             if len(shared) < 4:

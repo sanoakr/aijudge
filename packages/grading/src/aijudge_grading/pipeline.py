@@ -213,7 +213,7 @@ class GradingPipeline:
             prompt_versions.update(base.context.prompt_versions)
 
         # --- 2. 決定的評価 -------------------------------------------------
-        for evaluator_id in ([] if phase is GradingPhase.AI else self._profile.deterministic):
+        for evaluator_id in [] if phase is GradingPhase.AI else self._profile.deterministic:
             outcome = self._invoke(
                 evaluator_id,
                 EvaluationRequest(

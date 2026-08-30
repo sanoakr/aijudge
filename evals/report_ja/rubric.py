@@ -29,9 +29,7 @@ _name = os.environ.get(ENV_RUBRIC) or _dataset
 try:
     _module = importlib.import_module(f"rubric_{_name}")
 except ModuleNotFoundError as exc:  # pragma: no cover - 打ち間違い
-    raise SystemExit(
-        f"{ENV_DATASET}={_name!r} に対応する rubric_{_name}.py がありません"
-    ) from exc
+    raise SystemExit(f"{ENV_DATASET}={_name!r} に対応する rubric_{_name}.py がありません") from exc
 
 # ルーブリックの中身をそのまま通す。
 DATASET = _dataset

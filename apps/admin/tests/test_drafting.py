@@ -53,8 +53,8 @@ GOOD = json.dumps(
             "#include <stdio.h>\n"
             "int main(void) {\n"
             "    int a, b;\n"
-            "    scanf(\"%d %d\", &a, &b);\n"
-            "    printf(\"%d\\n\", a + b);\n"
+            '    scanf("%d %d", &a, &b);\n'
+            '    printf("%d\\n", a + b);\n'
             "    return 0;\n"
             "}\n"
         ),
@@ -79,7 +79,7 @@ WEAK = json.dumps(
             "    int spare = 7;\n"
             "    int extra = 13;\n"
             "    int more = 99;\n"
-            "    printf(\"fixed\\n\");\n"
+            '    printf("fixed\\n");\n'
             "    return 0;\n"
             "}\n"
         ),
@@ -111,9 +111,7 @@ def test_a_draft_becomes_an_ordinary_task_spec() -> None:
     # Blueprint の KC がそのまま Q-matrix の入口になる（設計原則 P6）。
     assert result.spec.knowledge_components == BLUEPRINT.knowledge_components
 
-    version = build_task_version(
-        result.spec, subject_profile="cs_intro_c", authored_by=AUTHOR
-    )
+    version = build_task_version(result.spec, subject_profile="cs_intro_c", authored_by=AUTHOR)
     assert len(version.q_matrix) == 2
     assert version.reference_solution
 
@@ -145,9 +143,7 @@ def test_the_result_records_which_prompt_and_model_made_it() -> None:
 def test_a_good_draft_passes_both_gates() -> None:
     drafter, _ = _drafter(GOOD)
     result = drafter.draft(BLUEPRINT, key="gen/sum")
-    version = build_task_version(
-        result.spec, subject_profile="cs_intro_c", authored_by=AUTHOR
-    )
+    version = build_task_version(result.spec, subject_profile="cs_intro_c", authored_by=AUTHOR)
 
     report = _verifier(mutation_limit=8).verify(version)
     assert report.usable, report.summary()
@@ -162,9 +158,7 @@ def test_a_draft_whose_tests_see_nothing_is_refused() -> None:
     """
     drafter, _ = _drafter(WEAK)
     result = drafter.draft(BLUEPRINT, key="gen/fixed")
-    version = build_task_version(
-        result.spec, subject_profile="cs_intro_c", authored_by=AUTHOR
-    )
+    version = build_task_version(result.spec, subject_profile="cs_intro_c", authored_by=AUTHOR)
 
     report = _verifier(mutation_limit=10).verify(version)
     assert report.reference_passes is GateOutcome.PASSED
@@ -198,8 +192,6 @@ def test_a_hand_written_task_is_still_approved_on_the_spot() -> None:
     """生成物でなければ従来どおり。**既存の取り込みを壊さない。**"""
     drafter, _ = _drafter(GOOD)
     result = drafter.draft(BLUEPRINT, key="gen/sum")
-    version = build_task_version(
-        result.spec, subject_profile="cs_intro_c", authored_by=AUTHOR
-    )
+    version = build_task_version(result.spec, subject_profile="cs_intro_c", authored_by=AUTHOR)
     assert version.provenance.review_state is ReviewState.APPROVED
     assert version.provenance.generated_by is None

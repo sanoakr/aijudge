@@ -85,12 +85,8 @@ def test_lexical_neighbours_are_flagged_as_weaker_evidence() -> None:
     """字面で選んだ近傍は「言い回しが似た課題」でしかない。"""
     result = estimate(
         (
-            SimilarTask(
-                task_version_id="a", title="A", score=0.9, method=SimilarityMethod.LEXICAL
-            ),
-            SimilarTask(
-                task_version_id="b", title="B", score=0.8, method=SimilarityMethod.LEXICAL
-            ),
+            SimilarTask(task_version_id="a", title="A", score=0.9, method=SimilarityMethod.LEXICAL),
+            SimilarTask(task_version_id="b", title="B", score=0.8, method=SimilarityMethod.LEXICAL),
         ),
         {"a": _stats("a", 40, 20), "b": _stats("b", 40, 20)},
         method=SimilarityMethod.LEXICAL,

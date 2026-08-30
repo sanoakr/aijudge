@@ -94,8 +94,13 @@ def _request(kind: ArtifactKind, payload: bytes) -> EvaluationRequest:
 
 @pytest.mark.parametrize(
     "kind",
-    [ArtifactKind.CODE, ArtifactKind.MARKDOWN, ArtifactKind.LATEX, ArtifactKind.PDF,
-     ArtifactKind.DOCX],
+    [
+        ArtifactKind.CODE,
+        ArtifactKind.MARKDOWN,
+        ArtifactKind.LATEX,
+        ArtifactKind.PDF,
+        ArtifactKind.DOCX,
+    ],
 )
 def test_normalized_text_is_judged_whatever_was_submitted(kind: ArtifactKind) -> None:
     """**PDF と DOCX も含む。** 正規化のあとは同じ本文である。"""

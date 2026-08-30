@@ -81,9 +81,7 @@ class World:
                     subject_profile="cs_intro_c",
                 )
             )
-            uow.tasks.save_task(
-                Task(id=self.task_version.task_id, course_id=COURSE, title="例題")
-            )
+            uow.tasks.save_task(Task(id=self.task_version.task_id, course_id=COURSE, title="例題"))
             uow.tasks.save_version(self.task_version)
             for key in kcs:
                 namespace, *path = key.split(".")
