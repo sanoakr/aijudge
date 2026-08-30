@@ -304,6 +304,7 @@ SAVED_MESSAGES: dict[str, str] = {
     "kc_restored": "引退を取り消しました",
     "kc_deleted": "知識要素を削除しました（一度も使われていないもの）",
     "kc_edited": "知識要素の名前と説明を直しました（キーは変わりません）",
+    "kc_scoped": "このコースが使う知識要素を保存しました（語彙からは消えません）",
     "basics": "基本情報を保存しました",
     "role": "役割を変えました",
     "grading": "採点設定を保存しました",
@@ -816,13 +817,11 @@ def register(templates) -> APIRouter:
                 "rubric_is_default": not course.rubric,
                 # **生成は登録済み KC からの選択だけ**（`aijudge_admin.kc` の
                 # 規則 4）。引退したものは選ばせない。
-                "kcs": list_for_namespaces(
-                    console.database,
-                    allowed_namespaces(
-                        load_profile(console.profiles_dir / f"{course.subject_profile}.yaml")
-                    ),
-                    include_deprecated=False,
-                ),
+                # **このコースが使う範囲だけ出す。** 同じ名前空間を複数の
+                # コースが使うほど関係のない候補が増え、C の科目に
+                # `cs.python.*` が並ぶ。見にくいだけでなく、誤った知識要素を
+                # 課題に付けられるということでもある（設計原則 P6）。
+                "kcs": _course_kcs(console, course),
                 "difficulties": [d.value for d in Difficulty],
                 # ルーブリックの編集で、観点に指名できる評価器を出す。
                 "deterministic": _evaluator_rows(
@@ -1544,7 +1543,7 @@ def register(templates) -> APIRouter:
             raise HTTPException(status_code=400, detail="知識要素を 1 つ以上選んでください")
         try:
             # 選択肢は登録済みから出しているが、直接叩かれる経路もある。
-            assert_registered(console.database, chosen)
+            assert_registered(console.database, chosen, course_keys=course.knowledge_components)
         except AdminError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -2219,6 +2218,63 @@ def register(templates) -> APIRouter:
         course = _require_instructor(request, me, CourseId(course_id))
         return _kc_page(request, me, course, saved=saved)
 
+    def _course_kcs(console, course):
+        """このコースが作問で選べる知識要素。
+
+        **宣言があればその範囲、無ければ名前空間の全部**（後方互換）。
+        引退したものは出さない ── 選べば課題に付いてしまう。
+        """
+        namespaces = allowed_namespaces(
+            load_profile(console.profiles_dir / f"{course.subject_profile}.yaml")
+        )
+        kcs = list_for_namespaces(console.database, namespaces, include_deprecated=False)
+        chosen = set(course.knowledge_components)
+        return [kc for kc in kcs if not chosen or kc.key in chosen]
+
+    def _kc_use_in_course(console, course) -> dict[str, int]:
+        """**このコースの課題**が使っている知識要素と、その件数。
+
+        `kc_usage` はコースをまたいで数える（引退させてよいかの判断に要る）。
+        こちらは「このコースの課題が何を問うているか」で、別の問いである。
+        """
+        counts: dict[str, int] = {}
+        with console.database.unit_of_work() as uow:
+            by_id = {str(kc.id): kc.key for kc in uow.skills.list_kcs(None)}
+            for task in uow.tasks.list_for_course(course.id):
+                version = uow.tasks.latest_version(task.id)
+                if version is None:
+                    continue
+                for entry in version.q_matrix:
+                    key = by_id.get(str(entry.kc_id))
+                    if key is not None:
+                        counts[key] = counts.get(key, 0) + 1
+        return counts
+
+    def _kc_rows(console, course, kcs):
+        """一覧の行。**このコースで使うか**と、**このコースの課題が使っているか**。
+
+        2 つは別物である。宣言から外しても、既に出題した課題の Q-matrix は
+        動かない（追記のみ・P8）ので、**外した後も「このコースの課題 N 件が
+        使用中」として残す** ── 消してしまうと、その課題が何を問うているのかを
+        画面から辿る手段が無くなる。
+        """
+        chosen = set(course.knowledge_components)
+        usage_rows = kc_usage(console.database, kcs)
+        here = _kc_use_in_course(console, course)
+        return [
+            {
+                "usage": usage_rows[kc.key],
+                "kc": kc,
+                "used": usage_rows[kc.key].used,
+                "tasks": usage_rows[kc.key].tasks,
+                "courses": usage_rows[kc.key].courses,
+                # 宣言していなければ全部が対象（後方互換の既定）。
+                "in_course": not chosen or kc.key in chosen,
+                "used_here": here.get(kc.key, 0),
+            }
+            for kc in kcs
+        ]
+
     def _kc_page(request: Request, me, course, *, saved: str = "", proposal=None) -> Response:
         """知識要素のページ。**候補が出ているかどうかだけが違う。**
 
@@ -2239,7 +2295,11 @@ def register(templates) -> APIRouter:
                 "course": course,
                 "section": {"label": "知識要素", "href": f"/manage/courses/{course.id}/kc"},
                 "namespaces": namespaces,
-                "rows": [kc_usage(console.database, kcs)[kc.key] for kc in kcs],
+                "rows": _kc_rows(console, course, kcs),
+                # 何も選んでいなければ名前空間の全部（後方互換）。画面では
+                # 「まだ絞っていない」と言う ── 全部にチェックが入っているのと、
+                # 宣言していないのは違う状態である。
+                "scoped": bool(course.knowledge_components),
                 "saved": SAVED_MESSAGES.get(saved),
                 "saved_key": saved,
                 "is_admin": _is_admin(request, me),
@@ -2324,6 +2384,36 @@ def register(templates) -> APIRouter:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         saved = "kc_restored" if restore else "kc_retired"
         return RedirectResponse(f"/manage/courses/{course_id}/kc?saved={saved}#kc", status_code=303)
+
+    @router.post("/courses/{course_id}/kc/scope")
+    def set_kc_scope(
+        request: Request,
+        course_id: str,
+        kc: Annotated[list[str], Form()] = [],  # noqa: B006 - FastAPI の複数値
+    ) -> Response:
+        """このコースが使う知識要素を宣言する。
+
+        **共有の語彙からの削除ではない。** 外しても知識要素は残り、他のコースの
+        Q-matrix は壊れない。ここで決めるのは「今後この課題で使う範囲」だけで、
+        既に出題した課題が何を問うているかは動かない（追記のみ・P8）。
+
+        空で保存すると「絞らない」に戻る（名前空間の全部）。**全部を選んだ状態
+        とは別物**で、あとから名前空間に足された知識要素の扱いが変わる ──
+        絞っていなければ自動で入り、絞っていれば入らない。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+
+        chosen = tuple(sorted({key.strip() for key in kc if key.strip()}))
+        with console.database.unit_of_work() as uow:
+            uow.identity.save_course(course.model_copy(update={"knowledge_components": chosen}))
+            uow.commit()
+        return RedirectResponse(
+            f"/manage/courses/{course_id}/kc?saved=kc_scoped#kc", status_code=303
+        )
 
     @router.post("/courses/{course_id}/kc/edit")
     def edit_kc_route(

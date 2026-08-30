@@ -23,8 +23,26 @@
 </div>
 {% endif %}
 
+{# **このコースが使う範囲を宣言する。** 同じ名前空間を複数のコースが共有する
+   ので、絞らないと関係のない候補が作問フォームに並ぶ。外しても語彙からは
+   消えない（他のコースの Q-matrix は壊れない）。 #}
+<form method="post" action="/manage/courses/{{ course.id }}/kc/scope">
+<div class="note">
+  {% if scoped %}
+    <strong>このコースは使う知識要素を絞っています。</strong>
+    チェックを外したものは作問の候補に出ません（語彙からは消えません）。
+  {% else %}
+    <strong>このコースはまだ絞っていません</strong>
+    — いまは名前空間の全部が作問の候補に出ます。
+    チェックして保存すると、選んだものだけになります。
+    <br><span class="desc">全部にチェックを入れて保存するのと、絞らないままにするのは
+    <strong>別の状態</strong>です。あとから名前空間に足された知識要素は、
+    絞っていなければ自動で入り、絞っていれば入りません。</span>
+  {% endif %}
+</div>
 <table>
   <thead><tr>
+    <th class="fit">使う</th>
     <th class="grow">キー</th><th class="fit">名前</th>
     <th class="fit">課題</th><th class="fit">コース</th><th class="fit">追加</th>
     {% if is_admin %}<th class="fit"></th>{% endif %}
@@ -32,6 +50,13 @@
   <tbody>
   {% for row in rows %}
     <tr>
+      <td class="fit">
+        <input type="checkbox" name="kc" value="{{ row.kc.key }}"
+               {{ 'checked' if row.in_course }}>
+        {# **外しても、このコースの課題が使っていれば残す。** 消すと、その
+           課題が何を問うているのかを画面から辿れなくなる。 #}
+        {% if row.used_here %}<br><span class="desc">課題 {{ row.used_here }}</span>{% endif %}
+      </td>
       <td class="grow mono">{{ row.kc.key }}
         {% if row.kc.deprecated %}<span class="pill no">引退</span>{% endif %}
       </td>
@@ -111,10 +136,17 @@
       {% endif %}
     </tr>
   {% else %}
-    <tr><td colspan="{{ 6 if is_admin else 5 }}" class="desc">まだ知識要素がありません。</td></tr>
+    <tr><td colspan="{{ 7 if is_admin else 6 }}" class="desc">まだ知識要素がありません。</td></tr>
   {% endfor %}
   </tbody>
 </table>
+{% if rows %}
+<div class="actions">
+  {% if saved_key == 'kc_scoped' %}<span class="flash">{{ saved }}</span>{% endif %}
+  <button type="submit">このコースが使う知識要素を保存</button>
+</div>
+{% endif %}
+</form>
 
 {# **材料はコースが既に持っている。** 基本情報でシラバスから読み取って保存した
    本文（`Course.description`）をそのまま使う。ここで貼り直させると、2 つの

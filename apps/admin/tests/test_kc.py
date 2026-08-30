@@ -361,3 +361,60 @@ def test_the_label_cannot_be_emptied(database: Database) -> None:
 def test_editing_something_that_is_not_there_says_so(database: Database) -> None:
     with pytest.raises(AdminError, match="がありません"):
         edit_kc(database, key="cs.nope", label="なにか")
+
+
+# --------------------------------------------------------------------------
+# コースが使う範囲（#24）
+# --------------------------------------------------------------------------
+
+
+def test_without_a_declaration_every_registered_component_is_allowed(
+    database: Database, course
+) -> None:
+    """**空は「名前空間の全部」。** 宣言していないコースの取り込みを壊さない。"""
+    _root(database)
+    assert_registered(database, ("cs.loops",), course_keys=())
+
+
+def test_a_component_outside_the_course_selection_is_refused(database: Database) -> None:
+    """**画面で絞るだけにしない。** API 経由の投入も同じ経路を通る。
+
+    UI で隠すのは表示の都合であって制限ではない。
+    """
+    _root(database)
+    register_kc(database, key="cs.python", label="Python", namespaces=SPACES, allow_root=True)
+
+    # このコースは cs.loops しか使わないと宣言している。
+    with pytest.raises(AdminError, match="このコースが使う知識要素"):
+        assert_registered(database, ("cs.python",), course_keys=("cs.loops",))
+    # 宣言の中にあるものは通る。
+    assert_registered(database, ("cs.loops",), course_keys=("cs.loops",))
+
+
+def test_an_unregistered_component_is_still_caught_first(database: Database) -> None:
+    """登録されていないことと、範囲の外にあることは別の誤りである。"""
+    with pytest.raises(AdminError, match="登録されていない"):
+        assert_registered(database, ("cs.nope",), course_keys=("cs.loops",))
+
+
+def test_saving_a_task_respects_the_course_selection(database: Database, course) -> None:
+    """`save_task` を通る経路（画面・API とも）で効く。"""
+    _root(database)
+    register_kc(database, key="cs.python", label="Python", namespaces=SPACES, allow_root=True)
+    with database.unit_of_work() as uow:
+        stored = uow.identity.get_course(course.id)
+        uow.identity.save_course(stored.model_copy(update={"knowledge_components": ("cs.loops",)}))
+        uow.commit()
+
+    with pytest.raises(AdminError, match="このコースが使う知識要素"):
+        save_task(
+            database,
+            course_id=course.id,
+            spec=TaskSpec(
+                key="ex01/p1",
+                statement="## 課題 ##\n\n本文",
+                knowledge_components=("cs.python",),
+            ),
+            subject_profile="cs_intro_c",
+            authored_by=TEACHER,
+        )

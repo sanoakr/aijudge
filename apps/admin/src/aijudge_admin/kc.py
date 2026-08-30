@@ -82,11 +82,24 @@ def list_for_namespaces(
     return tuple(sorted(found, key=lambda kc: kc.key))
 
 
-def assert_registered(database: Database, keys: tuple[str, ...]) -> None:
-    """課題が名指しした KC が登録済みであることを確かめる。
+def assert_registered(
+    database: Database,
+    keys: tuple[str, ...],
+    *,
+    course_keys: tuple[str, ...] = (),
+) -> None:
+    """課題が名指しした KC が、登録済みで、このコースが使う範囲にあることを確かめる。
 
     **ここが「登録してから使う」を強制する唯一の場所。** 模型の層
     （`q_matrix_for`）は保存先を知らないので確かめられない。
+
+    `course_keys` はコースが宣言した範囲（`Course.knowledge_components`）。
+    **空なら名前空間の全部**として扱う ── 宣言していないコースの取り込みを、
+    この検証が壊さないため（後方互換の既定）。
+
+    **画面で絞るだけにしない。** 作問フォームの候補を絞っても、API 経由の
+    投入（`aijudge_reviewconsole.api`）が同じ経路を通る。UI で隠すのは
+    表示の都合であって制限ではない。
     """
     if not keys:
         return
@@ -100,6 +113,16 @@ def assert_registered(database: Database, keys: tuple[str, ...]) -> None:
             "登録されていない知識要素です: "
             + ", ".join(sorted(missing))
             + "（先に体系へ追加してください）"
+        )
+
+    if not course_keys:
+        return
+    outside = sorted(set(keys) - set(course_keys))
+    if outside:
+        raise AdminError(
+            "このコースが使う知識要素に含まれていません: "
+            + ", ".join(outside)
+            + "（知識要素のページで「このコースで使う」に入れてください）"
         )
 
 

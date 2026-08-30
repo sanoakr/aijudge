@@ -79,7 +79,15 @@ def save_task(
             update={"criteria": from_stored(course_rubric), "readability_weight": 0.0}
         )
 
-    assert_registered(database, spec.knowledge_components)
+    # **コースが使う範囲まで見る。** 宣言していなければ名前空間の全部
+    # （後方互換）。API 経由の投入もここを通るので、画面で絞るだけにしない。
+    with database.unit_of_work() as uow:
+        course = uow.identity.get_course(course_id)
+    assert_registered(
+        database,
+        spec.knowledge_components,
+        course_keys=() if course is None else course.knowledge_components,
+    )
     # **出所を落とさない。** `generated_by` を渡さないと `Provenance` は
     # 「教員が書いた」になり、版は承認待ちにならずそのまま出題可能になる
     # （`ReviewState`）。生成物が誰の検査も通らずに出る経路ができる（P5）。
