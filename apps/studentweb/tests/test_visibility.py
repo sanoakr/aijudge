@@ -198,3 +198,41 @@ def test_a_complete_run_shows_its_score() -> None:
 
     assert view.score_ratio == 1.0
     assert not view.score_withheld
+
+
+def test_a_criterion_cut_by_the_gate_does_not_withhold_the_score() -> None:
+    """打ち切りは保留ではない ── 合計を出し、「確認中」とも書かない（Issue #10）。
+
+    判定が無いことだけを見て伏せると、AND ゲートが仕様どおりに働いた提出まで、
+    いつまでも点の出ない画面になる。
+    """
+    run = _run_missing_the_ai_criterion().model_copy(
+        update={
+            "unscored_criteria": (),
+            "skipped_criteria": (READABILITY,),
+            "routing": Routing.AUTO,
+        }
+    )
+
+    view = build_result_view(run, _task_version(), None)
+
+    assert view.score_ratio is not None
+    assert not view.score_withheld
+    rows = {row.criterion.code: row for row in view.criteria}
+    assert rows["readability"].gated
+    assert not rows["readability"].pending
+    assert "0%" in rows["readability"].label
+    # 打ち切りは異議申立の導線を塞がない。学習者は点を見て判断できる。
+    assert view.can_request_review
+
+
+def test_a_criterion_awaiting_a_human_still_withholds_the_score() -> None:
+    """人が採点する観点は、人が入れるまで合計を出さない（Issue #10）。"""
+    run = _run_missing_the_ai_criterion().model_copy(
+        update={"unscored_criteria": (), "awaiting_human": (READABILITY,)}
+    )
+
+    view = build_result_view(run, _task_version(), None)
+
+    assert view.score_ratio is None
+    assert view.score_withheld

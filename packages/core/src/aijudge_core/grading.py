@@ -374,9 +374,37 @@ class GradingRun(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0)
     routing: Routing
     feedback: str | None = None
-    # 評価器の失敗などで採点できなかった観点。空でなければ点は暫定であり、
+    # **機械が点を付けなかった観点を、理由ごとに分けて持つ。**
+    #
+    # 3 つとも「CriterionScore が無い」点では同じだが、そこから導く帰結が
+    # 正反対になる。1 つのリストに混ぜると、読む側は理由を知らないまま
+    # 「評価器が落ちた」用の帰結（重み再配分・保留・レビュー必須・自動確定の
+    # 停止）を全部に当てることになり、**打ち切った観点の点が上がる**か、
+    # **人が採点すべき観点が誰も見ないまま閉じる**（Issue #10）。
+    #
+    #                     重み再配分  総合点   レビュー必須  自動確定
+    #   評価器が落ちた        する      保留        する       止める
+    #   ゲートで打ち切った    しない    出す        しない     止めない
+    #   人が採点する          しない    保留        する       止める
+    #
+    # 理由を値として添えるのではなく**リストを分ける。** 添える形だと、
+    # 分岐を書き忘れた場所が静かに従来どおり動く ── まさにこの Issue で
+    # 起きていた壊れ方と同じ形になる。分けておけば読み落としは型で出る。
+    #
+    # 既存の記録は `unscored_criteria` しか持たない。新しい 2 つの既定を
+    # 空にしてあるので、過去の run はそのまま読めて意味も変わらない
+    # （当時は「評価器が落ちた」しか存在しなかった）。
+
+    # 評価器の失敗・S6 停止で採点できなかった観点。空でなければ点は暫定で、
     # routing は必ず REVIEW_REQUIRED になる。
     unscored_criteria: tuple[CriterionId, ...] = ()
+    # 集約のゲート（AND）が上位の観点で 0% を見たので、以降を評価しなかった
+    # 観点。**これは保留ではなく確定した 0% である。** 仕様どおりの動作なので
+    # レビューも自動確定の停止も要らず、重みどおり 0% として総合点に入る。
+    skipped_criteria: tuple[CriterionId, ...] = ()
+    # 評価器を割り当てていない観点（人が採点する）。人の入力が入るまで点は
+    # 定まらないので、保留してレビューへ回す。
+    awaiting_human: tuple[CriterionId, ...] = ()
     # 遅延の減点。**評価には入っていない。** `score_ratio` は遅延を知らない
     # 評価そのもので、学習者に見せる最終点は `final_score()` が両方から作る。
     penalty: LatePenalty | None = None
@@ -401,8 +429,30 @@ class GradingRun(BaseModel):
 
     @model_validator(mode="after")
     def _check_unscored(self) -> Self:
-        if self.unscored_criteria and self.routing is not Routing.REVIEW_REQUIRED:
+        scored = {score.criterion_id for score in self.criterion_scores}
+        seen: set[CriterionId] = set()
+        for reason, ids in (
+            ("unscored", self.unscored_criteria),
+            ("skipped", self.skipped_criteria),
+            ("awaiting_human", self.awaiting_human),
+        ):
+            for criterion_id in ids:
+                # 同じ観点に 2 つの理由は付かない。付いていれば、どちらの
+                # 帰結を当てるかが読む側次第になる（この分割の意味が消える）。
+                if criterion_id in seen:
+                    raise ValueError(
+                        f"criterion {criterion_id!r} is listed under more than one reason"
+                    )
+                if criterion_id in scored:
+                    raise ValueError(
+                        f"criterion {criterion_id!r} has a score but is listed as {reason}"
+                    )
+                seen.add(criterion_id)
+
+        if self.is_provisional and self.routing is not Routing.REVIEW_REQUIRED:
             # 誰も見ていない観点がある採点を自動確定させない（設計原則 P5）。
+            # **ゲートで打ち切った観点はここに含めない** ── 打ち切りは仕様
+            # どおりの結果であって、人が見るべき異常ではない。
             raise ValueError("a run with unscored criteria must be routed to review")
         return self
 
@@ -412,10 +462,27 @@ class GradingRun(BaseModel):
 
     @property
     def is_provisional(self) -> bool:
-        return bool(self.unscored_criteria)
+        """点がまだ定まっていないか ── 総合点を出さず、自動確定もしない。
+
+        **ゲートで打ち切った観点（`skipped_criteria`）は暫定ではない。**
+        0% は確定した結果で、待つべき入力も落ちた評価器も無い。
+        """
+        return bool(self.unscored_criteria or self.awaiting_human)
+
+    @property
+    def missing_criteria(self) -> tuple[CriterionId, ...]:
+        """機械が点を付けなかった観点。理由は問わない。
+
+        「機械の判定が無い」ことだけが問題になる場所（測定の標本から外す、
+        画面に段階を出さない）はこれを読む。**帰結を決める場所は理由の側を
+        読むこと。**
+        """
+        return self.unscored_criteria + self.skipped_criteria + self.awaiting_human
 
 
-def aggregate(scores: tuple[CriterionScore, ...]) -> tuple[float, float]:
+def aggregate(
+    scores: tuple[CriterionScore, ...], *, zero_weight: float = 0.0
+) -> tuple[float, float]:
     """観点別スコアを総合点と確信度に畳む。
 
     決定的評価が確定させた観点（conclusive）は重みどおりに効き、
@@ -423,11 +490,20 @@ def aggregate(scores: tuple[CriterionScore, ...]) -> tuple[float, float]:
     総合の確信度は、確定していない観点の確信度の最小値とする。
     平均ではなく最小を採るのは、ひとつでも自信のない観点があれば
     その採点全体を人間が見るべきだから。
-    """
-    if not scores:
-        raise ValueError("cannot aggregate an empty score set")
 
-    total_weight = sum(score.weight for score in scores)
+    `zero_weight` は、**点が付いていないが 0% として重みどおり数える**観点の
+    重みの合計（ゲートで打ち切った観点、人の入力を待っている観点）。ここを
+    渡さずに `renormalize` で埋めると、残りの観点の重みが 1.0 まで膨らんで
+    **打ち切られた学習者の点が上がる**（Issue #10 の衝突 1）。重みの合計は
+    スコアの分と合わせて 1.0 でなければならない ── 合わなければ、どこかの
+    観点が計算から丸ごと抜けている。
+    """
+    if not scores and zero_weight <= 0.0:
+        raise ValueError("cannot aggregate an empty score set")
+    if zero_weight < 0.0:
+        raise ValueError("zero_weight must not be negative")
+
+    total_weight = sum(score.weight for score in scores) + zero_weight
     if abs(total_weight - 1.0) > 1e-6:
         raise ValueError(f"criterion weights must sum to 1.0, got {total_weight}")
 
@@ -438,12 +514,18 @@ def aggregate(scores: tuple[CriterionScore, ...]) -> tuple[float, float]:
 
 
 def renormalize(scores: tuple[CriterionScore, ...]) -> tuple[CriterionScore, ...]:
-    """一部の観点が採点されなかったとき、残った観点の重みを比例配分し直す。
+    """**評価器が落ちた**とき、残った観点の重みを比例配分し直す。
 
     評価器が落ちた観点を 0 点にすると学習者に不当な不利益が出るし、
     満点にすると誰も見ていない観点に点を与えることになる。どちらも取らず、
     採点できた観点だけで暫定の点を出し、**必ず人間のレビューに回す**
     （呼び出し側の責務）。GradingRun には未採点の観点を記録する。
+
+    **使ってよいのは `unscored_criteria` に対してだけ。** ゲートで打ち切った
+    観点や人が採点する観点にこれを当てると、残りの重みが 1.0 まで膨らみ、
+    その観点が最初から無かったのと同じ点になる ── 打ち切られた学習者の点が
+    上がる（Issue #10）。そちらは `aggregate(..., zero_weight=...)` で
+    重みどおり 0% として数える。
     """
     if not scores:
         raise ValueError("cannot renormalize an empty score set")

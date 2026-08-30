@@ -119,6 +119,10 @@ def _run(*, with_ai: bool = True, unscored: tuple = ()) -> GradingRun:
     else:
         scores[0] = scores[0].model_copy(update={"weight": 1.0})
 
+    # 未採点の観点にはスコアが無い。両方に置くと、その観点の重みが二重に
+    # 効いた記録になる（コアの検証が落とす）。
+    scores = [score for score in scores if score.criterion_id not in unscored]
+
     return GradingRun(
         id=GradingRunId("grn_" + "7" * 32),
         submission_id=SubmissionId("sub_" + "8" * 32),

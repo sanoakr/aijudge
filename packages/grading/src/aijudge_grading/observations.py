@@ -67,7 +67,10 @@ def project_observations(
                 # 決定的評価が確定させた観点は AI の精度測定から外す。
                 conclusive=score is not None
                 and (score.conclusive or score.kind is EvaluatorKind.DETERMINISTIC),
-                unscored=criterion.id in run.unscored_criteria,
+                # **理由を問わず「機械の判定が無い」なら標本に入れない。**
+                # 評価器が落ちたのか、ゲートで打ち切ったのか、人の採点待ちかは
+                # 一致度にとって同じこと ── 比べる相手の判定が無い（Issue #10）。
+                unscored=criterion.id in run.missing_criteria,
                 grading_run_id=str(run.id),
                 human_level=marks.get(criterion.code),
                 blind=bool(marks and blind),

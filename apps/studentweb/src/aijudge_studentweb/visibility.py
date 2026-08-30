@@ -38,6 +38,11 @@ S6 が止まっていれば AI 評価器は飛ばされ、その観点は `unsco
 到達度として読まれる。観点の一覧には「確認中」と出ているが、大きく出る数字の
 方が先に目に入る。部分的な合計は、正しい数字より誤読される数字である。
 
+**伏せるのは「機械の判定が無い」ことではなく「点がまだ定まっていない」ことによる**
+（`GradingRun.is_provisional`）。集約のゲートで打ち切った観点にも判定は無いが、
+そちらは確定した 0% なので合計は出す ── 判定の有無だけで伏せると、打ち切りが
+仕様どおりに働いた提出まで、いつまでも点の出ない画面になる（Issue #10）。
+
 教員には出す。欠けを埋めて確定させるのが教員の仕事で、決定的評価が何を返した
 かはその判断材料になる。
 
@@ -82,6 +87,8 @@ class CriterionView:
     evidence_lines: tuple[int, ...]
     # 採点されていない、または確定を待っている。
     pending: bool
+    # 集約のゲートで打ち切られた観点。**保留ではなく確定した 0%。**
+    gated: bool = False
     # 教員が AI の判定を変えた。
     adjusted: bool = False
     # AI が判定した観点か。決定的評価（テスト実行）と区別して見せる。
@@ -89,6 +96,10 @@ class CriterionView:
 
     @property
     def label(self) -> str:
+        if self.gated:
+            # 打ち切りは仕様どおりの結果なので「確認中」ではない。0% である
+            # ことと、なぜ評価されなかったのかを同じ行で示す。
+            return "評価していません（前の観点が 0% のため・0%）"
         if self.pending:
             return "確認中"
         if self.level is None:
@@ -215,20 +226,25 @@ def build_result_view(
     by_criterion: dict[str, CriterionScore] = {
         str(score.criterion_id): score for score in run.criterion_scores
     }
+    # 機械の判定が無い理由。**理由で見え方が変わる**（Issue #10）。
+    gated = set(run.skipped_criteria)
     confirmed = finalization is not None or review is not None
 
     views: list[CriterionView] = []
     for criterion in task_version.criteria:
         score = by_criterion.get(str(criterion.id))
         if score is None:
-            # 評価器が落ちた観点。暫定であることを隠さない。
+            # 判定の無い観点。評価器が落ちた・人の採点を待っている場合は
+            # 暫定であることを隠さず「確認中」、ゲートで打ち切った場合は
+            # 確定した 0% として出す。
             views.append(
                 CriterionView(
                     criterion=criterion,
                     level=None,
                     rationale=None,
                     evidence_lines=(),
-                    pending=True,
+                    pending=criterion.id not in gated,
+                    gated=criterion.id in gated,
                 )
             )
             continue
@@ -252,7 +268,8 @@ def build_result_view(
             )
         )
 
-    unscored = any(view.pending for view in views)
+    # **点が定まっていないか。** 判定の有無ではなく理由で決める。
+    unscored = run.is_provisional
     window = grade_window(run.created_at, auto_finalize_after_minutes, now or datetime.now(UTC))
     closes_at = settles_at(run.created_at, auto_finalize_after_minutes)
     # 教員が読んだ証拠は `HumanReview` の存在。確定の出所ではない
@@ -279,7 +296,7 @@ def build_result_view(
     elif unscored:
         reason = "採点できなかった観点があります。担当教員が確認します。"
 
-    # 採点できなかった観点があるあいだは総合点を出さない（モジュール冒頭）。
+    # 点が定まっていないあいだは総合点を出さない（モジュール冒頭）。
     # 教員が確認して欠けを埋めれば出す。
     withhold = unscored and review is None
     score = final_score(run, task_version, review)
