@@ -186,6 +186,12 @@ details.criterion.add > summary{color:var(--shu)}
 .criterion-fields .pair > span{flex:1}
 .criterion-fields .pair > span.narrow{flex:0 0 7rem}
 .criterion-fields .pair label{margin-top:0}
+/* 根拠の下書き。**理由そのものは作らせない** ── 整えるのは書き方だけで、
+   判断の中身は教員のものである（ADR 0009 §4）。 */
+.polish{margin-top:12px;padding-top:12px;border-top:1px dashed var(--line-soft)}
+.polish label{display:block;font-size:.82rem;color:var(--ink-2);margin-bottom:4px}
+.polish input{width:100%;font:inherit;font-size:.9rem;padding:8px 10px;border-radius:3px;
+  border:1px solid var(--line);background:var(--surface);color:var(--ink);box-sizing:border-box}
 /* 役割ごとの人数。**0 名も並べる** ── 総数だけでは、TA を登録し忘れて
    いるのか 0 名が正しいのかが読み取れない。 */
 ul.rolecounts{list-style:none;margin:0 0 10px;padding:0;display:flex;flex-wrap:wrap;gap:6px 18px}

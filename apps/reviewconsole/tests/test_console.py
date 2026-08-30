@@ -496,6 +496,33 @@ def test_finalizing_records_only_what_changed(world: World) -> None:
 
 
 @needs_c_compiler
+def test_the_justification_draft_needs_the_instructor_points(world: World) -> None:
+    """**理由そのものは作らせない。** 要点が無ければ整えるものが無い。
+
+    差分から作文させると、教員が考えていない理由が学習者に表示され、
+    その記録が一致度の標本に混ざる（ADR 0009 §4）。
+    """
+    _, accepted = _instructor_and_submission(world)
+    world.worker.run_until_empty()
+
+    response = world.client.post(
+        f"/review/{accepted.submission.id}/justification", data={"points": "   "}
+    )
+    assert response.status_code == 400
+    assert "要点" in response.json()["detail"]
+
+
+@needs_c_compiler
+def test_the_reveal_page_offers_to_polish_the_points(world: World) -> None:
+    """整えるのは書き方だけ、と画面でも言う。"""
+    _, accepted = _instructor_and_submission(world)
+    world.worker.run_until_empty()
+    body = world.client.get(f"/review/{accepted.submission.id}/reveal").text
+    assert 'id="points"' in body
+    assert "要点に無いことは足しません" in body
+
+
+@needs_c_compiler
 def test_agreeing_leaves_no_adjustment(world: World) -> None:
     _, accepted = _instructor_and_submission(world)
     world.worker.run_until_empty()

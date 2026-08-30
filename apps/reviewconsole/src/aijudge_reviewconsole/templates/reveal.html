@@ -155,11 +155,60 @@
       いるので、覆すなら理由が要ります。覆さない場合も「確認した」だけでは
       学習者に何も返りません。
     </p>
-    <textarea name="comment" rows="4" required minlength="{{ min_reason }}"
+    <textarea id="comment" name="comment" rows="4" required minlength="{{ min_reason }}"
       placeholder="例: テストケース 3 の想定出力を確認しました。仕様どおりで、判定は妥当です。"
       >{{ review.comment if review else '' }}</textarea>
+
+    {# **理由そのものは作らせない。** 整えるのは書き方だけで、判断の中身は
+       教員のものである（ADR 0009 §4）。差分から作文させると、教員が考えて
+       いない理由が学習者に出て、その記録が一致度の標本に混ざる。 #}
+    <div class="polish">
+      <label for="points">要点（箇条書き・断片で構いません）</label>
+      <div class="inline-field">
+        <span class="body">
+          <input id="points" placeholder="テスト3通ってる / AIは出力形式を誤判定">
+        </span>
+        <span class="polishing flash" hidden>整えています…</span>
+        <button type="button" id="polish">文章にする</button>
+      </div>
+      <p class="desc" style="margin:8px 0 0">
+        <strong>要点に無いことは足しません。</strong>整えるのは書き方だけです。
+        出てきた文章は<strong>上の欄に入るので、読んで直してから確定してください</strong>。
+      </p>
+    </div>
   </fieldset>
   <div class="actions"><button type="submit">成績を確定する</button></div>
 </form>
+<script>
+  // 要点を文章にして根拠欄へ入れる。**置き換えではなく差し込み**にして、
+  // 既に書いてあるものを黙って消さない。
+  document.getElementById("polish").addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    const points = document.getElementById("points");
+    const comment = document.getElementById("comment");
+    const busy = document.querySelector(".polishing");
+    if (!points.value.trim()) { points.focus(); return; }
+
+    const form = new FormData(comment.form);
+    form.set("points", points.value);
+    button.disabled = true;
+    busy.hidden = false;
+    try {
+      const response = await fetch("/review/{{ submission.id }}/justification",
+        { method: "POST", body: form });
+      const data = await response.json();
+      if (!response.ok) { alert(data.detail || "文章にできませんでした"); return; }
+      comment.value = comment.value.trim()
+        ? comment.value.trim() + "\n" + data.text
+        : data.text;
+      comment.focus();
+    } catch (error) {
+      alert("文章にできませんでした: " + error);
+    } finally {
+      button.disabled = false;
+      busy.hidden = true;
+    }
+  });
+</script>
 {% endif %}
 {% endblock %}
