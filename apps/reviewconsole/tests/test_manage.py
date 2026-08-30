@@ -1299,6 +1299,53 @@ def test_generation_needs_a_registered_component(world: World) -> None:
     assert response.status_code == 400
 
 
+def test_the_unit_page_marks_a_task_that_is_not_approved(world: World) -> None:
+    """**承認済みと同じ見た目で並べない。**
+
+    一覧は `latest_version` をレビュー状態で絞らないので、生成したままの
+    課題もここに出る。印が無いと、教員は並んでいる数をそのまま「この回の
+    問題数」と読むが、実際に出題されるのは承認済みのぶんだけである。
+    """
+    from aijudge_core import ReviewState
+
+    world.register("teacher", Role.INSTRUCTOR)
+    _import_example(world)
+    client = world.client("teacher")
+    unit = _unit_of(world)
+
+    # 取り込んだ課題は承認済み。印は出ない。
+    body = client.get(f"/manage/courses/{world.course.id}/units/{unit}").text
+    assert "未承認 — 出題されません" not in body
+
+    # **版は上書きせず足す**（P8）。生成した課題が届く形もこれで、
+    # `latest_version` が新しい方を返す。
+    from aijudge_core.ids import TaskVersionId
+
+    with world.database.unit_of_work() as uow:
+        task = uow.tasks.list_for_course(world.course.id)[0]
+        version = uow.tasks.latest_version(task.id)
+        uow.tasks.save_version(
+            version.model_copy(
+                update={
+                    "id": TaskVersionId("tsv_" + "e" * 32),
+                    "version": version.version + 1,
+                    "provenance": version.provenance.model_copy(
+                        update={
+                            "generated_by": "stub",
+                            "review_state": ReviewState.IN_REVIEW,
+                        }
+                    ),
+                }
+            )
+        )
+        uow.commit()
+
+    body = client.get(f"/manage/courses/{world.course.id}/units/{unit}").text
+    assert "未承認 — 出題されません" in body
+    # そこから承認・却下へ行ける。
+    assert f"/manage/courses/{world.course.id}/drafts" in body
+
+
 def test_the_unit_page_offers_generation_only_with_components(world: World) -> None:
     world.register("teacher", Role.INSTRUCTOR)
     _import_example(world)

@@ -117,6 +117,14 @@
         </form>
       </td>
       <td class="grow">{{ row.task.title }}
+        {# **承認済みと同じ見た目にしない。** 一覧はレビュー状態で絞らないので
+           生成したままの課題もここに並ぶ。印が無いと、教員は並んでいる数を
+           そのまま「この回の問題数」と読む。 #}
+        {% if row.in_review %}
+        <a class="pill no" href="/manage/courses/{{ course.id }}/drafts">未承認 — 出題されません</a>
+        {% elif row.rejected %}
+        <span class="pill no">却下済み — 出題されません</span>
+        {% endif %}
         {% if not row.auto_graded %}<br><span class="pill">自動テストなし</span>{% endif %}
       </td>
       <td class="fit">{{ row.test_cases }}</td>

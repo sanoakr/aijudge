@@ -50,6 +50,16 @@ class Blueprint(BaseModel):
     # 狙う KC の正準キー。**空にしない。**
     knowledge_components: tuple[str, ...] = Field(min_length=1)
     subject_profile: str = Field(min_length=1)
+    # このコースの素性（題名と、シラバスの概要・到達目標）。**任意。**
+    #
+    # KC は「何を問うか」を決めるが、「どこまでを既習として書いてよいか」は
+    # 決めない。同じ `cs.loops` でも、入門の第 3 回と専門科目とでは前提に
+    # できるものが違う。到達目標を渡すと、その範囲の外に出た課題文が減る。
+    #
+    # **文字列で受ける。** `Course` を受け取ると作問が core の語彙に依存し、
+    # 「Evaluator と作問はコースを知らない」という境界（ADR 0001）が崩れる。
+    course_title: str = ""
+    course_outline: str = ""
     difficulty: Difficulty = Difficulty.STANDARD
     language: str = Field(default="c", min_length=1)
     # 課題文に必ず書かせたい制約（入出力の形式、禁止する標準ライブラリなど）。

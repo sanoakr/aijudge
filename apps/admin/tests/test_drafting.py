@@ -135,7 +135,7 @@ def test_the_result_records_which_prompt_and_model_made_it() -> None:
     """再現性（P8）。どの版が出したものか分からない生成物は追跡できない。"""
     drafter, _ = _drafter(GOOD)
     result = drafter.draft(BLUEPRINT, key="gen/sum")
-    assert result.prompt_id == "task_draft_ja@1"
+    assert result.prompt_id == "task_draft_ja@2"
     assert result.model == "stub"
 
 
@@ -185,7 +185,7 @@ def test_a_generated_task_is_not_approved_by_being_generated() -> None:
     assert version.provenance.review_state is ReviewState.IN_REVIEW
     assert version.provenance.generated_by == "stub"
     # どの版のプロンプトが出したか（P8、承認率の測定に要る）。
-    assert version.provenance.generation_prompt_version == "task_draft_ja@1"
+    assert version.provenance.generation_prompt_version == "task_draft_ja@2"
 
 
 def test_a_hand_written_task_is_still_approved_on_the_spot() -> None:
@@ -195,3 +195,33 @@ def test_a_hand_written_task_is_still_approved_on_the_spot() -> None:
     version = build_task_version(result.spec, subject_profile="cs_intro_c", authored_by=AUTHOR)
     assert version.provenance.review_state is ReviewState.APPROVED
     assert version.provenance.generated_by is None
+
+
+def test_the_course_outline_reaches_the_prompt() -> None:
+    """KC は「何を問うか」を決めるが、「どこまでを既習として書いてよいか」は
+    決めない。到達目標を渡すと、その範囲の外に出た課題文が減る。
+    """
+    from aijudge_admin.drafting import _course_section
+
+    section = _course_section(
+        Blueprint(
+            knowledge_components=("cs.loops",),
+            subject_profile="cs_intro_c",
+            course_title="プログラミング及び実習 II",
+            course_outline="配列と繰り返しを扱う。ポインタは扱わない。",
+        )
+    )
+    assert "プログラミング及び実習 II" in section
+    assert "ポインタは扱わない" in section
+
+
+def test_a_course_without_an_outline_gets_no_section() -> None:
+    """**空の節を渡さない。** モデルは「範囲の指定が無い」ではなく
+    「範囲は空」と読む余地がある。書かれていない条件は書かないことで伝える。
+    """
+    from aijudge_admin.drafting import _course_section
+
+    assert (
+        _course_section(Blueprint(knowledge_components=("cs.loops",), subject_profile="cs_intro_c"))
+        == ""
+    )
