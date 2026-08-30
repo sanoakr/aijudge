@@ -163,7 +163,7 @@
 <h2 id="candidates">コースの基本情報から候補を出す</h2>
 {% if has_basics %}
 <form method="post" action="/manage/courses/{{ course.id }}/kc/candidates" class="card"
-      onsubmit="this.querySelector('.reading').hidden = false; this.querySelector('button').disabled = true">
+      data-working="読み取り中… 十数秒かかります">
   <div class="inline-field">
     <span class="body desc">
       <strong>出てくるのは、このコースが扱う知識要素です。</strong>
@@ -171,7 +171,7 @@
       ここからは登録しません ── 1 件ずつ「知識要素を追加する」に取り込み、確かめてから登録します。
       既にある {{ existing | length }} 件に寄せるよう指示します（重複を作らないため）。
     </span>
-    <span class="reading flash" hidden>読み取り中…</span>
+    <span class="working flash reading" hidden></span>
     <button type="submit">候補を出す</button>
   </div>
 </form>
