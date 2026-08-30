@@ -1896,6 +1896,8 @@ def test_an_already_registered_candidate_cannot_be_adopted_again(monkeypatch, wo
     assert '<input type="checkbox" name="kc" value="cs.recursion">' in rows
     assert '<input type="checkbox" name="kc" value="cs.arrays">' not in rows
     assert "登録済み" in rows
+    # 名前はキーで結ぶ。位置で対応づけると、選ばなかった候補の名前が付く。
+    assert 'name="label:cs.recursion"' in rows
 
 
 def test_a_short_paste_is_refused(world: World) -> None:
@@ -1911,10 +1913,47 @@ def test_adopting_a_candidate_follows_the_same_rules(world: World) -> None:
     world.register("teacher", Role.INSTRUCTOR)
     response = world.client("teacher").post(
         f"/manage/courses/{world.course.id}/kc/adopt",
-        data={"kc": ["cs.loops.termination"], "label": ["停止条件"]},
+        data={"kc": ["cs.loops.termination"], "label:cs.loops.termination": "停止条件"},
     )
     assert response.status_code == 400
     assert "親" in response.json()["detail"]
+
+
+def test_adopting_one_candidate_registers_its_own_name(world: World) -> None:
+    """**選んだ鍵に、その鍵の名前が付く。**
+
+    以前は `kc` と `label` を 2 本のリストで受けて位置で対応づけていた。
+    チェックボックスは選んだものだけ、隠し欄は全候補ぶん送られるので、
+    3 件中 3 件目を選ぶと 1 件目の名前が付いた。**キーと名前が食い違う記録が
+    体系に残る** ── KC の ID はキーから決まるので、あとから直せるのは名前だけで、
+    そのあいだ画面と Q-matrix はその名前で読まれる。
+    """
+    world.register("boss", Role.ADMIN)
+    response = world.client("boss").post(
+        f"/manage/courses/{world.course.id}/kc/adopt",
+        data={
+            # 3 件表示され、選ばれたのは 3 件目だけ、という送られ方。
+            "kc": ["cs.arrays"],
+            "label:cs.loops": "繰り返し",
+            "description:cs.loops": "while と for",
+            "label:cs.pointers": "ポインタ",
+            "description:cs.pointers": "アドレスを持つ変数",
+            "label:cs.arrays": "配列",
+            "description:cs.arrays": "添字でたどるまとまり",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+
+    from aijudge_core import kc_id_for
+
+    with world.database.unit_of_work() as uow:
+        stored = uow.skills.get_kc(kc_id_for("cs.arrays"))
+        # 選ばなかった候補は登録されない。
+        assert uow.skills.get_kc(kc_id_for("cs.loops")) is None
+    assert stored is not None
+    assert stored.label == "配列"
+    assert stored.description == "添字でたどるまとまり"
 
 
 def test_the_course_settings_link_to_both_flows(world: World) -> None:
