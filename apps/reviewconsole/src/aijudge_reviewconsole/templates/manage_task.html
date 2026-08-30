@@ -37,6 +37,53 @@
       placeholder="## [必須] 課題の題名 ##&#10;&#10;自然数 n を入力し…">{{ version.statement if version else '' }}</textarea>
   </div>
 
+  {# **黙って落とさない。** テストケースが無い課題は、正しさの観点が
+     テスト実行ではなく AI の判定になる。課題を開いたときに分からなければ、
+     教員はテストで確定する課題を作ったつもりのまま学期を過ごす。 #}
+  {% if falls_back_to_ai %}
+  <div class="note warn">
+    <strong>この課題にはテストケースがありません。</strong>
+    正しさの観点は<strong>テスト実行ではなく AI が判定し、教員が確定させます</strong>
+    （観点は「仕様の充足」になっています）。
+    この科目（<span class="mono">{{ course.subject_profile }}</span>）は
+    <span class="mono">code_test_runner</span> を宣言しているので、
+    <strong>テストケースを付ければテスト実行で確定できます</strong>。
+    付けるには課題を作り直してください — 出題済みの版は書き換えません（P8）。
+  </div>
+  {% endif %}
+
+  {# **テストで確定できる科目なら、テストケースを用意する。** 無い課題は
+     正しさの観点が AI 判定に落ち（`TaskSpec.auto_graded`）、全課題が教員の
+     確定待ちになる。作るのは追加のときだけ ── 訂正で作り直すと、出題済みの
+     課題の採点基準が黙って変わる（P8）。 #}
+  {% if not task and wants_tests %}
+  <h3>テストケース</h3>
+  <div class="field">
+    <p class="desc" style="margin:0 0 8px">
+      この科目は<span class="mono">code_test_runner</span>でテスト実行します。
+      <strong>参照解答とテストケースを一緒に生成し、門 1（参照解答が全ケースを通る）と
+      門 2（変異を殺せる）を通します。</strong>
+      生成した課題は<strong>承認するまで出題されません</strong>
+      — 門は「参照解答とテストが整合している」までしか言わず、問題文の意図と
+      合っているかは見ていないためです。
+    </p>
+    <div class="inline-field">
+      <span class="body">
+        <label for="test_case_count">テストケース数</label>
+        <input id="test_case_count" name="test_case_count" type="number" min="2" max="20"
+               value="5" style="max-width:8rem">
+      </span>
+    </div>
+    <label style="display:block;margin-top:10px">
+      <input type="checkbox" name="no_auto_tests" value="1">
+      自動テストを使わない（正しさは AI が判定し、教員が確定させます）
+    </label>
+    <p class="desc" style="margin:8px 0 0">
+      設計を問う記述課題など、テスト実行に向かない課題はこちらを選んでください。
+    </p>
+  </div>
+  {% endif %}
+
   <h3>ルーブリック（この課題の観点）</h3>
   {# **既定と同じか、変えてあるかを示す。** 同じに見えて違う、が最も困る。 #}
   <p class="desc">

@@ -19,7 +19,7 @@ from fastapi.testclient import TestClient
 
 from aijudge_admin import ensure_course
 from aijudge_core import Role
-from aijudge_core.ids import CourseId, TenantId
+from aijudge_core.ids import CourseId, TaskVersionId, TenantId
 from aijudge_identity import AuthService
 from aijudge_persistence import Database
 from aijudge_reviewconsole import SESSION_COOKIE, Console, create_app
@@ -1399,6 +1399,162 @@ def test_only_an_admin_can_retire_a_component(world: World) -> None:
         f"/manage/courses/{world.course.id}/kc/retire", data={"key": "cs.loops"}
     )
     assert response.status_code == 403
+
+
+def _stub_writer(monkeypatch, *, fails: bool = False) -> None:
+    from aijudge_admin.test_cases import GenerationResult
+    from aijudge_authoring.drafting import DraftTestCase
+
+    class _Writer:
+        def __init__(self, *a, **kw) -> None: ...
+
+        def write(self, statement, *, language="c", count=5):
+            if fails:
+                raise RuntimeError("connection refused")
+            return GenerationResult(
+                reference_solution="int main(void){return 0;}",
+                test_cases=(
+                    DraftTestCase(name="case1", input="1 2", expected="3"),
+                    DraftTestCase(name="case2", input="2 3", expected="5"),
+                ),
+                prompt_id="test_cases_for_statement_ja@1",
+                model="stub-model",
+            )
+
+    monkeypatch.setattr("aijudge_reviewconsole.manage.TestCaseWriter", _Writer)
+
+
+def _add(client, course_id: str, unit: str, suffix: str, **extra):
+    data = {
+        "key_suffix": suffix,
+        "unit": unit,
+        "statement": f"## [必須] 課題 {suffix} ##\n\n2 つの整数を読み、和を出力しなさい。",
+        "readability_weight": "0.3",
+    }
+    data.update(extra)
+    return client.post(f"/manage/courses/{course_id}/tasks", data=data, follow_redirects=False)
+
+
+def test_a_new_task_gets_test_cases_generated(monkeypatch, world: World) -> None:
+    """**テストケースが無い課題は正しさが AI 判定に落ちる**（`auto_graded`）。
+
+    テスト実行で確定できる科目なのに全課題が教員の確定待ちになるので、
+    宣言している科目では用意する。
+    """
+    from aijudge_core import ReviewState
+
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    _stub_writer(monkeypatch)
+
+    assert _add(client, str(world.course.id), "ex04", "p1").status_code == 303
+    with world.database.unit_of_work() as uow:
+        task = uow.tasks.list_for_course(world.course.id)[0]
+        version = uow.tasks.latest_version(task.id)
+    assert len(version.test_cases) == 2
+    assert version.reference_solution
+    # **承認まで出題されない。** 門は問題文の意図と合っているかを見ていない。
+    assert version.provenance.review_state is ReviewState.IN_REVIEW
+
+
+def test_an_instructor_can_refuse_the_generated_tests(monkeypatch, world: World) -> None:
+    """C の科目にも設計を問う記述課題はある。強いる理由が無い。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    _stub_writer(monkeypatch)
+
+    assert _add(client, str(world.course.id), "ex04", "p1", no_auto_tests="1").status_code == 303
+    with world.database.unit_of_work() as uow:
+        task = uow.tasks.list_for_course(world.course.id)[0]
+        version = uow.tasks.latest_version(task.id)
+    assert version.test_cases == ()
+
+
+def test_a_task_without_tests_says_so_instead_of_saving_quietly(monkeypatch, world: World) -> None:
+    """**黙って落とさない。** 保存できたことだけ伝えると、教員はテスト実行で
+    確定する課題を作ったつもりのまま学期を過ごす。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    _stub_writer(monkeypatch)
+
+    response = _add(client, str(world.course.id), "ex04", "p1", no_auto_tests="1")
+    assert "saved=task_without_tests" in response.headers["location"]
+    body = client.get(response.headers["location"]).text
+    assert "正しさは AI が判定します" in body
+
+
+def test_an_existing_task_without_tests_is_flagged_when_opened(world: World) -> None:
+    """#15 より前に作った課題にも出す。開いて分からなければ直す機会が無い。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    _import_example(world)
+    with world.database.unit_of_work() as uow:
+        task = uow.tasks.list_for_course(world.course.id)[0]
+        version = uow.tasks.latest_version(task.id)
+        uow.tasks.save_version(
+            version.model_copy(
+                update={
+                    "id": TaskVersionId("tsv_" + "c" * 32),
+                    "version": version.version + 1,
+                    "test_cases": (),
+                }
+            )
+        )
+        uow.commit()
+
+    body = client.get(f"/manage/courses/{world.course.id}/tasks/{task.id}/edit").text
+    assert "この課題にはテストケースがありません" in body
+
+
+def test_a_report_subject_is_not_warned_about_missing_tests(world: World) -> None:
+    """**宣言していない科目では、テストが無いのが正常。**
+
+    落ちたわけでないものを同じ顔で警告すると、警告が読まれなくなる。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    _import_example(world)
+    with world.database.unit_of_work() as uow:
+        course = uow.identity.get_course(world.course.id)
+        uow.identity.save_course(course.model_copy(update={"subject_profile": "report_ja"}))
+        task = uow.tasks.list_for_course(world.course.id)[0]
+        version = uow.tasks.latest_version(task.id)
+        uow.tasks.save_version(
+            version.model_copy(
+                update={
+                    "id": TaskVersionId("tsv_" + "d" * 32),
+                    "version": version.version + 1,
+                    "test_cases": (),
+                }
+            )
+        )
+        uow.commit()
+
+    body = client.get(f"/manage/courses/{world.course.id}/tasks/{task.id}/edit").text
+    assert "この課題にはテストケースがありません" not in body
+
+
+def test_a_failed_generation_still_saves_the_task_and_says_so(monkeypatch, world: World) -> None:
+    """**課題を作れなくしない**（設計原則 P2）。
+
+    S6 が止まっているあいだ作問が止まると、教員は授業の準備そのものが
+    できない。テストの無い課題として保存し、そうなったことを言う。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    _stub_writer(monkeypatch, fails=True)
+
+    response = _add(client, str(world.course.id), "ex04", "p1")
+    assert response.status_code == 303
+    assert "saved=task_generation_failed" in response.headers["location"]
+    body = client.get(response.headers["location"]).text
+    # **作れなかったことと、作らないことは別。** 前者は直せる。
+    assert "テストケースを作れなかった" in body
+
+    with world.database.unit_of_work() as uow:
+        task = uow.tasks.list_for_course(world.course.id)[0]
+        assert uow.tasks.latest_version(task.id).test_cases == ()
 
 
 def test_a_generated_task_is_saved_awaiting_approval(monkeypatch, world: World) -> None:
