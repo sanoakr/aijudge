@@ -1328,9 +1328,55 @@ def test_the_course_can_narrow_which_components_it_uses(world: World) -> None:
     assert response.status_code == 303
     with world.database.unit_of_work() as uow:
         assert uow.identity.get_course(world.course.id).knowledge_components == ("cs.loops",)
-    # 語彙からは消えない。一覧には両方出る。
+    # **このコースの一覧からは消える。** 使わないと決めたものが並び続けると、
+    # 決めたこと自体が画面から読めない（#37）。
+    page = client.get(f"/manage/courses/{world.course.id}/kc").text
+    assert "cs.loops" in page
+    assert "cs.python" not in page
+
+    # **語彙からは消えていない。** 他のコースの Q-matrix は壊れない。
+    from aijudge_core import kc_id_for
+
+    with world.database.unit_of_work() as uow:
+        assert uow.skills.get_kc(kc_id_for("cs.python")) is not None
+
+
+def test_a_component_left_out_can_be_brought_back(world: World) -> None:
+    """隠すなら戻す道が要る。**「このコースに追加する」は登録と範囲の両方。**
+
+    追加フォームは既にある知識要素をそのまま返す（何度押しても増えない）が、
+    コースの範囲に入れなければ、絞っているコースでは一覧に出てこない。
+    """
+    world.register("boss", Role.ADMIN)
+    client = world.client("boss")
+    for key, label in (("cs.loops", "ループ"), ("cs.python", "Python")):
+        client.post(f"/manage/courses/{world.course.id}/kc", data={"key": key, "label": label})
+    client.post(f"/manage/courses/{world.course.id}/kc/scope", data={"kc": ["cs.loops"]})
+    assert "cs.python" not in client.get(f"/manage/courses/{world.course.id}/kc").text
+
+    client.post(
+        f"/manage/courses/{world.course.id}/kc",
+        data={"key": "cs.python", "label": "Python"},
+    )
+
+    assert "cs.python" in client.get(f"/manage/courses/{world.course.id}/kc").text
+    with world.database.unit_of_work() as uow:
+        course = uow.identity.get_course(world.course.id)
+    assert course.knowledge_components == ("cs.loops", "cs.python")
+
+
+def test_a_course_that_has_not_narrowed_still_sees_everything(world: World) -> None:
+    """**「絞っていない」は「何も選んでいない」ではない。** 宣言するまで変えない。"""
+    world.register("boss", Role.ADMIN)
+    client = world.client("boss")
+    for key, label in (("cs.loops", "ループ"), ("cs.python", "Python")):
+        client.post(f"/manage/courses/{world.course.id}/kc", data={"key": key, "label": label})
+
     page = client.get(f"/manage/courses/{world.course.id}/kc").text
     assert "cs.loops" in page and "cs.python" in page
+    with world.database.unit_of_work() as uow:
+        # 追加しただけでは絞った状態にしない。
+        assert uow.identity.get_course(world.course.id).knowledge_components == ()
 
 
 def test_the_drafting_form_offers_only_the_selected_components(world: World) -> None:
