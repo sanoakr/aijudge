@@ -46,6 +46,8 @@ from aijudge_admin import (
     AdminError,
     allowed_namespaces,
     assert_registered,
+    delete_kc,
+    edit_kc,
     enrol_roster,
     ensure_course,
     finalize_task,
@@ -262,6 +264,8 @@ SAVED_MESSAGES: dict[str, str] = {
     "kc_added": "知識要素を追加しました",
     "kc_retired": "知識要素を引退させました",
     "kc_restored": "引退を取り消しました",
+    "kc_deleted": "知識要素を削除しました（一度も使われていないもの）",
+    "kc_edited": "知識要素の名前と説明を直しました（キーは変わりません）",
     "basics": "基本情報を保存しました",
     "role": "役割を変えました",
     "grading": "採点設定を保存しました",
@@ -2201,6 +2205,76 @@ def register(templates) -> APIRouter:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         saved = "kc_restored" if restore else "kc_retired"
         return RedirectResponse(f"/manage/courses/{course_id}/kc?saved={saved}#kc", status_code=303)
+
+    @router.post("/courses/{course_id}/kc/edit")
+    def edit_kc_route(
+        request: Request,
+        course_id: str,
+        key: Annotated[str, Form()],
+        label: Annotated[str, Form()] = "",
+        description: Annotated[str, Form()] = "",
+    ) -> Response:
+        """名前と説明を直す。**キーは直せない。**
+
+        **引退・削除と違って教員が直せる。** あちらは他のコースが使って
+        いるものを取り上げる操作なので管理者に限るが、名前を直すのは
+        取り上げる操作ではない。正しい名前を知っているのは科目の専門家で
+        あり（`aijudge_admin.kc` の冒頭）、キーは動かないので壊れない。
+        間違えても、もう一度直せる。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+        try:
+            edit_kc(
+                console.database,
+                key=key.strip(),
+                label=label,
+                description=description,
+            )
+        except AdminError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return RedirectResponse(
+            f"/manage/courses/{course_id}/kc?saved=kc_edited#kc", status_code=303
+        )
+
+    @router.post("/courses/{course_id}/kc/delete")
+    def delete_kc_route(
+        request: Request,
+        course_id: str,
+        key: Annotated[str, Form()],
+    ) -> Response:
+        """**一度も使われていない知識要素だけを消す。**
+
+        引退（`retire`）は「使っていたが今後は使わない」を表す記録で、
+        打ち間違いの置き場所ではない。使われたことの無い `cs.c_langauge` を
+        引退させて残すと、コースをまたいで共有される一覧に、誰の役にも
+        立たない行が永久に並ぶ。
+
+        使われている KC は消さない ── 判定は `aijudge_admin.kc.delete` が
+        持つ（利用状況を数えられるのはあちら）。
+
+        引退と同じく管理者のみ。**コースをまたいで効く。**
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        _require_instructor(request, me, CourseId(course_id))
+        if not _is_admin(request, me):
+            raise HTTPException(
+                status_code=403,
+                detail="知識要素の削除には管理者権限が必要です（他のコースにも効きます）",
+            )
+        console = _console(request)
+        try:
+            delete_kc(console.database, key=key.strip())
+        except AdminError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return RedirectResponse(
+            f"/manage/courses/{course_id}/kc?saved=kc_deleted#kc", status_code=303
+        )
 
     # ------------------------------------------------------------------
     # 生成された課題のレビュー（S2、設計方針 §5）

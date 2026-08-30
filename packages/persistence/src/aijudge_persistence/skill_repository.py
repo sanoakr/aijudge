@@ -103,6 +103,18 @@ class SqlSkillRepository:
             row.document = document
         self._session.flush()
 
+    def delete_kc(self, kc_id: KcId) -> None:
+        """KC を 1 件消す。**呼んでよいかの判断は呼び出し側が持つ。**
+
+        使われている KC を消すと、過去の課題が何を問うていたのか辿れなく
+        なる（P8）。その判定は利用状況を数えられる層でしかできないので、
+        ここは求められたとおりに消す（`aijudge_admin.kc.delete` が守る）。
+        """
+        row = self._session.get(KnowledgeComponentRow, str(kc_id))
+        if row is not None:
+            self._session.delete(row)
+            self._session.flush()
+
     def list_kcs(self, namespace: str | None = None) -> tuple[KnowledgeComponent, ...]:
         statement = select(KnowledgeComponentRow).order_by(KnowledgeComponentRow.key)
         if namespace is not None:

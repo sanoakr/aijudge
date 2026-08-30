@@ -37,6 +37,29 @@
       </td>
       <td class="fit">{{ row.kc.label }}
         {% if row.kc.description %}<br><span class="desc">{{ row.kc.description }}</span>{% endif %}
+        {# **名前と説明は直せる。キーは直せない。** 規則 3 が守っているのは
+           キー（ID の素材）であって表示名ではない。打ち間違えた名前を直す
+           ために引退や削除を使うのは、同一性を壊す操作を表示の都合で
+           持ち出すことになる。 #}
+        <details>
+          <summary class="desc">名前・説明を直す</summary>
+          <form method="post" action="/manage/courses/{{ course.id }}/kc/edit" style="margin:6px 0 0">
+            <input type="hidden" name="key" value="{{ row.kc.key }}">
+            <div class="field">
+              <label for="lb-{{ loop.index }}">名前</label>
+              <input id="lb-{{ loop.index }}" name="label" required value="{{ row.kc.label }}">
+            </div>
+            <div class="field">
+              <label for="ds-{{ loop.index }}">説明</label>
+              <input id="ds-{{ loop.index }}" name="description" value="{{ row.kc.description or '' }}">
+            </div>
+            <p class="desc" style="margin:6px 0 0">
+              <strong>キー（<span class="mono">{{ row.kc.key }}</span>）は変わりません。</strong>
+              ID がキーから決まり、過去の採点がそれを指しているためです。
+            </p>
+            <div class="actions"><button type="submit">保存</button></div>
+          </form>
+        </details>
       </td>
       {# **利用状況を出す。** 引退させてよいかの判断材料で、自分のコースで
          使っていなくても他のコースが使っていれば影響がある。 #}
@@ -61,12 +84,29 @@
                 <button type="submit">引退させる</button>
               </div>
               <p class="desc" style="margin:8px 0 0">
-                <strong>消しません。</strong>ID はキーから導かれ、Q-matrix は追記のみなので、
-                消すと過去の課題が何を問うていたのか辿れなくなります。
+                <strong>引退させても消えません。</strong>ID はキーから導かれ、Q-matrix は追記のみなので、
+                使われた知識要素を消すと過去の課題が何を問うていたのか辿れなくなります。
               </p>
             {% endif %}
           </form>
         </details>
+        {# **一度も使われていないものだけ消せる。** 引退は「使っていたが今後は
+           使わない」を表す記録で、打ち間違いの置き場所ではない。使われたことの
+           無いキーを引退させて残すと、共有の一覧に誰の役にも立たない行が
+           永久に並ぶ。 #}
+        {% if not row.used %}
+        <details>
+          <summary class="desc">削除する</summary>
+          <form method="post" action="/manage/courses/{{ course.id }}/kc/delete" style="margin:6px 0 0">
+            <input type="hidden" name="key" value="{{ row.kc.key }}">
+            <p class="desc" style="margin:0 0 6px">
+              この知識要素は<strong>まだどの課題でも使われていません</strong>。
+              打ち間違いならここで消せます（<strong>コースをまたいで消えます</strong>）。
+            </p>
+            <div class="actions"><button type="submit">削除する</button></div>
+          </form>
+        </details>
+        {% endif %}
       </td>
       {% endif %}
     </tr>
@@ -161,10 +201,15 @@
     <input id="description" name="description" placeholder="何ができれば身に付いたと言えるか">
   </div>
   <p class="desc">
+    {# **名前空間は階層に数えない**ことを先に言う。`cs.c_language` は点で 2 つに
+       分かれて見えるので、これを「第 1 階層」とだけ言うと読めない。 #}
+    <strong>名前空間（<code>{{ namespaces[0] if namespaces else 'cs' }}</code>）は階層に数えません。</strong>
+    <code>{{ namespaces[0] if namespaces else 'cs' }}.loops</code> が第 1 階層（分野の根）、
+    <code>{{ namespaces[0] if namespaces else 'cs' }}.loops.termination</code> が第 2 階層です。<br>
     <strong>親が実在している必要があります。</strong>
     <code>{{ namespaces[0] if namespaces else 'cs' }}.loops.termination</code> を足すには
     <code>{{ namespaces[0] if namespaces else 'cs' }}.loops</code> が先に要ります。
-    {% if not is_admin %}第 1 階層（分野の根）を作るには管理者の操作が必要です。{% endif %}
+    {% if not is_admin %}<strong>第 1 階層（分野の根）を作るには管理者の操作が必要です。</strong>{% endif %}
     <strong>改名はできません</strong> — ID がキーから決まり、過去の採点がそれを指しているためです。
     誤って作ったものは引退させてください。
   </p>

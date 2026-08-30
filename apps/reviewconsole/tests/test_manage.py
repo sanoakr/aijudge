@@ -1238,7 +1238,12 @@ def test_an_instructor_cannot_create_a_root_component(world: World) -> None:
         data={"key": "cs.loops", "label": "ループ"},
     )
     assert response.status_code == 400
-    assert "第 1 階層" in response.json()["detail"]
+    detail = response.json()["detail"]
+    assert "第 1 階層" in detail
+    # **名前空間が階層に数えられないことを言う。** `cs.loops` は点で 2 つに
+    # 分かれて見えるので、「第 1 階層」だけでは何を指すのか読めない。
+    assert "名前空間" in detail and "階層に数えません" in detail
+    assert "cs.loops.…" in detail
 
 
 def test_an_admin_creates_a_root_and_an_instructor_extends_it(world: World) -> None:
@@ -1263,6 +1268,114 @@ def test_an_admin_creates_a_root_and_an_instructor_extends_it(world: World) -> N
     assert response.status_code == 303
     body = world.client("teacher").get(f"/manage/courses/{world.course.id}/kc").text
     assert "cs.loops.termination" in body
+
+
+def test_an_instructor_can_correct_a_label(world: World) -> None:
+    """**引退・削除と違って教員が直せる。**
+
+    あちらは他のコースが使っているものを取り上げる操作なので管理者に限るが、
+    名前を直すのは取り上げる操作ではない。正しい名前を知っているのは科目の
+    専門家で、キーは動かないので壊れない。
+    """
+    world.register("boss", Role.ADMIN)
+    world.register("teacher", Role.INSTRUCTOR)
+    world.client("boss").post(
+        f"/manage/courses/{world.course.id}/kc", data={"key": "cs.loops", "label": "ルーブ"}
+    )
+
+    response = world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/kc/edit",
+        data={"key": "cs.loops", "label": "ループ", "description": "繰り返しの制御"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    page = world.client("teacher").get(f"/manage/courses/{world.course.id}/kc").text
+    assert "ループ" in page
+    assert "繰り返しの制御" in page
+    # キーは動かない。
+    assert "cs.loops" in page
+
+
+def test_the_key_is_not_editable_from_the_page(world: World) -> None:
+    """キーを直せるように見せない。ID がキーから決まり、過去の採点が指している。"""
+    world.register("boss", Role.ADMIN)
+    client = world.client("boss")
+    client.post(
+        f"/manage/courses/{world.course.id}/kc", data={"key": "cs.loops", "label": "ループ"}
+    )
+
+    page = client.get(f"/manage/courses/{world.course.id}/kc").text
+    form = page[page.index("名前・説明を直す") :]
+    # 送るのは label と description だけ。key は hidden で固定。
+    assert 'name="label"' in form
+    assert 'name="description"' in form
+    assert '<input type="hidden" name="key" value="cs.loops">' in form
+    assert 'キー（<span class="mono">cs.loops</span>）は変わりません' in form
+
+
+def test_only_an_admin_can_delete_a_component(world: World) -> None:
+    """削除もコースをまたいで効く。1 コースの教員が他の語彙を消せない。"""
+    world.register("boss", Role.ADMIN)
+    world.register("teacher", Role.INSTRUCTOR)
+    world.client("boss").post(
+        f"/manage/courses/{world.course.id}/kc", data={"key": "cs.typo", "label": "打ち間違い"}
+    )
+    response = world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/kc/delete", data={"key": "cs.typo"}
+    )
+    assert response.status_code == 403
+
+
+def test_an_unused_component_is_deleted_from_the_page(world: World) -> None:
+    """**打ち間違いの置き場所を引退にしない。**
+
+    使われたことの無いキーを引退させて残すと、共有の一覧に誰の役にも
+    立たない行が永久に並ぶ。
+    """
+    world.register("boss", Role.ADMIN)
+    client = world.client("boss")
+    client.post(
+        f"/manage/courses/{world.course.id}/kc", data={"key": "cs.typo", "label": "打ち間違い"}
+    )
+    assert "cs.typo" in client.get(f"/manage/courses/{world.course.id}/kc").text
+
+    response = client.post(
+        f"/manage/courses/{world.course.id}/kc/delete",
+        data={"key": "cs.typo"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert "cs.typo" not in client.get(f"/manage/courses/{world.course.id}/kc").text
+
+
+def test_the_delete_control_is_hidden_for_a_used_component(world: World) -> None:
+    """**使われているものには出さない。** 押せない操作を見せない。"""
+    from aijudge_admin import save_task
+    from aijudge_authoring import TaskSpec
+
+    world.register("boss", Role.ADMIN)
+    client = world.client("boss")
+    client.post(
+        f"/manage/courses/{world.course.id}/kc", data={"key": "cs.loops", "label": "ループ"}
+    )
+    save_task(
+        world.database,
+        course_id=world.course.id,
+        spec=TaskSpec(
+            key="ex01/p1",
+            statement="## 課題 ##\n\n本文",
+            knowledge_components=("cs.loops",),
+        ),
+        subject_profile="cs_intro_c",
+        authored_by=world.register("t2", Role.INSTRUCTOR).user_id,
+    )
+
+    page = client.get(f"/manage/courses/{world.course.id}/kc").text
+    assert "削除する" not in page
+    # 直接叩いても消えない。
+    response = client.post(f"/manage/courses/{world.course.id}/kc/delete", data={"key": "cs.loops"})
+    assert response.status_code == 400
+    assert "使われています" in response.json()["detail"]
 
 
 def test_a_namespace_outside_the_profile_is_refused(world: World) -> None:
@@ -1635,8 +1748,8 @@ def test_the_enrolments_have_their_own_page(world: World) -> None:
     """受講 100 名規模。設定を 1 つ直しに来た教員に 100 行めくらせない。"""
     world.register("teacher", Role.INSTRUCTOR)
     client = world.client("teacher")
-    settings = client.get(f"/manage/courses/{world.course.id}").text
-    assert f"/manage/courses/{world.course.id}/enrolments" in settings
+    menu = client.get(f"/courses/{world.course.id}").text
+    assert f"/manage/courses/{world.course.id}/enrolments" in menu
 
     page = client.get(f"/manage/courses/{world.course.id}/enrolments").text
     assert "受講登録" in page
@@ -1653,16 +1766,77 @@ def test_the_enrolment_pages_break_the_headcount_down_by_role(world: World) -> N
     world.register("s2400002", Role.LEARNER)
     client = world.client("teacher")
 
-    for url in (
-        f"/manage/courses/{world.course.id}",
-        f"/manage/courses/{world.course.id}/enrolments",
-    ):
-        page = client.get(url).text
-        rows = page[page.index("rolecounts") :]
-        assert ">2</b>" in rows, url  # learner
-        assert ">1</b>" in rows, url  # instructor
-        assert ">0</b>" in rows, url  # assistant / admin は 0 名でも並ぶ
-        assert "assistant" in rows, url
+    # 受講者のページ: **0 名の役割も並べる。** 総数だけでは、TA を登録し
+    # 忘れているのか 0 名が正しいのかが読み取れない。
+    page = client.get(f"/manage/courses/{world.course.id}/enrolments").text
+    rows = page[page.index('<ul class="rolecounts">') :]
+    assert ">2</b>" in rows  # learner
+    assert ">1</b>" in rows  # instructor
+    assert ">0</b>" in rows  # assistant / admin は 0 名でも並ぶ
+    assert "assistant" in rows
+
+    # コースの入口: 行の高さを保つため 0 名は出さない（内訳の確認は上のページ）。
+    menu = client.get(f"/courses/{world.course.id}").text
+    assert "3 名" in menu  # 教員 1 + 学習者 2
+    assert "learner 2" in menu
+    assert "instructor 1" in menu
+    # 0 名の役割はここには出さない（確認は受講者のページ）。
+    assert "assistant 0" not in menu
+
+
+def test_the_enrolment_form_explains_the_roles_as_differences(world: World) -> None:
+    """**差分で書く。** 4 つを列挙すると同じ項目が 4 回並び、どこが違うのかを
+    読み手が引き算することになる。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    page = world.client("teacher").get(f"/manage/courses/{world.course.id}/enrolments").text
+    table = page[page.index("下位の役割に加えてできること") :]
+    for role in ("learner", "assistant", "instructor", "admin"):
+        assert role in table
+
+
+def test_the_role_explanations_match_what_the_code_enforces(world: World) -> None:
+    """**説明と権限がずれないようにする。** ずれた説明は無いより悪い。
+
+    ここで確かめるのは、画面に書いた区切りが実装の区切りと同じであること。
+    """
+    from aijudge_core import Enrollment
+    from aijudge_core import Role as R
+    from aijudge_core.ids import CourseId as CId
+    from aijudge_core.ids import UserId as UId
+
+    def _enrollment(role: R) -> Enrollment:
+        return Enrollment(
+            tenant_id=TenantId("ten_" + "0" * 32),
+            course_id=CId("crs_" + "0" * 32),
+            user_id=UId("usr_" + "0" * 32),
+            role=role,
+        )
+
+    # 採点できるのは learner 以外（`Enrollment.can_grade`）。
+    assert not _enrollment(R.LEARNER).can_grade
+    assert _enrollment(R.ASSISTANT).can_grade
+    assert _enrollment(R.INSTRUCTOR).can_grade
+    assert _enrollment(R.ADMIN).can_grade
+
+    # コースの設定は TA には開けない（`_require_instructor`）。
+    world.register("ta", Role.ASSISTANT)
+    assert world.client("ta").get(f"/manage/courses/{world.course.id}").status_code == 403
+
+
+def test_the_course_settings_page_no_longer_holds_the_enrolments(world: World) -> None:
+    """受講者は自分のページを持つので、設定の中に二重に置かない。
+
+    同じものが 2 か所にあると、片方だけ直したときにもう片方が古いまま残る。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    settings = client.get(f"/manage/courses/{world.course.id}").text
+    assert '<ul class="rolecounts">' not in settings
+    assert f"/manage/courses/{world.course.id}/enrolments" not in settings
+    # 入口からは行ける。
+    menu = client.get(f"/courses/{world.course.id}").text
+    assert f"/manage/courses/{world.course.id}/enrolments" in menu
 
 
 def test_the_role_breakdown_ignores_the_search_filter(world: World) -> None:
