@@ -12,8 +12,14 @@
 <div class="card">
   <p class="desc" style="margin:0 0 4px"><strong>{{ course.title }}</strong>
     <span class="mono">{{ course.code }} / {{ course.term }}</span></p>
+  {# **畳んで置く。** シラバスの本文は概要・到達目標・授業計画で 1 画面を
+     優に超える。開いたままだと、この下にある自動確定・提出形式・採点設定に
+     たどり着くのに毎回スクロールすることになる。 #}
   {% if course.description %}
-  <p class="desc" style="margin:0 0 10px">{{ course.description[:200] }}{% if course.description | length > 200 %}…{% endif %}</p>
+  <details class="syllabus">
+    <summary>シラバスの本文を読む<span class="desc open-hint">開いて読む</span></summary>
+    <div class="markdown">{{ description_html | safe }}</div>
+  </details>
   {% else %}
   <p class="desc" style="margin:0 0 10px">概要・到達目標は未入力です。</p>
   {% endif %}
@@ -27,6 +33,14 @@
   <p class="desc" style="margin:0 0 10px">
     {{ people_count }} 名が登録されています。役割の変更と受講登録は受講者のページで行います。
   </p>
+  {# **0 名の役割も出す。** 総数だけでは、TA を登録し忘れているのか
+     0 名が正しいのかが読み取れない。 #}
+  <ul class="rolecounts">
+    {% for row in role_counts %}
+    <li><span class="mono">{{ row.role }}</span>
+      <b>{{ row.count }}</b> 名</li>
+    {% endfor %}
+  </ul>
   <div class="actions">
     <a href="/manage/courses/{{ course.id }}/enrolments">受講者を見る →</a>
   </div>

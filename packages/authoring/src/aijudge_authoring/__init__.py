@@ -37,7 +37,7 @@ from .spec import (
     TestCaseSpec,
     build_task_version,
 )
-from .statement import render_statement
+from .statement import render_markdown, render_statement
 from .verification import (
     DEFAULT_MIN_KILL_RATIO,
     GateOutcome,
@@ -78,6 +78,7 @@ __all__ = [
     "VerificationReport",
     "build_task_version",
     "mutate",
+    "render_markdown",
     "render_statement",
     "sharif_judge",
     "substantive",

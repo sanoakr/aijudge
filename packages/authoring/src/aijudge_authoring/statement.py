@@ -1,9 +1,14 @@
-"""課題文の描画。
+"""教員・モデルが書いた Markdown の描画。
 
 課題文は Markdown である（取り込み器が `desc.md` を読む）。**その形式を
 決めているのがこのパッケージなので、安全に描画する方法も同じ場所に置く。**
 表示側のアプリ 2 つ（学習者向けと教員向け）が別々に設定を持つと、片方で
 安全側の設定が抜ける。
+
+**課題文以外にも同じ描画を使う。** コースの基本情報（`Course.description`、
+シラバスの概要・到達目標）も同じ性質を持つ ── Markdown で、教員かモデルが
+書き、画面に出る。別の描画を持たせると、上の「片方で安全側の設定が抜ける」
+がそのまま起きる。描画器は 1 つにして、入口の名前だけを分ける。
 
 実測（2026-08-28）で必要だと分かった。学生 UI に生の Markdown が出ており、
 `## partialsum.py` や ```` ```Python ```` がそのまま表示されていた。
@@ -65,11 +70,11 @@ def _math_renderer(content: str, options: dict[str, object]) -> str:
         return f"<code>{html.escape(marker + content + marker)}</code>"
 
 
-def render_statement(markdown: str) -> str:
-    """課題文を HTML にする。
+def render_markdown(markdown: str) -> str:
+    """Markdown を HTML にする。生の HTML は通さず、数式は MathML にする。
 
-    描画できない場合でも例外にしない。課題文が読めないより、生の Markdown が
-    見えている方がまし（提出はできる）。
+    描画できない場合でも例外にしない。読めないより生の Markdown が見えている
+    方がまし（課題文なら提出はできるし、シラバスなら読める）。
     """
     try:
         return _renderer().render(markdown)
@@ -77,3 +82,12 @@ def render_statement(markdown: str) -> str:
         import html
 
         return f"<pre>{html.escape(markdown)}</pre>"
+
+
+def render_statement(markdown: str) -> str:
+    """課題文を HTML にする。描画そのものは `render_markdown` と同じ。
+
+    **名前を分けてあるのは呼び出し側のため。** 課題文を出しているのか
+    シラバスを出しているのかが、呼んでいる場所を読めば分かるようにしてある。
+    """
+    return render_markdown(markdown)
