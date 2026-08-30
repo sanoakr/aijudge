@@ -47,7 +47,6 @@ from aijudge_core import (
     Course,
     Finalization,
     FinalizationSource,
-    GradeWindow,
     GradingPhase,
     GradingRun,
     HumanReview,
@@ -353,7 +352,6 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 # TA にはコースの設定を開かせない（`manage.py` の権限と揃える）。
                 "can_manage": enrollment is not None
                 and enrollment.role in (Role.INSTRUCTOR, Role.ADMIN),
-                "ELAPSED": GradeWindow.ELAPSED,
             },
         )
 

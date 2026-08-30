@@ -565,8 +565,8 @@ def _submission_view(
             review,
             request=request,
             finalization=finalization,
-            # 仮確定の窓を出すのに要る。締切は課題、猶予はコースが持つ。
-            due_at=task.due_at,
+            # 仮確定の窓を出すのに要る。**起点は採点完了時刻**（run が持つ）で、
+            # 猶予は問題セットかコースが持つ。
             auto_finalize_after_minutes=grace_minutes(
                 task.auto_finalize_after_minutes, course.auto_finalize_after_minutes
             ),

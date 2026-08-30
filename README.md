@@ -216,7 +216,7 @@ can act on — but it leaves every uncontested submission unfinalised forever, a
 the term never closes. Two things close it:
 
 ```fish
-uv run aijudge-finalize --once     # deadline + n hours elapsed (for cron)
+uv run aijudge-finalize --once     # grading + n minutes elapsed (for cron)
 uv run aijudge-finalize            # or resident, every 15 minutes
 ```
 
@@ -242,14 +242,22 @@ the one-way notice [ADR 0009](docs/adr/0009-show-the-verdict-and-let-the-learner
 set out to avoid:
 
 ```
-graded ──→ provisional at the deadline   "this settles at 09/08 23:59 — say so before then"
-       ──→ settled at deadline + n       unless a learner contested it
+graded ──→ provisional at once     "this settles at 09/08 23:59 — say so before then"
+       ──→ settled at graded + n   unless a learner contested it
 ```
+
+**The clock starts when that submission finished grading, not at the task's
+deadline.** A deadline-based clock makes a learner who submitted early wait days
+for their own grade to close, and until it closes the mark they are deciding
+whether to resubmit against is provisional. Grading finishes seconds after
+submission, so counting from there settles the grade *before* the deadline and
+leaves the deadline free to resubmit against — resubmission is not blocked by
+finalization (`Task.accepts_submissions_at` never consults it) and the best
+attempt is the one that counts.
 
 Announcing the time is what earns the right to close the appeal window at `n`.
 Miss that window and the page points at the instructor instead of the form. The
-stage is derived from `due_at` and the grace, never stored — deadlines move
-during a term, and a stored stage would keep the old one.
+stage is derived, never stored.
 
 The automatic route is the stricter one. It skips anything the review policy
 flagged (`review_required`), anything with an unscored criterion, and anything a

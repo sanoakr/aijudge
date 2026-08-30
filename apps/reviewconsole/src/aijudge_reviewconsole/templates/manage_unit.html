@@ -75,7 +75,7 @@
       class="card">
   <div class="inline-field">
     <span class="body">
-      <label for="after_minutes">締切から何分で確定するか（空欄ならコースの設定）</label>
+      <label for="after_minutes">採点完了から何分で確定するか（空欄ならコースの設定）</label>
       <input id="after_minutes" name="after_minutes" type="number" min="1" step="1"
              style="max-width:10rem"
              placeholder="{{ course_grace if course_grace else '設定なし' }}"
@@ -87,9 +87,9 @@
   <p class="desc" style="margin:10px 0 0">
     いまは<strong>コースの設定</strong>（{% if course_grace %}{{ course_grace }} 分{% else %}自動確定なし{% endif %}）が
     効いています。<a href="/manage/courses/{{ course.id }}">コース全体の設定</a>で変えられます。
-    {% if unit.auto_finalize_at %}
-      この問題セットは <strong>{{ unit.auto_finalize_at.strftime('%m-%d %H:%M') }}</strong> に確定します。
-    {% endif %}
+    {# **確定の時刻は提出ごとに違う。** 起点は課題の締切ではなく、その提出の
+       採点が終わった時刻なので、セット単位の「いつ確定するか」は無い。 #}
+    確定は<strong>提出ごと</strong>に、その採点が終わってから数えます。
   </p>
 </form>
 
@@ -130,7 +130,7 @@
       <td class="fit">{{ row.test_cases }}</td>
       <td class="fit">{{ row.rubric_rows | length }}</td>
       <td class="fit">
-        {% if row.unfinalized %}<span class="pill {{ 'no' if unit.window == ELAPSED }}">{{ row.unfinalized }} 件</span>
+        {% if row.unfinalized %}<span class="pill {{ 'no' if unit.deadline_passed }}">{{ row.unfinalized }} 件</span>
         {% else %}<span class="desc">—</span>{% endif %}
       </td>
       <td class="fit"><a href="/manage/courses/{{ course.id }}/tasks/{{ row.task.id }}/edit">直す</a></td>
@@ -144,7 +144,7 @@
   <a href="/manage/courses/{{ course.id }}/units/{{ unit.key }}/tasks/new">課題を追加する →</a>
 </p>
 
-{% if unit.window == ELAPSED and unit.unfinalized %}
+{% if unit.deadline_passed and unit.unfinalized %}
 <div class="note warn">
   <strong>期限が過ぎたのに未確定が {{ unit.unfinalized }} 件あります。</strong>
   異議申立・要レビュー・採点失敗のいずれか、または <code>aijudge-finalize</code> が

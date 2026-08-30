@@ -387,7 +387,7 @@ def test_the_grace_elapsing_finalizes_the_automatic_verdicts(database: Database,
     assert report.finalized == 3
     for finalization in _finalizations(database, ids):
         assert finalization is not None
-        assert finalization.source is FinalizationSource.DEADLINE_ELAPSED
+        assert finalization.source is FinalizationSource.AUTOMATIC
         # 人が関与していないことを記録の側で示す。
         assert finalization.actor_id is None
         assert finalization.review_id is None
@@ -450,10 +450,28 @@ def test_automatic_finalization_leaves_a_contested_submission_alone(
     assert _finalizations(database, ids)[0] is None
 
 
-def test_a_task_without_a_deadline_is_never_finalized(database: Database, course) -> None:
+def test_a_task_without_a_deadline_is_still_finalized(database: Database, course) -> None:
+    """**締切が無くても確定する。** 数えるのは採点が終わってからなので。
+
+    以前は締切を起点にしていたため、締切の無い課題は確定しようがなく、
+    未確定のまま学期末まで残った。採点完了は必ずあるので、その問題は消える。
+    """
     ids = _world(database, course.id, due_at=None)
     _with_grace(database, course, 24.0)
-    assert sweep_deadlines(database, now=AFTER).finalized == 0
+    assert sweep_deadlines(database, now=AFTER).finalized == 1
+    assert _finalizations(database, ids) != [None]
+
+
+def test_a_grade_is_not_finalized_before_its_own_grace_elapses(database: Database, course) -> None:
+    """**提出ごとに数える。** 同じ課題でも、採点が遅かった提出はまだ確定しない。"""
+    ids = _world(database, course.id)
+    _with_grace(database, course, 24.0)
+    # 採点は DUE。猶予 24 時間なので DUE+2h ではまだ明けていない。
+    report = sweep_deadlines(database, now=BEFORE)
+    assert report.finalized == 0
+    assert sum(outcome.not_due for outcome in report.outcomes) == 1
+    # **見送りではなく待ち。** 混ぜると運用者に「積み上がっている」と見える。
+    assert sum(outcome.skipped for outcome in report.outcomes) == 0
     assert _finalizations(database, ids) == [None]
 
 

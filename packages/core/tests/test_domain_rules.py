@@ -454,30 +454,35 @@ def test_derived_id_needs_a_key() -> None:
 # --------------------------------------------------------------------------
 
 
-def test_the_grade_window_moves_from_open_through_provisional_to_elapsed() -> None:
+def test_the_grade_window_runs_from_the_moment_grading_finished() -> None:
+    """**起点は採点完了で、締切ではない。**
+
+    締切起点だと、締切前に出した学習者は自分の点が確定するまで何日も待つ。
+    採点は提出直後に終わるので、そこから n 分で閉じれば締切前に確定し、
+    締切前に出し直せる。
+    """
     from datetime import UTC, datetime, timedelta
 
     from aijudge_core import GradeWindow, grade_window
 
-    # 猶予は**分**（ADR 0010・「締切の 10 分後」を表せるようにするため）。
-    due = datetime(2026, 9, 1, 23, 59, tzinfo=UTC)
+    # 猶予は**分**（「採点の 10 分後」を表せるようにするため）。
+    graded = datetime(2026, 9, 1, 10, 0, tzinfo=UTC)
     grace = 24 * 60
-    assert grade_window(due, grace, due - timedelta(hours=1)) is GradeWindow.OPEN
-    # 締切と同時に仮確定に入る。
-    assert grade_window(due, grace, due) is GradeWindow.PROVISIONAL
-    assert grade_window(due, grace, due + timedelta(hours=23)) is GradeWindow.PROVISIONAL
+    # 採点が終わった時点でもう仮確定。いつ確定するかを告げられる。
+    assert grade_window(graded, grace, graded) is GradeWindow.PROVISIONAL
+    assert grade_window(graded, grace, graded + timedelta(hours=23)) is GradeWindow.PROVISIONAL
     # 期限は境界を含む。「n 分後まで受付」なのでその時刻には締め切る。
-    assert grade_window(due, grace, due + timedelta(hours=24)) is GradeWindow.ELAPSED
+    assert grade_window(graded, grace, graded + timedelta(hours=24)) is GradeWindow.ELAPSED
 
 
-def test_without_a_deadline_or_a_grace_the_window_stays_open() -> None:
+def test_without_a_grace_the_window_stays_open() -> None:
     """確定の予定が無いのに「いつ確定する」とは言えず、締め切りも示せない。"""
     from datetime import UTC, datetime, timedelta
 
     from aijudge_core import GradeWindow, grade_window
 
-    due = datetime(2026, 9, 1, 23, 59, tzinfo=UTC)
-    far = due + timedelta(days=365)
-    assert grade_window(due, None, far) is GradeWindow.OPEN
+    graded = datetime(2026, 9, 1, 10, 0, tzinfo=UTC)
+    far = graded + timedelta(days=365)
+    assert grade_window(graded, None, far) is GradeWindow.OPEN
     assert grade_window(None, 24 * 60, far) is GradeWindow.OPEN
     assert grade_window(None, None, far) is GradeWindow.OPEN

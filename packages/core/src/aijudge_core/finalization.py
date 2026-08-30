@@ -37,8 +37,12 @@ class FinalizationSource(StrEnum):
     INSTRUCTOR_REVIEW = "instructor_review"
     # 教員が課題単位で残りをまとめて確定した。個々は読んでいない。
     INSTRUCTOR_BULK = "instructor_bulk"
-    # 締切から所定の時間が経過したので確定した。人は関与していない。
-    DEADLINE_ELAPSED = "deadline_elapsed"
+    # 採点から所定の時間が経過したので確定した。人は関与していない。
+    #
+    # **値は `deadline_elapsed` のまま。** 起点は締切から採点完了に変えたが、
+    # 確定済みの記録がこの文字列で保存されている。値を変えると過去の成績が
+    # 「経緯不明」になるので、名前だけ歴史的なものとして残す。
+    AUTOMATIC = "deadline_elapsed"
 
     @property
     def reviewed_individually(self) -> bool:
@@ -79,7 +83,7 @@ class Finalization(BaseModel):
                 raise ValueError("an instructor_bulk finalization reviews nothing individually")
         # 人が関与していないことを型で示す。誰かの ID を借りて書くと、
         # あとから「その教員が確定した」と読めてしまう。
-        if self.source is FinalizationSource.DEADLINE_ELAPSED and (
+        if self.source is FinalizationSource.AUTOMATIC and (
             self.actor_id is not None or self.review_id is not None
         ):
             raise ValueError("a deadline_elapsed finalization has no actor and no review")
@@ -91,26 +95,33 @@ class Finalization(BaseModel):
 
 
 # 自動確定の根拠説明。学習者にはこの文面がそのまま出る。
-DEADLINE_JUSTIFICATION = (
-    "締切から所定の時間が経過したため、AI の判定のまま確定しました。"
+AUTOMATIC_JUSTIFICATION = (
+    "採点から所定の時間が経過したため、AI の判定のまま確定しました。"
     "内容に疑問があるときは担当教員に申し出てください。"
+    "課題の締切前であれば、直して出し直せます（良い方の点が採用されます）。"
 )
 
 
 class GradeWindow(StrEnum):
     """成績が確定するまでの段階。**保存しない。導出する。**
 
-    締切と猶予から計算できるものを記録に持つと、締切を直したときに古い値が
-    残る（`Task.due_at` は学期中に動く）。
+    計算できるものを記録に持つと、元の値を直したときに古い段階が残る。
 
-        採点完了 ──→ OPEN         AI の判定。確定の予定はまだ告げられない
-           締切 ──→ PROVISIONAL  仮確定。「いつ確定するか」を学習者に示す
-        締切+n ──→ ELAPSED       確定してよい時刻を過ぎた
+        自動確定の設定なし ──→ OPEN         確定の予定が無い
+        採点完了           ──→ PROVISIONAL  仮確定。「いつ確定するか」を示す
+        採点完了+n         ──→ ELAPSED      確定してよい時刻を過ぎた
 
-    **PROVISIONAL がこの設計の要点。** 締切と同時に「この点数は
-    MM/DD HH:MM に確定します」と告げることで、学習者は異議をいつまでに
-    出せばよいかが分かる。告げずに静かに確定させると、確定したこと自体が
-    事後にしか分からない（ADR 0009 が避けたかった一方的な通告と同じ形）。
+    **起点は締切ではなく採点完了である。** 締切を起点にすると、締切前に
+    出した学習者は自分の点が確定するまで何日も待つことになり、その間は
+    再提出の判断材料が「暫定」のままになる。採点は提出直後に終わるので、
+    そこから n 分で閉じれば、**締切前に確定し、締切前に出し直せる**
+    （出し直しは確定に妨げられない ── `Task.accepts_submissions_at` は
+    確定を見ない。採用されるのは最高得点の提出）。
+
+    **PROVISIONAL がこの設計の要点。** 「この点数は MM/DD HH:MM に確定
+    します」と告げることで、学習者は異議をいつまでに出せばよいかが分かる。
+    告げずに静かに確定させると、確定したこと自体が事後にしか分からない
+    （ADR 0009 が避けたかった一方的な通告と同じ形）。
     """
 
     OPEN = "open"
@@ -118,15 +129,18 @@ class GradeWindow(StrEnum):
     ELAPSED = "elapsed"
 
 
-def deadline_for(due_at: datetime | None, after_minutes: int | None) -> datetime | None:
-    """自動確定の時刻。締切か設定のどちらかが無ければ自動確定しない。
+def settles_at(graded_at: datetime | None, after_minutes: int | None) -> datetime | None:
+    """自動確定の時刻。**起点は採点が終わった時刻。**
 
-    猶予は**分**。時間単位だと「締切の 10 分後に確定」が表せず、演習中に
+    設定が無ければ自動確定しない（既定はそれで、教員が明示的に入れて
+    初めて始まる）。
+
+    猶予は**分**。時間単位だと「採点の 10 分後に確定」が表せず、演習中に
     出してその場で返す使い方ができない。
     """
-    if due_at is None or after_minutes is None:
+    if graded_at is None or after_minutes is None:
         return None
-    return due_at + timedelta(minutes=after_minutes)
+    return graded_at + timedelta(minutes=after_minutes)
 
 
 def grace_minutes(task_value: int | None, course_value: int | None) -> int | None:
@@ -138,19 +152,19 @@ def grace_minutes(task_value: int | None, course_value: int | None) -> int | Non
     return course_value if task_value is None else task_value
 
 
-def grade_window(due_at: datetime | None, after_minutes: int | None, now: datetime) -> GradeWindow:
-    """いまどの段階か。
+def grade_window(
+    graded_at: datetime | None, after_minutes: int | None, now: datetime
+) -> GradeWindow:
+    """いまどの段階か。**採点が終わった時刻を起点に見る。**
 
     自動確定を設定していないコースでは常に OPEN。確定の予定が無いのに
     「MM/DD に確定します」とは言えないし、期限を示していない以上、
     異議の受付を締め切ることもできない。
     """
-    settles_at = deadline_for(due_at, after_minutes)
-    if settles_at is None or due_at is None:
+    closes = settles_at(graded_at, after_minutes)
+    if closes is None:
         return GradeWindow.OPEN
-    if now < due_at:
-        return GradeWindow.OPEN
-    return GradeWindow.PROVISIONAL if now < settles_at else GradeWindow.ELAPSED
+    return GradeWindow.PROVISIONAL if now < closes else GradeWindow.ELAPSED
 
 
 def blocks_finalization(request: ReviewRequest | None) -> bool:

@@ -329,7 +329,7 @@ def test_an_automatic_finalisation_is_not_shown_as_an_instructor_check(
     world = World()
     submission = world.submit(1, at=NOW - timedelta(hours=2))
     run = world.grade(submission, ratio=0.7)
-    world.finalize(run, FinalizationSource.DEADLINE_ELAPSED)
+    world.finalize(run, FinalizationSource.AUTOMATIC)
 
     progress = world.progress(course, task, version)
     assert progress.best_confirmed

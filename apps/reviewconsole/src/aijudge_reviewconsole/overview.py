@@ -24,13 +24,10 @@ from urllib.parse import quote, unquote
 from aijudge_admin import pending_counts
 from aijudge_core import (
     Course,
-    GradeWindow,
     Role,
     Task,
     TaskVersion,
-    deadline_for,
     grace_minutes,
-    grade_window,
 )
 
 
@@ -70,8 +67,11 @@ class UnitGroup:
     # この問題セットで未確定のまま残っている提出の件数。
     unfinalized: int
     # いまどの段階か。**期限経過なのに未確定が残っていることが見えるようにする。**
-    window: GradeWindow
-    auto_finalize_at: datetime | None
+    # **この問題セットの締切を過ぎたか。** 提出ごとの確定の窓
+    # （`grade_window`）とは別物である ── あちらは採点完了を起点に 1 件ずつ
+    # 進み、こちらは「この回はもう終わっているか」を言う。教員が見たいのは
+    # 後者で、締切を過ぎたのに未確定が残っていれば何かが止まっている。
+    deadline_passed: bool
 
     @property
     def count(self) -> int:
@@ -89,7 +89,7 @@ class UnitGroup:
         自動確定が動いていないか、異議申立・要レビューが残っているかの
         どちらかで、どちらも教員が見るべき状態である。
         """
-        return self.window is GradeWindow.ELAPSED and self.unfinalized > 0
+        return self.deadline_passed and self.unfinalized > 0
 
 
 @dataclass(frozen=True)
@@ -159,8 +159,7 @@ def load_units(
                 grace=grace,
                 mixed=_mixed(tasks),
                 unfinalized=sum(counts.get(task.id, 0) for task, _ in items),
-                window=grade_window(due_at, grace, moment),
-                auto_finalize_at=deadline_for(due_at, grace),
+                deadline_passed=due_at is not None and moment >= due_at,
             )
         )
     return tuple(groups)
@@ -210,8 +209,7 @@ def empty_unit(key: str, course: Course, *, now: datetime | None = None) -> Unit
         grace=course.auto_finalize_after_minutes,
         mixed=False,
         unfinalized=0,
-        window=grade_window(None, course.auto_finalize_after_minutes, now or datetime.now(UTC)),
-        auto_finalize_at=None,
+        deadline_passed=False,
     )
 
 

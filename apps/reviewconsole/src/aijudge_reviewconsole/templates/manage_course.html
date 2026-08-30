@@ -51,7 +51,7 @@
   {# 入力が 1 つなので、ボタンは同じ行の右端に置く。 #}
   <div class="inline-field">
     <span class="body">
-      <label for="after_minutes">締切から何分で自動確定するか（空欄なら自動確定しない）</label>
+      <label for="after_minutes">採点完了から何分で自動確定するか（空欄なら自動確定しない）</label>
       <input id="after_minutes" name="after_minutes" type="number" step="1" min="1"
              style="max-width:12rem"
              value="{{ course.auto_finalize_after_minutes if course.auto_finalize_after_minutes else '' }}">
@@ -64,7 +64,14 @@
     1 日 = 1440 分、2 日 = 2880 分。
   </p>
   <p class="desc">
-    猶予を過ぎた課題は、AI の判定のまま確定します。<strong>再確認の依頼が出ている提出と、
+    {# 起点を締切から採点完了に変えた。締切起点だと、締切前に出した学習者は
+       確定まで何日も待つことになり、その間は再提出の判断材料が暫定のまま。 #}
+    <strong>数えるのは提出ごとの採点完了からです</strong>（課題の締切からではありません）。
+    採点は提出直後に終わるので、<strong>締切前に確定し、締切前に出し直せます</strong>
+    — 出し直しは確定に妨げられず、良い方の点が採用されます。
+  </p>
+  <p class="desc">
+    猶予を過ぎた提出は、AI の判定のまま確定します。<strong>再確認の依頼が出ている提出と、
     レビューが必要と判定された提出（コンパイルエラー・合否境界の近傍など）は自動確定しません</strong>
     — それらは問題セットのページの一括確定か、「再確認の依頼」から個別に確定してください。
   </p>

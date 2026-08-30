@@ -774,7 +774,6 @@ def register(templates) -> APIRouter:
                     EvaluatorRegistry().load_installed(), EvaluatorKind.DETERMINISTIC
                 ),
                 "PROVISIONAL": GradeWindow.PROVISIONAL,
-                "ELAPSED": GradeWindow.ELAPSED,
                 "last_task": (
                     console.last_task[1]
                     if console.last_task is not None and console.last_task[0] == str(course.id)
