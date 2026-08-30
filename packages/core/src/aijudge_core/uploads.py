@@ -16,6 +16,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 from .submission import ArtifactKind
 
 # 拡張子 → 種別。増やすときは採点側（評価器と正規化器）が扱えることを
@@ -83,7 +85,13 @@ def normalize_suffixes(raw: object) -> tuple[str, ...]:
     """
     if raw is None:
         return ()
-    given = [raw] if isinstance(raw, str) else [str(item) for item in raw]  # type: ignore[union-attr]
+    if isinstance(raw, str):
+        given = [raw]
+    elif isinstance(raw, Iterable):
+        given = [str(item) for item in raw]
+    else:
+        # 並びでも文字列でもないものは 1 項目として扱う（黙って捨てない）。
+        given = [str(raw)]
     items = [part for entry in given for part in entry.split(",")]
     seen: list[str] = []
     for item in items:

@@ -69,7 +69,7 @@ class Course(BaseModel):
     #
     # 形は `aijudge_authoring.CriterionSpec` の並び。core は器だけを持つ
     # （模型そのものを持つと、core が作問の語彙に依存する）。
-    rubric: tuple[dict, ...] = ()
+    rubric: tuple[dict[str, object], ...] = ()
     # このコースだけの採点設定の上書き。空なら雛形（`subjects/*.yaml`）のまま。
     #
     # **コース単位にする。** 同じ雛形を使う他のコースには効かない ── だから
