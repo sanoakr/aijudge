@@ -56,6 +56,25 @@ def test_braces_inside_strings_do_not_confuse_the_extractor() -> None:
     assert Verdict.model_validate_json(extract_json(raw)).level == 1
 
 
+def test_a_code_fence_inside_the_json_is_not_mistaken_for_the_wrapper() -> None:
+    """**コードを返す構造化出力を壊さない。**
+
+    以前はフェンスを本文のどこでも拾っていたので、JSON 文字列の中の
+    ```c を外側の囲みと取り違え、その中身（C のソース）を JSON として
+    読もうとして落ちた。**モデルが素直にコードをフェンスで囲むほど確実に
+    壊れる**という形で、参照解答を返す生成は 3 回の再試行も毎回同じところで
+    落ちていた（#52）。
+    """
+    import json
+
+    payload = json.dumps(
+        {"level": 2, "rationale": "参照解答:\n```c\nint main(void){return 0;}\n```"},
+        ensure_ascii=False,
+    )
+    assert Verdict.model_validate_json(extract_json(payload)).level == 2
+    assert extract_json(payload) == payload
+
+
 # --------------------------------------------------------------------------
 # ポリシールーティング（設計原則 P7）
 # --------------------------------------------------------------------------

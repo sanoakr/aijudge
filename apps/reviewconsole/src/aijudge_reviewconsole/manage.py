@@ -195,6 +195,23 @@ def _wants_tests(request: Request, course) -> bool:
     return CODE_TEST_RUNNER in profile.deterministic
 
 
+def _test_case_error(request: Request, course, task) -> str | None:
+    """直近のテストケース生成の失敗理由。**この課題のものだけ。**
+
+    `Console` は全利用者で共有なので、コースと課題を突き合わせる ── 添えないと
+    別の課題の失敗が出る。
+    """
+    if task is None:
+        return None
+    recorded = getattr(_console(request), "last_test_case_error", None)
+    if recorded is None:
+        return None
+    course_id, task_id, reason = recorded
+    if course_id != str(course.id) or task_id != str(task.id):
+        return None
+    return reason
+
+
 def _regradable(console, task, version) -> int:
     """この課題で、**まだ確定していない**うち古い版で採点されている件数。
 
@@ -358,10 +375,11 @@ SAVED_MESSAGES: dict[str, str] = {
         "テストケースを生成し、**新しい版**を作りました。承認するまで学習者には"
         "いまの版が出続けます（未承認の課題から中身を確かめて承認してください）"
     ),
-    "tests_failed": (
-        "テストケースを作れませんでした（S6 が止まっている可能性があります）。"
-        "課題はいまの版のままです"
-    ),
+    # **原因を決めつけない。** 作れない理由はいくつもある（モデルが止まって
+    # いる・応答が長さで切れた・スキーマに合わない形で返した）。「S6 が
+    # 止まっている可能性があります」と書いていたが、**実際に出たとき S6 は
+    # 動いていた**（#52）。理由は `last_test_case_error` にそのまま出す。
+    "tests_failed": "テストケースを作れませんでした。課題はいまの版のままです",
     "regraded": "この版で採点し直します（確定済みの提出はそのままです）",
     "kc_added": "知識要素を追加しました",
     "kc_retired": "知識要素を引退させました",
@@ -1911,6 +1929,8 @@ def register(templates) -> APIRouter:
                 ),
                 # 訂正した版で採点し直せる件数（確定済みは数えない）。
                 "regradable": _regradable(_console(request), task, published),
+                # 直近の生成の失敗理由。**そのまま出す**（決めつけない・#52）。
+                "test_case_error": _test_case_error(request, course, task),
             },
         )
 
@@ -1953,9 +1973,19 @@ def register(templates) -> APIRouter:
             generated = TestCaseWriter().write(
                 version.statement, language=_language_of(profile), count=5
             )
-        except Exception:
+        except Exception as exc:
             # **課題を壊さない**（設計原則 P2）。作れなかったことと、作らない
-            # ことは別で、前者は S6 が戻れば作り直せる。
+            # ことは別で、前者はもう一度押せば直ることがある。
+            #
+            # **理由をそのまま出す。** 「S6 が止まっている可能性があります」と
+            # 決めつけていたが、実際に出たとき S6 は動いており、応答が長さで
+            # 切れていた（#52）。根拠の無い原因を書くと、言われたとおり確かめた
+            # 教員は何も見つけられない。
+            console.last_test_case_error = (
+                str(course.id),
+                task_id,
+                f"{type(exc).__name__}: {exc}",
+            )
             return RedirectResponse(
                 f"/manage/courses/{course_id}/tasks/{task_id}/edit?saved=tests_failed",
                 status_code=303,

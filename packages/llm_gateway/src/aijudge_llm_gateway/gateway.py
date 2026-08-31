@@ -45,11 +45,21 @@ def extract_json(text: str) -> str:
 
     制約デコードが効かないプロバイダは、コードフェンスや前置きを付けてくる。
     ここを緩めに実装しておかないと、内容は正しいのに形式で落ちる。
+
+    **フェンスを剥がすのは、テキストがフェンスで始まっているときだけ。**
+    以前は `search` で本文のどこにあっても拾っていたので、**JSON 文字列の中の
+    コードフェンスを外側の囲みと取り違えていた** ── 参照解答を返す構造化出力
+    （`GeneratedCases.reference_solution`）は、モデルが素直にコードを
+    ```c で囲むほど確実に壊れた。3 回の再試行も毎回同じところで落ちる（#52）。
     """
-    fenced = _FENCE_RE.search(text)
-    if fenced:
-        text = fenced.group("body")
     text = text.strip()
+    # 完全な JSON がそのまま来ているなら、何も剥がさない。
+    if text.startswith("{") and text.endswith("}"):
+        return text
+
+    fenced = _FENCE_RE.match(text)
+    if fenced:
+        text = fenced.group("body").strip()
     if text.startswith("{") and text.endswith("}"):
         return text
 

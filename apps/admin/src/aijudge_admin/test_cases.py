@@ -84,7 +84,12 @@ class TestCaseWriter:
         gateway: LlmGateway | None = None,
         *,
         model: str | None = None,
-        max_tokens: int = 4096,
+        # **4096 では足りない課題がある。** 期待出力がそのまま入るので、
+        # 「1 から 100 まで出力する」ような課題では 1 ケースが 100 行になる。
+        # 足りないと応答が途中で切れ、返るのは「JSON として読めない」という
+        # 形式の誤りだけで、**長さが理由だと画面から読めない**（実測: 4096 で
+        # 15600 文字目で切断）。
+        max_tokens: int = 8192,
     ) -> None:
         self._gateway = gateway or default_gateway()
         self._model = model or default_model()
@@ -97,6 +102,11 @@ class TestCaseWriter:
             model=self._model,
             # 課題文は教員が書いたもので、学習者のデータを含まない（P7）。
             data_class=DataClass.NON_PERSONAL,
+            # **既定の 120 秒では足りない。** 参照解答 1 本とテストケース数件を
+            # 一度に書かせるので、実測 85 秒（gemma4:e4b・小さな課題・温まった
+            # 状態）。モデルの読み込みから始まればこれを超え、そのとき返るのは
+            # 「タイムアウト」だけで、何が起きたのか画面から読めない。
+            timeout_seconds=300.0,
             max_tokens=self._max_tokens,
             statement=statement[:8000],
             language=language,
