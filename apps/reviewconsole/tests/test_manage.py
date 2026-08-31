@@ -2386,6 +2386,58 @@ def test_the_list_says_which_version_and_when_it_was_made(world: World) -> None:
     assert version.created_at.strftime("%Y-%m-%d %H:%M") in page
 
 
+def test_a_task_without_submissions_can_be_deleted(world: World) -> None:
+    """**打ち間違いは消せる。** 知識要素と同じ区別（#51）。"""
+    from aijudge_core.ids import TaskId
+
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    task_id = _import_example(world)
+
+    page = client.get(f"/manage/courses/{world.course.id}/tasks/{task_id}/edit").text
+    assert "この課題を削除する" in page
+
+    response = client.post(
+        f"/manage/courses/{world.course.id}/tasks/{task_id}/delete", follow_redirects=False
+    )
+    assert response.status_code == 303
+    with world.database.unit_of_work() as uow:
+        assert uow.tasks.get_task(TaskId(task_id)) is None
+        assert uow.tasks.latest_version(TaskId(task_id)) is None
+
+
+def test_a_task_can_be_withdrawn_and_brought_back(world: World) -> None:
+    """**取り下げは削除ではない。** 学習者に出なくなるが、記録は残る。"""
+    from aijudge_core.ids import TaskId
+
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    task_id = _import_example(world)
+    unit = _unit_of(world)
+
+    assert (
+        client.post(
+            f"/manage/courses/{world.course.id}/tasks/{task_id}/withdraw", follow_redirects=False
+        ).status_code
+        == 303
+    )
+    with world.database.unit_of_work() as uow:
+        assert uow.tasks.get_task(TaskId(task_id)).withdrawn
+        # 版は消えていない。
+        assert uow.tasks.latest_version(TaskId(task_id)) is not None
+
+    # 教員の一覧には残り、取り下げたことが読める。
+    listing = client.get(f"/manage/courses/{world.course.id}/units/{unit}").text
+    assert "出題を取り下げ済み" in listing
+
+    # 押し間違いは取り消せる。
+    client.post(
+        f"/manage/courses/{world.course.id}/tasks/{task_id}/withdraw", data={"restore": "1"}
+    )
+    with world.database.unit_of_work() as uow:
+        assert not uow.tasks.get_task(TaskId(task_id)).withdrawn
+
+
 def test_a_set_says_when_two_tasks_share_a_title(world: World) -> None:
     """**同じ題名が並んでいることを出す。** 別々の課題なので提出も採点も割れる。"""
     world.register("teacher", Role.INSTRUCTOR)

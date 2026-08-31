@@ -292,6 +292,14 @@ class Task(BaseModel):
     # 決まる**性質である ── 同じ回でもコードで出す問題とレポートで出す問題が
     # 並ぶ。
     accepted_suffixes: tuple[str, ...] = ()
+    # 出題を取り下げたか。**削除ではない。**
+    #
+    # 採点結果は課題版を指しているので（P8）、提出のある課題を消すと過去の
+    # 成績が何の課題の点なのか辿れなくなる。知識要素で決めたのと同じ区別で
+    # （`aijudge_admin.kc`）、**一度も使われていないものは消せる／使われた
+    # ものは取り下げる**。取り下げた課題は学習者に出さないが、記録は残り、
+    # 教員の一覧には印付きで並ぶ。押し間違いは取り消せる。
+    withdrawn: bool = False
 
     @model_validator(mode="after")
     def _check_schedule(self) -> Self:

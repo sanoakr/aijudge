@@ -491,6 +491,10 @@ def _course_and_tasks(
         tasks = uow.tasks.list_for_course(course_id)
         versions = []
         for task in tasks:
+            # 取り下げた課題は出さない（#51）。**消えてはいない** ── 提出も
+            # 採点も残っており、教員の一覧には印付きで並ぶ。
+            if task.withdrawn:
+                continue
             # **承認済みの版だけを出す**（#48）。`latest_version` は版番号
             # だけを見るので、生成したまま誰も見ていない版や却下した版が
             # そのまま学習者に出ていた ── 画面は「未承認 — 出題されません」
@@ -514,7 +518,8 @@ def _task_and_course(
             # 受け付けない（#48・設計原則 P5）。
             raise HTTPException(status_code=404, detail="課題が見つかりません")
         task = uow.tasks.get_task(version.task_id)
-        if task is None:
+        if task is None or task.withdrawn:
+            # 一覧から外すだけでは、URL を知っていれば開ける（#48 と同じ理屈）。
             raise HTTPException(status_code=404, detail="課題が見つかりません")
         course_obj = uow.identity.get_course(task.course_id)
         auth = AuthService(uow.identity)
