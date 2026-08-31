@@ -2212,6 +2212,27 @@ def test_the_progress_is_not_reported_as_a_number(world: World) -> None:
     assert "<progress" not in body
 
 
+def test_a_badge_that_needs_someone_is_not_the_same_as_a_bad_one(world: World) -> None:
+    """**色は「人が何かする必要があるか」で決める**（#46）。
+
+    引退した知識要素（放っておいてよい）と、教員が開かないと閉じないものが
+    同じ赤で並んでいた。同じ見え方なら、どちらも目に留まらない。
+    """
+    world.register("boss", Role.ADMIN)
+    client = world.client("boss")
+    client.post(
+        f"/manage/courses/{world.course.id}/kc", data={"key": "cs.loops", "label": "ループ"}
+    )
+    client.post(f"/manage/courses/{world.course.id}/kc/retire", data={"key": "cs.loops"})
+
+    page = client.get(f"/manage/courses/{world.course.id}/kc").text
+    # 引退は確定した事実で、操作は要らない。
+    assert '<span class="pill no">引退</span>' in page
+
+    # **色だけに頼らない。** 記号を添える（色覚の差でも白黒でも読める）。
+    assert ".pill.attn::before" in page
+
+
 # --------------------------------------------------------------------------
 # 受講者（別ページ）
 # --------------------------------------------------------------------------

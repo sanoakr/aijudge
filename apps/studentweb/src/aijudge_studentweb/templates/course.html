@@ -45,7 +45,9 @@
              提出が無かったことになって見える。 #}
           {% if p.grading %}<span class="pill">採点中</span>{% endif %}
         {% elif p.grading %}<span class="pill">採点中</span>
-        {% elif p.withheld %}<span class="pill no">保留</span>
+        {# **保留は失点ではない。** 採点できなかった観点があるので総合点を
+           伏せている状態で、赤は「悪い成績が付いた」と読まれる（#46）。 #}
+        {% elif p.withheld %}<span class="pill attn">保留</span>
         {% else %}<span class="desc">—</span>{% endif %}
       </td>
       <td class="fit"><a href="/tasks/{{ version.id }}">開く</a></td>

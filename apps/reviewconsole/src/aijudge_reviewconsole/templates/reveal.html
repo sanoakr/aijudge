@@ -45,9 +45,12 @@
       <td class="fit">{{ row.human_level if row.human_level is not none else '—' }}</td>
       <td class="fit">{{ row.ai_level if row.ai_level is not none else '—' }}</td>
       <td class="fit">
+        {# **打ち切りは確定した事実、あとの 2 つは人の入力待ち。** 同じ赤で
+           並べると、放っておいてよいものと、開かないと閉じないものが
+           見分けられない（#46）。 #}
         {% if row.gated %}<span class="pill no">打ち切り 0%</span>
-        {% elif row.awaiting_human %}<span class="pill no">人が採点</span>
-        {% elif row.unscored %}<span class="pill no">採点できず</span>
+        {% elif row.awaiting_human %}<span class="pill attn">人が採点</span>
+        {% elif row.unscored %}<span class="pill attn">採点できず</span>
         {% elif row.agrees is none %}<span class="desc">—</span>
         {% elif row.agrees %}<span class="pill ok">一致</span>
         {% else %}<span class="pill no">不一致</span>{% endif %}

@@ -940,6 +940,12 @@ def test_the_page_renders_when_the_overall_score_is_withheld(world: World) -> No
     # 決定的評価の結果は返す。伏せるのは合計だけ。
     assert ">テスト実行<" in body
 
+    # **保留は失点ではない。** 赤（`no`）で出すと「悪い成績が付いた」と
+    # 読まれる ── 教員の確認を待っている状態である（#46）。
+    listing = world.client.get(f"/courses/{COURSE}").text
+    assert '<span class="pill attn">保留</span>' in listing
+    assert '<span class="pill no">保留</span>' not in listing
+
 
 # --------------------------------------------------------------------------
 # 一覧に出す到達状況 — 回数と採用される点（progress.py）

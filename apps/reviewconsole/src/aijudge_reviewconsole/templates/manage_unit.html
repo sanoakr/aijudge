@@ -121,7 +121,8 @@
            生成したままの課題もここに並ぶ。印が無いと、教員は並んでいる数を
            そのまま「この回の問題数」と読む。 #}
         {% if row.in_review %}
-        <a class="pill no" href="/manage/courses/{{ course.id }}/drafts">未承認 — 出題されません</a>
+        {# 承認するまで出題されない ── 教員が開かないと止まったまま。 #}
+        <a class="pill attn" href="/manage/courses/{{ course.id }}/drafts">未承認 — 出題されません</a>
         {% elif row.rejected %}
         <span class="pill no">却下済み — 出題されません</span>
         {% endif %}
@@ -130,7 +131,7 @@
       <td class="fit">{{ row.test_cases }}</td>
       <td class="fit">{{ row.rubric_rows | length }}</td>
       <td class="fit">
-        {% if row.unfinalized %}<span class="pill {{ 'no' if unit.deadline_passed }}">{{ row.unfinalized }} 件</span>
+        {% if row.unfinalized %}<span class="pill {{ 'attn' if unit.deadline_passed }}">{{ row.unfinalized }} 件</span>
         {% else %}<span class="desc">—</span>{% endif %}
       </td>
       <td class="fit"><a href="/manage/courses/{{ course.id }}/tasks/{{ row.task.id }}/edit">直す</a></td>
