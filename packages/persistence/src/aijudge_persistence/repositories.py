@@ -887,6 +887,34 @@ class SqlTaskRepository:
         )
         return None if row is None else TaskVersion.model_validate(row.document)
 
+    def latest_published_version(self, task_id: TaskId) -> TaskVersion | None:
+        """**学習者に出してよい**最新版。承認済みが 1 つも無ければ None。
+
+        `latest_version` は版番号だけを見る。学習者に出す経路でそれを使うと、
+        **生成したまま誰も見ていない版**（と、却下した版）がそのまま出る ──
+        画面には「未承認 — 出題されません」と書いてあるのに出ていた（#48）。
+        門 1・門 2 は「参照解答とテストが整合している」までしか言わず、
+        問題文の意図と合っているかは見ていない（設計原則 P5・ADR 0008）。
+
+        版番号の降順に見て、最初に見つかった承認済みを返す。**新しい版が
+        承認待ちのあいだは、1 つ前の承認済みが出続ける** ── 訂正の途中で
+        課題が学習者から消えない。
+        """
+        rows = (
+            self._session.execute(
+                select(TaskVersionRow)
+                .where(TaskVersionRow.task_id == str(task_id))
+                .order_by(TaskVersionRow.version.desc())
+            )
+            .scalars()
+            .all()
+        )
+        for row in rows:
+            version = TaskVersion.model_validate(row.document)
+            if version.is_published:
+                return version
+        return None
+
     def save_checks(self, version_id: TaskVersionId, checks: TaskChecks) -> None:
         """検査の結果を残す。**上書きしてよい**（課題版と違い測り直せる）。"""
         row = self._session.get(TaskChecksRow, str(version_id))

@@ -186,6 +186,64 @@ def world(tmp_path: Path):
 
 
 # --------------------------------------------------------------------------
+# 出題してよい版か（#48）
+# --------------------------------------------------------------------------
+
+
+def _unapproved_revision(world: World):
+    """承認待ちの新しい版を作る。**生成物がこの状態で入る。**"""
+    from aijudge_core import Provenance, ReviewState
+
+    base = world.task_version
+    revised = base.model_copy(
+        update={
+            "id": TaskVersionId(new_id("tsv")),
+            "version": base.version + 1,
+            "statement": base.statement + "\n\n（生成された訂正）",
+            "provenance": Provenance(
+                authored_by=AUTHOR,
+                generated_by="stub-model",
+                review_state=ReviewState.IN_REVIEW,
+            ),
+        }
+    )
+    with world.database.unit_of_work() as uow:
+        uow.tasks.save_version(revised)
+        uow.commit()
+    return revised
+
+
+def test_an_unapproved_version_is_not_shown_to_the_learner(world: World) -> None:
+    """**「未承認 — 出題されません」と書いてあるのに出ていた**（#48）。
+
+    門 1・門 2 は「参照解答とテストが整合している」までしか言わず、問題文の
+    意図と合っているかは見ていない。見ていないものを学習者に出さない（P5）。
+    """
+    world.register("s2400001")
+    world.login("s2400001")
+    revised = _unapproved_revision(world)
+
+    body = world.client.get(f"/courses/{COURSE}").text
+    # 承認待ちの版は出さず、**1 つ前の承認済みが出続ける**（課題が消えない）。
+    assert f"/tasks/{world.task_version.id}" in body
+    assert f"/tasks/{revised.id}" not in body
+
+
+def test_an_unapproved_version_cannot_be_opened_by_its_url(world: World) -> None:
+    """一覧から外すだけでは、URL を知っていれば開ける。"""
+    world.register("s2400001")
+    world.login("s2400001")
+    revised = _unapproved_revision(world)
+
+    assert world.client.get(f"/tasks/{revised.id}").status_code == 404
+    response = world.client.post(
+        f"/tasks/{revised.id}/submit",
+        files={"upload": ("answer.c", b"int main(){}", "text/plain")},
+    )
+    assert response.status_code == 404
+
+
+# --------------------------------------------------------------------------
 # 認証
 # --------------------------------------------------------------------------
 
