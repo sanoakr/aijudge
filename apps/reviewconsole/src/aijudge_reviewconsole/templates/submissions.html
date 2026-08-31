@@ -127,7 +127,8 @@
         {% else %}<span class="desc">—</span>{% endif %}
       </td>
       <td class="fit">
-        <span class="pill {{ 'no' if row.contested }}">{{ row.state_label }}</span>
+        {# 異議申立は教員が読むまで閉じない ── 対応待ちであって、悪い状態ではない。 #}
+        <span class="pill {{ 'attn' if row.contested }}">{{ row.state_label }}</span>
       </td>
       <td class="fit"><a href="/review/{{ row.submission.id }}/reveal">確認する</a></td>
     </tr>

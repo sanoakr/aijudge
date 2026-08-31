@@ -11,6 +11,9 @@
   --line:#d3dbe4; --line-soft:#e3e9ef;
   --shu:#b03a29; --shu-soft:#f3e3e0;
   --verd:#1c6d67; --verd-soft:#dfedeb;
+  /* 対応が要ることを表す色（琥珀）。**朱とは別に持つ** ── 朱は「確定した
+     否定的な事実」で、こちらは「人が押さないと先へ進まない」を意味する。 */
+  --kin:#8a5a00; --kin-soft:#f7ecd6;
 }
 @media (prefers-color-scheme: dark){
   :root{
@@ -19,6 +22,7 @@
     --line:#2a3542; --line-soft:#212c38;
     --shu:#e4826f; --shu-soft:#2e1f1c;
     --verd:#5eb2ab; --verd-soft:#152a29;
+    --kin:#e0ab52; --kin-soft:#2b2314;
   }
 }
 *{box-sizing:border-box}
@@ -89,8 +93,27 @@ textarea{width:100%;font:inherit;font-size:.88rem;padding:10px 12px;border-radiu
    表がその分の幅を確保する。 */
 .pill{display:inline-block;font-size:.72rem;padding:2px 9px;border-radius:99px;
   border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+/* **色は「気分」ではなく「人が何かする必要があるか」で決める。**
+
+     attn  人の操作を待っている。押さないと先へ進まない。いちばん目立たせる
+     ok    済んだこと
+     no    確定した否定的な事実。**操作は要らない**
+     既定  参考の数え上げ・注記
+
+   `no` に両方を背負わせていたときは、放っておいてよいものと、教員が開かない
+   限り成績が閉じないものが同じ赤で並んでいた。同じ見え方なら、どちらも目に
+   留まらない。
+
+   **どの語をどの種別にするかはテンプレート側に書く。** ここに例を並べると、
+   blind 採点の画面にまで判定の語が混ざる（この見出しは全ページに配られる）。
+
+   **色だけに頼らない。** `attn` には記号を添える（色覚の差でも、白黒の
+   印刷でも種別が読める必要がある）。 */
 .pill.ok{color:var(--verd);border-color:var(--verd);background:var(--verd-soft)}
 .pill.no{color:var(--shu);border-color:var(--shu);background:var(--shu-soft)}
+.pill.attn{color:var(--kin);border-color:var(--kin);background:var(--kin-soft);
+  font-weight:700;box-shadow:0 0 0 2px var(--kin-soft)}
+.pill.attn::before{content:"! ";font-weight:700}
 .progress{height:6px;background:var(--line-soft);border-radius:99px;overflow:hidden;margin:10px 0 6px}
 .progress > div{height:100%;background:var(--verd)}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:20px}

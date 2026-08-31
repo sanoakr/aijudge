@@ -28,7 +28,9 @@
       {# 期限が過ぎたのに未確定が残っているのは、自動確定が動いていないか
          異議申立が残っているかのどちらか。どちらも教員が見るべき状態。 #}
       {% if unit.unfinalized %}
-        <span class="pill {{ 'no' if unit.needs_attention }}">未確定 {{ unit.unfinalized }}{% if unit.needs_attention %}・要対応{% endif %}</span>
+        {# 締切を過ぎて未確定なら**教員が閉じないと成績にならない** ── 対応待ち。
+           締切前はただの数え上げ。 #}
+        <span class="pill {{ 'attn' if unit.needs_attention }}">未確定 {{ unit.unfinalized }}{% if unit.needs_attention %}・要対応{% endif %}</span>
       {% else %}<span class="desc">未確定 0</span>{% endif %}
     </span>
   </a>
@@ -62,7 +64,8 @@
     <span class="what"><b>再確認の依頼</b>
       <span class="desc">学習者が判定に疑問を出した提出</span></span>
     <span class="meta">
-      {% if contested %}<span class="pill no">{{ contested }} 件</span>
+      {# 学習者が「人に見てほしい」と言っている。教員が読むまで閉じない。 #}
+      {% if contested %}<span class="pill attn">{{ contested }} 件</span>
       {% else %}<span class="desc">0 件</span>{% endif %}
     </span>
   </a>
