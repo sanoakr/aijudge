@@ -213,12 +213,23 @@ class SubmissionService:
         submission_id: SubmissionId,
         subject_profile: str,
         discriminator: str = "",
+        task_version_id: TaskVersionId | None = None,
     ) -> GradingJob:
         """再採点を積む。
 
         `discriminator` にモデル版やプロンプト版を入れる。同じ版で二度
         流し直してもジョブは増えない（モデル更新時の全件再採点を、
         途中で落ちても安全に再開できるようにするため）。
+
+        `task_version_id` を渡すと**その課題版で**採点し直す。渡さなければ
+        提出が指している版（＝出したときの版）で採点し直す。実施中に課題を
+        訂正したとき、既に出ている提出を新しい版で採点し直すのがこの経路で、
+        **教員が明示的に押したときだけ動く**（誰も押していない再採点で成績が
+        動かない・設計原則 P5）。
+
+        版を指定したときは、**その版を冪等キーに混ぜる**。混ぜないと、
+        以前の再採点と同じキーになってジョブが積まれない ── 訂正のたびに
+        押しても 2 度目から何も起きない、という壊れ方をする。
 
         過去の採点は消さない。新しい採点が終わった時点で、旧採点に
         `superseded_by` が入る（P8）。
@@ -237,6 +248,7 @@ class SubmissionService:
                 tenant_id,
                 subject_profile,
                 now,
+                task_version_id=task_version_id,
                 reason=JobReason.REGRADE,
                 discriminator=discriminator,
             )
@@ -284,14 +296,18 @@ class SubmissionService:
         *,
         reason: JobReason = JobReason.SUBMISSION,
         discriminator: str = "",
+        task_version_id: TaskVersionId | None = None,
     ) -> GradingJob:
-        key = job_idempotency_key(submission.id, reason, discriminator=discriminator)
+        target = task_version_id or submission.task_version_id
+        # 版を指定したときは冪等キーに混ぜる（同上の理由）。
+        mixed = discriminator if task_version_id is None else f"{discriminator}:{target}"
+        key = job_idempotency_key(submission.id, reason, discriminator=mixed)
         return uow.jobs.enqueue(
             GradingJob(
                 id=GradingJobId(new_id("job")),
                 tenant_id=tenant_id,
                 submission_id=submission.id,
-                task_version_id=submission.task_version_id,
+                task_version_id=target,
                 subject_profile=subject_profile,
                 reason=reason,
                 idempotency_key=key,

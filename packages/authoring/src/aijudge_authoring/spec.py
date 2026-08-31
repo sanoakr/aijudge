@@ -204,11 +204,19 @@ def _declared_version(
     subject_profile: str,
     authored_by: UserId,
     version: int,
+    generated_by: str | None = None,
+    generation_prompt_version: str | None = None,
 ) -> TaskVersion:
     """課題が観点を宣言している場合の版。
 
     観点 ID は課題キーと観点コードから決定的に導く（取り込み直しても同じ ID
     になり、保存済みの採点結果がどの観点の点なのか辿れる、P8）。
+
+    **出所はもう一方の枝と同じ扱いにする。** ここは以前 `APPROVED` を直に
+    書いており、`generated_by` を受け取ってすらいなかった ── 観点を宣言する
+    課題（コースが共通ルーブリックを持てば、生成した課題もそうなる）は、
+    **生成物でも承認済みとして保存されていた**。承認の導線を丸ごと素通り
+    する経路で、設計原則 P5 が禁じている形そのものである。
     """
     from .importers.sharif_judge import _criterion_id
 
@@ -247,11 +255,7 @@ def _declared_version(
         max_score=spec.max_score,
         source_key=spec.key,
         allow_handwriting=False,
-        provenance=Provenance(
-            authored_by=authored_by,
-            review_state=ReviewState.APPROVED,
-            reviewed_by=authored_by,
-        ),
+        provenance=_provenance(authored_by, generated_by, generation_prompt_version),
         created_at=datetime.now(UTC),
     )
 
@@ -338,7 +342,13 @@ def build_task_version(
     # （HTTP サーバ課題・自己採点課題・レポート課題）。
     if spec.criteria:
         return _declared_version(
-            spec, cases, subject_profile=subject_profile, authored_by=authored_by, version=version
+            spec,
+            cases,
+            subject_profile=subject_profile,
+            authored_by=authored_by,
+            version=version,
+            generated_by=generated_by,
+            generation_prompt_version=generation_prompt_version,
         )
 
     graded_by = spec.evaluator if spec.auto_graded else AI_EVALUATOR

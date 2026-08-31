@@ -551,14 +551,21 @@ def _submission_view(
             # 他人の提出は「無い」と答える。所有者が違うことを伝えると、
             # 提出 ID の存在自体が漏れる。
             raise HTTPException(status_code=404, detail="提出が見つかりません")
-        version = uow.tasks.get_version(target.task_version_id)
+        run = uow.runs.latest_for(submission_id)
+        # **その採点が使った版で描く。** 提出が指すのは出したときの版だが、
+        # 実施中に課題を訂正して採点し直すと、採点はあとの版で付く（#43）。
+        # 提出側の版で描くと、観点の重みや段階の説明が採点と食い違う。
+        version = uow.tasks.get_version(
+            target.task_version_id if run is None else run.context.task_version_id
+        )
+        if version is None:
+            version = uow.tasks.get_version(target.task_version_id)
         if version is None:
             raise HTTPException(status_code=404, detail="課題が見つかりません")
         task = uow.tasks.get_task(version.task_id)
         course = None if task is None else uow.identity.get_course(task.course_id)
         if task is None or course is None:
             raise HTTPException(status_code=404, detail="課題が見つかりません")
-        run = uow.runs.latest_for(submission_id)
         review = None if run is None else uow.reviews.find_review_for_run(run.id)
         request = None if run is None else uow.reviews.find_request_for_run(run.id)
         # 確定は Finalization が表す。HumanReview は「教員が読んだ」記録で
