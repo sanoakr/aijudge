@@ -9,13 +9,13 @@
 <h2>ファイルから読み取る</h2>
 <form method="post" action="/manage/courses/{{ course.id }}/basics/read"
       enctype="multipart/form-data" class="card"
-      onsubmit="this.querySelector('.reading').hidden = false; this.querySelector('button').disabled = true">
+      data-working="読み取り中… 十数秒かかります">
   <div class="inline-field">
     <span class="body">
       <label for="upload">PDF・DOCX・テキストを選ぶ</label>
       <input id="upload" name="upload" type="file" accept=".pdf,.docx,.txt,.md">
     </span>
-    <span class="reading flash" hidden>読み取り中…</span>
+    <span class="working flash reading" hidden></span>
     {% if read_note %}<span class="flash">{{ read_note }}</span>{% endif %}
     <button type="submit">読み取り</button>
   </div>

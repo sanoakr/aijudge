@@ -2173,8 +2173,43 @@ def test_the_reading_indicator_starts_hidden(world: World) -> None:
     """
     world.register("teacher", Role.INSTRUCTOR)
     body = world.client("teacher").get(f"/manage/courses/{world.course.id}/basics").text
-    assert 'class="reading flash" hidden' in body
+    assert 'class="working flash reading" hidden' in body
     assert "[hidden]{display:none!important}" in body
+
+
+def test_the_long_running_forms_say_that_the_model_is_working(world: World) -> None:
+    """**二度押しを止めるのが本題。** LLM の呼び出しは費用と待ち時間そのもの。
+
+    仕組みは `base.html` に 1 つだけ置く。テンプレートごとに `onsubmit` を
+    書き写していたので、**いちばん時間の掛かる作問に付いていなかった**。
+    """
+    world.register("boss", Role.ADMIN)
+    client = world.client("boss")
+    _import_example(world)
+    # 作問の欄は、問える知識要素が 1 つ以上あって初めて出る。
+    client.post(
+        f"/manage/courses/{world.course.id}/kc", data={"key": "cs.loops", "label": "ループ"}
+    )
+    unit = _unit_of(world)
+
+    body = client.get(f"/manage/courses/{world.course.id}/units/{unit}").text
+    assert 'data-working="生成中…' in body
+    # 仕掛けは 1 か所（base.html）にあり、テンプレートは属性を書くだけ。
+    assert "onsubmit=" not in body
+
+
+def test_the_progress_is_not_reported_as_a_number(world: World) -> None:
+    """**何%まで進んだかを知る手段が無い。** それらしい数字は根拠の無い表示になる。"""
+    world.register("boss", Role.ADMIN)
+    client = world.client("boss")
+    _import_example(world)
+    client.post(
+        f"/manage/courses/{world.course.id}/kc", data={"key": "cs.loops", "label": "ループ"}
+    )
+    unit = _unit_of(world)
+
+    body = client.get(f"/manage/courses/{world.course.id}/units/{unit}").text
+    assert "<progress" not in body
 
 
 # --------------------------------------------------------------------------

@@ -12,7 +12,10 @@
 
 {# **追加と訂正で同じ形を使う。** 別々に作ると、片方にだけ項目が足りない
    状態が生まれる（実際に `readability_weight` でそうなった）。 #}
+{# 追加でテストケースを作るときだけ待たせる（参照解答とテストケースの生成、
+   門 1・門 2 の検査が走る）。訂正と、テストを使わない追加は待たない。 #}
 <form method="post" class="card"
+      {% if not task and wants_tests %}data-working="生成中… 数十秒かかります（このまま待ってください）"{% endif %}
       action="{{ '/manage/courses/%s/tasks/%s/revise' | format(course.id, task.id)
                 if task else '/manage/courses/%s/tasks' | format(course.id) }}">
   {% if task %}

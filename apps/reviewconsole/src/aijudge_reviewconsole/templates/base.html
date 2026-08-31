@@ -295,6 +295,7 @@ h2[id]{scroll-margin-top:16px}
    何も出ないと押せていないのかどうか分からない。 */
 .flash.reading{color:var(--muted);border-color:var(--line);background:var(--surface-2)}
 .flash.reading::before{content:"⋯"}
+form[data-working] button[disabled]{opacity:.55;cursor:progress}
 .score{font-size:2rem;font-weight:700;color:var(--ink)}
 .score .unit{font-size:1rem;color:var(--muted);font-weight:400}
 @media (max-width:860px){.grid2{grid-template-columns:1fr}}
@@ -344,5 +345,39 @@ h2[id]{scroll-margin-top:16px}
   </nav>
 </div></div>
 {% endif %}
-<main>{% block body %}{% endblock %}</main></body>
+<main>{% block body %}{% endblock %}</main>
+{# **モデルが動いているあいだ、動いていることを出す。** 生成は十数秒から
+   数十秒かかり、何も出ないと押せていないのか固まったのか分からない。
+
+   **二度押しを止めるのが本題である。** LLM の呼び出しはそのまま費用と
+   待ち時間なので、押し直しは倍払って倍待つことになる。
+
+   仕組みを 1 か所に置く。以前はテンプレートごとに `onsubmit` を書き写して
+   おり、書き写しなので**新しい画面を足すたびに漏れた** ── 実際、いちばん
+   時間の掛かる作問に付いていなかった。
+
+   進捗率は出さない。何%まで進んだかを知る手段が無い（応答は一括で返る）
+   ので、それらしい数字は根拠の無い表示になる。 #}
+<script>
+document.addEventListener("submit", function (event) {
+  var form = event.target;
+  if (!(form instanceof HTMLFormElement)) return;
+  var message = form.getAttribute("data-working");
+  if (!message || form.dataset.workingShown) return;
+  form.dataset.workingShown = "1";
+  form.querySelectorAll("button[type=submit], button:not([type])").forEach(function (button) {
+    button.disabled = true;
+  });
+  var badge = form.querySelector(".working");
+  if (!badge) {
+    badge = document.createElement("span");
+    badge.className = "working flash reading";
+    var actions = form.querySelector(".actions") || form;
+    actions.appendChild(badge);
+  }
+  badge.textContent = message;
+  badge.hidden = false;
+});
+</script>
+</body>
 </html>

@@ -185,8 +185,10 @@
 
 <h2 id="generate">AI に課題を作らせる</h2>
 {% if kcs %}
+{# **いちばん時間の掛かる操作。** 参照解答・テストケース・変異テストまで
+   回るので数十秒かかる。押し直すと倍払って倍待つ。 #}
 <form method="post" action="/manage/courses/{{ course.id }}/units/{{ unit.key }}/generate"
-      class="card">
+      class="card" data-working="生成中… 数十秒かかります（このまま待ってください）">
   <div class="field">
     <label>問う知識要素（1 つ以上・登録済みのものから選びます）</label>
     <div class="checks">
