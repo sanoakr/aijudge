@@ -9,6 +9,16 @@
 </p>
 
 {% if note %}<div class="note saved">{{ note }}</div>{% endif %}
+{# **原因をそのまま出す。** 決めつけた文面を書くと、言われたとおり確かめた
+   教員は何も見つけられない（#52・#30 と同じ誤り）。 #}
+{% if test_case_error %}
+<div class="note warn">
+  <strong>テストケースを作れませんでした。</strong>課題はいまの版のままです。
+  <br><span class="mono desc">{{ test_case_error }}</span>
+  <br><span class="desc">もう一度押すと通ることがあります。期待出力が長くなる課題
+  （何十行も出力するもの）はモデルが書ききれないことがあり、そのときは手で用意してください。</span>
+</div>
+{% endif %}
 
 {# **追加と訂正で同じ形を使う。** 別々に作ると、片方にだけ項目が足りない
    状態が生まれる（実際に `readability_weight` でそうなった）。 #}

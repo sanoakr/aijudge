@@ -121,6 +121,9 @@ class Console:
         # 直近に足した課題。管理画面が「何が起きたか」を返すために持つ。
         # コースを添えるのは Console が全利用者で共有だから。
         self.last_task: tuple[str, object] | None = None
+        # 直近のテストケース生成の失敗を (course_id, task_id, 理由) で持つ。
+        # **理由を持つのは、決めつけないため**（#52）。
+        self.last_test_case_error: tuple[str, str, str] | None = None
         # 直近の再採点の結果を (course_id, 件数) で持つ。
         self.last_regrade: tuple[str, int] | None = None
         # 直近の一括確定の結果を (course_id, outcome) で持つ。
