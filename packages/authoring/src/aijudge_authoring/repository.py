@@ -47,6 +47,10 @@ class TaskRepository(Protocol):
 
     def latest_version(self, task_id: TaskId) -> TaskVersion | None: ...
 
+    def latest_published_version(self, task_id: TaskId) -> TaskVersion | None:
+        """**学習者に出してよい**最新版。承認済みが 1 つも無ければ None。"""
+        ...
+
     def list_for_course(self, course_id: CourseId) -> tuple[Task, ...]:
         """コースの課題一覧。学生 UI と教員 UI が使う。"""
         ...
@@ -143,6 +147,16 @@ class InMemoryTaskRepository:
     def latest_version(self, task_id: TaskId) -> TaskVersion | None:
         versions = [
             self._versions[vid] for vid in self._order if self._versions[vid].task_id == task_id
+        ]
+        if not versions:
+            return None
+        return max(versions, key=lambda v: v.version)
+
+    def latest_published_version(self, task_id: TaskId) -> TaskVersion | None:
+        versions = [
+            self._versions[vid]
+            for vid in self._order
+            if self._versions[vid].task_id == task_id and self._versions[vid].is_published
         ]
         if not versions:
             return None

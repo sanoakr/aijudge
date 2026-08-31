@@ -491,7 +491,11 @@ def _course_and_tasks(
         tasks = uow.tasks.list_for_course(course_id)
         versions = []
         for task in tasks:
-            version = uow.tasks.latest_version(task.id)
+            # **承認済みの版だけを出す**（#48）。`latest_version` は版番号
+            # だけを見るので、生成したまま誰も見ていない版や却下した版が
+            # そのまま学習者に出ていた ── 画面は「未承認 — 出題されません」
+            # と書いてある。承認済みが無い課題はまだ存在しないものとして扱う。
+            version = uow.tasks.latest_published_version(task.id)
             if version is not None:
                 versions.append((task, version))
     return course_obj, tuple(versions)
@@ -503,6 +507,11 @@ def _task_and_course(
     with app_state.database.unit_of_work() as uow:
         version = uow.tasks.get_version(task_version_id)
         if version is None:
+            raise HTTPException(status_code=404, detail="課題が見つかりません")
+        if not version.is_published:
+            # **一覧から外すだけでは、URL を知っていれば開ける**（提出開始の
+            # 判定と同じ理屈）。承認前・却下済みの版は開かせないし、提出も
+            # 受け付けない（#48・設計原則 P5）。
             raise HTTPException(status_code=404, detail="課題が見つかりません")
         task = uow.tasks.get_task(version.task_id)
         if task is None:
