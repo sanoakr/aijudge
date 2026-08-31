@@ -1931,6 +1931,8 @@ def register(templates) -> APIRouter:
                 "regradable": _regradable(_console(request), task, published),
                 # 直近の生成の失敗理由。**そのまま出す**（決めつけない・#52）。
                 "test_case_error": _test_case_error(request, course, task),
+                # 学習者に出ている版。教員が見ている版と違うことがある（#48）。
+                "published": published,
             },
         )
 
