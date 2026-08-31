@@ -77,6 +77,8 @@ from aijudge_admin.syllabus import (
     to_markdown,
 )
 from aijudge_admin.task_verifier import TaskVerifier
+from aijudge_admin.tasks import delete as delete_task
+from aijudge_admin.tasks import withdraw as withdraw_task
 from aijudge_admin.test_cases import TestCaseWriter
 from aijudge_authoring import TaskChecks, TaskSpec, render_markdown
 from aijudge_authoring.drafting import Blueprint, Difficulty
@@ -193,6 +195,23 @@ def _wants_tests(request: Request, course) -> bool:
     """
     profile = load_profile(_console(request).profiles_dir / f"{course.subject_profile}.yaml")
     return CODE_TEST_RUNNER in profile.deterministic
+
+
+def _submission_count(console, task) -> int:
+    """この課題への提出の件数。**削除してよいかの判定に使う。**"""
+    if task is None:
+        return 0
+    with console.database.unit_of_work() as uow:
+        return uow.tasks.submission_count(task.id)
+
+
+def _task_of(console, course, task_id: str):
+    """このコースの課題。**存在と権限を区別しない**（他コースを探らせない）。"""
+    with console.database.unit_of_work() as uow:
+        task = uow.tasks.get_task(TaskId(task_id))
+    if task is None or task.course_id != course.id:
+        raise HTTPException(status_code=404, detail="課題が見つかりません")
+    return task
 
 
 def _test_case_error(request: Request, course, task) -> str | None:
@@ -381,6 +400,9 @@ SAVED_MESSAGES: dict[str, str] = {
     # 動いていた**（#52）。理由は `last_test_case_error` にそのまま出す。
     "tests_failed": "テストケースを作れませんでした。課題はいまの版のままです",
     "regraded": "この版で採点し直します（確定済みの提出はそのままです）",
+    "withdrawn": "出題を取り下げました（学習者に出なくなります。記録は残ります）",
+    "restored": "出題の取り下げを取り消しました",
+    "task_deleted": "課題を削除しました（提出が 1 件も無いもの）",
     "kc_added": "知識要素を追加しました",
     "kc_retired": "知識要素を引退させました",
     "kc_restored": "引退を取り消しました",
@@ -871,6 +893,8 @@ def register(templates) -> APIRouter:
                     "task": task,
                     "version": version,
                     "duplicate_title": titles.get(task.title, 0) > 1,
+                    # 取り下げた課題。**消えてはいない**ので一覧には残す（#51）。
+                    "withdrawn": task.withdrawn,
                     "test_cases": len(version.test_cases),
                     # 自動採点できるか。できない課題は AI 観点だけで、
                     # 教員の確定が前提になる（ADR 0008）。
@@ -1933,6 +1957,8 @@ def register(templates) -> APIRouter:
                 "test_case_error": _test_case_error(request, course, task),
                 # 学習者に出ている版。教員が見ている版と違うことがある（#48）。
                 "published": published,
+                # 提出の件数。**0 のときだけ削除を出す**（#51）。
+                "submissions": _submission_count(_console(request), task),
             },
         )
 
@@ -2071,6 +2097,58 @@ def register(templates) -> APIRouter:
         console.last_regrade = (str(course.id), queued)
         return RedirectResponse(
             f"/manage/courses/{course_id}/tasks/{task_id}/edit?saved=regraded", status_code=303
+        )
+
+    @router.post("/courses/{course_id}/tasks/{task_id}/withdraw")
+    def withdraw_task_route(
+        request: Request,
+        course_id: str,
+        task_id: str,
+        restore: Annotated[str, Form()] = "",
+    ) -> Response:
+        """出題を取り下げる（`restore` で取り消す）。**消さない。**
+
+        採点結果は課題版を指しているので（P8）、提出のある課題を消すと過去の
+        成績の出所が失われる。知識要素で決めたのと同じ区別で
+        （`aijudge_admin.kc`）、使われたものは取り下げ、一度も使われていない
+        ものだけを消す。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+        _task_of(console, course, task_id)
+
+        try:
+            withdraw_task(console.database, task_id=TaskId(task_id), restore=bool(restore.strip()))
+        except AdminError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        saved = "restored" if restore.strip() else "withdrawn"
+        return RedirectResponse(
+            f"/manage/courses/{course_id}/tasks/{task_id}/edit?saved={saved}", status_code=303
+        )
+
+    @router.post("/courses/{course_id}/tasks/{task_id}/delete")
+    def delete_task_route(request: Request, course_id: str, task_id: str) -> Response:
+        """**提出が 1 件も無い課題だけを消す。** 判定は `aijudge_admin.tasks`。
+
+        提出があれば断り、取り下げを案内する（規則の置き場所を 1 つにする）。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+        task = _task_of(console, course, task_id)
+
+        try:
+            delete_task(console.database, task_id=TaskId(task_id))
+        except AdminError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        unit = unit_key(task)
+        return RedirectResponse(
+            f"/manage/courses/{course_id}/units/{unit}?saved=task_deleted", status_code=303
         )
 
     @router.get("/courses/{course_id}/tasks/{task_id}/edit", response_class=HTMLResponse)

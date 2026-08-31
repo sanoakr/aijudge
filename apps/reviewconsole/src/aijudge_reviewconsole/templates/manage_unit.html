@@ -129,6 +129,10 @@
         {% if not row.auto_graded %}<br><span class="pill">自動テストなし</span>{% endif %}
         {# **同じ題名が並んでいることを言う。** 別々の課題なので提出も採点も
            割れる ── 気づかなければ「片方だけ採点されていない」に見える。 #}
+        {% if row.withdrawn %}
+        {# 取り下げは確定した事実で、押すべきものは無い（#46 の分類）。 #}
+        <span class="pill no">出題を取り下げ済み</span>
+        {% endif %}
         {% if row.duplicate_title %}
         <br><span class="pill attn">同じ題名の課題が {{ unit.key }} に複数あります</span>
         <span class="desc">別々の課題です（提出も採点も分かれます）。

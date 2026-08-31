@@ -243,6 +243,22 @@ def test_an_unapproved_version_cannot_be_opened_by_its_url(world: World) -> None
     assert response.status_code == 404
 
 
+def test_a_withdrawn_task_is_not_shown_to_the_learner(world: World) -> None:
+    """**取り下げは削除ではない**が、学習者には出さない（#51）。"""
+    world.register("s2400001")
+    world.login("s2400001")
+
+    with world.database.unit_of_work() as uow:
+        task = uow.tasks.get_task(world.task_version.task_id)
+        uow.tasks.save_task(task.model_copy(update={"withdrawn": True}))
+        uow.commit()
+
+    body = world.client.get(f"/courses/{COURSE}").text
+    assert f"/tasks/{world.task_version.id}" not in body
+    # 一覧から外すだけでは URL を知っていれば開ける。
+    assert world.client.get(f"/tasks/{world.task_version.id}").status_code == 404
+
+
 # --------------------------------------------------------------------------
 # 認証
 # --------------------------------------------------------------------------

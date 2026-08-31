@@ -199,6 +199,46 @@
 </form>
 {% endif %}
 
+{# **消すことと、使わなくすることは別**（#51）。採点結果は課題版を指して
+   いるので（P8）、提出のある課題を消すと過去の成績の出所が失われる。
+   知識要素で決めたのと同じ区別（`aijudge_admin.kc`）。 #}
+<form method="post" action="/manage/courses/{{ course.id }}/tasks/{{ task.id }}/withdraw"
+      class="card">
+  {% if task.withdrawn %}
+  <input type="hidden" name="restore" value="1">
+  <div class="inline-field">
+    <span class="body desc">
+      <strong>この課題は出題を取り下げています。</strong>学習者には出ていません
+      （提出・採点・Q-matrix は残っています）。
+    </span>
+    <button type="submit">取り下げを取り消す</button>
+  </div>
+  {% else %}
+  <div class="inline-field">
+    <span class="body desc">
+      <strong>出題を取り下げる</strong> — 学習者に出なくなります。
+      <strong>消えません</strong>（提出・採点・Q-matrix は残り、ここには印付きで並びます）。
+      いつでも取り消せます。
+    </span>
+    <button type="submit">出題を取り下げる</button>
+  </div>
+  {% endif %}
+</form>
+
+{% if submissions == 0 %}
+<form method="post" action="/manage/courses/{{ course.id }}/tasks/{{ task.id }}/delete"
+      class="card">
+  <div class="inline-field">
+    <span class="body desc">
+      <strong>この課題には提出が 1 件もありません。</strong>打ち間違いで作ったものなら削除できます
+      （課題と全版が消えます）。<strong>提出があるものは削除できません</strong> —
+      その成績が何の課題の点なのか辿れなくなるためです。
+    </span>
+    <button type="submit">この課題を削除する</button>
+  </div>
+</form>
+{% endif %}
+
 <form method="post" action="/manage/courses/{{ course.id }}/tasks/{{ task.id }}/rubric/reset"
       class="card">
   <div class="inline-field">

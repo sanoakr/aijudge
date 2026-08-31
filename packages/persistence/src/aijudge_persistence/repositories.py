@@ -18,7 +18,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import datetime
 
-from sqlalchemy import case, func, select, update
+from sqlalchemy import case, delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -886,6 +886,51 @@ class SqlTaskRepository:
             .first()
         )
         return None if row is None else TaskVersion.model_validate(row.document)
+
+    def submission_count(self, task_id: TaskId) -> int:
+        """この課題（全版）に対する提出の件数。
+
+        **消してよいかの判定に使う。** 1 件でもあれば消せない ── 採点結果は
+        課題版を指しており（P8）、消すと過去の成績が何の課題の点なのか
+        辿れなくなる。
+        """
+        return int(
+            self._session.execute(
+                select(func.count())
+                .select_from(SubmissionRow)
+                .join(TaskVersionRow, TaskVersionRow.id == SubmissionRow.task_version_id)
+                .where(TaskVersionRow.task_id == str(task_id))
+            ).scalar_one()
+        )
+
+    def delete_task(self, task_id: TaskId) -> None:
+        """課題と全版を消す。**提出が無いことは呼び出し側が確かめる。**
+
+        検査結果と埋め込みは版に紐づくので一緒に消す ── 残すと、存在しない
+        版を指す行が溜まる。
+
+        ここに「提出があるなら消さない」を書かないのは、**規則の置き場所を
+        1 つにする**ため（`aijudge_admin.tasks.delete`）。保存層は言われた
+        ものを消す。
+        """
+        version_ids = [
+            row[0]
+            for row in self._session.execute(
+                select(TaskVersionRow.id).where(TaskVersionRow.task_id == str(task_id))
+            ).all()
+        ]
+        if version_ids:
+            self._session.execute(
+                delete(TaskChecksRow).where(TaskChecksRow.task_version_id.in_(version_ids))
+            )
+            self._session.execute(
+                delete(TaskEmbeddingRow).where(TaskEmbeddingRow.task_version_id.in_(version_ids))
+            )
+            self._session.execute(
+                delete(TaskVersionRow).where(TaskVersionRow.task_id == str(task_id))
+            )
+        self._session.execute(delete(TaskRow).where(TaskRow.id == str(task_id)))
+        self._session.flush()
 
     def latest_published_version(self, task_id: TaskId) -> TaskVersion | None:
         """**学習者に出してよい**最新版。承認済みが 1 つも無ければ None。
