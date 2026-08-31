@@ -80,7 +80,7 @@ from aijudge_admin.task_verifier import TaskVerifier
 from aijudge_admin.test_cases import TestCaseWriter
 from aijudge_authoring import TaskChecks, TaskSpec, render_markdown
 from aijudge_authoring.drafting import Blueprint, Difficulty
-from aijudge_authoring.spec import TestCaseSpec
+from aijudge_authoring.spec import AI_EVALUATOR, TestCaseSpec
 from aijudge_core import (
     DEFAULT_UPLOAD_SUFFIXES,
     MIN_JUSTIFICATION_LENGTH,
@@ -106,6 +106,7 @@ from aijudge_grading import (
 )
 from aijudge_grading.overrides import diff
 from aijudge_identity import AuthService, PermissionDenied, Principal
+from aijudge_submission import SubmissionService
 
 from .overview import empty_unit, find_unit, load_units, unit_key
 
@@ -192,6 +193,57 @@ def _wants_tests(request: Request, course) -> bool:
     """
     profile = load_profile(_console(request).profiles_dir / f"{course.subject_profile}.yaml")
     return CODE_TEST_RUNNER in profile.deterministic
+
+
+def _regradable(console, task, version) -> int:
+    """この課題で、**まだ確定していない**うち古い版で採点されている件数。
+
+    確定済みは数えない。確定は「この成績で閉じた」という事実で（ADR 0010）、
+    あとから機械が採点し直すと、確定の記録が指す採点と学習者に見える採点が
+    食い違う。訂正前に確定した提出を直すのは、教員が 1 件ずつ読む仕事として
+    残す。
+    """
+    if task is None or version is None:
+        return 0
+    with console.database.unit_of_work() as uow:
+        rows = uow.reviews.unfinalized_for_task(task.id)
+    return sum(
+        1 for _submission, run, _request in rows if run.context.task_version_id != version.id
+    )
+
+
+def _criteria_graded_by_tests(version, profile):
+    """テストケースを足したときの観点。**正しさをテスト実行に戻す。**
+
+    テストケースを足しただけでは何も変わらない ── 観点は自分の評価器を
+    持っており（`RubricCriterion.evaluator_id`）、テストの無い課題では
+    正しさが AI 判定になっている。差し替えなければ、テストは作られたのに
+    誰も実行しない。
+
+    **題名と説明は、自動生成の文面のままのときだけ戻す。** 教員が書き直して
+    いれば、その言葉を機械が上書きしない。
+    """
+    swapped = []
+    for criterion in rubric.from_criteria(version.criteria):
+        if criterion.code != "correctness" or criterion.evaluator != AI_EVALUATOR:
+            swapped.append(criterion)
+            continue
+        update: dict[str, object] = {"evaluator": _test_evaluator_of(profile)}
+        if criterion.title == "仕様の充足":
+            update["title"] = "出力の正しさ"
+            update["description"] = (
+                "与えられた入力に対して仕様どおりの出力を返すか。テスト実行で判定する。"
+            )
+        swapped.append(criterion.model_copy(update=update))
+    return tuple(swapped)
+
+
+def _test_evaluator_of(profile) -> str:
+    """この科目でテスト実行を担う評価器。宣言の順に見て最初のもの。"""
+    for evaluator_id in profile.deterministic:
+        if evaluator_id == CODE_TEST_RUNNER:
+            return evaluator_id
+    return CODE_TEST_RUNNER
 
 
 def _record_gates(console, profile, version) -> None:
@@ -302,6 +354,15 @@ SAVED_MESSAGES: dict[str, str] = {
     "formats": "保存しました",
     "enrolled": "受講登録を保存しました",
     "removed": "受講を取り消しました",
+    "tests_added": (
+        "テストケースを生成し、**新しい版**を作りました。承認するまで学習者には"
+        "いまの版が出続けます（未承認の課題から中身を確かめて承認してください）"
+    ),
+    "tests_failed": (
+        "テストケースを作れませんでした（S6 が止まっている可能性があります）。"
+        "課題はいまの版のままです"
+    ),
+    "regraded": "この版で採点し直します（確定済みの提出はそのままです）",
     "kc_added": "知識要素を追加しました",
     "kc_retired": "知識要素を引退させました",
     "kc_restored": "引退を取り消しました",
@@ -777,12 +838,21 @@ def register(templates) -> APIRouter:
         key = _normalized_unit(unit)
         group = find_unit(units, key) or empty_unit(key, course)
 
+        # **同じ題名が 2 件あることを出す。** 以前は「テストケースを付けるには
+        # 作り直してください」と書いてあり、そのとおりにすると別の課題が増えて
+        # 同じ問題が 2 件並んだ（#43）。並んでいること自体を画面に出さないと、
+        # 提出と採点がどちらに付いたのかを教員が追えない。
+        titles: dict[str, int] = {}
+        for task, _version in group.tasks:
+            titles[task.title] = titles.get(task.title, 0) + 1
+
         rows = []
         for task, version in group.tasks:
             rows.append(
                 {
                     "task": task,
                     "version": version,
+                    "duplicate_title": titles.get(task.title, 0) > 1,
                     "test_cases": len(version.test_cases),
                     # 自動採点できるか。できない課題は AI 観点だけで、
                     # 教員の確定が前提になる（ADR 0008）。
@@ -1692,6 +1762,10 @@ def register(templates) -> APIRouter:
         position,
         accepted,
         aggregation=None,
+        reference_solution=None,
+        test_cases=(),
+        generated_by=None,
+        generation_prompt_version=None,
     ):
         """課題を直して新しい版を作る。訂正と「共通に戻す」で共有する。
 
@@ -1713,6 +1787,8 @@ def register(templates) -> APIRouter:
                 # コースと同じ値を選ぶのは別の状態**で、前者はコースを変えれば
                 # 追随し、後者はしない。
                 aggregation=aggregation,
+                reference_solution=reference_solution,
+                test_cases=test_cases,
             )
         except (ValidationError, ValueError) as exc:
             raise HTTPException(status_code=400, detail=f"課題の指定が不正です: {exc}") from None
@@ -1726,6 +1802,11 @@ def register(templates) -> APIRouter:
                 authored_by=me.user_id,
                 revise=True,
                 course_rubric=course.rubric,
+                # **生成したなら承認待ちにする**（P5）。門は「参照解答とテストが
+                # 整合している」までしか言わない。承認するまで学習者には
+                # 1 つ前の承認済みが出続ける（#48）。
+                generated_by=generated_by,
+                generation_prompt_version=generation_prompt_version,
             )
         except AdminError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -1765,6 +1846,12 @@ def register(templates) -> APIRouter:
         registry = EvaluatorRegistry().load_installed()
         course_rows = _course_rubric_rows(course)
         rows = rubric.to_rows(version.criteria) if version is not None else course_rows
+        # **学習者に出ている版。** 教員が見ているのは最新版（承認待ちを含む）
+        # なので、採点し直す対象は別に引く（#48）。
+        published = None
+        if task is not None:
+            with _console(request).database.unit_of_work() as uow:
+                published = uow.tasks.latest_published_version(task.id)
         # 移動先の候補。**いまいるセットは出さない**（選べる先が「動かない」を
         # 含むと、押してから何も起きないことになる）。追加のときは移動できる
         # 課題がまだ無いので数えない。
@@ -1822,7 +1909,136 @@ def register(templates) -> APIRouter:
                     and not version.test_cases
                     and _wants_tests(request, course)
                 ),
+                # 訂正した版で採点し直せる件数（確定済みは数えない）。
+                "regradable": _regradable(_console(request), task, published),
             },
+        )
+
+    @router.post("/courses/{course_id}/tasks/{task_id}/test-cases")
+    def add_test_cases(request: Request, course_id: str, task_id: str) -> Response:
+        """既にある課題にテストケースを足す。**新しい版として。**
+
+        以前はここに道が無く、画面は「付けるには課題を作り直してください」と
+        書いていた。作り直せば**別の課題**になり、問題セットに同じ問題が 2 件
+        並び、提出も採点もその 2 件に割れる ── 実際にそうなっていた（#43）。
+
+        塞いであった理由は「訂正で作り直すと、出題済みの課題の採点基準が黙って
+        変わる」。だが**新しい版を作れば P8 は保たれる** ── 過去の採点は自分の
+        版を指したままになる。塞ぐべきだったのは「黙って変わる」ことであって、
+        「変えられる」ことではない。**黙らせない**ために、生成した版は承認待ち
+        にし（P5）、承認するまで学習者には 1 つ前の承認済みが出続ける（#48）。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+
+        with console.database.unit_of_work() as uow:
+            task = uow.tasks.get_task(TaskId(task_id))
+            version = uow.tasks.latest_version(TaskId(task_id))
+        if task is None or version is None or task.course_id != CourseId(course_id):
+            raise HTTPException(status_code=404, detail="課題が見つかりません")
+        if version.test_cases:
+            raise HTTPException(status_code=409, detail="この課題には既にテストケースがあります")
+
+        profile = load_profile(console.profiles_dir / f"{course.subject_profile}.yaml")
+        if CODE_TEST_RUNNER not in profile.deterministic:
+            raise HTTPException(
+                status_code=409,
+                detail=f"この科目（{course.subject_profile}）はテスト実行を使いません",
+            )
+
+        try:
+            generated = TestCaseWriter().write(
+                version.statement, language=_language_of(profile), count=5
+            )
+        except Exception:
+            # **課題を壊さない**（設計原則 P2）。作れなかったことと、作らない
+            # ことは別で、前者は S6 が戻れば作り直せる。
+            return RedirectResponse(
+                f"/manage/courses/{course_id}/tasks/{task_id}/edit?saved=tests_failed",
+                status_code=303,
+            )
+
+        saved = _save_revision(
+            console,
+            me,
+            course,
+            task,
+            version,
+            statement=version.statement,
+            criteria=_criteria_graded_by_tests(version, profile),
+            position=task.position,
+            accepted=task.accepted_suffixes,
+            aggregation=version.aggregation,
+            reference_solution=generated.reference_solution,
+            test_cases=tuple(
+                TestCaseSpec(name=case.name, input=case.input, expected=case.expected)
+                for case in generated.test_cases
+            ),
+            generated_by=generated.model,
+            generation_prompt_version=generated.prompt_id,
+        )
+        # 門 1・門 2 を通し、結果を残す（生成課題と同じ・ADR 0008）。
+        _record_gates(console, profile, saved.version)
+        return RedirectResponse(
+            f"/manage/courses/{course_id}/tasks/{task_id}/edit?saved=tests_added",
+            status_code=303,
+        )
+
+    @router.post("/courses/{course_id}/tasks/{task_id}/regrade")
+    def regrade_task(request: Request, course_id: str, task_id: str) -> Response:
+        """いまの版で採点し直す。**教員が押したときだけ動く。**
+
+        実施中に課題を訂正すると、訂正前に出した提出は古い版の基準で付いた
+        成績のまま残る。直す道が無ければ、誤った問題文で付いた点がそのまま
+        成績になる ── かといって訂正のたびに自動で積み直すと、**誰も押して
+        いない再採点で成績が動く**（設計原則 P5）。だから明示的な操作にする。
+
+        **これはレビューの経路ではない。** ADR 0007 が切り離したのは
+        「blind 採点や開示が採点を起動する」ことで、測定用の入力が採点の前提に
+        戻るのを防ぐためだった。ここは作問・運用の操作で、積むのはジョブだけ
+        ── 採点そのものはワーカーが走らせる（提出時と同じ経路）。
+
+        **確定済みの提出は動かさない**（`_regradable`）。過去の採点も消えない
+        ── 新しい採点が終わった時点で旧採点に `superseded_by` が入る（P8）。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+
+        with console.database.unit_of_work() as uow:
+            task = uow.tasks.get_task(TaskId(task_id))
+            # **学習者に出ている版で採点し直す。** 承認待ちの版で採点すると、
+            # 誰も見ていない基準の点が成績になる（#48）。
+            version = uow.tasks.latest_published_version(TaskId(task_id))
+        if task is None or task.course_id != CourseId(course_id):
+            raise HTTPException(status_code=404, detail="課題が見つかりません")
+        if version is None:
+            raise HTTPException(
+                status_code=409, detail="承認済みの版がありません（先に承認してください）"
+            )
+
+        service = SubmissionService(console.database.unit_of_work, console.store)
+        with console.database.unit_of_work() as uow:
+            rows = uow.reviews.unfinalized_for_task(task.id)
+        queued = 0
+        for submission, run, _request in rows:
+            if run.context.task_version_id == version.id:
+                continue
+            service.request_regrade(
+                tenant_id=course.tenant_id,
+                submission_id=submission.id,
+                subject_profile=course.subject_profile,
+                task_version_id=version.id,
+            )
+            queued += 1
+        console.last_regrade = (str(course.id), queued)
+        return RedirectResponse(
+            f"/manage/courses/{course_id}/tasks/{task_id}/edit?saved=regraded", status_code=303
         )
 
     @router.get("/courses/{course_id}/tasks/{task_id}/edit", response_class=HTMLResponse)

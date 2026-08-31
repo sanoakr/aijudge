@@ -113,6 +113,12 @@ def save_task(
                 subject_profile=subject_profile,
                 authored_by=authored_by,
                 version=latest.version + 1,
+                # **出所を落とさない。** ここで渡し忘れると、訂正で生成した
+                # 中身が「教員が書いた」ことになり、承認待ちにならずそのまま
+                # 出題される ── 上で一度渡しているぶんは、この作り直しで
+                # 捨てられていた（設計原則 P5）。
+                generated_by=generated_by,
+                generation_prompt_version=generation_prompt_version,
             )
     with database.unit_of_work() as uow:
         existing = uow.tasks.get_task(version.task_id)

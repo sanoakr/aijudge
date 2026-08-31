@@ -121,6 +121,8 @@ class Console:
         # 直近に足した課題。管理画面が「何が起きたか」を返すために持つ。
         # コースを添えるのは Console が全利用者で共有だから。
         self.last_task: tuple[str, object] | None = None
+        # 直近の再採点の結果を (course_id, 件数) で持つ。
+        self.last_regrade: tuple[str, int] | None = None
         # 直近の一括確定の結果を (course_id, outcome) で持つ。
         # **コースを添えるのは Console が全利用者で共有だから。** 添えないと、
         # 別のコースの教員に他コースの課題名が出る。

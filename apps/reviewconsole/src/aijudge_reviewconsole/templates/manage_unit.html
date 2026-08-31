@@ -127,6 +127,14 @@
         <span class="pill no">却下済み — 出題されません</span>
         {% endif %}
         {% if not row.auto_graded %}<br><span class="pill">自動テストなし</span>{% endif %}
+        {# **同じ題名が並んでいることを言う。** 別々の課題なので提出も採点も
+           割れる ── 気づかなければ「片方だけ採点されていない」に見える。 #}
+        {% if row.duplicate_title %}
+        <br><span class="pill attn">同じ題名の課題が {{ unit.key }} に複数あります</span>
+        <span class="desc">別々の課題です（提出も採点も分かれます）。
+          片方を使わないなら、その課題の問題文で「使いません」と示すか、
+          別の問題セットへ移してください。</span>
+        {% endif %}
       </td>
       <td class="fit">{{ row.test_cases }}</td>
       <td class="fit">{{ row.rubric_rows | length }}</td>

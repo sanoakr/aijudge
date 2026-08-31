@@ -44,6 +44,8 @@
      テスト実行ではなく AI の判定になる。課題を開いたときに分からなければ、
      教員はテストで確定する課題を作ったつもりのまま学期を過ごす。 #}
   {% if falls_back_to_ai %}
+  {# **「作り直してください」とは書かない。** 作り直せば別の課題になり、
+     問題セットに同じ問題が 2 件並んで、提出も採点も割れる（#43）。 #}
   <div class="note warn">
     <strong>この課題にはテストケースがありません。</strong>
     正しさの観点は<strong>テスト実行ではなく AI が判定し、教員が確定させます</strong>
@@ -51,7 +53,9 @@
     この科目（<span class="mono">{{ course.subject_profile }}</span>）は
     <span class="mono">code_test_runner</span> を宣言しているので、
     <strong>テストケースを付ければテスト実行で確定できます</strong>。
-    付けるには課題を作り直してください — 出題済みの版は書き換えません（P8）。
+    <br>
+    下の「テストケースを後から付ける」から足せます —
+    <strong>新しい版</strong>になり、出題済みの版は書き換えません（P8）。
   </div>
   {% endif %}
 
@@ -136,6 +140,46 @@
 </form>
 
 {% if task %}
+{# **後から足せる。** 以前は「作り直してください」と書いてあり、作り直せば
+   別の課題になって同じ問題が 2 件並んだ（#43）。 #}
+{% if falls_back_to_ai %}
+<form method="post" action="/manage/courses/{{ course.id }}/tasks/{{ task.id }}/test-cases"
+      class="card" data-working="生成中… 数十秒かかります（このまま待ってください）">
+  <h3 style="margin-top:0">テストケースを後から付ける</h3>
+  <p class="desc" style="margin:0 0 10px">
+    いまの問題文から参照解答とテストケースを生成し、門 1（参照解答が全ケースを通る）と
+    門 2（変異を殺せる）を通します。正しさの観点は<strong>テスト実行に戻します</strong>。
+    <br>
+    できるのは<strong>新しい版</strong>で、<strong>承認するまで学習者にはいまの版が出続けます</strong>
+    — 生成物は門を通っただけで、問題文の意図と合っているかは誰も見ていません（P5）。
+    <br>
+    <strong>採点済みの提出はそのままです</strong>（過去の採点は自分の版を指したまま・P8）。
+    新しい版で採点し直すかどうかは、承認したあとに選べます。
+  </p>
+  <div class="actions">
+    <button type="submit">テストケースを生成して新しい版を作る</button>
+  </div>
+</form>
+{% endif %}
+
+{# **訂正しただけでは、既に出ている提出は古い版のままである。** 自動で積み
+   直すと誰も押していない再採点で成績が動くので、明示的な操作にする（P5）。 #}
+{% if regradable %}
+<form method="post" action="/manage/courses/{{ course.id }}/tasks/{{ task.id }}/regrade"
+      class="card">
+  <div class="inline-field">
+    <span class="body desc">
+      <strong>いまの版で採点し直せる提出が {{ regradable }} 件あります。</strong>
+      訂正より前に出されたもので、古い版の基準で点が付いています。
+      <br>
+      <strong>確定済みの提出は動かしません</strong>（閉じた成績を機械が開け直さないため）。
+      過去の採点も消えません — 新しい採点が終わると、古い採点に「置き換わった」印が付きます（P8）。
+    </span>
+    <button type="submit">いまの版で採点し直す（{{ regradable }} 件）</button>
+  </div>
+</form>
+{% endif %}
+
 <form method="post" action="/manage/courses/{{ course.id }}/tasks/{{ task.id }}/rubric/reset"
       class="card">
   <div class="inline-field">

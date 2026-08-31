@@ -2234,6 +2234,176 @@ def test_a_badge_that_needs_someone_is_not_the_same_as_a_bad_one(world: World) -
 
 
 # --------------------------------------------------------------------------
+# 実施中に課題を直す（#43）
+# --------------------------------------------------------------------------
+
+
+def test_the_page_does_not_tell_the_instructor_to_recreate_the_task(world: World) -> None:
+    """**「作り直してください」と書かない。**
+
+    作り直せば別の課題になり、問題セットに同じ問題が 2 件並んで、提出も採点も
+    その 2 件に割れる ── 実際にそうなっていた（#43）。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    task_id = _import_example(world)
+
+    page = client.get(f"/manage/courses/{world.course.id}/tasks/{task_id}/edit").text
+    assert "作り直してください" not in page
+
+
+def test_test_cases_can_be_added_to_a_task_that_has_none(monkeypatch, world: World) -> None:
+    """**後から足せる。新しい版として。**
+
+    足しただけでは何も変わらない ── 観点は自分の評価器を持っており、テストの
+    無い課題では正しさが AI 判定になっている。**正しさをテスト実行に戻す**
+    ところまでが「テストケースを付ける」である。
+
+    できるのは承認待ちの版で、**承認するまで学習者にはいまの版が出続ける**
+    （#48）。門は「参照解答とテストが整合している」までしか言わない。
+    """
+    from aijudge_core import ReviewState
+    from aijudge_core.ids import TaskId
+
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    _stub_writer(monkeypatch)
+
+    # 自動テストを使わない課題として作る（テストケースを持たない）。
+    assert _add(client, str(world.course.id), "ex04", "p1", no_auto_tests="1").status_code == 303
+    with world.database.unit_of_work() as uow:
+        task = uow.tasks.list_for_course(world.course.id)[0]
+        before = uow.tasks.latest_version(task.id)
+    assert before.test_cases == ()
+
+    page = client.get(f"/manage/courses/{world.course.id}/tasks/{task.id}/edit").text
+    assert "テストケースを後から付ける" in page
+
+    response = client.post(
+        f"/manage/courses/{world.course.id}/tasks/{task.id}/test-cases", follow_redirects=False
+    )
+    assert response.status_code == 303
+
+    with world.database.unit_of_work() as uow:
+        after = uow.tasks.latest_version(TaskId(str(task.id)))
+        published = uow.tasks.latest_published_version(TaskId(str(task.id)))
+    # 新しい版になり、古い版は書き換わっていない（P8）。
+    assert after.version == before.version + 1
+    assert after.test_cases
+    # **正しさをテスト実行に戻す。** 戻さなければ、テストは作られたのに
+    # 誰も実行しない。
+    correctness = next(c for c in after.criteria if c.code == "correctness")
+    assert correctness.evaluator_id == "code_test_runner"
+    # 承認待ち。学習者には 1 つ前の承認済みが出続ける。
+    assert after.provenance.review_state is ReviewState.IN_REVIEW
+    assert published.id == before.id
+
+
+def test_a_failed_generation_leaves_the_task_alone(monkeypatch, world: World) -> None:
+    """**課題を壊さない**（P2）。作れなかったことと、作らないことは別。"""
+    from aijudge_core.ids import TaskId
+
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    _stub_writer(monkeypatch)
+    assert _add(client, str(world.course.id), "ex04", "p1", no_auto_tests="1").status_code == 303
+    with world.database.unit_of_work() as uow:
+        task = uow.tasks.list_for_course(world.course.id)[0]
+        before = uow.tasks.latest_version(task.id)
+
+    _stub_writer(monkeypatch, fails=True)
+    response = client.post(
+        f"/manage/courses/{world.course.id}/tasks/{task.id}/test-cases", follow_redirects=False
+    )
+    assert response.status_code == 303
+    assert "tests_failed" in response.headers["location"]
+
+    with world.database.unit_of_work() as uow:
+        after = uow.tasks.latest_version(TaskId(str(task.id)))
+    assert after.version == before.version
+
+
+def test_a_generated_revision_is_not_approved_by_itself(monkeypatch, world: World) -> None:
+    """**訂正で生成した中身も承認待ちにする。**
+
+    `save_task` は訂正のとき版を作り直すが、そこに出所を渡していなかったので
+    生成物が「教員が書いた」ことになり、承認を経ずに出題されていた。
+    観点を宣言する課題（コースが共通ルーブリックを持てばそうなる）では、
+    `_declared_version` が `APPROVED` を直に書いてもいた ── 生成した課題が
+    承認の導線を丸ごと素通りする経路だった（設計原則 P5）。
+    """
+    from aijudge_authoring import TaskSpec, build_task_version
+    from aijudge_core import ReviewState
+    from aijudge_core.ids import UserId
+
+    spec = TaskSpec(
+        key="ex09/p1",
+        statement="## 課題 ##\n\n書きなさい。",
+        criteria=(
+            {
+                "code": "correctness",
+                "title": "正しさ",
+                "description": "仕様どおりか。",
+                "weight": 1.0,
+                "levels": [
+                    {"level": 0, "label": "未達", "descriptor": "違う", "score_ratio": 0.0},
+                    {"level": 1, "label": "達成", "descriptor": "よい", "score_ratio": 1.0},
+                ],
+            },
+        ),
+    )
+    version = build_task_version(
+        spec,
+        subject_profile="cs_intro_c",
+        authored_by=UserId("usr_" + "1" * 32),
+        generated_by="stub-model",
+        generation_prompt_version="p@1",
+    )
+    assert version.provenance.review_state is ReviewState.IN_REVIEW
+    assert version.provenance.generated_by == "stub-model"
+
+
+def test_a_set_says_when_two_tasks_share_a_title(world: World) -> None:
+    """**同じ題名が並んでいることを出す。** 別々の課題なので提出も採点も割れる。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    _import_example(world)
+    unit = _unit_of(world)
+
+    with world.database.unit_of_work() as uow:
+        original = uow.tasks.list_for_course(world.course.id)[0]
+
+    # 同じ題名の課題をもう 1 件足す（「作り直した」あとの状態）。
+    client.post(
+        f"/manage/courses/{world.course.id}/tasks",
+        data={
+            "unit": original.unit or "_",
+            "key_suffix": "again",
+            "statement": f"## {original.title} ##\n\n同じ題名の別の課題。",
+            "no_auto_tests": "1",
+        },
+    )
+
+    page = client.get(f"/manage/courses/{world.course.id}/units/{unit}").text
+    assert "同じ題名の課題が" in page
+
+
+def test_a_regrade_is_offered_only_when_something_is_on_an_older_version(world: World) -> None:
+    """**訂正しただけでは、既に出ている提出は古い版のまま。**
+
+    自動で積み直すと、誰も押していない再採点で成績が動く（P5）。押せる形で
+    出し、押されたときだけ動かす。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    task_id = _import_example(world)
+
+    # 提出も採点も無いので、採点し直すものは無い。
+    page = client.get(f"/manage/courses/{world.course.id}/tasks/{task_id}/edit").text
+    assert "いまの版で採点し直す" not in page
+
+
+# --------------------------------------------------------------------------
 # 受講者（別ページ）
 # --------------------------------------------------------------------------
 
