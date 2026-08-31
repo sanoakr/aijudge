@@ -2363,6 +2363,29 @@ def test_a_generated_revision_is_not_approved_by_itself(monkeypatch, world: Worl
     assert version.provenance.generated_by == "stub-model"
 
 
+def test_the_list_says_which_version_and_when_it_was_made(world: World) -> None:
+    """**同じ題名が並んだとき、新旧が読める必要がある**（#54）。
+
+    版番号だけでは「いつの版か」が分からない。`TaskVersion.created_at` は
+    再現性のために既に記録している値で、出していなかっただけである。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    task_id = _import_example(world)
+    unit = _unit_of(world)
+
+    with world.database.unit_of_work() as uow:
+        from aijudge_core.ids import TaskId
+
+        version = uow.tasks.latest_version(TaskId(task_id))
+
+    listing = client.get(f"/manage/courses/{world.course.id}/units/{unit}").text
+    assert version.created_at.strftime("%m-%d %H:%M") in listing
+
+    page = client.get(f"/manage/courses/{world.course.id}/tasks/{task_id}/edit").text
+    assert version.created_at.strftime("%Y-%m-%d %H:%M") in page
+
+
 def test_a_set_says_when_two_tasks_share_a_title(world: World) -> None:
     """**同じ題名が並んでいることを出す。** 別々の課題なので提出も採点も割れる。"""
     world.register("teacher", Role.INSTRUCTOR)

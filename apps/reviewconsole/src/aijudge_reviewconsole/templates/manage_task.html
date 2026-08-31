@@ -32,6 +32,15 @@
     <p class="desc" style="margin:0 0 14px">
       課題キー <span class="mono">{{ version.source_key or '(記録なし)' }}</span>
       <span class="sep">·</span> キーは変えられません（同一性の鍵で、変えると別の課題になります）
+      {# **いつの版かを出す。** 訂正すると版が上がるが、番号だけでは新旧が
+         読めない ── 同じ題名の課題が並んでいるときはなおさら（#54）。 #}
+      <br>いま <strong>{{ version.version }} 版</strong>
+      （{{ version.created_at.strftime('%Y-%m-%d %H:%M') }} 作成）
+      {% if published and published.id != version.id %}
+      <span class="sep">·</span> 学習者に出ているのは
+      <strong>{{ published.version }} 版</strong>
+      （{{ published.created_at.strftime('%Y-%m-%d %H:%M') }} 作成）
+      {% endif %}
     </p>
   {% else %}
     <input type="hidden" name="unit" value="{{ unit_key }}">

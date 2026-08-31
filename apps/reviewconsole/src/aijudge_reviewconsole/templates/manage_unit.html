@@ -97,7 +97,7 @@
 <table>
   <thead><tr>
     <th class="fit">順</th><th class="grow">課題</th><th class="fit">テスト</th>
-    <th class="fit">観点</th><th class="fit">未確定</th><th class="fit"></th>
+    <th class="fit">観点</th><th class="fit">版</th><th class="fit">未確定</th><th class="fit"></th>
   </tr></thead>
   <tbody>
   {% for row in tasks %}
@@ -138,6 +138,10 @@
       </td>
       <td class="fit">{{ row.test_cases }}</td>
       <td class="fit">{{ row.rubric_rows | length }}</td>
+      {# **どちらが新しいのか読めるようにする。** 同じ題名が並ぶことがあり
+         （#43）、版番号だけでは「いつの版か」が分からない（#54）。 #}
+      <td class="fit desc">{{ row.version.version }} 版<br>
+        {{ row.version.created_at.strftime('%m-%d %H:%M') }}</td>
       <td class="fit">
         {% if row.unfinalized %}<span class="pill {{ 'attn' if unit.deadline_passed }}">{{ row.unfinalized }} 件</span>
         {% else %}<span class="desc">—</span>{% endif %}
