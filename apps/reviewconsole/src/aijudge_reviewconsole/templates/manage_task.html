@@ -176,7 +176,7 @@
     新しい版で採点し直すかどうかは、承認したあとに選べます。
   </p>
   <div class="actions">
-    <button type="submit">テストケースを生成して新しい版を作る</button>
+    <button type="submit">テストケースを生成して新しい版を作成</button>
   </div>
 </form>
 {% endif %}
@@ -194,7 +194,7 @@
       <strong>確定済みの提出は動かしません</strong>（閉じた成績を機械が開け直さないため）。
       過去の採点も消えません — 新しい採点が終わると、古い採点に「置き換わった」印が付きます（P8）。
     </span>
-    <button type="submit">いまの版で採点し直す（{{ regradable }} 件）</button>
+    <button type="submit">いまの版で再採点（{{ regradable }} 件）</button>
   </div>
 </form>
 {% endif %}
@@ -211,7 +211,7 @@
       <strong>この課題は出題を取り下げています。</strong>学習者には出ていません
       （提出・採点・Q-matrix は残っています）。
     </span>
-    <button type="submit">取り下げを取り消す</button>
+    <button type="submit">取り下げの取り消し</button>
   </div>
   {% else %}
   <div class="inline-field">
@@ -220,7 +220,7 @@
       <strong>消えません</strong>（提出・採点・Q-matrix は残り、ここには印付きで並びます）。
       いつでも取り消せます。
     </span>
-    <button type="submit">出題を取り下げる</button>
+    <button type="submit">出題の取り下げ</button>
   </div>
   {% endif %}
 </form>
@@ -234,7 +234,7 @@
       （課題と全版が消えます）。<strong>提出があるものは削除できません</strong> —
       その成績が何の課題の点なのか辿れなくなるためです。
     </span>
-    <button type="submit">この課題を削除する</button>
+    <button type="submit">この課題を削除</button>
   </div>
 </form>
 {% endif %}
@@ -245,7 +245,7 @@
     <span class="body desc">
       観点をコースの共通ルーブリックに戻します（問題文と提出形式はそのままです）。
     </span>
-    <button type="submit">共通ルーブリックに戻す</button>
+    <button type="submit">共通ルーブリックに復元</button>
   </div>
 </form>
 
@@ -265,7 +265,7 @@
         {% endfor %}
       </select>
     </span>
-    <button type="submit">移す</button>
+    <button type="submit">移動</button>
   </div>
   <p class="desc" style="margin:10px 0 0">
     <strong>日程は移動先のセットに揃います</strong>（公開・提出開始・締切・自動確定の猶予）。

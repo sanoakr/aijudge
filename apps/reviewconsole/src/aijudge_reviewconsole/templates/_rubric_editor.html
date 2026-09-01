@@ -10,7 +10,7 @@
     <span class="mono desc">{{ row.code }}</span>
     <span class="desc">重み {{ row.weight }}</span>
     <span class="desc">{{ row.evaluator if row.evaluator else 'AI が判定' }}</span>
-    <span class="desc open-hint">開いて直す</span>
+    <span class="desc open-hint">開いて修正</span>
   </summary>
   {% with row = row %}{% include "_criterion_fields.html" %}{% endwith %}
 </details>

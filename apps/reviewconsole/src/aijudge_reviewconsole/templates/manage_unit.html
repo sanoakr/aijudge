@@ -61,7 +61,7 @@
       <input id="due_at" name="due_at" type="datetime-local"
              value="{{ unit.due_at.strftime('%Y-%m-%dT%H:%M') if unit.due_at else '' }}"></span>
     {% if saved_key == 'schedule' %}<span class="flash">{{ saved }}</span>{% endif %}
-    <button type="submit">日程を保存する</button>
+    <button type="submit">日程を保存</button>
   </div>
   <p class="desc" style="margin:10px 0 0">
     <strong>提出開始が空なら、公開と同時に受け付けます。</strong>
@@ -150,7 +150,7 @@
         {% if row.unfinalized %}<span class="pill {{ 'attn' if unit.deadline_passed }}">{{ row.unfinalized }} 件</span>
         {% else %}<span class="desc">—</span>{% endif %}
       </td>
-      <td class="fit"><a href="/manage/courses/{{ course.id }}/tasks/{{ row.task.id }}/edit">直す</a></td>
+      <td class="fit"><a href="/manage/courses/{{ course.id }}/tasks/{{ row.task.id }}/edit">修正</a></td>
     </tr>
   {% else %}
     <tr><td colspan="6" class="desc">この問題セットにはまだ課題がありません。</td></tr>
@@ -187,7 +187,7 @@
     <p class="desc">
       個別に読んでいない成績を確定させる操作です。再確認の依頼が出ている提出は確定しません。
     </p>
-    <div class="actions"><button type="submit">まとめて確定する</button></div>
+    <div class="actions"><button type="submit">まとめて確定</button></div>
   </form>
 </details>
 {% endfor %}
@@ -252,7 +252,7 @@
   </p>
   <div class="actions">
     {% if saved_key == 'generated' %}<span class="flash">{{ saved }}</span>{% endif %}
-    <button type="submit">生成する</button>
+    <button type="submit">生成</button>
   </div>
 </form>
 {% else %}

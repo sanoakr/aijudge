@@ -39,7 +39,7 @@
       <textarea id="uj-{{ unit.key }}" name="justification" rows="2" required minlength="{{ min_reason }}"
         placeholder="例: テスト全通の提出について、抽出したものを確認した上で残りを確定します。"></textarea>
     </div>
-    <div class="actions"><button type="submit">この問題セットをまとめて確定する</button></div>
+    <div class="actions"><button type="submit">この問題セットをまとめて確定</button></div>
   </form>
 
   <h3>問題ごとに確定する</h3>
@@ -61,7 +61,7 @@
                 <textarea id="tj-{{ task.id }}" name="justification" rows="2" required
                           minlength="{{ min_reason }}"></textarea>
               </div>
-              <div class="actions"><button type="submit">まとめて確定する</button></div>
+              <div class="actions"><button type="submit">まとめて確定</button></div>
             </form>
           </details>
           {% else %}<span class="desc">—</span>{% endif %}
