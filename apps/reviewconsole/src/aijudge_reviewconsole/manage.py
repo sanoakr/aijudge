@@ -406,6 +406,7 @@ SAVED_MESSAGES: dict[str, str] = {
     "task_deleted": "課題を削除しました（提出が 1 件も無いもの）",
     "unit_cleared": "問題セットを片付けました",
     "released": "いままでの提出を採点に回しました（以後の提出はまた採点開始時刻まで待ちます）",
+    "retried": "失敗していた採点を流し直しました",
     "image": "画像を保存しました。下の 1 行を課題文に貼り付けてください",
     "kc_added": "知識要素を追加しました",
     "kc_retired": "知識要素を引退させました",
@@ -1044,6 +1045,43 @@ def register(templates) -> APIRouter:
                     else None
                 ),
             },
+        )
+
+    @router.post("/courses/{course_id}/units/{unit}/retry-failed")
+    def retry_failed(request: Request, course_id: str, unit: str) -> Response:
+        """上限まで落ちたジョブを流し直す（#80）。
+
+        **一覧を出しておいて手が無いのは中途半端である。** #67 で失敗した
+        ジョブを問題セットのページに出したが、直したあとに戻す手立てが
+        無かったので、SQL を叩くしかなかった。
+
+        **教員が押したときだけ動く。** 自動で戻すなら上限を設けた意味が無い
+        ── 直っていない原因で回し続けることになる。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+        group = _unit_group(console, course, unit)
+
+        version_ids = {str(version.id) for _task, version in group.tasks}
+        now = datetime.now(UTC)
+        with console.database.unit_of_work() as uow:
+            submissions = [
+                s
+                for s in uow.submissions.list_for_course(course.id)
+                if str(s.task_version_id) in version_ids
+            ]
+            failed = uow.jobs.failed_for([s.id for s in submissions])
+            for job in failed:
+                uow.jobs.update(job.retried(now))
+            uow.commit()
+
+        console.last_release = (str(course.id), len(failed))
+        return RedirectResponse(
+            f"/manage/courses/{course_id}/units/{group.key}?saved=retried#exam",
+            status_code=303,
         )
 
     @router.post("/courses/{course_id}/units/{unit}/grade-now")
