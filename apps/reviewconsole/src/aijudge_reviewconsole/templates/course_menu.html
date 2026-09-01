@@ -19,7 +19,7 @@
   {% for unit in units %}
   <a class="row" href="/manage/courses/{{ course.id }}/units/{{ unit.key }}">
     <b class="c-key">{{ unit.unit or unit.label }}</b>
-    <span class="c-num desc">{% if unit.unit and unit.session %}{{ unit.label }}{% endif %}</span>
+    <span class="c-num desc">{% if unit.unit and unit.session is not none %}{{ unit.label }}{% endif %}</span>
     <span class="c-count desc">{{ unit.count }} 問</span>
     <span class="c-date desc">公開 {% if unit.opens_at %}{{ unit.opens_at.strftime('%m-%d %H:%M') }}{% else %}<em>未設定</em>{% endif %}</span>
     <span class="c-date desc">開始 {% if unit.submissions_open_at %}{{ unit.submissions_open_at.strftime('%m-%d %H:%M') }}{% elif unit.opens_at %}公開と同時{% else %}<em>未設定</em>{% endif %}</span>

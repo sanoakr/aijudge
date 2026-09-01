@@ -4,7 +4,7 @@
 <h1>問題セット {{ unit.unit or unit.label }}</h1>
 <p class="crumb">
   {{ course.title }} <span class="sep">·</span> {{ unit.count }} 問
-  {% if unit.session %}<span class="sep">·</span> {{ unit.label }}{% endif %}
+  {% if unit.session is not none %}<span class="sep">·</span> {{ unit.label }}{% endif %}
 </p>
 
 {% if last_finalize %}
@@ -34,7 +34,10 @@
     <span class="body">
       <label for="session">第 N 回（並べ替えと表示に使います。採点には効きません）</label>
       <input id="session" name="session" type="number" min="0" style="max-width:8rem"
-             value="{{ unit.session or '' }}">
+             {# **`or` を使わない。** `0` は「未設定」ではなく第 0 回である（#86）。
+               `0 or ''` は空になるので、画面を開いて保存し直すだけで
+               設定した 0 が消えていた。 #}
+             value="{{ unit.session if unit.session is not none else '' }}">
     </span>
     {% if saved_key == 'number' %}<span class="flash">{{ saved }}</span>{% endif %}
     <button type="submit">保存</button>

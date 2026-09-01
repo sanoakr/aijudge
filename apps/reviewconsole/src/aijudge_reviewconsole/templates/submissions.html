@@ -19,7 +19,7 @@
         <option value="">すべて</option>
         {% for u in units %}
         <option value="{{ u.key }}" {{ 'selected' if filters.unit == u.key }}>
-          {{ u.unit or u.label }}{% if u.unit and u.session %}（{{ u.label }}）{% endif %}</option>
+          {{ u.unit or u.label }}{% if u.unit and u.session is not none %}（{{ u.label }}）{% endif %}</option>
         {% endfor %}
       </select></span>
     <span><label for="f-task">問題</label>

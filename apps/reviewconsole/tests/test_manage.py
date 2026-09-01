@@ -3378,3 +3378,40 @@ def test_a_grading_start_before_submissions_open_is_refused(world: World) -> Non
         },
     )
     assert response.status_code >= 400, "採点開始が提出開始より前でも通った"
+
+
+# --------------------------------------------------------------------------
+# 第 0 回の表示（#86）
+# --------------------------------------------------------------------------
+
+
+def test_the_zeroth_session_is_shown_and_survives_a_save(world: World) -> None:
+    """**`0` は「未設定」ではない。**
+
+    模型は 0 を受け付ける（#60）が、画面が `{% if unit.session %}` で畳んで
+    いたので第 0 回が消えていた。入力欄は `or` を使っており、**開いて保存し
+    直すだけで設定した 0 が失われた**。
+    """
+    from aijudge_core.ids import TaskId
+    from aijudge_reviewconsole.overview import unit_key
+
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    task_id = _import_example(world)
+    with world.database.unit_of_work() as uow:
+        unit = unit_key(uow.tasks.get_task(TaskId(task_id)))
+
+    client.post(f"/manage/courses/{world.course.id}/units/{unit}/number", data={"session": "0"})
+
+    # コースのページに出る。
+    assert "第 0 回" in client.get(f"/courses/{world.course.id}").text
+
+    # 入力欄が 0 を保持している。**空だと、保存し直したときに消える。**
+    page = client.get(f"/manage/courses/{world.course.id}/units/{unit}").text
+    assert 'id="session" name="session" type="number" min="0"' in page
+    assert 'value="0"' in page
+
+    # 実際に保存し直しても消えない。
+    client.post(f"/manage/courses/{world.course.id}/units/{unit}/number", data={"session": "0"})
+    with world.database.unit_of_work() as uow:
+        assert uow.tasks.get_task(TaskId(task_id)).session == 0
