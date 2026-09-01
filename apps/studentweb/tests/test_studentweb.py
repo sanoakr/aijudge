@@ -107,13 +107,18 @@ class World:
             uow.tasks.save_version(self.task_version)
             uow.commit()
 
-    def register(self, login: str, *, role: Role = Role.LEARNER):
+    def register(self, login: str, *, role: Role = Role.LEARNER, enrol: bool = True):
         with self.database.unit_of_work() as uow:
             service = AuthService(uow.identity)
             principal = service.register(
                 tenant_id=TENANT, login=login, display_name=login, password=PASSWORD
             )
-            service.enroll(tenant_id=TENANT, course_id=COURSE, user_id=principal.user_id, role=role)
+            # `enrol=False` は「登録はしたが、このコースは取っていない」利用者。
+            # 受講の有無で見え方が変わることを確かめるのに要る。
+            if enrol:
+                service.enroll(
+                    tenant_id=TENANT, course_id=COURSE, user_id=principal.user_id, role=role
+                )
             uow.commit()
         return principal
 
@@ -1263,3 +1268,40 @@ def test_maths_in_a_statement_are_rendered(world: World) -> None:
     body = world.client.get(f"/tasks/{latest.id}").text
     assert "<math" in body
     assert r"\bar" not in body
+
+
+# --------------------------------------------------------------------------
+# 課題文に貼られた画像（#64）
+# --------------------------------------------------------------------------
+
+
+def test_a_statement_image_is_served_to_the_enrolled_learner(world: World) -> None:
+    """課題文は受講者にしか出ないので、そこに貼られた画像も同じ範囲でよい。
+
+    **教員コンソールと同じ経路にしてある** ── 課題文は両方の画面に出るので、
+    絶対 URL を埋め込むとどちらかのホスト名が課題文に焼き付く。
+    """
+    from aijudge_authoring import images
+
+    world.register("s2400001")
+    world.login("s2400001")
+
+    name = images.new_name(b"fake png bytes", "shot.png")
+    world.store.put(images.storage_key(str(COURSE), name), b"fake png bytes")
+
+    response = world.client.get(f"/images/{COURSE}/{name}")
+    assert response.status_code == 200
+    assert response.content == b"fake png bytes"
+
+
+def test_a_statement_image_is_not_served_to_someone_outside_the_course(world: World) -> None:
+    """**存在と権限を区別しない。** 404 にして、コース ID の存在自体を漏らさない。"""
+    from aijudge_authoring import images
+
+    world.register("outsider", enrol=False)
+    world.login("outsider")
+
+    name = images.new_name(b"fake png bytes", "shot.png")
+    world.store.put(images.storage_key(str(COURSE), name), b"fake png bytes")
+
+    assert world.client.get(f"/images/{COURSE}/{name}").status_code == 404

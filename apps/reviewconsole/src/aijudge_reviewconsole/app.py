@@ -133,6 +133,8 @@ class Console:
         # 直前に片付けた問題セットの内訳（#59）。**件数だけでは足りない** ──
         # 削除と取り下げが混ざるので、何がどちらになったかを画面に出す。
         self.last_clear: tuple[str, object] | None = None
+        # 直前に上げた課題文の画像の貼り付け行（#64）。**URL を手で書かせない。**
+        self.last_image: tuple[str, str] | None = None
 
     def blind_sample_rate(self, subject_profile: str) -> float:
         """科目プロファイルが宣言した blind 抽出率。
