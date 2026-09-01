@@ -35,10 +35,14 @@
   {# 学期を通すと 15 行前後になる。**1 セット 1 行に収める**うえ、列を
      揃える ── 揃っていないと、締切や未確定の数を縦に読み比べられない。 #}
   {% for unit in units %}
-  <a class="row" href="/manage/courses/{{ course.id }}/units/{{ unit.key }}">
+  {# 中身が全部学習者に出ていないセットは、行そのものを分ける（#83）──
+     セットの中の課題には印を付けたが、**コースに並ぶセット自体**は生きて
+     いるものと同じ見た目のままだった。 #}
+  <a class="row{% if unit.hidden and unit.hidden == unit.count %} hidden-from-learners{% endif %}"
+     href="/manage/courses/{{ course.id }}/units/{{ unit.key }}">
     <b class="c-key">{{ unit.unit or unit.label }}</b>
     <span class="c-num desc">{% if unit.unit and unit.session is not none %}{{ unit.label }}{% endif %}</span>
-    <span class="c-count desc">{{ unit.count }} 問</span>
+    <span class="c-count desc">{{ unit.count }} 問{% if unit.hidden %}<br><span class="pill no">{% if unit.hidden == unit.count %}出題していません{% else %}うち {{ unit.hidden }} 問は非出題{% endif %}</span>{% endif %}</span>
     <span class="c-date desc">公開 {% if unit.opens_at %}{{ unit.opens_at.strftime('%m-%d %H:%M') }}{% else %}<em>未設定</em>{% endif %}</span>
     <span class="c-date desc">開始 {% if unit.submissions_open_at %}{{ unit.submissions_open_at.strftime('%m-%d %H:%M') }}{% elif unit.opens_at %}公開と同時{% else %}<em>未設定</em>{% endif %}</span>
     <span class="c-date desc">締切 {% if unit.due_at %}{{ unit.due_at.strftime('%m-%d %H:%M') }}{% else %}<em>未設定</em>{% endif %}</span>

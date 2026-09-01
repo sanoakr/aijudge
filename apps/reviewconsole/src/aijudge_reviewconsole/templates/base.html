@@ -193,6 +193,9 @@ h3{font-size:.95rem;margin:20px 0 8px;color:var(--ink)}
 /* 行のどこを押しても開く（JavaScript が付けたときだけ）。 */
 tr.row-link[data-clickable]:hover{background:var(--surface-2)}
 tr.hidden-from-learners > td{opacity:.55}
+/* セットの行そのものが学習者に出ていない場合（#83 の追補）。 */
+a.row.hidden-from-learners{opacity:.55}
+a.row.hidden-from-learners:hover{opacity:1}
 tr.hidden-from-learners:hover > td{opacity:1}
 .subsection{margin-top:24px;padding-top:18px;border-top:1px solid var(--line-soft)}
 .subsection > h3:first-child{margin-top:0}

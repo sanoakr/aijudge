@@ -3472,3 +3472,24 @@ def test_console_rows_open_from_anywhere_but_keep_their_link(world: World) -> No
     page = client.get(f"/manage/courses/{world.course.id}/units/{unit}").text
     assert f'data-href="/manage/courses/{world.course.id}/tasks/{task_id}/edit"' in page
     assert f'<a href="/manage/courses/{world.course.id}/tasks/{task_id}/edit">修正</a>' in page
+
+
+def test_a_fully_withdrawn_set_is_marked_on_the_course_page(world: World) -> None:
+    """**セットの中だけでなく、セット自体も分ける**（#83 の追補）。
+
+    #83 は問題セットの中の課題に印を付けたが、コースに並ぶセットの行は
+    生きているものと同じ見た目のままだった ── 一覧を上から読んで「この
+    コースに何が出ているか」を数えるときに、出ていないセットが混ざる。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    task_id = _import_example(world)
+
+    page = client.get(f"/courses/{world.course.id}").text
+    assert "出題していません" not in page
+
+    client.post(f"/manage/courses/{world.course.id}/tasks/{task_id}/withdraw")
+
+    page = client.get(f"/courses/{world.course.id}").text
+    assert "出題していません" in page
+    assert "hidden-from-learners" in page
