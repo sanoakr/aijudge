@@ -367,6 +367,60 @@ def test_submitting_queues_the_work_and_shows_a_pending_result(world: World) -> 
 
 
 @needs_c_compiler
+def test_the_waiting_notice_says_what_is_awaited_and_offers_to_poll(world: World) -> None:
+    """**「再読み込みしてください」だけを出さない。**
+
+    何秒後に何が変わるのか分からない案内は、F5 を連打させる。待っている
+    段階を名指しし、自動で取り直す口（`/state`）を画面に持たせる。
+    """
+    world.register("s2400001")
+    world.login("s2400001")
+    location = world.submit().headers["location"]
+
+    body = world.client.get(location).text
+    assert "テスト実行による判定がふつう数秒で届きます" in body
+    assert "/state" in body, "自動更新の問い合わせ先が画面に無い"
+    # JavaScript が無い環境には従来どおりの案内を残す。
+    assert "<noscript>この画面を再読み込みして確認してください。</noscript>" in body
+
+    submission_id = location.split("/")[-1].split("?")[0]
+    state = world.client.get(f"/submissions/{submission_id}/state").json()
+    assert state == {"working": True, "phase": "deterministic", "graded": False}
+
+
+@needs_c_compiler
+def test_the_learner_is_told_the_ai_phase_is_still_coming(world: World) -> None:
+    """決定的評価が届いた区間の穴。**ここで黙ると連打が起きる。**
+
+    採点は 2 段階（ADR 0011）で、テスト実行の結果が届いても AI 評価はまだ
+    来ていない。以前はこの区間に何の案内も無く、観点が「確認中」のまま
+    理由が示されなかった。
+    """
+    from aijudge_core import GradingPhase
+
+    world.register("s2400001")
+    world.login("s2400001")
+    location = world.submit().headers["location"]
+
+    # 決定的評価だけを走らせ、AI 評価はキューに残す。
+    world.worker.run_until_empty(phase=GradingPhase.DETERMINISTIC)
+
+    body = world.client.get(location).text
+    assert "AI 評価を待っています" in body
+    assert "テスト実行の結果は下に出ています" in body
+
+    submission_id = location.split("/")[-1].split("?")[0]
+    state = world.client.get(f"/submissions/{submission_id}/state").json()
+    assert state == {"working": True, "phase": "ai", "graded": True}
+
+    # 採点が終われば案内は消え、問い合わせ先も出ない。
+    world.worker.run_until_empty()
+    done = world.client.get(location).text
+    assert "AI 評価を待っています" not in done
+    assert "/state" not in done
+
+
+@needs_c_compiler
 def test_submitting_the_same_file_twice_does_not_create_a_second_attempt(world: World) -> None:
     """二度押しで提出が増えない。"""
     world.register("s2400001")
