@@ -177,9 +177,8 @@
   </a>
   {% elif file.is_pdf %}
   <p class="desc" style="margin:0 0 6px">{{ file.filename }}</p>
-  <object data="/submissions/{{ submission.id }}/artifacts/{{ file.id }}"
-          type="application/pdf" width="100%" height="600"
-          style="border:1px solid var(--line);border-radius:3px">
+  <object class="pdf-embed" data="/submissions/{{ submission.id }}/artifacts/{{ file.id }}"
+          type="application/pdf">
     {# 埋め込みに対応していないブラウザには導線を残す。 #}
     <p class="desc">この画面では表示できません。
       <a href="/submissions/{{ submission.id }}/artifacts/{{ file.id }}">PDF を開く</a></p>
