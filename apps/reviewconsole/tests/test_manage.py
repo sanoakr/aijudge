@@ -3424,3 +3424,30 @@ def test_the_zeroth_session_is_shown_and_survives_a_save(world: World) -> None:
     client.post(f"/manage/courses/{world.course.id}/units/{unit}/number", data={"session": "0"})
     with world.database.unit_of_work() as uow:
         assert uow.tasks.get_task(TaskId(task_id)).session == 0
+
+
+def test_a_withdrawn_task_is_visibly_apart_in_the_list(world: World) -> None:
+    """**学習者に出ているかどうかは、この画面で最も強い区別である**（#83）。
+
+    提出が来るかどうかがそれで決まる。ピルは他の印（自動テストなし・同じ題名）
+    と並ぶので、一覧を上から数えるときには効かない。
+    """
+    from aijudge_core.ids import TaskId
+    from aijudge_reviewconsole.overview import unit_key
+
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    task_id = _import_example(world)
+    with world.database.unit_of_work() as uow:
+        unit = unit_key(uow.tasks.get_task(TaskId(task_id)))
+
+    page = client.get(f"/manage/courses/{world.course.id}/units/{unit}").text
+    assert '<tr class="hidden-from-learners"' not in page
+    assert "学習者に出ていません" not in page
+
+    client.post(f"/manage/courses/{world.course.id}/tasks/{task_id}/withdraw")
+
+    page = client.get(f"/manage/courses/{world.course.id}/units/{unit}").text
+    assert '<tr class="hidden-from-learners"' in page, "行が出題中と同じ見た目のまま"
+    # 数えるときに気づける形にする。
+    assert "うち 1 問は学習者に出ていません" in page
