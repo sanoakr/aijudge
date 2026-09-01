@@ -19,7 +19,7 @@
   <input id="q" name="q" value="{{ q }}" placeholder="y2399" style="max-width:10rem"
          {{ 'autofocus' if q }}
          onfocus="this.setSelectionRange(this.value.length, this.value.length)">
-  <button type="submit">絞り込む</button>
+  <button type="submit">絞り込み</button>
   {% if q %}<a href="/manage/courses/{{ course.id }}/enrolments" class="desc">解除</a>{% endif %}
 </form>
 
@@ -57,7 +57,7 @@
         <form method="post"
               action="/manage/courses/{{ course.id }}/enrolments/{{ row.enrollment.user_id }}/remove"
               style="margin:0">
-          <button type="submit">受講を取り消す</button>
+          <button type="submit">受講の取り消し</button>
         </form>
         {% endif %}
       </td>

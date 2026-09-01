@@ -76,7 +76,7 @@
            ために引退や削除を使うのは、同一性を壊す操作を表示の都合で
            持ち出すことになる。 #}
         <details>
-          <summary class="desc">名前・説明を直す</summary>
+          <summary class="desc">名前・説明の修正</summary>
           <form method="post" action="/manage/courses/{{ course.id }}/kc/edit" style="margin:6px 0 0">
             <input type="hidden" name="key" value="{{ row.kc.key }}">
             <div class="field">
@@ -103,19 +103,19 @@
       {% if is_admin %}
       <td class="fit">
         <details>
-          <summary class="desc">{% if row.kc.deprecated %}引退を取り消す{% else %}引退させる{% endif %}</summary>
+          <summary class="desc">{% if row.kc.deprecated %}引退の取り消し{% else %}引退{% endif %}</summary>
           <form method="post" action="/manage/courses/{{ course.id }}/kc/retire" style="margin:6px 0 0">
             <input type="hidden" name="key" value="{{ row.kc.key }}">
             {% if row.kc.deprecated %}
               <input type="hidden" name="restore" value="1">
-              <div class="actions"><button type="submit">引退を取り消す</button></div>
+              <div class="actions"><button type="submit">引退の取り消し</button></div>
             {% else %}
               <div class="inline-field">
                 <span class="body">
                   <label for="sup-{{ loop.index }}">後継のキー（空欄なら後継なし）</label>
                   <input id="sup-{{ loop.index }}" name="superseded_by" placeholder="{{ namespaces[0] if namespaces }}.…">
                 </span>
-                <button type="submit">引退させる</button>
+                <button type="submit">引退</button>
               </div>
               <p class="desc" style="margin:8px 0 0">
                 <strong>引退させても消えません。</strong>ID はキーから導かれ、Q-matrix は追記のみなので、
@@ -130,14 +130,14 @@
            永久に並ぶ。 #}
         {% if not row.used %}
         <details>
-          <summary class="desc">削除する</summary>
+          <summary class="desc">削除</summary>
           <form method="post" action="/manage/courses/{{ course.id }}/kc/delete" style="margin:6px 0 0">
             <input type="hidden" name="key" value="{{ row.kc.key }}">
             <p class="desc" style="margin:0 0 6px">
               この知識要素は<strong>まだどの課題でも使われていません</strong>。
               打ち間違いならここで消せます（<strong>コースをまたいで消えます</strong>）。
             </p>
-            <div class="actions"><button type="submit">削除する</button></div>
+            <div class="actions"><button type="submit">削除</button></div>
           </form>
         </details>
         {% endif %}
@@ -172,7 +172,7 @@
       既にある {{ existing | length }} 件に寄せるよう指示します（重複を作らないため）。
     </span>
     <span class="working flash reading" hidden></span>
-    <button type="submit">候補を出す</button>
+    <button type="submit">候補を生成</button>
   </div>
 </form>
 {% else %}
@@ -219,7 +219,7 @@
         </td>
         <td class="fit">
           {% if not known %}
-          <button type="submit" name="use" value="{{ k.key }}">この候補を使う</button>
+          <button type="submit" name="use" value="{{ k.key }}">この候補を採用</button>
           {% endif %}
         </td>
       </tr>
@@ -298,6 +298,6 @@
     <strong>改名はできません</strong> — ID がキーから決まり、過去の採点がそれを指しているためです。
     誤って作ったものは引退させてください。
   </p>
-  <div class="actions"><button type="submit">追加する</button></div>
+  <div class="actions"><button type="submit">追加</button></div>
 </form>
 {% endblock %}

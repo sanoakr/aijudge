@@ -1311,7 +1311,7 @@ def test_the_key_is_not_editable_from_the_page(world: World) -> None:
     )
 
     page = client.get(f"/manage/courses/{world.course.id}/kc").text
-    form = page[page.index("名前・説明を直す") :]
+    form = page[page.index("名前・説明の修正") :]
     # 送るのは label と description だけ。key は hidden で固定。
     assert 'name="label"' in form
     assert 'name="description"' in form
@@ -1520,7 +1520,7 @@ def test_the_delete_control_is_hidden_for_a_used_component(world: World) -> None
     )
 
     page = client.get(f"/manage/courses/{world.course.id}/kc").text
-    assert "削除する" not in page
+    assert ">削除<" not in page
     # 直接叩いても消えない。
     response = client.post(f"/manage/courses/{world.course.id}/kc/delete", data={"key": "cs.loops"})
     assert response.status_code == 400
@@ -2395,7 +2395,7 @@ def test_a_task_without_submissions_can_be_deleted(world: World) -> None:
     task_id = _import_example(world)
 
     page = client.get(f"/manage/courses/{world.course.id}/tasks/{task_id}/edit").text
-    assert "この課題を削除する" in page
+    assert "この課題を削除" in page
 
     response = client.post(
         f"/manage/courses/{world.course.id}/tasks/{task_id}/delete", follow_redirects=False
@@ -2475,7 +2475,7 @@ def test_a_regrade_is_offered_only_when_something_is_on_an_older_version(world: 
 
     # 提出も採点も無いので、採点し直すものは無い。
     page = client.get(f"/manage/courses/{world.course.id}/tasks/{task_id}/edit").text
-    assert "いまの版で採点し直す" not in page
+    assert "いまの版で再採点" not in page
 
 
 # --------------------------------------------------------------------------
@@ -2722,7 +2722,7 @@ def test_the_settings_page_offers_a_trial(world: World) -> None:
     """`language` の取り違えは設定の検査では捕まらない。試す道具を置く。"""
     world.register("teacher", Role.INSTRUCTOR)
     body = world.client("teacher").get(f"/manage/courses/{world.course.id}").text
-    assert "この設定で試す" in body
+    assert "この設定で試行" in body
     assert "このコースだけに効きます" in body
 
 

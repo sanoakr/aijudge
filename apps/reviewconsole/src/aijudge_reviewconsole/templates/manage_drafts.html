@@ -141,7 +141,7 @@
      還流させる操作で、「少し直せば使える」課題まで却下に回すと、その理由が
      プロンプトの改善材料として役に立たない。 #}
   <p class="desc">
-    <a href="/manage/courses/{{ course.id }}/tasks/{{ row.task.id }}/edit">問題文・ルーブリックを直す →</a>
+    <a href="/manage/courses/{{ course.id }}/tasks/{{ row.task.id }}/edit">問題文・ルーブリックの修正 →</a>
     直したうえで承認できます（直すと版が上がります）。
   </p>
 
@@ -156,8 +156,8 @@
         placeholder="例: 入力の形式が課題文に書かれておらず、解答者によって読みが分かれます。"></textarea>
     </fieldset>
     <div class="actions">
-      <button type="submit" name="decision" value="reject">却下する</button>
-      <button type="submit" name="decision" value="approve">承認して出題可能にする</button>
+      <button type="submit" name="decision" value="reject">却下</button>
+      <button type="submit" name="decision" value="approve">承認して出題可能化</button>
     </div>
   </form>
 </div>

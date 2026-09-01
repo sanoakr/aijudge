@@ -928,7 +928,7 @@ def test_the_learner_box_is_not_submitted_per_keystroke(world: World) -> None:
     assert "setTimeout" not in body, "打つたびに送っている"
     # 確定は Enter か欄を離れたとき（`change`）。送信ボタンは置かない。
     assert "onchange=" in body
-    assert body.count(">絞り込む<") == 1, "JavaScript 無しのための 1 つだけ"
+    assert body.count(">絞り込み<") == 1, "JavaScript 無しのための 1 つだけ"
 
 
 def test_the_learner_box_keeps_the_focus(world: World) -> None:
