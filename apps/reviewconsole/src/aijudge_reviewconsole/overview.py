@@ -24,6 +24,7 @@ from urllib.parse import quote, unquote
 from aijudge_admin import pending_counts
 from aijudge_core import (
     Course,
+    ReviewState,
     Role,
     Task,
     TaskVersion,
@@ -64,6 +65,9 @@ class UnitGroup:
     accepts_until: datetime | None
     # 採点を始める時刻（試験・#67）。空なら提出と同時に採点する。
     grading_starts_at: datetime | None
+    # 学習者に出ていない課題の数（取り下げ・却下）。**セットの一覧で要る**
+    # ── 中を開かないと、そのセットがもう出ていないことに気づけない（#83）。
+    hidden: int
     # このセットで実際に効く猶予（分）。課題の指定が無ければコースの既定。
     grace: int | None
     # セット内で日程がばらついているか。
@@ -170,6 +174,11 @@ def load_units(
                 # 隠さない側に倒す。
                 grading_starts_at=max(grading) if grading else None,
                 grace=grace,
+                hidden=sum(
+                    1
+                    for task, version in items
+                    if task.withdrawn or version.provenance.review_state is ReviewState.REJECTED
+                ),
                 mixed=_mixed(tasks),
                 unfinalized=sum(counts.get(task.id, 0) for task, _ in items),
                 deadline_passed=due_at is not None and moment >= due_at,
@@ -226,6 +235,7 @@ def empty_unit(key: str, course: Course, *, now: datetime | None = None) -> Unit
         accepts_until=None,
         grading_starts_at=None,
         grace=course.auto_finalize_after_minutes,
+        hidden=0,
         mixed=False,
         unfinalized=0,
         deadline_passed=False,
