@@ -137,12 +137,18 @@ class SubmissionService:
         subject_profile: str,
         files: Sequence[IncomingFile],
         idempotency_key: str | None = None,
+        grading_starts_at: datetime | None = None,
     ) -> AcceptResult:
         """提出を受け付ける。
 
         手書き画像（Phase 6）以外はここで一足飛びに SUBMITTED まで進む。
         書き起こしを挟む経路は `Submission.state` の遷移で表現され、
         確定するまで採点ジョブを積まない。
+
+        `grading_starts_at` を渡すと、**ジョブは積むがその時刻まで走らせない**
+        （試験・#67）。ここが受け取るのは時刻だけで、なぜ遅らせるのかは
+        知らない ── 課題も締切もこの層には持ち込まない（`subject_profile` を
+        文字列で受けているのと同じ）。
         """
         if not files:
             raise SubmissionRejected("提出物がありません")
@@ -161,7 +167,14 @@ class SubmissionService:
                     # 提出は残ったがジョブが入らなかった（前回の投入が
                     # 途中で落ちた）。ここで補う。取りこぼした提出を
                     # 永久に未採点で放置しないため。
-                    job = self._enqueue(uow, existing, tenant_id, subject_profile, now)
+                    job = self._enqueue(
+                        uow,
+                        existing,
+                        tenant_id,
+                        subject_profile,
+                        now,
+                        starts_at=grading_starts_at,
+                    )
                     uow.commit()
                 return AcceptResult(submission=existing, job=job, deduplicated=True)
 
@@ -187,7 +200,14 @@ class SubmissionService:
 
             uow.submissions.save(submission)
             uow.submissions.remember_idempotency_key(tenant_id, key, submission.id)
-            job = self._enqueue(uow, submission, tenant_id, subject_profile, now)
+            job = self._enqueue(
+                uow,
+                submission,
+                tenant_id,
+                subject_profile,
+                now,
+                starts_at=grading_starts_at,
+            )
             uow.outbox.append(
                 SubmissionCreated(
                     event_id=EventId(new_id("evt")),
@@ -297,6 +317,7 @@ class SubmissionService:
         reason: JobReason = JobReason.SUBMISSION,
         discriminator: str = "",
         task_version_id: TaskVersionId | None = None,
+        starts_at: datetime | None = None,
     ) -> GradingJob:
         target = task_version_id or submission.task_version_id
         # 版を指定したときは冪等キーに混ぜる（同上の理由）。
@@ -312,7 +333,9 @@ class SubmissionService:
                 reason=reason,
                 idempotency_key=key,
                 max_attempts=self._max_attempts,
-                available_at=now,
+                # **過去の時刻で遅らせない。** 試験が終わったあとに出された
+                # 提出は、待たせる理由が無いのでそのまま採点する。
+                available_at=max(now, starts_at) if starts_at else now,
                 created_at=now,
                 updated_at=now,
             )

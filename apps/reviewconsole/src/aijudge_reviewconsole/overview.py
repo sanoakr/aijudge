@@ -60,6 +60,8 @@ class UnitGroup:
     opens_at: datetime | None
     submissions_open_at: datetime | None
     due_at: datetime | None
+    # 採点を始める時刻（試験・#67）。空なら提出と同時に採点する。
+    grading_starts_at: datetime | None
     # このセットで実際に効く猶予（分）。課題の指定が無ければコースの既定。
     grace: int | None
     # セット内で日程がばらついているか。
@@ -143,6 +145,7 @@ def load_units(
         opens = [task.opens_at for task in tasks if task.opens_at]
         starts = [task.submissions_open_at for task in tasks if task.submissions_open_at]
         dues = [task.due_at for task in tasks if task.due_at]
+        grading = [task.grading_starts_at for task in tasks if task.grading_starts_at]
         # 代表値は「最も早い公開・最も遅い締切」。揃っていれば同じ値になる。
         due_at = max(dues) if dues else None
         grace = grace_minutes(head.auto_finalize_after_minutes, course.auto_finalize_after_minutes)
@@ -156,6 +159,10 @@ def load_units(
                 opens_at=min(opens) if opens else None,
                 submissions_open_at=min(starts) if starts else None,
                 due_at=due_at,
+                # **最も遅い時刻を代表にする。** 揃っていれば同じ値で、
+                # ばらついているときに「まだ採点しない課題がある」を
+                # 隠さない側に倒す。
+                grading_starts_at=max(grading) if grading else None,
                 grace=grace,
                 mixed=_mixed(tasks),
                 unfinalized=sum(counts.get(task.id, 0) for task, _ in items),
@@ -176,6 +183,9 @@ def _mixed(tasks: list[Task]) -> bool:
             task.opens_at,
             task.submissions_open_at,
             task.due_at,
+            # 採点開始がばらついているのは試験として壊れている ── 一部だけ
+            # 採点が始まると、その結果が試験中に返る（#67）。
+            task.grading_starts_at,
             task.auto_finalize_after_minutes,
         )
         for task in tasks
@@ -206,6 +216,7 @@ def empty_unit(key: str, course: Course, *, now: datetime | None = None) -> Unit
         opens_at=None,
         submissions_open_at=None,
         due_at=None,
+        grading_starts_at=None,
         grace=course.auto_finalize_after_minutes,
         mixed=False,
         unfinalized=0,

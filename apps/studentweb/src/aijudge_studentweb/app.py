@@ -280,6 +280,10 @@ def create_app(app_state: StudentApp) -> FastAPI:
                 learner_id=me.user_id,
                 subject_profile=course_obj.subject_profile,
                 files=[IncomingFile(filename=filename, kind=kind, payload=payload)],
+                # 試験の問題セットでは、採点はここでは走らせない（#67）。
+                # テスト実行の結果は「どのケースで落ちたか」を含むので、
+                # **試験中の学習者にとっては答えの一部**である。
+                grading_starts_at=_task.grading_starts_at,
             )
         except SubmissionRejected as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -335,6 +339,10 @@ def create_app(app_state: StudentApp) -> FastAPI:
                 "duplicate": bool(again),
                 "awaiting_deterministic": loaded.awaiting_deterministic,
                 "awaiting_ai": loaded.awaiting_ai,
+                # 試験の問題セットか（#67）。**時刻は出さない** ── 教員は
+                # 途中で採点を流せるし、試験は延長されうるので、時刻を
+                # 約束すると両方向に食い違う。
+                "grading_held": loaded.grading_held,
                 "grading_in_progress": loaded.grading_in_progress,
                 "min_reason": MIN_JUSTIFICATION_LENGTH,
                 **build_context(loaded.course, loaded.task, loaded.version, loaded.submission),
@@ -357,7 +365,9 @@ def create_app(app_state: StudentApp) -> FastAPI:
         loaded = _submission_view(app_state, me, SubmissionId(submission_id))
         return JSONResponse(
             {
-                "working": loaded.grading_in_progress,
+                # **試験中は「動いている」と言わない。** 言うと画面が
+                # 問い合わせ続ける（#67）。
+                "working": loaded.grading_in_progress and not loaded.grading_held,
                 "phase": (
                     "deterministic"
                     if loaded.awaiting_deterministic
@@ -610,6 +620,8 @@ class LoadedSubmission:
     # 学習者は再読み込みを繰り返すしかない。
     awaiting_deterministic: bool = False
     awaiting_ai: bool = False
+    # 採点開始時刻がまだ来ていない（試験・#67）。
+    grading_held: bool = False
 
     @property
     def grading_in_progress(self) -> bool:
@@ -648,6 +660,9 @@ def _submission_view(
         # あって確定ではない（ADR 0010）。
         finalization = None if run is None else uow.reviews.find_finalization_for_run(run.id)
         awaiting_deterministic = uow.jobs.awaiting(submission_id, GradingPhase.DETERMINISTIC)
+        # 待っているのが「順番」なのか「試験の終わり」なのかで、画面に
+        # 書くことも自動更新の要否も変わる。
+        held = bool(uow.jobs.waiting_count([submission_id], now()))
         awaiting_ai = uow.jobs.awaiting(submission_id, GradingPhase.AI)
 
     view = (
@@ -675,6 +690,7 @@ def _submission_view(
         view=view,
         awaiting_deterministic=awaiting_deterministic,
         awaiting_ai=awaiting_ai,
+        grading_held=held,
     )
 
 

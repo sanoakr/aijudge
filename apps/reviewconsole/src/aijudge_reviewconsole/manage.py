@@ -405,6 +405,7 @@ SAVED_MESSAGES: dict[str, str] = {
     "restored": "出題の取り下げを取り消しました",
     "task_deleted": "課題を削除しました（提出が 1 件も無いもの）",
     "unit_cleared": "問題セットを片付けました",
+    "released": "いままでの提出を採点に回しました（以後の提出はまた採点開始時刻まで待ちます）",
     "image": "画像を保存しました。下の 1 行を課題文に貼り付けてください",
     "kc_added": "知識要素を追加しました",
     "kc_retired": "知識要素を引退させました",
@@ -444,6 +445,37 @@ def _unit_group(console, course, unit: str):
     if group is None:
         raise HTTPException(status_code=404, detail="問題セットが見つかりません")
     return group
+
+
+def _exam_state(console, course, group, now: datetime) -> dict[str, object]:
+    """試験の問題セットの状態（#67）。
+
+    **落ちたジョブを必ず出す。** 一括採点で 90 名分が一斉に流れて一部が
+    落ちると、いまはログにしか出ない ── 気づかなければ、その提出だけ成績が
+    欠けたまま確定する。
+    """
+    version_ids = {str(version.id) for _task, version in group.tasks}
+    if not version_ids:
+        return {"waiting_jobs": 0, "failed_jobs": (), "last_release": None}
+    with console.database.unit_of_work() as uow:
+        submissions = [
+            submission
+            for submission in uow.submissions.list_for_course(course.id)
+            if str(submission.task_version_id) in version_ids
+        ]
+        ids = [s.id for s in submissions]
+        failed = uow.jobs.failed_for(ids)
+        # 待たせている件数は「流したら何件動くか」。押す前に出す。
+        waiting = uow.jobs.waiting_count(ids, now)
+    return {
+        "waiting_jobs": waiting,
+        "failed_jobs": failed,
+        "last_release": (
+            console.last_release[1]
+            if console.last_release is not None and console.last_release[0] == str(course.id)
+            else None
+        ),
+    }
 
 
 def _clear_plan(console, course, group) -> dict[str, int]:
@@ -970,6 +1002,8 @@ def register(templates) -> APIRouter:
                 # でないと分からないのでは確認にならない** ── 1 回の操作で
                 # 課題ごとに削除か取り下げかが変わる。
                 "clear_plan": _clear_plan(console, course, group),
+                # 試験の一括採点（#67）。待機中の件数と、落ちたジョブ。
+                **_exam_state(console, course, group, now),
                 "min_reason": MIN_JUSTIFICATION_LENGTH,
                 # コースの既定。問題セットで指定しなければこれが効く。
                 "course_grace": course.auto_finalize_after_minutes,
@@ -1010,6 +1044,42 @@ def register(templates) -> APIRouter:
                     else None
                 ),
             },
+        )
+
+    @router.post("/courses/{course_id}/units/{unit}/grade-now")
+    def grade_now(request: Request, course_id: str, unit: str) -> Response:
+        """いま溜まっている提出を採点する（#67）。**何度でも押せる。**
+
+        試験モードを解除しない ── 押したあとに出された提出はまた採点開始時刻
+        まで待つ。試験中に「ここまでの提出が採点を通るか」を確かめられ、
+        延長しても勝手に始まらない、という両方が要るため。
+
+        やっているのは**寝かせてあるジョブの時刻を早めることだけ**で、採点
+        そのものはワーカーが走らせる（提出時と同じ経路）。ここで採点を
+        起動すると、レビュー画面が採点器を呼ぶ構造に戻る（ADR 0007）。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+        group = _unit_group(console, course, unit)
+
+        version_ids = {str(version.id) for _task, version in group.tasks}
+        now = datetime.now(UTC)
+        with console.database.unit_of_work() as uow:
+            submissions = [
+                submission
+                for submission in uow.submissions.list_for_course(course.id)
+                if str(submission.task_version_id) in version_ids
+            ]
+            released = uow.jobs.release_waiting([s.id for s in submissions], now)
+            uow.commit()
+
+        console.last_release = (str(course.id), released)
+        return RedirectResponse(
+            f"/manage/courses/{course_id}/units/{group.key}?saved=released#schedule",
+            status_code=303,
         )
 
     @router.post("/courses/{course_id}/images")
@@ -1109,6 +1179,7 @@ def register(templates) -> APIRouter:
         opens_at: Annotated[str, Form()] = "",
         submissions_open_at: Annotated[str, Form()] = "",
         due_at: Annotated[str, Form()] = "",
+        grading_starts_at: Annotated[str, Form()] = "",
     ) -> Response:
         """**問題セットの日程。その中の全課題に同じ値を入れる。**
 
@@ -1127,6 +1198,8 @@ def register(templates) -> APIRouter:
                 "opens_at": _parse_when(opens_at),
                 "submissions_open_at": _parse_when(submissions_open_at),
                 "due_at": _parse_when(due_at),
+                # 試験の問題セット（#67）。空なら提出と同時に採点する。
+                "grading_starts_at": _parse_when(grading_starts_at),
             },
             saved="schedule",
         )

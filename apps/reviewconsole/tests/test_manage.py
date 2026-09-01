@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import io
 import zipfile
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -3300,3 +3301,79 @@ def test_a_format_that_cannot_be_pasted_is_refused(world: World) -> None:
         files={"upload": ("report.pdf", b"%PDF-1.7", "application/pdf")},
     )
     assert response.status_code == 400
+
+
+# --------------------------------------------------------------------------
+# 試験の問題セット（#67）
+# --------------------------------------------------------------------------
+
+
+def _exam_unit(world: World, *, starts_at):
+    """この問題セットを試験の設定にする（採点開始時刻を先に置く）。"""
+    from aijudge_core.ids import TaskId
+    from aijudge_reviewconsole.overview import unit_key
+
+    task_id = _import_example(world)
+    with world.database.unit_of_work() as uow:
+        task = uow.tasks.get_task(TaskId(task_id))
+        uow.tasks.save_task(task.model_copy(update={"grading_starts_at": starts_at}))
+        uow.commit()
+        unit = unit_key(task)
+    return task_id, unit
+
+
+def test_the_unit_page_shows_how_many_submissions_are_waiting(world: World) -> None:
+    """**押す前に「何件動くか」を出す。** 押してからでは確認にならない。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    _task_id, unit = _exam_unit(world, starts_at=datetime.now(UTC) + timedelta(hours=2))
+
+    page = client.get(f"/manage/courses/{world.course.id}/units/{unit}").text
+    assert "採点の待機" in page
+    assert "いま待機している提出は 0 件です" in page
+    assert "/grade-now" in page
+    # 試験の設定であることと、その時刻が教員には見えている。
+    assert "この問題セットは" in page and "試験の設定" in page
+
+
+def test_grading_now_does_not_turn_the_exam_setting_off(world: World) -> None:
+    """**何度でも押せる。** 押したあとの提出はまた採点開始時刻まで待つ。
+
+    試験中に「ここまでの提出が採点を通るか」を確かめられ、延長しても勝手に
+    始まらない、の両方が要る。
+    """
+    from aijudge_core.ids import TaskId
+
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    task_id, unit = _exam_unit(world, starts_at=datetime.now(UTC) + timedelta(hours=2))
+
+    response = client.post(
+        f"/manage/courses/{world.course.id}/units/{unit}/grade-now", follow_redirects=False
+    )
+    assert response.status_code == 303
+
+    with world.database.unit_of_work() as uow:
+        task = uow.tasks.get_task(TaskId(task_id))
+    assert task.grading_starts_at is not None, "試験の設定が解除された"
+
+
+def test_a_grading_start_before_submissions_open_is_refused(world: World) -> None:
+    """提出が始まる前に「採点を待つ」状態を作らない。
+
+    教員が試験モードだと思っている画面で、提出が即座に採点されることになる。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    _task_id, unit = _exam_unit(world, starts_at=None)
+
+    response = client.post(
+        f"/manage/courses/{world.course.id}/units/{unit}/schedule",
+        data={
+            "opens_at": "2026-09-01T09:00",
+            "submissions_open_at": "2026-09-01T10:00",
+            "due_at": "2026-09-01T12:00",
+            "grading_starts_at": "2026-09-01T09:30",
+        },
+    )
+    assert response.status_code >= 400, "採点開始が提出開始より前でも通った"

@@ -135,6 +135,9 @@ class Console:
         self.last_clear: tuple[str, object] | None = None
         # 直前に上げた課題文の画像の貼り付け行（#64）。**URL を手で書かせない。**
         self.last_image: tuple[str, str] | None = None
+        # 直前に採点へ回した件数（#67）。**0 件だったことも伝える** ──
+        # 押したのに何も起きなかったのが正常なのか異常なのか分からない。
+        self.last_release: tuple[str, int] | None = None
 
     def blind_sample_rate(self, subject_profile: str) -> float:
         """科目プロファイルが宣言した blind 抽出率。

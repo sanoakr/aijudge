@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 import shutil
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -1305,3 +1305,77 @@ def test_a_statement_image_is_not_served_to_someone_outside_the_course(world: Wo
     world.store.put(images.storage_key(str(COURSE), name), b"fake png bytes")
 
     assert world.client.get(f"/images/{COURSE}/{name}").status_code == 404
+
+
+# --------------------------------------------------------------------------
+# 試験の問題セット ── 提出だけ受け付け、採点は後で（#67）
+# --------------------------------------------------------------------------
+#
+# テスト実行の結果は「どのケースで落ちたか」を含むので、**試験中の学習者に
+# とっては答えの一部**である。返し続けると提出 → 結果 → 直して再提出が回り、
+# 実力ではなく試行回数を測ることになる。
+#
+# **採点しない**のであって、結果を隠すのではない。隠す作りは「見せない判断」が
+# 1 か所抜けた時点で答えが漏れるが、こちらは採点結果がまだ存在しない。
+
+
+def _hold_grading(world: World, *, when: datetime) -> None:
+    """この課題の採点開始時刻を先に置く（試験の設定）。"""
+    from aijudge_core.ids import TaskId
+
+    with world.database.unit_of_work() as uow:
+        task = uow.tasks.get_task(TaskId(world.task_version.task_id))
+        uow.tasks.save_task(task.model_copy(update={"grading_starts_at": when}))
+        uow.commit()
+
+
+@needs_c_compiler
+def test_a_submission_during_an_exam_is_accepted_but_not_graded(world: World) -> None:
+    """**提出は受け付ける。** 採点だけを後回しにする。"""
+    _hold_grading(world, when=datetime.now(UTC) + timedelta(hours=2))
+    world.register("s2400001")
+    world.login("s2400001")
+
+    world.submit()
+    # ワーカーを回しても、まだ取れない。
+    world.worker.run_until_empty()
+
+    with world.database.unit_of_work() as uow:
+        submissions = uow.submissions.list_for_course(COURSE)
+        assert len(submissions) == 1, "提出が受け付けられていない"
+        assert uow.runs.latest_for(submissions[0].id) is None, "試験中に採点された"
+
+
+@needs_c_compiler
+def test_the_learner_is_told_that_grading_comes_later(world: World) -> None:
+    """**時刻は出さない。** 教員は途中で流せるし、試験は延長されうる。"""
+    _hold_grading(world, when=datetime.now(UTC) + timedelta(hours=2))
+    world.register("s2400001")
+    world.login("s2400001")
+    location = world.submit().headers["location"]
+
+    body = world.client.get(location).text
+    assert "提出だけを受け付けています" in body
+    assert "試験の終了後" in body
+    assert "テスト実行による判定がふつう数秒で届きます" not in body
+
+    # **自動更新を回さない。** 試験時間のあいだ問い合わせ続けても意味が無い。
+    # （`data-poll` の語は base.html の script にも出るので、属性の形で見る。）
+    assert 'data-poll="/submissions' not in body
+    submission_id = location.split("/")[-1].split("?")[0]
+    state = world.client.get(f"/submissions/{submission_id}/state").json()
+    assert state["working"] is False
+
+
+@needs_c_compiler
+def test_a_submission_after_the_grading_time_is_graded_at_once(world: World) -> None:
+    """**過去の時刻で遅らせない。** 試験が終わったあとの提出は待たせる理由が無い。"""
+    _hold_grading(world, when=datetime.now(UTC) - timedelta(hours=1))
+    world.register("s2400001")
+    world.login("s2400001")
+    world.submit()
+    world.worker.run_until_empty()
+
+    with world.database.unit_of_work() as uow:
+        (submission,) = uow.submissions.list_for_course(COURSE)
+        assert uow.runs.latest_for(submission.id) is not None
