@@ -1427,3 +1427,21 @@ def test_a_submission_after_the_acceptance_end_is_refused(world: World) -> None:
     response = world.submit()
     assert response.status_code == 409
     assert "受付は終了しました" in response.json()["detail"]
+
+def test_every_task_row_carries_its_link(world: World) -> None:
+    """行のどこを押しても開く。**「開く」も残す。**
+
+    行のクリックは JavaScript でしか作れない（素の HTML に行リンクは無い）
+    ので、無い環境ではリンクを辿ることになる。キーボード操作と
+    スクリーンリーダーも同じ。
+    """
+    from datetime import timedelta
+
+    world.register("s2400001")
+    world.login("s2400001")
+    now = datetime.now(UTC)
+    _set_task(world, opens_at=now - timedelta(days=1), due_at=now + timedelta(days=7))
+
+    body = world.client.get(f"/courses/{COURSE}").text
+    assert f'data-href="/tasks/{world.task_version.id}"' in body
+    assert f'<a href="/tasks/{world.task_version.id}">開く</a>' in body

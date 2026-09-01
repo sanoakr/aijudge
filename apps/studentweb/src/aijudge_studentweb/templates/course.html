@@ -37,7 +37,10 @@
   <tbody>
   {% for task, version in unit.tasks %}
     {% set p = progress.get(version.id, no_progress) %}
-    <tr>
+    {# **行のどこを押しても開く。** 「開く」は残す ── 行のクリックは
+       JavaScript でしか作れず（素の HTML に行リンクは無い）、キーボード
+       操作とスクリーンリーダーはリンクを辿るため。 #}
+    <tr class="row-link" data-href="/tasks/{{ version.id }}">
       <td class="fit mono">{{ 'p%d' | format(task.position) if task.position else '—' }}</td>
       <td class="grow">{{ task.title }}</td>
       <td class="fit">

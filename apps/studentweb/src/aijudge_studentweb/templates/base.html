@@ -47,6 +47,9 @@ td.grow,th.grow{width:auto}
 table td:first-child,table th:first-child{min-width:12em}
 @media (max-width:720px){table td:first-child,table th:first-child{min-width:0}}
 th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line-soft);vertical-align:top}
+/* 行のどこを押しても開く（JavaScript が付けたときだけ）。押せることが
+   見て分かるように、hover で背景を変える。 */
+tr.row-link[data-clickable]:hover{background:var(--surface-2)}
 thead th{font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);
   font-weight:400;background:var(--surface-2)}
 code,pre,.mono{font-family:ui-monospace,"SFMono-Regular",monospace}
@@ -207,6 +210,32 @@ header.top button{background:none;color:var(--muted);border:1px solid var(--line
 // JavaScript でしか動かない表示を出す。**片方の機能に紐づけない** ──
 // 採点待ちのない画面ではカウントダウンが隠れたままになる。
 document.querySelectorAll(".js-only").forEach(function (el) { el.hidden = false; });
+
+{# 行のどこを押しても開く。**リンクは消さない** ── これは JavaScript でしか
+   作れないので、無ければ「開く」を辿ることになる。
+
+   選択（ドラッグ）を潰さないよう、**押した位置から動いていたら開かない**。
+   一覧の課題名をコピーしたい、は普通の操作である。 #}
+(function () {
+  var rows = document.querySelectorAll("tr.row-link[data-href]");
+  if (!rows.length) return;
+  rows.forEach(function (row) {
+    row.setAttribute("data-clickable", "1");
+    row.style.cursor = "pointer";
+    var from = null;
+    row.addEventListener("mousedown", function (event) {
+      from = [event.clientX, event.clientY];
+    });
+    row.addEventListener("click", function (event) {
+      // 行の中のリンクやボタンは、そちらの動きを優先する。
+      if (event.target.closest("a, button, input, label")) return;
+      if (from && Math.hypot(event.clientX - from[0], event.clientY - from[1]) > 4) return;
+      // 修飾キーと中クリックは、ブラウザの「別タブで開く」に任せる。
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
+      window.location.href = row.getAttribute("data-href");
+    });
+  });
+})();
 
 {# 締切までの残り（#73）。**サーバが渡した秒数から数える** ── 学習者の PC の
    時計と締切を比べると、数分のずれがそのまま「あと 3 分」と表示されながら
