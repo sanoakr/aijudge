@@ -130,6 +130,9 @@ class Console:
         # **コースを添えるのは Console が全利用者で共有だから。** 添えないと、
         # 別のコースの教員に他コースの課題名が出る。
         self.last_finalize: tuple[str, object] | None = None
+        # 直前に片付けた問題セットの内訳（#59）。**件数だけでは足りない** ──
+        # 削除と取り下げが混ざるので、何がどちらになったかを画面に出す。
+        self.last_clear: tuple[str, object] | None = None
 
     def blind_sample_rate(self, subject_profile: str) -> float:
         """科目プロファイルが宣言した blind 抽出率。

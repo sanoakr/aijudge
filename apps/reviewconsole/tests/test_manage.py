@@ -3210,3 +3210,52 @@ def test_destructive_actions_ask_before_they_run(world: World) -> None:
     assert page.index("/unit") < page.index("/withdraw") < page.index("/delete"), (
         "移動・取り下げ・削除の並びが違う"
     )
+
+
+# --------------------------------------------------------------------------
+# 問題セットを丸ごと片付ける（#59）
+# --------------------------------------------------------------------------
+
+
+def test_the_unit_page_states_the_breakdown_before_it_is_pressed(world: World) -> None:
+    """**押してからでないと分からないのでは確認にならない。**
+
+    1 回の操作で課題ごとに結果が変わる（提出が無ければ削除、あれば取り下げ）
+    ので、削除が何件で取り下げが何件かを押す前に出す。
+    """
+    from aijudge_core.ids import TaskId
+    from aijudge_reviewconsole.overview import unit_key
+
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    task_id = _import_example(world)
+    with world.database.unit_of_work() as uow:
+        unit = unit_key(uow.tasks.get_task(TaskId(task_id)))
+
+    page = client.get(f"/manage/courses/{world.course.id}/units/{unit}").text
+
+    assert "/clear" in page, "片付ける導線が無い"
+    assert "この問題セットを片付ける" in page
+    # 提出がまだ無いので、全件が削除の見込みとして出る。
+    assert "提出が 1 件も無い 1 件は削除" in page
+    assert "data-confirm=" in page, "確認なしで消せてしまう"
+
+
+def test_clearing_a_unit_deletes_what_is_unused(world: World) -> None:
+    """規則は `aijudge_admin.tasks` に置いてあり、画面はそれを呼ぶだけ。"""
+    from aijudge_core.ids import TaskId
+    from aijudge_reviewconsole.overview import unit_key
+
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    task_id = _import_example(world)
+    with world.database.unit_of_work() as uow:
+        unit = unit_key(uow.tasks.get_task(TaskId(task_id)))
+
+    response = client.post(
+        f"/manage/courses/{world.course.id}/units/{unit}/clear", follow_redirects=False
+    )
+    assert response.status_code == 303
+
+    with world.database.unit_of_work() as uow:
+        assert uow.tasks.get_task(TaskId(task_id)) is None
