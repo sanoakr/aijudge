@@ -248,6 +248,24 @@ class TaskVersion(BaseModel):
         raise KeyError(f"no criterion {criterion_id!r} in {self.id!r}")
 
 
+class SubmissionWindow(StrEnum):
+    """いま提出できるか、できるとしてどの扱いか（#73）。
+
+    **3 つに分かれるのは締切で閉じないから。** 締切は「ここから減点が始まる」
+    で、閉じるのは受付終了である（ADR 0013）。学習者の画面はこの区分で
+    並べ替えられ、教員が置いた 2 つの時刻がそのまま見える形になる。
+    """
+
+    # 提出開始前。学習者の画面には出ない。
+    NOT_OPEN = "not_open"
+    # 締切前。減点なしで出せる。
+    OPEN = "open"
+    # 締切後・受付終了前。**出せるが減点される。**
+    LATE = "late"
+    # 受付終了後。出せない。
+    CLOSED = "closed"
+
+
 class Task(BaseModel):
     """課題そのもの。版をまたいだ同一性を担う。
 
@@ -303,6 +321,13 @@ class Task(BaseModel):
     # 締切とは別に持つ。試験の終了と採点の開始はふつう同じ時刻だが、
     # 同じ値にすると延長のたびに採点開始も動いてしまう。
     grading_starts_at: datetime | None = None
+    # 提出の受付を終える時刻。**空なら締切後も無期限に受け付ける**（従来どおり）。
+    #
+    # 締切と分ける。締切は「ここから減点が始まる」で、こちらは「ここで
+    # 受け付けを終える」であって、間にあるのが**減点提出できる時間**である
+    # （#73）。同じ値にすると、遅れた学習者が何も出せなくなる ── 出せない
+    # ままでは何を間違えたのかも分からない（ADR 0013）。
+    accepts_until: datetime | None = None
     # 成績の自動確定までの猶予（分）。**空なら科目の設定**（`grace_minutes`）。
     auto_finalize_after_minutes: int | None = Field(default=None, gt=0)
     # この課題で受け付ける提出ファイル形式（拡張子）。空なら科目の既定
@@ -341,17 +366,47 @@ class Task(BaseModel):
             and self.grading_starts_at < self.submissions_open_at
         ):
             raise ValueError("採点開始が提出開始より前になっています")
+        # 受付終了が締切より前だと、減点提出できる時間が負になる。
+        if self.accepts_until and self.due_at and self.accepts_until < self.due_at:
+            raise ValueError("受付終了が締切より前になっています")
+        if (
+            self.accepts_until
+            and self.submissions_open_at
+            and self.accepts_until <= self.submissions_open_at
+        ):
+            raise ValueError("受付終了が提出開始より前になっています")
         return self
 
     def accepts_submissions_at(self, now: datetime) -> bool:
         """いま提出を受け付けるか。
 
-        **締切は見ない。** 遅れた提出は受け付けたうえで減点する（ADR 0013）
-        ── 受け付けないと、遅れた学習者は何も出せず、何を間違えたのかも
-        分からないまま終わる。見るのは提出開始だけである。
+        **締切では閉じない。** 遅れた提出は受け付けたうえで減点する
+        （ADR 0013）── 受け付けないと、遅れた学習者は何も出せず、何を
+        間違えたのかも分からないまま終わる。
+
+        閉じるのは `accepts_until` である。**空なら閉じない**（従来どおり）。
+        締切とは別の値で、間にあるのが「減点提出できる時間」になる（#73）。
         """
         opens = self.submissions_open_at or self.opens_at
-        return opens is None or now >= opens
+        if opens is not None and now < opens:
+            return False
+        return self.accepts_until is None or now <= self.accepts_until
+
+    def submission_window_at(self, now: datetime) -> SubmissionWindow:
+        """いまこの課題がどの状態にあるか（#73）。
+
+        **画面の区分そのものである。** 学習者の一覧は「提出できる／減点提出
+        できる／提出できない」で分かれ、教員が締切と受付終了をどう置いたかが
+        そのまま出る。判定を画面ごとに書くと、一覧と課題ページで食い違う。
+        """
+        opens = self.submissions_open_at or self.opens_at
+        if opens is not None and now < opens:
+            return SubmissionWindow.NOT_OPEN
+        if self.accepts_until is not None and now > self.accepts_until:
+            return SubmissionWindow.CLOSED
+        if self.due_at is not None and now > self.due_at:
+            return SubmissionWindow.LATE
+        return SubmissionWindow.OPEN
 
     @property
     def unit_label(self) -> str:

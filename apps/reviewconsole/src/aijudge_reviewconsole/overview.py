@@ -60,6 +60,8 @@ class UnitGroup:
     opens_at: datetime | None
     submissions_open_at: datetime | None
     due_at: datetime | None
+    # 提出の受付を終える時刻（#73）。空なら締切後も無期限に受け付ける。
+    accepts_until: datetime | None
     # 採点を始める時刻（試験・#67）。空なら提出と同時に採点する。
     grading_starts_at: datetime | None
     # このセットで実際に効く猶予（分）。課題の指定が無ければコースの既定。
@@ -146,6 +148,7 @@ def load_units(
         starts = [task.submissions_open_at for task in tasks if task.submissions_open_at]
         dues = [task.due_at for task in tasks if task.due_at]
         grading = [task.grading_starts_at for task in tasks if task.grading_starts_at]
+        accepts = [task.accepts_until for task in tasks if task.accepts_until]
         # 代表値は「最も早い公開・最も遅い締切」。揃っていれば同じ値になる。
         due_at = max(dues) if dues else None
         grace = grace_minutes(head.auto_finalize_after_minutes, course.auto_finalize_after_minutes)
@@ -159,6 +162,9 @@ def load_units(
                 opens_at=min(opens) if opens else None,
                 submissions_open_at=min(starts) if starts else None,
                 due_at=due_at,
+                # 受付終了も最も遅いものを採る。早い側にすると、まだ出せる
+                # 課題があるセットを「受付終了」と書くことになる。
+                accepts_until=max(accepts) if accepts else None,
                 # **最も遅い時刻を代表にする。** 揃っていれば同じ値で、
                 # ばらついているときに「まだ採点しない課題がある」を
                 # 隠さない側に倒す。
@@ -183,6 +189,7 @@ def _mixed(tasks: list[Task]) -> bool:
             task.opens_at,
             task.submissions_open_at,
             task.due_at,
+            task.accepts_until,
             # 採点開始がばらついているのは試験として壊れている ── 一部だけ
             # 採点が始まると、その結果が試験中に返る（#67）。
             task.grading_starts_at,
@@ -216,6 +223,7 @@ def empty_unit(key: str, course: Course, *, now: datetime | None = None) -> Unit
         opens_at=None,
         submissions_open_at=None,
         due_at=None,
+        accepts_until=None,
         grading_starts_at=None,
         grace=course.auto_finalize_after_minutes,
         mixed=False,

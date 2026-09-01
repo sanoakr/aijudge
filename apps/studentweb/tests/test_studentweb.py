@@ -1207,10 +1207,14 @@ def test_the_course_page_splits_the_sets_by_stage(world: World) -> None:
 
     body = world.client.get(f"/courses/{COURSE}").text
     assert "提出できる問題セット" in body
-    assert "締め切られた問題セット" not in body
+    assert "締切を過ぎた問題セット" not in body
 
 
-def test_a_closed_set_is_listed_apart(world: World) -> None:
+def test_a_late_set_says_it_can_still_be_submitted(world: World) -> None:
+    """**締切では閉じない。** 過ぎたぶんは減点して受け付ける（ADR 0013・#73）。
+
+    受付終了を置いていないので、締切を過ぎても「提出できない」にはならない。
+    """
     from datetime import timedelta
 
     world.register("s2400001")
@@ -1219,8 +1223,9 @@ def test_a_closed_set_is_listed_apart(world: World) -> None:
     _set_task(world, opens_at=now - timedelta(days=14), due_at=now - timedelta(days=1))
 
     body = world.client.get(f"/courses/{COURSE}").text
-    assert "締め切られた問題セット" in body
+    assert "締切を過ぎた問題セット（減点して提出できます）" in body
     assert "提出できる問題セット" not in body
+    assert "受付を終了した問題セット" not in body
 
 
 def test_a_set_before_its_opening_is_not_listed(world: World) -> None:
@@ -1379,3 +1384,46 @@ def test_a_submission_after_the_grading_time_is_graded_at_once(world: World) -> 
     with world.database.unit_of_work() as uow:
         (submission,) = uow.submissions.list_for_course(COURSE)
         assert uow.runs.latest_for(submission.id) is not None
+
+
+def test_a_set_past_its_acceptance_end_is_listed_as_closed(world: World) -> None:
+    """受付終了を過ぎたら「提出できない」に分かれる（#73）。"""
+    from datetime import timedelta
+
+    world.register("s2400001")
+    world.login("s2400001")
+    now = datetime.now(UTC)
+    _set_task(
+        world,
+        opens_at=now - timedelta(days=14),
+        due_at=now - timedelta(days=2),
+        accepts_until=now - timedelta(days=1),
+    )
+
+    body = world.client.get(f"/courses/{COURSE}").text
+    assert "受付を終了した問題セット" in body
+    assert "締切を過ぎた問題セット" not in body
+
+
+@needs_c_compiler
+def test_a_submission_after_the_acceptance_end_is_refused(world: World) -> None:
+    """**画面で隠すだけにしない。** URL を知っていれば出せてしまう。
+
+    断る理由も分ける ── 「まだ」と「もう」を同じ文言にすると、待てば出せる
+    のか間に合わなかったのかが学習者に分からない。
+    """
+    from datetime import timedelta
+
+    world.register("s2400001")
+    world.login("s2400001")
+    now = datetime.now(UTC)
+    _set_task(
+        world,
+        opens_at=now - timedelta(days=14),
+        due_at=now - timedelta(days=2),
+        accepts_until=now - timedelta(days=1),
+    )
+
+    response = world.submit()
+    assert response.status_code == 409
+    assert "受付は終了しました" in response.json()["detail"]

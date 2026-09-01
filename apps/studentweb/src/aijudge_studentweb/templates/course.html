@@ -16,6 +16,15 @@
     <span>公開 {% if unit.opens_at %}{{ unit.opens_at.strftime('%m-%d %H:%M') }}{% else %}<em>未設定</em>{% endif %}</span>
     <span>提出開始 {% if unit.submissions_open_at %}{{ unit.submissions_open_at.strftime('%m-%d %H:%M') }}{% elif unit.opens_at %}公開と同時{% else %}<em>未設定</em>{% endif %}</span>
     <span>締切 {% if unit.due_at %}{{ unit.due_at.strftime('%m-%d %H:%M') }}{% else %}<em>未設定</em>{% endif %}</span>
+    {% if unit.accepts_until %}<span>受付終了 {{ unit.accepts_until.strftime('%m-%d %H:%M') }}</span>{% endif %}
+    {# 残り時間。**サーバが秒数を渡し、画面はそこから数える**（#73）── 学習者の
+       PC の時計は数分ずれていることがあり、締切と直接比べると画面とサーバの
+       判定が食い違う。JavaScript が無ければ、上の絶対時刻がそのまま残る。 #}
+    {% if unit.due_at %}
+    <span class="countdown js-only" hidden
+          data-deadline-in="{{ unit.seconds_to_due }}"
+          data-state="{{ unit.state.value }}"></span>
+    {% endif %}
   </span>
 </h3>
 <table>

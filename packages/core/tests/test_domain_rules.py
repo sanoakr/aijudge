@@ -514,3 +514,69 @@ def test_a_session_can_be_the_zeroth() -> None:
     # 負の回は無い。
     with pytest.raises(ValidationError):
         Task(id=TaskId("tsk_" + "3" * 32), course_id=course, title="不正", session=-1)
+
+
+def test_the_submission_window_has_three_usable_states() -> None:
+    """**締切では閉じない。** 閉じるのは受付終了である（#73・ADR 0013）。
+
+    締切は「ここから減点が始まる」で、間にあるのが「減点して提出できる時間」。
+    学習者の一覧はこの区分でそのまま分かれる。
+    """
+    from datetime import timedelta
+
+    from aijudge_core import SubmissionWindow, Task
+    from aijudge_core.ids import CourseId, TaskId
+
+    due = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
+    task = Task(
+        id=TaskId("tsk_" + "0" * 32),
+        course_id=CourseId("crs_" + "0" * 32),
+        title="課題",
+        due_at=due,
+        accepts_until=due + timedelta(hours=24),
+    )
+
+    assert task.submission_window_at(due - timedelta(minutes=1)) is SubmissionWindow.OPEN
+    assert task.submission_window_at(due + timedelta(hours=1)) is SubmissionWindow.LATE
+    assert task.submission_window_at(due + timedelta(hours=25)) is SubmissionWindow.CLOSED
+
+    # 受け付けるかどうかは窓と一致する。**画面で隠すだけにしない。**
+    assert task.accepts_submissions_at(due + timedelta(hours=1))
+    assert not task.accepts_submissions_at(due + timedelta(hours=25))
+
+
+def test_without_an_end_the_deadline_does_not_close_submissions() -> None:
+    """**受付終了が空なら従来どおり。** 既存のコースが黙って提出不可にならない。"""
+    from datetime import timedelta
+
+    from aijudge_core import SubmissionWindow, Task
+    from aijudge_core.ids import CourseId, TaskId
+
+    due = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
+    task = Task(
+        id=TaskId("tsk_" + "1" * 32),
+        course_id=CourseId("crs_" + "0" * 32),
+        title="課題",
+        due_at=due,
+    )
+    long_after = due + timedelta(days=365)
+    assert task.submission_window_at(long_after) is SubmissionWindow.LATE
+    assert task.accepts_submissions_at(long_after)
+
+
+def test_an_end_before_the_deadline_is_refused() -> None:
+    """減点提出できる時間が負になる日程を保存させない。"""
+    from datetime import timedelta
+
+    from aijudge_core import Task
+    from aijudge_core.ids import CourseId, TaskId
+
+    due = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
+    with pytest.raises(ValidationError):
+        Task(
+            id=TaskId("tsk_" + "2" * 32),
+            course_id=CourseId("crs_" + "0" * 32),
+            title="課題",
+            due_at=due,
+            accepts_until=due - timedelta(hours=1),
+        )

@@ -30,6 +30,7 @@ from aijudge_core import (
     GradingPhase,
     ReviewRequest,
     Submission,
+    SubmissionWindow,
     Task,
     TaskVersion,
     allowed_suffixes,
@@ -247,13 +248,25 @@ def create_app(app_state: StudentApp) -> FastAPI:
         version, course_obj, _task = _task_and_course(app_state, me, TaskVersionId(task_version_id))
         payload = await upload.read()
 
-        # **提出開始まで受け付けない。** 画面で隠すだけでは、URL を知って
+        # **受付の外では受け取らない。** 画面で隠すだけでは、URL を知って
         # いれば出せてしまう（隠すのは表示の都合であって制限ではない）。
-        if not _task.accepts_submissions_at(now()):
+        #
+        # 断る理由を分ける（#73）。「まだ」と「もう」を同じ文言にすると、
+        # 学習者は待てば出せるのか、間に合わなかったのかが分からない。
+        window = _task.submission_window_at(now())
+        if window is SubmissionWindow.NOT_OPEN:
             opens = _task.submissions_open_at or _task.opens_at
             raise HTTPException(
                 status_code=409,
                 detail=f"まだ提出できません（{opens.strftime('%Y-%m-%d %H:%M')} から受け付けます）",
+            )
+        if window is SubmissionWindow.CLOSED:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "提出の受付は終了しました"
+                    f"（{_task.accepts_until.strftime('%Y-%m-%d %H:%M')} まででした）"
+                ),
             )
 
         accepts = allowed_suffixes(_task.accepted_suffixes, course_obj.upload_suffixes)
@@ -442,16 +455,20 @@ class SetState(StrEnum):
 
     # 提出開始まで待つ。課題文は読める。
     ANNOUNCED = "announced"
-    # いま出せる。
+    # いま出せる。減点なし。
     OPEN = "open"
-    # 締切を過ぎた。**出せなくなるわけではない**（遅延は減点で表す・ADR 0013）。
+    # 締切を過ぎたが、まだ出せる。**出したぶんは減点される**（ADR 0013）。
+    # 締切と受付終了のあいだがこれで、**この区間があるから締切で閉じない**。
+    LATE = "late"
+    # 受付終了。もう出せない。
     CLOSED = "closed"
 
 
 SET_LABELS: dict[SetState, str] = {
     SetState.OPEN: "提出できる問題セット",
+    SetState.LATE: "締切を過ぎた問題セット（減点して提出できます）",
     SetState.ANNOUNCED: "公開された問題セット（提出開始前）",
-    SetState.CLOSED: "締め切られた問題セット",
+    SetState.CLOSED: "受付を終了した問題セット",
 }
 
 
@@ -481,6 +498,7 @@ def _group_by_unit(rows: tuple, *, now: datetime | None = None) -> list[dict[str
                 "opens_at": task.opens_at,
                 "submissions_open_at": task.submissions_open_at,
                 "due_at": task.due_at,
+                "accepts_until": task.accepts_until,
                 "tasks": [],
             },
         )
@@ -495,19 +513,33 @@ def _group_by_unit(rows: tuple, *, now: datetime | None = None) -> list[dict[str
             group["submissions_open_at"] = task.submissions_open_at
         if task.due_at and (group["due_at"] is None or task.due_at > group["due_at"]):
             group["due_at"] = task.due_at
+        # 受付終了は**最も遅いもの**を代表にする。早い側を採ると、まだ
+        # 出せる課題があるセットを「受付終了」と書くことになる。
+        if task.accepts_until and (
+            group["accepts_until"] is None or task.accepts_until > group["accepts_until"]
+        ):
+            group["accepts_until"] = task.accepts_until
 
     for group in groups.values():
         group["state"] = _set_state(group, moment)
+        # **残り秒数はサーバが数える**（#73）。画面が締切と自分の時計を
+        # 比べると、時計のずれがそのまま表示のずれになる。締切前は正、
+        # 過ぎていれば負（＝経過時間）。
+        group["seconds_to_due"] = (
+            None if group["due_at"] is None else int((group["due_at"] - moment).total_seconds())
+        )
         # 並べ替えの基準になる日付。**その段階で意味のある日付を使う** ──
         # 締め切られたセットは締切、これからのセットは提出開始・公開。
         group["sort_at"] = (
             group["due_at"]
-            if group["state"] is SetState.CLOSED
+            if group["state"] in (SetState.LATE, SetState.CLOSED)
             else group["submissions_open_at"] or group["opens_at"] or group["due_at"]
         )
 
     ordered: list[dict[str, object]] = []
-    for state in (SetState.OPEN, SetState.ANNOUNCED, SetState.CLOSED):
+    # **出せるものが先。** 学習者が最初に知りたいのは「いま出せるのはどれか」で、
+    # 締切を過ぎてもまだ出せるものはその次に近い（#73）。
+    for state in (SetState.OPEN, SetState.LATE, SetState.ANNOUNCED, SetState.CLOSED):
         members = [group for group in groups.values() if group["state"] is state]
         # 新しい日付順。日付の無いセットは後ろに置く（並べる根拠が無い）。
         members.sort(key=lambda g: (g["sort_at"] is None, g["sort_at"] or MIN_TIME), reverse=True)
@@ -519,12 +551,20 @@ MIN_TIME = datetime.min.replace(tzinfo=UTC)
 
 
 def _set_state(group: dict[str, object], now: datetime) -> SetState:
-    due_at = group["due_at"]
-    if due_at is not None and now >= due_at:
-        return SetState.CLOSED
+    """**判定は `Task.submission_window_at` と同じ順序で行う。**
+
+    ここと課題ページで違う答えを出すと、一覧では「提出できる」なのに開くと
+    出せない、が起きる。
+    """
     opens = group["submissions_open_at"] or group["opens_at"]
     if opens is not None and now < opens:
         return SetState.ANNOUNCED
+    accepts_until = group["accepts_until"]
+    if accepts_until is not None and now > accepts_until:
+        return SetState.CLOSED
+    due_at = group["due_at"]
+    if due_at is not None and now >= due_at:
+        return SetState.LATE
     return SetState.OPEN
 
 
