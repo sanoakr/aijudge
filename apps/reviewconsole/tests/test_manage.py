@@ -2355,6 +2355,7 @@ def test_a_generated_revision_is_not_approved_by_itself(monkeypatch, world: Worl
     )
     version = build_task_version(
         spec,
+        course_id=world.course.id,
         subject_profile="cs_intro_c",
         authored_by=UserId("usr_" + "1" * 32),
         generated_by="stub-model",

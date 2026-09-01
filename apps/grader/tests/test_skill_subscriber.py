@@ -65,6 +65,7 @@ class World:
 
         self.task_version = sharif_judge.import_problem(
             EXAMPLE_TASK,
+            course_id=COURSE,
             subject_profile="cs_intro_c",
             authored_by=AUTHOR,
             readability_weight=0.3,

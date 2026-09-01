@@ -24,7 +24,7 @@ from aijudge_core import (
     SubmissionState,
     new_id,
 )
-from aijudge_core.ids import ArtifactId, SubmissionId, TaskVersionId, UserId
+from aijudge_core.ids import ArtifactId, CourseId, SubmissionId, TaskVersionId, UserId
 from aijudge_eval_rubric_ai_judge import RubricAiJudge, number_lines
 from aijudge_grading import EvaluatorRegistry, GradingPipeline, load_profile
 from aijudge_llm_gateway import LlmGateway, ScriptedProvider
@@ -35,6 +35,7 @@ PROFILE_PATH = REPO_ROOT / "subjects" / "cs_intro_c.yaml"
 
 NOW = datetime(2026, 4, 1, 9, 0, tzinfo=UTC)
 INSTRUCTOR = UserId(new_id("usr"))
+COURSE = CourseId("crs_" + "0" * 32)
 
 
 @pytest.fixture(scope="module")
@@ -42,6 +43,7 @@ def task_version():
     """正しさ 0.7 / 読みやすさ 0.3 の 2 観点にして取り込む。"""
     return sharif_judge.import_problem(
         FIXTURE,
+        course_id=COURSE,
         subject_profile="cs_intro_c",
         authored_by=INSTRUCTOR,
         readability_weight=0.3,

@@ -32,7 +32,7 @@ from aijudge_core import (
     SubmissionState,
     new_id,
 )
-from aijudge_core.ids import ArtifactId, SubmissionId, TaskVersionId, UserId
+from aijudge_core.ids import ArtifactId, CourseId, SubmissionId, TaskVersionId, UserId
 from aijudge_eval_rubric_ai_judge import RubricAiJudge
 from aijudge_grading import EvaluatorRegistry, GradingPipeline, load_profile
 from aijudge_llm_gateway import (
@@ -45,6 +45,7 @@ from aijudge_llm_gateway import (
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = REPO_ROOT / "evals" / "fixtures" / "prog2-2025-ex06-p3"
+COURSE = CourseId("crs_" + "0" * 32)
 PROFILE_PATH = REPO_ROOT / "subjects" / "cs_intro_c.yaml"
 NOW = datetime(2026, 4, 1, 9, 0, tzinfo=UTC)
 
@@ -79,6 +80,7 @@ def provider() -> OllamaProvider:
 def task_version():
     return sharif_judge.import_problem(
         FIXTURE,
+        course_id=COURSE,
         subject_profile="cs_intro_c",
         authored_by=UserId(new_id("usr")),
         readability_weight=0.3,
@@ -171,6 +173,7 @@ def test_a_settled_criterion_costs_no_llm_call(provider, task_version) -> None:
     """決定的評価が確定させた観点に AI を呼ばない（P3）。実機でも同じ。"""
     single = sharif_judge.import_problem(
         FIXTURE,
+        course_id=COURSE,
         subject_profile="cs_intro_c",
         authored_by=UserId(new_id("usr")),
         readability_weight=0.0,  # 正しさだけの課題
