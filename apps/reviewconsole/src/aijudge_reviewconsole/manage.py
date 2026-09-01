@@ -1921,6 +1921,10 @@ def register(templates) -> APIRouter:
                 "task": task,
                 "version": version,
                 "rubric_rows": rows,
+                # 「共通ルーブリックに復元」が差し込む中身。**サーバが描く** ──
+                # 欄の作り方を JavaScript にも持たせると、項目が増えたときに
+                # 片方だけ古くなる（#58）。
+                "course_rubric_rows": course_rows,
                 # None なら「コースに従う」。**コースと同じ値を選ぶのとは違う**
                 # 状態で、前者はコースを変えれば追随する。
                 "task_aggregation": None if version is None else version.aggregation,
@@ -2186,43 +2190,6 @@ def register(templates) -> APIRouter:
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
         return _task_page(request, me, course, unit_key_value=_normalized_unit(unit))
-
-    @router.post("/courses/{course_id}/tasks/{task_id}/rubric/reset")
-    def reset_task_rubric(request: Request, course_id: str, task_id: str) -> Response:
-        """この課題の観点をコースの共通ルーブリックに戻す。
-
-        **版が上がる。** 出題済みの採点基準は書き換えないので、戻すことも
-        新しい版を作ることになる（P8）。
-        """
-        from .app import require_principal
-
-        me = require_principal(request)
-        course = _require_instructor(request, me, CourseId(course_id))
-        console = _console(request)
-
-        with console.database.unit_of_work() as uow:
-            task = uow.tasks.get_task(TaskId(task_id))
-            version = uow.tasks.latest_version(TaskId(task_id))
-        if task is None or version is None or task.course_id != CourseId(course_id):
-            raise HTTPException(status_code=404, detail="課題が見つかりません")
-
-        criteria = (
-            rubric.from_stored(course.rubric) if course.rubric else _default_rubric_criteria()
-        )
-        _save_revision(
-            console,
-            me,
-            course,
-            task,
-            version,
-            statement=version.statement,
-            criteria=rubric.parse(rubric.to_rows(criteria)),
-            position=task.position,
-            accepted=task.accepted_suffixes,
-        )
-        return RedirectResponse(
-            f"/manage/courses/{course_id}/tasks/{task_id}/edit", status_code=303
-        )
 
     @router.post("/courses/{course_id}/tasks/{task_id}/move")
     def move_task(

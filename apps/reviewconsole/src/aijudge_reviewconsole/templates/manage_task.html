@@ -122,7 +122,26 @@
     {% endif %}
     <a href="/manage/courses/{{ course.id }}#rubric">共通ルーブリックを見る</a>
   </p>
-  {% with rows = rubric_rows %}{% include "_rubric_editor.html" %}{% endwith %}
+  <div id="rubric-editor">
+    {% with rows = rubric_rows %}{% include "_rubric_editor.html" %}{% endwith %}
+  </div>
+  {# **押しても保存しない。** 下の欄を共通ルーブリックの内容で置き換えるだけで、
+     反映は「保存」で行う。以前はここが独立したフォームで、押した瞬間に版が
+     上がっていた ── 編集の途中で押すと、書いた内容は保存されないまま別の版が
+     できていた（#58）。中身はサーバが描いたものをそのまま差し込む（下の
+     `<template>`）ので、欄の作り方が画面と JavaScript の 2 か所に分かれない。 #}
+  <p class="desc js-only" hidden style="margin:12px 0 0">
+    <button type="button" id="restore-course-rubric"
+            data-replace-target="#rubric-editor"
+            data-replace-template="#course-rubric-rows"
+            data-confirm-title="共通ルーブリックに復元しますか"
+            data-confirm="この課題だけの観点は失われ、コースの共通ルーブリックの内容に置き換わります。保存するまでは反映されないので、やめたいときは保存せずに画面を離れてください。">共通ルーブリックに復元</button>
+    観点だけを共通ルーブリックの内容に戻します（問題文と提出形式はそのままです）。
+    <strong>保存するまで反映されません。</strong>
+  </p>
+  <template id="course-rubric-rows">
+    {% with rows = course_rubric_rows %}{% include "_rubric_editor.html" %}{% endwith %}
+  </template>
   {% with inherits = true, aggregation = task_aggregation, course_aggregation = course.rubric_aggregation %}
     {% include "_aggregation_field.html" %}
   {% endwith %}
@@ -199,11 +218,42 @@
 </form>
 {% endif %}
 
+{# 別の問題セットへ移す。**日程は移動先に揃う** ── セットの中で締切がずれると
+   「この回はいつまでか」が言えなくなる。移動先を選ぶときに、その回の締切を
+   並べて出しておく（移動してから気づくことにならないように）。 #}
+{% if other_units %}
+<form method="post" action="/manage/courses/{{ course.id }}/tasks/{{ task.id }}/unit"
+      class="card" data-confirm-title="別の問題セットへ移しますか"
+      data-confirm="この課題の日程（公開・提出開始・締切・自動確定の猶予）は移動先のセットの値に置き換わります。">
+  <div class="inline-field">
+    <span class="body">
+      <label for="move-unit">別の問題セットへ移す</label>
+      <select id="move-unit" name="unit">
+        {% for group in other_units %}
+        <option value="{{ group.unit or group.label }}">{{ group.unit or group.label }}
+          — 締切 {% if group.due_at %}{{ group.due_at.strftime('%m-%d %H:%M') }}{% else %}未設定{% endif %}</option>
+        {% endfor %}
+      </select>
+    </span>
+    <button type="submit">移動</button>
+  </div>
+  <p class="desc" style="margin:10px 0 0">
+    <strong>日程は移動先のセットに揃います</strong>（公開・提出開始・締切・自動確定の猶予）。
+    並びは移動先の末尾に入ります。課題キー{% if version and version.source_key %}
+    <span class="mono">{{ version.source_key }}</span>{% endif %}は変わりません
+    — 課題 ID がこの鍵から導かれるので（<span class="mono">derived_id</span>）、
+    変えると<strong>別の課題になり</strong>、過去の提出との対応が切れます。
+  </p>
+</form>
+{% endif %}
+
 {# **消すことと、使わなくすることは別**（#51）。採点結果は課題版を指して
    いるので（P8）、提出のある課題を消すと過去の成績の出所が失われる。
    知識要素で決めたのと同じ区別（`aijudge_admin.kc`）。 #}
 <form method="post" action="/manage/courses/{{ course.id }}/tasks/{{ task.id }}/withdraw"
-      class="card">
+      class="card"{% if not task.withdrawn %}
+      data-confirm-title="出題を取り下げますか"
+      data-confirm="学習者にこの課題が出なくなります。提出・採点・Q-matrix は残り、いつでも取り消せます。"{% endif %}>
   {% if task.withdrawn %}
   <input type="hidden" name="restore" value="1">
   <div class="inline-field">
@@ -227,7 +277,9 @@
 
 {% if submissions == 0 %}
 <form method="post" action="/manage/courses/{{ course.id }}/tasks/{{ task.id }}/delete"
-      class="card">
+      class="card" data-confirm-title="この課題を削除しますか"
+      data-confirm="課題と全ての版が消えます。取り消せません。"
+      data-confirm-danger="1">
   <div class="inline-field">
     <span class="body desc">
       <strong>この課題には提出が 1 件もありません。</strong>打ち間違いで作ったものなら削除できます
@@ -236,44 +288,6 @@
     </span>
     <button type="submit">この課題を削除</button>
   </div>
-</form>
-{% endif %}
-
-<form method="post" action="/manage/courses/{{ course.id }}/tasks/{{ task.id }}/rubric/reset"
-      class="card">
-  <div class="inline-field">
-    <span class="body desc">
-      観点をコースの共通ルーブリックに戻します（問題文と提出形式はそのままです）。
-    </span>
-    <button type="submit">共通ルーブリックに復元</button>
-  </div>
-</form>
-
-{# 別の問題セットへ移す。**日程は移動先に揃う** ── セットの中で締切がずれると
-   「この回はいつまでか」が言えなくなる。移動先を選ぶときに、その回の締切を
-   並べて出しておく（移動してから気づくことにならないように）。 #}
-{% if other_units %}
-<form method="post" action="/manage/courses/{{ course.id }}/tasks/{{ task.id }}/unit"
-      class="card">
-  <div class="inline-field">
-    <span class="body">
-      <label for="move-unit">別の問題セットへ移す</label>
-      <select id="move-unit" name="unit">
-        {% for group in other_units %}
-        <option value="{{ group.unit or group.label }}">{{ group.unit or group.label }}
-          — 締切 {% if group.due_at %}{{ group.due_at.strftime('%m-%d %H:%M') }}{% else %}未設定{% endif %}</option>
-        {% endfor %}
-      </select>
-    </span>
-    <button type="submit">移動</button>
-  </div>
-  <p class="desc" style="margin:10px 0 0">
-    <strong>日程は移動先のセットに揃います</strong>（公開・提出開始・締切・自動確定の猶予）。
-    並びは移動先の末尾に入ります。課題キー{% if version and version.source_key %}
-    <span class="mono">{{ version.source_key }}</span>{% endif %}は変わりません
-    — 課題 ID がこの鍵から導かれるので（<span class="mono">derived_id</span>）、
-    変えると<strong>別の課題になり</strong>、過去の提出との対応が切れます。
-  </p>
 </form>
 {% endif %}
 {% endif %}
