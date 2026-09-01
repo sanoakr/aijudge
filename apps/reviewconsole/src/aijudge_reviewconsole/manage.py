@@ -77,6 +77,7 @@ from aijudge_admin.syllabus import (
     to_markdown,
 )
 from aijudge_admin.task_verifier import TaskVerifier
+from aijudge_admin.tasks import clear_unit
 from aijudge_admin.tasks import delete as delete_task
 from aijudge_admin.tasks import withdraw as withdraw_task
 from aijudge_admin.test_cases import TestCaseWriter
@@ -403,6 +404,7 @@ SAVED_MESSAGES: dict[str, str] = {
     "withdrawn": "出題を取り下げました（学習者に出なくなります。記録は残ります）",
     "restored": "出題の取り下げを取り消しました",
     "task_deleted": "課題を削除しました（提出が 1 件も無いもの）",
+    "unit_cleared": "問題セットを片付けました",
     "kc_added": "知識要素を追加しました",
     "kc_retired": "知識要素を引退させました",
     "kc_restored": "引退を取り消しました",
@@ -430,6 +432,30 @@ SAVED_MESSAGES: dict[str, str] = {
     "rubric": "共通ルーブリックを保存しました（新しい課題から使われます）",
     "generated": "課題を生成しました。承認するまで出題されません",
 }
+
+
+def _unit_group(console, course, unit: str):
+    """URL の鍵から問題セットを引く。**画面と同じまとめ方**（`unit_key`）。"""
+    key = _normalized_unit(unit)
+    with console.database.unit_of_work() as uow:
+        units = load_units(uow, course)
+    group = find_unit(units, key)
+    if group is None:
+        raise HTTPException(status_code=404, detail="問題セットが見つかりません")
+    return group
+
+
+def _clear_plan(console, course, group) -> dict[str, int]:
+    """このセットを片付けると何がどうなるか。**変えずに数えるだけ。**"""
+    if not group.tasks:
+        return {"deleted": 0, "withdrawn": 0, "untouched": 0, "total": 0}
+    report = clear_unit(console.database, course_id=course.id, unit=group.unit, dry_run=True)
+    return {
+        "deleted": len(report.deleted),
+        "withdrawn": len(report.withdrawn),
+        "untouched": len(report.untouched),
+        "total": report.total,
+    }
 
 
 def _update_unit(
@@ -931,6 +957,10 @@ def register(templates) -> APIRouter:
                 },
                 "unit": group,
                 "tasks": rows,
+                # 「丸ごと片付ける」を押す前に出す内訳（#59）。**押してから
+                # でないと分からないのでは確認にならない** ── 1 回の操作で
+                # 課題ごとに削除か取り下げかが変わる。
+                "clear_plan": _clear_plan(console, course, group),
                 "min_reason": MIN_JUSTIFICATION_LENGTH,
                 # コースの既定。問題セットで指定しなければこれが効く。
                 "course_grace": course.auto_finalize_after_minutes,
@@ -971,6 +1001,37 @@ def register(templates) -> APIRouter:
                     else None
                 ),
             },
+        )
+
+    @router.post("/courses/{course_id}/units/{unit}/clear")
+    def clear_unit_route(request: Request, course_id: str, unit: str) -> Response:
+        """問題セットを丸ごと片付ける。**課題ごとに削除か取り下げか**（#59）。
+
+        規則は `aijudge_admin.tasks` に置いてある ── 画面と CLI の両方から
+        使うので、どちらが正しいかを問わずに済むよう 1 か所にする。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+        group = _unit_group(console, course, unit)
+
+        try:
+            report = clear_unit(console.database, course_id=course.id, unit=group.unit)
+        except AdminError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+        # **何がどうなったかを持ち帰る。** 件数だけでは、消えたのか残ったのか
+        # 教員に分からない。
+        console.last_clear = (str(course.id), report)
+        if not report.withdrawn and not report.untouched:
+            # 全部消えたのでセットのページはもう無い。コースへ戻す。
+            return RedirectResponse(
+                f"/manage/courses/{course_id}?saved=unit_cleared", status_code=303
+            )
+        return RedirectResponse(
+            f"/manage/courses/{course_id}/units/{group.key}?saved=unit_cleared", status_code=303
         )
 
     @router.post("/courses/{course_id}/units/{unit}/schedule")

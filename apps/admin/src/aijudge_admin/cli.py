@@ -38,6 +38,7 @@ from .operations import (
     set_password,
 )
 from .roster import RosterError, load_roster, write_credentials
+from .tasks import clear_unit
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 DEFAULT_TENANT = "ten_" + "0" * 32
@@ -303,6 +304,41 @@ def cmd_task_import(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_unit_clear(args: argparse.Namespace) -> int:
+    """問題セットを丸ごと片付ける。**内訳を必ず出す**（#59）。
+
+    1 回の操作で課題ごとに結果が違う（削除か取り下げか）ので、件数だけを
+    出すと何がどうなったのか分からない。課題キーまで並べる。
+    """
+    database = _database(args)
+    try:
+        report = clear_unit(
+            database,
+            course_id=CourseId(args.course),
+            unit=args.unit,
+            dry_run=args.dry_run,
+        )
+    finally:
+        database.dispose()
+
+    label = "削除する" if args.dry_run else "削除した"
+    for task in report.deleted:
+        print(f"{label}: {task.title}")
+    label = "取り下げる" if args.dry_run else "取り下げた"
+    for task in report.withdrawn:
+        print(f"{label}: {task.title}（提出があるため消しません）")
+    for task in report.untouched:
+        print(f"変更なし: {task.title}（既に取り下げ済み）")
+
+    print(
+        f"\n合計 {report.total} 件 / 削除 {len(report.deleted)} 件 / "
+        f"取り下げ {len(report.withdrawn)} 件 / 変更なし {len(report.untouched)} 件"
+    )
+    if args.dry_run:
+        print("（dry-run のため何も変えていません）")
+    return 0
+
+
 def cmd_task_list(args: argparse.Namespace) -> int:
     database = _database(args)
     try:
@@ -422,6 +458,17 @@ def build_parser() -> argparse.ArgumentParser:
     tlist = task.add_parser("list", help="一覧")
     tlist.add_argument("--course", required=True)
     tlist.set_defaults(func=cmd_task_list)
+    unit = sub.add_parser("unit", help="問題セット").add_subparsers(
+        dest="unit_command", required=True
+    )
+    clear = unit.add_parser(
+        "clear", help="問題セットを丸ごと片付ける（未使用は削除・使用済みは取り下げ）"
+    )
+    clear.add_argument("--course", required=True)
+    clear.add_argument("--unit", required=True, help="問題セットの名前（例: ex03）")
+    clear.add_argument("--dry-run", action="store_true", help="何もせず内訳だけ出す")
+    clear.set_defaults(func=cmd_unit_clear)
+
     # 作問とレビュー（S2）。**別モジュールに置く** ── このファイルは既に
     # コース・受講・トークンを持っており、作問まで足すと何のための CLI か
     # 読めなくなる。
