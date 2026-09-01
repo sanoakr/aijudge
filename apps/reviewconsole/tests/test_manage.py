@@ -3163,11 +3163,50 @@ def test_a_task_rubric_can_go_back_to_the_course_one(world: World) -> None:
         },
     )
 
-    response = client.post(
-        f"/manage/courses/{world.course.id}/tasks/{task.id}/rubric/reset",
-        follow_redirects=False,
+    # **押した時点では保存しない**（#58）。画面は共通ルーブリックの欄を
+    # `<template>` で持ち、ボタンは編集中の欄をそれで置き換えるだけである。
+    # 以前はここが独立した POST で、押すだけで版が上がっていた ── 編集の
+    # 途中で押すと、書いた内容は保存されないまま別の版ができた。
+    page = client.get(f"/manage/courses/{world.course.id}/tasks/{task.id}/edit").text
+    assert 'id="course-rubric-rows"' in page, "共通ルーブリックの欄が画面に無い"
+    assert 'data-replace-target="#rubric-editor"' in page
+    template = page[page.index('id="course-rubric-rows"') :]
+    assert 'value="correctness"' in template and 'value="style"' in template
+
+    with world.database.unit_of_work() as uow:
+        before = uow.tasks.latest_version(task.id)
+    assert [c.code for c in before.criteria] == ["only"], "画面を開いただけで版が動いた"
+
+    # 反映は「保存」で行う。
+    client.post(
+        f"/manage/courses/{world.course.id}/tasks/{task.id}/revise",
+        data={
+            "statement": "## [必須] 課題 ##\n\n本文",
+            **_rubric_form(("correctness", "正しさ", "0.7", ""), ("style", "書き方", "0.3", "")),
+        },
     )
-    assert response.status_code == 303
     with world.database.unit_of_work() as uow:
         latest = uow.tasks.latest_version(task.id)
     assert [c.code for c in latest.criteria] == ["correctness", "style"]
+
+
+def test_destructive_actions_ask_before_they_run(world: World) -> None:
+    """削除・取り下げ・移動は押しただけでは走らない（#58）。
+
+    確認が無いのは実際に取り消せない操作にとって危うい ── 削除は課題と
+    全版が消え、戻す手段が無い。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    task_id = _import_example(world)
+    page = client.get(f"/manage/courses/{world.course.id}/tasks/{task_id}/edit").text
+
+    assert 'id="confirm-dialog"' in page, "確認ダイアログが画面に無い"
+    assert page.count("data-confirm=") >= 3, "確認が付いていない破壊的操作がある"
+    assert "取り消せません" in page, "削除の取り返しのつかなさが書かれていない"
+
+    # **並びは影響が戻せる順**（#58）。移動は日程が変わるだけ、取り下げは
+    # 取り消せる、削除は取り消せない。
+    assert page.index("/unit") < page.index("/withdraw") < page.index("/delete"), (
+        "移動・取り下げ・削除の並びが違う"
+    )

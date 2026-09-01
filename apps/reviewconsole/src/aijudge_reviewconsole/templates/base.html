@@ -381,7 +381,77 @@ form[data-working] button[disabled]{opacity:.55;cursor:progress}
 
    進捗率は出さない。何%まで進んだかを知る手段が無い（応答は一括で返る）
    ので、それらしい数字は根拠の無い表示になる。 #}
+{# 破壊的な操作の確認。**画面共通の作法として 1 か所に置く**（#58）── 削除・
+   取り下げ・移動が別々に確認を持つと、片方にだけ確認が無い日が来る。
+
+   `confirm()` ではなく `<dialog>` を使うのは、何が起きるかを 2〜3 行で
+   説明する必要があるため。ブラウザ標準のダイアログは題と本文を分けられず、
+   「取り消せません」がどの操作の話なのか読み取れない。
+
+   **JavaScript が無ければ確認は出ず、そのまま実行される。** 素の HTML で
+   確認を挟むには画面をもう 1 枚増やすことになり、押す前の判断材料は
+   フォームの説明文がすでに持っている。 #}
+<dialog id="confirm-dialog">
+  <form method="dialog">
+    <h3 id="confirm-title" style="margin:0 0 8px"></h3>
+    <p id="confirm-body" class="desc" style="margin:0 0 16px"></p>
+    <div class="actions">
+      <button value="cancel" id="confirm-cancel">やめる</button>
+      <button value="ok" id="confirm-ok">実行</button>
+    </div>
+  </form>
+</dialog>
 <script>
+document.querySelectorAll(".js-only").forEach(function (el) { el.hidden = false; });
+
+(function () {
+  var dialog = document.getElementById("confirm-dialog");
+  if (!dialog || typeof dialog.showModal !== "function") return;
+
+  // 押したものを覚えておき、「実行」で本来の動作に進む。
+  function ask(source, then) {
+    document.getElementById("confirm-title").textContent =
+      source.getAttribute("data-confirm-title") || "実行しますか";
+    document.getElementById("confirm-body").textContent =
+      source.getAttribute("data-confirm") || "";
+    var ok = document.getElementById("confirm-ok");
+    // 取り消せない操作は見た目でも分ける。
+    ok.className = source.getAttribute("data-confirm-danger") ? "danger" : "";
+    dialog.returnValue = "cancel";
+    dialog.addEventListener("close", function once() {
+      dialog.removeEventListener("close", once);
+      if (dialog.returnValue === "ok") then();
+    });
+    dialog.showModal();
+    document.getElementById("confirm-cancel").focus();
+  }
+
+  document.addEventListener("submit", function (event) {
+    var form = event.target;
+    if (!(form instanceof HTMLFormElement)) return;
+    if (!form.getAttribute("data-confirm") || form.dataset.confirmed) return;
+    event.preventDefault();
+    // **止めるのは 1 回だけ。** 印を付けてから改めて送る。
+    ask(form, function () {
+      form.dataset.confirmed = "1";
+      form.requestSubmit ? form.requestSubmit() : form.submit();
+    });
+  }, true);
+
+  // 欄を置き換えるだけのボタン（共通ルーブリックへの復元）。**保存はしない。**
+  document.addEventListener("click", function (event) {
+    var button = event.target.closest("[data-replace-target]");
+    if (!button) return;
+    var target = document.querySelector(button.getAttribute("data-replace-target"));
+    var source = document.querySelector(button.getAttribute("data-replace-template"));
+    if (!target || !source) return;
+    event.preventDefault();
+    ask(button, function () {
+      target.replaceChildren(source.content.cloneNode(true));
+    });
+  });
+})();
+
 document.addEventListener("submit", function (event) {
   var form = event.target;
   if (!(form instanceof HTMLFormElement)) return;
