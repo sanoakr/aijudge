@@ -29,6 +29,7 @@ from pathlib import Path
 from aijudge_authoring.repository import TaskStoreError
 from aijudge_core import (
     Course,
+    EvaluatorKind,
     GradingPhase,
     GradingRun,
     Routing,
@@ -99,6 +100,9 @@ class GradingWorker:
         registry: EvaluatorRegistry | None = None,
         observations: ObservationFileStore | None = None,
         feedback: FeedbackGenerator | None = None,
+        # 確定根拠の素案を作るもの（#97）。**渡さなければ作らない** ──
+        # 素案が無いことは採点の失敗ではない。
+        justification: object | None = None,
         worker: str = "worker-1",
         lease_seconds: float = DEFAULT_LEASE_SECONDS,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
@@ -109,6 +113,7 @@ class GradingWorker:
         self._registry = registry or EvaluatorRegistry().load_installed()
         self._observations = observations
         self._feedback = feedback
+        self._justification = justification
         self._worker = worker
         self._lease_seconds = lease_seconds
         self._clock = clock
@@ -223,6 +228,7 @@ class GradingWorker:
             aggregation=aggregation,
         )
         run = self._with_feedback(run, task_version, contents)
+        run = self._with_justification_draft(run, task_version)
         run = self._with_late_penalty(
             run,
             submission=submission,
@@ -306,6 +312,43 @@ class GradingWorker:
             # `redundant` が立たないので、そのときは付く。
             return run
         return run.model_copy(update={"feedback": result.message})
+
+    def _with_justification_draft(self, run: GradingRun, task_version: TaskVersion) -> GradingRun:
+        """確定根拠の素案を付ける（#97）。**根拠そのものではない。**
+
+        教員が空欄から書き始めずに済むよう、AI の判定を読める文にして
+        置いておく。材料は**この提出について AI が出した観点別の判定と根拠
+        だけ**で、そこに無い理由は作らせない（ADR 0009 §4）。
+
+        **AI の判定が 1 つも無ければ作らない。** 人採点のみの課題がそれで、
+        材料が無いのに素案を作れば必ず作文になる ── 根拠欄は空のままにする。
+
+        保存前に付ける（`_with_feedback` と同じ。`GradingRun` は保存後不変・P8）。
+        **失敗しても採点は成立させる** ── 素案が無いことは採点の失敗ではなく、
+        S6 が止まっていれば当然そうなる（設計原則 P2）。
+        """
+        if self._justification is None or run.justification_draft:
+            return run
+        criteria = {c.id: c for c in task_version.criteria}
+        judged = []
+        for score in run.criterion_scores:
+            if score.kind is not EvaluatorKind.AI:
+                continue
+            criterion = criteria.get(score.criterion_id)
+            if criterion is None or score.level is None:
+                continue
+            label = criterion.level_for(score.level).label
+            reason = f"（{score.rationale}）" if score.rationale else ""
+            judged.append(f"- {criterion.title}: {label}{reason}")
+        if not judged:
+            return run
+        try:
+            return run.model_copy(
+                update={"justification_draft": self._justification.draft("\n".join(judged))}
+            )
+        except Exception:
+            logger.warning("could not draft a justification", exc_info=True)
+            return run
 
     def _profile(self, name: str, course: Course | None = None) -> SubjectProfile:
         """このコースに効く採点設定。

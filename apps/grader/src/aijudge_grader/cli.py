@@ -23,6 +23,7 @@ import sys
 import time
 from pathlib import Path
 
+from aijudge_admin.justification import JustificationWriter
 from aijudge_core import GradingPhase
 from aijudge_persistence import ENV_DATABASE_URL, Database, ObservationFileStore
 from aijudge_submission import FilesystemArtifactStore
@@ -53,6 +54,9 @@ def build_worker(args: argparse.Namespace) -> tuple[GradingWorker, Database]:
         profiles_dir=args.profiles,
         observations=ObservationFileStore(args.observations),
         feedback=build_feedback_generator(),
+        # 確定根拠の素案（#97）。**採点時に 1 度だけ作る** ── 確定画面を
+        # 開くたびに作ると、開くたびに待たされる。
+        justification=JustificationWriter(),
         worker=args.name,
     )
     return worker, database
