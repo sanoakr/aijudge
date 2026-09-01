@@ -20,13 +20,14 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from aijudge_authoring import render_statement
 from aijudge_core import (
     MIN_JUSTIFICATION_LENGTH,
     Course,
+    GradingPhase,
     ReviewRequest,
     Submission,
     Task,
@@ -305,9 +306,41 @@ def create_app(app_state: StudentApp) -> FastAPI:
                 "view": loaded.view,
                 "lines": _numbered(source),
                 "duplicate": bool(again),
+                "awaiting_deterministic": loaded.awaiting_deterministic,
+                "awaiting_ai": loaded.awaiting_ai,
+                "grading_in_progress": loaded.grading_in_progress,
                 "min_reason": MIN_JUSTIFICATION_LENGTH,
                 **build_context(loaded.course, loaded.task, loaded.version, loaded.submission),
             },
+        )
+
+    @app.get("/submissions/{submission_id}/state")
+    def submission_state(submission_id: str, me: Me) -> JSONResponse:
+        """採点が動いているかだけを返す。**画面の代わりではない。**
+
+        結果そのものは返さない ── 返すと、点を出す判断（保留・遅延減点・
+        確定の出所）が画面とこことで二重になり、片方だけ直る日が来る
+        （`visibility.py` が判断を 1 か所に集めている理由と同じ）。
+        ここが答えるのは「まだ動いているか」だけで、変わったら画面を
+        取り直させる。
+
+        `no-store` を付ける。中間のキャッシュに拾われると、終わったのに
+        「動いています」を返し続ける。
+        """
+        loaded = _submission_view(app_state, me, SubmissionId(submission_id))
+        return JSONResponse(
+            {
+                "working": loaded.grading_in_progress,
+                "phase": (
+                    "deterministic"
+                    if loaded.awaiting_deterministic
+                    else "ai"
+                    if loaded.awaiting_ai
+                    else None
+                ),
+                "graded": loaded.run is not None,
+            },
+            headers={"Cache-Control": "no-store"},
         )
 
     @app.post("/submissions/{submission_id}/request-review")
@@ -545,6 +578,17 @@ class LoadedSubmission:
     course: Course
     run: object | None
     view: ResultView | None
+    # 採点キューにまだ仕事が残っているか。**段階ごとに持つ**（ADR 0011）──
+    # 決定的評価が届いても AI 評価はこれからで、その区間に何も言わないと
+    # 学習者は再読み込みを繰り返すしかない。
+    awaiting_deterministic: bool = False
+    awaiting_ai: bool = False
+
+    @property
+    def grading_in_progress(self) -> bool:
+        """機械の採点がまだ動いているか。**人の採点待ちは含めない** ──
+        押しても届かないものを「待っています」と言うと待ち続けさせる。"""
+        return self.awaiting_deterministic or self.awaiting_ai
 
 
 def _submission_view(
@@ -576,6 +620,8 @@ def _submission_view(
         # 確定は Finalization が表す。HumanReview は「教員が読んだ」記録で
         # あって確定ではない（ADR 0010）。
         finalization = None if run is None else uow.reviews.find_finalization_for_run(run.id)
+        awaiting_deterministic = uow.jobs.awaiting(submission_id, GradingPhase.DETERMINISTIC)
+        awaiting_ai = uow.jobs.awaiting(submission_id, GradingPhase.AI)
 
     view = (
         None
@@ -594,7 +640,14 @@ def _submission_view(
         )
     )
     return LoadedSubmission(
-        submission=target, version=version, task=task, course=course, run=run, view=view
+        submission=target,
+        version=version,
+        task=task,
+        course=course,
+        run=run,
+        view=view,
+        awaiting_deterministic=awaiting_deterministic,
+        awaiting_ai=awaiting_ai,
     )
 
 

@@ -7,12 +7,28 @@
 <div class="note">同じ内容がすでに提出されています。新しい提出は作られていません。</div>
 {% endif %}
 
+{# **待っているものを名指しする。** 「再読み込みしてください」だけを出すと
+   何秒後に何が変わるのか分からず、F5 を連打させることになる。段階ごとに
+   何を待っているかと目安を言い、JavaScript があれば自動で取り直す。 #}
 {% if not run %}
-<div class="note">
+<div class="note" data-poll="{{ url_for('submission_state', submission_id=submission.id) }}">
   <strong>採点を待っています。</strong>
-  この画面を再読み込みして確認してください。
+  テスト実行による判定がふつう数秒で届きます。
+  <span class="js-only" hidden>届いたら自動で表示します。</span>
+  <noscript>この画面を再読み込みして確認してください。</noscript>
 </div>
-{% else %}
+{% elif awaiting_ai %}
+{# 決定的評価は届いたが AI 評価はこれから（別のキュー・ADR 0011）。
+   ここで何も言わないと、下の観点が「確認中」のまま理由も分からない。 #}
+<div class="note" data-poll="{{ url_for('submission_state', submission_id=submission.id) }}">
+  <strong>AI 評価を待っています。</strong>
+  テスト実行の結果は下に出ています。AI が担当する観点は 30 秒ほどで届きます。
+  <span class="js-only" hidden>届いたら自動で表示します。</span>
+  <noscript>この画面を再読み込みして確認してください。</noscript>
+</div>
+{% endif %}
+
+{% if run %}
 
 <div class="card">
 {% if view.score_withheld %}
