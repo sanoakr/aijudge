@@ -24,13 +24,14 @@ from aijudge_authoring.drafting import Blueprint, Difficulty
 from aijudge_authoring.spec import build_task_version
 from aijudge_authoring.verification import GateOutcome
 from aijudge_core import ReviewState
-from aijudge_core.ids import UserId
+from aijudge_core.ids import CourseId, UserId
 from aijudge_grading import EvaluatorRegistry, load_profile
 from aijudge_llm_gateway import LlmGateway, ScriptedProvider
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PROFILE = load_profile(REPO_ROOT / "subjects" / "cs_intro_c.yaml")
 AUTHOR = UserId("usr_" + "1" * 32)
+COURSE = CourseId("crs_" + "0" * 32)
 
 needs_c_compiler = pytest.mark.skipif(
     shutil.which("cc") is None and shutil.which("gcc") is None,
@@ -111,7 +112,9 @@ def test_a_draft_becomes_an_ordinary_task_spec() -> None:
     # Blueprint の KC がそのまま Q-matrix の入口になる（設計原則 P6）。
     assert result.spec.knowledge_components == BLUEPRINT.knowledge_components
 
-    version = build_task_version(result.spec, subject_profile="cs_intro_c", authored_by=AUTHOR)
+    version = build_task_version(
+        result.spec, course_id=COURSE, subject_profile="cs_intro_c", authored_by=AUTHOR
+    )
     assert len(version.q_matrix) == 2
     assert version.reference_solution
 
@@ -143,7 +146,9 @@ def test_the_result_records_which_prompt_and_model_made_it() -> None:
 def test_a_good_draft_passes_both_gates() -> None:
     drafter, _ = _drafter(GOOD)
     result = drafter.draft(BLUEPRINT, key="gen/sum")
-    version = build_task_version(result.spec, subject_profile="cs_intro_c", authored_by=AUTHOR)
+    version = build_task_version(
+        result.spec, course_id=COURSE, subject_profile="cs_intro_c", authored_by=AUTHOR
+    )
 
     report = _verifier(mutation_limit=8).verify(version)
     assert report.usable, report.summary()
@@ -158,7 +163,9 @@ def test_a_draft_whose_tests_see_nothing_is_refused() -> None:
     """
     drafter, _ = _drafter(WEAK)
     result = drafter.draft(BLUEPRINT, key="gen/fixed")
-    version = build_task_version(result.spec, subject_profile="cs_intro_c", authored_by=AUTHOR)
+    version = build_task_version(
+        result.spec, course_id=COURSE, subject_profile="cs_intro_c", authored_by=AUTHOR
+    )
 
     report = _verifier(mutation_limit=10).verify(version)
     assert report.reference_passes is GateOutcome.PASSED
@@ -176,6 +183,7 @@ def test_a_generated_task_is_not_approved_by_being_generated() -> None:
     result = drafter.draft(BLUEPRINT, key="gen/sum")
     version = build_task_version(
         result.spec,
+        course_id=COURSE,
         subject_profile="cs_intro_c",
         authored_by=AUTHOR,
         generated_by=result.model,
@@ -192,7 +200,9 @@ def test_a_hand_written_task_is_still_approved_on_the_spot() -> None:
     """生成物でなければ従来どおり。**既存の取り込みを壊さない。**"""
     drafter, _ = _drafter(GOOD)
     result = drafter.draft(BLUEPRINT, key="gen/sum")
-    version = build_task_version(result.spec, subject_profile="cs_intro_c", authored_by=AUTHOR)
+    version = build_task_version(
+        result.spec, course_id=COURSE, subject_profile="cs_intro_c", authored_by=AUTHOR
+    )
     assert version.provenance.review_state is ReviewState.APPROVED
     assert version.provenance.generated_by is None
 

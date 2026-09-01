@@ -55,6 +55,7 @@ def cmd_task_draft(args: argparse.Namespace) -> int:
     result = drafter.draft(blueprint, key=args.key)
     version = build_task_version(
         result.spec,
+        course_id=CourseId(args.course),
         subject_profile=args.profile_name,
         authored_by=UserId(args.author),
         generated_by=result.model,

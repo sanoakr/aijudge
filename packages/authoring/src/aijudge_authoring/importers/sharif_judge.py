@@ -30,7 +30,7 @@ from aijudge_core import (
     TestCase,
     derived_id,
 )
-from aijudge_core.ids import CriterionId, TaskId, TaskVersionId, UserId
+from aijudge_core.ids import CourseId, CriterionId, TaskId, TaskVersionId, UserId
 
 from ..spec import q_matrix_for
 from . import companion
@@ -233,6 +233,7 @@ def readability_criterion(
 def import_problem(
     problem_dir: Path,
     *,
+    course_id: CourseId,
     subject_profile: str,
     authored_by: UserId,
     task_id: TaskId | None = None,
@@ -312,10 +313,12 @@ def import_problem(
     else:
         criteria = (correctness,)
 
-    version_id = TaskVersionId(derived_id("tsv", task_key, "1"))
+    # ID には**コースを混ぜる**（#70）。混ぜないと、2 つのコースが同じ
+    # 自然な鍵（`ex01/p1`）を使った時点で同じ課題 ID になる。
+    version_id = TaskVersionId(derived_id("tsv", str(course_id), task_key, "1"))
     return TaskVersion(
         id=version_id,
-        task_id=task_id or TaskId(derived_id("tsk", task_key)),
+        task_id=task_id or TaskId(derived_id("tsk", str(course_id), task_key)),
         version=1,
         subject_profile=subject_profile,
         statement=statement,

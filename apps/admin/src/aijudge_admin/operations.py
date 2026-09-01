@@ -319,6 +319,7 @@ def import_tasks(
         try:
             version = sharif_judge.import_problem(
                 problem_dir,
+                course_id=course_id,
                 subject_profile=course.subject_profile,
                 authored_by=_IMPORTER,
                 readability_weight=readability_weight,

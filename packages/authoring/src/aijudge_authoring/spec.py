@@ -32,7 +32,7 @@ from aijudge_core import (
     derived_id,
     kc_id_for,
 )
-from aijudge_core.ids import TaskId, TaskVersionId, UserId
+from aijudge_core.ids import CourseId, TaskId, TaskVersionId, UserId
 
 DEFAULT_EVALUATOR = "code_test_runner"
 AI_EVALUATOR = "rubric_ai_judge"
@@ -202,6 +202,7 @@ def _declared_version(
     spec: TaskSpec,
     cases: tuple[TestCase, ...],
     *,
+    course_id: CourseId,
     subject_profile: str,
     authored_by: UserId,
     version: int,
@@ -241,10 +242,10 @@ def _declared_version(
         )
         for declared in spec.criteria
     )
-    version_id = TaskVersionId(derived_id("tsv", spec.key, str(version)))
+    version_id = TaskVersionId(derived_id("tsv", str(course_id), spec.key, str(version)))
     return TaskVersion(
         id=version_id,
-        task_id=TaskId(derived_id("tsk", spec.key)),
+        task_id=TaskId(derived_id("tsk", str(course_id), spec.key)),
         version=version,
         subject_profile=subject_profile,
         statement=spec.statement,
@@ -305,6 +306,7 @@ def _provenance(
 def build_task_version(
     spec: TaskSpec,
     *,
+    course_id: CourseId,
     subject_profile: str,
     authored_by: UserId,
     version: int = 1,
@@ -312,6 +314,11 @@ def build_task_version(
     generation_prompt_version: str | None = None,
 ) -> TaskVersion:
     """宣言から課題版を作る。
+
+    ID は**コースと `key`** から決定的に導く（#70）。コースを混ぜないと、
+    2 つのコースが同じ自然な鍵（`ex01/p1`）を使った時点で同じ課題 ID に
+    なる ── 内容が違えば保存が落ち、**同じなら既存の課題が黙って別の
+    コースへ移る**（`save_task` が `Task` 行を上書きする）。
 
     ID は `key` から決定的に導く。取り込みを何度流しても同じ課題を指し、
     保存済みの採点結果がどの観点の点なのかも辿れる（P8）。
@@ -345,6 +352,7 @@ def build_task_version(
         return _declared_version(
             spec,
             cases,
+            course_id=course_id,
             subject_profile=subject_profile,
             authored_by=authored_by,
             version=version,
@@ -374,10 +382,10 @@ def build_task_version(
     else:
         criteria = (correctness,)
 
-    version_id = TaskVersionId(derived_id("tsv", spec.key, str(version)))
+    version_id = TaskVersionId(derived_id("tsv", str(course_id), spec.key, str(version)))
     return TaskVersion(
         id=version_id,
-        task_id=TaskId(derived_id("tsk", spec.key)),
+        task_id=TaskId(derived_id("tsk", str(course_id), spec.key)),
         version=version,
         subject_profile=subject_profile,
         statement=spec.statement,

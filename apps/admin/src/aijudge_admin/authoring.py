@@ -93,6 +93,7 @@ def save_task(
     # （`ReviewState`）。生成物が誰の検査も通らずに出る経路ができる（P5）。
     version = build_task_version(
         spec,
+        course_id=course_id,
         subject_profile=subject_profile,
         authored_by=authored_by,
         generated_by=generated_by,
@@ -110,6 +111,7 @@ def save_task(
                 return SavedTask(task=task, version=latest, created=False)
             version = build_task_version(
                 spec,
+                course_id=course_id,
                 subject_profile=subject_profile,
                 authored_by=authored_by,
                 version=latest.version + 1,

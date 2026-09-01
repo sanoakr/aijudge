@@ -11,9 +11,10 @@ from pathlib import Path
 import pytest
 
 from aijudge_authoring.importers import companion, sharif_judge
-from aijudge_core.ids import UserId
+from aijudge_core.ids import CourseId, UserId
 
 AUTHOR = UserId("usr_" + "a" * 32)
+COURSE = CourseId("crs_" + "0" * 32)
 
 ECHO_SERVER = "import socket\n# 伴走サーバ（教材の echoServer.py 相当）\n"
 
@@ -100,7 +101,9 @@ def test_a_server_declaration_carries_fixtures(tmp_path: Path) -> None:
 def test_the_importer_uses_the_companion_declaration(tmp_path: Path) -> None:
     """`in/` `out/` が無くても自動採点できる課題になること。"""
     problem = _problem(tmp_path, CLIENT_YAML)
-    version = sharif_judge.import_problem(problem, subject_profile="net_python", authored_by=AUTHOR)
+    version = sharif_judge.import_problem(
+        problem, course_id=COURSE, subject_profile="net_python", authored_by=AUTHOR
+    )
     assert len(version.test_cases) == 2
     assert [c.evaluator_id for c in version.criteria] == ["network_test_runner"], (
         "AI 観点に落ちている（伴走プロセスの宣言が使われていない）"
@@ -117,7 +120,9 @@ def test_the_importer_still_prefers_in_out_when_there_is_no_declaration(
     (problem / "in" / "input1.txt").write_text("1\n2\n", encoding="utf-8")
     (problem / "out" / "output1.txt").write_text("3\n", encoding="utf-8")
 
-    version = sharif_judge.import_problem(problem, subject_profile="net_python", authored_by=AUTHOR)
+    version = sharif_judge.import_problem(
+        problem, course_id=COURSE, subject_profile="net_python", authored_by=AUTHOR
+    )
     assert [c.evaluator_id for c in version.criteria] == ["code_test_runner"]
 
 

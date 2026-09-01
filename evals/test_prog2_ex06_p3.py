@@ -33,7 +33,7 @@ from aijudge_core import (
     SubmissionState,
     new_id,
 )
-from aijudge_core.ids import ArtifactId, SubmissionId, TaskVersionId, TenantId, UserId
+from aijudge_core.ids import ArtifactId, CourseId, SubmissionId, TaskVersionId, TenantId, UserId
 from aijudge_grading import (
     EvaluatorRegistry,
     GradingPipeline,
@@ -48,6 +48,7 @@ PROFILE_PATH = REPO_ROOT / "subjects" / "cs_intro_c.yaml"
 
 NOW = datetime(2026, 4, 1, 9, 0, tzinfo=UTC)
 INSTRUCTOR = UserId(new_id("usr"))
+COURSE = CourseId("crs_" + "0" * 32)
 LEARNER = UserId(new_id("usr"))
 TENANT = TenantId(new_id("ten"))
 
@@ -66,6 +67,7 @@ needs_c_compiler = pytest.mark.skipif(
 def task_version():
     return sharif_judge.import_problem(
         FIXTURE,
+        course_id=COURSE,
         subject_profile="cs_intro_c",
         authored_by=INSTRUCTOR,
     )
@@ -93,7 +95,9 @@ def test_imported_test_cases_keep_input_and_expected_output(task_version) -> Non
 def test_import_fails_loudly_on_a_broken_directory(tmp_path: Path) -> None:
     (tmp_path / "desc.md").write_text("本文だけで見出しがない\n", encoding="utf-8")
     with pytest.raises(sharif_judge.ImportError_, match="markdown heading"):
-        sharif_judge.import_problem(tmp_path, subject_profile="cs_intro_c", authored_by=INSTRUCTOR)
+        sharif_judge.import_problem(
+            tmp_path, course_id=COURSE, subject_profile="cs_intro_c", authored_by=INSTRUCTOR
+        )
 
 
 # --------------------------------------------------------------------------
