@@ -1180,6 +1180,7 @@ def register(templates) -> APIRouter:
         submissions_open_at: Annotated[str, Form()] = "",
         due_at: Annotated[str, Form()] = "",
         grading_starts_at: Annotated[str, Form()] = "",
+        accepts_until: Annotated[str, Form()] = "",
     ) -> Response:
         """**問題セットの日程。その中の全課題に同じ値を入れる。**
 
@@ -1200,6 +1201,8 @@ def register(templates) -> APIRouter:
                 "due_at": _parse_when(due_at),
                 # 試験の問題セット（#67）。空なら提出と同時に採点する。
                 "grading_starts_at": _parse_when(grading_starts_at),
+                # 受付終了（#73）。空なら締切後も無期限に受け付ける。
+                "accepts_until": _parse_when(accepts_until),
             },
             saved="schedule",
         )

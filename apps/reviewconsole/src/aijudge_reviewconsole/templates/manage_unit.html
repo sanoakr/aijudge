@@ -60,6 +60,11 @@
     <span><label for="due_at">提出締切</label>
       <input id="due_at" name="due_at" type="datetime-local"
              value="{{ unit.due_at.strftime('%Y-%m-%dT%H:%M') if unit.due_at else '' }}"></span>
+    {# 受付終了（#73）。**締切とは別。** 締切は「ここから減点が始まる」で、
+       こちらは「ここで受け付けを終える」── 間にあるのが減点提出できる時間。 #}
+    <span><label for="accepts_until">受付終了</label>
+      <input id="accepts_until" name="accepts_until" type="datetime-local"
+             value="{{ unit.accepts_until.strftime('%Y-%m-%dT%H:%M') if unit.accepts_until else '' }}"></span>
     {# 採点開始は試験のための値（#67）。**締切とは別に持つ** ── 試験の終了と
        採点の開始はふつう同じ時刻だが、同じ値にすると延長のたびに採点開始も
        動く。 #}
@@ -72,7 +77,9 @@
   <p class="desc" style="margin:10px 0 0">
     <strong>提出開始が空なら、公開と同時に受け付けます。</strong>
     公開前の問題セットは学習者の画面に出ません。
-    締切を過ぎた提出は受け付けたうえで減点します。
+    <strong>受付終了が空なら、締切を過ぎても無期限に受け付けます</strong>（減点は付きます）。
+    時刻を入れると、そこで提出できなくなります。締切から受付終了までが
+    「減点して提出できる時間」です。
     <br>
     <strong>採点開始が空なら、提出と同時に採点します</strong>（通常の課題）。
     <strong>試験では、ここに時刻を入れてください</strong> — テスト実行の結果は
