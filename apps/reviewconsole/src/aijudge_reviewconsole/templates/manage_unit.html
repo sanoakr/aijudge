@@ -200,7 +200,11 @@
 </div>
 {% endif %}
 
-<h2>この問題セットの課題</h2>
+{% set hidden = tasks | selectattr('withdrawn') | list | length
+              + tasks | selectattr('rejected') | list | length %}
+<h2>この問題セットの課題
+  <span class="desc">{{ tasks | length }} 問{% if hidden %}（うち {{ hidden }} 問は学習者に出ていません）{% endif %}</span>
+</h2>
 <table>
   <thead><tr>
     <th class="fit">順</th><th class="grow">課題</th><th class="fit">テスト</th>
@@ -208,7 +212,13 @@
   </tr></thead>
   <tbody>
   {% for row in tasks %}
-    <tr>
+    {# **学習者に出ていない行は淡くする**（#83）。ピルは他の印と並ぶので、
+       一覧を上から数えるときには効かない。**消えたようには見せない** ──
+       記録は残っており、開けば編集も取り消しもできる。
+
+       **承認待ちは含めない。** あちらは「前の版が出ている」であって、
+       出ていないのではない（#48）。 #}
+    <tr{% if row.withdrawn or row.rejected %} class="hidden-from-learners"{% endif %}>
       {# **数字を打たせない。** 出題順は前後関係で、数字で持たせると
          1 問差し込むたびに全部を打ち直すことになる。 #}
       <td class="fit move">

@@ -188,6 +188,10 @@ h3{font-size:.95rem;margin:20px 0 8px;color:var(--ink)}
 /* フォームの中の小項目。**罫線で区切る** ── 見出しの余白だけで分けると、
    項目の切れ目が中身の量に左右され、観点のように密な塊と提出形式のように
    疎な塊が並ぶと、どこまでが 1 項目なのか読み取れない。 */
+/* 学習者に出ていない課題の行（#83）。**消えたようには見せない** ── 記録は
+   残っており、開けば編集も取り消しもできる。数えるときに紛れないだけの差を付ける。 */
+tr.hidden-from-learners > td{opacity:.55}
+tr.hidden-from-learners:hover > td{opacity:1}
 .subsection{margin-top:24px;padding-top:18px;border-top:1px solid var(--line-soft)}
 .subsection > h3:first-child{margin-top:0}
 /* 小項目の中の説明と入力の間隔を揃える。 */
