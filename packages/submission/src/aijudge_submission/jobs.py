@@ -172,6 +172,27 @@ class GradingJob(BaseModel):
             }
         )
 
+    def retried(self, now: datetime) -> GradingJob:
+        """上限まで落ちたジョブを、もう一度取れる状態に戻す。
+
+        **教員が押したときだけ動く。** 原因を直したあと（評価器の不具合、
+        科目プロファイルの誤り）に流し直すための操作で、自動では戻らない
+        ── 何度でも自動で再試行するなら上限を設けた意味が無い。
+
+        **回数を 0 に戻す。** 直したのだから、前回までの失敗は数えない。
+        """
+        return self.model_copy(
+            update={
+                "state": JobState.QUEUED,
+                "attempts": 0,
+                "available_at": now,
+                "lease_expires_at": None,
+                "worker": None,
+                "last_error": None,
+                "updated_at": now,
+            }
+        )
+
     def failed(
         self,
         now: datetime,

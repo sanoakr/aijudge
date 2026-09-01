@@ -453,9 +453,18 @@ class GradingRun(BaseModel):
                     )
                 seen.add(criterion_id)
 
-        if not self.criterion_scores and not self.awaiting_human:
+        if not self.criterion_scores and not self.awaiting_human and not self.unscored_criteria:
             # 点も理由も無い採点は、ただの空の記録である。
-            raise ValueError("a run with no criterion score must say which criteria await a human")
+            #
+            # **理由は 2 つある。** 人の採点を待っている（`awaiting_human`）か、
+            # 機械がまだ／もう答えていない（`unscored_criteria`）か。後者だけの
+            # 採点は実在する ── AI 観点しか持たない課題の決定的段階がそれで、
+            # 全観点が未採点のまま AI 段階へ渡る（#80）。どちらも無いときだけ
+            # 空の記録である。
+            raise ValueError(
+                "a run with no criterion score must say why: "
+                "which criteria await a human, or which went unscored"
+            )
 
         if self.is_provisional and self.routing is not Routing.REVIEW_REQUIRED:
             # 誰も見ていない観点がある採点を自動確定させない（設計原則 P5）。

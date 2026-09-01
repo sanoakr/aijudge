@@ -108,14 +108,6 @@ def derive_kc_outcomes(
     )
 
 
-class NoDeterministicWork(Exception):
-    """この科目には決定的評価器が無い。
-
-    レポート課題のように AI 観点だけで構成される科目では、決定的段階に
-    やることが無い。失敗ではないので、呼び出し側は AI 段階へ進める。
-    """
-
-
 class GradingPipeline:
     """科目非依存の採点実行器。"""
 
@@ -302,22 +294,25 @@ class GradingPipeline:
             c.id for c in task_version.criteria if c.scored_by_human and c.id not in cut
         )
 
-        if not scores and phase is GradingPhase.DETERMINISTIC and not self._profile.deterministic:
-            # 決定的評価器を宣言していない科目（レポート課題など）。この段階
-            # では何も出ないのが正しいので、AI 段階に委ねる。
-            raise NoDeterministicWork(
-                f"profile '{self._profile.name}' declares no deterministic evaluator"
-            )
-        if not scores and len(awaiting_human) != len(task_version.criteria):
-            # **全観点が人採点の課題では落とさない。** 画像提出の課題を丸ごと
-            # 人手で採点する構成がそれで、機械が 1 件も点を付けないのが正しい
-            # （Issue #7）。落とすべきなのは「採点されるはずの観点があるのに
-            # 誰も答えなかった」場合だけ。
+        # **点が 1 つも出ないことが、常に異常とは限らない。** 落とすべきなのは
+        # 「採点されるはずの観点があるのに誰も答えなかった」場合だけで、
+        # 次の 2 つはどちらも仕様どおりの結果である。
+        #
+        # - 全観点が人採点の課題（画像提出を丸ごと人手で採点する・Issue #7）
+        # - **この課題版に決定的評価器の担当観点が無い**（#80）。取り込み器は
+        #   テストケースの無い課題を AI 観点だけで構成するので、決定的評価器を
+        #   宣言している科目にも普通に混ざる。以前は科目の宣言だけを見ていた
+        #   ため、この場合が異常として扱われ、提出は再試行の上限まで落ちて
+        #   **永久に採点されなかった**。
+        all_human = len(awaiting_human) == len(task_version.criteria)
+        expected = (
+            self._deterministic_work(task_version) if phase is GradingPhase.DETERMINISTIC else True
+        )
+        if not scores and expected and not all_human:
             raise RuntimeError(
                 f"no evaluator produced a score for submission {submission.id!r}; "
                 f"check the '{self._profile.name}' profile"
             )
-
         # --- 4. 集約 / 5. 振り分け ------------------------------------------
         # 評価器が落ちた観点があると、残りの重みは 1.0 に満たない。
         # 0 点にすれば学習者に不当な不利益が出るし、満点にすれば
@@ -342,7 +337,18 @@ class GradingPipeline:
             if unscored and scores
             else tuple(scores)
         )
-        score_ratio, confidence = aggregate(final, zero_weight=zero_weight)
+        if not final and not zero_weight:
+            # **1 つも点が付いていない。** この段階で採点する観点が無かった
+            # 場合がこれで（AI 観点だけの課題の決定的段階・#80）、異常では
+            # ないので run は作る。**総合点は 0 ではなく「無い」** ── 観点が
+            # 全部 `unscored` に入るので、学習者には保留として出る（P2）。
+            #
+            # `aggregate` は空集合を拒む。それは正しい（重みの合計が 1.0 に
+            # ならないのは、ふつうどこかの観点が計算から抜けた印である）ので、
+            # 呼ばずにここで畳む。
+            score_ratio, confidence = 0.0, 0.0
+        else:
+            score_ratio, confidence = aggregate(final, zero_weight=zero_weight)
         routing = (
             Routing.REVIEW_REQUIRED
             if unscored
@@ -408,6 +414,19 @@ class GradingPipeline:
 
     def _test_cases_for(self, task_version: TaskVersion, evaluator_id: str) -> tuple:
         return tuple(case for case in task_version.test_cases if case.evaluator_id == evaluator_id)
+
+    def _deterministic_work(self, task_version) -> bool:
+        """この課題版に、決定的評価器が担当する観点があるか（#80）。
+
+        **科目の宣言では足りない。** 科目が `code_test_runner` を持っていても、
+        課題の観点が全部 AI 担当なら、決定的段階には何もすることが無い。
+        """
+        if not self._profile.deterministic:
+            return False
+        return any(
+            criterion.evaluator_id in self._profile.deterministic
+            for criterion in task_version.criteria
+        )
 
     def _invoke(self, evaluator_id: str, request: EvaluationRequest) -> EvaluationOutcome:
         """評価器 1 個を呼ぶ。落ちても採点全体は落とさない（§04 step 2）。"""

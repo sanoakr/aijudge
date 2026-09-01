@@ -181,6 +181,17 @@
         {% if job.last_error %}（{{ job.last_error }}）{% endif %}</li>
       {% endfor %}
     </ul>
+    {# **一覧を出して手が無いのは中途半端である**（#80）。原因を直したあと、
+       ここから流し直せるようにする。自動では戻さない ── 自動で戻すなら
+       上限を設けた意味が無い。 #}
+    <form method="post"
+          action="/manage/courses/{{ course.id }}/units/{{ unit.key }}/retry-failed"
+          data-confirm-title="失敗した採点を流し直しますか"
+          data-confirm="{{ failed_jobs | length }} 件を採点に回します。原因が直っていなければ、また同じところで失敗します。">
+      <div class="actions">
+        <button type="submit">失敗した採点を流し直す</button>
+      </div>
+    </form>
   </div>
   {% endif %}
 </div>
