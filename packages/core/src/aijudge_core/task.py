@@ -290,6 +290,19 @@ class Task(BaseModel):
     # あるため。ここが未来なら提出は受け付けない（学習者側で拒否する）。
     submissions_open_at: datetime | None = None
     due_at: datetime | None = None
+    # 採点を始める時刻。**空なら提出と同時に採点する**（従来どおり）。
+    #
+    # 試験のための値である（#67）。テスト実行の結果は「どのケースで落ちたか」を
+    # 含むので、**試験中の学習者にとっては答えの一部**になる。返し続けると
+    # 提出 → 結果 → 直して再提出が回り、実力ではなく試行回数を測ることになる。
+    #
+    # **採点しない**のであって、結果を隠すのではない。隠す作りは「見せない
+    # 判断」が 1 か所抜けた時点で答えが漏れるが、こちらは採点結果がまだ
+    # 存在しないので漏れる経路そのものが無い。
+    #
+    # 締切とは別に持つ。試験の終了と採点の開始はふつう同じ時刻だが、
+    # 同じ値にすると延長のたびに採点開始も動いてしまう。
+    grading_starts_at: datetime | None = None
     # 成績の自動確定までの猶予（分）。**空なら科目の設定**（`grace_minutes`）。
     auto_finalize_after_minutes: int | None = Field(default=None, gt=0)
     # この課題で受け付ける提出ファイル形式（拡張子）。空なら科目の既定
@@ -319,6 +332,15 @@ class Task(BaseModel):
             raise ValueError("締切が提出開始より前になっています")
         if self.due_at and self.opens_at and self.due_at <= self.opens_at:
             raise ValueError("締切が公開より前になっています")
+        # **採点開始が提出開始より前なのは無意味ではなく有害。** 提出が
+        # 始まる前に「採点を待つ」状態が作られ、教員が試験モードだと
+        # 思っている画面で提出が即座に採点される。
+        if (
+            self.grading_starts_at
+            and self.submissions_open_at
+            and self.grading_starts_at < self.submissions_open_at
+        ):
+            raise ValueError("採点開始が提出開始より前になっています")
         return self
 
     def accepts_submissions_at(self, now: datetime) -> bool:

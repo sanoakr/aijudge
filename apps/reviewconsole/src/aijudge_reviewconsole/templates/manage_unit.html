@@ -60,6 +60,12 @@
     <span><label for="due_at">提出締切</label>
       <input id="due_at" name="due_at" type="datetime-local"
              value="{{ unit.due_at.strftime('%Y-%m-%dT%H:%M') if unit.due_at else '' }}"></span>
+    {# 採点開始は試験のための値（#67）。**締切とは別に持つ** ── 試験の終了と
+       採点の開始はふつう同じ時刻だが、同じ値にすると延長のたびに採点開始も
+       動く。 #}
+    <span><label for="grading_starts_at">採点開始</label>
+      <input id="grading_starts_at" name="grading_starts_at" type="datetime-local"
+             value="{{ unit.grading_starts_at.strftime('%Y-%m-%dT%H:%M') if unit.grading_starts_at else '' }}"></span>
     {% if saved_key == 'schedule' %}<span class="flash">{{ saved }}</span>{% endif %}
     <button type="submit">日程を保存</button>
   </div>
@@ -67,6 +73,11 @@
     <strong>提出開始が空なら、公開と同時に受け付けます。</strong>
     公開前の問題セットは学習者の画面に出ません。
     締切を過ぎた提出は受け付けたうえで減点します。
+    <br>
+    <strong>採点開始が空なら、提出と同時に採点します</strong>（通常の課題）。
+    <strong>試験では、ここに時刻を入れてください</strong> — テスト実行の結果は
+    「どのケースで落ちたか」を含むので、試験中に返すと答えの一部を返すことになります。
+    採点しないだけで、提出は受け付けます。
   </p>
 </form>
 
@@ -117,6 +128,55 @@
     <button type="submit">問題セットの片付け</button>
   </div>
 </form>
+{% endif %}
+
+{# 試験の一括採点（#67）。**試験モードを解除しない** ── 押したあとに出された
+   提出はまた採点開始時刻まで待つ。試験中に「ここまでの提出が採点を通るか」を
+   確かめられ、延長しても勝手に始まらない、の両方が要る。 #}
+{% if unit.grading_starts_at or waiting_jobs or failed_jobs %}
+<h2 id="exam">採点の待機</h2>
+<div class="card">
+  {% if unit.grading_starts_at %}
+  <p class="desc" style="margin:0 0 10px">
+    この問題セットは<strong>試験の設定</strong>です。提出は受け付けますが、
+    採点は <strong>{{ unit.grading_starts_at.strftime('%Y-%m-%d %H:%M') }}</strong> まで走りません。
+    学習者にはこの時刻を出していません（延長で食い違うため）。
+  </p>
+  {% endif %}
+  <form method="post" action="/manage/courses/{{ course.id }}/units/{{ unit.key }}/grade-now"
+        data-confirm-title="いままでの提出を採点しますか"
+        data-confirm="待機中の {{ waiting_jobs }} 件が採点に回ります。試験の設定は解除されないので、このあと出された提出はまた採点開始時刻まで待ちます。">
+    <div class="inline-field">
+      <span class="body desc">
+        <strong>いま待機している提出は {{ waiting_jobs }} 件です。</strong>
+        採点開始時刻を待たずに、ここまでの提出を採点に回せます。何度でも押せます。
+      </span>
+      {% if saved_key == 'released' %}<span class="flash">{{ saved }}</span>{% endif %}
+      <button type="submit" {{ 'disabled' if not waiting_jobs }}>いままでの提出を採点</button>
+    </div>
+    {% if last_release is not none %}
+    <p class="desc" style="margin:10px 0 0">
+      直前の操作で <strong>{{ last_release }} 件</strong>を採点に回しました。
+    </p>
+    {% endif %}
+  </form>
+
+  {# **落ちたジョブを必ず出す。** 一括採点で一部が落ちても、いまはログにしか
+     出ない ── 気づかなければ、その提出だけ成績が欠けたまま確定する。 #}
+  {% if failed_jobs %}
+  <div class="note warn" style="margin:16px 0 0">
+    <strong>採点に失敗した提出が {{ failed_jobs | length }} 件あります。</strong>
+    再試行の上限まで落ちたものです。<strong>0 点ではありません</strong> — 採点できなかった
+    だけなので、このままでは成績が欠けたまま確定します。
+    <ul class="desc" style="margin:8px 0 0">
+      {% for job in failed_jobs %}
+      <li><span class="mono">{{ job.submission_id }}</span> — {{ job.phase.value }}
+        {% if job.last_error %}（{{ job.last_error }}）{% endif %}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+</div>
 {% endif %}
 
 <h2>この問題セットの課題</h2>

@@ -723,6 +723,72 @@ class SqlJobQueue:
         )
         return self._session.execute(statement).scalars().first() is not None
 
+    def release_waiting(self, submission_ids: Sequence[SubmissionId], now: datetime) -> int:
+        """待たせているジョブを「いま取れる」状態にする。**件数を返す。**
+
+        試験の一括採点（#67）。採点開始時刻まで寝かせてあるジョブの
+        `available_at` を早めるだけで、**新しい状態は増やさない** ── ワーカー
+        側はもともとこの時刻を見ている。
+
+        **すでに取れるジョブは触らない。** 触ると、走っている最中のリースを
+        巻き戻すことになる。
+        """
+        if not submission_ids:
+            return 0
+        rows = (
+            self._session.execute(
+                select(GradingJobRow).where(
+                    GradingJobRow.submission_id.in_([str(i) for i in submission_ids]),
+                    GradingJobRow.state == JobState.QUEUED.value,
+                    GradingJobRow.available_at > now,
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for row in rows:
+            row.available_at = now
+            row.updated_at = now
+        return len(rows)
+
+    def waiting_count(self, submission_ids: Sequence[SubmissionId], now: datetime) -> int:
+        """まだ寝かせてあるジョブの件数。**押す前に「何件動くか」を出すため。**"""
+        if not submission_ids:
+            return 0
+        return int(
+            self._session.execute(
+                select(func.count())
+                .select_from(GradingJobRow)
+                .where(
+                    GradingJobRow.submission_id.in_([str(i) for i in submission_ids]),
+                    GradingJobRow.state == JobState.QUEUED.value,
+                    GradingJobRow.available_at > now,
+                )
+            ).scalar_one()
+        )
+
+    def failed_for(self, submission_ids: Sequence[SubmissionId]) -> tuple[GradingJob, ...]:
+        """リトライ上限まで落ちたジョブ。**教員に見せるため**（#67）。
+
+        一括採点で 90 名分が一斉に流れて一部が落ちると、いまはログにしか
+        出ない ── 気づかなければ、その提出だけ成績が欠けたまま確定する。
+        """
+        if not submission_ids:
+            return ()
+        rows = (
+            self._session.execute(
+                select(GradingJobRow)
+                .where(
+                    GradingJobRow.submission_id.in_([str(i) for i in submission_ids]),
+                    GradingJobRow.state == JobState.FAILED.value,
+                )
+                .order_by(GradingJobRow.updated_at.desc())
+            )
+            .scalars()
+            .all()
+        )
+        return tuple(GradingJob.model_validate(row.document) for row in rows)
+
     def pending_count(
         self, subject_profile: str | None = None, phase: GradingPhase | None = None
     ) -> int:

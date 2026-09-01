@@ -311,6 +311,46 @@ class InMemoryJobQueue:
             and (phase is None or job.phase is phase)
         )
 
+    def release_waiting(self, submission_ids: Sequence[SubmissionId], now: datetime) -> int:
+        """SQL 実装と同じ規則。**すでに取れるジョブは触らない。**"""
+        targets = {str(i) for i in submission_ids}
+        released = 0
+        for job_id, job in list(self._items.items()):
+            if (
+                str(job.submission_id) in targets
+                and job.state is JobState.QUEUED
+                and job.available_at > now
+            ):
+                self._items[job_id] = job.model_copy(
+                    update={"available_at": now, "updated_at": now}
+                )
+                released += 1
+        return released
+
+    def waiting_count(self, submission_ids: Sequence[SubmissionId], now: datetime) -> int:
+        targets = {str(i) for i in submission_ids}
+        return sum(
+            1
+            for job in self._items.values()
+            if str(job.submission_id) in targets
+            and job.state is JobState.QUEUED
+            and job.available_at > now
+        )
+
+    def failed_for(self, submission_ids: Sequence[SubmissionId]) -> tuple[GradingJob, ...]:
+        targets = {str(i) for i in submission_ids}
+        return tuple(
+            sorted(
+                (
+                    job
+                    for job in self._items.values()
+                    if str(job.submission_id) in targets and job.state is JobState.FAILED
+                ),
+                key=lambda job: job.updated_at,
+                reverse=True,
+            )
+        )
+
     def all_jobs(self) -> tuple[GradingJob, ...]:
         return tuple(self._items.values())
 

@@ -291,6 +291,25 @@ class JobQueue(Protocol):
         """待ち行列の長さ。締切前の滞留を見るのに使う。"""
         ...
 
+    def release_waiting(self, submission_ids: Sequence[SubmissionId], now: datetime) -> int:
+        """採点開始時刻まで寝かせてあるジョブを、いま取れる状態にする。
+
+        試験の一括採点（#67）。**すでに取れるジョブは触らない** ── 触ると
+        走っている最中のリースを巻き戻す。変えた件数を返す。
+        """
+        ...
+
+    def waiting_count(self, submission_ids: Sequence[SubmissionId], now: datetime) -> int:
+        """まだ寝かせてあるジョブの件数。押す前に「何件動くか」を出すため。"""
+        ...
+
+    def failed_for(self, submission_ids: Sequence[SubmissionId]) -> tuple[GradingJob, ...]:
+        """リトライ上限まで落ちたジョブ。
+
+        一括採点で一部が落ちたとき、**気づけないと成績が欠けたまま確定する**。
+        """
+        ...
+
 
 @runtime_checkable
 class Outbox(Protocol):
