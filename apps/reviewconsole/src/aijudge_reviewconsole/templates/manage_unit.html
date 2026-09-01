@@ -91,55 +91,6 @@
   </p>
 </form>
 
-<h2 id="grace">成績の自動確定</h2>
-<form method="post" action="/manage/courses/{{ course.id }}/units/{{ unit.key }}/auto-finalize"
-      class="card">
-  <div class="inline-field">
-    <span class="body">
-      <label for="after_minutes">採点完了から何分で確定するか（空欄ならコースの設定）</label>
-      <input id="after_minutes" name="after_minutes" type="number" min="1" step="1"
-             style="max-width:10rem"
-             placeholder="{{ course_grace if course_grace else '設定なし' }}"
-             value="{{ unit.grace if unit.grace is not none and not unit.grace_from_course else '' }}">
-    </span>
-    {% if saved_key == 'grace' %}<span class="flash">{{ saved }}</span>{% endif %}
-    <button type="submit">保存</button>
-  </div>
-  <p class="desc" style="margin:10px 0 0">
-    いまは<strong>コースの設定</strong>（{% if course_grace %}{{ course_grace }} 分{% else %}自動確定なし{% endif %}）が
-    効いています。<a href="/manage/courses/{{ course.id }}">コース全体の設定</a>で変えられます。
-    {# **確定の時刻は提出ごとに違う。** 起点は課題の締切ではなく、その提出の
-       採点が終わった時刻なので、セット単位の「いつ確定するか」は無い。 #}
-    確定は<strong>提出ごと</strong>に、その採点が終わってから数えます。
-  </p>
-</form>
-
-{# 問題セットを丸ごと片付ける。**削除と取り下げを 1 操作で振り分ける**（#59）──
-   セットの中に提出のある課題と無い課題が混ざるのが普通で、片方に揃えると
-   打ち間違いが残るか、成績の出所が消えるかのどちらかになる。
-
-   **押す前に内訳を出す。** 結果が課題ごとに違う操作なので、実行してからしか
-   分からないのでは確認にならない。 #}
-{% if clear_plan.total %}
-<form method="post" action="/manage/courses/{{ course.id }}/units/{{ unit.key }}/clear"
-      class="card" data-confirm-title="この問題セットを片付けますか"
-      data-confirm="削除 {{ clear_plan.deleted }} 件（提出が無いもの・取り消せません）、出題の取り下げ {{ clear_plan.withdrawn }} 件（提出があるもの・あとで取り消せます）。取り下げた課題の提出と採点は残ります。"
-      {% if clear_plan.deleted %}data-confirm-danger="1"{% endif %}>
-  <div class="inline-field">
-    <span class="body desc">
-      <strong>この問題セットを片付ける</strong> — 課題ごとに振り分けます。
-      <strong>提出が 1 件も無い {{ clear_plan.deleted }} 件は削除</strong>し（取り消せません）、
-      <strong>提出のある {{ clear_plan.withdrawn }} 件は出題を取り下げます</strong>
-      （学習者に出なくなるだけで、提出・採点・Q-matrix は残ります。あとで取り消せます）。
-      {% if clear_plan.untouched %}
-        既に取り下げてある {{ clear_plan.untouched }} 件はそのままです。
-      {% endif %}
-    </span>
-    <button type="submit">問題セットの片付け</button>
-  </div>
-</form>
-{% endif %}
-
 {# 試験の一括採点（#67）。**試験モードを解除しない** ── 押したあとに出された
    提出はまた採点開始時刻まで待つ。試験中に「ここまでの提出が採点を通るか」を
    確かめられ、延長しても勝手に始まらない、の両方が要る。 #}
@@ -199,6 +150,31 @@
   {% endif %}
 </div>
 {% endif %}
+
+<h2 id="grace">成績の自動確定</h2>
+<form method="post" action="/manage/courses/{{ course.id }}/units/{{ unit.key }}/auto-finalize"
+      class="card">
+  <div class="inline-field">
+    <span class="body">
+      <label for="after_minutes">採点完了から何分で確定するか（空欄ならコースの設定）</label>
+      <input id="after_minutes" name="after_minutes" type="number" min="1" step="1"
+             style="max-width:10rem"
+             placeholder="{{ course_grace if course_grace else '設定なし' }}"
+             value="{{ unit.grace if unit.grace is not none and not unit.grace_from_course else '' }}">
+    </span>
+    {% if saved_key == 'grace' %}<span class="flash">{{ saved }}</span>{% endif %}
+    <button type="submit">保存</button>
+  </div>
+  <p class="desc" style="margin:10px 0 0">
+    いまは<strong>コースの設定</strong>（{% if course_grace %}{{ course_grace }} 分{% else %}自動確定なし{% endif %}）が
+    効いています。<a href="/manage/courses/{{ course.id }}">コース全体の設定</a>で変えられます。
+    {# **確定の時刻は提出ごとに違う。** 起点は課題の締切ではなく、その提出の
+       採点が終わった時刻なので、セット単位の「いつ確定するか」は無い。 #}
+    確定は<strong>提出ごと</strong>に、その採点が終わってから数えます。
+  </p>
+</form>
+
+
 
 {% set hidden = tasks | selectattr('withdrawn') | list | length
               + tasks | selectattr('rejected') | list | length %}
@@ -285,6 +261,33 @@
   異議申立・要レビュー・採点失敗のいずれか、または <code>aijudge-finalize</code> が
   動いていません。
 </div>
+{% endif %}
+
+<h2>この問題セットを片付ける</h2>
+{# 問題セットを丸ごと片付ける。**削除と取り下げを 1 操作で振り分ける**（#59）──
+   セットの中に提出のある課題と無い課題が混ざるのが普通で、片方に揃えると
+   打ち間違いが残るか、成績の出所が消えるかのどちらかになる。
+
+   **押す前に内訳を出す。** 結果が課題ごとに違う操作なので、実行してからしか
+   分からないのでは確認にならない。 #}
+{% if clear_plan.total %}
+<form method="post" action="/manage/courses/{{ course.id }}/units/{{ unit.key }}/clear"
+      class="card" data-confirm-title="この問題セットを片付けますか"
+      data-confirm="削除 {{ clear_plan.deleted }} 件（提出が無いもの・取り消せません）、出題の取り下げ {{ clear_plan.withdrawn }} 件（提出があるもの・あとで取り消せます）。取り下げた課題の提出と採点は残ります。"
+      {% if clear_plan.deleted %}data-confirm-danger="1"{% endif %}>
+  <div class="inline-field">
+    <span class="body desc">
+      課題ごとに振り分けます。
+      <strong>提出が 1 件も無い {{ clear_plan.deleted }} 件は削除</strong>し（取り消せません）、
+      <strong>提出のある {{ clear_plan.withdrawn }} 件は出題を取り下げます</strong>
+      （学習者に出なくなるだけで、提出・採点・Q-matrix は残ります。あとで取り消せます）。
+      {% if clear_plan.untouched %}
+        既に取り下げてある {{ clear_plan.untouched }} 件はそのままです。
+      {% endif %}
+    </span>
+    <button type="submit">問題セットの片付け</button>
+  </div>
+</form>
 {% endif %}
 
 {% if tasks | selectattr('unfinalized') | list %}
