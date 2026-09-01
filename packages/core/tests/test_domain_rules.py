@@ -486,3 +486,31 @@ def test_without_a_grace_the_window_stays_open() -> None:
     assert grade_window(graded, None, far) is GradeWindow.OPEN
     assert grade_window(None, 24 * 60, far) is GradeWindow.OPEN
     assert grade_window(None, None, far) is GradeWindow.OPEN
+
+
+# --------------------------------------------------------------------------
+# 問題セットの番号
+# --------------------------------------------------------------------------
+
+
+def test_a_session_can_be_the_zeroth() -> None:
+    """**ガイダンス回は「第 0 回」である**（#60）。
+
+    `None` で代用すると `sort_key` が末尾へ送り、番号を持たせた意味が
+    0 回だけ失われる ── 第 1 回より後ろ、回に対応しないまとまり
+    （`exam08` など）と同じかたまりに入ってしまう。
+    """
+    from aijudge_core import Task
+    from aijudge_core.ids import CourseId, TaskId
+
+    course = CourseId("crs_" + "0" * 32)
+    zeroth = Task(id=TaskId("tsk_" + "0" * 32), course_id=course, title="ガイダンス", session=0)
+    first = Task(id=TaskId("tsk_" + "1" * 32), course_id=course, title="第 1 回", session=1)
+    unnumbered = Task(id=TaskId("tsk_" + "2" * 32), course_id=course, title="試験", unit="exam08")
+
+    assert zeroth.unit_label == "第 0 回"
+    assert zeroth.sort_key < first.sort_key < unnumbered.sort_key
+
+    # 負の回は無い。
+    with pytest.raises(ValidationError):
+        Task(id=TaskId("tsk_" + "3" * 32), course_id=course, title="不正", session=-1)

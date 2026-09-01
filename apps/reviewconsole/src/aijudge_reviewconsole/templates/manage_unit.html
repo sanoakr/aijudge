@@ -33,7 +33,7 @@
   <div class="inline-field">
     <span class="body">
       <label for="session">第 N 回（並べ替えと表示に使います。採点には効きません）</label>
-      <input id="session" name="session" type="number" min="1" style="max-width:8rem"
+      <input id="session" name="session" type="number" min="0" style="max-width:8rem"
              value="{{ unit.session or '' }}">
     </span>
     {% if saved_key == 'number' %}<span class="flash">{{ saved }}</span>{% endif %}
