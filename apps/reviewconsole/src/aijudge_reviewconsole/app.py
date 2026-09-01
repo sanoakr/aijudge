@@ -393,6 +393,15 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 "min_sample_size": min_sample_size,
                 "drafts": drafts,
                 "kc_count": len(kcs),
+                # 直前に片付けた問題セットの内訳（#59・#82）。**件数の合計では
+                # 足りない** ── 1 回の操作で課題ごとに削除と取り下げに
+                # 分かれるので、何がどちらになったのかが言えなくなる。
+                # 片付けた直後の着地点がこの画面なので、ここに出す。
+                "last_clear": (
+                    console.last_clear[1]
+                    if console.last_clear is not None and console.last_clear[0] == str(course.id)
+                    else None
+                ),
                 # 受講者はここに出す。**「コース全体の設定」の中ではない** ──
                 # 知識要素・未承認の課題と同じく自分のページを持つものなので
                 # 同じ並びに置く。設定の中に埋めると、開くまで人数が見えない。
