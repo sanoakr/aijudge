@@ -119,7 +119,8 @@ class TaskSpec(BaseModel):
     title: str | None = None
     # 何回目のまとまりか（例 "ex02"）と、その中の順序。一覧の階層化に使う。
     unit: str | None = None
-    session: int | None = Field(default=None, ge=1)
+    # 0 を許す理由は `Task.session` と同じ（#60）。
+    session: int | None = Field(default=None, ge=0)
     position: int | None = Field(default=None, ge=1)
     opens_at: datetime | None = None
     due_at: datetime | None = None

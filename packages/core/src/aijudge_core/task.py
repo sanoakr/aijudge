@@ -274,7 +274,12 @@ class Task(BaseModel):
     # 何回目のまとまりか（例: "ex03"）。取り込み元のディレクトリ名。
     unit: str | None = None
     # 何回目か。並べ替えに使う。`unit` から取れないこともある。
-    session: int | None = Field(default=None, ge=1)
+    #
+    # **0 を許す。** ガイダンス回・事前課題を「第 0 回」と呼ぶ運用が実在し、
+    # `None` で代用すると `sort_key` が末尾へ送るので、番号を持たせた意味が
+    # 0 回だけ失われる（#60）。1 始まりだったのは取り込み元の `exNN` に
+    # 0 回が無かったからで、画面から回を作れるようになって前提が変わった。
+    session: int | None = Field(default=None, ge=0)
     # まとまりの中での順序（p1, p2, … の 1, 2, …）。
     position: int | None = Field(default=None, ge=1)
     current_version_id: TaskVersionId | None = None
