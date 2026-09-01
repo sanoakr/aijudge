@@ -9,7 +9,17 @@
 {% for section in sections if section.groups %}
 <h2>{{ section.label }}</h2>
 {% for unit in section.groups %}
-<section class="unit">
+{# **問題セットごとに畳む**（#93）。実データで 16 セット・113 問あり、全部
+   広げると「いま何をすればよいか」が縦に流れて読めない。
+
+   `<details>` を使うので **JavaScript が無くても開閉できる**（教員側の
+   ルーブリック編集と同じ・`_rubric_editor.html`）。開閉の記憶はしない ──
+   `localStorage` が要るうえ、記憶が無くても既定が妥当なら困らない。
+
+   **既定はセットの状態で決める**（#73 の 4 状態）。出せるものは開き、
+   出せない・まだ出せないものは畳む。 #}
+<details class="unit" {{ 'open' if section.state.value in ('open', 'late') }}>
+<summary>
 <h3>{{ unit.label }}
   {% if unit.unit %}<span class="mono desc">{{ unit.unit }}</span>{% endif %}
   <span class="dates desc">
@@ -26,7 +36,16 @@
           data-state="{{ unit.state.value }}"></span>
     {% endif %}
   </span>
+  {# **畳んだままで判断できるだけの情報を出す。** 開かないと未提出に
+     気づけないのでは、畳む意味が無い。 #}
+  <span class="dates desc">
+    <span>{{ unit.task_count }} 問</span>
+    {% if unit.unsubmitted %}<span class="pill attn">未提出 {{ unit.unsubmitted }}</span>
+    {% else %}<span>すべて提出済み</span>{% endif %}
+    {% if unit.grading %}<span class="pill">採点中 {{ unit.grading }}</span>{% endif %}
+  </span>
 </h3>
+</summary>
 <table>
   <thead><tr>
     <th class="fit">問</th><th class="grow">課題</th>
@@ -67,7 +86,7 @@
   {% endfor %}
   </tbody>
 </table>
-</section>
+</details>
 {% endfor %}
 {% else %}
 <p class="desc">公開されている課題がありません。</p>

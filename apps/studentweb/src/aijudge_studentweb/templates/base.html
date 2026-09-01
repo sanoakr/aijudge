@@ -159,6 +159,15 @@ header.top button{background:none;color:var(--muted);border:1px solid var(--line
 .actions{display:flex;justify-content:flex-end;gap:10px;margin-top:12px}
 /* 問題セット。段階（提出できる／公開済／締切済）の見出しの下に並ぶ。 */
 .unit{margin-bottom:22px}
+/* 問題セットの開閉（#93）。**畳んだ見出しが押せることを示す。** 三角は
+   ブラウザ既定を消して自前で出す ── 既定の位置だと見出しの折り返しに
+   合わせて動き、日付の並びと重なる。 */
+details.unit > summary{cursor:pointer;list-style:none;padding:6px 0;border-radius:3px}
+details.unit > summary::-webkit-details-marker{display:none}
+details.unit > summary::before{content:"▸";color:var(--muted);margin-right:6px}
+details.unit[open] > summary::before{content:"▾"}
+details.unit > summary:hover{background:var(--surface-2)}
+details.unit > summary h3{display:inline-flex;vertical-align:middle}
 .unit h3{font-size:.98rem;margin:0 0 6px;display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px}
 .unit h3 .dates{font-weight:400;display:flex;flex-wrap:wrap;gap:2px 14px}
 .unit h3 .dates em{font-style:normal;opacity:.65}

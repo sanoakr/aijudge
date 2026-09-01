@@ -195,7 +195,7 @@ def create_app(app_state: StudentApp) -> FastAPI:
             {
                 "me": me,
                 "course": course_obj,
-                "sections": _group_by_unit(tasks),
+                "sections": _group_by_unit(tasks, progress=progress),
                 "progress": progress,
                 "no_progress": EMPTY,
                 **build_context(course_obj),
@@ -514,7 +514,9 @@ SET_LABELS: dict[SetState, str] = {
 }
 
 
-def _group_by_unit(rows: tuple, *, now: datetime | None = None) -> list[dict[str, object]]:
+def _group_by_unit(
+    rows: tuple, *, progress: dict | None = None, now: datetime | None = None
+) -> list[dict[str, object]]:
     """課題を問題セットでまとめ、段階ごとに分けて新しい順に並べる。
 
     1 回の授業で複数問出るので、平らに並べると何回目の分か分からなくなる。
@@ -567,6 +569,16 @@ def _group_by_unit(rows: tuple, *, now: datetime | None = None) -> list[dict[str
         # **残り秒数はサーバが数える**（#73）。画面が締切と自分の時計を
         # 比べると、時計のずれがそのまま表示のずれになる。締切前は正、
         # 過ぎていれば負（＝経過時間）。
+        # 畳んだ見出しで判断できるだけの情報（#93）。**中が見えなくなるので、
+        # 開かずに「自分がやることが残っているか」が分かる必要がある。**
+        group["task_count"] = len(group["tasks"])
+        # **畳んだ見出しで「やることが残っているか」が分かる必要がある。**
+        # 中が見えなくなるので、開かないと未提出に気づけないのでは畳む
+        # 意味が無い。採点中も出す ── 畳んだ中で採点が進むと、届いたことに
+        # 気づけない（#63 の自動更新が効くのは開いている画面だけ）。
+        marks = [(progress or {}).get(version.id) for _task, version in group["tasks"]]
+        group["unsubmitted"] = sum(1 for m in marks if m is None or not m.count)
+        group["grading"] = sum(1 for m in marks if m is not None and m.grading)
         group["seconds_to_due"] = (
             None if group["due_at"] is None else int((group["due_at"] - moment).total_seconds())
         )
