@@ -175,20 +175,27 @@ header.top button{background:none;color:var(--muted);border:1px solid var(--line
 .checks label .mono{white-space:nowrap}
 /* ファイル形式の 2 行とボタンを 1 かたまりにする。行が 2 つしかないので、
    下にボタンを置くより縦が詰まる。 */
-.formats{display:flex;align-items:center;gap:16px}
+.formats{display:flex;align-items:flex-start;gap:16px}
 .formats .rows{flex:1;min-width:0}
 /* 性質ごとに 1 行。行の頭に何の並びかを書き、拡張子はその右に並べる。
    **チェックと拡張子は 1 つの塊**として扱い、間で折り返させない。 */
-.checkrow{display:flex;flex-wrap:wrap;align-items:center;gap:2px 14px;margin-bottom:2px}
+.checkrow{display:flex;flex-wrap:wrap;align-items:center;gap:2px 14px;margin-bottom:6px}
 .checkrow .rowlabel{flex:0 0 8.5em}
 /* 評価器の説明。チェックの下に並べる（名前だけでは何をするか分からない）。 */
 .evaluators{margin:6px 0 0;padding-left:1.2em}
 .evaluators li{margin:2px 0}
 h3{font-size:.95rem;margin:20px 0 8px;color:var(--ink)}
+/* フォームの中の小項目。**罫線で区切る** ── 見出しの余白だけで分けると、
+   項目の切れ目が中身の量に左右され、観点のように密な塊と提出形式のように
+   疎な塊が並ぶと、どこまでが 1 項目なのか読み取れない。 */
+.subsection{margin-top:24px;padding-top:18px;border-top:1px solid var(--line-soft)}
+.subsection > h3:first-child{margin-top:0}
+/* 小項目の中の説明と入力の間隔を揃える。 */
+.subsection > select,.subsection > input{margin-bottom:8px}
 /* ルーブリックの編集。**観点ごとに畳む** ── 開いていないものは触れないので、
    直すつもりのない観点を誤って書き換えない。開いたときは縦に伸ばして、
    段階の説明まで読める幅と高さを取る（成績の配分そのものなので）。 */
-details.criterion{border:1px solid var(--line-soft);border-radius:4px;margin-bottom:8px;
+details.criterion{border:1px solid var(--line-soft);border-radius:4px;margin-bottom:10px;
   background:var(--surface)}
 details.criterion > summary{padding:10px 14px;cursor:pointer;display:flex;flex-wrap:wrap;
   align-items:baseline;gap:4px 14px;font-size:.9rem}

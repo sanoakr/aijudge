@@ -1,7 +1,7 @@
 {# 観点の畳み方。**ルーブリック単位の設定である**（観点ごとではない）。
    観点ごとに AND を選べるようにすると、「何より上なら止まるのか」が
    観点の並びからは読めなくなる。 #}
-<label>観点の畳み方</label>
+<h3>観点の畳み方</h3>
 <select name="aggregation">
   {% if inherits %}
   <option value="" {{ 'selected' if aggregation is none }}>コースの設定に従う（いまは {{ 'AND' if course_aggregation == 'and' else 'OR' }}）</option>

@@ -110,6 +110,7 @@
   </div>
   {% endif %}
 
+  <div class="subsection">
   <h3>ルーブリック（この課題の観点）</h3>
   {# **既定と同じか、変えてあるかを示す。** 同じに見えて違う、が最も困る。 #}
   <p class="desc">
@@ -130,22 +131,33 @@
      上がっていた ── 編集の途中で押すと、書いた内容は保存されないまま別の版が
      できていた（#58）。中身はサーバが描いたものをそのまま差し込む（下の
      `<template>`）ので、欄の作り方が画面と JavaScript の 2 か所に分かれない。 #}
-  <p class="desc js-only" hidden style="margin:12px 0 0">
-    <button type="button" id="restore-course-rubric"
-            data-replace-target="#rubric-editor"
-            data-replace-template="#course-rubric-rows"
-            data-confirm-title="共通ルーブリックに復元しますか"
-            data-confirm="この課題だけの観点は失われ、コースの共通ルーブリックの内容に置き換わります。保存するまでは反映されないので、やめたいときは保存せずに画面を離れてください。">共通ルーブリックに復元</button>
-    観点だけを共通ルーブリックの内容に戻します（問題文と提出形式はそのままです）。
-    <strong>保存するまで反映されません。</strong>
-  </p>
+  {# **ボタンは他の操作と同じ右端に置く。** 説明の左に置くと、この 1 つだけが
+     他とそろわず、押せるものを探すのに画面を横断することになる。 #}
+  <div class="js-only" hidden>
+    <p class="desc" style="margin:10px 0 0">
+      観点だけを共通ルーブリックの内容に戻します（問題文と提出形式はそのままです）。
+      <strong>保存するまで反映されません。</strong>
+    </p>
+    <div class="actions">
+      <button type="button" id="restore-course-rubric"
+              data-replace-target="#rubric-editor"
+              data-replace-template="#course-rubric-rows"
+              data-confirm-title="共通ルーブリックに復元しますか"
+              data-confirm="この課題だけの観点は失われ、コースの共通ルーブリックの内容に置き換わります。保存するまでは反映されないので、やめたいときは保存せずに画面を離れてください。">共通ルーブリックに復元</button>
+    </div>
+  </div>
   <template id="course-rubric-rows">
     {% with rows = course_rubric_rows %}{% include "_rubric_editor.html" %}{% endwith %}
   </template>
+  </div>
+
+  <div class="subsection">
   {% with inherits = true, aggregation = task_aggregation, course_aggregation = course.rubric_aggregation %}
     {% include "_aggregation_field.html" %}
   {% endwith %}
+  </div>
 
+  <div class="subsection">
   <h3>提出できるファイル形式</h3>
   <input type="hidden" name="formats" value="1">
   <div class="formats">
@@ -164,8 +176,9 @@
       {% endfor %}
     </div>
   </div>
+  </div>
 
-  <p class="desc" style="margin-top:14px">
+  <p class="desc" style="margin-top:20px">
     {% if task %}
       問題文か観点を変えると<strong>新しい版</strong>ができます（いま {{ version.version }} 版）。
       過去の採点は元の版のまま残ります。提出形式だけを変えたときは版は上がりません。
@@ -184,13 +197,15 @@
 <form method="post" action="/manage/courses/{{ course.id }}/tasks/{{ task.id }}/test-cases"
       class="card" data-working="生成中… 数十秒かかります（このまま待ってください）">
   <h3 style="margin-top:0">テストケースを後から付ける</h3>
-  <p class="desc" style="margin:0 0 10px">
+  <p class="desc" style="margin:0 0 8px">
     いまの問題文から参照解答とテストケースを生成し、門 1（参照解答が全ケースを通る）と
     門 2（変異を殺せる）を通します。正しさの観点は<strong>テスト実行に戻します</strong>。
-    <br>
+  </p>
+  <p class="desc" style="margin:0 0 8px">
     できるのは<strong>新しい版</strong>で、<strong>承認するまで学習者にはいまの版が出続けます</strong>
     — 生成物は門を通っただけで、問題文の意図と合っているかは誰も見ていません（P5）。
-    <br>
+  </p>
+  <p class="desc" style="margin:0 0 10px">
     <strong>採点済みの提出はそのままです</strong>（過去の採点は自分の版を指したまま・P8）。
     新しい版で採点し直すかどうかは、承認したあとに選べます。
   </p>
@@ -205,14 +220,16 @@
 {% if regradable %}
 <form method="post" action="/manage/courses/{{ course.id }}/tasks/{{ task.id }}/regrade"
       class="card">
-  <div class="inline-field">
-    <span class="body desc">
-      <strong>いまの版で採点し直せる提出が {{ regradable }} 件あります。</strong>
-      訂正より前に出されたもので、古い版の基準で点が付いています。
-      <br>
-      <strong>確定済みの提出は動かしません</strong>（閉じた成績を機械が開け直さないため）。
-      過去の採点も消えません — 新しい採点が終わると、古い採点に「置き換わった」印が付きます（P8）。
-    </span>
+  <h3 style="margin-top:0">いまの版で採点し直す</h3>
+  <p class="desc" style="margin:0 0 8px">
+    <strong>採点し直せる提出が {{ regradable }} 件あります。</strong>
+    訂正より前に出されたもので、古い版の基準で点が付いています。
+  </p>
+  <p class="desc" style="margin:0 0 10px">
+    <strong>確定済みの提出は動かしません</strong>（閉じた成績を機械が開け直さないため）。
+    過去の採点も消えません — 新しい採点が終わると、古い採点に「置き換わった」印が付きます（P8）。
+  </p>
+  <div class="actions">
     <button type="submit">いまの版で再採点（{{ regradable }} 件）</button>
   </div>
 </form>
@@ -225,9 +242,10 @@
 <form method="post" action="/manage/courses/{{ course.id }}/tasks/{{ task.id }}/unit"
       class="card" data-confirm-title="別の問題セットへ移しますか"
       data-confirm="この課題の日程（公開・提出開始・締切・自動確定の猶予）は移動先のセットの値に置き換わります。">
+  <h3 style="margin-top:0">別の問題セットへ移す</h3>
   <div class="inline-field">
     <span class="body">
-      <label for="move-unit">別の問題セットへ移す</label>
+      <label for="move-unit">移動先</label>
       <select id="move-unit" name="unit">
         {% for group in other_units %}
         <option value="{{ group.unit or group.label }}">{{ group.unit or group.label }}
@@ -256,20 +274,21 @@
       data-confirm="学習者にこの課題が出なくなります。提出・採点・Q-matrix は残り、いつでも取り消せます。"{% endif %}>
   {% if task.withdrawn %}
   <input type="hidden" name="restore" value="1">
-  <div class="inline-field">
-    <span class="body desc">
-      <strong>この課題は出題を取り下げています。</strong>学習者には出ていません
-      （提出・採点・Q-matrix は残っています）。
-    </span>
+  <h3 style="margin-top:0">出題の取り下げを取り消す</h3>
+  <p class="desc" style="margin:0 0 10px">
+    <strong>この課題は出題を取り下げています。</strong>学習者には出ていません
+    （提出・採点・Q-matrix は残っています）。
+  </p>
+  <div class="actions">
     <button type="submit">取り下げの取り消し</button>
   </div>
   {% else %}
-  <div class="inline-field">
-    <span class="body desc">
-      <strong>出題を取り下げる</strong> — 学習者に出なくなります。
-      <strong>消えません</strong>（提出・採点・Q-matrix は残り、ここには印付きで並びます）。
-      いつでも取り消せます。
-    </span>
+  <h3 style="margin-top:0">出題を取り下げる</h3>
+  <p class="desc" style="margin:0 0 10px">
+    学習者に出なくなります。<strong>消えません</strong>
+    （提出・採点・Q-matrix は残り、ここには印付きで並びます）。いつでも取り消せます。
+  </p>
+  <div class="actions">
     <button type="submit">出題の取り下げ</button>
   </div>
   {% endif %}
@@ -280,12 +299,13 @@
       class="card" data-confirm-title="この課題を削除しますか"
       data-confirm="課題と全ての版が消えます。取り消せません。"
       data-confirm-danger="1">
-  <div class="inline-field">
-    <span class="body desc">
-      <strong>この課題には提出が 1 件もありません。</strong>打ち間違いで作ったものなら削除できます
-      （課題と全版が消えます）。<strong>提出があるものは削除できません</strong> —
-      その成績が何の課題の点なのか辿れなくなるためです。
-    </span>
+  <h3 style="margin-top:0">この課題を削除する</h3>
+  <p class="desc" style="margin:0 0 10px">
+    <strong>この課題には提出が 1 件もありません。</strong>打ち間違いで作ったものなら削除できます
+    （課題と全版が消えます）。<strong>提出があるものは削除できません</strong> —
+    その成績が何の課題の点なのか辿れなくなるためです。
+  </p>
+  <div class="actions">
     <button type="submit">この課題を削除</button>
   </div>
 </form>
