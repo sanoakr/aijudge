@@ -55,6 +55,25 @@ PROMPT = PromptTemplate(
 )
 
 
+DRAFT_PROMPT = PromptTemplate(
+    name="justification_draft_ja",
+    # 文面を変えたら必ず版を上げる（P8）。
+    version="1",
+    system=(
+        "あなたは大学教員が確定の根拠を書くための素案を用意する助手です。"
+        "**渡された判定に書かれていないことを足しません。** 理由を推測して"
+        "補うことは、教員が考えていない理由を学習者に示すことになります。"
+        "点そのものの妥当性は論じません ── 決めるのは教員です。"
+        "敬体で、2〜3 文にまとめます。"
+    ),
+    template=(
+        "## この提出に対する観点ごとの判定\n{judgements}\n\n"
+        "上の判定を、学習者に向けた確定の根拠の**素案**として整えてください。"
+        "教員がこれを読んで直します。観点の名前は上の表記に合わせます。\n"
+    ),
+)
+
+
 class JustificationWriter:
     """要点を文章にする。**採点そのものには関与しない。**"""
 
@@ -68,6 +87,24 @@ class JustificationWriter:
         self._gateway = gateway or default_gateway()
         self._model = model or default_model()
         self._max_tokens = max_tokens
+
+    def draft(self, judgements: str) -> str:
+        """AI の判定から確定根拠の素案を作る（#97）。**保存の判断はしない。**
+
+        材料は**その提出について AI が出した観点別の判定と根拠だけ**である。
+        そこに無い理由を作文させると、教員が考えていない理由が学習者に出て、
+        その記録が一致度の標本に混ざる（ADR 0009 §4）。
+        """
+        result = self._gateway.complete_structured(
+            DRAFT_PROMPT,
+            JustificationDraft,
+            model=self._model,
+            # 判定は学習者の提出についての記述なので個人データ（設計原則 P7）。
+            data_class=DataClass.PERSONAL,
+            max_tokens=self._max_tokens,
+            judgements=judgements.strip()[:4000],
+        )
+        return result.value.text.strip()
 
     def polish(self, points: str, *, adjusted: tuple[str, ...] = ()) -> str:
         """要点を文章にして返す。**保存はしない。**

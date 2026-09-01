@@ -497,30 +497,34 @@ def test_finalizing_records_only_what_changed(world: World) -> None:
 
 
 @needs_c_compiler
-def test_the_justification_draft_needs_the_instructor_points(world: World) -> None:
-    """**理由そのものは作らせない。** 要点が無ければ整えるものが無い。
+def test_the_reveal_page_no_longer_asks_for_points(world: World) -> None:
+    """要点から文章にする口はやめた（#97）。
 
-    差分から作文させると、教員が考えていない理由が学習者に表示され、
-    その記録が一致度の標本に混ざる（ADR 0009 §4）。
+    **教員が先に書かないと何も起きない**形だったので、空欄を前にして書き
+    始める手間はそのまま残り、AI がしていたのは清書だけだった。いまは
+    採点時に作った素案が最初から入っている。
     """
     _, accepted = _instructor_and_submission(world)
     world.worker.run_until_empty()
-
-    response = world.client.post(
-        f"/review/{accepted.submission.id}/justification", data={"points": "   "}
-    )
-    assert response.status_code == 400
-    assert "要点" in response.json()["detail"]
+    body = world.client.get(f"/review/{accepted.submission.id}/reveal").text
+    assert 'id="points"' not in body
+    assert "要点に無いことは足しません" not in body
 
 
 @needs_c_compiler
-def test_the_reveal_page_offers_to_polish_the_points(world: World) -> None:
-    """整えるのは書き方だけ、と画面でも言う。"""
+def test_a_human_scored_task_gets_no_draft(world: World) -> None:
+    """**人採点のみでは素案を作らない**（#97）。
+
+    AI の判定が無いので材料が無く、材料が無いのに作れば必ず作文になる。
+    """
     _, accepted = _instructor_and_submission(world)
     world.worker.run_until_empty()
+    with world.database.unit_of_work() as uow:
+        run = uow.runs.latest_for(accepted.submission.id)
+    # このテスト環境には素案を作る器を渡していないので、素案は付かない。
+    assert run.justification_draft is None
     body = world.client.get(f"/review/{accepted.submission.id}/reveal").text
-    assert 'id="points"' in body
-    assert "要点に無いことは足しません" in body
+    assert "AI の判定から作った素案です" not in body
 
 
 @needs_c_compiler

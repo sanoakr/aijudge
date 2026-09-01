@@ -39,7 +39,6 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from aijudge_admin import allowed_namespaces, list_for_namespaces, pending_counts
-from aijudge_admin.justification import JustificationWriter
 from aijudge_authoring import render_statement
 from aijudge_core import (
     HUMAN_SCORED,
@@ -696,45 +695,6 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 "min_reason": MIN_JUSTIFICATION_LENGTH,
             },
         )
-
-    @app.post("/review/{submission_id}/justification")
-    async def draft_justification(request: Request, submission_id: str, me: Me) -> Response:
-        """教員が書いた要点を、学習者に返す文章に整える。**保存はしない。**
-
-        **理由そのものは作らせない**（`aijudge_admin.justification`）。根拠欄を
-        必須にしているのは教員が下した判断を学習者に返すためで（ADR 0009 §4）、
-        同じ文字列が一致度の標本に紐づく。差分から作文させると、教員が考えて
-        いない理由が学習者に出て、その記録が測定に混ざる。
-        """
-        from fastapi.responses import JSONResponse
-
-        form = await request.form()
-        points = str(form.get("points") or "").strip()
-        if not points:
-            raise HTTPException(
-                status_code=400,
-                detail="要点を書いてください（それを文章に整えます。理由そのものは作りません）",
-            )
-
-        context = _load(console, me, SubmissionId(submission_id))
-        # 段階を変えた観点の題名。**判断の中身ではなく、名前の取り違えを防ぐため。**
-        machine = {score.criterion_id: score.level for score in context.run.criterion_scores}
-        adjusted = []
-        for criterion in context.task_version.criteria:
-            raw = form.get(level_field(criterion.code))
-            if raw is None or str(raw).strip() == "":
-                continue
-            if machine.get(criterion.id) != int(str(raw)):
-                adjusted.append(criterion.title)
-
-        try:
-            text = JustificationWriter().polish(points, adjusted=tuple(adjusted))
-        except Exception as exc:  # 生成の失敗は運用の事象。理由を画面に返す。
-            raise HTTPException(
-                status_code=502,
-                detail=f"文章にできませんでした（S6 が止まっている可能性があります）: {exc}",
-            ) from exc
-        return JSONResponse({"text": text})
 
     @app.post("/review/{submission_id}/finalize")
     async def finalize(request: Request, submission_id: str, me: Me) -> Response:
