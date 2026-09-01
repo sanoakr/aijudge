@@ -81,7 +81,7 @@ from aijudge_admin.tasks import clear_unit
 from aijudge_admin.tasks import delete as delete_task
 from aijudge_admin.tasks import withdraw as withdraw_task
 from aijudge_admin.test_cases import TestCaseWriter
-from aijudge_authoring import TaskChecks, TaskSpec, render_markdown
+from aijudge_authoring import TaskChecks, TaskSpec, images, render_markdown
 from aijudge_authoring.drafting import Blueprint, Difficulty
 from aijudge_authoring.spec import AI_EVALUATOR, TestCaseSpec
 from aijudge_core import (
@@ -405,6 +405,7 @@ SAVED_MESSAGES: dict[str, str] = {
     "restored": "出題の取り下げを取り消しました",
     "task_deleted": "課題を削除しました（提出が 1 件も無いもの）",
     "unit_cleared": "問題セットを片付けました",
+    "image": "画像を保存しました。下の 1 行を課題文に貼り付けてください",
     "kc_added": "知識要素を追加しました",
     "kc_retired": "知識要素を引退させました",
     "kc_restored": "引退を取り消しました",
@@ -826,6 +827,14 @@ def register(templates) -> APIRouter:
                 "section": {"label": "コース全体の設定", "href": f"/manage/courses/{course.id}"},
                 "saved": note or SAVED_MESSAGES.get(saved),
                 "saved_key": saved,
+                # 直前に上げた画像の貼り付け行（#64）。
+                "last_image": (
+                    console.last_image[1]
+                    if console.last_image is not None and console.last_image[0] == str(course.id)
+                    else None
+                ),
+                "image_suffixes": sorted(images.SUFFIX_TYPES),
+                "image_max_mb": images.MAX_BYTES // (1024 * 1024),
                 "people_count": people_count,
                 "role_counts": _role_counts(enrollments),
                 "roles": [role.value for role in Role],
@@ -1001,6 +1010,64 @@ def register(templates) -> APIRouter:
                     else None
                 ),
             },
+        )
+
+    @router.post("/courses/{course_id}/images")
+    async def upload_statement_image(
+        request: Request,
+        course_id: str,
+        upload: UploadFile,
+        alt: Annotated[str, Form()] = "",
+    ) -> Response:
+        """課題文に貼る画像を受け取る（#64）。
+
+        **提出物と同じストアに置く。** 保存先を増やさない。鍵はコースと
+        中身から導くので、URL と鍵の対応を別に持たずに済む
+        （`aijudge_authoring.images`）。
+
+        **貼り付ける 1 行を画面に出す。** URL を手で書かせない ── 打ち間違いは
+        「画像が出ない課題文」としてしか現れず、なぜ出ないのかが分からない。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+
+        payload = await upload.read()
+        try:
+            name = images.new_name(payload, upload.filename or "")
+            key = images.storage_key(str(course.id), name)
+        except images.ImageError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        # 同じ中身なら同じ鍵。貼り直しても増えない。
+        if not console.store.exists(key):
+            console.store.put(key, payload)
+        console.last_image = (str(course.id), images.markdown_for(str(course.id), name, alt))
+        return RedirectResponse(f"/manage/courses/{course_id}?saved=image#images", status_code=303)
+
+    @router.get("/courses/{course_id}/images/{name}")
+    def statement_image(request: Request, course_id: str, name: str) -> Response:
+        """課題文に貼られた画像（教員側）。
+
+        **学習者アプリと同じ経路を持つ**（`/images/...`）。課題文は両方の
+        画面に出るので、絶対 URL を埋め込むとどちらかのホスト名が課題文に
+        焼き付く。相対パスなら、開いている側が自分で返す。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+        try:
+            payload = console.store.get(images.storage_key(str(course.id), name))
+        except Exception as exc:
+            raise HTTPException(status_code=404, detail="画像が見つかりません") from exc
+        return Response(
+            content=payload,
+            media_type=images.content_type(name),
+            headers={"Cache-Control": "private, max-age=86400"},
         )
 
     @router.post("/courses/{course_id}/units/{unit}/clear")

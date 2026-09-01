@@ -23,7 +23,7 @@ from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response, Up
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from aijudge_authoring import render_statement
+from aijudge_authoring import images, render_statement
 from aijudge_core import (
     MIN_JUSTIFICATION_LENGTH,
     Course,
@@ -287,6 +287,33 @@ def create_app(app_state: StudentApp) -> FastAPI:
         return RedirectResponse(
             f"/submissions/{result.submission.id}" + ("?again=1" if result.deduplicated else ""),
             status_code=303,
+        )
+
+    @app.get("/images/{course_id}/{name}")
+    def statement_image(course_id: str, name: str, me: Me) -> Response:
+        """課題文に貼られた画像を返す。**受講者だけ。**
+
+        課題文そのものが受講者にしか出ないので、そこに貼られた画像も同じ
+        範囲で足りる。教員コンソールにも同じ経路がある ── 課題文は両方の
+        画面に出るので、絶対 URL を埋め込むとどちらかのホスト名が課題文に
+        焼き付く（`aijudge_authoring.images`）。
+        """
+        with app_state.database.unit_of_work() as uow:
+            auth = AuthService(uow.identity)
+            try:
+                auth.require_membership(CourseId(course_id), me.user_id)
+            except PermissionDenied:
+                # 存在と権限を区別しない（コース ID の存在自体を漏らさない）。
+                raise HTTPException(status_code=404, detail="画像が見つかりません") from None
+        try:
+            payload = app_state.store.get(images.storage_key(course_id, name))
+        except (images.ImageError, Exception) as exc:
+            raise HTTPException(status_code=404, detail="画像が見つかりません") from exc
+        return Response(
+            content=payload,
+            media_type=images.content_type(name),
+            # 中身から名前を導いているので、同じ URL の中身は変わらない。
+            headers={"Cache-Control": "private, max-age=86400"},
         )
 
     # -- 結果 --------------------------------------------------------------

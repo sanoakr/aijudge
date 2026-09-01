@@ -3259,3 +3259,44 @@ def test_clearing_a_unit_deletes_what_is_unused(world: World) -> None:
 
     with world.database.unit_of_work() as uow:
         assert uow.tasks.get_task(TaskId(task_id)) is None
+
+
+# --------------------------------------------------------------------------
+# 課題文に貼る画像（#64）
+# --------------------------------------------------------------------------
+
+
+def test_an_uploaded_image_comes_back_with_the_line_to_paste(world: World) -> None:
+    """**URL を手で書かせない。** 打ち間違いは「画像が出ない課題文」としてしか
+    現れず、なぜ出ないのかが画面から分からない。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+
+    response = client.post(
+        f"/manage/courses/{world.course.id}/images",
+        files={"upload": ("shot.png", b"fake png bytes", "image/png")},
+        data={"alt": "端末の画面"},
+        follow_redirects=True,
+    )
+    assert response.status_code == 200
+    assert "![端末の画面](/images/" in response.text, "貼り付ける 1 行が出ていない"
+
+    # 上げた画像はその場で読める。
+    line = response.text.split("![端末の画面](")[1].split(")")[0]
+    served = client.get(f"/manage/courses/{world.course.id}/images/{line.rsplit('/', 1)[1]}")
+    assert served.status_code == 200
+    assert served.content == b"fake png bytes"
+    assert served.headers["content-type"].startswith("image/png")
+
+
+def test_a_format_that_cannot_be_pasted_is_refused(world: World) -> None:
+    """**貼れる形式と提出できる形式は別。** PDF は提出できるが課題文には貼れない。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+
+    response = client.post(
+        f"/manage/courses/{world.course.id}/images",
+        files={"upload": ("report.pdf", b"%PDF-1.7", "application/pdf")},
+    )
+    assert response.status_code == 400
