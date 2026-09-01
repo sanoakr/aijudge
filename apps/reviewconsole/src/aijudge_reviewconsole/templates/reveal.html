@@ -92,8 +92,29 @@
 </div>
 {% endif %}
 
-<h2>コードと根拠</h2>
+<h2>提出されたものと根拠</h2>
+{# **種別で出し分ける**（#75）。以前は何でもテキストとして出していたので、
+   画像や PDF の提出は化けたバイナリとして並んだ。人が採点する課題では、
+   中身が見られないと採点そのものができない。 #}
+{% for file in files %}
+  <p class="desc" style="margin:0 0 6px">{{ file.filename }}</p>
+  {% if file.is_image %}
+  <a href="/review/{{ submission.id }}/artifacts/{{ file.id }}">
+    <img src="/review/{{ submission.id }}/artifacts/{{ file.id }}" alt="{{ file.filename }}"
+         style="max-width:100%;border:1px solid var(--line);border-radius:3px"></a>
+  {% elif file.is_pdf %}
+  <object data="/review/{{ submission.id }}/artifacts/{{ file.id }}"
+          type="application/pdf" width="100%" height="700"
+          style="border:1px solid var(--line);border-radius:3px">
+    <p class="desc"><a href="/review/{{ submission.id }}/artifacts/{{ file.id }}">PDF を開く</a></p>
+  </object>
+  {% else %}
+  <p class="desc"><a href="/review/{{ submission.id }}/artifacts/{{ file.id }}">元のファイル</a></p>
+  {% endif %}
+{% endfor %}
+{% if lines %}
 <pre class="code">{% for n, line in lines %}<span class="ln{% if n in highlights %} hl{% endif %}"><span class="n">{{ n }}</span>{{ line }}</span>{% endfor %}</pre>
+{% endif %}
 
 <h2>最終確定</h2>
 {% if review %}

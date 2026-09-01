@@ -1428,6 +1428,7 @@ def test_a_submission_after_the_acceptance_end_is_refused(world: World) -> None:
     assert response.status_code == 409
     assert "受付は終了しました" in response.json()["detail"]
 
+
 def test_every_task_row_carries_its_link(world: World) -> None:
     """行のどこを押しても開く。**「開く」も残す。**
 
@@ -1445,3 +1446,63 @@ def test_every_task_row_carries_its_link(world: World) -> None:
     body = world.client.get(f"/courses/{COURSE}").text
     assert f'data-href="/tasks/{world.task_version.id}"' in body
     assert f'<a href="/tasks/{world.task_version.id}">開く</a>' in body
+
+
+# --------------------------------------------------------------------------
+# 提出物の表示（#75）
+# --------------------------------------------------------------------------
+
+
+def _submit_image(world: World) -> str:
+    """画像を受け付ける課題にして、1 枚提出する。"""
+    _set_task(world, accepted_suffixes=(".png",))
+    response = world.client.post(
+        f"/tasks/{world.task_version.id}/submit",
+        files={"upload": ("shot.png", b"fake png bytes", "image/png")},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303, response.text
+    return response.headers["location"]
+
+
+def test_an_image_submission_is_shown_as_an_image(world: World) -> None:
+    """**バイナリを文字として出さない。** 種別が出し方を決める（#75）。"""
+    world.register("s2400001")
+    world.login("s2400001")
+    location = _submit_image(world)
+
+    body = world.client.get(location).text
+    assert "<img src=" in body, "画像が表示されていない"
+    assert "提出したもの" in body
+    # 化けたバイナリが行番号つきで並んでいない。
+    assert "fake png bytes" not in body
+
+
+def test_the_submitted_file_is_served_to_its_owner(world: World) -> None:
+    world.register("s2400001")
+    world.login("s2400001")
+    location = _submit_image(world)
+    submission_id = location.split("/")[-1].split("?")[0]
+
+    body = world.client.get(location).text
+    href = body.split(f"/submissions/{submission_id}/artifacts/")[1].split('"')[0]
+    served = world.client.get(f"/submissions/{submission_id}/artifacts/{href}")
+    assert served.status_code == 200
+    assert served.content == b"fake png bytes"
+    assert served.headers["content-type"].startswith("image/png")
+    # **学習者が出したファイルである。** ブラウザに種別を推測させない。
+    assert served.headers["x-content-type-options"] == "nosniff"
+
+
+def test_someone_elses_submission_is_not_served(world: World) -> None:
+    """**存在と権限を区別しない。** 提出 ID の存在自体を漏らさない。"""
+    world.register("s2400001")
+    world.login("s2400001")
+    location = _submit_image(world)
+    submission_id = location.split("/")[-1].split("?")[0]
+    body = world.client.get(location).text
+    href = body.split(f"/submissions/{submission_id}/artifacts/")[1].split('"')[0]
+
+    world.register("s2400002")
+    world.login("s2400002")
+    assert world.client.get(f"/submissions/{submission_id}/artifacts/{href}").status_code == 404
