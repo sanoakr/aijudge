@@ -1529,3 +1529,56 @@ def test_a_pdf_submission_is_embedded_at_paper_proportions(world: World) -> None
     # 紙の比率は 1 か所で決める。**個別の height を戻さない。**
     assert "aspect-ratio:210/297" in body
     assert 'height="600"' not in body
+
+
+# --------------------------------------------------------------------------
+# 問題セットの開閉（#93）
+# --------------------------------------------------------------------------
+
+
+def test_sets_you_can_submit_to_start_open(world: World) -> None:
+    """**出せるものは開く。** 全部畳むと、開くまで何をすればよいか分からない。"""
+    from datetime import timedelta
+
+    world.register("s2400001")
+    world.login("s2400001")
+    now = datetime.now(UTC)
+    _set_task(world, opens_at=now - timedelta(days=1), due_at=now + timedelta(days=7))
+
+    body = world.client.get(f"/courses/{COURSE}").text
+    assert '<details class="unit" open>' in body
+
+
+def test_closed_sets_start_folded(world: World) -> None:
+    """受付を終えたセットは畳む。**開いていても、もうできることが無い。**"""
+    from datetime import timedelta
+
+    world.register("s2400001")
+    world.login("s2400001")
+    now = datetime.now(UTC)
+    _set_task(
+        world,
+        opens_at=now - timedelta(days=14),
+        due_at=now - timedelta(days=2),
+        accepts_until=now - timedelta(days=1),
+    )
+
+    body = world.client.get(f"/courses/{COURSE}").text
+    assert '<details class="unit" >' in body or '<details class="unit">' in body
+    assert '<details class="unit" open>' not in body
+
+
+def test_a_folded_set_still_says_what_is_left(world: World) -> None:
+    """**畳んだままで判断できること。** 開かないと未提出に気づけないのでは
+    畳む意味が無い。
+    """
+    from datetime import timedelta
+
+    world.register("s2400001")
+    world.login("s2400001")
+    now = datetime.now(UTC)
+    _set_task(world, opens_at=now - timedelta(days=1), due_at=now + timedelta(days=7))
+
+    body = world.client.get(f"/courses/{COURSE}").text
+    assert "1 問" in body
+    assert "未提出 1" in body
