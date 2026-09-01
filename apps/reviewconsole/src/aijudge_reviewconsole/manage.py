@@ -437,6 +437,41 @@ SAVED_MESSAGES: dict[str, str] = {
 }
 
 
+def _units_of(console, course):
+    """このコースの問題セット。承認画面の選択肢に要る。"""
+    with console.database.unit_of_work() as uow:
+        return load_units(uow, course)
+
+
+def _place_in_unit(console, course, task, target: str) -> None:
+    """課題を問題セットへ置く。**日程は置いた先に揃える。**
+
+    `move_task_to_unit` が課題の移動でしていることと同じで、承認のときにも
+    要る（#84）── 作問の時点ではセットを決めないので、承認が「どこに出すか」
+    を決める唯一の場面になる。規則を 2 か所に書くと、片方だけ直る。
+    """
+    with console.database.unit_of_work() as uow:
+        siblings = [
+            other
+            for other in uow.tasks.list_for_course(course.id)
+            if other.id != task.id and unit_key(other) == quote(target, safe="")
+        ]
+        head = sorted(siblings, key=lambda item: item.sort_key)[0] if siblings else None
+        update: dict[str, object] = {"unit": target}
+        if head is not None:
+            update |= {
+                "session": head.session,
+                "opens_at": head.opens_at,
+                "submissions_open_at": head.submissions_open_at,
+                "due_at": head.due_at,
+                "auto_finalize_after_minutes": head.auto_finalize_after_minutes,
+            }
+        positions = [other.position for other in siblings if other.position is not None]
+        update["position"] = max(len(siblings), max(positions, default=0)) + 1
+        uow.tasks.save_task(task.model_copy(update=update))
+        uow.commit()
+
+
 def _unit_group(console, course, unit: str):
     """URL の鍵から問題セットを引く。**画面と同じまとめ方**（`unit_key`）。"""
     key = _normalized_unit(unit)
@@ -2031,6 +2066,12 @@ def register(templates) -> APIRouter:
                 uow.commit()
 
         console.last_task = (str(course.id), saved)
+        # **どこから作ったかへ戻す。** 問題セットから作ったならそのセット、
+        # 作問から作ったなら未承認の一覧（そこで出題先を決める・#84）。
+        if not unit.strip():
+            return RedirectResponse(
+                f"/manage/courses/{course_id}/drafts?saved=generated", status_code=303
+            )
         return RedirectResponse(
             f"/manage/courses/{course_id}/units/{key}?saved=generated#generate", status_code=303
         )
@@ -3148,7 +3189,7 @@ def register(templates) -> APIRouter:
     # ------------------------------------------------------------------
 
     @router.get("/courses/{course_id}/drafts", response_class=HTMLResponse)
-    def draft_queue(request: Request, course_id: str) -> Response:
+    def draft_queue(request: Request, course_id: str, saved: str = "") -> Response:
         """レビュー待ちの生成課題。
 
         **科目プロファイルと違い、ここはブラウザから触ってよい**（ADR 0002）。
@@ -3190,7 +3231,48 @@ def register(templates) -> APIRouter:
                 },
                 "rows": rows,
                 "min_reason": MIN_JUSTIFICATION_LENGTH,
+                # 承認のときに出題先を選ぶ（#84）。**作問の時点では決めない。**
+                "units": [
+                    {"key": group.key, "unit": group.unit, "label": group.label}
+                    for group in _units_of(console, course)
+                    if group.unit
+                ],
+                # ここからも作れる（#84）。**入口は 2 つ、作り方は 1 つ。**
+                "kcs": _course_kcs(console, course),
+                "difficulties": [d.value for d in Difficulty],
+                "saved": SAVED_MESSAGES.get(saved),
+                "saved_key": saved,
             },
+        )
+
+    @router.post("/courses/{course_id}/drafts/generate")
+    def generate_without_unit(
+        request: Request,
+        course_id: str,
+        key_suffix: Annotated[str, Form()],
+        kc: Annotated[list[str], Form()] = [],  # noqa: B006 - FastAPI の複数値
+        difficulty: Annotated[str, Form()] = "standard",
+        constraints: Annotated[str, Form()] = "",
+        test_cases: Annotated[str, Form()] = "5",
+        readability_weight: Annotated[str, Form()] = "0.3",
+    ) -> Response:
+        """問題セットを決めずに作る（#84）。
+
+        **出題先は承認のときに決める。** 使えるかどうかは作ってみないと
+        分からないので、決めてから却下すると、そのセットの一覧に残骸が並ぶ。
+        中身は問題セットからの生成と同じ経路を通る ── 入口が 2 つあっても、
+        作り方は 1 つでなければならない。
+        """
+        return generate_task(
+            request,
+            course_id,
+            "",
+            key_suffix=key_suffix,
+            kc=kc,
+            difficulty=difficulty,
+            constraints=constraints,
+            test_cases=test_cases,
+            readability_weight=readability_weight,
         )
 
     @router.post("/courses/{course_id}/drafts/{version_id}")
@@ -3200,11 +3282,18 @@ def register(templates) -> APIRouter:
         version_id: str,
         decision: Annotated[str, Form()],
         reason: Annotated[str, Form()] = "",
+        unit: Annotated[str, Form()] = "",
     ) -> Response:
         """承認または却下する。**却下には理由が要る。**
 
         理由は作問の改善に還流する材料であり、承認率の分母でもある
         （設計方針 §5）。「見た」だけでは何も残らない。
+
+        **出題する問題セットはここで決める**（#84）。作問の時点では決めない
+        ── 生成した課題が使えるかどうかは作ってみないと分からないので、
+        使えると分かる前に「第 6 回の問題」にしてしまうと、却下したときに
+        第 6 回の一覧に残骸が並ぶ。セットの中から作ったものはそこに仮に
+        置いてあり、ここで別のセットへ移せる。
         """
         from .app import require_principal
 
@@ -3240,6 +3329,11 @@ def register(templates) -> APIRouter:
                 # 二度目のレビュー。やり直しは新しい版から（P8）。
                 raise HTTPException(status_code=409, detail=str(exc)) from exc
             uow.commit()
+
+        # **承認したものだけ動かす。** 却下したものはどのセットにも入れない。
+        # 日程は移動先に揃う（課題の移動と同じ経路・`move_task_to_unit`）。
+        if approved and unit.strip():
+            _place_in_unit(console, course, task, unit.strip())
 
         return RedirectResponse(f"/manage/courses/{course_id}/drafts", status_code=303)
 

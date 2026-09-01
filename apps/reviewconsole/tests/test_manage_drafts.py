@@ -249,3 +249,67 @@ def test_a_decided_version_cannot_be_decided_again(world: World) -> None:
         follow_redirects=False,
     )
     assert again.status_code == 409
+
+
+def test_the_queue_can_generate_without_choosing_a_set(world: World) -> None:
+    """**作問の時点では出題先を決めない**（#84）。
+
+    使えるかどうかは作ってみないと分からないので、先に決めると、却下した
+    ときにそのセットの一覧に残骸が並ぶ。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    world.login("teacher")
+    client = world.client
+
+    page = client.get(f"/manage/courses/{COURSE}/drafts").text
+    # 出題先は承認のときに選ぶ。
+    assert "出題する問題セット" in page
+    assert 'name="unit"' in page
+    # このコースには知識要素が無いので、生成そのものは断られる ── **作問の
+    # 入口があることと、生成できることは別**（`aijudge_admin.kc` の規則 4）。
+    assert "知識要素が登録されていないので生成できません" in page
+
+
+def test_approval_places_the_task_in_the_chosen_set(world: World) -> None:
+    """承認が「どこに出すか」を決める唯一の場面（#84）。
+
+    日程は選んだセットに揃う ── 課題の移動と同じ規則（`_place_in_unit`）。
+    """
+    from aijudge_core.ids import TaskId
+
+    world.register("teacher", Role.INSTRUCTOR)
+    world.login("teacher")
+    client = world.client
+
+    response = client.post(
+        f"/manage/courses/{COURSE}/drafts/{VERSION}",
+        data={"decision": "approve", "unit": "ex07"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+
+    with world.database.unit_of_work() as uow:
+        task = uow.tasks.get_task(TaskId("tsk_" + "3" * 32))
+    assert task.unit == "ex07", "承認で選んだセットに入っていない"
+
+
+def test_a_rejected_task_goes_into_no_set(world: World) -> None:
+    """**却下したものはどのセットにも入れない。** 残骸を並べないための線。"""
+    from aijudge_core.ids import TaskId
+
+    world.register("teacher", Role.INSTRUCTOR)
+    world.login("teacher")
+    client = world.client
+
+    client.post(
+        f"/manage/courses/{COURSE}/drafts/{VERSION}",
+        data={
+            "decision": "reject",
+            "unit": "ex07",
+            "reason": "入力の形式が課題文に書かれておらず、解答者によって読みが分かれます。",
+        },
+    )
+
+    with world.database.unit_of_work() as uow:
+        task = uow.tasks.get_task(TaskId("tsk_" + "3" * 32))
+    assert task.unit != "ex07", "却下したのにセットへ入った"

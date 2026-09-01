@@ -155,6 +155,27 @@
       <textarea name="reason" rows="3"
         placeholder="例: 入力の形式が課題文に書かれておらず、解答者によって読みが分かれます。"></textarea>
     </fieldset>
+    {# **出題先はここで決める**（#84）。作問の時点では決めない ── 使えるか
+       どうかは作ってみないと分からず、決めてから却下すると、そのセットの
+       一覧に残骸が並ぶ。セットの中から作ったものはそこに仮に置いてあり、
+       ここで別のセットへ移せる。 #}
+    <div class="inline-field">
+      <span class="body">
+        <label for="unit-{{ row.version.id }}">出題する問題セット</label>
+        <select id="unit-{{ row.version.id }}" name="unit">
+          <option value="">
+            {% if row.task.unit %}いまのまま（{{ row.task.unit }}）{% else %}決めない（どのセットにも出しません）{% endif %}
+          </option>
+          {% for u in units if u.unit != row.task.unit %}
+          <option value="{{ u.unit }}">{{ u.unit }}{% if u.label != u.unit %} — {{ u.label }}{% endif %}</option>
+          {% endfor %}
+        </select>
+      </span>
+    </div>
+    <p class="desc" style="margin:6px 0 0">
+      <strong>日程は選んだセットに揃います</strong>（公開・提出開始・締切・自動確定の猶予）。
+      並びはそのセットの末尾に入ります。却下したものはどのセットにも入りません。
+    </p>
     <div class="actions">
       <button type="submit" name="decision" value="reject">却下</button>
       <button type="submit" name="decision" value="approve">承認して出題可能化</button>
@@ -162,5 +183,68 @@
   </form>
 </div>
 {% endfor %}
+{% endif %}
+<h2 id="generate">AI に課題を作らせる</h2>
+{% if kcs %}
+{# **いちばん時間の掛かる操作。** 参照解答・テストケース・変異テストまで
+   回るので数十秒かかる。押し直すと倍払って倍待つ。 #}
+<form method="post" action="/manage/courses/{{ course.id }}/drafts/generate"
+      class="card" data-working="生成中… 数十秒かかります（このまま待ってください）">
+  <div class="field">
+    <label>問う知識要素（1 つ以上・登録済みのものから選びます）</label>
+    <div class="checks">
+      {% for k in kcs %}
+      <label><input type="checkbox" name="kc" value="{{ k.key }}">
+        <span class="mono">{{ k.key }}</span> <span class="desc">{{ k.label }}</span></label>
+      {% endfor %}
+    </div>
+    <p class="desc" style="margin:6px 0 0">
+      足りないものは<a href="/manage/courses/{{ course.id }}/kc">知識要素</a>から追加してください。
+    </p>
+  </div>
+  <div class="field">
+    <label for="g-key">課題キー</label>
+    <div class="keyline">
+      <input id="g-key" name="key_suffix" required placeholder="draft-1" style="max-width:12rem">
+    </div>
+  </div>
+  <div class="field row-form">
+    <span><label for="g-difficulty">難度</label>
+      <select id="g-difficulty" name="difficulty">
+        {% for d in difficulties %}
+        <option value="{{ d }}" {{ 'selected' if d == 'standard' }}>{{ d }}</option>
+        {% endfor %}
+      </select></span>
+    <span><label for="g-cases">テストケース数</label>
+      <input id="g-cases" name="test_cases" type="number" min="2" max="20" value="5"
+             style="max-width:6rem"></span>
+    <span><label for="g-weight">読みやすさの重み</label>
+      <input id="g-weight" name="readability_weight" type="number" step="0.05" min="0" max="0.95"
+             value="0.3" style="max-width:8rem"></span>
+  </div>
+  <div class="field">
+    <label for="g-constraints">制約（1 行 1 件・課題文に必ず書かせたいこと）</label>
+    <textarea id="g-constraints" name="constraints" rows="3"
+      placeholder="標準入力から読むこと&#10;標準ライブラリの qsort を使わないこと"></textarea>
+  </div>
+  <p class="desc">
+    このコースの既存課題を「似せないための材料」として渡します。
+    生成には十数秒かかります。
+    <strong>できたものは候補であって課題ではありません</strong> —
+    この一覧に入り、承認するまで出題されません。
+    <strong>出題する問題セットは承認のときに決めます</strong> ── 使えるかどうかは
+    作ってみないと分からないので、先に決めると、却下したときにそのセットに残骸が並びます。
+  </p>
+  <div class="actions">
+    {% if saved_key == 'generated' %}<span class="flash">{{ saved }}</span>{% endif %}
+    <button type="submit">生成</button>
+  </div>
+</form>
+{% else %}
+<div class="note warn">
+  <strong>知識要素が登録されていないので生成できません。</strong>
+  何を問う課題かを決めずに生成させると、既存の課題と見分けの付かないものが出ます。
+  <a href="/manage/courses/{{ course.id }}/kc">知識要素</a>から追加してください。
+</div>
 {% endif %}
 {% endblock %}

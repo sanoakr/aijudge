@@ -72,6 +72,29 @@
 </form>
 {% endif %}
 
+{# **作問はここに集める**（#84）。AI 作問は問題セットの画面の中にあり、
+   未承認の課題はコースの設定に混ざっていた。どちらも「課題を作る」作業で、
+   日程を決めることやコースの設定を変えることとは性質が違う。
+
+   **問題セットの画面にも入口は残してある。** 第 6 回を編集中に 1 問足したい、
+   は普通の動機なので ── 作る場所は 1 つ、入口は 2 つ。 #}
+<h2>作問</h2>
+<nav class="menu">
+  <a class="row" href="/manage/courses/{{ course.id }}/drafts">
+    <span class="what"><b>未承認の課題</b>
+      <span class="desc">承認するまで出題されません。出題する問題セットは承認のときに決めます</span></span>
+    <span class="meta">
+      {% if drafts %}<span class="pill">{{ drafts }} 件</span>
+      {% else %}<span class="desc">0 件</span>{% endif %}
+    </span>
+  </a>
+  <a class="row" href="/manage/courses/{{ course.id }}/drafts#generate">
+    <span class="what"><b>AI に課題を作らせる</b>
+      <span class="desc">問題セットは決めずに作れます。狙う知識要素を選んで生成します</span></span>
+    <span class="meta desc">→</span>
+  </a>
+</nav>
+
 <h2>採点</h2>
 <nav class="menu">
   <a class="row" href="/courses/{{ course.id }}/submissions">
@@ -137,14 +160,6 @@
     <span class="what"><b>知識要素（KC）</b>
       <span class="desc">課題が問う対象の体系。コースをまたいで共有されます</span></span>
     <span class="meta desc">{{ kc_count }} 件</span>
-  </a>
-  <a class="row" href="/manage/courses/{{ course.id }}/drafts">
-    <span class="what"><b>未承認の課題</b>
-      <span class="desc">AI が生成した課題。承認するまで出題されません</span></span>
-    <span class="meta">
-      {% if drafts %}<span class="pill">{{ drafts }} 件</span>
-      {% else %}<span class="desc">0 件</span>{% endif %}
-    </span>
   </a>
 </nav>
 
