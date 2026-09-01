@@ -84,7 +84,7 @@
   </tr></thead>
   <tbody>
   {% for row in rows %}
-    <tr>
+    <tr class="row-link" data-href="/review/{{ row.submission.id }}/reveal">
       <td class="fit">{{ row.submission.submitted_at.strftime('%m-%d %H:%M') if row.submission.submitted_at else '—' }}</td>
       <td class="fit mono">{{ row.learner.login if row.learner else '—' }}</td>
       <td class="grow">

@@ -218,7 +218,8 @@
 
        **承認待ちは含めない。** あちらは「前の版が出ている」であって、
        出ていないのではない（#48）。 #}
-    <tr{% if row.withdrawn or row.rejected %} class="hidden-from-learners"{% endif %}>
+    <tr class="row-link{% if row.withdrawn or row.rejected %} hidden-from-learners{% endif %}"
+        data-href="/manage/courses/{{ course.id }}/tasks/{{ row.task.id }}/edit">
       {# **数字を打たせない。** 出題順は前後関係で、数字で持たせると
          1 問差し込むたびに全部を打ち直すことになる。 #}
       <td class="fit move">

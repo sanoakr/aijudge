@@ -190,6 +190,8 @@ h3{font-size:.95rem;margin:20px 0 8px;color:var(--ink)}
    疎な塊が並ぶと、どこまでが 1 項目なのか読み取れない。 */
 /* 学習者に出ていない課題の行（#83）。**消えたようには見せない** ── 記録は
    残っており、開けば編集も取り消しもできる。数えるときに紛れないだけの差を付ける。 */
+/* 行のどこを押しても開く（JavaScript が付けたときだけ）。 */
+tr.row-link[data-clickable]:hover{background:var(--surface-2)}
 tr.hidden-from-learners > td{opacity:.55}
 tr.hidden-from-learners:hover > td{opacity:1}
 .subsection{margin-top:24px;padding-top:18px;border-top:1px solid var(--line-soft)}
@@ -425,6 +427,32 @@ form[data-working] button[disabled]{opacity:.55;cursor:progress}
 </dialog>
 <script>
 document.querySelectorAll(".js-only").forEach(function (el) { el.hidden = false; });
+
+{# 行のどこを押しても開く。**リンクは消さない** ── これは JavaScript でしか
+   作れないので、無ければ「開く」を辿ることになる。
+
+   選択（ドラッグ）を潰さないよう、**押した位置から動いていたら開かない**。
+   一覧の課題名をコピーしたい、は普通の操作である。 #}
+(function () {
+  var rows = document.querySelectorAll("tr.row-link[data-href]");
+  if (!rows.length) return;
+  rows.forEach(function (row) {
+    row.setAttribute("data-clickable", "1");
+    row.style.cursor = "pointer";
+    var from = null;
+    row.addEventListener("mousedown", function (event) {
+      from = [event.clientX, event.clientY];
+    });
+    row.addEventListener("click", function (event) {
+      // 行の中のリンクやボタンは、そちらの動きを優先する。
+      if (event.target.closest("a, button, input, label")) return;
+      if (from && Math.hypot(event.clientX - from[0], event.clientY - from[1]) > 4) return;
+      // 修飾キーと中クリックは、ブラウザの「別タブで開く」に任せる。
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
+      window.location.href = row.getAttribute("data-href");
+    });
+  });
+})();
 
 (function () {
   var dialog = document.getElementById("confirm-dialog");

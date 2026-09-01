@@ -3442,12 +3442,33 @@ def test_a_withdrawn_task_is_visibly_apart_in_the_list(world: World) -> None:
         unit = unit_key(uow.tasks.get_task(TaskId(task_id)))
 
     page = client.get(f"/manage/courses/{world.course.id}/units/{unit}").text
-    assert '<tr class="hidden-from-learners"' not in page
+    assert 'hidden-from-learners"' not in page
     assert "学習者に出ていません" not in page
 
     client.post(f"/manage/courses/{world.course.id}/tasks/{task_id}/withdraw")
 
     page = client.get(f"/manage/courses/{world.course.id}/units/{unit}").text
-    assert '<tr class="hidden-from-learners"' in page, "行が出題中と同じ見た目のまま"
+    assert "row-link hidden-from-learners" in page, "行が出題中と同じ見た目のまま"
     # 数えるときに気づける形にする。
     assert "うち 1 問は学習者に出ていません" in page
+
+
+def test_console_rows_open_from_anywhere_but_keep_their_link(world: World) -> None:
+    """学習者側（#77）と同じ作法をコンソールにも当てる（#85）。
+
+    **リンクは残す。** 素の HTML に行リンクは無いので、JavaScript が無い環境と
+    キーボード操作ではリンクを辿ることになる。**行の中のボタン**（並べ替えの
+    ↑↓）はハンドラが避ける ── コンソールではここが学習者側より効く。
+    """
+    from aijudge_core.ids import TaskId
+    from aijudge_reviewconsole.overview import unit_key
+
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    task_id = _import_example(world)
+    with world.database.unit_of_work() as uow:
+        unit = unit_key(uow.tasks.get_task(TaskId(task_id)))
+
+    page = client.get(f"/manage/courses/{world.course.id}/units/{unit}").text
+    assert f'data-href="/manage/courses/{world.course.id}/tasks/{task_id}/edit"' in page
+    assert f'<a href="/manage/courses/{world.course.id}/tasks/{task_id}/edit">修正</a>' in page
