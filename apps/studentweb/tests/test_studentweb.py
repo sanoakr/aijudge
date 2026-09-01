@@ -1507,3 +1507,25 @@ def test_someone_elses_submission_is_not_served(world: World) -> None:
     world.register("s2400002")
     world.login("s2400002")
     assert world.client.get(f"/submissions/{submission_id}/artifacts/{href}").status_code == 404
+
+
+def test_a_pdf_submission_is_embedded_at_paper_proportions(world: World) -> None:
+    """**高さを幅から導く。** 固定のピクセル値では A4 縦 1 ページが入らない（#87）。
+
+    幅は 100% で伸びるのに高さが固定だったので、幅が広いほど比率が崩れた。
+    """
+    _set_task(world, accepted_suffixes=(".pdf",))
+    world.register("s2400001")
+    world.login("s2400001")
+    response = world.client.post(
+        f"/tasks/{world.task_version.id}/submit",
+        files={"upload": ("report.pdf", b"%PDF-1.7 fake", "application/pdf")},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303, response.text
+
+    body = world.client.get(response.headers["location"]).text
+    assert 'class="pdf-embed"' in body
+    # 紙の比率は 1 か所で決める。**個別の height を戻さない。**
+    assert "aspect-ratio:210/297" in body
+    assert 'height="600"' not in body

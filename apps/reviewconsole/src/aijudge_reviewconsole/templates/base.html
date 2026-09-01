@@ -330,6 +330,17 @@ form[data-working] button[disabled]{opacity:.55;cursor:progress}
 .score .unit{font-size:1rem;color:var(--muted);font-weight:400}
 @media (max-width:860px){.grid2{grid-template-columns:1fr}}
 :focus-visible{outline:2px solid var(--shu);outline-offset:2px}
+/* PDF の埋め込み。**高さを幅から導く。** 固定のピクセル値だと、幅が伸びる
+   ほど比率が崩れ、A4 縦 1 ページが 1 画面に収まらない（#87）。
+
+   A4 縦は 210:297。ブラウザ内蔵のビューアは道具箱とページ一覧をその中に
+   描くので、紙のぶんが削られる。**その分を上に足す** ── 足りないより
+   余るほうがよい（余白は無害だが、切れた答案は読めない）。
+
+   `max-height` で画面の縦も見る。縦の狭い画面で紙の比率を優先すると、
+   埋め込みだけで画面を使い切って前後の文脈が消える。 */
+.pdf-embed{width:100%;aspect-ratio:210/297;max-height:85vh;min-height:520px;
+  border:1px solid var(--line);border-radius:3px}
 </style>
 </head>
 <body>
