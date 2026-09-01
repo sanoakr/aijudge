@@ -1,13 +1,8 @@
-"""確定の根拠の下書きが、**理由そのものを作らないこと**を固定する。
+"""確定根拠の素案（#97）。
 
-根拠欄を必須にしているのは、教員が実際に下した判断を学習者に返すため
-（ADR 0009 §4）。同じ文字列は一致度（κ）の標本に紐づく `HumanReview.comment`
-でもある。差分から理由を作文させると、教員が考えていない理由が学習者に表示
-され、その記録が測定に混ざる。ここで固定するのは 3 つ。
-
-要点を渡す       材料は教員が書いたもので、AI の判定や差分ではない。
-足さないと言う   プロンプトが「要点に無いことを足すな」と指示している。
-学外へ出さない   要点は学習者の提出についての記述なので個人データ（P7）。
+**根拠そのものは作らせない**（ADR 0009 §4）。素案の材料は、その提出について
+AI が出した観点別の判定と根拠だけである。そこに無い理由を作文させると、
+教員が考えていない理由が学習者に出て、その記録が一致度の標本に混ざる。
 """
 
 from __future__ import annotations
@@ -16,8 +11,10 @@ import json
 
 import pytest
 
-from aijudge_admin.justification import PROMPT, JustificationWriter
+from aijudge_admin.justification import DRAFT_PROMPT, JustificationWriter
 from aijudge_llm_gateway import LlmGateway, PolicyViolation, ScriptedProvider
+
+JUDGEMENTS = "- 出力の正しさ: 達成（全ケース通過）\n- 変数名と構造: 概ね"
 
 
 def _writer(text: str = "テストケース 3 は正しく通っています。"):
@@ -25,40 +22,33 @@ def _writer(text: str = "テストケース 3 は正しく通っています。"
     return JustificationWriter(LlmGateway(provider), model="test"), provider
 
 
-def test_the_points_the_instructor_wrote_are_what_is_sent() -> None:
-    """**材料は教員が書いた要点。** AI の判定や段階の差分ではない。"""
+def test_the_ai_judgements_are_what_is_sent() -> None:
+    """**材料は AI の判定。** 提出の中身でも教員の書いたものでもない。"""
     writer, provider = _writer()
-    writer.polish("テスト3通ってる / AIは出力形式を誤判定")
+    writer.draft(JUDGEMENTS)
     sent = "\n".join(message.content for message in provider.calls[0].messages)
-    assert "テスト3通ってる" in sent
-    assert "AIは出力形式を誤判定" in sent
+    assert "出力の正しさ: 達成" in sent
 
 
 def test_the_prompt_forbids_inventing_reasons() -> None:
-    """整えるだけ、と指示していることを本文で確かめる。
-
-    ここが緩むと、教員が考えていない理由が学習者に出る経路ができる。
-    """
-    assert "書かれていないことを足しません" in (PROMPT.system or "")
+    """**理由を推測して補わせない。** 素案は判定の言い換えに留める。"""
+    assert "渡された判定に書かれていないことを足しません" in (DRAFT_PROMPT.system or "")
 
 
-def test_the_adjusted_criteria_are_named_but_not_explained() -> None:
-    """観点の題名だけは渡す。**名前の取り違えを防ぐためで、判断の中身ではない。**"""
-    writer, provider = _writer()
-    writer.polish("形式の差だけ", adjusted=("出力の正しさ",))
-    sent = "\n".join(message.content for message in provider.calls[0].messages)
-    assert "出力の正しさ" in sent
+def test_the_prompt_leaves_the_score_to_the_instructor() -> None:
+    """点の妥当性は論じさせない ── 決めるのは教員である（設計原則 P5）。"""
+    assert "決めるのは教員です" in (DRAFT_PROMPT.system or "")
 
 
-def test_the_points_never_reach_a_remote_model() -> None:
-    """要点は学習者の提出についての記述なので個人データ（設計原則 P7）。"""
-    provider = ScriptedProvider([json.dumps({"text": "文章"})], local=False)
+def test_the_judgements_never_reach_a_remote_model() -> None:
+    """判定は学習者の提出についての記述なので個人データ（設計原則 P7）。"""
+    provider = ScriptedProvider([json.dumps({"text": "x"})], local=False)
     writer = JustificationWriter(LlmGateway(provider), model="test")
     with pytest.raises(PolicyViolation):
-        writer.polish("テスト3通ってる")
+        writer.draft(JUDGEMENTS)
 
 
 def test_the_draft_is_returned_not_saved() -> None:
-    """返るのは候補。**保存すると、誰も読んでいない文章が根拠として残る**（P5）。"""
+    """返るのは候補で、保存の判断はここではしない。"""
     writer, _ = _writer("テストケース 3 は正しく通っています。")
-    assert writer.polish("テスト3通ってる") == "テストケース 3 は正しく通っています。"
+    assert writer.draft(JUDGEMENTS) == "テストケース 3 は正しく通っています。"
