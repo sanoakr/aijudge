@@ -1201,10 +1201,11 @@ def register(templates) -> APIRouter:
         # 教員に分からない。
         console.last_clear = (str(course.id), report)
         if not report.withdrawn and not report.untouched:
-            # 全部消えたのでセットのページはもう無い。コースへ戻す。
-            return RedirectResponse(
-                f"/manage/courses/{course_id}?saved=unit_cleared", status_code=303
-            )
+            # 全部消えたのでセットのページはもう無い。**コースのトップへ戻す**
+            # （#82）── 以前は `/manage/courses/{id}`、つまり共通ルーブリックや
+            # 遅延減点を設定する画面に飛ばしていた。消した直後に見たいのは
+            # 「このコースに何が残っているか」であって、設定ではない。
+            return RedirectResponse(f"/courses/{course_id}", status_code=303)
         return RedirectResponse(
             f"/manage/courses/{course_id}/units/{group.key}?saved=unit_cleared", status_code=303
         )

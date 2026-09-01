@@ -11,6 +11,24 @@
 
    問題セットは TA には開かせない（締切と一括確定は成績に直接効く）。 #}
 {% if can_manage %}
+{# 片付けた直後の着地点。**何がどうなったかを出す**（#59・#82）── 削除と
+   取り下げが混ざるので、件数の合計だけでは何が起きたのか言えない。 #}
+{% if last_clear %}
+<div class="note">
+  <strong>問題セットを片付けました。</strong>
+  {% if last_clear.deleted %}
+    <strong>{{ last_clear.deleted | length }} 件を削除</strong>しました（提出が無かったもの）。
+  {% endif %}
+  {% if last_clear.withdrawn %}
+    <strong>{{ last_clear.withdrawn | length }} 件は出題を取り下げ</strong>ました
+    （提出があるので消していません。課題の画面から取り消せます）。
+  {% endif %}
+  {% if last_clear.untouched %}
+    {{ last_clear.untouched | length }} 件は既に取り下げ済みでした。
+  {% endif %}
+</div>
+{% endif %}
+
 <h2>問題セット</h2>
 {% if units %}
 <nav class="menu sets">

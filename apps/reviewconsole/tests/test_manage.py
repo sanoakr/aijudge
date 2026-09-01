@@ -3258,9 +3258,18 @@ def test_clearing_a_unit_deletes_what_is_unused(world: World) -> None:
         f"/manage/courses/{world.course.id}/units/{unit}/clear", follow_redirects=False
     )
     assert response.status_code == 303
+    # **コースのトップへ戻す**（#82）。設定画面ではない ── 消した直後に見たいのは
+    # 「このコースに何が残っているか」である。
+    assert response.headers["location"] == f"/courses/{world.course.id}"
 
     with world.database.unit_of_work() as uow:
         assert uow.tasks.get_task(TaskId(task_id)) is None
+
+    # **何がどうなったかを着地点に出す。** 件数の合計では、削除と取り下げが
+    # 混ざったときに何が起きたのか言えない（#59）。
+    landing = client.get(f"/courses/{world.course.id}").text
+    assert "問題セットを片付けました" in landing
+    assert "1 件を削除" in landing
 
 
 # --------------------------------------------------------------------------
