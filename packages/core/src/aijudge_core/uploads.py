@@ -42,6 +42,32 @@ DEFAULT_UPLOAD_SUFFIXES: tuple[str, ...] = (".c", ".py", ".java", ".tex", ".md")
 
 ALL_UPLOAD_SUFFIXES: tuple[str, ...] = tuple(sorted(SUFFIX_KINDS))
 
+# 拡張子 → MIME 型。**提出物を返すときに要る**（#75）。ここに無ければ
+# `application/octet-stream` で返す ── 推測して間違えるより、ブラウザに
+# 判断させないほうが安全である。
+SUFFIX_CONTENT_TYPES: dict[str, str] = {
+    ".pdf": "application/pdf",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".gif": "image/gif",
+}
+
+
+def content_type_for(filename: str | None) -> str:
+    """このファイルを返すときの `Content-Type`。
+
+    **型が分からないものを型があるように返さない。** 学習者が出したファイルを
+    ブラウザに解釈させる経路なので、推測で `text/html` を返すような余地を
+    作らない（`application/octet-stream` はブラウザが実行しない）。
+    """
+    lowered = (filename or "").lower()
+    for suffix, mime in SUFFIX_CONTENT_TYPES.items():
+        if lowered.endswith(suffix):
+            return mime
+    return "application/octet-stream"
+
+
 # 画面で並べるときの区切り。**性質が違うものを混ぜない** ── コードとテキストは
 # 本文がそのまま読めて採点器に渡せるが、PDF と画像は読めず、採点の前に本文へ
 # 変換する段が要る（`ArtifactKind.is_document`）。並べて出すと、教員は

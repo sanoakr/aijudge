@@ -44,6 +44,7 @@ from aijudge_authoring import render_statement
 from aijudge_core import (
     HUMAN_SCORED,
     MIN_JUSTIFICATION_LENGTH,
+    ArtifactKind,
     BlindMark,
     Course,
     Finalization,
@@ -56,6 +57,7 @@ from aijudge_core import (
     Submission,
     TaskVersion,
     blocks_finalization,
+    content_type_for,
     new_id,
 )
 from aijudge_core.ids import (
@@ -92,6 +94,9 @@ TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 # 「人が採点する」を表す評価器の名前。**画面に値を書き写さない** ── 書き写すと、
 # 模型の側で変えたときに画面だけが古い値を送り続ける。
 TEMPLATES.env.globals["HUMAN_SCORED"] = HUMAN_SCORED
+
+# 画面に埋め込んでよい種別。それ以外はダウンロードさせる（#75）。
+INLINE_KINDS = (ArtifactKind.IMAGE, ArtifactKind.PDF)
 
 SESSION_COOKIE = "aijudge_review_session"
 DEFAULT_TENANT = "ten_" + "0" * 32
@@ -159,12 +164,32 @@ class Console:
         return is_blind_sample(str(submission.id), self.blind_sample_rate(subject_profile))
 
     def source_of(self, submission: Submission) -> str:
+        """提出物を本文として読む。**読めるものだけ**（#75）。
+
+        以前は種別を見ずに `decode` していたので、画像や PDF の提出は化けた
+        バイナリとして並んだ。**人が採点する画像・PDF 課題では、中身が
+        見られないと採点そのものができない。**
+        """
         for artifact in submission.gradable_artifacts:
+            if artifact.kind in INLINE_KINDS or artifact.kind is ArtifactKind.DOCX:
+                return ""
             try:
                 return self.store.get(artifact.storage_key).decode("utf-8", "replace")
             except Exception:  # pragma: no cover - ストアが読めない状況
                 return ""
         return ""
+
+    def files_of(self, submission: Submission) -> tuple[dict[str, object], ...]:
+        """提出物を画面に出すための行。種別が出し方を決める。"""
+        return tuple(
+            {
+                "id": str(artifact.id),
+                "filename": artifact.filename or "提出物",
+                "is_image": artifact.kind is ArtifactKind.IMAGE,
+                "is_pdf": artifact.kind is ArtifactKind.PDF,
+            }
+            for artifact in submission.gradable_artifacts
+        )
 
     def refresh_observations(
         self,
@@ -542,6 +567,9 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 "submission": context.submission,
                 "task": context.task_version,
                 "lines": _numbered(console.source_of(context.submission)),
+                # 提出物そのもの（#75）。**人が採点する画像・PDF 課題では、
+                # これが見えないと採点できない。**
+                "files": console.files_of(context.submission),
                 "criteria": context.task_version.criteria,
                 "course": context.course,
                 "section": {
@@ -593,6 +621,36 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
         )
         return RedirectResponse(f"/review/{submission_id}/reveal", status_code=303)
 
+    @app.get("/review/{submission_id}/artifacts/{artifact_id}")
+    def submitted_file(request: Request, submission_id: str, artifact_id: str, me: Me) -> Response:
+        """提出されたファイルそのものを返す（#75）。
+
+        **担当教員だけ。** `_load` が受講と役割を確かめている（他人のコースの
+        提出は 404）ので、そこを通す。
+
+        `Content-Type` は拡張子から引き、分からなければ
+        `application/octet-stream` にする ── 学習者が出したファイルを返す
+        経路なので、ブラウザに解釈させる余地を作らない。
+        """
+        context = _load(console, me, SubmissionId(submission_id))
+        artifact = next((a for a in context.submission.artifacts if str(a.id) == artifact_id), None)
+        if artifact is None:
+            raise HTTPException(status_code=404, detail="提出物が見つかりません")
+        try:
+            payload = console.store.get(artifact.storage_key)
+        except Exception as exc:
+            raise HTTPException(status_code=404, detail="提出物が見つかりません") from exc
+        return Response(
+            content=payload,
+            media_type=content_type_for(artifact.filename),
+            headers={
+                "Cache-Control": "private, max-age=300",
+                "Content-Disposition": ("inline" if artifact.kind in INLINE_KINDS else "attachment")
+                + f'; filename="{artifact.filename or artifact_id}"',
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
+
     # -- 開示と確定 --------------------------------------------------------
 
     @app.get("/review/{submission_id}/reveal", response_class=HTMLResponse)
@@ -612,6 +670,7 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 "task": context.task_version,
                 "run": context.run,
                 "lines": _numbered(source),
+                "files": console.files_of(context.submission),
                 "rows": _comparison_rows(context.task_version, context.run, context.mark),
                 "highlights": _highlighted_lines(context.run),
                 "review": context.review,

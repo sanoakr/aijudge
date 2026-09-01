@@ -26,6 +26,7 @@ from fastapi.templating import Jinja2Templates
 from aijudge_authoring import images, render_statement
 from aijudge_core import (
     MIN_JUSTIFICATION_LENGTH,
+    ArtifactKind,
     Course,
     GradingPhase,
     ReviewRequest,
@@ -34,6 +35,7 @@ from aijudge_core import (
     Task,
     TaskVersion,
     allowed_suffixes,
+    content_type_for,
     grace_minutes,
     kind_for,
 )
@@ -349,6 +351,10 @@ def create_app(app_state: StudentApp) -> FastAPI:
                 "run": loaded.run,
                 "view": loaded.view,
                 "lines": _numbered(source),
+                # 提出物そのもの（#75）。**種別で描き分ける** ── 以前は
+                # 何でもテキストとして出しており、画像は化けたバイナリに
+                # なっていた。
+                "files": _submitted_files(loaded.submission),
                 "duplicate": bool(again),
                 "awaiting_deterministic": loaded.awaiting_deterministic,
                 "awaiting_ai": loaded.awaiting_ai,
@@ -391,6 +397,42 @@ def create_app(app_state: StudentApp) -> FastAPI:
                 "graded": loaded.run is not None,
             },
             headers={"Cache-Control": "no-store"},
+        )
+
+    @app.get("/submissions/{submission_id}/artifacts/{artifact_id}")
+    def submitted_file(submission_id: str, artifact_id: str, me: Me) -> Response:
+        """提出したファイルそのものを返す（#75）。
+
+        **見せてよいのは本人だけ。** `_submission_view` が既にその判定を
+        持っている（他人の提出は 404 にして、存在自体を漏らさない）ので、
+        そこを通す。課題文の画像（#64）と形は近いが、**見せる相手が違う。**
+
+        `Content-Type` は拡張子から引く。分からなければ
+        `application/octet-stream` で返し、ブラウザに解釈させない
+        （学習者が出したファイルをそのまま返す経路である）。
+        """
+        loaded = _submission_view(app_state, me, SubmissionId(submission_id))
+        artifact = next((a for a in loaded.submission.artifacts if str(a.id) == artifact_id), None)
+        if artifact is None:
+            raise HTTPException(status_code=404, detail="提出物が見つかりません")
+        try:
+            payload = app_state.store.get(artifact.storage_key)
+        except Exception as exc:
+            raise HTTPException(status_code=404, detail="提出物が見つかりません") from exc
+        return Response(
+            content=payload,
+            media_type=content_type_for(artifact.filename),
+            headers={
+                "Cache-Control": "private, max-age=300",
+                # **画面に埋め込むのは画像と PDF だけ。** それ以外を
+                # インラインにすると、ブラウザが中身を解釈しうる。
+                "Content-Disposition": (
+                    "inline" if artifact.kind in _INLINE_KINDS else "attachment"
+                )
+                + f'; filename="{artifact.filename or artifact_id}"',
+                # 提出物は学習者が出したファイルである。
+                "X-Content-Type-Options": "nosniff",
+            },
         )
 
     @app.post("/submissions/{submission_id}/request-review")
@@ -734,8 +776,40 @@ def _submission_view(
     )
 
 
+# 画面に埋め込んでよい種別。**それ以外はダウンロードさせる** ── 学習者が
+# 出したファイルをインラインで返すと、ブラウザが中身を解釈しうる（#75）。
+_INLINE_KINDS = (ArtifactKind.IMAGE, ArtifactKind.PDF)
+
+
+def _submitted_files(submission: Submission) -> tuple[dict[str, object], ...]:
+    """提出物を画面に出すための行。**種別が出し方を決める。**
+
+    種別は提出時に決まっている（`aijudge_core.uploads.kind_for`）ので、
+    ここで判定し直さない。
+    """
+    return tuple(
+        {
+            "id": str(artifact.id),
+            "filename": artifact.filename or "提出物",
+            "kind": artifact.kind,
+            "is_image": artifact.kind is ArtifactKind.IMAGE,
+            "is_pdf": artifact.kind is ArtifactKind.PDF,
+            "byte_size": artifact.byte_size,
+        }
+        for artifact in submission.gradable_artifacts
+    )
+
+
 def _source_of(app_state: StudentApp, submission: Submission) -> str:
+    """提出物を本文として読む。**読めるものだけ。**
+
+    以前は種別を見ずに `decode` していたので、画像や PDF を出すと化けた
+    バイナリが行番号つきで並んだ（#75）。読めないものは空を返し、画面は
+    種別に応じた出し方（`<img>`・ダウンロード）に切り替える。
+    """
     for artifact in submission.gradable_artifacts:
+        if artifact.kind in _INLINE_KINDS or artifact.kind is ArtifactKind.DOCX:
+            return ""
         try:
             return app_state.store.get(artifact.storage_key).decode("utf-8", "replace")
         except Exception:  # pragma: no cover - ストアが読めない状況

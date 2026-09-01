@@ -107,6 +107,7 @@ from .uploads import (
     SUFFIX_GROUPS,
     SUFFIX_KINDS,
     allowed_suffixes,
+    content_type_for,
     kind_for,
     normalize_suffixes,
 )
@@ -187,6 +188,7 @@ __all__ = [
     "blocks_finalization",
     "bulk_finalizable",
     "can_transition",
+    "content_type_for",
     "derived_id",
     "effective_aggregation",
     "final_score",

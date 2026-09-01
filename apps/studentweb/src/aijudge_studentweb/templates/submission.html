@@ -161,6 +161,35 @@
 
 {% endif %}
 
-<h2>提出したコード</h2>
+{# **種別で出し分ける**（#75）。以前は何でもテキストとして出していたので、
+   画像や PDF を提出すると化けたバイナリが行番号つきで並んだ。
+   見出しも「提出したコード」で固定だった ── コードしか出ない前提が画面に
+   残っていた。 #}
+<h2>提出したもの</h2>
+{% for file in files %}
+  {% if file.is_image %}
+  <p class="desc" style="margin:0 0 6px">{{ file.filename }}</p>
+  {# 原寸で出すと画面からはみ出す。幅を制限し、押せば原寸で開ける。 #}
+  <a href="/submissions/{{ submission.id }}/artifacts/{{ file.id }}">
+    <img src="/submissions/{{ submission.id }}/artifacts/{{ file.id }}"
+         alt="{{ file.filename }}"
+         style="max-width:100%;border:1px solid var(--line);border-radius:3px">
+  </a>
+  {% elif file.is_pdf %}
+  <p class="desc" style="margin:0 0 6px">{{ file.filename }}</p>
+  <object data="/submissions/{{ submission.id }}/artifacts/{{ file.id }}"
+          type="application/pdf" width="100%" height="600"
+          style="border:1px solid var(--line);border-radius:3px">
+    {# 埋め込みに対応していないブラウザには導線を残す。 #}
+    <p class="desc">この画面では表示できません。
+      <a href="/submissions/{{ submission.id }}/artifacts/{{ file.id }}">PDF を開く</a></p>
+  </object>
+  {% else %}
+  <p class="desc" style="margin:0 0 6px">{{ file.filename }}
+    <a href="/submissions/{{ submission.id }}/artifacts/{{ file.id }}">元のファイル</a></p>
+  {% endif %}
+{% endfor %}
+{% if lines %}
 <pre class="code">{% for n, line in lines %}<span class="ln">{{ '<span class="n">' | safe }}{{ n }}{{ '</span>' | safe }}{{ line }}</span>{% endfor %}</pre>
+{% endif %}
 {% endblock %}
