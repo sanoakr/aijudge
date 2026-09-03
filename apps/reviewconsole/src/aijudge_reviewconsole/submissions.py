@@ -53,6 +53,10 @@ class Row:
     role: Role | None
     score: float | None
     finalized_by: FinalizationSource | None
+    # **誰が閉じたか**（#102）。自動確定では空。出所（`finalized_by`）だけでは
+    # 「誰の判断で成績が閉じたのか」に答えられない ── 記録はあった
+    # （`Finalization.actor_id`）が、画面に出ていなかった。
+    finalized_by_login: str
     contested: bool
     # この学習者のこの課題で、いちばん点の高い提出か（＝成績に採用される）。
     adopted: bool = False
@@ -181,6 +185,9 @@ def load_rows(uow: object, course: Course) -> list[Row]:
         for row in uow.identity.list_enrollments(course.id)  # type: ignore[attr-defined]
     }
     learners: dict[str, object] = {}
+    # 確定者・レビュー者。受講者とは限らない（管理者が閉じることがある）ので
+    # 受講の一覧からは引けない。**同じ人を何度も引かない。**
+    actors: dict[str, str] = {}
 
     rows: list[Row] = []
     for submission in submissions:
@@ -212,10 +219,37 @@ def load_rows(uow: object, course: Course) -> list[Row]:
                 role=roles.get(learner_id),
                 score=None if run is None else final_score(run, version, review).final,
                 finalized_by=_finalized_by(finalization, review),
+                finalized_by_login=_actor_login(finalization, review, uow, actors),
                 contested=request is not None and not request.resolved,
             )
         )
     return _mark_adopted(rows)
+
+
+def _actor_login(
+    finalization: Finalization | None,
+    review: HumanReview | None,
+    uow: object,
+    cache: dict[str, str],
+) -> str:
+    """成績を閉じた人の login。**読んだ人を優先する**（ADR 0010）。
+
+    一括確定と自動確定は誰も読んでいない。前者には操作した教員が居るので
+    その人を出し、後者は空にする ── 人が居ない確定に人の名前を出すと、
+    「その教員が確認した」と読めてしまう。
+    """
+    actor_id = None
+    if review is not None:
+        actor_id = review.grader_id
+    elif finalization is not None:
+        actor_id = finalization.actor_id
+    if actor_id is None:
+        return ""
+    key = str(actor_id)
+    if key not in cache:
+        user = uow.identity.get_user(actor_id)  # type: ignore[attr-defined]
+        cache[key] = getattr(user, "login", "") or key
+    return cache[key]
 
 
 def _finalized_by(
@@ -252,6 +286,7 @@ def _mark_adopted(rows: list[Row]) -> list[Row]:
             role=row.role,
             score=row.score,
             finalized_by=row.finalized_by,
+            finalized_by_login=row.finalized_by_login,
             contested=row.contested,
             adopted=True,
         )

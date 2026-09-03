@@ -46,4 +46,38 @@
 <p class="desc">
   blind 採点（測定のための抽出）は<a href="/courses/{{ course.id }}/blind">別の画面</a>にあります。
 </p>
+
+{# 対応済みの依頼（#102）。**待ち行列の下に置く。** 上に混ぜると手を動かす
+   必要があるものが埋もれる（ADR 0009）。それでも残すのは、対応した瞬間に
+   画面から消えると、学習者の申し出も誰がどう答えたかもコンソールから
+   辿れなくなるため ── 同じ学習者が「前も同じことを聞いた」と言ってきたときに
+   確かめる手段が無かった。 #}
+{% if resolved %}
+<h2>対応済みの依頼（{{ resolved | length }} 件）</h2>
+<table>
+  <thead><tr>
+    <th class="fit">提出</th><th class="fit">学習者</th><th class="grow">課題</th>
+    <th class="grow">申し出</th><th class="fit">答えた人</th><th class="fit"></th>
+  </tr></thead>
+  <tbody>
+  {% for row in resolved %}
+    <tr class="row-link" data-href="/review/{{ row.submission.id }}/reveal">
+      <td class="fit">{{ row.request.requested_at.strftime('%m-%d %H:%M') }}</td>
+      <td class="fit mono">{{ row.learner.login if row.learner else '—' }}</td>
+      <td class="grow">
+        {% if row.task %}<span class="mono desc">{{ row.task.unit or row.task.unit_label }}</span>
+          {{ row.task.title }}{% else %}—{% endif %}
+      </td>
+      <td class="grow desc">{{ row.request.reason }}</td>
+      <td class="fit">
+        {% if row.answered_by %}<span class="mono">{{ row.answered_by.login }}</span>
+          {% if row.review %}<br><span class="desc">{{ row.review.reviewed_at.strftime('%m-%d %H:%M') }}</span>{% endif %}
+        {% else %}<span class="desc">記録なし</span>{% endif %}
+      </td>
+      <td class="fit"><a href="/review/{{ row.submission.id }}/reveal">見る</a></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
 {% endblock %}

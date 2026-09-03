@@ -417,6 +417,10 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
     @app.get("/courses/{course_id}/queue", response_class=HTMLResponse)
     def queue(request: Request, course_id: str, me: Me) -> HTMLResponse:
         course, rows, marked_count = _queue_rows(console, me, CourseId(course_id))
+        with console.database.unit_of_work() as uow:
+            # 対応済みの依頼も出す（#102）。**待ち行列の下に置く** ── 上に
+            # 混ぜると、手を動かす必要があるものが埋もれる（ADR 0009）。
+            resolved = _resolved_rows(uow, course.id)
         return TEMPLATES.TemplateResponse(
             request,
             "queue.html",
@@ -425,6 +429,7 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 "course": course,
                 "section": {"label": "再確認の依頼", "href": f"/courses/{course.id}/queue"},
                 "rows": rows,
+                "resolved": resolved,
                 "marked_count": marked_count,
                 "min_sample_size": min_sample_size,
             },
@@ -914,6 +919,47 @@ def _load(console: Console, me: Principal, submission_id: SubmissionId) -> _Cont
         finalization=finalization,
         awaiting_ai=awaiting_ai,
     )
+
+
+def _resolved_rows(uow, course_id: CourseId) -> tuple[dict, ...]:
+    """対応済みの再確認の依頼。**答えた人とともに残す**（#102）。
+
+    以前は対応した瞬間に画面から消えていた。学習者の申し出も、それに誰が
+    どう答えたかも、コンソールからは辿れない ── 同じ学習者が「前も同じ
+    ことを聞いた」と言ってきたとき、教員には確かめる手段が無かった。
+
+    記録そのものは前からある（`ReviewRequest.resolved_by` → `HumanReview`）。
+    足りていなかったのは出す場所だけである。
+    """
+    rows = []
+    for submission, run, request in uow.reviews.requested_for_course(
+        course_id, include_resolved=True
+    ):
+        if not request.resolved:
+            continue
+        review = uow.reviews.find_review_for_run(run.id)
+        version = uow.tasks.get_version(submission.task_version_id)
+        task = None if version is None else uow.tasks.get_task(version.task_id)
+        rows.append(
+            {
+                "submission": submission,
+                "run": run,
+                "request": request,
+                "task": task,
+                "learner": uow.identity.get_user(submission.learner_id),
+                # 答えた人。**居ないことがある** ── 依頼が解決済みなのに
+                # レビューが引けないなら、そう出す（居ない人の名前を作らない）。
+                "answered_by": (
+                    None if review is None else uow.identity.get_user(review.grader_id)
+                ),
+                "review": review,
+            }
+        )
+    rows.sort(
+        key=lambda row: row["review"].reviewed_at if row["review"] else row["request"].requested_at,
+        reverse=True,
+    )
+    return tuple(rows)
 
 
 def _queue_rows(

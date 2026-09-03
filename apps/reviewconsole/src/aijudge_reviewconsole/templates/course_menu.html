@@ -9,7 +9,9 @@
    コース全体の設定やプロファイルの確認は学期に数回しかない。全部を同じ濃さで
    並べると、毎回そこから目で探すことになる。
 
-   問題セットは TA には開かせない（締切と一括確定は成績に直接効く）。 #}
+   問題セットは **TA にも出す**（#102）── 開くと読むだけの画面になる。
+   採点している課題を読めないと、学習者の質問にも自分の付けた点にも
+   答えられない。追加・片付け・日程は担当教員のものなので出さない。 #}
 {% if can_manage %}
 {# 片付けた直後の着地点。**何がどうなったかを出す**（#59・#82）── 削除と
    取り下げが混ざるので、件数の合計だけでは何が起きたのか言えない。 #}
@@ -27,6 +29,7 @@
     {{ last_clear.untouched | length }} 件は既に取り下げ済みでした。
   {% endif %}
 </div>
+{% endif %}
 {% endif %}
 
 <h2>問題セット</h2>
@@ -59,12 +62,13 @@
   {% endfor %}
 </nav>
 {% else %}
-<p class="desc">問題セットがまだありません。下の欄に鍵を入れて始めてください。</p>
+<p class="desc">問題セットがまだありません。{% if can_manage %}下の欄に鍵を入れて始めてください。{% endif %}</p>
 {% endif %}
 
 {# 追加は一覧の直下に、1 行で。新しい問題セットは鍵を決めて開くところから
    始まる ── 課題を 1 問も持たないセットでもページは開き、そこが最初の
    1 問を足す場所になる（manage.py の unit_settings）。 #}
+{% if can_manage %}
 <form method="post" action="/manage/courses/{{ course.id }}/units" class="addline">
   <label for="unit" class="desc">問題セットを追加</label>
   <input id="unit" name="unit" required placeholder="ex04" style="max-width:10rem">
@@ -78,6 +82,9 @@
 
    **問題セットの画面にも入口は残してある。** 第 6 回を編集中に 1 問足したい、
    は普通の動機なので ── 作る場所は 1 つ、入口は 2 つ。 #}
+{# 作問は担当教員以上（#102）。以前はここが `can_manage` の外にあり、
+   TA には**押すと 403 になるリンク**として見えていた。 #}
+{% if can_manage %}
 <h2>作問</h2>
 <nav class="menu">
   <a class="row" href="/manage/courses/{{ course.id }}/drafts">
@@ -94,6 +101,7 @@
     <span class="meta desc">→</span>
   </a>
 </nav>
+{% endif %}
 
 <h2>採点</h2>
 <nav class="menu">

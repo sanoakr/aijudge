@@ -173,6 +173,37 @@ def _require_grantable(role: Role) -> Role:
     return role
 
 
+def _require_reader(request: Request, me: Principal, course_id: CourseId) -> tuple[Course, Role]:
+    """そのコースの**採点者以上**（TA を含む）。読むだけの画面はここを通す。
+
+    TA が課題を読めないと、学習者の質問にも自分が採点している提出にも
+    答えられない ── **読むことと直すことは別の権限である**（#102）。
+    公開前の課題も読める：採点は公開前に用意されるものだから。
+
+    返り値に役割を含めるのは、画面が「直せるかどうか」で描き分けるため。
+    権限の判定をテンプレート側でやり直させない。
+    """
+    console = _console(request)
+    with console.database.unit_of_work() as uow:
+        auth = AuthService(uow.identity)
+        try:
+            role = auth.require_membership(course_id, me.user_id)
+        except PermissionDenied as exc:
+            # 存在と権限を区別しない（コースを列挙させない）。
+            raise HTTPException(status_code=404, detail="コースが見つかりません") from exc
+        if role is Role.LEARNER:
+            raise HTTPException(status_code=403, detail="この画面には採点者の権限が必要です")
+        course = uow.identity.get_course(course_id)
+    if course is None:
+        raise HTTPException(status_code=404, detail="コースが見つかりません")
+    return course, role
+
+
+def _can_edit(role: Role) -> bool:
+    """課題や設定を**変えて**よい役割か。TA は読むだけ（#102）。"""
+    return role in (Role.INSTRUCTOR, Role.ADMIN)
+
+
 def _require_instructor(request: Request, me: Principal, course_id: CourseId) -> Course:
     """そのコースの教員であること。**TA には開けない。**
 
@@ -991,7 +1022,7 @@ def register(templates) -> APIRouter:
         from .app import require_principal
 
         me = require_principal(request)
-        course = _require_instructor(request, me, CourseId(course_id))
+        course, role = _require_reader(request, me, CourseId(course_id))
         console = _console(request)
 
         # 課題ごとの未確定件数。**画面に出す。** 自動確定を設定したつもりで
@@ -1045,6 +1076,26 @@ def register(templates) -> APIRouter:
                     # 訂正フォームで直せるように、いまの観点を行にして渡す。
                     "rubric_rows": rubric.to_rows(version.criteria),
                 }
+            )
+
+        # **TA には読むだけの画面を出す**（#102）。編集用のテンプレートを
+        # `{% if %}` で隠して回さない ── 隠し忘れが 1 か所あれば、そこから
+        # 押せてしまう。出す形が違うなら、テンプレートも分ける。
+        if not _can_edit(role):
+            return templates.TemplateResponse(
+                request,
+                "unit_readonly.html",
+                {
+                    "me": me,
+                    "course": course,
+                    "section": {
+                        "label": group.label,
+                        "href": f"/manage/courses/{course.id}/units/{group.key}",
+                    },
+                    "unit": group,
+                    "tasks": rows,
+                    "course_grace": course.auto_finalize_after_minutes,
+                },
             )
 
         return templates.TemplateResponse(
@@ -2545,13 +2596,37 @@ def register(templates) -> APIRouter:
         from .app import require_principal
 
         me = require_principal(request)
-        course = _require_instructor(request, me, CourseId(course_id))
+        course, role = _require_reader(request, me, CourseId(course_id))
         console = _console(request)
         with console.database.unit_of_work() as uow:
             task = uow.tasks.get_task(TaskId(task_id))
             version = uow.tasks.latest_version(TaskId(task_id))
         if task is None or version is None or task.course_id != CourseId(course_id):
             raise HTTPException(status_code=404, detail="課題が見つかりません")
+        # **TA は読むだけ**（#102）。課題文は描いて出す ── Markdown のまま
+        # 出すと、採点しながら読む相手にとっては学習者に見えている画面と
+        # 別物になる（`statement.py`）。
+        if not _can_edit(role):
+            return templates.TemplateResponse(
+                request,
+                "task_readonly.html",
+                {
+                    "me": me,
+                    "course": course,
+                    "section": {
+                        "label": task.title,
+                        "href": f"/manage/courses/{course.id}/units/{unit_key(task)}",
+                    },
+                    "task": task,
+                    "version": version,
+                    "unit_key": unit_key(task),
+                    "statement_html": render_markdown(version.statement),
+                    "rubric_rows": rubric.to_rows(version.criteria),
+                    "accepted": task.accepted_suffixes
+                    or course.upload_suffixes
+                    or DEFAULT_UPLOAD_SUFFIXES,
+                },
+            )
         return _task_page(
             request,
             me,

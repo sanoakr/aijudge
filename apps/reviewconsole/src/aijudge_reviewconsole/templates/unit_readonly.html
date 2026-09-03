@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}{{ unit.label }} — aiJudge{% endblock %}
+{% block body %}
+{# TA が読む問題セット（#102）。**読むことと直すことは別の権限である。**
+   採点している提出の課題文を読めないと、学習者の質問にも自分が付けた点にも
+   答えられない。日程・一括確定・課題の追加はここには無い ── 成績に直接
+   効く操作は担当教員のものなので、隠すのではなく最初から置かない。 #}
+<h1>{{ unit.label }}</h1>
+<p class="crumb">
+  {{ course.title }} <span class="sep">·</span> 問題セット
+  <span class="mono">{{ unit.unit or unit.label }}</span> <span class="sep">·</span>
+  <span class="desc">読むだけの画面です（設定は担当教員が行います）</span>
+</p>
+
+<div class="card">
+  <h2 style="margin-top:0">日程</h2>
+  <table>
+    <tbody>
+      <tr><td class="fit">公開</td>
+        <td class="grow">{% if unit.opens_at %}{{ unit.opens_at.strftime('%Y-%m-%d %H:%M') }}{% else %}<span class="desc">未設定</span>{% endif %}</td></tr>
+      <tr><td class="fit">提出開始</td>
+        <td class="grow">{% if unit.submissions_open_at %}{{ unit.submissions_open_at.strftime('%Y-%m-%d %H:%M') }}{% elif unit.opens_at %}公開と同時{% else %}<span class="desc">未設定</span>{% endif %}</td></tr>
+      <tr><td class="fit">締切</td>
+        <td class="grow">{% if unit.due_at %}{{ unit.due_at.strftime('%Y-%m-%d %H:%M') }}{% else %}<span class="desc">未設定</span>{% endif %}</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>課題 {{ tasks | length }} 問</h2>
+{# **公開前の課題も出す。** 採点の用意は公開前に始まる（#102）。
+   出題されているかどうかは行の印で分かるようにする ── 印が無いと、
+   TA は学習者に見えていない課題を見えているものとして説明する。 #}
+<table>
+  <thead><tr>
+    <th class="fit">課題キー</th><th class="grow">題名</th>
+    <th class="fit">観点</th><th class="fit">テスト</th><th class="fit">状態</th>
+  </tr></thead>
+  <tbody>
+  {% for row in tasks %}
+    <tr class="row-link" data-href="/manage/courses/{{ course.id }}/tasks/{{ row.task.id }}/edit">
+      <td class="fit mono">{{ row.version.source_key or '—' }}</td>
+      <td class="grow">
+        <a href="/manage/courses/{{ course.id }}/tasks/{{ row.task.id }}/edit">{{ row.task.title }}</a>
+        {% if row.duplicate_title %}<span class="pill attn">同じ題名が複数</span>{% endif %}
+      </td>
+      <td class="fit">{{ row.version.criteria | length }}</td>
+      <td class="fit">
+        {% if row.test_cases %}{{ row.test_cases }} 件
+        {% else %}<span class="desc">なし（AI が判定）</span>{% endif %}
+      </td>
+      <td class="fit">
+        {% if row.withdrawn %}<span class="pill no">取り下げ</span>
+        {% elif row.in_review %}<span class="pill attn">未承認</span>
+        {% elif row.rejected %}<span class="pill no">却下</span>
+        {% else %}<span class="pill ok">出題中</span>{% endif %}
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="5" class="desc">この問題セットにはまだ課題がありません。</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
