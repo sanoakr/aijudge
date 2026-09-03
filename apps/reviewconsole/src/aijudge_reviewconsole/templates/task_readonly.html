@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}{{ task.title }} — aiJudge{% endblock %}
+{% block body %}
+{# TA が読む課題（#102）。**学習者に出ているのと同じ描画で出す** ──
+   Markdown のまま見せると、採点しながら読む相手には学習者の画面と別物になる
+   （数式も画像も記号のまま並ぶ・`statement.py`）。訂正の欄は無い。 #}
+<h1>{{ task.title }}</h1>
+<p class="crumb">
+  {{ course.title }} <span class="sep">·</span>
+  <a href="/manage/courses/{{ course.id }}/units/{{ unit_key }}">問題セット {{ unit_key }}</a>
+  <span class="sep">·</span> {{ version.version }} 版
+  <span class="sep">·</span> <span class="desc">読むだけの画面です（訂正は担当教員が行います）</span>
+</p>
+
+{% if task.withdrawn %}
+<div class="note warn"><strong>この課題は出題を取り下げています。</strong>
+  学習者には出ていません（提出・採点は残っています）。</div>
+{% endif %}
+
+<div class="card">
+  <h2 style="margin-top:0">問題文</h2>
+  <div class="statement">{{ statement_html | safe }}</div>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">観点（この課題のルーブリック）</h2>
+  {# **重みを出す。** 採点するとき、どの観点が成績のどれだけを占めるのかが
+     分からないと、TA は自分の判断の重さが読めない。 #}
+  <table>
+    <thead><tr>
+      <th class="fit">コード</th><th class="grow">観点</th>
+      <th class="fit">重み</th><th class="fit">評価器</th>
+    </tr></thead>
+    <tbody>
+    {% for row in rubric_rows %}
+      <tr>
+        <td class="fit mono">{{ row.code }}</td>
+        <td class="grow">{{ row.title }}
+          {% if row.description %}<br><span class="desc">{{ row.description }}</span>{% endif %}</td>
+        <td class="fit">{{ '%.2f' | format(row.weight | float) }}</td>
+        <td class="fit mono desc">{{ row.evaluator or "人が採点" }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">提出と採点</h2>
+  <table>
+    <tbody>
+      <tr><td class="fit">提出できる形式</td>
+        <td class="grow mono">{{ accepted | join(' ') }}</td></tr>
+      <tr><td class="fit">テストケース</td>
+        <td class="grow">
+          {% if version.test_cases %}{{ version.test_cases | length }} 件（テスト実行で確定します）
+          {% else %}<span class="desc">なし ── 正しさの観点は AI が判定し、教員が確定させます</span>{% endif %}
+        </td></tr>
+      <tr><td class="fit">締切</td>
+        <td class="grow">{% if task.due_at %}{{ task.due_at.strftime('%Y-%m-%d %H:%M') }}{% else %}<span class="desc">未設定</span>{% endif %}</td></tr>
+    </tbody>
+  </table>
+</div>
+{% endblock %}

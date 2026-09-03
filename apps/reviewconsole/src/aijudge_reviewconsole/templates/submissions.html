@@ -129,6 +129,11 @@
       <td class="fit">
         {# 異議申立は教員が読むまで閉じない ── 対応待ちであって、悪い状態ではない。 #}
         <span class="pill {{ 'attn' if row.contested }}">{{ row.state_label }}</span>
+        {# **誰が閉じたかを出す**（#102）。状態だけでは「誰の判断で成績が
+           閉じたのか」に答えられない。自動確定には人が居ないので出さない。 #}
+        {% if row.finalized_by_login %}
+        <br><span class="desc mono">{{ row.finalized_by_login }}</span>
+        {% endif %}
       </td>
       <td class="fit"><a href="/review/{{ row.submission.id }}/reveal">確認する</a></td>
     </tr>

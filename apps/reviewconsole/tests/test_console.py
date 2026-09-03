@@ -285,7 +285,15 @@ def test_a_resolved_request_leaves_the_queue(world: World) -> None:
         f"/review/{accepted.submission.id}/finalize", data=_agree_form(world, machine)
     )
     body = world.client.get(f"/courses/{COURSE}/queue").text
-    assert str(accepted.submission.id)[:12] not in body
+    # 待ち行列（手を動かす必要があるもの）からは消える。
+    waiting = body.split("対応済みの依頼")[0]
+    assert str(accepted.submission.id)[:12] not in waiting
+
+    # **消えたきりにはしない**（#102）。対応済みとして下に残り、答えた人が出る。
+    assert "対応済みの依頼" in body
+    resolved = body.split("対応済みの依頼")[1]
+    assert str(accepted.submission.id)[:12] in resolved
+    assert "instructor" in resolved, "答えた人が出ていない"
 
 
 # --------------------------------------------------------------------------

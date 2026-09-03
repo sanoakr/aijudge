@@ -752,11 +752,187 @@ def test_opening_a_new_unit_redirects_to_its_page(world: World) -> None:
     assert response.headers["location"] == f"/manage/courses/{world.course.id}/units/ex04"
 
 
-def test_an_assistant_cannot_open_a_unit_page(world: World) -> None:
-    """締切と一括確定は成績に直接効く。TA には開けない。"""
+# --------------------------------------------------------------------------
+# 役割ごとの境界（#102）。**4 つの役割を同じ場所で突き合わせる。**
+#
+# 権限は 1 か所ずつ書かれているので、個別に見ると正しくても、並べると
+# 「TA には出さないと書いたものが admin にも出ない」のような穴が残る。
+# --------------------------------------------------------------------------
+
+
+def _world_with_every_role(world: World):
+    """learner / assistant / instructor / admin を 1 人ずつ揃える。"""
+    world.register("s2400001", Role.LEARNER)
     world.register("ta", Role.ASSISTANT)
-    response = world.client("ta").get(f"/manage/courses/{world.course.id}/units/ex01")
-    assert response.status_code == 403
+    world.register("teacher", Role.INSTRUCTOR)
+    world.register("chief", Role.ADMIN)
+    _import_example(world)
+    return _unit_of(world)
+
+
+def test_a_learner_reaches_nothing_under_manage(world: World) -> None:
+    """**learner は /manage に入れない。** 1 件しか確かめていなかった。"""
+    unit = _world_with_every_role(world)
+    client = world.client("s2400001")
+    with world.database.unit_of_work() as uow:
+        (task,) = uow.tasks.list_for_course(world.course.id)
+
+    for path in (
+        f"/manage/courses/{world.course.id}",
+        f"/manage/courses/{world.course.id}/units/{unit}",
+        f"/manage/courses/{world.course.id}/tasks/{task.id}/edit",
+        f"/manage/courses/{world.course.id}/enrolments",
+        f"/manage/courses/{world.course.id}/drafts",
+        f"/manage/courses/{world.course.id}/kc",
+    ):
+        assert client.get(path).status_code in (403, 404), f"{path} が learner に開いた"
+
+    # コンソール側にもこのコースは出ない（採点権限が無いので「無い」と答える）。
+    assert world.course.title not in client.get("/").text
+
+
+def test_an_assistant_reads_a_task_but_gets_no_editor(world: World) -> None:
+    """TA は課題を読める。**公開前でも読める** ── 採点の用意は公開前に始まる。"""
+    _world_with_every_role(world)
+    with world.database.unit_of_work() as uow:
+        (task,) = uow.tasks.list_for_course(world.course.id)
+
+    page = world.client("ta").get(f"/manage/courses/{world.course.id}/tasks/{task.id}/edit")
+    assert page.status_code == 200
+    assert "読むだけの画面です" in page.text
+    # 問題文は**学習者と同じ描画**で出す（Markdown のままにしない）。
+    assert "<textarea" not in page.text, "訂正の欄が出ている"
+    assert "revise" not in page.text, "訂正の送り先が出ている"
+
+
+def test_an_assistant_cannot_change_anything(world: World) -> None:
+    """読めることと直せることを取り違えない。**書き込みは全部 403。**"""
+    unit = _world_with_every_role(world)
+    client = world.client("ta")
+    with world.database.unit_of_work() as uow:
+        (task,) = uow.tasks.list_for_course(world.course.id)
+
+    writes = (
+        (
+            f"/manage/courses/{world.course.id}/units/{unit}/schedule",
+            {"due_at": "2026-10-08T23:59"},
+        ),
+        (f"/manage/courses/{world.course.id}/tasks/{task.id}/revise", {"statement": "## x ##"}),
+        (
+            f"/manage/courses/{world.course.id}/tasks/{task.id}/finalize",
+            {"justification": "x" * 40},
+        ),
+        (f"/manage/courses/{world.course.id}/tasks/{task.id}/withdraw", {}),
+        (
+            f"/manage/courses/{world.course.id}/enrolments",
+            {"roster": "s2400001", "role": "learner"},
+        ),
+        (f"/manage/courses/{world.course.id}/upload-formats", {"suffix": [".c"]}),
+    )
+    for path, data in writes:
+        assert client.post(path, data=data).status_code == 403, f"{path} が TA に通った"
+
+
+def test_the_course_menu_shows_each_role_what_it_can_use(world: World) -> None:
+    """**押すと 403 になるリンクを出さない。** 作問は以前 TA にも見えていた。"""
+    _world_with_every_role(world)
+
+    ta_page = world.client("ta").get(f"/courses/{world.course.id}").text
+    assert "問題セット" in ta_page, "TA に問題セットが出ていない"
+    assert "作問" not in ta_page, "TA に作問が出ている"
+    assert "受講者" not in ta_page or "/enrolments" not in ta_page
+
+    teacher_page = world.client("teacher").get(f"/courses/{world.course.id}").text
+    assert "作問" in teacher_page
+    assert "/enrolments" in teacher_page
+
+
+def test_an_admin_gets_everything_an_instructor_gets(world: World) -> None:
+    """**admin は全部できる。** 役割を足すたびに admin を確かめ直さないと、
+    「教員以上」と書いたつもりの門が教員だけになる。
+    """
+    unit = _world_with_every_role(world)
+    client = world.client("chief")
+    with world.database.unit_of_work() as uow:
+        (task,) = uow.tasks.list_for_course(world.course.id)
+
+    for path in (
+        f"/manage/courses/{world.course.id}",
+        f"/manage/courses/{world.course.id}/units/{unit}",
+        f"/manage/courses/{world.course.id}/tasks/{task.id}/edit",
+        f"/manage/courses/{world.course.id}/enrolments",
+        f"/manage/courses/{world.course.id}/drafts",
+    ):
+        assert client.get(path).status_code == 200, f"{path} が admin に開かない"
+
+    # 読むだけの画面ではない（編集の欄がある）。
+    editor = client.get(f"/manage/courses/{world.course.id}/tasks/{task.id}/edit").text
+    assert "<textarea" in editor and "読むだけの画面です" not in editor
+
+    # 書き込みも通る。日程を入れて、入ったことを確かめる。
+    assert (
+        client.post(
+            f"/manage/courses/{world.course.id}/units/{unit}/schedule",
+            data={"due_at": "2026-10-08T23:59"},
+            follow_redirects=False,
+        ).status_code
+        == 303
+    )
+    with world.database.unit_of_work() as uow:
+        (updated,) = uow.tasks.list_for_course(world.course.id)
+    assert updated.due_at is not None
+
+
+def test_bulk_finalisation_stays_with_the_instructor(world: World) -> None:
+    """**まとめての確定は読んでいない成績を閉じる操作**。TA には出さない。"""
+    unit = _world_with_every_role(world)
+    with world.database.unit_of_work() as uow:
+        (task,) = uow.tasks.list_for_course(world.course.id)
+
+    reason = "テスト実行の結果を確認したうえで、残りをまとめて確定します。" * 2
+    assert (
+        world.client("ta")
+        .post(
+            f"/manage/courses/{world.course.id}/tasks/{task.id}/finalize",
+            data={"justification": reason},
+        )
+        .status_code
+        == 403
+    )
+    assert (
+        world.client("ta")
+        .post(
+            f"/manage/courses/{world.course.id}/units/{unit}/finalize",
+            data={"justification": reason},
+        )
+        .status_code
+        == 403
+    )
+    # 画面にも出さない（押せないボタンを見せない）。
+    page = world.client("ta").get(f"/courses/{world.course.id}/finalize").text
+    assert "まとめて" not in page or "/finalize" not in page.split("まとめて")[1][:400]
+
+
+def test_an_assistant_reads_a_unit_page_without_the_forms(world: World) -> None:
+    """**読むことと直すことは別の権限**（#102）。
+
+    以前はここが 403 だった。TA が課題を読めないと、学習者の質問にも自分が
+    採点している提出にも答えられない。日程と一括確定は成績に直接効くので、
+    出さない ── 隠すのではなく、読むだけの画面を別に出す。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    world.register("ta", Role.ASSISTANT)
+    _import_example(world)
+    unit = _unit_of(world)
+
+    page = world.client("ta").get(f"/manage/courses/{world.course.id}/units/{unit}")
+    assert page.status_code == 200
+    assert "読むだけの画面です" in page.text
+    # **成績に効く操作は無い。** 隠されているのではなく、出ていない。
+    for gone in ("/schedule", "/finalize", "/clear", "/tasks/new"):
+        assert gone not in page.text, f"TA の画面に {gone} が出ている"
+    # ログアウト以外に送り先の無い画面である（`/manage/...` を叩く欄が無い）。
+    assert 'action="/manage/' not in page.text, "TA の画面に設定を送る欄がある"
 
 
 def test_setting_the_schedule_returns_to_the_problem_set(world: World) -> None:
