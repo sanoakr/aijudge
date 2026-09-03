@@ -97,7 +97,13 @@ TEMPLATES.env.globals["HUMAN_SCORED"] = HUMAN_SCORED
 # 画面に埋め込んでよい種別。それ以外はダウンロードさせる（#75）。
 INLINE_KINDS = (ArtifactKind.IMAGE, ArtifactKind.PDF)
 
-SESSION_COOKIE = "aijudge_review_session"
+# **学習者アプリと同じ名前**（#103）。セッションは前から同じ表を
+# `AuthService` 経由で共有していて、違うのは Cookie の名前だけだった ──
+# そのために同じ人が同じ機械で 2 回ログインしていた。
+#
+# 入れ替えの日、教員コンソールに入っていた人は 1 度だけログインし直す
+# （古い名前の Cookie は誰も読まない）。セッション自体は残っている。
+SESSION_COOKIE = "aijudge_session"
 DEFAULT_TENANT = "ten_" + "0" * 32
 
 
@@ -116,11 +122,16 @@ class Console:
         *,
         profiles_dir: Path,
         observations: ObservationFileStore | None = None,
+        learner_url: str = "",
     ) -> None:
         self.database = database
         self.store = artifact_store
         self.profiles_dir = profiles_dir
         self.observations = observations
+        # 学習者アプリの場所（#103）。**空でも動く** ── 1 台で両方を動かして
+        # いる運用では、相手の URL を機械は知らない。設定されていなければ
+        # 「そちらで見てください」とだけ書く。
+        self.learner_url = learner_url.rstrip("/")
         self._rates: dict[str, float] = {}
         # 直近に足した課題。管理画面が「何が起きたか」を返すために持つ。
         # コースを添えるのは Console が全利用者で共有だから。
@@ -347,6 +358,7 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
         with console.database.unit_of_work() as uow:
             auth = AuthService(uow.identity)
             courses = []
+            attending = []
             is_admin = False
             for course in auth.courses_for(principal.tenant_id, principal.user_id):
                 enrollment = uow.identity.find_enrollment(course.id, principal.user_id)
@@ -354,12 +366,24 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                     is_admin = True
                 if _can_grade(auth, course.id, principal):
                     courses.append(course)
+                else:
+                    # **受講しているコースも出す**（#103）。役割はコースごとに
+                    # 決まるので、同じ人が「A では学習者・B では教員」になる。
+                    # 出さないと、その人は入口が 2 つあること自体に気づけない。
+                    attending.append(
+                        {"course": course, "role": None if enrollment is None else enrollment.role}
+                    )
         return TEMPLATES.TemplateResponse(
             request,
             "index.html",
             {
                 "me": principal,
                 "digests": digests_for(console.database, courses),
+                # 採点しないコース（学習者として取っているもの）。
+                "attending": attending,
+                # 学習者アプリの場所。**設定されていなければ案内だけ出す** ──
+                # 1 台で両方動かしている運用では相手の URL を機械は知らない。
+                "learner_url": console.learner_url,
                 # コースを作れるのは管理者だけ。作る口をここに置くのは、
                 # 入口が 2 つあること自体が分かりにくさの元だったから。
                 "is_admin": is_admin,

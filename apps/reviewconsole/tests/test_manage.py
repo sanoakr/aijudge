@@ -108,10 +108,17 @@ def test_an_instructor_sees_their_course(world: World) -> None:
     assert "プログラミング及び実習 2" in body
 
 
-def test_a_learner_sees_no_courses_to_manage(world: World) -> None:
+def test_a_learner_sees_their_course_but_nothing_to_manage(world: World) -> None:
+    """**役割はコースごとに決まる**（#103）。学習者にもコースは出す ── 出さないと
+    入口が 2 つあること自体に気づけない。ただし採点の行としては出さない。
+    """
     world.register("student", Role.LEARNER)
     body = world.client("student").get("/manage").text
-    assert "プログラミング及び実習 2" not in body
+    assert "プログラミング及び実習 2" in body
+    assert "受講しているコース" in body
+    # 採点の入口は出ない（担当していないので）。
+    assert "採点を担当しているコースがありません" in body
+    assert f"/courses/{world.course.id}/queue" not in body
 
 
 def test_a_learner_cannot_open_the_course_management_page(world: World) -> None:
@@ -787,8 +794,12 @@ def test_a_learner_reaches_nothing_under_manage(world: World) -> None:
     ):
         assert client.get(path).status_code in (403, 404), f"{path} が learner に開いた"
 
-    # コンソール側にもこのコースは出ない（採点権限が無いので「無い」と答える）。
-    assert world.course.title not in client.get("/").text
+    # コンソール側では「受講しているコース」として出る（#103）。採点の行では
+    # ないので、そこから採点の画面へは行けない。
+    landing = client.get("/").text
+    assert world.course.title in landing
+    assert "受講しているコース" in landing
+    assert f"/courses/{world.course.id}/queue" not in landing
 
 
 def test_an_assistant_reads_a_task_but_gets_no_editor(world: World) -> None:

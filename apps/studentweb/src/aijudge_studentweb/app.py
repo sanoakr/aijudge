@@ -87,11 +87,15 @@ class StudentApp:
         *,
         profiles_dir: Path,
         max_upload_bytes: int = MAX_UPLOAD_BYTES,
+        console_url: str = "",
     ) -> None:
         self.database = database
         self.store = artifact_store
         self.profiles_dir = profiles_dir
         self.max_upload_bytes = max_upload_bytes
+        # 教員コンソールの場所（#103）。役割はコースごとに決まるので、同じ人が
+        # 「A では学習者・B では TA」になる。**空でも動く。**
+        self.console_url = console_url.rstrip("/")
         self.submissions = SubmissionService(database.unit_of_work, artifact_store)
 
 
@@ -180,8 +184,26 @@ def create_app(app_state: StudentApp) -> FastAPI:
             return RedirectResponse("/login", status_code=303)
         with app_state.database.unit_of_work() as uow:
             courses = AuthService(uow.identity).courses_for(principal.tenant_id, principal.user_id)
+            # コースごとの役割（#103）。**学習者として取っているコースと、
+            # 採点するコースを、同じ一覧の中で見分けられるようにする。**
+            rows = [
+                {
+                    "course": course,
+                    "role": getattr(
+                        uow.identity.find_enrollment(course.id, principal.user_id), "role", None
+                    ),
+                }
+                for course in courses
+            ]
         return TEMPLATES.TemplateResponse(
-            request, "index.html", {"me": principal, "courses": courses}
+            request,
+            "index.html",
+            {
+                "me": principal,
+                "courses": courses,
+                "rows": rows,
+                "console_url": app_state.console_url,
+            },
         )
 
     @app.get("/courses/{course_id}", response_class=HTMLResponse)

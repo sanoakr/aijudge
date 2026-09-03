@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}担当コース — aiJudge{% endblock %}
 {% block body %}
-<h1>担当コース</h1>
+<h1>コース</h1>
 
 {# **開かずに判断できるだけの情報を出す**（overview.py）。コード・コース名・
    学期の 3 列だけだと、どのコースに用があるのかを全部開くまで分からない。 #}
@@ -32,6 +32,36 @@
   <p class="desc">採点を担当しているコースがありません。</p>
 {% endfor %}
 </nav>
+
+{# 受講しているコース（#103）。**役割はコースごとに決まる** ── 同じ人が
+   「A では学習者・B では教員」になる。出さないと、その人は入口が 2 つある
+   こと自体に気づけない。採点の入口とは分けて並べる（できることが違う）。 #}
+{% if attending %}
+<h2>受講しているコース</h2>
+<nav class="menu courses">
+{% for row in attending %}
+  {% if learner_url %}
+  <a class="row" href="{{ learner_url }}/courses/{{ row.course.id }}">
+    <span class="what">
+      <b>{{ row.course.title }}</b>
+      <span class="mono desc">{{ row.course.code }}</span>
+      <span class="desc">{{ row.course.term }}</span>
+    </span>
+    <span class="meta desc">{{ row.role.value if row.role else '—' }}として受講 →</span>
+  </a>
+  {% else %}
+  <div class="row">
+    <span class="what">
+      <b>{{ row.course.title }}</b>
+      <span class="mono desc">{{ row.course.code }}</span>
+      <span class="desc">{{ row.course.term }}</span>
+    </span>
+    <span class="meta desc">{{ row.role.value if row.role else '—' }}として受講（学習者の画面で開きます）</span>
+  </div>
+  {% endif %}
+{% endfor %}
+</nav>
+{% endif %}
 
 {% if is_admin %}
 <h2>コースを追加する</h2>

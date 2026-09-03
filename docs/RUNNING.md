@@ -163,6 +163,23 @@ tailnet は教員・TA の端末を繋ぐには足りるが、**学生には配�
 （全員に Tailscale を入れさせることになる）。実運用では学内ネットワークに
 リバースプロキシ（TLS 終端）を立て、`AIJUDGE_SECURE_COOKIES=1` を設定する。
 
+## 1 回のログインで両方に入る（#103）
+
+セッションは**両アプリで同じ表**（`AuthService`）を使う。Cookie の名前も
+`aijudge_session` に揃えてあるので、**同じホストで動かしていれば片方で
+ログインするだけで両方が開く。**
+
+役割はコースごとに決まる（同じ人が「A では学習者・B では教員」になる）。
+互いの場所を教えておくと、一覧の行から相手側へ渡せる。
+
+```fish
+set -gx AIJUDGE_CONSOLE_URL https://aijudge.example.jp:8765   # 学習者アプリが出す
+set -gx AIJUDGE_LEARNER_URL https://aijudge.example.jp        # コンソールが出す
+```
+
+**別ホスト（ポート違いを含む）に置くと Cookie は共有されない。** 1 つの
+入口にまとめる話は #103 の続き（逆プロキシ）で扱う。
+
 ## 環境変数
 
 | 変数 | 用途 | 既定 |
@@ -173,6 +190,8 @@ tailnet は教員・TA の端末を繋ぐには足りるが、**学生には配�
 | `AIJUDGE_SANDBOX` | 隔離バックエンド（`auto`/`docker`/`gvisor`/`seatbelt`） | `auto` |
 | `AIJUDGE_SANDBOX_WORKDIR` | 作業域の置き場所。コンテナがマウントするパスであること | `~/.aijudge/work` |
 | `AIJUDGE_SECURE_COOKIES` | セッション Cookie に `Secure` を付ける（`1`/`0`）。未設定なら `X-Forwarded-Proto` で判断 | 未設定 |
+| `AIJUDGE_CONSOLE_URL` | 学習者アプリが出す教員コンソールの場所（#103）。TA・教員として取っているコースの行に出る | 未設定（案内文だけ） |
+| `AIJUDGE_LEARNER_URL` | 教員コンソールが出す学習者アプリの場所（#103）。受講しているコースの行に出る | 未設定（案内文だけ） |
 | `AIJUDGE_LLM_BASE_URL` / `AIJUDGE_LLM_MODEL` | ローカル LLM | — |
 | `AIJUDGE_FEEDBACK_MODEL` | フィードバック生成のモデル。未設定なら要約に落ちる | — |
 
