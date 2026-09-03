@@ -212,3 +212,74 @@ def test_a_configured_url_still_wins(world: World) -> None:
     )
     world.learner.cookies.set(LEARNER_COOKIE, response.cookies[LEARNER_COOKIE])
     assert "https://teach.example.jp/courses/" in world.learner.get("/").text
+
+
+# --------------------------------------------------------------------------
+# ヘッダを信用しない（#116）
+# --------------------------------------------------------------------------
+
+
+def test_a_forged_scheme_never_reaches_the_link(world: World) -> None:
+    """`X-Forwarded-Proto: javascript` を href に置かせない。
+
+    ホスト名に `%0a` を混ぜると `javascript://x%0aalert(1)/…` になり、
+    改行が `//` のコメントを終わらせて実行される。
+    """
+    world.register_dual_role("sano")
+    response = world.plain_learner.post(
+        "/login", data={"login": "sano", "password": PASSWORD}, follow_redirects=False
+    )
+    world.plain_learner.cookies.set(LEARNER_COOKIE, response.cookies[LEARNER_COOKIE])
+
+    landing = world.plain_learner.get(
+        "/",
+        headers={"x-forwarded-proto": "javascript", "x-forwarded-host": "x%0aalert(1)"},
+    ).text
+    assert "javascript:" not in landing
+    assert "alert(1)" not in landing
+
+
+def test_a_forged_host_does_not_become_the_link(world: World) -> None:
+    """**リンク先が攻撃者のホストになると、同じ見た目のログイン画面へ渡せる。**"""
+    world.register_dual_role("sano")
+    response = world.plain_learner.post(
+        "/login", data={"login": "sano", "password": PASSWORD}, follow_redirects=False
+    )
+    world.plain_learner.cookies.set(LEARNER_COOKIE, response.cookies[LEARNER_COOKIE])
+
+    landing = world.plain_learner.get(
+        "/", headers={"x-forwarded-host": 'evil.example" onmouseover="alert(1)'}
+    ).text
+    assert "evil.example" not in landing
+    assert "onmouseover" not in landing
+    # 形の合わない名前は捨てて、自分が答えた名前に戻る。
+    assert "http://mnemosyne.example.jp:8765/courses/" in landing
+
+
+def test_an_allow_list_can_be_set_for_the_host_itself(world: World, tmp_path) -> None:
+    """**`Host` は 1 か所で検査する。** 逆プロキシを前に立てるときに設定する。"""
+    import os
+
+    from aijudge_persistence import Database
+    from aijudge_reviewconsole import Console
+    from aijudge_reviewconsole import create_app as build
+    from aijudge_submission import FilesystemArtifactStore
+
+    os.environ["AIJUDGE_ALLOWED_HOSTS"] = "good.example"
+    try:
+        database = Database.connect(f"sqlite+pysqlite:///{tmp_path}/b.db", create=True)
+        client = TestClient(
+            build(
+                Console(
+                    database,
+                    FilesystemArtifactStore(tmp_path / "art"),
+                    profiles_dir=PROFILES,
+                )
+            ),
+            base_url="http://good.example",
+        )
+        assert client.get("/login").status_code == 200
+        assert client.get("/login", headers={"host": "evil.example"}).status_code == 400
+        database.dispose()
+    finally:
+        del os.environ["AIJUDGE_ALLOWED_HOSTS"]

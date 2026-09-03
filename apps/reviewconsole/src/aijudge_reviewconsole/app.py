@@ -29,6 +29,8 @@ blind 画面のレスポンスには AI の判定を一切含めない。CSS で
 
 from __future__ import annotations
 
+import os
+import re
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
@@ -37,6 +39,7 @@ from typing import Annotated
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from aijudge_admin import allowed_namespaces, list_for_namespaces, pending_counts
 from aijudge_authoring import images, render_statement
@@ -103,6 +106,9 @@ INLINE_KINDS = (ArtifactKind.IMAGE, ArtifactKind.PDF)
 #
 # 入れ替えの日、教員コンソールに入っていた人は 1 度だけログインし直す
 # （古い名前の Cookie は誰も読まない）。セッション自体は残っている。
+# 受け付ける `Host`（#116）。コンマ区切り。既定は素通し（`*`）。
+ENV_ALLOWED_HOSTS = "AIJUDGE_ALLOWED_HOSTS"
+
 SESSION_COOKIE = "aijudge_session"
 DEFAULT_TENANT = "ten_" + "0" * 32
 
@@ -289,6 +295,17 @@ Me = Annotated[Principal, Depends(require_principal)]
 def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
     app = FastAPI(title="aiJudge instructor console")
     app.state.aijudge = console
+
+    # **`Host` を 1 か所で検査する**（#116）。`Host` も `X-Forwarded-*` も
+    # クライアントが決められるので、通してしまうと、それを読む全ての処理が
+    # 同じ穴を持つ（相手側へのリンク・絶対 URL の生成）。
+    #
+    # 既定は素通し（`*`）。**間違った既定は運用を黙って壊す** ── 名前が
+    # 分かるのは運用者だけなので、逆プロキシを前に立てるときに設定する
+    # （`docs/RUNNING.md`）。
+    allowed = [h.strip() for h in os.environ.get(ENV_ALLOWED_HOSTS, "*").split(",") if h.strip()]
+    if allowed and allowed != ["*"]:
+        app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed)
 
     # 管理画面（コース・課題・受講）。再確認の依頼とは別の関心事だが、
     # 教員に 2 つの Web アプリを使わせないため同じアプリに載せる。
@@ -935,6 +952,10 @@ class _Context:
         self.awaiting_ai = awaiting_ai
 
 
+# ホスト名として通す形（#116）。**ヘッダの中身を信用しない。**
+_HOSTNAME = re.compile(r"^[A-Za-z0-9.\-]{1,253}$")
+
+
 def counterpart_url(request: Request, *, configured: str, port: int) -> str:
     """相手側アプリの場所（#114）。
 
@@ -948,12 +969,32 @@ def counterpart_url(request: Request, *, configured: str, port: int) -> str:
     本当に別のホストに置いてある運用では、名前を知っているのは運用者の
     ほうだから（その場合セッションは共有されない ── 別のホストなら Cookie は
     そもそも届かない）。
+
+    **ヘッダは検査してから使う**（#116）。`Host` も `X-Forwarded-*` も
+    クライアントが決められるので、素通しすると 2 つ通る:
+
+    - `X-Forwarded-Proto: javascript` と `%0a` を含むホスト名で
+      `javascript://x%0aalert(1)/…` が作れる（改行が `//` のコメントを終わらせる）
+    - リンク先が攻撃者のホストになり、同じ見た目のログイン画面に渡せる
+
+    いま被害者に踏ませるのは難しい（ブラウザは自分が開いた URL の `Host` しか
+    送らない）。**難しいことと塞がっていることは別である** ── 共有キャッシュや、
+    外部入力を `X-Forwarded-*` に写す逆プロキシがあれば成立し、逆プロキシは
+    #103 の次の段でまさに前に立てるものである。
     """
     if configured:
         return configured
+    scheme = request.headers.get("x-forwarded-proto") or request.url.scheme
+    if scheme not in ("http", "https"):
+        # 知らないスキームは使わない（`javascript:` を href に置かせない）。
+        scheme = "https" if request.url.scheme == "https" else "http"
     forwarded = request.headers.get("x-forwarded-host")
     host = (forwarded or request.url.hostname or "localhost").split(":")[0]
-    scheme = request.headers.get("x-forwarded-proto") or request.url.scheme
+    if not _HOSTNAME.match(host):
+        # 形の合わない名前は、そもそも自分のものではない。
+        host = request.url.hostname or "localhost"
+        if not _HOSTNAME.match(host):
+            host = "localhost"
     return f"{scheme}://{host}:{port}"
 
 
