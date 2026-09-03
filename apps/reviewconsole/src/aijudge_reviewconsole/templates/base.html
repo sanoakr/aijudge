@@ -68,6 +68,11 @@ pre.code .ln.hl{background:var(--shu-soft);border-left:3px solid var(--shu);padd
 .statement code{font-size:.85em}
 .statement ul,.statement ol{padding-left:1.4em}
 .statement hr{border:0;border-top:1px solid var(--line-soft);margin:1.2em 0}
+/* 課題文に貼った画像（#64）。**幅は 1 行の `{width=...}` が決める**
+   （`images.DISPLAY_WIDTH`）。ここで縛るのは 2 つだけ:
+   `height:auto` で縦横比を保ち、狭い画面では本文の幅を超えさせない
+   （指定幅が画面より広い日は、幅の指定ではなく画面のほうが正しい）。 */
+.statement img{max-width:100%;height:auto;border-radius:2px}
 /* 課題文に内部スクロールを付けない。付けると全体を一度に読めず、
    長い課題文ほど読みにくくなる。ページ全体のスクロールで読ませる。
    横に溢れるのはコードブロックだけで、そちらは pre 側で処理する。 */
@@ -185,6 +190,9 @@ header.top button{background:none;color:var(--muted);border:1px solid var(--line
 .evaluators{margin:6px 0 0;padding-left:1.2em}
 .evaluators li{margin:2px 0}
 h3{font-size:.95rem;margin:20px 0 8px;color:var(--ink)}
+/* 入力欄の見出し。**ラベルを見出しの中に置く** ── 押せば欄に飛び、
+   読み上げでも欄との対応が切れない。字は見出しのまま。 */
+h3 > label{font:inherit;color:inherit;margin:0;display:inline}
 /* フォームの中の小項目。**罫線で区切る** ── 見出しの余白だけで分けると、
    項目の切れ目が中身の量に左右され、観点のように密な塊と提出形式のように
    疎な塊が並ぶと、どこまでが 1 項目なのか読み取れない。 */
@@ -502,6 +510,135 @@ document.querySelectorAll(".js-only").forEach(function (el) { el.hidden = false;
     ask(button, function () {
       target.replaceChildren(source.content.cloneNode(true));
     });
+  });
+})();
+
+{# 問題文に貼る画像（#64）。**上げたらその場でカーソル位置に差し込む。**
+
+   1 行を出して手で貼らせると、書きかけの問題文を置いてコースの設定画面まで
+   往復することになり、その間に編集中の内容は失われる（課題の編集は 1 つの
+   フォームで、保存するまで何も残らない）。
+
+   課題の編集フォームの中にあるので、送信は入れ子のフォームではなく
+   `fetch` で行う。**貼り付けだけで、課題は保存しない** ── 保存は「保存」で
+   行う（#58 と同じ、押した瞬間に版が上がることを避ける）。
+
+   仕組みはここに 1 か所だけ置く。エラーはサーバの文面をそのまま出す
+   （決めつけた文面を書くと、言われたとおり確かめた教員は何も見つけられない・#52）。 #}
+(function () {
+  var box = document.querySelector("[data-image-upload]");
+  if (!box || typeof FormData !== "function" || typeof fetch !== "function") return;
+  var target = document.querySelector(box.getAttribute("data-image-target"));
+  var file = box.querySelector("[data-image-file]");
+  var alt = box.querySelector("[data-image-alt]");
+  var status = box.querySelector("[data-image-status]");
+  var error = box.querySelector("[data-image-error]");
+  if (!target || !file) return;
+
+  function say(text, busy) {
+    if (error) { error.textContent = ""; error.hidden = true; }
+    if (!status) return;
+    status.textContent = text;
+    status.hidden = !text;
+    status.className = busy ? "flash reading" : "flash";
+  }
+
+  // **失敗は成功と同じ場所に出さない。** 成功の印は緑の ✓ で、そこに理由を
+  // 出すと貼れなかったことが「貼れた」に見える（#52 と同じ誤り）。
+  function fail(text) {
+    if (status) { status.textContent = ""; status.hidden = true; }
+    if (error) { error.textContent = text; error.hidden = false; }
+    if (window.console) console.error("画像の貼り付けに失敗:", text);
+  }
+
+  // カーソル位置に差し込む。**画像は必ず 1 行として置く** ── 文の途中に
+  // 入れると Markdown では段落の中の画像になり、前後の文と行が続いて出る。
+  function paste(markdown) {
+    var value = target.value;
+    var start = target.selectionStart;
+    var end = target.selectionEnd;
+    if (typeof start !== "number") { start = value.length; end = value.length; }
+    var before = value.slice(0, start);
+    var after = value.slice(end);
+    var head = before && !/\n\n$/.test(before) ? (before.slice(-1) === "\n" ? "\n" : "\n\n") : "";
+    var tail = after && !/^\n/.test(after) ? "\n\n" : "\n";
+    var inserted = head + markdown + tail;
+    target.value = before + inserted + after;
+    var caret = before.length + inserted.length;
+    target.focus();
+    target.setSelectionRange(caret, caret);
+  }
+
+  function send(blob, name) {
+    var body = new FormData();
+    body.append("upload", blob, name);
+    body.append("alt", alt ? alt.value : "");
+    say("画像を保存しています…", true);
+    fetch(box.getAttribute("data-image-upload"), {
+      method: "POST", body: body, credentials: "same-origin"
+    }).then(function (response) {
+      // **応答が JSON とは限らない。** 経路の間で落ちれば HTML が返る ──
+      // そのときも「何が返ってきたか」を言う（黙って止まらない）。
+      return response.text().then(function (body) {
+        var data = null;
+        try { data = JSON.parse(body); } catch (e) { data = null; }
+        if (response.status === 404) {
+          // **404 は「画像が悪い」ではない。** 受け口そのものが無い ── 画面の
+          // 見た目はテンプレートから毎回読み直されるのに、経路は起動時にしか
+          // 決まらないので、入れ替えたのに再起動していないと**この欄だけが
+          // 先に新しくなる**。理由を言わないと画像を疑って延々と試すことになる。
+          throw new Error(
+            "画像の受け口が見つかりません（HTTP 404）。" +
+            "この画面は新しいのに aijudge-review が古いまま動いている可能性があります — " +
+            "サーバを再起動してからもう一度お試しください。"
+          );
+        }
+        if (!response.ok || !data || !data.markdown) {
+          throw new Error(
+            (data && data.detail) || "画像を保存できませんでした（HTTP " + response.status + "）"
+          );
+        }
+        return data;
+      });
+    }).then(function (data) {
+      paste(data.markdown);
+      say("問題文に貼り付けました。保存するまでは反映されません", false);
+    }).catch(function (err) {
+      fail(err.message || "画像を保存できませんでした");
+    });
+  }
+
+  // **選んだファイルは消さない。** 消すと「もう一度押す」が何もしないボタンに
+  // なり、貼れていないのか押せていないのかが画面から分からない。
+  function fromInput() {
+    if (file.files && file.files[0]) {
+      send(file.files[0], file.files[0].name);
+      return;
+    }
+    // まだ選んでいないなら、押した意味を持たせて選択を開く。
+    file.click();
+  }
+  // 選んだ時点で送る。押し忘れた画像が課題文に入らないまま保存されるのを避ける。
+  file.addEventListener("change", fromInput);
+  var button = box.querySelector("[data-image-submit]");
+  if (button) button.addEventListener("click", fromInput);
+
+  // 画像をそのまま貼り付ける（クリップボード）。**課題文を書きながら
+  // 画面を撮って貼る**のが実際の作り方で、ファイルに保存させる必要はない。
+  target.addEventListener("paste", function (event) {
+    var items = event.clipboardData && event.clipboardData.files;
+    if (!items || !items.length) return;
+    var blob = items[0];
+    if (blob.type.indexOf("image/") !== 0) return;
+    event.preventDefault();
+    // **名前は種別から作る。** 貼り付けた画像のファイル名は当てにできず
+    // （空だったり拡張子が無かったりする）、保存できる形式かは拡張子で決まる。
+    var known = { "image/png": ".png", "image/jpeg": ".jpg", "image/gif": ".gif",
+                  "image/webp": ".webp", "image/svg+xml": ".svg" };
+    var suffix = known[blob.type];
+    if (!suffix) { fail(blob.type + " は課題文に貼れません"); return; }
+    var name = /\.[A-Za-z]+$/.test(blob.name || "") ? blob.name : "pasted" + suffix;
+    send(blob, name);
   });
 })();
 

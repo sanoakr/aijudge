@@ -71,6 +71,11 @@ pre.code .ln.hl{background:var(--shu-soft);border-left:3px solid var(--shu);padd
 .statement code{font-size:.85em}
 .statement ul,.statement ol{padding-left:1.4em}
 .statement hr{border:0;border-top:1px solid var(--line-soft);margin:1.2em 0}
+/* 課題文に貼った画像（#64）。**幅は 1 行の `{width=...}` が決める**
+   （`images.DISPLAY_WIDTH`）。ここで縛るのは 2 つだけ:
+   `height:auto` で縦横比を保ち、狭い画面では本文の幅を超えさせない
+   （指定幅が画面より広い日は、幅の指定ではなく画面のほうが正しい）。 */
+.statement img{max-width:100%;height:auto;border-radius:2px}
 /* 課題文に内部スクロールを付けない。付けると全体を一度に読めず、
    長い課題文ほど読みにくくなる。ページ全体のスクロールで読ませる。
    横に溢れるのはコードブロックだけで、そちらは pre 側で処理する。 */

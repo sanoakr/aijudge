@@ -38,6 +38,14 @@ SUFFIX_TYPES: dict[str, str] = {
 # いっぱいのスクリーンショットを縮めずに貼っている。
 MAX_BYTES = 4 * 1024 * 1024
 
+# 貼ったときの既定の表示幅（px）。**課題文の本文と同じ幅に収める。**
+# 縮めずに貼ると、写真 1 枚で画面が埋まり、課題文の続きが画面外へ出る
+# （4000px の写真をそのまま貼ると実際にそうなる）。
+#
+# **高さは指定しない。** 幅だけを言えば縦横比は保たれる ── 両方を書くと、
+# 教員が幅だけを直したときに絵が歪む。描画側の CSS も `height:auto`。
+DISPLAY_WIDTH = 480
+
 _PREFIX = "statement-images"
 _NAME = re.compile(r"^[0-9a-f]{32}$")
 
@@ -90,20 +98,95 @@ def new_name(payload: bytes, filename: str) -> str:
     return f"{digest}{suffix_of(filename)}"
 
 
-def markdown_for(course_id: str, name: str, alt: str = "") -> str:
+def intrinsic_width(payload: bytes) -> int | None:
+    """画像そのものの幅（px）。分からなければ `None`。
+
+    **符号の先頭だけを読む。** 表示幅を決めるのに要るのは幅だけで、そのために
+    画像を展開する依存を増やしたくない（描画は課題文の表示側の仕事であって、
+    貼り付けの仕事ではない）。読めない形式は `None` を返し、幅を書かない
+    ── 分からない数を書くより、書かないほうがよい。
+    """
+    if payload[:8] == b"\x89PNG\r\n\x1a\n" and payload[12:16] == b"IHDR":
+        return int.from_bytes(payload[16:20], "big")
+    if payload[:6] in (b"GIF87a", b"GIF89a"):
+        return int.from_bytes(payload[6:8], "little")
+    if payload[:4] == b"RIFF" and payload[8:12] == b"WEBP":
+        return _webp_width(payload)
+    if payload[:2] == b"\xff\xd8":
+        return _jpeg_width(payload)
+    # SVG は画素を持たない（表示側で伸びる）。幅は書かない。
+    return None
+
+
+def _jpeg_width(payload: bytes) -> int | None:
+    """JPEG の SOF から幅を取る。**節を順に飛ばす。**"""
+    at = 2
+    size = len(payload)
+    while at + 9 < size:
+        if payload[at] != 0xFF:
+            return None
+        marker = payload[at + 1]
+        # スタンドアロンの印（長さを持たない）は読み飛ばす。
+        if 0xD0 <= marker <= 0xD9 or marker == 0x01:
+            at += 2
+            continue
+        length = int.from_bytes(payload[at + 2 : at + 4], "big")
+        # SOF0〜SOF15（DHT・JPG・DAC を除く）が寸法を持つ節。
+        if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC):
+            return int.from_bytes(payload[at + 7 : at + 9], "big")
+        if length < 2:
+            return None
+        at += 2 + length
+    return None
+
+
+def _webp_width(payload: bytes) -> int | None:
+    """WebP の 3 つの型（可逆・非可逆・拡張）から幅を取る。"""
+    kind = payload[12:16]
+    if kind == b"VP8 " and len(payload) >= 30:
+        return int.from_bytes(payload[26:28], "little") & 0x3FFF
+    if kind == b"VP8L" and len(payload) >= 25:
+        bits = int.from_bytes(payload[21:25], "little")
+        return (bits & 0x3FFF) + 1
+    if kind == b"VP8X" and len(payload) >= 27:
+        return int.from_bytes(payload[24:27], "little") + 1
+    return None
+
+
+def display_width(payload: bytes) -> int | None:
+    """貼るときに書く表示幅（px）。**縮めるときだけ書く。**
+
+    元より大きく引き伸ばさない ── 小さな図を無理に広げると粗くなるだけで、
+    貼った教員は「なぜぼやけるのか」を画面から知りようがない。
+    """
+    width = intrinsic_width(payload)
+    if width is None or width <= DISPLAY_WIDTH:
+        return None
+    return DISPLAY_WIDTH
+
+
+def markdown_for(course_id: str, name: str, alt: str = "", width: int | None = None) -> str:
     """課題文に貼り付ける 1 行。**教員に URL を手で書かせない。**
 
     打ち間違いは課題文の欠損として出る（画像が出ないだけで、なぜ出ないかは
     画面から分からない）。
+
+    表示幅は `{width=...}` で書く（`statement.py` が `width` だけを通す）。
+    **教員があとから数字を書き換えられる形にしておく** ── 既定の幅が合わない
+    課題は必ずあり、そのために画像を貼り直させたくない。
     """
-    return f"![{alt}](/images/{course_id}/{name})"
+    line = f"![{alt}](/images/{course_id}/{name})"
+    return f"{line}{{width={width}}}" if width else line
 
 
 __all__ = [
+    "DISPLAY_WIDTH",
     "MAX_BYTES",
     "SUFFIX_TYPES",
     "ImageError",
     "content_type",
+    "display_width",
+    "intrinsic_width",
     "markdown_for",
     "new_name",
     "storage_key",

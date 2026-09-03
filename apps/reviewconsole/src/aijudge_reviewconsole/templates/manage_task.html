@@ -53,30 +53,68 @@
     </div>
   {% endif %}
 
+  {# **節の見出しとして出す**（「観点の畳み方」と同じ見え方）。以前は小さな
+     ラベルで、同じ画面の中でルーブリックや提出形式より弱く見えていた ──
+     課題の本体は問題文なので、見出しの強さが中身の重さと逆になっていた。
+     ラベルは見出しの中に置く（押せば欄に飛ぶ・読み上げも対応が切れない）。 #}
+  <div class="subsection">
+  <h3><label for="statement">問題文</label></h3>
+  <p class="desc" style="margin:0 0 8px">
+    Markdown で書きます。1 行目を <code>## タイトル ##</code> にすると題名になります。
+  </p>
   <div class="field">
-    <label for="statement">問題文（Markdown。1 行目を <code>## タイトル ##</code> にすると題名になります）</label>
     <textarea id="statement" name="statement" rows="14" required
       placeholder="## [必須] 課題の題名 ##&#10;&#10;自然数 n を入力し…">{{ version.statement if version else '' }}</textarea>
   </div>
-
-  {# **黙って落とさない。** テストケースが無い課題は、正しさの観点が
-     テスト実行ではなく AI の判定になる。課題を開いたときに分からなければ、
-     教員はテストで確定する課題を作ったつもりのまま学期を過ごす。 #}
-  {% if falls_back_to_ai %}
-  {# **「作り直してください」とは書かない。** 作り直せば別の課題になり、
-     問題セットに同じ問題が 2 件並んで、提出も採点も割れる（#43）。 #}
-  <div class="note warn">
-    <strong>この課題にはテストケースがありません。</strong>
-    正しさの観点は<strong>テスト実行ではなく AI が判定し、教員が確定させます</strong>
-    （観点は「仕様の充足」になっています）。
-    この科目（<span class="mono">{{ course.subject_profile }}</span>）は
-    <span class="mono">code_test_runner</span> を宣言しているので、
-    <strong>テストケースを付ければテスト実行で確定できます</strong>。
-    <br>
-    下の「テストケースを後から付ける」から足せます —
-    <strong>新しい版</strong>になり、出題済みの版は書き換えません（P8）。
   </div>
-  {% endif %}
+
+  {# 問題文に貼る画像（#64）。**この画面で受け取り、カーソル位置に差し込む。**
+     コースの設定画面にも同じ受け口はあるが、そこへ行くと書きかけの問題文は
+     失われる ── 課題の編集は 1 つのフォームで、保存するまで何も残らない。
+
+     **フォームを入れ子にできない**ので、送信は JavaScript で行う（`base.html`
+     の `data-image-upload`）。JavaScript が無ければこの欄は出ず、下の案内から
+     コースの設定画面で 1 行を作って手で貼ることになる。 #}
+  <div class="subsection js-only" hidden
+       data-image-upload="/manage/courses/{{ course.id }}/images.json"
+       data-image-target="#statement">
+    <h3><label for="statement-image">問題文に貼る画像</label></h3>
+    <p class="desc" style="margin:0 0 8px">
+      {{ image_suffixes | join(' / ') }}・{{ image_max_mb }}MB まで。
+      選ぶと<strong>問題文のカーソル位置に貼り付け</strong>られます。URL を手で書く必要はありません。
+      大きな画像は<strong>幅 {{ image_display_width }}px で貼ります</strong>（縦横比はそのまま・数字はあとから直せます）。
+      保存先は提出物と同じ学内のストアで、<strong>学外には出ません</strong>。
+      画像は<strong>問題文と一緒に保存</strong>されます（この欄だけでは版は上がりません）。
+    </p>
+    <div class="inline-field">
+      <span class="body">
+        {# 説明を先に置く。**選んだ時点で貼り付けるから** ── 後ろに置くと、
+           入れる前に貼り付けが終わっていることになる。 #}
+        <label for="statement-image-alt">説明（画像が出ないときに代わりに読まれます）</label>
+        <input id="statement-image-alt" data-image-alt
+               placeholder="cc コマンドを実行した端末の画面">
+        <input id="statement-image" type="file" data-image-file
+               accept="{{ image_suffixes | join(',') }}">
+      </span>
+      <span class="flash" data-image-status hidden></span>
+      <button type="button" data-image-submit>画像を貼り付け</button>
+    </div>
+    {# **失敗は行を分けて出す。** 成功の印（緑の ✓）と同じ場所に赤い理由を
+       出すと、貼れなかったことが「貼れた」に見える。 #}
+    <p class="note warn" data-image-error hidden style="margin:10px 0 0"></p>
+    <p class="desc" style="margin:8px 0 0">
+      ファイルを選ぶと貼り付けられます。同じ画像をもう一度入れたいときは
+      「画像を貼り付け」を押してください。問題文の欄に
+      <strong>画像をそのまま貼り付け（Ctrl/⌘+V）</strong>ても同じように入ります。
+    </p>
+  </div>
+  <noscript>
+    <p class="desc">
+      画像は<a href="/manage/courses/{{ course.id }}#images">コースの設定</a>で保存し、
+      出てきた 1 行を問題文に貼り付けてください
+      （この画面で書きかけの内容は保存されないので、先に保存してから移動してください）。
+    </p>
+  </noscript>
 
   {# **テストで確定できる科目なら、テストケースを用意する。** 無い課題は
      正しさの観点が AI 判定に落ち（`TaskSpec.auto_graded`）、全課題が教員の
@@ -112,6 +150,28 @@
 
   <div class="subsection">
   <h3>ルーブリック（この課題の観点）</h3>
+  {# **黙って落とさない。** テストケースが無い課題は、正しさの観点が
+     テスト実行ではなく AI の判定になる。課題を開いたときに分からなければ、
+     教員はテストで確定する課題を作ったつもりのまま学期を過ごす。
+
+     **観点の見出しの下に出す。** これは観点の話（正しさを誰が決めるか）で
+     あって問題文の話ではない ── 読む場所と直す場所が離れていると、
+     何についての警告なのかが画面から読めない。 #}
+  {% if falls_back_to_ai %}
+  {# **「作り直してください」とは書かない。** 作り直せば別の課題になり、
+     問題セットに同じ問題が 2 件並んで、提出も採点も割れる（#43）。 #}
+  <div class="note warn" style="margin-bottom:12px">
+    <strong>この課題にはテストケースがありません。</strong>
+    正しさの観点は<strong>テスト実行ではなく AI が判定し、教員が確定させます</strong>
+    （観点は「仕様の充足」になっています）。
+    この科目（<span class="mono">{{ course.subject_profile }}</span>）は
+    <span class="mono">code_test_runner</span> を宣言しているので、
+    <strong>テストケースを付ければテスト実行で確定できます</strong>。
+    <br>
+    下の「テストケースを後から付ける」から足せます —
+    <strong>新しい版</strong>になり、出題済みの版は書き換えません（P8）。
+  </div>
+  {% endif %}
   {# **既定と同じか、変えてあるかを示す。** 同じに見えて違う、が最も困る。 #}
   <p class="desc">
     {% if not course_has_rubric %}
