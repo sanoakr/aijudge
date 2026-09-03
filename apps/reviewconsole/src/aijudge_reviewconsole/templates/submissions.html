@@ -53,7 +53,7 @@
              style="max-width:9rem" autocomplete="off" enterkeyhint="search"
              {{ 'autofocus' if filters.learner }}
              onfocus="this.setSelectionRange(this.value.length, this.value.length)"></span>
-    <span><label for="f-role">役割</label>
+    <span><label for="f-role">提出時の役割</label>
       <select id="f-role" name="role">
         <option value="">すべて</option>
         {% for r in roles %}
@@ -85,7 +85,10 @@
 
 <h2>得点の分布</h2>
 {# **数字ではなく形を出す。** 平均だけでは、二山（できた人とまったく手が
-   付かなかった人）が片方の数字に潰れる。 #}
+   付かなかった人）が片方の数字に潰れる。
+
+   教員・TA 自身の試行はここには入らない（#108）── 到達度の分布に動作確認の
+   入力が混ざると、「この課題は正答率が低い」が教員自身の試行の結果になる。 #}
 <div class="card">
   {% if chart.scored %}
   <div class="hist">
@@ -116,7 +119,11 @@
   {% for row in rows %}
     <tr class="row-link" data-href="/review/{{ row.submission.id }}/reveal">
       <td class="fit">{{ row.submission.submitted_at.strftime('%m-%d %H:%M') if row.submission.submitted_at else '—' }}</td>
-      <td class="fit mono">{{ row.login }}</td>
+      <td class="fit mono">{{ row.login }}
+        {# 教員・TA 自身の試行（#108）。**隠さずに印を付ける** ── 成績にも
+           統計にも数えないが、出したこと自体は事実として一覧に残す。 #}
+        {% if row.is_trial %}<br><span class="pill">{{ row.role.value }}の試行</span>{% endif %}
+      </td>
       <td class="grow">
         <span class="mono desc">{{ row.task.unit or row.task.unit_label }}</span> {{ row.task.title }}
       </td>

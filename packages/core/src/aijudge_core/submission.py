@@ -19,6 +19,7 @@ from typing import Self
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .ids import ArtifactId, SubmissionId, TaskVersionId, UserId
+from .tenancy import Role
 
 
 class SubmissionState(StrEnum):
@@ -174,6 +175,16 @@ class Submission(BaseModel):
     id: SubmissionId
     task_version_id: TaskVersionId
     learner_id: UserId
+    # 出した人の**そのときの役割**（#108）。教員も TA も提出できる ── 課題の
+    # 動作確認や参照解答を実際の経路に通すのは正当な用途である。ただし学習者の
+    # 提出と混ざると、難易度推定・得点分布・blind の抽出・一致度 κ の分母に
+    # 入り、「この課題は正答率が低い」として現れる。
+    #
+    # **役割はここに焼き付ける。** 測定時に現在の受講から引くと、学生が TA に
+    # なった瞬間に**その人の過去の提出が測定から消える**。遅延減点で踏んだのと
+    # 同じ罠で（ADR 0013）、結論も同じ ── 実行時の事実として記録に残し、
+    # 表示時に計算し直さない。
+    submitted_as: Role = Role.LEARNER
     state: SubmissionState = SubmissionState.DRAFT
     attempt: int = Field(default=1, ge=1)
     artifacts: tuple[Artifact, ...] = ()
@@ -202,6 +213,15 @@ class Submission(BaseModel):
         elif self.submitted_at is not None:
             raise ValueError("submitted_at is only valid in the submitted state")
         return self
+
+    @property
+    def is_trial(self) -> bool:
+        """成績にも測定にも数えない提出か（#108）。
+
+        **採点はする。** 動作確認の提出が採点されないなら確認にならない。
+        数えないのは成績・分布・難易度・一致度のほうである。
+        """
+        return self.submitted_as is not Role.LEARNER
 
     @property
     def gradable_artifacts(self) -> tuple[Artifact, ...]:

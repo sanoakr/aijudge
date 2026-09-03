@@ -30,6 +30,7 @@ from aijudge_core import (
     Course,
     GradingPhase,
     ReviewRequest,
+    Role,
     Submission,
     SubmissionWindow,
     Task,
@@ -39,7 +40,14 @@ from aijudge_core import (
     grace_minutes,
     kind_for,
 )
-from aijudge_core.ids import CourseId, ReviewRequestId, SubmissionId, TaskVersionId, new_id
+from aijudge_core.ids import (
+    CourseId,
+    ReviewRequestId,
+    SubmissionId,
+    TaskVersionId,
+    UserId,
+    new_id,
+)
 from aijudge_identity import (
     AuthenticationFailed,
     AuthService,
@@ -234,6 +242,11 @@ def create_app(app_state: StudentApp) -> FastAPI:
                 "open_for_submission": task_obj.accepts_submissions_at(now()),
                 # 課題文は Markdown。生のまま出すと `##` や ``` が見える。
                 "statement_html": render_statement(version.statement),
+                # 教員・TA が自分のコースを開いているか（#108）。**出せる**が、
+                # 出したものは成績にも統計にもならない。**先に言う** ── 言わずに
+                # 除くと、教員は自分の提出が採点一覧に無いことを不具合として
+                # 追いかけることになる。
+                "submitting_as": _role_in(app_state, course_obj.id, me.user_id),
                 **build_context(course_obj, task_obj, version),
             },
         )
@@ -299,6 +312,11 @@ def create_app(app_state: StudentApp) -> FastAPI:
                 # テスト実行の結果は「どのケースで落ちたか」を含むので、
                 # **試験中の学習者にとっては答えの一部**である。
                 grading_starts_at=_task.grading_starts_at,
+                # 出した人のそのときの役割（#108）。教員・TA の提出は採点まで
+                # 通すが、成績にも測定にも数えない。**ここで焼き付ける** ──
+                # 測定時に現在の受講から引くと、学生が TA になった瞬間に
+                # 過去の提出が測定から消える（ADR 0013 と同じ罠）。
+                submitted_as=_role_in(app_state, course_obj.id, me.user_id),
             )
         except SubmissionRejected as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -636,6 +654,18 @@ def _tenant(raw: str):
 
 
 DEFAULT_TENANT = "ten_" + "0" * 32
+
+
+def _role_in(app_state: StudentApp, course_id: CourseId, user_id: UserId) -> Role:
+    """このコースでの役割（#108）。**受講が無ければ学習者として扱う。**
+
+    ここに来る時点で `require_membership` は通っているので、無いのは通常
+    起こらない。起きたときに試行扱いにすると、その提出は静かに測定から
+    消える ── 数えられて気づくほうがよい。
+    """
+    with app_state.database.unit_of_work() as uow:
+        enrollment = uow.identity.find_enrollment(course_id, user_id)
+    return Role.LEARNER if enrollment is None else enrollment.role
 
 
 def _course_and_tasks(
