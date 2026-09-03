@@ -3337,6 +3337,9 @@ def test_the_task_editor_takes_the_image_itself(world: World) -> None:
     page = client.get(f"/manage/courses/{world.course.id}/tasks/{task.id}/edit")
     assert f"/manage/courses/{world.course.id}/images.json" in page.text
     assert 'data-image-target="#statement"' in page.text
+    # **失敗の置き場所を持つ。** 成功の印（緑の ✓）に理由を出すと、貼れなかった
+    # ことが「貼れた」に見える（#52 と同じ誤り）。
+    assert "data-image-error" in page.text
 
     response = client.post(
         f"/manage/courses/{world.course.id}/images.json",

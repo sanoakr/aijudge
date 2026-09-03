@@ -88,8 +88,13 @@
       <span class="flash" data-image-status hidden></span>
       <button type="button" data-image-submit>画像を貼り付け</button>
     </div>
+    {# **失敗は行を分けて出す。** 成功の印（緑の ✓）と同じ場所に赤い理由を
+       出すと、貼れなかったことが「貼れた」に見える。 #}
+    <p class="note warn" data-image-error hidden style="margin:10px 0 0"></p>
     <p class="desc" style="margin:8px 0 0">
-      問題文の欄に<strong>画像をそのまま貼り付け（Ctrl/⌘+V）</strong>ても同じように入ります。
+      ファイルを選ぶと貼り付けられます。同じ画像をもう一度入れたいときは
+      「画像を貼り付け」を押してください。問題文の欄に
+      <strong>画像をそのまま貼り付け（Ctrl/⌘+V）</strong>ても同じように入ります。
     </p>
   </div>
   <noscript>
