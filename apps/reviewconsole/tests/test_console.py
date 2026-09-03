@@ -19,6 +19,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from aijudge_authoring import render_statement
 from aijudge_authoring.importers import sharif_judge
 from aijudge_core import ArtifactKind, Course, Role, Task
 from aijudge_core.ids import CourseId, TenantId, UserId
@@ -497,6 +498,25 @@ def test_finalizing_records_only_what_changed(world: World) -> None:
 
 
 @needs_c_compiler
+@needs_c_compiler
+def test_the_reveal_page_shows_the_task_being_graded(world: World) -> None:
+    """**採点している人が問題を読めないのはおかしい**（#105）。
+
+    blind の画面には最初から出ていて、成績を決めるこの画面だけが持って
+    いなかった。描画は学習者と同じ関数を通す ── 別の描画を当てると、
+    数式や画像の食い違いがここでは見えない。
+    """
+    _, accepted = _instructor_and_submission(world)
+    world.worker.run_until_empty()
+    body = world.client.get(f"/review/{accepted.submission.id}/reveal").text
+
+    assert "この課題の問題文" in body
+    with world.database.unit_of_work() as uow:
+        submission = uow.submissions.get(accepted.submission.id)
+        version = uow.tasks.get_version(submission.task_version_id)
+    assert render_statement(version.statement) in body, "学習者と違う描画になっている"
+
+
 def test_the_reveal_page_no_longer_asks_for_points(world: World) -> None:
     """要点から文章にする口はやめた（#97）。
 

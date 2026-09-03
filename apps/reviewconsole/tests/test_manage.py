@@ -3505,6 +3505,95 @@ def test_only_an_instructor_of_the_course_can_upload_an_image(world: World) -> N
 
 
 # --------------------------------------------------------------------------
+# 学習者に出る形のプレビュー（#105）
+# --------------------------------------------------------------------------
+
+
+def test_the_editor_shows_the_statement_as_the_learner_sees_it(world: World) -> None:
+    """**欄だけでは、書いたものがどう出るか分からない。** 数式も画像も
+    コードの囲みも、学習者アプリを開くまで確かめられなかった。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    client.post(
+        f"/manage/courses/{world.course.id}/tasks",
+        data={
+            "key_suffix": "p1",
+            "unit": "ex04",
+            "statement": "## [必須] 題名 ##\n\n本文です\n\n```c\nint main(void){}\n```",
+            "position": "1",
+            "readability_weight": "0.3",
+        },
+    )
+    with world.database.unit_of_work() as uow:
+        (task,) = uow.tasks.list_for_course(world.course.id)
+
+    page = client.get(f"/manage/courses/{world.course.id}/tasks/{task.id}/edit").text
+    assert "学習者に出る形" in page
+    # 描画された本文が出ている（Markdown の記号のままではない）。
+    assert "<h2>" in page.split("学習者に出る形")[1]
+    assert "<code" in page.split("学習者に出る形")[1]
+
+
+def test_the_preview_is_rendered_by_the_same_function_as_the_learner_page(
+    world: World,
+) -> None:
+    """**描画は 1 つ。** ブラウザで Markdown を描き直すと、普通の文章では
+    一致し、間違いが起きるところ（数式・画像の幅）でだけ食い違う。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+
+    draft = "## 題名 ##\n\n$\\sum_{i=1}^{n} i$\n\n![図](/images/x/a.png){width=480}"
+    response = client.post(
+        f"/manage/courses/{world.course.id}/statement-preview",
+        data={"statement": draft},
+    )
+    assert response.status_code == 200
+    assert response.text == render_statement(draft), "学習者と違う描画になっている"
+    # 数式はサーバ側で MathML に、画像の幅は属性になる。
+    assert "<math" in response.text
+    assert 'width="480"' in response.text
+
+
+def test_the_preview_saves_nothing(world: World) -> None:
+    """**描いて返すだけ。** 押した瞬間に版が上がってはいけない（#58）。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    client.post(
+        f"/manage/courses/{world.course.id}/tasks",
+        data={
+            "key_suffix": "p1",
+            "unit": "ex04",
+            "statement": "## [必須] 題名 ##\n\n元の本文",
+            "position": "1",
+            "readability_weight": "0.3",
+        },
+    )
+    with world.database.unit_of_work() as uow:
+        (task,) = uow.tasks.list_for_course(world.course.id)
+        before = uow.tasks.latest_version(task.id)
+
+    client.post(
+        f"/manage/courses/{world.course.id}/statement-preview",
+        data={"statement": "## [必須] 題名 ##\n\n書きかけの本文"},
+    )
+    with world.database.unit_of_work() as uow:
+        after = uow.tasks.latest_version(task.id)
+    assert after.version == before.version
+    assert after.statement == before.statement
+
+
+def test_only_an_instructor_can_render_a_preview(world: World) -> None:
+    """描画口も他の /manage と同じ扱い（TA は課題を読めるが、書きかけは無い）。"""
+    world.register("ta", Role.ASSISTANT)
+    response = world.client("ta").post(
+        f"/manage/courses/{world.course.id}/statement-preview", data={"statement": "# x"}
+    )
+    assert response.status_code == 403
+
+
+# --------------------------------------------------------------------------
 # 試験の問題セット（#67）
 # --------------------------------------------------------------------------
 

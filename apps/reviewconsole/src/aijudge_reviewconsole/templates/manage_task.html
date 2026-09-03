@@ -20,6 +20,30 @@
 </div>
 {% endif %}
 
+{# 学習者に出る形（#105）。**書いている画面の最上部に置く。**
+   問題文は Markdown で、数式・画像・コードブロックが本体である。欄だけでは、
+   画像が意図した位置に入ったか、`$\sum$` が数式になったか、コードの囲みが
+   閉じたかが、学習者アプリを開くまで分からない。
+
+   描画は学習者と同じ関数（`render_statement`）。ブラウザで Markdown を
+   描き直さない ── 普通の文章では一致し、**間違いが起きるところでだけ
+   食い違う**ものは、プレビューではなく別の意見である。 #}
+{% if task %}
+<details class="card" id="preview" open>
+  <summary><b>学習者に出る形</b>
+    <span class="desc">保存済みの {{ version.version }} 版です。書きかけを見るには「プレビューを更新」を押します</span></summary>
+  <div class="statement" data-preview style="margin-top:12px">{{ statement_html | safe }}</div>
+  <div class="actions js-only" hidden>
+    <span class="flash" data-preview-status hidden></span>
+    <button type="button" data-preview-for="#statement"
+            data-preview-url="/manage/courses/{{ course.id }}/statement-preview"
+            data-preview-target="[data-preview]">プレビューを更新</button>
+  </div>
+  <noscript><p class="desc" style="margin:10px 0 0">
+    保存すると、この表示が新しい版になります。</p></noscript>
+</details>
+{% endif %}
+
 {# **追加と訂正で同じ形を使う。** 別々に作ると、片方にだけ項目が足りない
    状態が生まれる（実際に `readability_weight` でそうなった）。 #}
 {# 追加でテストケースを作るときだけ待たせる（参照解答とテストケースの生成、

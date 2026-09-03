@@ -642,6 +642,46 @@ document.querySelectorAll(".js-only").forEach(function (el) { el.hidden = false;
   });
 })();
 
+{# 書きかけの問題文のプレビュー（#105）。**描画はサーバに任せる。**
+
+   ブラウザの Markdown 実装を持ち込むと、普通の文章では一致し、間違いが
+   起きるところ（数式・画像の幅・生 HTML の遮断）でだけ食い違う。それは
+   プレビューではなく別の意見で、確かめたいことだけが確かめられない。
+
+   **保存はしない。** 描いて返すだけで、版が上がるのは「保存」を押したとき
+   （#58 と同じ、押した瞬間に版が上がることを避ける）。 #}
+(function () {
+  var button = document.querySelector("[data-preview-for]");
+  if (!button || typeof fetch !== "function") return;
+  var source = document.querySelector(button.getAttribute("data-preview-for"));
+  var target = document.querySelector(button.getAttribute("data-preview-target"));
+  var status = document.querySelector("[data-preview-status]");
+  if (!source || !target) return;
+
+  button.addEventListener("click", function () {
+    var body = new FormData();
+    body.append("statement", source.value);
+    if (status) { status.textContent = "描画しています…"; status.className = "flash reading"; status.hidden = false; }
+    fetch(button.getAttribute("data-preview-url"), {
+      method: "POST", body: body, credentials: "same-origin"
+    }).then(function (response) {
+      return response.text().then(function (text) {
+        if (!response.ok) throw new Error("プレビューを描けませんでした（HTTP " + response.status + "）");
+        return text;
+      });
+    }).then(function (html) {
+      target.innerHTML = html;
+      if (status) {
+        status.textContent = "いま書いている内容です（保存するまで版は上がりません）";
+        status.className = "flash";
+      }
+    }).catch(function (err) {
+      if (status) { status.textContent = err.message; status.className = "flash"; }
+      if (window.console) console.error("プレビュー:", err);
+    });
+  });
+})();
+
 document.addEventListener("submit", function (event) {
   var form = event.target;
   if (!(form instanceof HTMLFormElement)) return;
