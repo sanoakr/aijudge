@@ -1,19 +1,32 @@
 {% extends "base.html" %}
 {% block body %}
-<h1>履修中のコース</h1>
+<h1>コース</h1>
 <p class="crumb">課題の提出と結果の確認はコースから入ります。</p>
 
+{# 役割はコースごとに決まる（#103）。**同じ人が「A では学習者・B では TA」に
+   なる。** 一覧に役割を出しておかないと、採点する側の画面がどこにあるのかを
+   その人は知りようがない。 #}
 <table>
-  <thead><tr><th>コード</th><th>コース</th><th>学期</th></tr></thead>
+  <thead><tr><th>コード</th><th>コース</th><th>学期</th><th>役割</th></tr></thead>
   <tbody>
-  {% for course in courses %}
+  {% for row in rows %}
     <tr>
-      <td class="mono">{{ course.code }}</td>
-      <td><a href="/courses/{{ course.id }}">{{ course.title }}</a></td>
-      <td>{{ course.term }}</td>
+      <td class="mono">{{ row.course.code }}</td>
+      <td><a href="/courses/{{ row.course.id }}">{{ row.course.title }}</a></td>
+      <td>{{ row.course.term }}</td>
+      <td class="desc">
+        {% if row.role and row.role.value != 'learner' %}
+          {{ row.role.value }}
+          {% if console_url %}
+          <br><a href="{{ console_url }}/courses/{{ row.course.id }}">採点の画面へ →</a>
+          {% else %}
+          <br><span class="desc">採点は教員コンソールで行います</span>
+          {% endif %}
+        {% else %}learner{% endif %}
+      </td>
     </tr>
   {% else %}
-    <tr><td colspan="3" class="desc">履修中のコースがありません。</td></tr>
+    <tr><td colspan="4" class="desc">履修中のコースがありません。</td></tr>
   {% endfor %}
   </tbody>
 </table>

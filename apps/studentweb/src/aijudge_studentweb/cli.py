@@ -25,6 +25,9 @@ from .app import StudentApp, create_app
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 ENV_ARTIFACT_DIR = "AIJUDGE_ARTIFACT_DIR"
+# 教員コンソールの場所（#103）。役割はコースごとなので、TA や教員として
+# 取っているコースの行から渡す。**空でも動く。**
+ENV_CONSOLE_URL = "AIJUDGE_CONSOLE_URL"
 DEFAULT_ARTIFACT_DIR = Path.home() / ".aijudge" / "artifacts"
 
 
@@ -35,6 +38,7 @@ def build_app(args: argparse.Namespace):
             database,
             FilesystemArtifactStore(args.artifacts),
             profiles_dir=args.profiles,
+            console_url=args.console_url,
         )
     )
 
@@ -49,6 +53,11 @@ def main(argv: list[str] | None = None) -> int:
         help="提出物の置き場所",
     )
     parser.add_argument("--profiles", type=Path, default=REPO_ROOT / "subjects")
+    parser.add_argument(
+        "--console-url",
+        default=os.environ.get(ENV_CONSOLE_URL, ""),
+        help="教員コンソールの場所（例 https://aijudge.example.jp:8765）",
+    )
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8080)
     parser.add_argument("--create-schema", action="store_true", help="開発用")
