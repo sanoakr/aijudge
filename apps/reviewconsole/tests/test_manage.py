@@ -3567,6 +3567,65 @@ def test_an_uploaded_image_comes_back_with_the_line_to_paste(world: World) -> No
     assert served.headers["content-type"].startswith("image/png")
 
 
+def test_every_console_screen_can_load_a_pasted_image(world: World) -> None:
+    """**画面に出る画像は、その画面から取れる**（#111）。
+
+    課題文は `/images/<course>/<name>` を指す。教員側にその経路が無く、
+    プレビューも採点画面も TA の課題ページも、画像が全部欠けていた
+    （経路は `/manage` 接頭辞の中で宣言されていた）。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    world.register("ta", Role.ASSISTANT)
+    client = world.client("teacher")
+
+    response = client.post(
+        f"/manage/courses/{world.course.id}/images.json",
+        files={"upload": ("shot.png", b"fake png bytes", "image/png")},
+        data={"alt": "端末の画面"},
+    )
+    url = response.json()["markdown"].split("](", 1)[1].split(")", 1)[0]
+
+    # 課題文に貼って保存する。
+    client.post(
+        f"/manage/courses/{world.course.id}/tasks",
+        data={
+            "key_suffix": "p1",
+            "unit": "ex04",
+            "statement": f"## [必須] 題名 ##\n\n![端末の画面]({url})",
+            "position": "1",
+            "readability_weight": "0.3",
+        },
+    )
+    with world.database.unit_of_work() as uow:
+        (task,) = uow.tasks.list_for_course(world.course.id)
+
+    # 編集画面のプレビューに出ている URL が、そのまま取れる。
+    editor = client.get(f"/manage/courses/{world.course.id}/tasks/{task.id}/edit").text
+    assert f'src="{url}"' in editor
+    assert client.get(url).status_code == 200
+
+    # **TA も読める。** 課題文の一部なので、読むだけの画面でも要る（#102）。
+    ta = world.client("ta")
+    assert f'src="{url}"' in ta.get(f"/manage/courses/{world.course.id}/tasks/{task.id}/edit").text
+    assert ta.get(url).status_code == 200
+
+
+def test_a_learner_cannot_load_a_statement_image_from_the_console(world: World) -> None:
+    """採点できないコースの画像は「無い」と答える（提出物と同じ扱い）。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    world.register("s2400001", Role.LEARNER)
+    line = (
+        world.client("teacher")
+        .post(
+            f"/manage/courses/{world.course.id}/images.json",
+            files={"upload": ("shot.png", b"fake png bytes", "image/png")},
+        )
+        .json()["markdown"]
+    )
+    url = line.split("](", 1)[1].split(")", 1)[0]
+    assert world.client("s2400001").get(url).status_code == 404
+
+
 def test_a_format_that_cannot_be_pasted_is_refused(world: World) -> None:
     """**貼れる形式と提出できる形式は別。** PDF は提出できるが課題文には貼れない。"""
     world.register("teacher", Role.INSTRUCTOR)
@@ -3616,11 +3675,13 @@ def test_the_task_editor_takes_the_image_itself(world: World) -> None:
     line = response.json()["markdown"]
     assert line.startswith("![端末の画面](/images/")
 
-    # 上げた画像はその場で読める。
-    served = client.get(
-        f"/manage/courses/{world.course.id}/images/{line.rsplit('/', 1)[1].rstrip(')')}"
-    )
-    assert served.status_code == 200
+    # **貼り付ける 1 行が指す URL をそのまま取りに行く**（#111）。以前は
+    # ルータの経路（`/manage/courses/.../images/...`）を叩いており、課題文が
+    # 指す `/images/...` を誰も返していないことに気づけなかった。
+    url = line.split("](", 1)[1].split(")", 1)[0]
+    assert url.startswith("/images/"), url
+    served = client.get(url)
+    assert served.status_code == 200, f"課題文が指す {url} が返らない"
     assert served.content == b"fake png bytes"
 
 
