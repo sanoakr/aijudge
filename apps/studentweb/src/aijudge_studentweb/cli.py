@@ -39,6 +39,7 @@ def build_app(args: argparse.Namespace):
             FilesystemArtifactStore(args.artifacts),
             profiles_dir=args.profiles,
             console_url=args.console_url,
+            console_port=args.console_port,
         )
     )
 
@@ -56,7 +57,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--console-url",
         default=os.environ.get(ENV_CONSOLE_URL, ""),
-        help="教員コンソールの場所（例 https://aijudge.example.jp:8765）",
+        help="教員コンソールの場所（例 https://aijudge.example.jp:8765）。"
+        "空なら、開いているホスト名のまま --console-port へ渡す",
+    )
+    parser.add_argument(
+        "--console-port",
+        type=int,
+        default=int(os.environ.get("AIJUDGE_CONSOLE_PORT", 8765)),
+        help="教員コンソールのポート（--console-url が空のときに使う）",
     )
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8080)
