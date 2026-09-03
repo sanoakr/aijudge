@@ -574,6 +574,17 @@ document.querySelectorAll(".js-only").forEach(function (el) { el.hidden = false;
       return response.text().then(function (body) {
         var data = null;
         try { data = JSON.parse(body); } catch (e) { data = null; }
+        if (response.status === 404) {
+          // **404 は「画像が悪い」ではない。** 受け口そのものが無い ── 画面の
+          // 見た目はテンプレートから毎回読み直されるのに、経路は起動時にしか
+          // 決まらないので、入れ替えたのに再起動していないと**この欄だけが
+          // 先に新しくなる**。理由を言わないと画像を疑って延々と試すことになる。
+          throw new Error(
+            "画像の受け口が見つかりません（HTTP 404）。" +
+            "この画面は新しいのに aijudge-review が古いまま動いている可能性があります — " +
+            "サーバを再起動してからもう一度お試しください。"
+          );
+        }
         if (!response.ok || !data || !data.markdown) {
           throw new Error(
             (data && data.detail) || "画像を保存できませんでした（HTTP " + response.status + "）"
