@@ -39,6 +39,11 @@
           {# **自分の役割は変えられない。** 学習者に落とすとコースが見えなくなり、
              戻す手段が無い（受講の取り消しと同じ理由）。 #}
           {{ row.enrollment.role.value }}<br><span class="desc">自分</span>
+        {% elif row.enrollment.role.value not in roles %}
+          {# 画面から配れない役割（`admin`）は、外すこともできない（#100）。
+             付けられない権限を剥がせると、担当教員が管理者を自分のコースから
+             締め出せることになる。 #}
+          {{ row.enrollment.role.value }}<br><span class="desc">画面からは変更不可</span>
         {% else %}
         <form method="post"
               action="/manage/courses/{{ course.id }}/enrolments/{{ row.enrollment.user_id }}/role"
@@ -102,10 +107,15 @@
           <td class="grow"><strong>コースの設定を変えられる</strong> — 課題・問題セット・締切・ルーブリック・
             受講者・採点設定・知識要素の追加・生成課題の承認。</td>
         </tr>
+        {# **選べないが、説明は残す。** 何が上にあるかを知らないと、instructor が
+           上限であることの意味が読めない（#100）。 #}
         <tr>
           <td class="fit mono">admin</td>
           <td class="grow"><strong>コースを作れる。知識要素の第 1 階層（分野の根）を作り、引退させられる。</strong>
-            <span class="desc">知識要素はコースをまたいで共有されるので、引退は他のコースにも効きます。</span></td>
+            <span class="desc">知識要素はコースをまたいで共有されるので、引退は他のコースにも効きます。</span>
+            <br><span class="desc"><strong>この画面からは付けられません</strong> —
+            テナント内の全コースに届く権限なので、担当教員の裁量の外です
+            （<code>aijudge-admin</code> で行います）。</span></td>
         </tr>
       </tbody>
     </table>
