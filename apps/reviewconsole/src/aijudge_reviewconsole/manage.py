@@ -149,6 +149,30 @@ def _is_admin(request: Request, me: Principal) -> bool:
     return True
 
 
+# 画面から与えてよい役割。**`admin` は入らない。**
+#
+# `admin` はコースを作れて、テナント内のどのコースにも届く。担当教員が
+# 自分のコースの受講者一覧から配れる権限ではない ── 上限は「教員が教員を
+# 足せる」までである。以前は `Role` の全値をそのまま選択肢にしていたので、
+# `assistant` と `instructor` の間に `admin` が並んでいた（#100）。
+#
+# **`admin` は `aijudge-admin` で作る。** 利用者の新規作成を CLI に限って
+# あるのと同じ規則で、画面から配れない権限は画面に出さない。
+GRANTABLE_ROLES: tuple[Role, ...] = (Role.LEARNER, Role.ASSISTANT, Role.INSTRUCTOR)
+
+
+def _require_grantable(role: Role) -> Role:
+    """画面から与えてよい役割か。**弾く理由をそのまま返す。**"""
+    if role not in GRANTABLE_ROLES:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"{role.value} はこの画面からは付けられません（`aijudge-admin` で行ってください）"
+            ),
+        )
+    return role
+
+
 def _require_instructor(request: Request, me: Principal, course_id: CourseId) -> Course:
     """そのコースの教員であること。**TA には開けない。**
 
@@ -905,7 +929,6 @@ def register(templates) -> APIRouter:
                 "image_max_mb": images.MAX_BYTES // (1024 * 1024),
                 "people_count": people_count,
                 "role_counts": _role_counts(enrollments),
-                "roles": [role.value for role in Role],
                 # シラバスの本文は Markdown。素のまま出すと見出しも箇条書きも
                 # 記号のまま並ぶ（課題文で実際に起きた・`statement.py`）。
                 "description_html": (
@@ -2686,7 +2709,8 @@ def register(templates) -> APIRouter:
                 "role_counts": _role_counts(all_enrollments),
                 "total": len(all_enrollments),
                 "q": q.strip(),
-                "roles": [role.value for role in Role],
+                # **画面から配れる役割だけを出す**（#100）。`admin` は出さない。
+                "roles": [role.value for role in GRANTABLE_ROLES],
                 "saved": SAVED_MESSAGES.get(saved),
                 "saved_key": saved,
             },
@@ -2714,12 +2738,25 @@ def register(templates) -> APIRouter:
             new_role = Role(role)
         except ValueError:
             raise HTTPException(status_code=400, detail=f"役割が不正です: {role!r}") from None
+        # **画面で塞ぐだけにしない。** 選択肢を減らしても、POST は手で作れる。
+        _require_grantable(new_role)
 
         console = _console(request)
         with console.database.unit_of_work() as uow:
             existing = uow.identity.find_enrollment(CourseId(course_id), UserId(user_id))
             if existing is None:
                 raise HTTPException(status_code=404, detail="この受講者は登録されていません")
+            # **管理者の役割は画面から動かせない**（#100）。付けられない権限を
+            # 外せるのはおかしい ── 担当教員が管理者を自分のコースから締め出せる
+            # ことになる。
+            if existing.role is Role.ADMIN:
+                raise HTTPException(
+                    status_code=403,
+                    detail=(
+                        "管理者の役割はこの画面からは変えられません"
+                        "（`aijudge-admin` で行ってください）"
+                    ),
+                )
             uow.identity.save_enrollment(existing.model_copy(update={"role": new_role}))
             uow.commit()
         return RedirectResponse(
@@ -2748,6 +2785,12 @@ def register(templates) -> APIRouter:
             entries = parse_roster(roster, default_role=Role(role))
         except (RosterError, ValueError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        # **名簿の行にも役割が書ける**（`parse_roster` の 4 列目）。既定の役割
+        # だけを見ると、貼り付けた名簿の中の `admin` が通る（#100）。
+        _require_grantable(Role(role))
+        for entry in entries:
+            _require_grantable(entry.role)
 
         # 画面からは**既存利用者の登録だけ**を許す。新規作成はパスワードの
         # 配布が伴うので CLI（`aijudge-admin enrol --credentials`）で行う。

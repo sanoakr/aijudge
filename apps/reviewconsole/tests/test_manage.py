@@ -2536,6 +2536,95 @@ def test_the_enrolment_form_explains_the_roles_as_differences(world: World) -> N
         assert role in table
 
 
+def test_the_console_does_not_offer_admin_as_a_role(world: World) -> None:
+    """**教員が配れるのは教員まで**（#100）。
+
+    `admin` はコースを作れてテナント内の全コースに届く。担当教員が自分の
+    コースの受講者一覧から配れる権限ではない。以前は `Role` の全値を選択肢に
+    していたので、`assistant` と `instructor` の間に `admin` が並んでいた。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    page = world.client("teacher").get(f"/manage/courses/{world.course.id}/enrolments").text
+
+    # 選択肢に無い（役割の変更・名簿の既定のどちらにも）。
+    options = {line for line in page.splitlines() if "<option" in line}
+    assert not [line for line in options if 'value="admin"' in line], "admin が選択肢にある"
+    for role in ("learner", "assistant", "instructor"):
+        assert [line for line in options if f'value="{role}"' in line], f"{role} が選べない"
+
+
+def test_admin_cannot_be_granted_through_the_form(world: World) -> None:
+    """**画面で塞ぐだけにしない。** 選択肢を減らしても POST は手で作れる。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    student = world.register("s2400001", Role.LEARNER)
+    client = world.client("teacher")
+
+    response = client.post(
+        f"/manage/courses/{world.course.id}/enrolments/{student.user_id}/role",
+        data={"role": "admin"},
+    )
+    assert response.status_code == 403
+    with world.database.unit_of_work() as uow:
+        enrollment = uow.identity.find_enrollment(world.course.id, student.user_id)
+    assert enrollment is not None and enrollment.role is Role.LEARNER, "役割が上がっている"
+
+    # 教員までは通る（上限であって禁止ではない）。
+    ok = client.post(
+        f"/manage/courses/{world.course.id}/enrolments/{student.user_id}/role",
+        data={"role": "instructor"},
+        follow_redirects=False,
+    )
+    assert ok.status_code == 303
+    with world.database.unit_of_work() as uow:
+        enrollment = uow.identity.find_enrollment(world.course.id, student.user_id)
+    assert enrollment is not None and enrollment.role is Role.INSTRUCTOR
+
+
+def test_admin_cannot_be_granted_through_a_pasted_roster(world: World) -> None:
+    """**名簿の行にも役割が書ける**（4 列目）。既定だけ見ると素通りする。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    world.register("s2400002", None)
+    client = world.client("teacher")
+
+    line = "s2400002 s2400002@mail.example.jp - admin"
+    response = client.post(
+        f"/manage/courses/{world.course.id}/enrolments",
+        data={"roster": line, "role": "learner"},
+    )
+    assert response.status_code == 403, "名簿の中の admin が通った"
+
+    # 既定の役割としても通らない。
+    assert (
+        client.post(
+            f"/manage/courses/{world.course.id}/enrolments",
+            data={"roster": "s2400002", "role": "admin"},
+        ).status_code
+        == 403
+    )
+
+
+def test_an_existing_admin_is_shown_but_not_editable(world: World) -> None:
+    """**付けられない権限は外せない**（#100）。外せると、担当教員が管理者を
+    自分のコースから締め出せることになる。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    boss = world.register("chief", Role.ADMIN)
+    client = world.client("teacher")
+
+    page = client.get(f"/manage/courses/{world.course.id}/enrolments").text
+    assert "chief" in page, "管理者が一覧から消えている"
+    assert "画面からは変更不可" in page
+
+    response = client.post(
+        f"/manage/courses/{world.course.id}/enrolments/{boss.user_id}/role",
+        data={"role": "learner"},
+    )
+    assert response.status_code == 403
+    with world.database.unit_of_work() as uow:
+        enrollment = uow.identity.find_enrollment(world.course.id, boss.user_id)
+    assert enrollment is not None and enrollment.role is Role.ADMIN
+
+
 def test_the_role_explanations_match_what_the_code_enforces(world: World) -> None:
     """**説明と権限がずれないようにする。** ずれた説明は無いより悪い。
 
