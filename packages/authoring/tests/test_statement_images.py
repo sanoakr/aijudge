@@ -53,3 +53,73 @@ def test_the_snippet_renders_as_an_image() -> None:
     name = images.new_name(b"x", "a.png")
     html = render_statement(images.markdown_for("crs_1", name, "端末の画面"))
     assert f'<img src="/images/crs_1/{name}" alt="端末の画面"' in html
+
+
+# --------------------------------------------------------------------------
+# 貼ったときの表示幅（#64）
+# --------------------------------------------------------------------------
+
+
+def _png(width: int, height: int = 10) -> bytes:
+    """幅だけが本物の PNG の先頭。**寸法は符号の先頭にある。**"""
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + (13).to_bytes(4, "big")
+        + b"IHDR"
+        + width.to_bytes(4, "big")
+        + height.to_bytes(4, "big")
+        + b"\x08\x02\x00\x00\x00"
+    )
+
+
+def _jpeg(width: int, height: int = 10) -> bytes:
+    """SOF0 を 1 つ持つ JPEG の先頭（前に節を 1 つ挟んでおく）。"""
+    app0 = b"\xff\xe0" + (6).to_bytes(2, "big") + b"JFIF"
+    sof = (
+        b"\xff\xc0"
+        + (11).to_bytes(2, "big")
+        + b"\x08"
+        + height.to_bytes(2, "big")
+        + width.to_bytes(2, "big")
+        + b"\x01\x01\x11\x00"
+    )
+    return b"\xff\xd8" + app0 + sof
+
+
+def test_the_width_comes_from_the_image_itself() -> None:
+    """**符号の先頭だけを読む。** 幅を知るために画像を展開する依存を増やさない。"""
+    assert images.intrinsic_width(_png(1200)) == 1200
+    assert images.intrinsic_width(_jpeg(3776)) == 3776
+    assert images.intrinsic_width(b"GIF89a" + (640).to_bytes(2, "little") + b"\x00\x00") == 640
+    # 読めない形式（SVG など）は幅を言わない。**分からない数を書かない。**
+    assert images.intrinsic_width(b"<svg xmlns='http://www.w3.org/2000/svg'/>") is None
+
+
+def test_a_large_image_is_pasted_at_the_reading_width() -> None:
+    """**縮めずに貼ると写真 1 枚で画面が埋まる。** 課題文の続きが画面外へ出る。"""
+    assert images.display_width(_png(4000)) == images.DISPLAY_WIDTH
+
+
+def test_a_small_image_keeps_its_own_size() -> None:
+    """元より大きく引き伸ばさない ── 粗くなるだけで、理由は画面から分からない。"""
+    assert images.display_width(_png(320)) is None
+
+
+def test_the_snippet_carries_the_width_but_not_the_height() -> None:
+    """**幅だけを書く。** 両方書けると、幅を直したときに絵が歪む。"""
+    line = images.markdown_for("crs_1", images.new_name(b"x", "a.png"), "図", width=480)
+    assert line.endswith("{width=480}")
+    html = render_statement(line)
+    assert 'width="480"' in html
+    assert "height=" not in html
+
+
+def test_the_statement_takes_no_attribute_other_than_the_width() -> None:
+    """**`html=False` を緩めない。** Phase 4 で課題文はモデルの出力になる。
+
+    通さない属性が 1 つでも混じっていれば、その `{...}` は属性として読まれず
+    そのまま文字として出る（画像は素のまま描かれる）。
+    """
+    html = render_statement("![x](/images/crs_1/a.png){width=480 onerror=alert(1)}")
+    assert "onerror" not in html.replace("onerror=alert(1)}", "")
+    assert 'width="480"' not in html

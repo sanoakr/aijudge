@@ -19,6 +19,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from aijudge_admin import ensure_course
+from aijudge_authoring.statement import render_statement
 from aijudge_core import Role
 from aijudge_core.ids import CourseId, TaskVersionId, TenantId
 from aijudge_identity import AuthService
@@ -3356,6 +3357,37 @@ def test_the_task_editor_takes_the_image_itself(world: World) -> None:
     )
     assert served.status_code == 200
     assert served.content == b"fake png bytes"
+
+
+def test_a_large_image_is_pasted_at_a_readable_width(world: World) -> None:
+    """**縮めずに貼ると写真 1 枚で画面が埋まる。** 課題文の続きが画面外へ出る。
+
+    幅だけを書くので縦横比は保たれる（高さは書かない・`aijudge_authoring.images`）。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+
+    # 幅 4000px の PNG（寸法は符号の先頭にある）。
+    wide = (
+        b"\x89PNG\r\n\x1a\n"
+        + (13).to_bytes(4, "big")
+        + b"IHDR"
+        + (4000).to_bytes(4, "big")
+        + (3000).to_bytes(4, "big")
+        + b"\x08\x02\x00\x00\x00"
+    )
+    response = client.post(
+        f"/manage/courses/{world.course.id}/images.json",
+        files={"upload": ("shot.png", wide, "image/png")},
+    )
+    assert response.status_code == 200
+    line = response.json()["markdown"]
+    assert line.endswith("{width=480}"), line
+
+    # 課題文として描くと幅の付いた画像になる。**高さは付かない。**
+    html = render_statement(line)
+    assert 'width="480"' in html
+    assert "height=" not in html
 
 
 def test_the_task_editor_refuses_a_format_that_cannot_be_pasted(world: World) -> None:

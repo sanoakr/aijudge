@@ -37,6 +37,7 @@ from functools import lru_cache
 @lru_cache(maxsize=1)
 def _renderer():
     from markdown_it import MarkdownIt
+    from mdit_py_plugins.attrs import attrs_plugin
     from mdit_py_plugins.dollarmath import dollarmath_plugin
 
     # `html=False` が要点。課題文に埋め込まれた HTML をそのまま出さない。
@@ -52,6 +53,21 @@ def _renderer():
     md = MarkdownIt(
         "commonmark",
         {"html": False, "linkify": True, "typographer": False, "breaks": True},
+    )
+    # 画像の表示幅（`![](url){width=480}`）。**画像の直後の `{...}` だけ、
+    # しかも `width` だけを通す。**
+    #
+    # 縮めずに貼ると写真 1 枚で画面が埋まり、課題文の続きが画面外へ出る
+    # （`images.DISPLAY_WIDTH`）。かといって `html=False` を緩めて
+    # `<img width=...>` を書かせるわけにはいかない ── Phase 4 の AI 作問で
+    # 課題文はモデルの出力になるので、生の HTML が通る経路を作らない。
+    #
+    # **高さは通さない。** 幅だけなら縦横比は描画側が保つ（CSS の
+    # `height:auto`）。両方書けると、幅だけ直したときに絵が歪む。
+    md.use(
+        attrs_plugin,
+        after=("image",),
+        allowed=("width",),
     )
     md.use(
         dollarmath_plugin,

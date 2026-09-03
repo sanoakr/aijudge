@@ -53,10 +53,19 @@
     </div>
   {% endif %}
 
+  {# **節の見出しとして出す**（「観点の畳み方」と同じ見え方）。以前は小さな
+     ラベルで、同じ画面の中でルーブリックや提出形式より弱く見えていた ──
+     課題の本体は問題文なので、見出しの強さが中身の重さと逆になっていた。
+     ラベルは見出しの中に置く（押せば欄に飛ぶ・読み上げも対応が切れない）。 #}
+  <div class="subsection">
+  <h3><label for="statement">問題文</label></h3>
+  <p class="desc" style="margin:0 0 8px">
+    Markdown で書きます。1 行目を <code>## タイトル ##</code> にすると題名になります。
+  </p>
   <div class="field">
-    <label for="statement">問題文（Markdown。1 行目を <code>## タイトル ##</code> にすると題名になります）</label>
     <textarea id="statement" name="statement" rows="14" required
       placeholder="## [必須] 課題の題名 ##&#10;&#10;自然数 n を入力し…">{{ version.statement if version else '' }}</textarea>
+  </div>
   </div>
 
   {# 問題文に貼る画像（#64）。**この画面で受け取り、カーソル位置に差し込む。**
@@ -66,12 +75,14 @@
      **フォームを入れ子にできない**ので、送信は JavaScript で行う（`base.html`
      の `data-image-upload`）。JavaScript が無ければこの欄は出ず、下の案内から
      コースの設定画面で 1 行を作って手で貼ることになる。 #}
-  <div class="field js-only" hidden
+  <div class="subsection js-only" hidden
        data-image-upload="/manage/courses/{{ course.id }}/images.json"
        data-image-target="#statement">
-    <label for="statement-image">問題文に貼る画像（{{ image_suffixes | join(' / ') }}・{{ image_max_mb }}MB まで）</label>
+    <h3><label for="statement-image">問題文に貼る画像</label></h3>
     <p class="desc" style="margin:0 0 8px">
+      {{ image_suffixes | join(' / ') }}・{{ image_max_mb }}MB まで。
       選ぶと<strong>問題文のカーソル位置に貼り付け</strong>られます。URL を手で書く必要はありません。
+      大きな画像は<strong>幅 {{ image_display_width }}px で貼ります</strong>（縦横比はそのまま・数字はあとから直せます）。
       保存先は提出物と同じ学内のストアで、<strong>学外には出ません</strong>。
       画像は<strong>問題文と一緒に保存</strong>されます（この欄だけでは版は上がりません）。
     </p>

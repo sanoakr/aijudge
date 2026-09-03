@@ -903,6 +903,8 @@ def register(templates) -> APIRouter:
                 ),
                 "image_suffixes": sorted(images.SUFFIX_TYPES),
                 "image_max_mb": images.MAX_BYTES // (1024 * 1024),
+                # 貼るときの既定の表示幅。**画面で言う値と貼る値を 1 つにする。**
+                "image_display_width": images.DISPLAY_WIDTH,
                 "people_count": people_count,
                 "role_counts": _role_counts(enrollments),
                 "roles": [role.value for role in Role],
@@ -1196,7 +1198,10 @@ def register(templates) -> APIRouter:
         # 同じ中身なら同じ鍵。貼り直しても増えない。
         if not console.store.exists(key):
             console.store.put(key, payload)
-        return images.markdown_for(str(course.id), name, alt)
+        # 表示幅を書いておく。**縮めずに貼ると写真 1 枚で画面が埋まり**、
+        # 課題文の続きが画面外へ出る。幅だけを書くので縦横比は保たれる
+        # （`aijudge_authoring.images`）。教員はあとから数字を直せる。
+        return images.markdown_for(str(course.id), name, alt, width=images.display_width(payload))
 
     @router.post("/courses/{course_id}/images.json")
     async def upload_statement_image_json(
@@ -2284,6 +2289,8 @@ def register(templates) -> APIRouter:
                 # コースの設定画面まで往復させると、書きかけの問題文が失われる。
                 "image_suffixes": sorted(images.SUFFIX_TYPES),
                 "image_max_mb": images.MAX_BYTES // (1024 * 1024),
+                # 貼るときの既定の表示幅。**画面で言う値と貼る値を 1 つにする。**
+                "image_display_width": images.DISPLAY_WIDTH,
             },
         )
 
