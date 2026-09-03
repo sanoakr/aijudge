@@ -50,7 +50,9 @@ class Row:
     task: Task
     version: TaskVersion
     learner: object | None
-    role: Role | None
+    # **提出したときの役割**（#108）。いまの受講から引かない ── 学生が TA に
+    # なった瞬間に、その人の過去の提出が絞り込みから消える（ADR 0013 の轍）。
+    role: Role
     score: float | None
     finalized_by: FinalizationSource | None
     # **誰が閉じたか**（#102）。自動確定では空。出所（`finalized_by`）だけでは
@@ -60,6 +62,11 @@ class Row:
     contested: bool
     # この学習者のこの課題で、いちばん点の高い提出か（＝成績に採用される）。
     adopted: bool = False
+
+    @property
+    def is_trial(self) -> bool:
+        """成績にも統計にも数えない提出か（#108）。"""
+        return self.submission.is_trial
 
     @property
     def unit(self) -> str:
@@ -103,7 +110,7 @@ class Filters:
         # **前方一致。** 受講 91 名の学籍番号を選択肢に並べても選べない。
         if self.learner and not row.login.lower().startswith(self.learner.lower()):
             return False
-        if self.role and (row.role is None or row.role.value != self.role):
+        if self.role and row.role.value != self.role:
             return False
         if self.state and _state_key(row) != self.state:
             return False
@@ -154,6 +161,12 @@ class Distribution:
 
 
 def distribution_of(rows: list[Row]) -> Distribution:
+    """得点の分布。**教員・TA 自身の試行は数えない**（#108）。
+
+    動作確認で通した入力は到達度ではない。混ぜると「この課題は正答率が低い」
+    が、実は教員が壊れた入力を試した結果、という形で現れる。
+    """
+    rows = [row for row in rows if not row.is_trial]
     result = Distribution(total=len(rows))
     for row in rows:
         if row.score is None:
@@ -180,10 +193,6 @@ def load_rows(uow: object, course: Course) -> list[Row]:
     tasks: dict[str, Task] = {}
     for task in uow.tasks.list_for_course(course.id):  # type: ignore[attr-defined]
         tasks[str(task.id)] = task
-    roles = {
-        str(row.user_id): row.role
-        for row in uow.identity.list_enrollments(course.id)  # type: ignore[attr-defined]
-    }
     learners: dict[str, object] = {}
     # 確定者・レビュー者。受講者とは限らない（管理者が閉じることがある）ので
     # 受講の一覧からは引けない。**同じ人を何度も引かない。**
@@ -216,7 +225,7 @@ def load_rows(uow: object, course: Course) -> list[Row]:
                 task=task,
                 version=version,
                 learner=learners[learner_id],
-                role=roles.get(learner_id),
+                role=submission.submitted_as,
                 score=None if run is None else final_score(run, version, review).final,
                 finalized_by=_finalized_by(finalization, review),
                 finalized_by_login=_actor_login(finalization, review, uow, actors),
@@ -302,7 +311,12 @@ def newest_first(rows: list[Row]) -> list[Row]:
 
 
 def summarize(rows: list[Row]) -> dict[str, object]:
-    """コースのメニューに出す 1 行ぶんの概要。"""
+    """コースのメニューに出す 1 行ぶんの概要。
+
+    **試行は数えない**（#108）── ここに出るのは「何人が何件出したか」で、
+    教員自身の動作確認はその問いの答えではない。
+    """
+    rows = [row for row in rows if not row.is_trial]
     latest: datetime | None = None
     for row in rows:
         at = row.submission.submitted_at or row.submission.created_at

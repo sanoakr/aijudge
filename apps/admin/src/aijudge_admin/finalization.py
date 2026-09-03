@@ -87,6 +87,17 @@ class FinalizeReport:
         return tuple(o for o in self.outcomes if o.finalized or o.skipped)
 
 
+def _gradable_rows(rows):
+    """成績になる提出だけを残す（#108）。
+
+    **教員・TA 自身の提出は閉じない。** 課題の動作確認や参照解答の投入は
+    正当な使い方だが、それは成績ではない ── 確定させると未確定の件数に
+    混ざり、自動確定が「まだ閉じていない成績がある」と言い続ける。
+    採点は通す（採点されない試行は確認にならない）。
+    """
+    return tuple(row for row in rows if not row[0].is_trial)
+
+
 def finalize_task(
     database: Database,
     *,
@@ -214,7 +225,7 @@ def pending_counts(database: Database, course_id: CourseId) -> dict[TaskId, int]
     counts: dict[TaskId, int] = {}
     with database.unit_of_work() as uow:
         for task in uow.tasks.list_for_course(course_id):
-            rows = uow.reviews.unfinalized_for_task(task.id)
+            rows = _gradable_rows(uow.reviews.unfinalized_for_task(task.id))
             counts[task.id] = len(rows)
     return counts
 
@@ -233,7 +244,7 @@ def _apply(
     finalized = contested = needs_review = provisional = not_due = 0
     awaiting = 0
 
-    for _submission, run, request in reviews.unfinalized_for_task(task.id):
+    for _submission, run, request in _gradable_rows(reviews.unfinalized_for_task(task.id)):
         if blocks_finalization(request):
             contested += 1
             continue

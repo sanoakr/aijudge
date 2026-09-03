@@ -160,6 +160,15 @@ class Console:
         return self._rates[subject_profile]
 
     def needs_blind_mark(self, submission: Submission, subject_profile: str) -> bool:
+        """blind 採点の対象か。**抽出は提出 ID のハッシュで決める**（教員の
+        選択ではない・ADR 0005）。
+
+        教員・TA 自身の試行は母集団から外す（#108）。一致度は「AI の判定が
+        学習者の提出に対してどれだけ人と合うか」であって、教員が動作確認で
+        通した入力は測りたいものではない。
+        """
+        if submission.is_trial:
+            return False
         return is_blind_sample(str(submission.id), self.blind_sample_rate(subject_profile))
 
     def source_of(self, submission: Submission) -> str:
@@ -206,6 +215,11 @@ class Console:
         レビューを落とさない（ADR 0007）。
         """
         if self.observations is None:
+            return
+        # 教員・TA 自身の試行は測定に入れない（#108）。観測は κ の証拠なので、
+        # 学習者の提出でないものが混ざると、測った一致度がその分だけ嘘になる
+        # （ADR 0005 が `Finalization` と `HumanReview` を分けたのと同じ理由）。
+        if submission.is_trial:
             return
         try:
             codes = {criterion.id: criterion.code for criterion in task_version.criteria}
@@ -510,6 +524,10 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
             enrollment = uow.identity.find_enrollment(course.id, me.user_id)
             open_rows = []
             for submission, run in uow.reviews.pending_for_course(course.id):
+                # 教員・TA 自身の試行は成績ではない（#108）。閉じる対象に
+                # 出すと、いつまでも減らない未確定として残り続ける。
+                if submission.is_trial:
+                    continue
                 version = uow.tasks.get_version(submission.task_version_id)
                 task = None if version is None else uow.tasks.get_task(version.task_id)
                 request_row = uow.reviews.find_request_for_run(run.id)

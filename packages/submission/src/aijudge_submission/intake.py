@@ -24,6 +24,7 @@ from aijudge_core import (
     Artifact,
     ArtifactKind,
     ArtifactRole,
+    Role,
     Submission,
     SubmissionCreated,
     SubmissionState,
@@ -138,6 +139,7 @@ class SubmissionService:
         files: Sequence[IncomingFile],
         idempotency_key: str | None = None,
         grading_starts_at: datetime | None = None,
+        submitted_as: Role = Role.LEARNER,
     ) -> AcceptResult:
         """提出を受け付ける。
 
@@ -149,6 +151,11 @@ class SubmissionService:
         （試験・#67）。ここが受け取るのは時刻だけで、なぜ遅らせるのかは
         知らない ── 課題も締切もこの層には持ち込まない（`subject_profile` を
         文字列で受けているのと同じ）。
+
+        `submitted_as` は**出した人のそのときの役割**（#108）。ここも同じで、
+        役割を引くのは呼び出し側の仕事、記録に焼き付けるのがこの層の仕事。
+        既定は学習者 ── 呼び忘れた経路が試行扱いになって静かに測定から
+        消えるより、学習者として数えられて気づくほうがよい。
         """
         if not files:
             raise SubmissionRejected("提出物がありません")
@@ -186,6 +193,7 @@ class SubmissionService:
                 id=submission_id,
                 task_version_id=task_version_id,
                 learner_id=learner_id,
+                submitted_as=submitted_as,
                 state=SubmissionState.DRAFT,
                 attempt=attempt,
                 artifacts=artifacts,

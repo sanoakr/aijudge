@@ -1,6 +1,17 @@
 {% extends "base.html" %}
 {% block title %}課題 — aiJudge{% endblock %}
 {% block body %}
+{# 教員・TA 自身の提出（#108）。**止めない** ── 課題の動作確認や参照解答を
+   実際の経路に通すのは正当な使い方で、そのために採点も通す。数えないのは
+   成績・分布・難易度・一致度のほうなので、**そう書いておく。** #}
+{% if submitting_as and submitting_as.value != 'learner' %}
+<div class="note">
+  <strong>これは動作確認の提出です（{{ submitting_as.value }}として開いています）。</strong>
+  採点は学習者と同じように行われますが、<strong>成績・得点分布・難易度の推定・
+  一致度の測定には数えません</strong>。教員の一覧には「試行」として並びます。
+</div>
+{% endif %}
+
 <h1>{{ ctx_task.title }}</h1>
 <p class="crumb">
   {# 経路は上部のパンくずが持つ。ここに残すのは、この課題そのものの日付。 #}

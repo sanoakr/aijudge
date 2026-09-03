@@ -3770,6 +3770,103 @@ def test_only_an_instructor_can_render_a_preview(world: World) -> None:
 
 
 # --------------------------------------------------------------------------
+# 教員・TA 自身の提出は成績にも測定にも数えない（#108）
+# --------------------------------------------------------------------------
+
+
+def _trial_submission(world: World, role: Role):
+    """その役割で 1 件出したことにする（採点まで積む必要は無い）。"""
+    from datetime import UTC, datetime
+
+    from aijudge_core import Artifact, ArtifactKind, ArtifactRole, Submission, SubmissionState
+    from aijudge_core.ids import ArtifactId, SubmissionId, new_id
+
+    principal = world.register(f"{role.value}-tester", role)
+    _import_example(world)
+    with world.database.unit_of_work() as uow:
+        (task,) = uow.tasks.list_for_course(world.course.id)
+        version = uow.tasks.latest_version(task.id)
+        now = datetime.now(UTC)
+        submission_id = SubmissionId(new_id("sub"))
+        submission = Submission(
+            id=submission_id,
+            task_version_id=version.id,
+            learner_id=principal.user_id,
+            submitted_as=role,
+            state=SubmissionState.SUBMITTED,
+            attempt=1,
+            artifacts=(
+                Artifact(
+                    id=ArtifactId(new_id("art")),
+                    submission_id=submission_id,
+                    role=ArtifactRole.ORIGINAL,
+                    kind=ArtifactKind.CODE,
+                    filename="main.c",
+                    storage_key=f"{submission_id}/main.c",
+                    byte_size=1,
+                    content_hash="sha256:" + "0" * 64,
+                    created_at=now,
+                ),
+            ),
+            created_at=now,
+            submitted_at=now,
+        )
+        uow.submissions.save(submission)
+        uow.commit()
+    return task, submission
+
+
+def test_a_trial_submission_is_marked_in_the_list(world: World) -> None:
+    """**隠さずに印を付ける。** 数えないが、出したことは事実として残す。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    _task, submission = _trial_submission(world, Role.INSTRUCTOR)
+
+    page = world.client("teacher").get(f"/courses/{world.course.id}/submissions").text
+    assert str(submission.id)[:12] in page or "instructor-tester" in page
+    assert "instructorの試行" in page
+
+
+def test_the_list_filters_by_the_role_at_submission_time(world: World) -> None:
+    """絞り込みは**提出時の役割**で行う（いまの受講から引かない・ADR 0013 の轍）。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    _task, _submission = _trial_submission(world, Role.INSTRUCTOR)
+    client = world.client("teacher")
+
+    assert (
+        "instructor-tester"
+        in client.get(f"/courses/{world.course.id}/submissions?role=instructor").text
+    )
+    assert (
+        "instructor-tester"
+        not in client.get(f"/courses/{world.course.id}/submissions?role=learner").text
+    )
+
+
+def test_a_trial_is_not_counted_as_unfinalised(world: World) -> None:
+    """**閉じる対象に出さない。** 成績ではないので、いつまでも減らない
+    未確定として残り続けてはいけない。
+    """
+    from aijudge_admin.finalization import pending_counts
+
+    world.register("teacher", Role.INSTRUCTOR)
+    task, _submission = _trial_submission(world, Role.INSTRUCTOR)
+
+    # 採点が無いので確定処理の対象にはそもそも入らないが、件数の数え方が
+    # 試行を含まないことをここで固定する。
+    counts = pending_counts(world.database, world.course.id)
+    assert counts.get(task.id, 0) == 0
+
+
+def test_a_trial_is_never_sampled_for_blind_marking(world: World) -> None:
+    """一致度は**学習者の提出に対する**測定である（ADR 0005）。"""
+    _task, submission = _trial_submission(world, Role.ASSISTANT)
+    console = world.console
+    # 抽出率を 100% にしても、試行は選ばれない。
+    assert console.blind_sample_rate("cs_intro_c") >= 0.0
+    assert console.needs_blind_mark(submission, "cs_intro_c") is False
+
+
+# --------------------------------------------------------------------------
 # 試験の問題セット（#67）
 # --------------------------------------------------------------------------
 

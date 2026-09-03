@@ -1582,3 +1582,65 @@ def test_a_folded_set_still_says_what_is_left(world: World) -> None:
     body = world.client.get(f"/courses/{COURSE}").text
     assert "1 問" in body
     assert "未提出 1" in body
+
+
+# --------------------------------------------------------------------------
+# 教員・TA 自身の提出（#108）
+# --------------------------------------------------------------------------
+
+
+def test_an_instructor_may_submit_and_the_role_is_recorded(world: World) -> None:
+    """**止めない。** 課題の動作確認や参照解答を実際の経路に通すのは
+    正当な使い方である。数えないのは成績・分布・難易度・一致度のほう。
+    """
+    world.register("teacher", role=Role.INSTRUCTOR)
+    world.login("teacher")
+
+    response = world.submit()
+    assert response.status_code == 303, response.text
+
+    with world.database.unit_of_work() as uow:
+        (submission,) = uow.submissions.list_for_course(COURSE)
+    assert submission.submitted_as is Role.INSTRUCTOR
+    assert submission.is_trial
+
+
+def test_an_assistant_submission_is_a_trial_too(world: World) -> None:
+    world.register("ta", role=Role.ASSISTANT)
+    world.login("ta")
+    assert world.submit().status_code == 303
+
+    with world.database.unit_of_work() as uow:
+        (submission,) = uow.submissions.list_for_course(COURSE)
+    assert submission.submitted_as is Role.ASSISTANT
+    assert submission.is_trial
+
+
+def test_a_learner_submission_is_not_a_trial(world: World) -> None:
+    """**既定は学習者。** 呼び忘れた経路が静かに測定から消えるより、
+    学習者として数えられて気づくほうがよい。
+    """
+    world.register("s2400001")
+    world.login("s2400001")
+    assert world.submit().status_code == 303
+
+    with world.database.unit_of_work() as uow:
+        (submission,) = uow.submissions.list_for_course(COURSE)
+    assert submission.submitted_as is Role.LEARNER
+    assert not submission.is_trial
+
+
+def test_the_task_page_says_a_trial_is_a_trial(world: World) -> None:
+    """**先に言う。** 言わずに除くと、教員は自分の提出が一覧に無いことを
+    不具合として追いかけることになる。
+    """
+    world.register("teacher", role=Role.INSTRUCTOR)
+    world.login("teacher")
+    page = world.client.get(f"/tasks/{world.task_version.id}").text
+    assert "動作確認の提出です" in page
+    assert "成績・得点分布・難易度の推定" in page
+
+    world.register("s2400001")
+    world.login("s2400001")
+    learner_page = world.client.get(f"/tasks/{world.task_version.id}").text
+    assert "動作確認の提出です" not in learner_page
