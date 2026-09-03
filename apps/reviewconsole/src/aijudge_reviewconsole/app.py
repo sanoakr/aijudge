@@ -39,7 +39,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from aijudge_admin import allowed_namespaces, list_for_namespaces, pending_counts
-from aijudge_authoring import render_statement
+from aijudge_authoring import images, render_statement
 from aijudge_core import (
     HUMAN_SCORED,
     MIN_JUSTIFICATION_LENGTH,
@@ -651,6 +651,39 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
             review=fresh.review,
         )
         return RedirectResponse(f"/review/{submission_id}/reveal", status_code=303)
+
+    @app.get("/images/{course_id}/{name}")
+    def statement_image(request: Request, course_id: str, name: str, me: Me) -> Response:
+        """課題文に貼られた画像（#111）。
+
+        **課題文が指す経路をそのまま持つ。** 貼り付ける 1 行は
+        `![](/images/<course>/<name>)` で（`aijudge_authoring.images`）、
+        絶対 URL を埋め込まないのは、課題文が学習者と教員の両方の画面に
+        出るからである ── 相対パスなら、開いている側が自分で返す。
+
+        **返す側がこれまで居なかった。** 経路は `/manage` 接頭辞の付いた
+        ルータの中で宣言されていたので、実際には
+        `/manage/courses/<id>/images/<name>` にしか無く、課題文が指す
+        `/images/...` は 404 だった。プレビュー・採点画面・blind・TA の
+        課題ページで、画像が全部欠けていた。
+
+        **採点できる人に見せる。** 課題文の一部なので、TA が読む画面
+        （#102）でも要る。
+        """
+        with console.database.unit_of_work() as uow:
+            auth = AuthService(uow.identity)
+            if not _can_grade(auth, CourseId(course_id), me):
+                # 採点できないコースの画像は「無い」と答える（提出物と同じ）。
+                raise HTTPException(status_code=404, detail="画像が見つかりません")
+        try:
+            payload = console.store.get(images.storage_key(course_id, name))
+        except Exception as exc:
+            raise HTTPException(status_code=404, detail="画像が見つかりません") from exc
+        return Response(
+            content=payload,
+            media_type=images.content_type(name),
+            headers={"Cache-Control": "private, max-age=86400"},
+        )
 
     @app.get("/review/{submission_id}/artifacts/{artifact_id}")
     def submitted_file(request: Request, submission_id: str, artifact_id: str, me: Me) -> Response:
