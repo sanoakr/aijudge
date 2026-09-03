@@ -191,6 +191,16 @@ set -gx AIJUDGE_CONSOLE_URL https://aijudge.example.jp/teach
 set -gx AIJUDGE_LEARNER_URL https://aijudge.example.jp
 ```
 
+**逆プロキシを前に立てるときは `AIJUDGE_ALLOWED_HOSTS` を設定する**（#116）。
+`Host` と `X-Forwarded-*` はクライアントが決められる値で、相手側アプリへの
+リンクはそこから組み立てている ── 素通しにすると、外部入力を
+`X-Forwarded-*` に写す設定や共有キャッシュがある場合に、リンク先を
+差し替えられる。
+
+```fish
+set -gx AIJUDGE_ALLOWED_HOSTS aijudge.example.jp,aijudge.example.jp:8765
+```
+
 **ホスト名が違えばセッションは共有されない**（Cookie はホスト単位。ポートは
 無視されるので、同じホスト名ならポートが違っても共有される）。1 つの入口に
 まとめる話は #103 の続き（逆プロキシ）で扱う。
@@ -208,6 +218,7 @@ set -gx AIJUDGE_LEARNER_URL https://aijudge.example.jp
 | `AIJUDGE_CONSOLE_URL` | 学習者アプリが出す教員コンソールの場所（#103）。逆プロキシの後ろなど、相手が別ホストのときだけ指定する | 未設定（開いているホスト名 + `AIJUDGE_CONSOLE_PORT`） |
 | `AIJUDGE_LEARNER_URL` | 教員コンソールが出す学習者アプリの場所（#103） | 未設定（開いているホスト名 + `AIJUDGE_LEARNER_PORT`） |
 | `AIJUDGE_CONSOLE_PORT` / `AIJUDGE_LEARNER_PORT` | 相手のポート（URL 未設定のときに使う・#114） | `8765` / `8080` |
+| `AIJUDGE_ALLOWED_HOSTS` | 受け付ける `Host`（コンマ区切り・#116）。**逆プロキシを前に立てるなら設定する** | `*`（素通し） |
 | `AIJUDGE_LLM_BASE_URL` / `AIJUDGE_LLM_MODEL` | ローカル LLM | — |
 | `AIJUDGE_FEEDBACK_MODEL` | フィードバック生成のモデル。未設定なら要約に落ちる | — |
 
