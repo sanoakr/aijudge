@@ -81,7 +81,7 @@ from aijudge_admin.tasks import clear_unit
 from aijudge_admin.tasks import delete as delete_task
 from aijudge_admin.tasks import withdraw as withdraw_task
 from aijudge_admin.test_cases import TestCaseWriter
-from aijudge_authoring import TaskChecks, TaskSpec, images, render_markdown
+from aijudge_authoring import TaskChecks, TaskSpec, images, render_markdown, render_statement
 from aijudge_authoring.drafting import Blueprint, Difficulty
 from aijudge_authoring.spec import AI_EVALUATOR, TestCaseSpec
 from aijudge_core import (
@@ -1251,6 +1251,28 @@ def register(templates) -> APIRouter:
         line = await _store_statement_image(request, course, upload, alt)
         return JSONResponse({"markdown": line})
 
+    @router.post("/courses/{course_id}/statement-preview", response_class=HTMLResponse)
+    async def statement_preview(
+        request: Request,
+        course_id: str,
+        statement: Annotated[str, Form()] = "",
+    ) -> Response:
+        """書きかけの問題文を、**学習者に出るのと同じ描画**で返す（#105）。
+
+        ブラウザ側で Markdown を描かない。課題文の描画は `html=False`・数式は
+        サーバ側 MathML・画像の幅は属性プラグイン（`statement.py`）で、
+        JavaScript の Markdown 実装は**普通の文章では一致し、間違いが起きる
+        ところ（数式・画像・生 HTML の遮断）でだけ食い違う**。それではプレビュー
+        ではなく別の意見になる。
+
+        返すのは本文の断片だけ。保存はしない ── 版が上がるのは「保存」で行う。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        _require_instructor(request, me, CourseId(course_id))
+        return HTMLResponse(render_statement(statement))
+
     @router.get("/courses/{course_id}/images/{name}")
     def statement_image(request: Request, course_id: str, name: str) -> Response:
         """課題文に貼られた画像（教員側）。
@@ -2308,6 +2330,13 @@ def register(templates) -> APIRouter:
                 "published": published,
                 # 提出の件数。**0 のときだけ削除を出す**（#51）。
                 "submissions": _submission_count(_console(request), task),
+                # 学習者に出る形（#105）。**保存済みの版を描いて出す。**
+                # 書きかけの内容は「プレビューを更新」で同じ関数を通す ──
+                # ブラウザ側で Markdown を描くと、普通の文章では一致し、
+                # 間違いが起きるところ（数式・画像・生 HTML）でだけ食い違う。
+                "statement_html": (
+                    render_statement(version.statement) if version is not None else ""
+                ),
                 # 問題文に貼る画像（#64）。**課題の編集画面でも受け取る** ──
                 # コースの設定画面まで往復させると、書きかけの問題文が失われる。
                 "image_suffixes": sorted(images.SUFFIX_TYPES),

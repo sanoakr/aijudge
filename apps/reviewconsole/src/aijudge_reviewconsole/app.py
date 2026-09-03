@@ -688,6 +688,11 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 "awaiting_ai": context.awaiting_ai,
                 "learner": context.learner,
                 "task_meta": context.task,
+                # 出題文（#105）。**採点している人が問題を読めないのはおかしい。**
+                # blind の画面には最初から出ていて、確定を決めるこの画面だけが
+                # 持っていなかった。描画は学習者と同じ関数を通す ── 別の
+                # 描画を当てると、数式や画像の食い違いがここでは見えない。
+                "statement_html": render_statement(context.task_version.statement),
                 "section": {
                     "label": "再確認の依頼",
                     "href": f"/courses/{context.course.id}/queue",

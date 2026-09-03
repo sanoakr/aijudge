@@ -115,6 +115,15 @@
 <pre class="code">{% for n, line in lines %}<span class="ln{% if n in highlights %} hl{% endif %}"><span class="n">{{ n }}</span>{{ line }}</span>{% endfor %}</pre>
 {% endif %}
 
+{# 出題文（#105）。**下に置く。** 決めるのは成績で、問題文はその判断材料
+   だから、観点の突き合わせと提出物より上には来ない。学習者に出ているのと
+   同じ描画で出す（`render_statement`）── 別の描画を当てると、数式や画像の
+   食い違いがこの画面では見えない。 #}
+<details class="card" id="statement">
+  <summary><b>この課題の問題文</b><span class="desc">学習者に出ているものと同じ表示です</span></summary>
+  <div class="statement" style="margin-top:12px">{{ statement_html | safe }}</div>
+</details>
+
 <h2>最終確定</h2>
 {% if review %}
 <div class="note warn">
