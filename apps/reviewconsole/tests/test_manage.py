@@ -3313,6 +3313,73 @@ def test_a_format_that_cannot_be_pasted_is_refused(world: World) -> None:
     assert response.status_code == 400
 
 
+def test_the_task_editor_takes_the_image_itself(world: World) -> None:
+    """**課題の編集画面から上げられる。** コースの設定画面まで往復させると、
+    書きかけの問題文が失われる（課題の編集は 1 つのフォームで、保存するまで
+    何も残らない）。返すのは貼り付ける 1 行で、差し込みは画面が行う。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    client.post(
+        f"/manage/courses/{world.course.id}/tasks",
+        data={
+            "key_suffix": "p1",
+            "unit": "ex04",
+            "statement": "## [必須] 題名 ##\n\n本文",
+            "position": "1",
+            "readability_weight": "0.3",
+        },
+    )
+    with world.database.unit_of_work() as uow:
+        (task,) = uow.tasks.list_for_course(world.course.id)
+
+    # 編集画面に受け口がある（#64 の欄が課題の編集にも出ている）。
+    page = client.get(f"/manage/courses/{world.course.id}/tasks/{task.id}/edit")
+    assert f"/manage/courses/{world.course.id}/images.json" in page.text
+    assert 'data-image-target="#statement"' in page.text
+
+    response = client.post(
+        f"/manage/courses/{world.course.id}/images.json",
+        files={"upload": ("shot.png", b"fake png bytes", "image/png")},
+        data={"alt": "端末の画面"},
+    )
+    assert response.status_code == 200
+    line = response.json()["markdown"]
+    assert line.startswith("![端末の画面](/images/")
+
+    # 上げた画像はその場で読める。
+    served = client.get(
+        f"/manage/courses/{world.course.id}/images/{line.rsplit('/', 1)[1].rstrip(')')}"
+    )
+    assert served.status_code == 200
+    assert served.content == b"fake png bytes"
+
+
+def test_the_task_editor_refuses_a_format_that_cannot_be_pasted(world: World) -> None:
+    """**上げただけで課題は保存しない。** 貼れない形式は理由を返す（#52）。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+
+    response = client.post(
+        f"/manage/courses/{world.course.id}/images.json",
+        files={"upload": ("report.pdf", b"%PDF-1.7", "application/pdf")},
+    )
+    assert response.status_code == 400
+    assert "課題文に貼れません" in response.json()["detail"]
+
+
+def test_only_an_instructor_of_the_course_can_upload_an_image(world: World) -> None:
+    """画像の受け口も他の /manage と同じ扱い ── 担当教員だけが使える。"""
+    world.register("student", Role.LEARNER)
+    client = world.client("student")
+
+    response = client.post(
+        f"/manage/courses/{world.course.id}/images.json",
+        files={"upload": ("shot.png", b"fake png bytes", "image/png")},
+    )
+    assert response.status_code in (401, 403)
+
+
 # --------------------------------------------------------------------------
 # 試験の問題セット（#67）
 # --------------------------------------------------------------------------

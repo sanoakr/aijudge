@@ -59,6 +59,47 @@
       placeholder="## [必須] 課題の題名 ##&#10;&#10;自然数 n を入力し…">{{ version.statement if version else '' }}</textarea>
   </div>
 
+  {# 問題文に貼る画像（#64）。**この画面で受け取り、カーソル位置に差し込む。**
+     コースの設定画面にも同じ受け口はあるが、そこへ行くと書きかけの問題文は
+     失われる ── 課題の編集は 1 つのフォームで、保存するまで何も残らない。
+
+     **フォームを入れ子にできない**ので、送信は JavaScript で行う（`base.html`
+     の `data-image-upload`）。JavaScript が無ければこの欄は出ず、下の案内から
+     コースの設定画面で 1 行を作って手で貼ることになる。 #}
+  <div class="field js-only" hidden
+       data-image-upload="/manage/courses/{{ course.id }}/images.json"
+       data-image-target="#statement">
+    <label for="statement-image">問題文に貼る画像（{{ image_suffixes | join(' / ') }}・{{ image_max_mb }}MB まで）</label>
+    <p class="desc" style="margin:0 0 8px">
+      選ぶと<strong>問題文のカーソル位置に貼り付け</strong>られます。URL を手で書く必要はありません。
+      保存先は提出物と同じ学内のストアで、<strong>学外には出ません</strong>。
+      画像は<strong>問題文と一緒に保存</strong>されます（この欄だけでは版は上がりません）。
+    </p>
+    <div class="inline-field">
+      <span class="body">
+        {# 説明を先に置く。**選んだ時点で貼り付けるから** ── 後ろに置くと、
+           入れる前に貼り付けが終わっていることになる。 #}
+        <label for="statement-image-alt">説明（画像が出ないときに代わりに読まれます）</label>
+        <input id="statement-image-alt" data-image-alt
+               placeholder="cc コマンドを実行した端末の画面">
+        <input id="statement-image" type="file" data-image-file
+               accept="{{ image_suffixes | join(',') }}">
+      </span>
+      <span class="flash" data-image-status hidden></span>
+      <button type="button" data-image-submit>画像を貼り付け</button>
+    </div>
+    <p class="desc" style="margin:8px 0 0">
+      問題文の欄に<strong>画像をそのまま貼り付け（Ctrl/⌘+V）</strong>ても同じように入ります。
+    </p>
+  </div>
+  <noscript>
+    <p class="desc">
+      画像は<a href="/manage/courses/{{ course.id }}#images">コースの設定</a>で保存し、
+      出てきた 1 行を問題文に貼り付けてください
+      （この画面で書きかけの内容は保存されないので、先に保存してから移動してください）。
+    </p>
+  </noscript>
+
   {# **黙って落とさない。** テストケースが無い課題は、正しさの観点が
      テスト実行ではなく AI の判定になる。課題を開いたときに分からなければ、
      教員はテストで確定する課題を作ったつもりのまま学期を過ごす。 #}

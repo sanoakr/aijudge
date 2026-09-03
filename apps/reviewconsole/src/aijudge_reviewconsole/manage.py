@@ -39,7 +39,7 @@ from typing import Annotated
 from urllib.parse import quote, unquote
 
 from fastapi import APIRouter, Form, HTTPException, Request, Response, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import ValidationError
 
 from aijudge_admin import (
@@ -1175,8 +1175,17 @@ def register(templates) -> APIRouter:
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
-        console = _console(request)
+        line = await _store_statement_image(request, course, upload, alt)
+        _console(request).last_image = (str(course.id), line)
+        return RedirectResponse(f"/manage/courses/{course_id}?saved=image#images", status_code=303)
 
+    async def _store_statement_image(request: Request, course, upload: UploadFile, alt: str) -> str:
+        """画像をストアに置き、**課題文に貼り付ける 1 行**を返す。
+
+        画面が 2 つある（コースの設定と課題の編集）ので、保存の規則は 1 か所に
+        置く ── 書き写すと、片方だけが古い上限や古い鍵の作り方で動く日が来る。
+        """
+        console = _console(request)
         payload = await upload.read()
         try:
             name = images.new_name(payload, upload.filename or "")
@@ -1187,8 +1196,32 @@ def register(templates) -> APIRouter:
         # 同じ中身なら同じ鍵。貼り直しても増えない。
         if not console.store.exists(key):
             console.store.put(key, payload)
-        console.last_image = (str(course.id), images.markdown_for(str(course.id), name, alt))
-        return RedirectResponse(f"/manage/courses/{course_id}?saved=image#images", status_code=303)
+        return images.markdown_for(str(course.id), name, alt)
+
+    @router.post("/courses/{course_id}/images.json")
+    async def upload_statement_image_json(
+        request: Request,
+        course_id: str,
+        upload: UploadFile,
+        alt: Annotated[str, Form()] = "",
+    ) -> Response:
+        """課題の編集画面から上げる画像（#64）。**貼り付けまでやる。**
+
+        コースの設定画面のように 1 行を出して手で貼らせると、書きかけの問題文を
+        置いて別の画面へ行き、戻ってきて貼る、という往復になる ── その間に
+        編集中の内容は失われる（課題の編集は 1 つのフォームで、保存するまで
+        何も残らない）。**同じ画面で受け取り、カーソル位置に差し込む。**
+
+        画面を遷移させないので JSON で返す。差し込みは呼び出し側の
+        JavaScript（`base.html`）が行う。JavaScript が無い場合はここへ来ない
+        ── 課題の編集画面はコースの設定画面への案内を出す。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        line = await _store_statement_image(request, course, upload, alt)
+        return JSONResponse({"markdown": line})
 
     @router.get("/courses/{course_id}/images/{name}")
     def statement_image(request: Request, course_id: str, name: str) -> Response:
@@ -2247,6 +2280,10 @@ def register(templates) -> APIRouter:
                 "published": published,
                 # 提出の件数。**0 のときだけ削除を出す**（#51）。
                 "submissions": _submission_count(_console(request), task),
+                # 問題文に貼る画像（#64）。**課題の編集画面でも受け取る** ──
+                # コースの設定画面まで往復させると、書きかけの問題文が失われる。
+                "image_suffixes": sorted(images.SUFFIX_TYPES),
+                "image_max_mb": images.MAX_BYTES // (1024 * 1024),
             },
         )
 

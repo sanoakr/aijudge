@@ -505,6 +505,100 @@ document.querySelectorAll(".js-only").forEach(function (el) { el.hidden = false;
   });
 })();
 
+{# 問題文に貼る画像（#64）。**上げたらその場でカーソル位置に差し込む。**
+
+   1 行を出して手で貼らせると、書きかけの問題文を置いてコースの設定画面まで
+   往復することになり、その間に編集中の内容は失われる（課題の編集は 1 つの
+   フォームで、保存するまで何も残らない）。
+
+   課題の編集フォームの中にあるので、送信は入れ子のフォームではなく
+   `fetch` で行う。**貼り付けだけで、課題は保存しない** ── 保存は「保存」で
+   行う（#58 と同じ、押した瞬間に版が上がることを避ける）。
+
+   仕組みはここに 1 か所だけ置く。エラーはサーバの文面をそのまま出す
+   （決めつけた文面を書くと、言われたとおり確かめた教員は何も見つけられない・#52）。 #}
+(function () {
+  var box = document.querySelector("[data-image-upload]");
+  if (!box || typeof FormData !== "function" || typeof fetch !== "function") return;
+  var target = document.querySelector(box.getAttribute("data-image-target"));
+  var file = box.querySelector("[data-image-file]");
+  var alt = box.querySelector("[data-image-alt]");
+  var status = box.querySelector("[data-image-status]");
+  if (!target || !file) return;
+
+  function say(text, busy) {
+    if (!status) return;
+    status.textContent = text;
+    status.hidden = !text;
+    status.className = busy ? "flash reading" : "flash";
+  }
+
+  // カーソル位置に差し込む。**画像は必ず 1 行として置く** ── 文の途中に
+  // 入れると Markdown では段落の中の画像になり、前後の文と行が続いて出る。
+  function paste(markdown) {
+    var value = target.value;
+    var start = target.selectionStart;
+    var end = target.selectionEnd;
+    if (typeof start !== "number") { start = value.length; end = value.length; }
+    var before = value.slice(0, start);
+    var after = value.slice(end);
+    var head = before && !/\n\n$/.test(before) ? (before.slice(-1) === "\n" ? "\n" : "\n\n") : "";
+    var tail = after && !/^\n/.test(after) ? "\n\n" : "\n";
+    var inserted = head + markdown + tail;
+    target.value = before + inserted + after;
+    var caret = before.length + inserted.length;
+    target.focus();
+    target.setSelectionRange(caret, caret);
+  }
+
+  function send(blob, name) {
+    var body = new FormData();
+    body.append("upload", blob, name);
+    body.append("alt", alt ? alt.value : "");
+    say("画像を保存しています…", true);
+    fetch(box.getAttribute("data-image-upload"), {
+      method: "POST", body: body, credentials: "same-origin"
+    }).then(function (response) {
+      return response.json().then(function (data) {
+        if (!response.ok) throw new Error(data.detail || "画像を保存できませんでした");
+        return data;
+      });
+    }).then(function (data) {
+      paste(data.markdown);
+      say("問題文に貼り付けました。保存するまでは反映されません", false);
+      file.value = "";
+    }).catch(function (error) {
+      say(error.message || "画像を保存できませんでした", false);
+    });
+  }
+
+  function fromInput() {
+    if (file.files && file.files[0]) send(file.files[0], file.files[0].name);
+  }
+  // 選んだ時点で送る。押し忘れた画像が課題文に入らないまま保存されるのを避ける。
+  file.addEventListener("change", fromInput);
+  var button = box.querySelector("[data-image-submit]");
+  if (button) button.addEventListener("click", fromInput);
+
+  // 画像をそのまま貼り付ける（クリップボード）。**課題文を書きながら
+  // 画面を撮って貼る**のが実際の作り方で、ファイルに保存させる必要はない。
+  target.addEventListener("paste", function (event) {
+    var items = event.clipboardData && event.clipboardData.files;
+    if (!items || !items.length) return;
+    var blob = items[0];
+    if (blob.type.indexOf("image/") !== 0) return;
+    event.preventDefault();
+    // **名前は種別から作る。** 貼り付けた画像のファイル名は当てにできず
+    // （空だったり拡張子が無かったりする）、保存できる形式かは拡張子で決まる。
+    var known = { "image/png": ".png", "image/jpeg": ".jpg", "image/gif": ".gif",
+                  "image/webp": ".webp", "image/svg+xml": ".svg" };
+    var suffix = known[blob.type];
+    if (!suffix) { say(blob.type + " は課題文に貼れません", false); return; }
+    var name = /\.[A-Za-z]+$/.test(blob.name || "") ? blob.name : "pasted" + suffix;
+    send(blob, name);
+  });
+})();
+
 document.addEventListener("submit", function (event) {
   var form = event.target;
   if (!(form instanceof HTMLFormElement)) return;
