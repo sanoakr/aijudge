@@ -40,6 +40,7 @@ def build_console(args: argparse.Namespace) -> Console:
         profiles_dir=args.profiles,
         observations=ObservationFileStore(args.observations),
         learner_url=args.learner_url,
+        learner_port=args.learner_port,
     )
 
 
@@ -61,7 +62,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--learner-url",
         default=os.environ.get(ENV_LEARNER_URL, ""),
-        help="学習者アプリの場所（例 https://aijudge.example.jp）。受講しているコースの行から渡す",
+        help="学習者アプリの場所（例 https://aijudge.example.jp）。"
+        "空なら、開いているホスト名のまま --learner-port へ渡す",
+    )
+    parser.add_argument(
+        "--learner-port",
+        type=int,
+        default=int(os.environ.get("AIJUDGE_LEARNER_PORT", 8080)),
+        help="学習者アプリのポート（--learner-url が空のときに使う）",
     )
     parser.add_argument("--host", default="127.0.0.1", help="既定は localhost のみ")
     parser.add_argument("--port", type=int, default=8765)

@@ -170,15 +170,30 @@ tailnet は教員・TA の端末を繋ぐには足りるが、**学生には配�
 ログインするだけで両方が開く。**
 
 役割はコースごとに決まる（同じ人が「A では学習者・B では教員」になる）。
-互いの場所を教えておくと、一覧の行から相手側へ渡せる。
+一覧の行から相手側へ渡すリンクは、**開いているホスト名のまま、相手の
+ポートへ**向く（#114）。1 台が `localhost`・IP・短い名前・FQDN のどれでも
+応じる以上、「どの名前で来たか」は起動時には決まらない ── 決め打ちの名前へ
+渡すと、その名前で開いていない人の Cookie が付いていかず、飛んだ先で
+「ログインしてください」になる。
+
+相手のポートが既定（8765 / 8080）でなければ、そこだけ教える。
 
 ```fish
-set -gx AIJUDGE_CONSOLE_URL https://aijudge.example.jp:8765   # 学習者アプリが出す
-set -gx AIJUDGE_LEARNER_URL https://aijudge.example.jp        # コンソールが出す
+set -gx AIJUDGE_CONSOLE_PORT 9765   # 学習者アプリが渡す先のポート
+set -gx AIJUDGE_LEARNER_PORT 9080   # コンソールが渡す先のポート
 ```
 
-**別ホスト（ポート違いを含む）に置くと Cookie は共有されない。** 1 つの
-入口にまとめる話は #103 の続き（逆プロキシ）で扱う。
+**逆プロキシの後ろや、本当に別のホストに置いてある場合は URL で指定する。**
+その場合、名前を知っているのは運用者のほうである。
+
+```fish
+set -gx AIJUDGE_CONSOLE_URL https://aijudge.example.jp/teach
+set -gx AIJUDGE_LEARNER_URL https://aijudge.example.jp
+```
+
+**ホスト名が違えばセッションは共有されない**（Cookie はホスト単位。ポートは
+無視されるので、同じホスト名ならポートが違っても共有される）。1 つの入口に
+まとめる話は #103 の続き（逆プロキシ）で扱う。
 
 ## 環境変数
 
@@ -190,8 +205,9 @@ set -gx AIJUDGE_LEARNER_URL https://aijudge.example.jp        # コンソール�
 | `AIJUDGE_SANDBOX` | 隔離バックエンド（`auto`/`docker`/`gvisor`/`seatbelt`） | `auto` |
 | `AIJUDGE_SANDBOX_WORKDIR` | 作業域の置き場所。コンテナがマウントするパスであること | `~/.aijudge/work` |
 | `AIJUDGE_SECURE_COOKIES` | セッション Cookie に `Secure` を付ける（`1`/`0`）。未設定なら `X-Forwarded-Proto` で判断 | 未設定 |
-| `AIJUDGE_CONSOLE_URL` | 学習者アプリが出す教員コンソールの場所（#103）。TA・教員として取っているコースの行に出る | 未設定（案内文だけ） |
-| `AIJUDGE_LEARNER_URL` | 教員コンソールが出す学習者アプリの場所（#103）。受講しているコースの行に出る | 未設定（案内文だけ） |
+| `AIJUDGE_CONSOLE_URL` | 学習者アプリが出す教員コンソールの場所（#103）。逆プロキシの後ろなど、相手が別ホストのときだけ指定する | 未設定（開いているホスト名 + `AIJUDGE_CONSOLE_PORT`） |
+| `AIJUDGE_LEARNER_URL` | 教員コンソールが出す学習者アプリの場所（#103） | 未設定（開いているホスト名 + `AIJUDGE_LEARNER_PORT`） |
+| `AIJUDGE_CONSOLE_PORT` / `AIJUDGE_LEARNER_PORT` | 相手のポート（URL 未設定のときに使う・#114） | `8765` / `8080` |
 | `AIJUDGE_LLM_BASE_URL` / `AIJUDGE_LLM_MODEL` | ローカル LLM | — |
 | `AIJUDGE_FEEDBACK_MODEL` | フィードバック生成のモデル。未設定なら要約に落ちる | — |
 

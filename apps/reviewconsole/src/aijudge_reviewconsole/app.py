@@ -123,15 +123,17 @@ class Console:
         profiles_dir: Path,
         observations: ObservationFileStore | None = None,
         learner_url: str = "",
+        learner_port: int = 8080,
     ) -> None:
         self.database = database
         self.store = artifact_store
         self.profiles_dir = profiles_dir
         self.observations = observations
-        # 学習者アプリの場所（#103）。**空でも動く** ── 1 台で両方を動かして
-        # いる運用では、相手の URL を機械は知らない。設定されていなければ
-        # 「そちらで見てください」とだけ書く。
+        # 学習者アプリの場所（#103）。**空なら、開いているホスト名のまま
+        # ポートだけ変えて渡す**（#114）── 決め打ちの名前へ渡すと、その名前で
+        # 開いていない人の Cookie が付いていかない。
         self.learner_url = learner_url.rstrip("/")
+        self.learner_port = learner_port
         self._rates: dict[str, float] = {}
         # 直近に足した課題。管理画面が「何が起きたか」を返すために持つ。
         # コースを添えるのは Console が全利用者で共有だから。
@@ -383,7 +385,9 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 "attending": attending,
                 # 学習者アプリの場所。**設定されていなければ案内だけ出す** ──
                 # 1 台で両方動かしている運用では相手の URL を機械は知らない。
-                "learner_url": console.learner_url,
+                "learner_url": counterpart_url(
+                    request, configured=console.learner_url, port=console.learner_port
+                ),
                 # コースを作れるのは管理者だけ。作る口をここに置くのは、
                 # 入口が 2 つあること自体が分かりにくさの元だったから。
                 "is_admin": is_admin,
@@ -929,6 +933,28 @@ class _Context:
         self.request = request
         self.finalization = finalization
         self.awaiting_ai = awaiting_ai
+
+
+def counterpart_url(request: Request, *, configured: str, port: int) -> str:
+    """相手側アプリの場所（#114）。
+
+    **ブラウザが今いるホスト名をそのまま使う。** セッション Cookie は
+    ホスト単位（`Domain` を付けていない・ポートは無視される）なので、
+    起動時に決め打ちした名前へ渡すと、その名前で開いていない人の Cookie は
+    付いていかない ── 1 台が `localhost`・IP・短い名前・FQDN・tailnet 名の
+    どれでも応じる以上、「どの名前で来たか」は起動時には決まらない。
+
+    `configured` が入っていればそちらを優先する。逆プロキシの後ろや、
+    本当に別のホストに置いてある運用では、名前を知っているのは運用者の
+    ほうだから（その場合セッションは共有されない ── 別のホストなら Cookie は
+    そもそも届かない）。
+    """
+    if configured:
+        return configured
+    forwarded = request.headers.get("x-forwarded-host")
+    host = (forwarded or request.url.hostname or "localhost").split(":")[0]
+    scheme = request.headers.get("x-forwarded-proto") or request.url.scheme
+    return f"{scheme}://{host}:{port}"
 
 
 def _can_grade(auth: AuthService, course_id: CourseId, me: Principal) -> bool:

@@ -88,14 +88,18 @@ class StudentApp:
         profiles_dir: Path,
         max_upload_bytes: int = MAX_UPLOAD_BYTES,
         console_url: str = "",
+        console_port: int = 8765,
     ) -> None:
         self.database = database
         self.store = artifact_store
         self.profiles_dir = profiles_dir
         self.max_upload_bytes = max_upload_bytes
         # 教員コンソールの場所（#103）。役割はコースごとに決まるので、同じ人が
-        # 「A では学習者・B では TA」になる。**空でも動く。**
+        # 「A では学習者・B では TA」になる。**空なら、開いているホスト名の
+        # ままポートだけ変えて渡す**（#114）── 決め打ちの名前へ渡すと、その
+        # 名前で開いていない人の Cookie が付いていかない。
         self.console_url = console_url.rstrip("/")
+        self.console_port = console_port
         self.submissions = SubmissionService(database.unit_of_work, artifact_store)
 
 
@@ -202,7 +206,9 @@ def create_app(app_state: StudentApp) -> FastAPI:
                 "me": principal,
                 "courses": courses,
                 "rows": rows,
-                "console_url": app_state.console_url,
+                "console_url": counterpart_url(
+                    request, configured=app_state.console_url, port=app_state.console_port
+                ),
             },
         )
 
@@ -676,6 +682,28 @@ def _tenant(raw: str):
 
 
 DEFAULT_TENANT = "ten_" + "0" * 32
+
+
+def counterpart_url(request: Request, *, configured: str, port: int) -> str:
+    """相手側アプリの場所（#114）。
+
+    **ブラウザが今いるホスト名をそのまま使う。** セッション Cookie は
+    ホスト単位（`Domain` を付けていない・ポートは無視される）なので、
+    起動時に決め打ちした名前へ渡すと、その名前で開いていない人の Cookie は
+    付いていかない ── 1 台が `localhost`・IP・短い名前・FQDN・tailnet 名の
+    どれでも応じる以上、「どの名前で来たか」は起動時には決まらない。
+
+    `configured` が入っていればそちらを優先する。逆プロキシの後ろや、
+    本当に別のホストに置いてある運用では、名前を知っているのは運用者の
+    ほうだから（その場合セッションは共有されない ── 別のホストなら Cookie は
+    そもそも届かない）。
+    """
+    if configured:
+        return configured
+    forwarded = request.headers.get("x-forwarded-host")
+    host = (forwarded or request.url.hostname or "localhost").split(":")[0]
+    scheme = request.headers.get("x-forwarded-proto") or request.url.scheme
+    return f"{scheme}://{host}:{port}"
 
 
 def _role_in(app_state: StudentApp, course_id: CourseId, user_id: UserId) -> Role:

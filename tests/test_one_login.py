@@ -61,6 +61,16 @@ class World:
                 )
             )
         )
+        # 設定を入れない側（既定の挙動・#114）。開いているホスト名のまま
+        # ポートだけ変えて渡す。
+        self.plain_console = TestClient(
+            create_console(Console(self.database, store, profiles_dir=PROFILES)),
+            base_url="http://mnemosyne.example.jp:8765",
+        )
+        self.plain_learner = TestClient(
+            create_learner(StudentApp(self.database, store, profiles_dir=PROFILES)),
+            base_url="http://mnemosyne.example.jp:8080",
+        )
         self.taught, _ = ensure_course(
             self.database,
             tenant_id=TENANT,
@@ -169,3 +179,36 @@ def test_a_course_the_person_only_attends_has_no_grading_link(world: World) -> N
     assert f"/courses/{world.attended.id}/queue" not in landing
     # 開こうとしても採点はできない（コースそのものが「無い」と答える）。
     assert world.console.get(f"/courses/{world.attended.id}/queue").status_code == 404
+
+
+def test_the_link_stays_on_the_host_the_browser_is_using(world: World) -> None:
+    """**Cookie はホスト単位**（#114）。起動時に決め打ちした名前へ渡すと、
+    その名前で開いていない人の Cookie は付いていかず、飛んだ先で
+    「ログインしてください」になる。
+
+    1 台が `localhost`・IP・短い名前・FQDN のどれでも応じる以上、「どの名前で
+    来たか」は起動時には決まらない。**来た名前をそのまま使う。**
+    """
+    world.register_dual_role("sano")
+    response = world.plain_learner.post(
+        "/login", data={"login": "sano", "password": PASSWORD}, follow_redirects=False
+    )
+    world.plain_learner.cookies.set(LEARNER_COOKIE, response.cookies[LEARNER_COOKIE])
+
+    landing = world.plain_learner.get("/").text
+    # 開いているホスト名のまま、相手のポートへ渡す。
+    assert f"http://mnemosyne.example.jp:8765/courses/{world.taught.id}" in landing
+
+    world.plain_console.cookies.set(CONSOLE_COOKIE, response.cookies[LEARNER_COOKIE])
+    console_landing = world.plain_console.get("/").text
+    assert f"http://mnemosyne.example.jp:8080/courses/{world.attended.id}" in console_landing
+
+
+def test_a_configured_url_still_wins(world: World) -> None:
+    """逆プロキシの後ろでは、名前を知っているのは運用者のほう（#114）。"""
+    world.register_dual_role("sano")
+    response = world.learner.post(
+        "/login", data={"login": "sano", "password": PASSWORD}, follow_redirects=False
+    )
+    world.learner.cookies.set(LEARNER_COOKIE, response.cookies[LEARNER_COOKIE])
+    assert "https://teach.example.jp/courses/" in world.learner.get("/").text
