@@ -307,6 +307,44 @@ def test_a_job_is_reserved_and_completed(database: Database) -> None:
         assert uow.jobs.pending_count() == 0
 
 
+def test_position_in_queue(database: Database) -> None:
+    from aijudge_core import GradingPhase
+
+    service = a_service(database)
+    subs = []
+    for i in range(3):
+        r = service.accept(
+            tenant_id=TENANT,
+            task_version_id=TASK_VERSION,
+            learner_id=UserId(f"usr_{i:032d}"),
+            subject_profile="cs_intro_c",
+            files=code(f"int main(void){{return {i};}}"),
+        )
+        subs.append(r.submission.id)
+
+    with database.unit_of_work() as uow:
+        positions = [uow.jobs.position_in_queue(s, GradingPhase.DETERMINISTIC, NOW) for s in subs]
+        assert sorted(positions) == [0, 1, 2]
+        # 未知の提出・別段階は None。
+        assert (
+            uow.jobs.position_in_queue(
+                SubmissionId("sub_" + "9" * 32), GradingPhase.DETERMINISTIC, NOW
+            )
+            is None
+        )
+        assert uow.jobs.position_in_queue(subs[0], GradingPhase.AI, NOW) is None
+
+        # 1 件を予約すると、その提出は 0、残りは 1 以上（RUNNING が前にいる）。
+        taken = uow.jobs.reserve(NOW, worker="w1", lease_seconds=60.0)
+        assert taken is not None
+        running_sub = taken.submission_id
+        assert uow.jobs.position_in_queue(running_sub, GradingPhase.DETERMINISTIC, NOW) == 0
+        for s in subs:
+            if s == running_sub:
+                continue
+            assert uow.jobs.position_in_queue(s, GradingPhase.DETERMINISTIC, NOW) >= 1
+
+
 def test_a_reserved_job_is_not_handed_out_twice(database: Database) -> None:
     service = a_service(database)
     service.accept(

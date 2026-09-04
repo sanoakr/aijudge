@@ -417,7 +417,13 @@ def test_the_learner_is_told_the_ai_phase_is_still_coming(world: World) -> None:
 
     submission_id = location.split("/")[-1].split("?")[0]
     state = world.client.get(f"/submissions/{submission_id}/state").json()
-    assert state == {"working": True, "phase": "ai", "graded": True}
+    assert state["working"] is True
+    assert state["phase"] == "ai"
+    assert state["graded"] is True
+    # AI 段階の待ち行列も添える（唯一の提出なので前は 0 件）。
+    assert state["queue_position"] == 0
+    assert state["queue_depth"] == 1
+    assert state["eta_seconds"] > 0
 
     # 採点が終われば案内は消え、問い合わせ先も出ない。
     world.worker.run_until_empty()

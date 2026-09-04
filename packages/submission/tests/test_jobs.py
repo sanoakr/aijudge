@@ -206,3 +206,63 @@ def test_pending_count_covers_queued_and_running() -> None:
     assert queue.pending_count() == 1
     queue.update(taken.completed(NOW, RUN))
     assert queue.pending_count() == 0
+
+
+def _q3():
+    """3 提出ぶんのジョブ。作成順に s1 → s2 → s3。すべて今すぐ取れる。"""
+    queue = InMemoryJobQueue()
+    subs = [SubmissionId("sub_" + c * 32) for c in ("a", "b", "c")]
+    for i, sub in enumerate(subs):
+        queue.enqueue(
+            make(
+                id=GradingJobId("job_" + str(i) * 32),
+                submission_id=sub,
+                idempotency_key=f"k{i}",
+                created_at=NOW + timedelta(seconds=i),
+            )
+        )
+    return queue, subs
+
+
+def test_position_in_queue_counts_jobs_ahead() -> None:
+    from aijudge_core import GradingPhase
+
+    queue, subs = _q3()
+    assert queue.position_in_queue(subs[0], GradingPhase.DETERMINISTIC, NOW) == 0
+    assert queue.position_in_queue(subs[1], GradingPhase.DETERMINISTIC, NOW) == 1
+    assert queue.position_in_queue(subs[2], GradingPhase.DETERMINISTIC, NOW) == 2
+
+
+def test_position_counts_a_running_job_ahead() -> None:
+    from aijudge_core import GradingPhase
+
+    queue, subs = _q3()
+    taken = queue.reserve(NOW, worker="w1", lease_seconds=60.0)
+    assert taken is not None and taken.submission_id == subs[0]
+    # s1 は処理中（0）、s2 の前には RUNNING が 1 件、s3 の前には RUNNING + s2。
+    assert queue.position_in_queue(subs[0], GradingPhase.DETERMINISTIC, NOW) == 0
+    assert queue.position_in_queue(subs[1], GradingPhase.DETERMINISTIC, NOW) == 1
+    assert queue.position_in_queue(subs[2], GradingPhase.DETERMINISTIC, NOW) == 2
+
+
+def test_position_is_none_when_nothing_is_queued_or_held() -> None:
+    from aijudge_core import GradingPhase
+
+    queue, subs = _q3()
+    # 存在しない提出。
+    unknown = SubmissionId("sub_" + "9" * 32)
+    assert queue.position_in_queue(unknown, GradingPhase.DETERMINISTIC, NOW) is None
+    # 別段階のジョブは無い。
+    assert queue.position_in_queue(subs[0], GradingPhase.AI, NOW) is None
+    # 採点開始時刻まで寝かせてあるジョブは順位を約束しない。
+    held = InMemoryJobQueue()
+    held_sub = SubmissionId("sub_" + "d" * 32)
+    held.enqueue(
+        make(
+            id=GradingJobId("job_" + "d" * 32),
+            submission_id=held_sub,
+            idempotency_key="held",
+            available_at=NOW + timedelta(minutes=30),
+        )
+    )
+    assert held.position_in_queue(held_sub, GradingPhase.DETERMINISTIC, NOW) is None

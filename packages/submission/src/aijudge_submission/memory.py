@@ -311,6 +311,40 @@ class InMemoryJobQueue:
             and (phase is None or job.phase is phase)
         )
 
+    def position_in_queue(
+        self, submission_id: SubmissionId, phase: GradingPhase, now: datetime
+    ) -> int | None:
+        mine = next(
+            (
+                job
+                for job in self._items.values()
+                if job.submission_id == submission_id
+                and job.phase is phase
+                and job.state in (JobState.QUEUED, JobState.RUNNING)
+            ),
+            None,
+        )
+        if mine is None:
+            return None
+        if mine.state is JobState.RUNNING:
+            return 0
+        if mine.available_at > now:
+            return None
+        order = (mine.available_at, mine.created_at, mine.id)
+        return sum(
+            1
+            for job in self._items.values()
+            if job.phase is phase
+            and (
+                job.state is JobState.RUNNING
+                or (
+                    job.state is JobState.QUEUED
+                    and job.available_at <= now
+                    and (job.available_at, job.created_at, job.id) < order
+                )
+            )
+        )
+
     def release_waiting(self, submission_ids: Sequence[SubmissionId], now: datetime) -> int:
         """SQL 実装と同じ規則。**すでに取れるジョブは触らない。**"""
         targets = {str(i) for i in submission_ids}

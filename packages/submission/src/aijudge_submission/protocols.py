@@ -318,6 +318,18 @@ class JobQueue(Protocol):
         """待ち行列の長さ。締切前の滞留を見るのに使う。"""
         ...
 
+    def position_in_queue(
+        self, submission_id: SubmissionId, phase: GradingPhase, now: datetime
+    ) -> int | None:
+        """この提出の当該段階ジョブが、ワーカーに取られるまでに前に何件あるか。
+
+        **学習者への待ち表示のため**（「あなたの前に N 件」）。
+        RUNNING（別ワーカーが処理中）は 1 件として数える。まだ動いていない
+        提出（`awaiting` が偽）や、時刻まで寝かせてあるジョブは `None`。
+        `reserve` と同じ順序（`available_at, created_at, id`）で数える。
+        """
+        ...
+
     def release_waiting(self, submission_ids: Sequence[SubmissionId], now: datetime) -> int:
         """採点開始時刻まで寝かせてあるジョブを、いま取れる状態にする。
 

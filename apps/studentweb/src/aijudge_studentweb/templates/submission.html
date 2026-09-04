@@ -35,6 +35,8 @@
 <div class="note" data-poll="{{ url_for('submission_state', submission_id=submission.id) }}">
   <strong>AI 評価を待っています。</strong>
   テスト実行の結果は下に出ています。AI が担当する観点は 30 秒ほどで届きます。
+  {# 待ち行列の状況。ポーリングが埋める。順位も時刻も**約束はしない**（#67）。 #}
+  <span class="js-only" data-queue hidden></span>
   <span class="js-only" hidden>届いたら自動で表示します。</span>
   <noscript>この画面を再読み込みして確認してください。</noscript>
 </div>

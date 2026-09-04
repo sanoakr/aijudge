@@ -13,8 +13,10 @@ UI で隠すのは表示の都合であって権限ではないので、リク�
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -92,6 +94,17 @@ SESSION_COOKIE = "aijudge_session"
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 # 動画 1 ファイルの上限（既定 5 GiB）。`AIJUDGE_MAX_VIDEO_BYTES` で変えられる。
 MAX_VIDEO_BYTES = 5 * 1024 * 1024 * 1024
+# AI 評価 1 観点の目安秒数（RUNNING.md の実測 ≈ 17s を丸めた値）。待ち時間の
+# 概算に使うだけ。約束はしない（画面側もレンジ表示にする）。
+AVG_AI_SECONDS = 20
+# web と同時に動かす AI ワーカー数のヒント（待ち時間の概算をワーカー数で割る）。
+DEFAULT_AI_WORKERS = 1
+# 1 プロセスで同時に受ける動画アップロードの上限。超過は即 429（クライアントが
+# 順番待ち → 再試行）。**プロセス内ガード**で、`--workers` 間の全体制限は
+# nginx `limit_conn` が持つ。SMR ディスクのスラッシング防止が目的。
+DEFAULT_MAX_CONCURRENT_VIDEO = 4
+# 429 のときに返す Retry-After（秒）。
+VIDEO_RETRY_AFTER = 20
 
 
 class StudentApp:
@@ -106,6 +119,8 @@ class StudentApp:
         video_store: StreamingArtifactStore | None = None,
         max_upload_bytes: int = MAX_UPLOAD_BYTES,
         max_video_bytes: int = MAX_VIDEO_BYTES,
+        max_concurrent_video: int = DEFAULT_MAX_CONCURRENT_VIDEO,
+        ai_workers: int = DEFAULT_AI_WORKERS,
         console_url: str = "",
         console_port: int = 8765,
     ) -> None:
@@ -117,6 +132,9 @@ class StudentApp:
         self.profiles_dir = profiles_dir
         self.max_upload_bytes = max_upload_bytes
         self.max_video_bytes = max_video_bytes
+        self.max_concurrent_video = max(1, max_concurrent_video)
+        self.ai_workers = max(1, ai_workers)
+        self.active_video_uploads = 0
         # 教員コンソールの場所（#103）。役割はコースごとに決まるので、同じ人が
         # 「A では学習者・B では TA」になる。**空なら、開いているホスト名の
         # ままポートだけ変えて渡す**（#114）── 決め打ちの名前へ渡すと、その
@@ -126,6 +144,20 @@ class StudentApp:
         self.submissions = SubmissionService(
             database.unit_of_work, artifact_store, stream_store=video_store
         )
+
+    @contextlib.contextmanager
+    def video_slot(self) -> Iterator[None]:
+        """同時アップロード数のプロセス内ガード。
+
+        呼び出し側は先に `active_video_uploads >= max_concurrent_video` を
+        見て 429 を返す（チェックと `+= 1` の間に `await` を挟まないので
+        1 ループ内では競合しない）。ここは実際の増減だけ。
+        """
+        self.active_video_uploads += 1
+        try:
+            yield
+        finally:
+            self.active_video_uploads -= 1
 
 
 def _state(request: Request) -> StudentApp:
@@ -466,31 +498,43 @@ def create_app(app_state: StudentApp) -> FastAPI:
                     f"/submissions/{hit.submission.id}?again=1", status_code=303
                 )
 
+        # **同時アップロード数のプロセス内ガード**（SMR ディスクのスラッシング防止）。
+        # 超過は即 429 ── クライアントが順番待ち表示のうえ再試行する。
+        # チェックと slot 取得の間に await を挟まないので 1 ループ内では競合しない。
+        if app_state.active_video_uploads >= app_state.max_concurrent_video:
+            raise HTTPException(
+                status_code=429,
+                detail="いま混み合っています。しばらくして自動で再試行します。",
+                headers={"Retry-After": str(VIDEO_RETRY_AFTER)},
+            )
+
         # ストリームをストアへ流す。**書き込み・fsync はブロッキング**なので
         # スレッドプールへ逃がす ── 同時アップロードが多いとき、1 本の fsync
         # （SMR HDD で数 GB flush = 数秒）でイベントループ全体が止まるのを防ぐ。
-        # `async for` の合間だけでなく write そのものもループを塞がない。
         submission_id = SubmissionId(new_id("sub"))
         artifact_id = ArtifactId(new_id("art"))
         storage_key = artifact_storage_key(me.tenant_id, submission_id, artifact_id, name)
         handle = app_state.video_store.writer(storage_key)
-        try:
-            async for chunk in request.stream():
-                if not chunk:
-                    continue
-                if handle.size + len(chunk) > app_state.max_video_bytes:
-                    await run_in_threadpool(handle.abort)
-                    raise HTTPException(
-                        status_code=413,
-                        detail=f"ファイルが大きすぎます（上限 {app_state.max_video_bytes} バイト）",
-                    )
-                await run_in_threadpool(handle.write, chunk)
-            blob = await run_in_threadpool(handle.commit)
-        except HTTPException:
-            raise
-        except BaseException:
-            await run_in_threadpool(handle.abort)
-            raise
+        with app_state.video_slot():
+            try:
+                async for chunk in request.stream():
+                    if not chunk:
+                        continue
+                    if handle.size + len(chunk) > app_state.max_video_bytes:
+                        await run_in_threadpool(handle.abort)
+                        raise HTTPException(
+                            status_code=413,
+                            detail=(
+                                f"ファイルが大きすぎます（上限 {app_state.max_video_bytes} バイト）"
+                            ),
+                        )
+                    await run_in_threadpool(handle.write, chunk)
+                blob = await run_in_threadpool(handle.commit)
+            except HTTPException:
+                raise
+            except BaseException:
+                await run_in_threadpool(handle.abort)
+                raise
 
         try:
             result = app_state.submissions.record_streamed(
@@ -595,22 +639,34 @@ def create_app(app_state: StudentApp) -> FastAPI:
         「動いています」を返し続ける。
         """
         loaded = _submission_view(app_state, me, SubmissionId(submission_id))
-        return JSONResponse(
-            {
-                # **試験中は「動いている」と言わない。** 言うと画面が
-                # 問い合わせ続ける（#67）。
-                "working": loaded.grading_in_progress and not loaded.grading_held,
-                "phase": (
-                    "deterministic"
-                    if loaded.awaiting_deterministic
-                    else "ai"
-                    if loaded.awaiting_ai
-                    else None
-                ),
-                "graded": loaded.run is not None,
-            },
-            headers={"Cache-Control": "no-store"},
-        )
+        body: dict[str, object] = {
+            # **試験中は「動いている」と言わない。** 言うと画面が
+            # 問い合わせ続ける（#67）。
+            "working": loaded.grading_in_progress and not loaded.grading_held,
+            "phase": (
+                "deterministic"
+                if loaded.awaiting_deterministic
+                else "ai"
+                if loaded.awaiting_ai
+                else None
+            ),
+            "graded": loaded.run is not None,
+        }
+        # AI 段階の待ち状況。**試験中は出さない**（順位も時刻も約束しない・#67）。
+        if loaded.awaiting_ai and not loaded.grading_held:
+            with app_state.database.unit_of_work() as uow:
+                position = uow.jobs.position_in_queue(
+                    SubmissionId(submission_id), GradingPhase.AI, now()
+                )
+                depth = uow.jobs.pending_count(phase=GradingPhase.AI)
+            if position is not None:
+                body["queue_position"] = position
+                body["queue_depth"] = depth
+                # ざっくりの上限。ワーカー数で割る（`AIJUDGE_AI_WORKERS`、既定 1）。
+                # 正確さより「数分か・十数分か」が分かればよい。
+                batches = position // max(1, app_state.ai_workers) + 1
+                body["eta_seconds"] = batches * AVG_AI_SECONDS
+        return JSONResponse(body, headers={"Cache-Control": "no-store"})
 
     @app.get("/submissions/{submission_id}/artifacts/{artifact_id}")
     def submitted_file(request: Request, submission_id: str, artifact_id: str, me: Me) -> Response:
