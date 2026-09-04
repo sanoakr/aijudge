@@ -183,6 +183,14 @@
     <p class="desc">この画面では表示できません。
       <a href="/submissions/{{ submission.id }}/artifacts/{{ file.id }}">PDF を開く</a></p>
   </object>
+  {% elif file.is_video %}
+  <p class="desc" style="margin:0 0 6px">{{ file.filename }}</p>
+  {# preload="metadata" だけにする ── 一覧から開いた瞬間に本体を落とさない。 #}
+  <video controls preload="metadata"
+         src="/submissions/{{ submission.id }}/artifacts/{{ file.id }}"
+         style="max-width:100%;border:1px solid var(--line);border-radius:3px">
+    <a href="/submissions/{{ submission.id }}/artifacts/{{ file.id }}">動画を開く</a>
+  </video>
   {% else %}
   <p class="desc" style="margin:0 0 6px">{{ file.filename }}
     <a href="/submissions/{{ submission.id }}/artifacts/{{ file.id }}">元のファイル</a></p>

@@ -75,6 +75,11 @@ class ArtifactKind(StrEnum):
     # 変換の失敗を採点の失敗として受け取る。
     DOCX = "docx"
     IMAGE = "image"
+    # 動画。学習者あたり数 GB になりうるので、取り込みも配信も
+    # **メモリに載せずストリームで**扱う（専用ルート・専用ストア）。
+    # 機械に採点させる評価器はまだ無く、観点は `HUMAN_SCORED` で宣言して
+    # 教員が視聴して段階を入れる（`RubricCriterion.scored_by_human`）。
+    VIDEO = "video"
 
     @property
     def is_document(self) -> bool:
@@ -84,6 +89,15 @@ class ArtifactKind(StrEnum):
         字数や節の判定も成立しない（設計方針 §4 の Normalize 段）。
         """
         return self in (ArtifactKind.PDF, ArtifactKind.DOCX)
+
+    @property
+    def is_streamed(self) -> bool:
+        """取り込み・配信でメモリに全体を載せてはいけない種別か。
+
+        真なら通常の `POST /submit`（`await upload.read()`）では受けず、
+        専用のストリーミング経路を通す。
+        """
+        return self is ArtifactKind.VIDEO
 
 
 class TranscriptionMeta(BaseModel):

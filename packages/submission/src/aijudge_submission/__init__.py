@@ -13,12 +13,13 @@ from __future__ import annotations
 
 from aijudge_core import GradingPhase
 
-from .filestore import FilesystemArtifactStore
+from .filestore import FilesystemArtifactStore, StoredBlob, iter_file, parse_range
 from .intake import (
     AcceptResult,
     IncomingFile,
     SubmissionRejected,
     SubmissionService,
+    SubmissionTooLarge,
     content_idempotency_key,
 )
 from .jobs import (
@@ -48,6 +49,7 @@ from .protocols import (
     Outbox,
     ReviewRepository,
     RunDecision,
+    StreamingArtifactStore,
     SubmissionRepository,
     SubmissionStoreError,
     UnitOfWork,
@@ -80,14 +82,19 @@ __all__ = [
     "Outbox",
     "ReviewRepository",
     "RunDecision",
+    "StoredBlob",
+    "StreamingArtifactStore",
     "SubmissionRejected",
     "SubmissionRepository",
     "SubmissionService",
     "SubmissionStoreError",
+    "SubmissionTooLarge",
     "UnitOfWork",
     "artifact_storage_key",
     "content_idempotency_key",
     "gradable_contents",
     "in_memory_backend",
+    "iter_file",
     "job_idempotency_key",
+    "parse_range",
 ]

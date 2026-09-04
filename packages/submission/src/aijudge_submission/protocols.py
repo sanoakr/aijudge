@@ -8,10 +8,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Protocol, runtime_checkable
+from typing import IO, Protocol, runtime_checkable
 
 from aijudge_core import (
     Artifact,
@@ -75,6 +75,33 @@ class ArtifactStore(Protocol):
     def get(self, key: str) -> bytes: ...
 
     def exists(self, key: str) -> bool: ...
+
+
+class StoredBlobLike(Protocol):
+    """`put_stream` の戻り値。サイズと 16 進 SHA-256（接頭辞なし）。"""
+
+    byte_size: int
+    sha256: str
+
+
+@runtime_checkable
+class StreamingArtifactStore(Protocol):
+    """メモリに全体を載せずに読み書きできるストア（動画向け）。
+
+    `ArtifactStore` とは別の Protocol にしてある ── S3 実装や
+    インメモリ実装に一斉にストリーム対応を強いないため。動画の受付・配信は
+    この Protocol を要求する（`FilesystemArtifactStore` が両方を満たす）。
+    """
+
+    def put_stream(self, key: str, chunks: Iterable[bytes]) -> StoredBlobLike: ...
+
+    def open_read(self, key: str) -> IO[bytes]: ...
+
+    def size(self, key: str) -> int: ...
+
+    def exists(self, key: str) -> bool: ...
+
+    def delete(self, key: str) -> None: ...
 
 
 @runtime_checkable
@@ -367,9 +394,16 @@ def gradable_contents(submission: Submission, store: ArtifactStore) -> dict[Arti
 
     採点パイプラインの `ContentLoader` に渡す形に揃える。
     書き起こしは学習者が確定させたものだけが対象になる（core 側の規則）。
+
+    **ストリーム種別（動画）は読まない。** 中身は別ストアにあり、評価器に
+    渡す経路も無い（観点は `HUMAN_SCORED` で宣言し教員が採点する）。
+    ここに入れると `store.get` が別ストアのキーを引いて失敗する。
+    ContentLoader 側は欠けたキーを空バイト列として扱う。
     """
     return {
-        artifact.id: store.get(artifact.storage_key) for artifact in submission.gradable_artifacts
+        artifact.id: store.get(artifact.storage_key)
+        for artifact in submission.gradable_artifacts
+        if not artifact.kind.is_streamed
     }
 
 

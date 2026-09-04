@@ -33,7 +33,17 @@ SUFFIX_KINDS: dict[str, ArtifactKind] = {
     ".jpeg": ArtifactKind.IMAGE,
     ".png": ArtifactKind.IMAGE,
     ".gif": ArtifactKind.IMAGE,
+    # 動画。**通常の提出ルートでは受けない**（`ArtifactKind.is_streamed`）。
+    # 数 GB になりうるので専用のストリーミング経路を通す。
+    ".mp4": ArtifactKind.VIDEO,
+    ".webm": ArtifactKind.VIDEO,
+    ".mov": ArtifactKind.VIDEO,
 }
+
+# メモリに全体を載せてはいけない拡張子。専用ルート（`submit-video`）だけが受ける。
+STREAMED_SUFFIXES: frozenset[str] = frozenset(
+    suffix for suffix, kind in SUFFIX_KINDS.items() if kind.is_streamed
+)
 
 # 何も指定していないコースで受け付ける形式。**コードとテキストだけ。**
 # 画像と PDF は本文が直接読めず、採点の前に変換の段が要るので、
@@ -51,6 +61,9 @@ SUFFIX_CONTENT_TYPES: dict[str, str] = {
     ".jpeg": "image/jpeg",
     ".png": "image/png",
     ".gif": "image/gif",
+    ".mp4": "video/mp4",
+    ".webm": "video/webm",
+    ".mov": "video/quicktime",
 }
 
 
@@ -93,6 +106,16 @@ SUFFIX_GROUPS: tuple[tuple[str, tuple[tuple[str, tuple[str, ...]], ...]], ...] =
             (".jpg / .jpeg", (".jpg", ".jpeg")),
             (".png", (".png",)),
             (".gif", (".gif",)),
+        ),
+    ),
+    (
+        # 動画は取り込み経路が別（`ArtifactKind.is_streamed`）。教員が明示的に
+        # 許した課題でだけ受け付ける ── 既定には入れない。
+        "動画",
+        (
+            (".mp4", (".mp4",)),
+            (".webm", (".webm",)),
+            (".mov", (".mov",)),
         ),
     ),
 )
@@ -150,9 +173,11 @@ def kind_for(suffix: str) -> ArtifactKind | None:
 __all__ = [
     "ALL_UPLOAD_SUFFIXES",
     "DEFAULT_UPLOAD_SUFFIXES",
+    "STREAMED_SUFFIXES",
     "SUFFIX_GROUPS",
     "SUFFIX_KINDS",
     "allowed_suffixes",
+    "content_type_for",
     "kind_for",
     "normalize_suffixes",
 ]
