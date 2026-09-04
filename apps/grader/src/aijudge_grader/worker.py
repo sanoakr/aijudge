@@ -222,7 +222,9 @@ class GradingWorker:
         run = pipeline.run(
             task_version,
             submission,
-            lambda artifact: contents[artifact.id],
+            # 動画などストリーム種別は `contents` に無い。評価器に渡さないので
+            # 空で扱う（`gradable_contents` の説明を参照）。
+            lambda artifact: contents.get(artifact.id, b""),
             phase=job.phase,
             base=base,
             aggregation=aggregation,

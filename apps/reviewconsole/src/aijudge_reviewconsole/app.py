@@ -37,7 +37,7 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
@@ -78,7 +78,13 @@ from aijudge_identity import (
     session_cookie_kwargs,
 )
 from aijudge_persistence import Database, ObservationFileStore
-from aijudge_submission import ArtifactStore, ImmutabilityViolation
+from aijudge_submission import (
+    ArtifactStore,
+    ImmutabilityViolation,
+    StreamingArtifactStore,
+    iter_file,
+    parse_range,
+)
 
 from .manage import _role_counts
 from .overview import digests_for, load_units
@@ -98,7 +104,48 @@ TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 TEMPLATES.env.globals["HUMAN_SCORED"] = HUMAN_SCORED
 
 # 画面に埋め込んでよい種別。それ以外はダウンロードさせる（#75）。
-INLINE_KINDS = (ArtifactKind.IMAGE, ArtifactKind.PDF)
+INLINE_KINDS = (ArtifactKind.IMAGE, ArtifactKind.PDF, ArtifactKind.VIDEO)
+
+
+def _serve_video(
+    console: Console, request: Request, artifact: object, artifact_id: str
+) -> Response:
+    """動画を Range 対応でストリーム配信する（教員が視聴して採点する）。"""
+    store = console.video_store
+    if store is None:
+        raise HTTPException(status_code=404, detail="提出物が見つかりません")
+    key = artifact.storage_key  # type: ignore[attr-defined]
+    filename = artifact.filename or artifact_id  # type: ignore[attr-defined]
+    try:
+        size = store.size(key)
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail="提出物が見つかりません") from exc
+    headers = {
+        "Accept-Ranges": "bytes",
+        "Content-Disposition": f'inline; filename="{filename}"',
+        "X-Content-Type-Options": "nosniff",
+        "Cache-Control": "private, max-age=300",
+    }
+    media_type = content_type_for(artifact.filename)  # type: ignore[attr-defined]
+    span = parse_range(request.headers.get("range"), size)
+    if span is None:
+        return StreamingResponse(
+            iter_file(store.open_read(key)),
+            media_type=media_type,
+            headers={**headers, "Content-Length": str(size)},
+        )
+    start, end = span
+    return StreamingResponse(
+        iter_file(store.open_read(key), start=start, length=end - start + 1),
+        status_code=206,
+        media_type=media_type,
+        headers={
+            **headers,
+            "Content-Range": f"bytes {start}-{end}/{size}",
+            "Content-Length": str(end - start + 1),
+        },
+    )
+
 
 # **学習者アプリと同じ名前**（#103）。セッションは前から同じ表を
 # `AuthService` 経由で共有していて、違うのは Cookie の名前だけだった ──
@@ -127,12 +174,15 @@ class Console:
         artifact_store: ArtifactStore,
         *,
         profiles_dir: Path,
+        video_store: StreamingArtifactStore | None = None,
         observations: ObservationFileStore | None = None,
         learner_url: str = "",
         learner_port: int = 8080,
     ) -> None:
         self.database = database
         self.store = artifact_store
+        # 動画の置き場所（学習者アプリと同じディレクトリを指す）。
+        self.video_store = video_store
         self.profiles_dir = profiles_dir
         self.observations = observations
         # 学習者アプリの場所（#103）。**空なら、開いているホスト名のまま
@@ -214,6 +264,7 @@ class Console:
                 "filename": artifact.filename or "提出物",
                 "is_image": artifact.kind is ArtifactKind.IMAGE,
                 "is_pdf": artifact.kind is ArtifactKind.PDF,
+                "is_video": artifact.kind is ArtifactKind.VIDEO,
             }
             for artifact in submission.gradable_artifacts
         )
@@ -745,6 +796,8 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
         artifact = next((a for a in context.submission.artifacts if str(a.id) == artifact_id), None)
         if artifact is None:
             raise HTTPException(status_code=404, detail="提出物が見つかりません")
+        if artifact.kind is ArtifactKind.VIDEO:
+            return _serve_video(console, request, artifact, artifact_id)
         try:
             payload = console.store.get(artifact.storage_key)
         except Exception as exc:

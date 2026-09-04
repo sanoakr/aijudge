@@ -24,6 +24,8 @@ from .app import Console, create_app
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 ENV_ARTIFACT_DIR = "AIJUDGE_ARTIFACT_DIR"
+# 動画の置き場所。**学習者アプリと同じディレクトリを指す**（同じファイルを見る）。
+ENV_VIDEO_DIR = "AIJUDGE_VIDEO_DIR"
 ENV_OBSERVATION_DIR = "AIJUDGE_OBSERVATION_DIR"
 # 学習者アプリの場所（#103）。同じ人が「A では学習者・B では教員」になるので、
 # 採点しないコースの行から学習者側へ渡す。**空でも動く。**
@@ -34,10 +36,12 @@ DEFAULT_OBSERVATION_DIR = Path.home() / ".aijudge" / "observations"
 
 def build_console(args: argparse.Namespace) -> Console:
     database = Database.connect(args.database_url, create=args.create_schema)
+    video_store = FilesystemArtifactStore(args.video_dir) if args.video_dir else None
     return Console(
         database,
         FilesystemArtifactStore(args.artifacts),
         profiles_dir=args.profiles,
+        video_store=video_store,
         observations=ObservationFileStore(args.observations),
         learner_url=args.learner_url,
         learner_port=args.learner_port,
@@ -57,6 +61,14 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         default=Path(os.environ.get(ENV_OBSERVATION_DIR, DEFAULT_OBSERVATION_DIR)).expanduser(),
         help="観測レコードの置き場所（測定用。無くてもレビューは動く）",
+    )
+    parser.add_argument(
+        "--video-dir",
+        type=Path,
+        default=(
+            Path(os.environ[ENV_VIDEO_DIR]).expanduser() if os.environ.get(ENV_VIDEO_DIR) else None
+        ),
+        help="動画の置き場所（学習者アプリの --video-dir と同じディレクトリ）",
     )
     parser.add_argument("--profiles", type=Path, default=REPO_ROOT / "subjects")
     parser.add_argument(

@@ -32,6 +32,12 @@
           type="application/pdf">
     <p class="desc"><a href="/review/{{ submission.id }}/artifacts/{{ file.id }}">PDF を開く</a></p>
   </object>
+  {% elif file.is_video %}
+  <video controls preload="metadata"
+         src="/review/{{ submission.id }}/artifacts/{{ file.id }}"
+         style="max-width:100%;border:1px solid var(--line);border-radius:3px">
+    <a href="/review/{{ submission.id }}/artifacts/{{ file.id }}">動画を開く</a>
+  </video>
   {% else %}
   <p class="desc"><a href="/review/{{ submission.id }}/artifacts/{{ file.id }}">元のファイル</a></p>
   {% endif %}

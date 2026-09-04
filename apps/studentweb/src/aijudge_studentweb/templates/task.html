@@ -24,12 +24,13 @@
 
 <h2>提出する</h2>
 {% if open_for_submission %}
+{% if plain_accepts %}
 <form method="post" action="/tasks/{{ task.id }}/submit" enctype="multipart/form-data" class="card">
   {# 入力が 1 つなので、ボタンは同じ行の右端に置く。 #}
   <div class="inline-field">
     <span class="body">
-      <label for="upload">ファイル（{{ accepts | join(', ') }}）</label>
-      <input id="upload" name="upload" type="file" required accept="{{ accepts | join(',') }}">
+      <label for="upload">ファイル（{{ plain_accepts | join(', ') }}）</label>
+      <input id="upload" name="upload" type="file" required accept="{{ plain_accepts | join(',') }}">
     </span>
     <button type="submit">提出</button>
   </div>
@@ -39,6 +40,52 @@
     再確認を依頼できます。
   </p>
 </form>
+{% endif %}
+{% if video_accepts %}
+{# 動画は取り込み経路が別（`submit-video`）。生バイト列を PUT するので
+   multipart ではなく fetch で送る。大きいので進捗を出す。 #}
+<div class="card">
+  <div class="inline-field">
+    <span class="body">
+      <label for="video-upload">動画（{{ video_accepts | join(', ') }}）</label>
+      <input id="video-upload" type="file" accept="{{ video_accepts | join(',') }}">
+    </span>
+    <button type="button" id="video-submit">動画を提出</button>
+  </div>
+  <p class="desc" id="video-status" style="margin:12px 0 0">
+    動画は視聴のうえ担当教員が採点します。上限 {{ (max_video_bytes / 1024 / 1024) | round | int }} MB。
+  </p>
+</div>
+<script>
+(function () {
+  var input = document.getElementById("video-upload");
+  var button = document.getElementById("video-submit");
+  var status = document.getElementById("video-status");
+  button.addEventListener("click", async function () {
+    var file = input.files[0];
+    if (!file) { status.textContent = "ファイルを選んでください。"; return; }
+    button.disabled = true;
+    status.textContent = "アップロード中… (" + Math.round(file.size / 1048576) + " MB)";
+    try {
+      var url = "/tasks/{{ task.id }}/submit-video?filename=" + encodeURIComponent(file.name);
+      var res = await fetch(url, {
+        method: "POST",
+        body: file,
+        headers: { "Idempotency-Key": (crypto.randomUUID && crypto.randomUUID()) || String(Date.now()) },
+      });
+      if (res.redirected) { window.location = res.url; return; }
+      if (res.ok) { window.location = res.url || "/"; return; }
+      var text = await res.text();
+      status.textContent = "失敗しました (" + res.status + "): " + text;
+      button.disabled = false;
+    } catch (e) {
+      status.textContent = "失敗しました: " + e;
+      button.disabled = false;
+    }
+  });
+})();
+</script>
+{% endif %}
 {% else %}
 {# 提出開始まで受け付けない。**いつから出せるかを示す** ── 出せない理由が
    分からないと、学習者は不具合と区別できない。 #}

@@ -104,6 +104,7 @@ from .tenancy import Course, Enrollment, Role, Tenant
 from .uploads import (
     ALL_UPLOAD_SUFFIXES,
     DEFAULT_UPLOAD_SUFFIXES,
+    STREAMED_SUFFIXES,
     SUFFIX_GROUPS,
     SUFFIX_KINDS,
     allowed_suffixes,
@@ -121,6 +122,7 @@ __all__ = [
     "HUMAN_SCORED",
     "MIN_JUSTIFICATION_LENGTH",
     "SCHEMA_VERSION",
+    "STREAMED_SUFFIXES",
     "SUFFIX_GROUPS",
     "SUFFIX_KINDS",
     "Aggregation",

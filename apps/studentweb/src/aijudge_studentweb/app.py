@@ -22,13 +22,14 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from aijudge_authoring import images, render_statement
 from aijudge_core import (
     MIN_JUSTIFICATION_LENGTH,
+    STREAMED_SUFFIXES,
     ArtifactKind,
     Course,
     GradingPhase,
@@ -44,6 +45,7 @@ from aijudge_core import (
     kind_for,
 )
 from aijudge_core.ids import (
+    ArtifactId,
     CourseId,
     ReviewRequestId,
     SubmissionId,
@@ -62,8 +64,12 @@ from aijudge_persistence import Database
 from aijudge_submission import (
     ArtifactStore,
     IncomingFile,
+    StreamingArtifactStore,
     SubmissionRejected,
     SubmissionService,
+    artifact_storage_key,
+    iter_file,
+    parse_range,
 )
 
 from .progress import EMPTY, load_progress
@@ -78,9 +84,13 @@ SESSION_COOKIE = "aijudge_session"
 # 提出できる拡張子は `aijudge_core.uploads` が持つ。**ここに表を作らない** ──
 # 画面が受け付ける形式と教員が指定した形式がずれると、出せるのに採点が
 # 種別を知らない提出が生まれる。
-# 1 ファイルの上限。学生のコードにこれを超えるものは無く、超えるなら
-# 事故か攻撃なので受け付ける前に止める。
-MAX_UPLOAD_BYTES = 1 * 1024 * 1024
+# 通常提出（コード・テキスト・PDF・画像）1 ファイルの上限。
+# レポートの PDF/DOCX が数 MB になるので 20 MiB にしてある。これを超えるのは
+# 事故か攻撃なので受け付ける前に止める。`AIJUDGE_MAX_UPLOAD_BYTES` で変えられる。
+# **動画はこの経路では受けない**（`submit-video` + `MAX_VIDEO_BYTES`）。
+MAX_UPLOAD_BYTES = 20 * 1024 * 1024
+# 動画 1 ファイルの上限（既定 5 GiB）。`AIJUDGE_MAX_VIDEO_BYTES` で変えられる。
+MAX_VIDEO_BYTES = 5 * 1024 * 1024 * 1024
 
 
 class StudentApp:
@@ -92,21 +102,29 @@ class StudentApp:
         artifact_store: ArtifactStore,
         *,
         profiles_dir: Path,
+        video_store: StreamingArtifactStore | None = None,
         max_upload_bytes: int = MAX_UPLOAD_BYTES,
+        max_video_bytes: int = MAX_VIDEO_BYTES,
         console_url: str = "",
         console_port: int = 8765,
     ) -> None:
         self.database = database
         self.store = artifact_store
+        # 動画の置き場所。通常の提出物とは別ディスクに置ける（elite では
+        # `/work/aijudge/video`）。未設定なら動画提出は 501 で断る。
+        self.video_store = video_store
         self.profiles_dir = profiles_dir
         self.max_upload_bytes = max_upload_bytes
+        self.max_video_bytes = max_video_bytes
         # 教員コンソールの場所（#103）。役割はコースごとに決まるので、同じ人が
         # 「A では学習者・B では TA」になる。**空なら、開いているホスト名の
         # ままポートだけ変えて渡す**（#114）── 決め打ちの名前へ渡すと、その
         # 名前で開いていない人の Cookie が付いていかない。
         self.console_url = console_url.rstrip("/")
         self.console_port = console_port
-        self.submissions = SubmissionService(database.unit_of_work, artifact_store)
+        self.submissions = SubmissionService(
+            database.unit_of_work, artifact_store, stream_store=video_store
+        )
 
 
 def _state(request: Request) -> StudentApp:
@@ -261,6 +279,15 @@ def create_app(app_state: StudentApp) -> FastAPI:
             app_state, me, TaskVersionId(task_version_id)
         )
         accepts = allowed_suffixes(task_obj.accepted_suffixes, course_obj.upload_suffixes)
+        # 動画は取り込み経路が別（`submit-video`）。受付拡張子のうちストリーム
+        # 対象のものだけ、専用のアップロード欄を出す。配備が動画に対応して
+        # いなければ（`video_store` 未設定）出さない。
+        video_accepts = (
+            tuple(s for s in accepts if s in STREAMED_SUFFIXES)
+            if app_state.video_store is not None
+            else ()
+        )
+        plain_accepts = tuple(s for s in accepts if s not in STREAMED_SUFFIXES)
         with app_state.database.unit_of_work() as uow:
             # 一覧と個別画面で同じ規則の点・状態を出すため、
             # ここも `load_progress` を通す（`progress.py`）。
@@ -282,6 +309,9 @@ def create_app(app_state: StudentApp) -> FastAPI:
                 # 新しい提出を上に出す。直前に出したものを探させない。
                 "attempts": tuple(reversed(progress.attempts)),
                 "accepts": accepts,
+                "plain_accepts": plain_accepts,
+                "video_accepts": video_accepts,
+                "max_video_bytes": app_state.max_video_bytes,
                 # 提出開始を過ぎているか。**過ぎるまで受け付けない**
                 # （`Task.accepts_submissions_at`）。
                 "open_for_submission": task_obj.accepts_submissions_at(now()),
@@ -365,6 +395,123 @@ def create_app(app_state: StudentApp) -> FastAPI:
             )
         except SubmissionRejected as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        return RedirectResponse(
+            f"/submissions/{result.submission.id}" + ("?again=1" if result.deduplicated else ""),
+            status_code=303,
+        )
+
+    @app.post("/tasks/{task_version_id}/submit-video")
+    async def submit_video(
+        request: Request,
+        task_version_id: str,
+        me: Me,
+        filename: str,
+    ) -> Response:
+        """動画を **メモリに載せず** 受け付ける専用ルート（`docs/design` R7）。
+
+        本文は `application/octet-stream` の生バイト列（multipart で包まない）。
+        ファイル名はクエリ `?filename=` で渡す。`Idempotency-Key` ヘッダを
+        送れば、3 GB の再送を本文を読む前に弾ける。
+
+        **動画課題はコード課題と別の課題にすること** ── 観点は
+        `__human__`（`HUMAN_SCORED`）で宣言し、教員が視聴して段階を入れる。
+        """
+        if app_state.video_store is None:
+            raise HTTPException(status_code=501, detail="この配備は動画提出に対応していません")
+        version, course_obj, _task = _task_and_course(app_state, me, TaskVersionId(task_version_id))
+
+        window = _task.submission_window_at(now())
+        if window is SubmissionWindow.NOT_OPEN:
+            opens = _task.submissions_open_at or _task.opens_at
+            raise HTTPException(
+                status_code=409,
+                detail=f"まだ提出できません（{opens.strftime('%Y-%m-%d %H:%M')} から受け付けます）",
+            )
+        if window is SubmissionWindow.CLOSED:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "提出の受付は終了しました"
+                    f"（{_task.accepts_until.strftime('%Y-%m-%d %H:%M')} まででした）"
+                ),
+            )
+
+        accepts = allowed_suffixes(_task.accepted_suffixes, course_obj.upload_suffixes)
+        name = Path(filename or "video").name
+        suffix = Path(name).suffix.lower()
+        kind = kind_for(suffix) if suffix in accepts else None
+        if kind is None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"この形式は提出できません（受付: {', '.join(accepts)}）",
+            )
+        if suffix not in STREAMED_SUFFIXES:
+            raise HTTPException(
+                status_code=400, detail="この形式は通常の提出（/submit）で送ってください"
+            )
+
+        idem = request.headers.get("Idempotency-Key")
+        # **本文を読む前に** 再送を弾く（3 GB を無駄に受けない）。
+        if idem is not None:
+            hit = app_state.submissions.peek_idempotent(
+                tenant_id=me.tenant_id,
+                idempotency_key=idem,
+                subject_profile=course_obj.subject_profile,
+                grading_starts_at=_task.grading_starts_at,
+            )
+            if hit is not None:
+                return RedirectResponse(
+                    f"/submissions/{hit.submission.id}?again=1", status_code=303
+                )
+
+        # ストリームをストアへ流す。`async for` が各チャンクの間でループへ
+        # 戻すので、同期 write でもイベントループは塞がらない。
+        submission_id = SubmissionId(new_id("sub"))
+        artifact_id = ArtifactId(new_id("art"))
+        storage_key = artifact_storage_key(me.tenant_id, submission_id, artifact_id, name)
+        handle = app_state.video_store.writer(storage_key)
+        try:
+            async for chunk in request.stream():
+                if not chunk:
+                    continue
+                if handle.size + len(chunk) > app_state.max_video_bytes:
+                    handle.abort()
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"ファイルが大きすぎます（上限 {app_state.max_video_bytes} バイト）",
+                    )
+                handle.write(chunk)
+            blob = handle.commit()
+        except HTTPException:
+            raise
+        except BaseException:
+            handle.abort()
+            raise
+
+        try:
+            result = app_state.submissions.record_streamed(
+                tenant_id=me.tenant_id,
+                task_version_id=version.id,
+                learner_id=me.user_id,
+                subject_profile=course_obj.subject_profile,
+                filename=name,
+                kind=kind,
+                submission_id=submission_id,
+                artifact_id=artifact_id,
+                storage_key=storage_key,
+                byte_size=blob.byte_size,
+                sha256=blob.sha256,
+                idempotency_key=idem,
+                grading_starts_at=_task.grading_starts_at,
+                submitted_as=_role_in(app_state, course_obj.id, me.user_id),
+            )
+        except SubmissionRejected as exc:
+            app_state.video_store.delete(storage_key)
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except BaseException:
+            app_state.video_store.delete(storage_key)
+            raise
 
         return RedirectResponse(
             f"/submissions/{result.submission.id}" + ("?again=1" if result.deduplicated else ""),
@@ -463,21 +610,24 @@ def create_app(app_state: StudentApp) -> FastAPI:
         )
 
     @app.get("/submissions/{submission_id}/artifacts/{artifact_id}")
-    def submitted_file(submission_id: str, artifact_id: str, me: Me) -> Response:
+    def submitted_file(request: Request, submission_id: str, artifact_id: str, me: Me) -> Response:
         """提出したファイルそのものを返す（#75）。
 
         **見せてよいのは本人だけ。** `_submission_view` が既にその判定を
         持っている（他人の提出は 404 にして、存在自体を漏らさない）ので、
         そこを通す。課題文の画像（#64）と形は近いが、**見せる相手が違う。**
 
-        `Content-Type` は拡張子から引く。分からなければ
-        `application/octet-stream` で返し、ブラウザに解釈させない
-        （学習者が出したファイルをそのまま返す経路である）。
+        動画は別ストアから **Range 対応でストリーム配信**する
+        （`<video>` のシークに 206 が要る。全体をメモリに読まない）。
+        それ以外は拡張子から `Content-Type` を引き、分からなければ
+        `application/octet-stream` で返し、ブラウザに解釈させない。
         """
         loaded = _submission_view(app_state, me, SubmissionId(submission_id))
         artifact = next((a for a in loaded.submission.artifacts if str(a.id) == artifact_id), None)
         if artifact is None:
             raise HTTPException(status_code=404, detail="提出物が見つかりません")
+        if artifact.kind is ArtifactKind.VIDEO:
+            return _serve_video(app_state, request, artifact, artifact_id)
         try:
             payload = app_state.store.get(artifact.storage_key)
         except Exception as exc:
@@ -911,7 +1061,47 @@ def _submission_view(
 
 # 画面に埋め込んでよい種別。**それ以外はダウンロードさせる** ── 学習者が
 # 出したファイルをインラインで返すと、ブラウザが中身を解釈しうる（#75）。
-_INLINE_KINDS = (ArtifactKind.IMAGE, ArtifactKind.PDF)
+_INLINE_KINDS = (ArtifactKind.IMAGE, ArtifactKind.PDF, ArtifactKind.VIDEO)
+
+
+def _serve_video(
+    app_state: StudentApp, request: Request, artifact: object, artifact_id: str
+) -> Response:
+    """動画を Range 対応でストリーム配信する。**全体をメモリに読まない。**"""
+    store = app_state.video_store
+    if store is None:
+        raise HTTPException(status_code=404, detail="提出物が見つかりません")
+    key = artifact.storage_key  # type: ignore[attr-defined]
+    filename = artifact.filename or artifact_id  # type: ignore[attr-defined]
+    try:
+        size = store.size(key)
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail="提出物が見つかりません") from exc
+    headers = {
+        "Accept-Ranges": "bytes",
+        "Content-Disposition": f'inline; filename="{filename}"',
+        "X-Content-Type-Options": "nosniff",
+        "Cache-Control": "private, max-age=300",
+    }
+    media_type = content_type_for(artifact.filename)  # type: ignore[attr-defined]
+    span = parse_range(request.headers.get("range"), size)
+    if span is None:
+        return StreamingResponse(
+            iter_file(store.open_read(key)),
+            media_type=media_type,
+            headers={**headers, "Content-Length": str(size)},
+        )
+    start, end = span
+    return StreamingResponse(
+        iter_file(store.open_read(key), start=start, length=end - start + 1),
+        status_code=206,
+        media_type=media_type,
+        headers={
+            **headers,
+            "Content-Range": f"bytes {start}-{end}/{size}",
+            "Content-Length": str(end - start + 1),
+        },
+    )
 
 
 def _submitted_files(submission: Submission) -> tuple[dict[str, object], ...]:
@@ -927,6 +1117,7 @@ def _submitted_files(submission: Submission) -> tuple[dict[str, object], ...]:
             "kind": artifact.kind,
             "is_image": artifact.kind is ArtifactKind.IMAGE,
             "is_pdf": artifact.kind is ArtifactKind.PDF,
+            "is_video": artifact.kind is ArtifactKind.VIDEO,
             "byte_size": artifact.byte_size,
         }
         for artifact in submission.gradable_artifacts
