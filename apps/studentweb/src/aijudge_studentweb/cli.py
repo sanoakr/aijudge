@@ -36,6 +36,9 @@ ENV_ARTIFACT_DIR = "AIJUDGE_ARTIFACT_DIR"
 ENV_VIDEO_DIR = "AIJUDGE_VIDEO_DIR"
 ENV_MAX_UPLOAD_BYTES = "AIJUDGE_MAX_UPLOAD_BYTES"
 ENV_MAX_VIDEO_BYTES = "AIJUDGE_MAX_VIDEO_BYTES"
+ENV_MAX_CONCURRENT_VIDEO = "AIJUDGE_MAX_CONCURRENT_VIDEO"
+# 待ち時間の概算に使う AI ワーカー数のヒント（採点を止める値ではない）。
+ENV_AI_WORKERS = "AIJUDGE_AI_WORKERS"
 ENV_PROFILES_DIR = "AIJUDGE_PROFILES_DIR"
 ENV_WORKERS = "AIJUDGE_WEB_WORKERS"
 # 教員コンソールの場所（#103）。役割はコースごとなので、TA や教員として
@@ -44,6 +47,8 @@ ENV_CONSOLE_URL = "AIJUDGE_CONSOLE_URL"
 DEFAULT_ARTIFACT_DIR = Path.home() / ".aijudge" / "artifacts"
 DEFAULT_MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 DEFAULT_MAX_VIDEO_BYTES = 5 * 1024 * 1024 * 1024
+DEFAULT_MAX_CONCURRENT_VIDEO = 4
+DEFAULT_AI_WORKERS = 1
 
 
 def build_app(args: argparse.Namespace):
@@ -57,6 +62,8 @@ def build_app(args: argparse.Namespace):
             video_store=video_store,
             max_upload_bytes=args.max_upload_bytes,
             max_video_bytes=args.max_video_bytes,
+            max_concurrent_video=args.max_concurrent_video,
+            ai_workers=args.ai_workers,
             console_url=args.console_url,
             console_port=args.console_port,
         )
@@ -76,6 +83,10 @@ def make_app():
         video_dir=Path(video).expanduser() if video else None,
         max_upload_bytes=int(os.environ.get(ENV_MAX_UPLOAD_BYTES, DEFAULT_MAX_UPLOAD_BYTES)),
         max_video_bytes=int(os.environ.get(ENV_MAX_VIDEO_BYTES, DEFAULT_MAX_VIDEO_BYTES)),
+        max_concurrent_video=int(
+            os.environ.get(ENV_MAX_CONCURRENT_VIDEO, DEFAULT_MAX_CONCURRENT_VIDEO)
+        ),
+        ai_workers=int(os.environ.get(ENV_AI_WORKERS, DEFAULT_AI_WORKERS)),
         profiles=Path(os.environ.get(ENV_PROFILES_DIR, REPO_ROOT / "subjects")),
         console_url=os.environ.get(ENV_CONSOLE_URL, ""),
         console_port=int(os.environ.get("AIJUDGE_CONSOLE_PORT", 8765)),
@@ -93,6 +104,8 @@ def _export_env(args: argparse.Namespace) -> None:
         os.environ[ENV_VIDEO_DIR] = str(args.video_dir)
     os.environ[ENV_MAX_UPLOAD_BYTES] = str(args.max_upload_bytes)
     os.environ[ENV_MAX_VIDEO_BYTES] = str(args.max_video_bytes)
+    os.environ[ENV_MAX_CONCURRENT_VIDEO] = str(args.max_concurrent_video)
+    os.environ[ENV_AI_WORKERS] = str(args.ai_workers)
     os.environ[ENV_PROFILES_DIR] = str(args.profiles)
     os.environ[ENV_CONSOLE_URL] = args.console_url
     os.environ["AIJUDGE_CONSOLE_PORT"] = str(args.console_port)
@@ -126,6 +139,18 @@ def main(argv: list[str] | None = None) -> int:
         type=int,
         default=int(os.environ.get(ENV_MAX_VIDEO_BYTES, DEFAULT_MAX_VIDEO_BYTES)),
         help="動画 1 ファイルの上限（既定 5 GiB）",
+    )
+    parser.add_argument(
+        "--max-concurrent-video",
+        type=int,
+        default=int(os.environ.get(ENV_MAX_CONCURRENT_VIDEO, DEFAULT_MAX_CONCURRENT_VIDEO)),
+        help="1 プロセスで同時に受ける動画アップロード数（既定 4）。超過は 429",
+    )
+    parser.add_argument(
+        "--ai-workers",
+        type=int,
+        default=int(os.environ.get(ENV_AI_WORKERS, DEFAULT_AI_WORKERS)),
+        help="AI ワーカー数のヒント（採点待ち時間の概算に使うだけ・既定 1）",
     )
     parser.add_argument(
         "--profiles",

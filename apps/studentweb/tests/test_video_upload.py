@@ -239,3 +239,22 @@ def test_video_disabled_when_no_store_configured(tmp_path: Path) -> None:
         assert res.status_code == 501
     finally:
         w.close()
+
+
+def test_too_many_concurrent_uploads_get_429_with_retry_after(world: World) -> None:
+    world.register_and_login()
+    # 全スロットが埋まっている状況を作る（実際の並行は TestClient では作れない）。
+    world.app.active_video_uploads = world.app.max_concurrent_video
+    res = world.post_video(b"PRETEND-MP4")
+    assert res.status_code == 429
+    assert int(res.headers["retry-after"]) > 0
+    # 空けば通る。
+    world.app.active_video_uploads = 0
+    assert world.post_video(b"PRETEND-MP4").status_code == 303
+
+
+def test_a_finished_upload_frees_its_slot(world: World) -> None:
+    world.register_and_login()
+    assert world.app.active_video_uploads == 0
+    assert world.post_video(b"PRETEND-MP4").status_code == 303
+    assert world.app.active_video_uploads == 0

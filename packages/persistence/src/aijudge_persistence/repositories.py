@@ -18,7 +18,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import datetime
 
-from sqlalchemy import case, delete, func, select, update
+from sqlalchemy import and_, case, delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -800,6 +800,64 @@ class SqlJobQueue:
         if phase is not None:
             statement = statement.where(GradingJobRow.phase == phase.value)
         return len(self._session.execute(statement).scalars().all())
+
+    def position_in_queue(
+        self, submission_id: SubmissionId, phase: GradingPhase, now: datetime
+    ) -> int | None:
+        mine = (
+            self._session.execute(
+                select(GradingJobRow).where(
+                    GradingJobRow.submission_id == str(submission_id),
+                    GradingJobRow.phase == phase.value,
+                    GradingJobRow.state.in_((JobState.QUEUED.value, JobState.RUNNING.value)),
+                )
+            )
+            .scalars()
+            .first()
+        )
+        if mine is None:
+            return None
+        if mine.state == JobState.RUNNING.value:
+            return 0
+        if mine.available_at > now:
+            # 採点開始時刻まで寝かせてある（試験）。順位は約束できない。
+            return None
+        running = (
+            select(func.count())
+            .select_from(GradingJobRow)
+            .where(
+                GradingJobRow.phase == phase.value,
+                GradingJobRow.state == JobState.RUNNING.value,
+            )
+        )
+        # `reserve` の順序（available_at, created_at, id）で「自分より前」を数える。
+        # 行値比較は SQLite のビルドで挙動が揺れるので明示的に展開する。
+        before_me = or_(
+            GradingJobRow.available_at < mine.available_at,
+            and_(
+                GradingJobRow.available_at == mine.available_at,
+                or_(
+                    GradingJobRow.created_at < mine.created_at,
+                    and_(
+                        GradingJobRow.created_at == mine.created_at,
+                        GradingJobRow.id < mine.id,
+                    ),
+                ),
+            ),
+        )
+        ahead = (
+            select(func.count())
+            .select_from(GradingJobRow)
+            .where(
+                GradingJobRow.phase == phase.value,
+                GradingJobRow.state == JobState.QUEUED.value,
+                GradingJobRow.available_at <= now,
+                before_me,
+            )
+        )
+        return int(self._session.execute(running).scalar_one()) + int(
+            self._session.execute(ahead).scalar_one()
+        )
 
 
 def _job_row(job: GradingJob) -> GradingJobRow:

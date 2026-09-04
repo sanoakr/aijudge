@@ -19,6 +19,8 @@ _ENV_KEYS = (
     cli.ENV_VIDEO_DIR,
     cli.ENV_MAX_UPLOAD_BYTES,
     cli.ENV_MAX_VIDEO_BYTES,
+    cli.ENV_MAX_CONCURRENT_VIDEO,
+    cli.ENV_AI_WORKERS,
     cli.ENV_PROFILES_DIR,
     cli.ENV_CONSOLE_URL,
     "AIJUDGE_CONSOLE_PORT",
@@ -53,6 +55,8 @@ def test_export_env_reflects_resolved_args(monkeypatch, tmp_path: Path) -> None:
         video_dir=tmp_path / "v",
         max_upload_bytes=1,
         max_video_bytes=2,
+        max_concurrent_video=3,
+        ai_workers=5,
         profiles=tmp_path / "subjects",
         console_url="https://x/teach",
         console_port=8443,
@@ -62,6 +66,8 @@ def test_export_env_reflects_resolved_args(monkeypatch, tmp_path: Path) -> None:
 
     assert os.environ[cli.ENV_VIDEO_DIR] == str(tmp_path / "v")
     assert os.environ[cli.ENV_MAX_VIDEO_BYTES] == "2"
+    assert os.environ[cli.ENV_MAX_CONCURRENT_VIDEO] == "3"
+    assert os.environ[cli.ENV_AI_WORKERS] == "5"
     assert os.environ["AIJUDGE_CONSOLE_PORT"] == "8443"
 
 

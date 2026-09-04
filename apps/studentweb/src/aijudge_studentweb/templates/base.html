@@ -310,8 +310,25 @@ document.querySelectorAll(".js-only").forEach(function (el) { el.hidden = false;
   var note = document.querySelector("[data-poll]");
   if (!note) return;
   var url = note.getAttribute("data-poll");
+  var queueEl = note.querySelector("[data-queue]");
   var wait = 2000;
   var LIMIT = 15000;
+  function fmtEta(sec) {
+    if (sec == null) return "";
+    if (sec < 60) return "1 分未満";
+    return "約 " + Math.round(sec / 60) + " 分";
+  }
+  function showQueue(state) {
+    if (!queueEl) return;
+    if (state.queue_position == null) { queueEl.hidden = true; return; }
+    var parts = [];
+    if (state.queue_position > 0) parts.push("あなたの前に " + state.queue_position + " 件");
+    else parts.push("まもなく開始");
+    var eta = fmtEta(state.eta_seconds);
+    if (eta) parts.push("目安 " + eta);
+    queueEl.textContent = "（" + parts.join(" ・ ") + "）";
+    queueEl.hidden = false;
+  }
   function tick() {
     fetch(url, { headers: { "Accept": "application/json" } })
       .then(function (r) { return r.ok ? r.json() : null; })
@@ -319,6 +336,7 @@ document.querySelectorAll(".js-only").forEach(function (el) { el.hidden = false;
         // 応答が読めないときは諦めて案内を残す。黙って回し続けない。
         if (!state) return;
         if (!state.working) { window.location.reload(); return; }
+        showQueue(state);
         wait = Math.min(Math.round(wait * 1.5), LIMIT);
         window.setTimeout(tick, wait);
       })
