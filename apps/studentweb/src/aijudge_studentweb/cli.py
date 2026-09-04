@@ -2,18 +2,25 @@
 
     uv run aijudge-web --create-schema      # 開発時（スキーマを作る）
     uv run aijudge-web --host 0.0.0.0
+    uv run aijudge-web --workers 4          # 締切集中・動画アップロードの同時数対策
 
 既定は `127.0.0.1` にしか bind しない。他の端末から使うなら
 `tailscale serve` を前に立てる（`docs/RUNNING.md`）。TLS 終端が
 `X-Forwarded-Proto: https` を付けるので、セッション Cookie に `Secure` が
 自動で付く。プロキシを立てずに直接 bind する場合は平文になるので、
 その経路を学生に配らないこと。
+
+**`--workers` を 2 以上にすると uvicorn は子プロセスを fork する。**
+子はこのモジュールを import し直して `make_app()` を呼ぶので、設定は
+**環境変数からしか渡らない**（argparse の値は届かない）。親が解決した値を
+`os.environ` へ書き出してから起動する。
 """
 
 from __future__ import annotations
 
 import argparse
 import os
+import sys
 from pathlib import Path
 
 import uvicorn
@@ -29,10 +36,14 @@ ENV_ARTIFACT_DIR = "AIJUDGE_ARTIFACT_DIR"
 ENV_VIDEO_DIR = "AIJUDGE_VIDEO_DIR"
 ENV_MAX_UPLOAD_BYTES = "AIJUDGE_MAX_UPLOAD_BYTES"
 ENV_MAX_VIDEO_BYTES = "AIJUDGE_MAX_VIDEO_BYTES"
+ENV_PROFILES_DIR = "AIJUDGE_PROFILES_DIR"
+ENV_WORKERS = "AIJUDGE_WEB_WORKERS"
 # 教員コンソールの場所（#103）。役割はコースごとなので、TA や教員として
 # 取っているコースの行から渡す。**空でも動く。**
 ENV_CONSOLE_URL = "AIJUDGE_CONSOLE_URL"
 DEFAULT_ARTIFACT_DIR = Path.home() / ".aijudge" / "artifacts"
+DEFAULT_MAX_UPLOAD_BYTES = 20 * 1024 * 1024
+DEFAULT_MAX_VIDEO_BYTES = 5 * 1024 * 1024 * 1024
 
 
 def build_app(args: argparse.Namespace):
@@ -50,6 +61,41 @@ def build_app(args: argparse.Namespace):
             console_port=args.console_port,
         )
     )
+
+
+def make_app():
+    """環境変数だけからアプリを組む（`--workers > 1` の子プロセス用）。
+
+    親が `_export_env` で書き出した値を読む。`--create-schema` は開発用なので
+    ここでは常に無効（複数ワーカーは本番構成）。
+    """
+    video = os.environ.get(ENV_VIDEO_DIR)
+    ns = argparse.Namespace(
+        database_url=os.environ.get(ENV_DATABASE_URL),
+        artifacts=Path(os.environ.get(ENV_ARTIFACT_DIR, DEFAULT_ARTIFACT_DIR)).expanduser(),
+        video_dir=Path(video).expanduser() if video else None,
+        max_upload_bytes=int(os.environ.get(ENV_MAX_UPLOAD_BYTES, DEFAULT_MAX_UPLOAD_BYTES)),
+        max_video_bytes=int(os.environ.get(ENV_MAX_VIDEO_BYTES, DEFAULT_MAX_VIDEO_BYTES)),
+        profiles=Path(os.environ.get(ENV_PROFILES_DIR, REPO_ROOT / "subjects")),
+        console_url=os.environ.get(ENV_CONSOLE_URL, ""),
+        console_port=int(os.environ.get("AIJUDGE_CONSOLE_PORT", 8765)),
+        create_schema=False,
+    )
+    return build_app(ns)
+
+
+def _export_env(args: argparse.Namespace) -> None:
+    """解決済みの設定を子プロセスへ渡すため環境変数に焼き付ける。"""
+    if args.database_url:
+        os.environ[ENV_DATABASE_URL] = args.database_url
+    os.environ[ENV_ARTIFACT_DIR] = str(args.artifacts)
+    if args.video_dir:
+        os.environ[ENV_VIDEO_DIR] = str(args.video_dir)
+    os.environ[ENV_MAX_UPLOAD_BYTES] = str(args.max_upload_bytes)
+    os.environ[ENV_MAX_VIDEO_BYTES] = str(args.max_video_bytes)
+    os.environ[ENV_PROFILES_DIR] = str(args.profiles)
+    os.environ[ENV_CONSOLE_URL] = args.console_url
+    os.environ["AIJUDGE_CONSOLE_PORT"] = str(args.console_port)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -72,16 +118,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--max-upload-bytes",
         type=int,
-        default=int(os.environ.get(ENV_MAX_UPLOAD_BYTES, 20 * 1024 * 1024)),
+        default=int(os.environ.get(ENV_MAX_UPLOAD_BYTES, DEFAULT_MAX_UPLOAD_BYTES)),
         help="通常提出 1 ファイルの上限（既定 20 MiB）",
     )
     parser.add_argument(
         "--max-video-bytes",
         type=int,
-        default=int(os.environ.get(ENV_MAX_VIDEO_BYTES, 5 * 1024 * 1024 * 1024)),
+        default=int(os.environ.get(ENV_MAX_VIDEO_BYTES, DEFAULT_MAX_VIDEO_BYTES)),
         help="動画 1 ファイルの上限（既定 5 GiB）",
     )
-    parser.add_argument("--profiles", type=Path, default=REPO_ROOT / "subjects")
+    parser.add_argument(
+        "--profiles",
+        type=Path,
+        default=Path(os.environ.get(ENV_PROFILES_DIR, REPO_ROOT / "subjects")),
+    )
     parser.add_argument(
         "--console-url",
         default=os.environ.get(ENV_CONSOLE_URL, ""),
@@ -96,13 +146,39 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8080)
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=int(os.environ.get(ENV_WORKERS, 1)),
+        help="uvicorn ワーカープロセス数（既定 1）。締切集中や動画の同時アップロードで増やす",
+    )
     parser.add_argument("--create-schema", action="store_true", help="開発用")
     args = parser.parse_args(argv)
 
-    app = build_app(args)
-    print(f"→ http://{args.host}:{args.port}/")
+    print(f"→ http://{args.host}:{args.port}/  (workers={args.workers})")
     print("採点は aijudge-worker が行います（別プロセスで起動してください）")
-    uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
+
+    if args.workers > 1:
+        if args.create_schema:
+            print("--workers > 1 と --create-schema は併用できません（本番構成）", file=sys.stderr)
+            return 2
+        if (args.database_url or "").startswith("sqlite"):
+            print(
+                "警告: SQLite で複数ワーカーは書き込みが競合します。PostgreSQL にしてください。",
+                file=sys.stderr,
+            )
+        # スキーマ作成が要るなら先に単独で済ませておく前提。子は env から組む。
+        _export_env(args)
+        uvicorn.run(
+            "aijudge_studentweb.cli:make_app",
+            host=args.host,
+            port=args.port,
+            workers=args.workers,
+            factory=True,
+            log_level="warning",
+        )
+    else:
+        uvicorn.run(build_app(args), host=args.host, port=args.port, log_level="warning")
     return 0
 
 

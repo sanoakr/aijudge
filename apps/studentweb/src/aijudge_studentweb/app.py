@@ -24,6 +24,7 @@ from typing import Annotated
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
+from starlette.concurrency import run_in_threadpool
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from aijudge_authoring import images, render_statement
@@ -465,8 +466,10 @@ def create_app(app_state: StudentApp) -> FastAPI:
                     f"/submissions/{hit.submission.id}?again=1", status_code=303
                 )
 
-        # ストリームをストアへ流す。`async for` が各チャンクの間でループへ
-        # 戻すので、同期 write でもイベントループは塞がらない。
+        # ストリームをストアへ流す。**書き込み・fsync はブロッキング**なので
+        # スレッドプールへ逃がす ── 同時アップロードが多いとき、1 本の fsync
+        # （SMR HDD で数 GB flush = 数秒）でイベントループ全体が止まるのを防ぐ。
+        # `async for` の合間だけでなく write そのものもループを塞がない。
         submission_id = SubmissionId(new_id("sub"))
         artifact_id = ArtifactId(new_id("art"))
         storage_key = artifact_storage_key(me.tenant_id, submission_id, artifact_id, name)
@@ -476,17 +479,17 @@ def create_app(app_state: StudentApp) -> FastAPI:
                 if not chunk:
                     continue
                 if handle.size + len(chunk) > app_state.max_video_bytes:
-                    handle.abort()
+                    await run_in_threadpool(handle.abort)
                     raise HTTPException(
                         status_code=413,
                         detail=f"ファイルが大きすぎます（上限 {app_state.max_video_bytes} バイト）",
                     )
-                handle.write(chunk)
-            blob = handle.commit()
+                await run_in_threadpool(handle.write, chunk)
+            blob = await run_in_threadpool(handle.commit)
         except HTTPException:
             raise
         except BaseException:
-            handle.abort()
+            await run_in_threadpool(handle.abort)
             raise
 
         try:
