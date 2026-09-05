@@ -1,0 +1,15 @@
+# /srv/aijudge（DB ダンプ・WAL・提出物 artifacts・observations・config）を
+# restic でバックアップする。target 1（オンボックス・別ディスク）用。
+# restic のパスワード等は aijudge.env とは別ファイルで渡す（隔離のため）。
+[Unit]
+Description=aiJudge restic backup of /srv/aijudge (target 1)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=aijudge
+Group=aijudge
+EnvironmentFile=/srv/aijudge/config/aijudge-restic.env
+ExecStart=/usr/local/sbin/aijudge-restic-backup.sh
+Nice=10
+IOSchedulingClass=idle

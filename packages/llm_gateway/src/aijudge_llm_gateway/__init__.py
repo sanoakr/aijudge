@@ -15,7 +15,13 @@ from .gateway import (
     StructuredResult,
     extract_json,
 )
-from .provider import EmbeddingProvider, OllamaProvider, Provider, ScriptedProvider
+from .provider import (
+    EmbeddingProvider,
+    FallbackProvider,
+    OllamaProvider,
+    Provider,
+    ScriptedProvider,
+)
 from .types import (
     ChatMessage,
     DataClass,
@@ -42,6 +48,9 @@ DEFAULT_MODEL = "gemma4:e4b"
 
 ENV_BASE_URL = "AIJUDGE_LLM_BASE_URL"
 ENV_MODEL = "AIJUDGE_LLM_MODEL"
+# 未設定なら平常運転（フォールバックなし）。プライマリが落ちている間だけ
+# ここが指すホストに切り替える。**学外を指してはならない**（P7）。
+ENV_FALLBACK_BASE_URL = "AIJUDGE_LLM_FALLBACK_BASE_URL"
 
 
 def default_model() -> str:
@@ -49,20 +58,31 @@ def default_model() -> str:
 
 
 def default_gateway() -> LlmGateway:
-    """環境変数で上書き可能な既定ゲートウェイ。"""
-    return LlmGateway(OllamaProvider(os.environ.get(ENV_BASE_URL, DEFAULT_BASE_URL)))
+    """環境変数で上書き可能な既定ゲートウェイ。
+
+    `AIJUDGE_LLM_FALLBACK_BASE_URL` を設定すると、プライマリが応答しない間だけ
+    そちらに切り替える（`FallbackProvider` 参照）。
+    """
+    primary = OllamaProvider(os.environ.get(ENV_BASE_URL, DEFAULT_BASE_URL), name="primary")
+    fallback_url = os.environ.get(ENV_FALLBACK_BASE_URL)
+    if not fallback_url:
+        return LlmGateway(primary)
+    secondary = OllamaProvider(fallback_url, name="fallback")
+    return LlmGateway(FallbackProvider(primary, secondary))
 
 
 __all__ = [
     "DEFAULT_BASE_URL",
     "DEFAULT_MODEL",
     "ENV_BASE_URL",
+    "ENV_FALLBACK_BASE_URL",
     "ENV_MODEL",
     "ChatMessage",
     "DataClass",
     "EmbeddingProvider",
     "EmbeddingRequest",
     "EmbeddingResponse",
+    "FallbackProvider",
     "LlmError",
     "LlmGateway",
     "LlmRequest",

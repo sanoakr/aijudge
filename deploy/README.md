@@ -19,6 +19,8 @@
 | `nginx/aijudge.conf.template` | リバースプロキシの雛形。`AIJUDGE_HOSTNAME` を置換して使う |
 | `polkit/49-aijudge.rules` | `aijudge` グループが sudo なしで unit を起動停止できるようにする |
 | `aijudge.env.example` | `EnvironmentFile` の雛形。値を埋めて `/srv/aijudge/config/aijudge.env` に置く |
+| `aijudge-restic-backup.sh` | `/srv/aijudge` を restic でバックアップするスクリプト（`/usr/local/sbin/` に置く） |
+| `aijudge-restic.env.example` | restic 専用の `EnvironmentFile` の雛形。パスワードを本体の env から隔離する |
 
 ## 前提（`docs/RUNNING.md` と共通）
 
@@ -70,3 +72,34 @@ journalctl -u aijudge-autodeploy -f
 
 設計の背景（なぜ pull 型 timer で GitHub Actions からの push 型にしないか等）は
 `docs/design/00_システム設計方針と構築計画.md` と、運用元の非公開デプロイ手順書を参照。
+
+## バックアップ（restic、target 1 = オンボックス）
+
+`bootstrap.sh` はこれを自動化しない（DB ダンプの `aijudge-db-backup.{service,timer}` 同様、
+初回投入は運用者が手で行う一回限りの操作のため）。
+
+```fish
+# パスワードファイル・env（root:aijudge 0640。restic のパスワードは本体の
+# aijudge.env とは別ファイルに置く — web/review/worker の環境に触れさせないため）
+sudo install -d -m 0750 -o root -g aijudge /srv/aijudge/config
+sudo sh -c 'umask 077; openssl rand -base64 32 > /srv/aijudge/config/restic-password'
+sudo chown root:aijudge /srv/aijudge/config/restic-password
+sudo chmod 640 /srv/aijudge/config/restic-password
+
+sudo cp deploy/aijudge-restic.env.example /srv/aijudge/config/aijudge-restic.env
+sudo $EDITOR /srv/aijudge/config/aijudge-restic.env   # RESTIC_REPOSITORY を自分の target 1 の場所に
+sudo chown root:aijudge /srv/aijudge/config/aijudge-restic.env
+sudo chmod 640 /srv/aijudge/config/aijudge-restic.env
+
+sudo install -m 0755 deploy/aijudge-restic-backup.sh /usr/local/sbin/aijudge-restic-backup.sh
+
+# 初期化は手動で一度だけ（誤ったパスに気づかず新規リポジトリを作る事故を避ける）
+sudo -u aijudge bash -c 'set -a; source /srv/aijudge/config/aijudge-restic.env; set +a; restic init'
+
+sudo cp deploy/systemd/aijudge-restic-backup.{service,timer} /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now aijudge-restic-backup.timer
+```
+
+target 2（オフボックス）は同じ形の env ファイルをもう 1 組（別リポジトリ・別パスワード）用意し、
+別名の timer をもう一つ足すこと（v1 では target 1 のみをここに含める）。
