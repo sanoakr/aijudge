@@ -121,6 +121,18 @@ def test_a_learner_sees_their_course_but_nothing_to_manage(world: World) -> None
     assert f"/courses/{world.course.id}/queue" not in body
 
 
+def test_a_user_with_no_enrolments_is_told_so(world: World) -> None:
+    """**空でも見出しは消さない**（#131）。SSO 直後の利用者はどのコースにも
+    受講登録が無いのが普通に起きる ── 見出しごと消すと、ログインできたのに
+    画面に何も無いように見える。
+    """
+    world.register("nobody", None)
+    body = world.client("nobody").get("/manage").text
+    assert "受講しているコース" in body
+    assert "受講しているコースがありません" in body
+    assert "採点を担当しているコースがありません" in body
+
+
 def test_a_learner_cannot_open_the_course_management_page(world: World) -> None:
     world.register("student", Role.LEARNER)
     response = world.client("student").get(f"/manage/courses/{world.course.id}")
