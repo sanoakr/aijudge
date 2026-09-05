@@ -373,8 +373,10 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
     # -- ログイン ----------------------------------------------------------
 
     @app.get("/login", response_class=HTMLResponse)
-    def login_form(request: Request) -> HTMLResponse:
-        return TEMPLATES.TemplateResponse(request, "login.html", {"error": None})
+    def login_form(request: Request, changed: str = "") -> HTMLResponse:
+        return TEMPLATES.TemplateResponse(
+            request, "login.html", {"error": None, "changed": bool(changed)}
+        )
 
     @app.post("/login")
     def login(

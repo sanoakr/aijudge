@@ -1043,6 +1043,59 @@ def register(templates) -> APIRouter:
             {"me": me, "login": login, "password": password, "tenant_admin": tenant_admin},
         )
 
+    # -- 自分のパスワードを変える --------------------------------------------
+    #
+    # `/users/new` と違って**本人なら誰でも**使える（管理者限定にしない）。
+    # ローカル利用者（#127 で管理者が作った学習者・教員アカウント）は、
+    # 発行時の一度きり表示パスワードのまま使い続けるほかなく、それを変える
+    # 手段がどこにも無かった。SSO 利用者にとっては無意味な画面だが、害も
+    # 無いので出し分けはしない（自分の分の一操作が増えるだけ）。
+
+    @router.get("/account/password", response_class=HTMLResponse)
+    def account_password_form(request: Request) -> Response:
+        from .app import require_principal
+
+        me = require_principal(request)
+        return templates.TemplateResponse(request, "manage_account_password.html", {"me": me})
+
+    @router.post("/account/password", response_class=HTMLResponse)
+    def account_password_change(
+        request: Request,
+        current_password: Annotated[str, Form()],
+        new_password: Annotated[str, Form()],
+        new_password_confirm: Annotated[str, Form()],
+    ) -> Response:
+        from .app import SESSION_COOKIE, require_principal
+
+        me = require_principal(request)
+        console = _console(request)
+
+        def error(message: str) -> Response:
+            return templates.TemplateResponse(
+                request, "manage_account_password.html", {"me": me, "error": message}
+            )
+
+        # `hash_password`/`change_password` 自体は長さを見ない
+        # （生成パスワードは記号を含まないことがある）。ここで最低限だけ弾く。
+        if len(new_password) < 12:
+            return error("新しいパスワードは 12 文字以上にしてください")
+        if new_password != new_password_confirm:
+            return error("新しいパスワードが一致しません")
+
+        with console.database.unit_of_work() as uow:
+            auth = AuthService(uow.identity)
+            try:
+                auth.change_password(me.user_id, current=current_password, new=new_password)
+            except AuthenticationFailed as exc:
+                return error(str(exc))
+            uow.commit()
+        # change_password は自分のセッションも含めて全部失効させる
+        # （乗っ取られていた場合の復旧手段がこれしかない、が本人の操作でも
+        # 例外なく効く）。ログイン画面へ戻し、Cookie も捨てる。
+        response = RedirectResponse("/login?changed=1", status_code=303)
+        response.delete_cookie(SESSION_COOKIE, path="/")
+        return response
+
     @router.get("/courses/{course_id}", response_class=HTMLResponse)
     def course_settings(request: Request, course_id: str, saved: str = "") -> Response:
         """**コース全体**の設定 ── 基本情報・受講者・自動確定・提出形式・採点設定。

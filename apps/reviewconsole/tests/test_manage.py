@@ -22,7 +22,7 @@ from aijudge_admin import ensure_course
 from aijudge_authoring.statement import render_statement
 from aijudge_core import Role
 from aijudge_core.ids import CourseId, TaskVersionId, TenantId
-from aijudge_identity import AuthService
+from aijudge_identity import AuthenticationFailed, AuthService
 from aijudge_persistence import Database
 from aijudge_reviewconsole import SESSION_COOKIE, Console, create_app
 from aijudge_submission import FilesystemArtifactStore
@@ -354,6 +354,92 @@ def test_an_unknown_subject_profile_is_refused(world: World) -> None:
     )
     assert response.status_code == 400
     assert "科目プロファイル" in response.json()["detail"]
+
+
+# --------------------------------------------------------------------------
+# パスワード変更（本人向け・ローカル利用者のみ意味を持つ）
+# --------------------------------------------------------------------------
+
+
+def test_anyone_can_open_their_own_password_form(world: World) -> None:
+    """管理者専用にしない ── #127 で発行したパスワードを変える手段が
+    無かった。学習者やTAでも自分のパスワードは変えられて当然。"""
+    world.register("student", Role.LEARNER)
+    assert world.client("student").get("/manage/account/password").status_code == 200
+
+
+def test_changing_password_requires_the_current_one(world: World) -> None:
+    world.register("teacher", Role.INSTRUCTOR)
+    response = world.client("teacher").post(
+        "/manage/account/password",
+        data={
+            "current_password": "wrong",
+            "new_password": "a brand new password",
+            "new_password_confirm": "a brand new password",
+        },
+    )
+    assert response.status_code == 200
+    assert "現在のパスワードが違います" in response.text
+    with world.database.unit_of_work() as uow:
+        # 変わっていないことを、旧パスワードでログインできることで確かめる。
+        AuthService(uow.identity).login(tenant_id=TENANT, login="teacher", password=PASSWORD)
+
+
+def test_new_password_must_be_long_enough(world: World) -> None:
+    world.register("teacher", Role.INSTRUCTOR)
+    response = world.client("teacher").post(
+        "/manage/account/password",
+        data={
+            "current_password": PASSWORD,
+            "new_password": "short1",
+            "new_password_confirm": "short1",
+        },
+    )
+    assert response.status_code == 200
+    assert "12 文字以上" in response.text
+
+
+def test_new_password_confirmation_must_match(world: World) -> None:
+    world.register("teacher", Role.INSTRUCTOR)
+    response = world.client("teacher").post(
+        "/manage/account/password",
+        data={
+            "current_password": PASSWORD,
+            "new_password": "a brand new password",
+            "new_password_confirm": "not the same password",
+        },
+    )
+    assert response.status_code == 200
+    assert "一致しません" in response.text
+
+
+def test_changing_password_succeeds_and_revokes_every_session(world: World) -> None:
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    response = client.post(
+        "/manage/account/password",
+        data={
+            "current_password": PASSWORD,
+            "new_password": "a brand new password",
+            "new_password_confirm": "a brand new password",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert response.headers["location"] == "/login?changed=1"
+
+    # 使い回した Cookie（変更前のセッション）はもう通らない
+    # （`/manage` は認可を挟まず `/` へリダイレクトするだけなので、認可を
+    # 直接持つ経路で確かめる）。
+    assert client.get("/manage/account/password").status_code == 401
+
+    with world.database.unit_of_work() as uow:
+        service = AuthService(uow.identity)
+        # 旧パスワードはもう効かない。
+        with pytest.raises(AuthenticationFailed):
+            service.login(tenant_id=TENANT, login="teacher", password=PASSWORD)
+        # 新パスワードでログインできる。
+        service.login(tenant_id=TENANT, login="teacher", password="a brand new password")
 
 
 # --------------------------------------------------------------------------
