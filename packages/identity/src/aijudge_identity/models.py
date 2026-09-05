@@ -39,6 +39,12 @@ class User(BaseModel):
     email: str | None = None
     password_hash: str = Field(min_length=1)
     state: UserState = UserState.ACTIVE
+    # **テナント全体の管理者かどうか。** コースの `Enrollment(role=ADMIN)` に
+    # 頼る暫定を #128 でここへ移した。この利用者はどのコースでも受講登録
+    # なしに `Role.ADMIN` として振る舞う（`AuthService.role_in` 参照）。
+    # 「管理者だから触れる」と「このコースの教員だから触れる」を記録の上で
+    # 分けるため、コース単位の `Enrollment` とは別に持つ。
+    is_tenant_admin: bool = False
     created_at: datetime
 
     @property
@@ -59,6 +65,9 @@ class Principal(BaseModel):
     tenant_id: TenantId
     login: str
     display_name: str
+    # `User.is_tenant_admin` の写し。アプリ層がコース単位の受講に頼らず
+    # 「この人は管理者か」を判定できるようにする（#128）。
+    is_tenant_admin: bool = False
 
 
 class Session(BaseModel):

@@ -240,9 +240,28 @@ class AuthService:
             tenant_id=tenant_id, course_id=course_id, user_id=user_id, role=role
         )
         self._repository.save_enrollment(enrollment)
+        if role is Role.ADMIN:
+            # **後方互換（#128）。** `Role.ADMIN` の受講登録は元々「テナント
+            # 全体の管理者」の代わりに使われていた（`aijudge-admin` の
+            # roster.py が "admin"/"head_instructor" をここへ写す）。
+            # `_require_admin` 等はもうこの Enrollment を見ないので、
+            # 同じ操作で新しいテナント単位のフラグも立てる。呼び出し側を
+            # 変えずに移行するための措置で、恒久的な二重管理ではない
+            # （#128 の「移行」参照 ── 将来はフラグに一本化する）。
+            self.set_tenant_admin(user_id, admin=True)
         return enrollment
 
     def role_in(self, course_id: CourseId, user_id: UserId) -> Role | None:
+        """このコースでの役割。**テナント管理者は受講登録なしで `ADMIN`。**
+
+        #128: 管理者は「指定されたコースに限定した教員を昇格させる」
+        （#121・#126）だけでなく、そのコース自体の教員権限もすべて自動的に
+        持つ。受講登録（`Enrollment`）を都度足す運用にしない ── コースが
+        後から増えても、管理者は何もしなくてもすぐ触れる。
+        """
+        user = self._repository.get_user(user_id)
+        if user is not None and user.is_tenant_admin:
+            return Role.ADMIN
         enrollment = self._repository.find_enrollment(course_id, user_id)
         return None if enrollment is None else enrollment.role
 
@@ -259,13 +278,30 @@ class AuthService:
 
     def require_grader(self, course_id: CourseId, user_id: UserId) -> Role:
         role = self.require_membership(course_id, user_id)
-        enrollment = self._repository.find_enrollment(course_id, user_id)
-        if enrollment is None or not enrollment.can_grade:
+        # `Enrollment.can_grade` と同じ判定を役割そのものに対して行う。
+        # `find_enrollment` を直接見ると、テナント管理者（受講登録が無い）
+        # がここで弾かれてしまう（#128）。
+        if role not in (Role.INSTRUCTOR, Role.ASSISTANT, Role.ADMIN):
             raise PermissionDenied("採点の権限がありません")
         return role
 
     def courses_for(self, tenant_id: TenantId, user_id: UserId) -> tuple[Course, ...]:
+        """この利用者が触れるコース。**テナント管理者は全コース。**"""
+        user = self._repository.get_user(user_id)
+        if user is not None and user.is_tenant_admin:
+            return self._repository.list_courses(tenant_id)
         return self._repository.list_courses_for_user(tenant_id, user_id)
+
+    def set_tenant_admin(self, user_id: UserId, *, admin: bool) -> None:
+        """テナント全体の管理者フラグを立てる／外す。**`aijudge-admin` 専用。**
+
+        画面から配れる役割の上限には `admin` を含めない（#100 / #126）のと
+        同じ理由 ── ここも CLI からしか変えられない。
+        """
+        user = self._repository.get_user(user_id)
+        if user is None:
+            raise AuthenticationFailed("利用者が見つかりません")
+        self._repository.save_user(user.model_copy(update={"is_tenant_admin": admin}))
 
 
 def _principal(user: User) -> Principal:
@@ -274,6 +310,7 @@ def _principal(user: User) -> Principal:
         tenant_id=user.tenant_id,
         login=user.login,
         display_name=user.display_name,
+        is_tenant_admin=user.is_tenant_admin,
     )
 
 

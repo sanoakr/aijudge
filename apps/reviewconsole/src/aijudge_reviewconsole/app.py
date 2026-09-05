@@ -429,11 +429,12 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
             auth = AuthService(uow.identity)
             courses = []
             attending = []
-            is_admin = False
+            # テナント管理者かはコースの受講に頼らず利用者自身の属性で決まる
+            # （#128）。`courses_for` も管理者には全コースを返すので、下の
+            # ループは受講登録の無いコースも普通に回す。
+            is_admin = principal.is_tenant_admin
             for course in auth.courses_for(principal.tenant_id, principal.user_id):
                 enrollment = uow.identity.find_enrollment(course.id, principal.user_id)
-                if enrollment is not None and enrollment.role is Role.ADMIN:
-                    is_admin = True
                 if _can_grade(auth, course.id, principal):
                     courses.append(course)
                 else:
@@ -517,8 +518,9 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 "people_count": len(enrollments),
                 "role_counts": _role_counts(enrollments),
                 # TA にはコースの設定を開かせない（`manage.py` の権限と揃える）。
-                "can_manage": enrollment is not None
-                and enrollment.role in (Role.INSTRUCTOR, Role.ADMIN),
+                # **テナント管理者は受講登録が無くても管理できる**（#128）。
+                "can_manage": me.is_tenant_admin
+                or (enrollment is not None and enrollment.role in (Role.INSTRUCTOR, Role.ADMIN)),
             },
         )
 
@@ -650,8 +652,9 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 "pending": pending,
                 "contested": len(rows),
                 # 一括確定は担当教員以上（`manage.py` の権限と揃える）。
-                "can_manage": enrollment is not None
-                and enrollment.role in (Role.INSTRUCTOR, Role.ADMIN),
+                # **テナント管理者は受講登録が無くても管理できる**（#128）。
+                "can_manage": me.is_tenant_admin
+                or (enrollment is not None and enrollment.role in (Role.INSTRUCTOR, Role.ADMIN)),
                 "min_reason": MIN_JUSTIFICATION_LENGTH,
                 "last_finalize": (
                     console.last_finalize[1]

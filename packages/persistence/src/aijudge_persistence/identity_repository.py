@@ -39,6 +39,7 @@ class SqlIdentityRepository:
                     email=user.email,
                     password_hash=user.password_hash,
                     state=user.state.value,
+                    is_tenant_admin=user.is_tenant_admin,
                     created_at=user.created_at,
                 )
             )
@@ -47,6 +48,7 @@ class SqlIdentityRepository:
             row.email = user.email
             row.password_hash = user.password_hash
             row.state = user.state.value
+            row.is_tenant_admin = user.is_tenant_admin
         self._session.flush()
 
     def get_user(self, user_id: UserId) -> User | None:
@@ -235,6 +237,14 @@ class SqlIdentityRepository:
         ).scalars()
         return tuple(_course(row) for row in rows if row is not None)  # type: ignore[misc]
 
+    def list_courses(self, tenant_id: TenantId) -> tuple[Course, ...]:
+        rows = self._session.execute(
+            select(CourseRow)
+            .where(CourseRow.tenant_id == str(tenant_id))
+            .order_by(CourseRow.term, CourseRow.code)
+        ).scalars()
+        return tuple(_course(row) for row in rows if row is not None)  # type: ignore[misc]
+
     def remove_enrollment(self, course_id: CourseId, user_id: UserId) -> None:
         """受講を取り消す。**利用者の行は残す。**
 
@@ -283,6 +293,7 @@ def _user(row: UserRow | None) -> User | None:
         email=row.email,
         password_hash=row.password_hash,
         state=UserState(row.state),
+        is_tenant_admin=row.is_tenant_admin,
         created_at=row.created_at,
     )
 

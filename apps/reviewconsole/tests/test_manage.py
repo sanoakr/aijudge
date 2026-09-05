@@ -52,7 +52,14 @@ class World:
             profiles_dir=PROFILES,
         )
 
-    def register(self, login: str, role: Role | None, course_id: CourseId | None = None):
+    def register(
+        self,
+        login: str,
+        role: Role | None,
+        course_id: CourseId | None = None,
+        *,
+        tenant_admin: bool = False,
+    ):
         with self.database.unit_of_work() as uow:
             service = AuthService(uow.identity)
             principal = service.register(
@@ -65,6 +72,9 @@ class World:
                     user_id=principal.user_id,
                     role=role,
                 )
+            if tenant_admin:
+                # #128: コースの受講とは別の、テナント全体の管理者フラグ。
+                service.set_tenant_admin(principal.user_id, admin=True)
             uow.commit()
         return principal
 
@@ -172,6 +182,34 @@ def test_an_admin_creates_a_course_and_becomes_its_instructor(world: World) -> N
     assert response.status_code == 303
     body = client.get("/manage").text
     assert "ネットワーク及び演習" in body
+
+
+def test_a_tenant_admin_manages_a_course_they_never_enrolled_in(world: World) -> None:
+    """#128: 管理者は受講登録なしでどのコースの教員権限も持つ。
+
+    `world.course` は fixture が作った既存のコースで、`boss` はどの受講にも
+    登録していない ── それでも設定画面を開けて、`can_manage` の起点も
+    `is_tenant_admin` だけで足りることを確かめる。
+    """
+    boss = world.register("boss", None, tenant_admin=True)
+    with world.database.unit_of_work() as uow:
+        assert uow.identity.find_enrollment(world.course.id, boss.user_id) is None
+
+    client = world.client("boss")
+    response = client.get(f"/manage/courses/{world.course.id}")
+    assert response.status_code == 200
+    assert "プログラミング及び実習 2" in response.text
+
+
+def test_a_tenant_admin_sees_every_course_on_the_landing_page(world: World) -> None:
+    """`courses_for` が全コースを返すので（#128）、担当コースの一覧に
+    受講登録の無いコースも並ぶ。
+    """
+    world.register("boss", None, tenant_admin=True)
+    body = world.client("boss").get("/manage").text
+    assert "プログラミング及び実習 2" in body
+    # 「担当しているコースがありません」ではなく、実際の一覧が出ている。
+    assert "採点を担当しているコースがありません" not in body
 
 
 def test_an_unknown_subject_profile_is_refused(world: World) -> None:

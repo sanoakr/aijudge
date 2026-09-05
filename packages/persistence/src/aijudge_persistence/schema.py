@@ -304,6 +304,9 @@ class UserRow(Base):
     email: Mapped[str | None] = mapped_column(String(256), nullable=True)
     password_hash: Mapped[str] = mapped_column(String(256))
     state: Mapped[str] = mapped_column(String(32), index=True)
+    # テナント全体の管理者か（#128）。コースの Enrollment(role=ADMIN) に
+    # 頼っていた暫定をここへ移した。既定 False ── 昇格は `aijudge-admin` のみ。
+    is_tenant_admin: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     created_at: Mapped[datetime] = mapped_column(Timestamp)
 
     __table_args__ = (
