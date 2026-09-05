@@ -283,16 +283,16 @@ def create_app(app_state: StudentApp) -> FastAPI:
         if principal is None:
             return RedirectResponse("/login", status_code=303)
         with app_state.database.unit_of_work() as uow:
-            courses = AuthService(uow.identity).courses_for(principal.tenant_id, principal.user_id)
+            auth = AuthService(uow.identity)
+            courses = auth.courses_for(principal.tenant_id, principal.user_id)
             # コースごとの役割（#103）。**学習者として取っているコースと、
             # 採点するコースを、同じ一覧の中で見分けられるようにする。**
+            # `role_in` を使う（`find_enrollment` を直接見ない） ── テナント
+            # 管理者はコース単位の Enrollment を持たないので、そちらでは
+            # 常に None になり、一覧のどの行も「learner」に見えてしまう
+            # （#128。管理者が採点画面へのリンクに気づけなくなる）。
             rows = [
-                {
-                    "course": course,
-                    "role": getattr(
-                        uow.identity.find_enrollment(course.id, principal.user_id), "role", None
-                    ),
-                }
+                {"course": course, "role": auth.role_in(course.id, principal.user_id)}
                 for course in courses
             ]
         return TEMPLATES.TemplateResponse(
