@@ -104,8 +104,12 @@ def register() -> APIRouter:
             auth = AuthService(uow.identity)
             out = []
             for course in auth.courses_for(me.tenant_id, me.user_id):
-                enrollment = uow.identity.find_enrollment(course.id, me.user_id)
-                if enrollment is None or enrollment.role not in (Role.INSTRUCTOR, Role.ADMIN):
+                # `role_in` はテナント管理者に受講登録が無くても ADMIN を
+                # 返す（#128）。ここで直接 `find_enrollment` を見ると、
+                # 管理者の API トークンが自分の触っていないコースを
+                # 一覧から落としてしまう。
+                role = auth.role_in(course.id, me.user_id)
+                if role not in (Role.INSTRUCTOR, Role.ADMIN):
                     continue
                 out.append(
                     {

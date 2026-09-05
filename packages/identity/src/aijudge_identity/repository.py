@@ -66,6 +66,14 @@ class IdentityRepository(Protocol):
 
     def list_courses_for_user(self, tenant_id: TenantId, user_id: UserId) -> tuple[Course, ...]: ...
 
+    def list_courses(self, tenant_id: TenantId) -> tuple[Course, ...]:
+        """このテナントの全コース。**テナント管理者の一覧表示に使う**（#128）。
+
+        管理者は受講登録なしで全コースに届く（`AuthService.role_in`）ので、
+        「自分が受講登録されているコース」だけでは何も出せない。
+        """
+        ...
+
     def list_enrollments(self, course_id: CourseId) -> tuple[Enrollment, ...]: ...
 
     def remove_enrollment(self, course_id: CourseId, user_id: UserId) -> None:
@@ -170,6 +178,14 @@ class InMemoryIdentityRepository:
         return tuple(
             sorted(
                 (self._courses[cid] for cid in course_ids if cid in self._courses),
+                key=lambda course: (course.term, course.code),
+            )
+        )
+
+    def list_courses(self, tenant_id: TenantId) -> tuple[Course, ...]:
+        return tuple(
+            sorted(
+                (c for c in self._courses.values() if c.tenant_id == tenant_id),
                 key=lambda course: (course.term, course.code),
             )
         )

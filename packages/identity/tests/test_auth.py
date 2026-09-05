@@ -309,6 +309,66 @@ def test_an_unknown_user_id_has_no_role(auth) -> None:
 
 
 # --------------------------------------------------------------------------
+# テナント管理者（#128） — 受講登録に頼らない
+# --------------------------------------------------------------------------
+
+
+def test_a_tenant_admin_is_admin_in_a_course_they_never_enrolled_in(auth) -> None:
+    """管理者は指定されたコースに限定した教員を昇格できる必要がある（#121・
+    #126）。それには、そのコース自体の教員権限も受講登録なしで及ぶことが要る。
+    """
+    service, repository, _ = auth
+    boss = register(service, "boss")
+    _course(service, repository)
+    service.set_tenant_admin(boss.user_id, admin=True)
+
+    assert repository.find_enrollment(COURSE, boss.user_id) is None
+    assert service.role_in(COURSE, boss.user_id) is Role.ADMIN
+    assert service.require_membership(COURSE, boss.user_id) is Role.ADMIN
+    assert service.require_grader(COURSE, boss.user_id) is Role.ADMIN
+
+
+def test_a_tenant_admin_sees_every_course_in_the_tenant(auth) -> None:
+    """`courses_for` は個人の受講ではなく全コースを返す（#128）。"""
+    service, repository, _ = auth
+    boss = register(service, "boss")
+    _course(service, repository)
+    other = Course(
+        id=CourseId("crs_" + "2" * 32),
+        tenant_id=TENANT,
+        code="math1",
+        title="微分積分",
+        term="2026-前期",
+        subject_profile="math_calculus",
+    )
+    repository.save_course(other)
+    service.set_tenant_admin(boss.user_id, admin=True)
+
+    courses = service.courses_for(TENANT, boss.user_id)
+    assert sorted(course.code for course in courses) == ["math1", "prog2"]
+
+
+def test_revoking_tenant_admin_falls_back_to_the_enrolment(auth) -> None:
+    service, repository, _ = auth
+    boss = register(service, "boss")
+    _course(service, repository)
+    service.set_tenant_admin(boss.user_id, admin=True)
+    assert service.role_in(COURSE, boss.user_id) is Role.ADMIN
+
+    service.set_tenant_admin(boss.user_id, admin=False)
+    assert service.role_in(COURSE, boss.user_id) is None
+
+
+def test_a_plain_user_is_unaffected_by_the_tenant_admin_flag(auth) -> None:
+    """既定は False。フラグを立てない限り従来どおり受講登録だけで決まる。"""
+    service, repository, _ = auth
+    principal = register(service)
+    _course(service, repository)
+    service.enroll(tenant_id=TENANT, course_id=COURSE, user_id=principal.user_id, role=Role.LEARNER)
+    assert service.role_in(COURSE, principal.user_id) is Role.LEARNER
+
+
+# --------------------------------------------------------------------------
 # API トークン — 非対話の呼び出し元
 # --------------------------------------------------------------------------
 
