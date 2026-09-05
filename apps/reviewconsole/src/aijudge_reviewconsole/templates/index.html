@@ -35,8 +35,11 @@
 
 {# 受講しているコース（#103）。**役割はコースごとに決まる** ── 同じ人が
    「A では学習者・B では教員」になる。出さないと、その人は入口が 2 つある
-   こと自体に気づけない。採点の入口とは分けて並べる（できることが違う）。 #}
-{% if attending %}
+   こと自体に気づけない。採点の入口とは分けて並べる（できることが違う）。
+
+   **空でも見出しは出す**（#131）。SSO で入った直後の利用者はどのコースにも
+   受講登録が無いことが普通に起きる ── 見出しごと消すと、ログインできたのに
+   画面に何も無いように見える。「担当しているコース」の空表示と揃える。 #}
 <h2>受講しているコース</h2>
 <nav class="menu courses">
 {% for row in attending %}
@@ -59,9 +62,10 @@
     <span class="meta desc">{{ row.role.value if row.role else '—' }}として受講（学習者の画面で開きます）</span>
   </div>
   {% endif %}
+{% else %}
+  <p class="desc">受講しているコースがありません。</p>
 {% endfor %}
 </nav>
-{% endif %}
 
 {% if is_admin %}
 <h2>コースを追加する</h2>
@@ -86,6 +90,14 @@
     <p class="desc" style="margin-top:6px">
       採点の設定（言語・評価器・タイムアウト）はファイルで管理します。
       この画面では選ぶだけです。
+    </p>
+  </div>
+  <div class="field">
+    <label for="instructors">担当教員（1 行 1 名・既存の利用者。1 名以上必須）</label>
+    <textarea id="instructors" name="instructors" rows="3" required placeholder="teacher"></textarea>
+    <p class="desc" style="margin-top:6px">
+      新規の利用者はここでは作れません（`aijudge-admin` で作成してから指定します）。
+      作成した本人も自動的に担当教員になります。
     </p>
   </div>
   <div class="actions"><button type="submit">作成</button></div>

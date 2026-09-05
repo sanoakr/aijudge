@@ -131,6 +131,18 @@ def test_a_learner_sees_their_course_but_nothing_to_manage(world: World) -> None
     assert f"/courses/{world.course.id}/queue" not in body
 
 
+def test_a_user_with_no_enrolments_is_told_so(world: World) -> None:
+    """**空でも見出しは消さない**（#131）。SSO 直後の利用者はどのコースにも
+    受講登録が無いのが普通に起きる ── 見出しごと消すと、ログインできたのに
+    画面に何も無いように見える。
+    """
+    world.register("nobody", None)
+    body = world.client("nobody").get("/manage").text
+    assert "受講しているコース" in body
+    assert "受講しているコースがありません" in body
+    assert "採点を担当しているコースがありません" in body
+
+
 def test_a_learner_cannot_open_the_course_management_page(world: World) -> None:
     world.register("student", Role.LEARNER)
     response = world.client("student").get(f"/manage/courses/{world.course.id}")
@@ -161,6 +173,7 @@ def test_only_an_admin_can_create_a_course(world: World) -> None:
         "title": "ネットワーク",
         "term": "2025-後期",
         "profile": "net_python",
+        "instructors": "teacher",
     }
     assert world.client("teacher").post("/manage/courses", data=data).status_code == 403
 
@@ -176,12 +189,72 @@ def test_an_admin_creates_a_course_and_becomes_its_instructor(world: World) -> N
             "title": "ネットワーク及び演習",
             "term": "2025-後期",
             "profile": "net_python",
+            "instructors": "boss",
         },
         follow_redirects=False,
     )
     assert response.status_code == 303
     body = client.get("/manage").text
     assert "ネットワーク及び演習" in body
+
+
+def test_creating_a_course_requires_at_least_one_instructor(world: World) -> None:
+    """#130: 担当教員を指定しないコースは作れない。"""
+    world.register("boss", Role.ADMIN)
+    response = world.client("boss").post(
+        "/manage/courses",
+        data={
+            "code": "network",
+            "title": "ネットワーク及び演習",
+            "term": "2025-後期",
+            "profile": "net_python",
+            "instructors": "   \n  ",
+        },
+    )
+    assert response.status_code == 400
+
+
+def test_creating_a_course_with_an_unregistered_instructor_is_refused(world: World) -> None:
+    """#130: 新規利用者はここでは作れない（`add_enrolments` と同じ規則）。"""
+    world.register("boss", Role.ADMIN)
+    response = world.client("boss").post(
+        "/manage/courses",
+        data={
+            "code": "network",
+            "title": "ネットワーク及び演習",
+            "term": "2025-後期",
+            "profile": "net_python",
+            "instructors": "nobody-yet",
+        },
+    )
+    assert response.status_code == 400
+    assert "nobody-yet" in response.json()["detail"]
+
+
+def test_creating_a_course_enrolls_the_specified_instructor(world: World) -> None:
+    """#130: 作成者以外を指定すれば、その利用者も担当教員になる。"""
+    boss = world.register("boss", Role.ADMIN)
+    other_teacher = world.register("other-teacher", None)
+    client = world.client("boss")
+    response = client.post(
+        "/manage/courses",
+        data={
+            "code": "network",
+            "title": "ネットワーク及び演習",
+            "term": "2025-後期",
+            "profile": "net_python",
+            "instructors": "other-teacher",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    course_id = CourseId(response.headers["location"].split("/")[-1])
+    with world.database.unit_of_work() as uow:
+        other_enrollment = uow.identity.find_enrollment(course_id, other_teacher.user_id)
+        # 作成者自身も引き続き担当教員になる（#128 が入るまでの措置）。
+        boss_enrollment = uow.identity.find_enrollment(course_id, boss.user_id)
+    assert other_enrollment is not None and other_enrollment.role is Role.INSTRUCTOR
+    assert boss_enrollment is not None and boss_enrollment.role is Role.INSTRUCTOR
 
 
 def test_a_tenant_admin_manages_a_course_they_never_enrolled_in(world: World) -> None:
@@ -271,7 +344,13 @@ def test_an_unknown_subject_profile_is_refused(world: World) -> None:
     world.register("boss", Role.ADMIN)
     response = world.client("boss").post(
         "/manage/courses",
-        data={"code": "x", "title": "x", "term": "2025", "profile": "no_such_profile"},
+        data={
+            "code": "x",
+            "title": "x",
+            "term": "2025",
+            "profile": "no_such_profile",
+            "instructors": "boss",
+        },
     )
     assert response.status_code == 400
     assert "科目プロファイル" in response.json()["detail"]
@@ -2816,8 +2895,9 @@ def test_the_enrolment_form_explains_the_roles_as_differences(world: World) -> N
         assert role in table
 
 
-def test_the_console_does_not_offer_admin_as_a_role(world: World) -> None:
-    """**教員が配れるのは教員まで**（#100）。
+def test_the_console_does_not_offer_admin_or_instructor_to_a_teacher(world: World) -> None:
+    """**教員が配れるのは assistant まで**（#126。#100 時点では instructor まで
+    だったが、教員どうしが際限なく教員を増やせるのを避けるため狭めた）。
 
     `admin` はコースを作れてテナント内の全コースに届く。担当教員が自分の
     コースの受講者一覧から配れる権限ではない。以前は `Role` の全値を選択肢に
@@ -2829,8 +2909,21 @@ def test_the_console_does_not_offer_admin_as_a_role(world: World) -> None:
     # 選択肢に無い（役割の変更・名簿の既定のどちらにも）。
     options = {line for line in page.splitlines() if "<option" in line}
     assert not [line for line in options if 'value="admin"' in line], "admin が選択肢にある"
+    assert not [line for line in options if 'value="instructor"' in line], (
+        "教員に instructor が選択肢として出ている"
+    )
+    for role in ("learner", "assistant"):
+        assert [line for line in options if f'value="{role}"' in line], f"{role} が選べない"
+
+
+def test_the_console_offers_instructor_to_an_admin(world: World) -> None:
+    """**管理者が配れるのは instructor まで**（#126）。"""
+    world.register("boss", Role.ADMIN)
+    page = world.client("boss").get(f"/manage/courses/{world.course.id}/enrolments").text
+    options = {line for line in page.splitlines() if "<option" in line}
     for role in ("learner", "assistant", "instructor"):
         assert [line for line in options if f'value="{role}"' in line], f"{role} が選べない"
+    assert not [line for line in options if 'value="admin"' in line], "admin が選択肢にある"
 
 
 def test_admin_cannot_be_granted_through_the_form(world: World) -> None:
@@ -2848,13 +2941,71 @@ def test_admin_cannot_be_granted_through_the_form(world: World) -> None:
         enrollment = uow.identity.find_enrollment(world.course.id, student.user_id)
     assert enrollment is not None and enrollment.role is Role.LEARNER, "役割が上がっている"
 
-    # 教員までは通る（上限であって禁止ではない）。
+    # 教員の上限は assistant（#126）。instructor は教員には付与できない。
+    denied = client.post(
+        f"/manage/courses/{world.course.id}/enrolments/{student.user_id}/role",
+        data={"role": "instructor"},
+    )
+    assert denied.status_code == 403
+    with world.database.unit_of_work() as uow:
+        enrollment = uow.identity.find_enrollment(world.course.id, student.user_id)
+    assert enrollment is not None and enrollment.role is Role.LEARNER, "役割が上がっている"
+
+    # assistant までは通る。
     ok = client.post(
+        f"/manage/courses/{world.course.id}/enrolments/{student.user_id}/role",
+        data={"role": "assistant"},
+        follow_redirects=False,
+    )
+    assert ok.status_code == 303
+    with world.database.unit_of_work() as uow:
+        enrollment = uow.identity.find_enrollment(world.course.id, student.user_id)
+    assert enrollment is not None and enrollment.role is Role.ASSISTANT
+
+
+def test_an_admin_can_promote_someone_to_instructor(world: World) -> None:
+    """**管理者は instructor まで付与できる**（#126、教員は assistant まで）。"""
+    world.register("boss", Role.ADMIN)
+    student = world.register("s2400001", Role.LEARNER)
+    response = world.client("boss").post(
         f"/manage/courses/{world.course.id}/enrolments/{student.user_id}/role",
         data={"role": "instructor"},
         follow_redirects=False,
     )
-    assert ok.status_code == 303
+    assert response.status_code == 303
+    with world.database.unit_of_work() as uow:
+        enrollment = uow.identity.find_enrollment(world.course.id, student.user_id)
+    assert enrollment is not None and enrollment.role is Role.INSTRUCTOR
+
+
+def test_an_admin_can_manage_a_course_they_are_not_enrolled_in(world: World) -> None:
+    """管理者は「テナント内のどこかで ADMIN」であれば、そのコースの受講者で
+    なくても教員を昇格させられる（#126）。付与できる前提が「そのコースの
+    メンバーであること」だと、管理者は自分がまだ触っていないコースに
+    教員を配れなくなる。
+    """
+    other_course, _ = ensure_course(
+        world.database,
+        tenant_id=TENANT,
+        code="other",
+        title="別コース",
+        term="2025-後期",
+        subject_profile="cs_intro_c",
+        profiles_dir=PROFILES,
+    )
+    boss = world.register("boss", Role.ADMIN, course_id=other_course.id)
+    student = world.register("s2400001", Role.LEARNER)
+
+    with world.database.unit_of_work() as uow:
+        # boss はこのコース（world.course）には受講登録されていない。
+        assert uow.identity.find_enrollment(world.course.id, boss.user_id) is None
+
+    response = world.client("boss").post(
+        f"/manage/courses/{world.course.id}/enrolments/{student.user_id}/role",
+        data={"role": "instructor"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
     with world.database.unit_of_work() as uow:
         enrollment = uow.identity.find_enrollment(world.course.id, student.user_id)
     assert enrollment is not None and enrollment.role is Role.INSTRUCTOR

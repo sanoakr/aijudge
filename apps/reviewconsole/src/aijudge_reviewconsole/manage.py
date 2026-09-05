@@ -142,24 +142,35 @@ def _is_admin(request: Request, me: Principal) -> bool:
 # 画面から与えてよい役割。**`admin` は入らない。**
 #
 # `admin` はコースを作れて、テナント内のどのコースにも届く。担当教員が
-# 自分のコースの受講者一覧から配れる権限ではない ── 上限は「教員が教員を
-# 足せる」までである。以前は `Role` の全値をそのまま選択肢にしていたので、
-# `assistant` と `instructor` の間に `admin` が並んでいた（#100）。
+# 自分のコースの受講者一覧から配れる権限ではない。以前は `Role` の全値を
+# そのまま選択肢にしていたので、`assistant` と `instructor` の間に
+# `admin` が並んでいた（#100）。
 #
 # **`admin` は `aijudge-admin` で作る。** 利用者の新規作成を CLI に限って
 # あるのと同じ規則で、画面から配れない権限は画面に出さない。
+#
+# **上限は付与者の役割で変わる**（#126）。管理者は `instructor` まで、
+# 担当教員（`admin` でない `instructor`）は `assistant` まで。#100 の
+# 時点では「教員が教員を足せる」までを上限にしていたが、それだと
+# 担当教員どうしが際限なく教員を増やせてしまうので、ここで狭めた。
 GRANTABLE_ROLES: tuple[Role, ...] = (Role.LEARNER, Role.ASSISTANT, Role.INSTRUCTOR)
+INSTRUCTOR_GRANTABLE_ROLES: tuple[Role, ...] = (Role.LEARNER, Role.ASSISTANT)
 
 
-def _require_grantable(role: Role) -> Role:
+def _grantable_roles(granter_role: Role) -> tuple[Role, ...]:
+    """付与者の役割が届く範囲。管理者は `instructor` まで、教員は `assistant` まで。"""
+    return GRANTABLE_ROLES if granter_role is Role.ADMIN else INSTRUCTOR_GRANTABLE_ROLES
+
+
+def _require_grantable(role: Role, granter_role: Role) -> Role:
     """画面から与えてよい役割か。**弾く理由をそのまま返す。**"""
-    if role not in GRANTABLE_ROLES:
-        raise HTTPException(
-            status_code=403,
-            detail=(
-                f"{role.value} はこの画面からは付けられません（`aijudge-admin` で行ってください）"
-            ),
+    if role not in _grantable_roles(granter_role):
+        detail = (
+            f"{role.value} はこの画面からは付けられません（`aijudge-admin` で行ってください）"
+            if role not in GRANTABLE_ROLES
+            else f"{role.value} の付与には管理者権限が要ります"
         )
+        raise HTTPException(status_code=403, detail=detail)
     return role
 
 
@@ -214,6 +225,44 @@ def _require_instructor(request: Request, me: Principal, course_id: CourseId) ->
     if course is None:
         raise HTTPException(status_code=404, detail="コースが見つかりません")
     return course
+
+
+def _require_enrolment_manager(
+    request: Request, me: Principal, course_id: CourseId
+) -> tuple[Course, Role]:
+    """受講者の役割を変えられる者。**そのコースの教員か、テナント全体の管理者。**
+
+    `_require_instructor` はコースの受講登録を要求するが、管理者は
+    「指定されたコースに限定した教員を昇格させる」ことができる必要があり、
+    昇格させる前のコースにまだ自分が受講登録されているとは限らない（#126）。
+    ここだけ、コースの一員でない管理者も通す。
+
+    返す役割は「付与者としての役割」── 管理者はそのコースの実際の受講が
+    `learner` や無所属でも `Role.ADMIN` として扱う。`_require_grantable`
+    が上限を決めるときの基準になる。
+    """
+    console = _console(request)
+    with console.database.unit_of_work() as uow:
+        auth = AuthService(uow.identity)
+        try:
+            role = auth.require_membership(course_id, me.user_id)
+        except PermissionDenied:
+            role = None
+        course = uow.identity.get_course(course_id)
+
+    if role in (Role.INSTRUCTOR, Role.ADMIN):
+        if course is None:
+            raise HTTPException(status_code=404, detail="コースが見つかりません")
+        return course, role
+    if _is_admin(request, me):
+        if course is None:
+            raise HTTPException(status_code=404, detail="コースが見つかりません")
+        return course, Role.ADMIN
+    if role is None:
+        # 存在と権限を区別しない（コースを列挙させない）。
+        raise HTTPException(status_code=404, detail="コースが見つかりません")
+    # 受講はしているが役割が足りない（例: TA）。ここは存在を隠す理由が無い。
+    raise HTTPException(status_code=403, detail="この操作には担当教員の権限が必要です")
 
 
 @dataclass(frozen=True)
@@ -860,12 +909,47 @@ def register(templates) -> APIRouter:
         title: Annotated[str, Form()],
         term: Annotated[str, Form()],
         profile: Annotated[str, Form()],
+        instructors: Annotated[str, Form()],
     ) -> Response:
+        """コースを作る。**担当教員を 1 名以上、明示的に指定させる**（#130）。
+
+        指定が無いまま作れてしまうと、誰も教えていないコースができる
+        ── 「作成者を機械的に教員にする」だけでは、管理者自身が実際に
+        教えるとは限らない（コースを立てるのと教えるのは別の役目）。
+        """
         from .app import require_principal
 
         me = require_principal(request)
         _require_admin(request, me)
         console = _console(request)
+
+        # 名簿の貼り付けと同じ書式（`add_enrolments`）。1 行 1 ID でよい。
+        # `parse_roster` は有効な行が 1 つも無ければ自分で例外にする
+        # （「1 名以上」の要求はこれで足りる）。
+        try:
+            entries = parse_roster(instructors, default_role=Role.INSTRUCTOR)
+        except (RosterError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        logins = [entry.login for entry in entries]
+
+        with console.database.unit_of_work() as uow:
+            unknown = [
+                login
+                for login in logins
+                if uow.identity.find_user_by_login(me.tenant_id, login) is None
+            ]
+        if unknown:
+            # 画面からは既存利用者の指定だけを許す（`add_enrolments` と同じ
+            # 規則）。新規作成はパスワード配布が伴うので CLI に回す。
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"利用者が未登録です: {', '.join(unknown[:10])}"
+                    f"{' ほか' if len(unknown) > 10 else ''}。"
+                    "新規作成は `aijudge-admin` で行ってください"
+                ),
+            )
+
         try:
             course, _created = ensure_course(
                 console.database,
@@ -878,14 +962,27 @@ def register(templates) -> APIRouter:
             )
         except AdminError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        # 作った本人を担当教員にする。でないと自分のコースが見えない。
+
         with console.database.unit_of_work() as uow:
-            AuthService(uow.identity).enroll(
+            auth = AuthService(uow.identity)
+            # 作った本人も担当教員にする。でないと自分のコースが見えない
+            # （テナント管理者が受講登録なしで全コースに届くようになるまでの
+            # 措置。#128 が入ればここは指定した教員だけで足りる）。
+            auth.enroll(
                 tenant_id=me.tenant_id,
                 course_id=course.id,
                 user_id=me.user_id,
                 role=Role.INSTRUCTOR,
             )
+            for login in logins:
+                user = uow.identity.find_user_by_login(me.tenant_id, login)
+                if user is not None and user.id != me.user_id:
+                    auth.enroll(
+                        tenant_id=me.tenant_id,
+                        course_id=course.id,
+                        user_id=user.id,
+                        role=Role.INSTRUCTOR,
+                    )
             uow.commit()
         return RedirectResponse(f"/courses/{course.id}", status_code=303)
 
@@ -2874,7 +2971,7 @@ def register(templates) -> APIRouter:
         from .app import require_principal
 
         me = require_principal(request)
-        course = _require_instructor(request, me, CourseId(course_id))
+        course, granter_role = _require_enrolment_manager(request, me, CourseId(course_id))
         console = _console(request)
 
         prefix = q.strip().lower()
@@ -2905,7 +3002,9 @@ def register(templates) -> APIRouter:
                 "total": len(all_enrollments),
                 "q": q.strip(),
                 # **画面から配れる役割だけを出す**（#100）。`admin` は出さない。
-                "roles": [role.value for role in GRANTABLE_ROLES],
+                # **上限は自分の役割で変わる**（#126）── 担当教員には
+                # `instructor` を選ばせない。
+                "roles": [role.value for role in _grantable_roles(granter_role)],
                 "saved": SAVED_MESSAGES.get(saved),
                 "saved_key": saved,
             },
@@ -2926,7 +3025,7 @@ def register(templates) -> APIRouter:
         from .app import require_principal
 
         me = require_principal(request)
-        _require_instructor(request, me, CourseId(course_id))
+        _, granter_role = _require_enrolment_manager(request, me, CourseId(course_id))
         if UserId(user_id) == me.user_id:
             raise HTTPException(status_code=400, detail="自分の役割は変えられません")
         try:
@@ -2934,7 +3033,7 @@ def register(templates) -> APIRouter:
         except ValueError:
             raise HTTPException(status_code=400, detail=f"役割が不正です: {role!r}") from None
         # **画面で塞ぐだけにしない。** 選択肢を減らしても、POST は手で作れる。
-        _require_grantable(new_role)
+        _require_grantable(new_role, granter_role)
 
         console = _console(request)
         with console.database.unit_of_work() as uow:
@@ -2974,7 +3073,7 @@ def register(templates) -> APIRouter:
         from .app import require_principal
 
         me = require_principal(request)
-        _require_instructor(request, me, CourseId(course_id))
+        _, granter_role = _require_enrolment_manager(request, me, CourseId(course_id))
         console = _console(request)
         try:
             entries = parse_roster(roster, default_role=Role(role))
@@ -2983,9 +3082,9 @@ def register(templates) -> APIRouter:
 
         # **名簿の行にも役割が書ける**（`parse_roster` の 4 列目）。既定の役割
         # だけを見ると、貼り付けた名簿の中の `admin` が通る（#100）。
-        _require_grantable(Role(role))
+        _require_grantable(Role(role), granter_role)
         for entry in entries:
-            _require_grantable(entry.role)
+            _require_grantable(entry.role, granter_role)
 
         # 画面からは**既存利用者の登録だけ**を許す。新規作成はパスワードの
         # 配布が伴うので CLI（`aijudge-admin enrol --credentials`）で行う。
