@@ -5,7 +5,7 @@
 <p class="crumb">{{ course.title }}
   {# 課題（日程・一括確定・追加）は問題セットのページにある。1 枚に積むと、
      「ex03 の締切を直す」ために縦に長い画面を目で探すことになる。 #}
-  <span class="sep">·</span> 課題の設定は<a href="/courses/{{ course.id }}">問題セットのページ</a>から
+  <span class="sep">·</span> 課題の設定は<a href="{{ root_prefix() }}/courses/{{ course.id }}">問題セットのページ</a>から
 </p>
 
 <h2 id="basics">基本情報</h2>
@@ -24,12 +24,12 @@
   <p class="desc" style="margin:0 0 10px">概要・到達目標は未入力です。</p>
   {% endif %}
   <div class="actions">
-    <a href="/manage/courses/{{ course.id }}/basics">基本情報を入力する（ファイルから読み取れます） →</a>
+    <a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/basics">基本情報を入力する（ファイルから読み取れます） →</a>
   </div>
 </div>
 
 <h2 id="course_grace">成績の自動確定</h2>
-<form method="post" action="/manage/courses/{{ course.id }}/auto-finalize" class="card">
+<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/auto-finalize" class="card">
   {# 入力が 1 つなので、ボタンは同じ行の右端に置く。 #}
   <div class="inline-field">
     <span class="body">
@@ -63,7 +63,7 @@
 {# 課題ごとの指定がこれを上書きする（`uploads.allowed_suffixes`）。コースで
    一度決めておけば個々の課題では触らずに済み、レポート 1 問だけ PDF を
    許す、といった例外は課題側で足せる。 #}
-<form method="post" action="/manage/courses/{{ course.id }}/upload-formats" class="card">
+<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/upload-formats" class="card">
   {# **性質で行を分ける。** コードとテキストは本文がそのまま採点器に渡せるが、
      PDF と画像は読めず、採点の前に変換の段が要る。並べて出すと「1 つ増やす
      だけ」のつもりで前提が変わる。
@@ -102,7 +102,7 @@
   <strong>既にある課題は変わりません</strong> — 出題済みの採点基準は書き換えないためです。
   個別に直すには、問題セットのページで課題を開いて「問題文・ルーブリックを直す」から変えてください。
 </div>
-<form method="post" action="/manage/courses/{{ course.id }}/rubric" class="card">
+<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/rubric" class="card">
   {% with rows = rubric_rows %}{% include "_rubric_editor.html" %}{% endwith %}
   {% with inherits = false, aggregation = course.rubric_aggregation %}
     {% include "_aggregation_field.html" %}
@@ -140,7 +140,7 @@
 </div>
 {% endif %}
 
-<form method="post" action="/manage/courses/{{ course.id }}/grading" class="card">
+<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/grading" class="card">
   <h3>提出プログラムの実行</h3>
   <div class="field row-form">
     <span><label for="language">言語</label>
@@ -268,7 +268,7 @@
    `![](URL)` はそのまま `<img>` になる。足りていなかったのは置き場所だけで、
    外部 URL を書かせると課題文を開くたびに学外へ取りに行くことになる（P7）。 #}
 <h2 id="images">課題文に貼る画像</h2>
-<form method="post" action="/manage/courses/{{ course.id }}/images"
+<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/images"
       enctype="multipart/form-data" class="card">
   <p class="desc" style="margin:0 0 10px">
     画像を上げると、<strong>課題文に貼り付ける 1 行</strong>が出ます。それを問題文の

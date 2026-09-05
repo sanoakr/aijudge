@@ -7,7 +7,7 @@
    学期の 3 列だけだと、どのコースに用があるのかを全部開くまで分からない。 #}
 <nav class="menu courses">
 {% for d in digests %}
-  <a class="row" href="/courses/{{ d.course.id }}">
+  <a class="row" href="{{ root_prefix() }}/courses/{{ d.course.id }}">
     <span class="what">
       <b>{{ d.course.title }}</b>
       <span class="mono desc">{{ d.course.code }}</span>
@@ -69,7 +69,7 @@
 
 {% if is_admin %}
 <h2>コースを追加する</h2>
-<form method="post" action="/manage/courses" class="card">
+<form method="post" action="{{ root_prefix() }}/manage/courses" class="card">
   <div class="field">
     <label for="code">コースコード</label>
     <input id="code" name="code" required placeholder="network">
@@ -105,7 +105,7 @@
 
 <h2>利用者を作成する</h2>
 <p class="crumb">
-  ローカルのパスワード利用者を作れます。<a href="/manage/users/new">利用者を作成</a>
+  ローカルのパスワード利用者を作れます。<a href="{{ root_prefix() }}/manage/users/new">利用者を作成</a>
 </p>
 {% endif %}
 {% endblock %}

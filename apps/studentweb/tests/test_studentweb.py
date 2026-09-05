@@ -306,6 +306,23 @@ def test_a_protected_page_needs_a_session(world: World) -> None:
     assert world.client.get(f"/tasks/{world.task_version.id}").status_code == 401
 
 
+def test_the_footer_shows_the_deployed_release_version(world: World) -> None:
+    """release-tagging（ルートの pyproject の version）がそのまま出る。
+
+    デプロイの入れ替えがブラウザだけで確認できるように（CD が実際に
+    新しいタグへ入れ替えたか、SSH せず見える）。
+    """
+    import tomllib
+
+    root_version = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())["project"]["version"]
+
+    world.register("s2400001")
+    world.login("s2400001")
+    body = world.client.get("/").text
+
+    assert f"aiJudge {root_version}" in body
+
+
 # --------------------------------------------------------------------------
 # 見えてはいけないもの
 # --------------------------------------------------------------------------

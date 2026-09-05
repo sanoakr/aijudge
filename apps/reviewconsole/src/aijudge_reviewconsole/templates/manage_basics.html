@@ -7,7 +7,7 @@
 {# **読み取りと登録を分ける。** 出てきたのはモデルが整えた文であって
    シラバスそのものではないので、教員が確かめてから保存する。 #}
 <h2>ファイルから読み取る</h2>
-<form method="post" action="/manage/courses/{{ course.id }}/basics/read"
+<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/basics/read"
       enctype="multipart/form-data" class="card"
       data-working="読み取り中… 十数秒かかります">
   <div class="inline-field">
@@ -26,7 +26,7 @@
 </form>
 
 <h2>基本情報</h2>
-<form method="post" action="/manage/courses/{{ course.id }}/basics/apply" class="card">
+<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/basics/apply" class="card">
   <div class="field">
     <label for="title">コース名</label>
     <input id="title" name="title" value="{{ title_value }}">

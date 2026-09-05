@@ -39,7 +39,7 @@ from typing import Annotated
 from urllib.parse import quote, unquote
 
 from fastapi import APIRouter, Form, HTTPException, Request, Response, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import ValidationError
 
 from aijudge_admin import (
@@ -112,6 +112,7 @@ from aijudge_identity import AuthenticationFailed, AuthService, PermissionDenied
 from aijudge_submission import SubmissionService
 
 from .overview import empty_unit, find_unit, load_units, unit_key
+from .urls import RedirectResponse
 
 # ルータは `register()` の中で毎回作る。モジュール階層に置くと、
 # `create_app` を 2 回呼んだときに同じ経路が二重に登録される

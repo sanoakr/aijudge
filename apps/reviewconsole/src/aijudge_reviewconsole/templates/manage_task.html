@@ -4,7 +4,7 @@
 <h1>{{ task.title if task else '課題を追加' }}</h1>
 <p class="crumb">
   {{ course.title }} <span class="sep">·</span>
-  <a href="/manage/courses/{{ course.id }}/units/{{ unit_key }}">問題セット {{ unit_key }}</a>
+  <a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/units/{{ unit_key }}">問題セット {{ unit_key }}</a>
   {% if version %}<span class="sep">·</span> {{ version.version }} 版{% endif %}
 </p>
 
@@ -36,7 +36,7 @@
   <div class="actions js-only" hidden>
     <span class="flash" data-preview-status hidden></span>
     <button type="button" data-preview-for="#statement"
-            data-preview-url="/manage/courses/{{ course.id }}/statement-preview"
+            data-preview-url="{{ root_prefix() }}/manage/courses/{{ course.id }}/statement-preview"
             data-preview-target="[data-preview]">プレビューを更新</button>
   </div>
   <noscript><p class="desc" style="margin:10px 0 0">
@@ -100,7 +100,7 @@
      の `data-image-upload`）。JavaScript が無ければこの欄は出ず、下の案内から
      コースの設定画面で 1 行を作って手で貼ることになる。 #}
   <div class="subsection js-only" hidden
-       data-image-upload="/manage/courses/{{ course.id }}/images.json"
+       data-image-upload="{{ root_prefix() }}/manage/courses/{{ course.id }}/images.json"
        data-image-target="#statement">
     <h3><label for="statement-image">問題文に貼る画像</label></h3>
     <p class="desc" style="margin:0 0 8px">
@@ -134,7 +134,7 @@
   </div>
   <noscript>
     <p class="desc">
-      画像は<a href="/manage/courses/{{ course.id }}#images">コースの設定</a>で保存し、
+      画像は<a href="{{ root_prefix() }}/manage/courses/{{ course.id }}#images">コースの設定</a>で保存し、
       出てきた 1 行を問題文に貼り付けてください
       （この画面で書きかけの内容は保存されないので、先に保存してから移動してください）。
     </p>
@@ -205,7 +205,7 @@
     {% else %}
       <strong>この課題だけの観点になっています</strong>（コースの共通とは違います）。
     {% endif %}
-    <a href="/manage/courses/{{ course.id }}#rubric">共通ルーブリックを見る</a>
+    <a href="{{ root_prefix() }}/manage/courses/{{ course.id }}#rubric">共通ルーブリックを見る</a>
   </p>
   <div id="rubric-editor">
     {% with rows = rubric_rows %}{% include "_rubric_editor.html" %}{% endwith %}
@@ -278,7 +278,7 @@
 {# **後から足せる。** 以前は「作り直してください」と書いてあり、作り直せば
    別の課題になって同じ問題が 2 件並んだ（#43）。 #}
 {% if falls_back_to_ai %}
-<form method="post" action="/manage/courses/{{ course.id }}/tasks/{{ task.id }}/test-cases"
+<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/tasks/{{ task.id }}/test-cases"
       class="card" data-working="生成中… 数十秒かかります（このまま待ってください）">
   <h3 style="margin-top:0">テストケースを後から付ける</h3>
   <p class="desc" style="margin:0 0 8px">
@@ -302,7 +302,7 @@
 {# **訂正しただけでは、既に出ている提出は古い版のままである。** 自動で積み
    直すと誰も押していない再採点で成績が動くので、明示的な操作にする（P5）。 #}
 {% if regradable %}
-<form method="post" action="/manage/courses/{{ course.id }}/tasks/{{ task.id }}/regrade"
+<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/tasks/{{ task.id }}/regrade"
       class="card">
   <h3 style="margin-top:0">いまの版で採点し直す</h3>
   <p class="desc" style="margin:0 0 8px">
@@ -323,7 +323,7 @@
    「この回はいつまでか」が言えなくなる。移動先を選ぶときに、その回の締切を
    並べて出しておく（移動してから気づくことにならないように）。 #}
 {% if other_units %}
-<form method="post" action="/manage/courses/{{ course.id }}/tasks/{{ task.id }}/unit"
+<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/tasks/{{ task.id }}/unit"
       class="card" data-confirm-title="別の問題セットへ移しますか"
       data-confirm="この課題の日程（公開・提出開始・締切・自動確定の猶予）は移動先のセットの値に置き換わります。">
   <h3 style="margin-top:0">別の問題セットへ移す</h3>
@@ -352,7 +352,7 @@
 {# **消すことと、使わなくすることは別**（#51）。採点結果は課題版を指して
    いるので（P8）、提出のある課題を消すと過去の成績の出所が失われる。
    知識要素で決めたのと同じ区別（`aijudge_admin.kc`）。 #}
-<form method="post" action="/manage/courses/{{ course.id }}/tasks/{{ task.id }}/withdraw"
+<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/tasks/{{ task.id }}/withdraw"
       class="card"{% if not task.withdrawn %}
       data-confirm-title="出題を取り下げますか"
       data-confirm="学習者にこの課題が出なくなります。提出・採点・Q-matrix は残り、いつでも取り消せます。"{% endif %}>
@@ -379,7 +379,7 @@
 </form>
 
 {% if submissions == 0 %}
-<form method="post" action="/manage/courses/{{ course.id }}/tasks/{{ task.id }}/delete"
+<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/tasks/{{ task.id }}/delete"
       class="card" data-confirm-title="この課題を削除しますか"
       data-confirm="課題と全ての版が消えます。取り消せません。"
       data-confirm-danger="1">

@@ -48,7 +48,7 @@
    ので、絞らないと関係のない候補が作問フォームに並ぶ。外しても語彙からは
    消えない（他のコースの Q-matrix は壊れない）。**説明は冒頭の注意書きに
    まとめてある** ── 同じ話を 2 か所に書くと、片方だけが古くなる。 #}
-<form method="post" action="/manage/courses/{{ course.id }}/kc/scope">
+<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/kc/scope">
 <table>
   <thead><tr>
     <th class="fit">使う</th>
@@ -77,7 +77,7 @@
            持ち出すことになる。 #}
         <details>
           <summary class="desc">名前・説明の修正</summary>
-          <form method="post" action="/manage/courses/{{ course.id }}/kc/edit" style="margin:6px 0 0">
+          <form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/kc/edit" style="margin:6px 0 0">
             <input type="hidden" name="key" value="{{ row.kc.key }}">
             <div class="field">
               <label for="lb-{{ loop.index }}">名前</label>
@@ -104,7 +104,7 @@
       <td class="fit">
         <details>
           <summary class="desc">{% if row.kc.deprecated %}引退の取り消し{% else %}引退{% endif %}</summary>
-          <form method="post" action="/manage/courses/{{ course.id }}/kc/retire" style="margin:6px 0 0">
+          <form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/kc/retire" style="margin:6px 0 0">
             <input type="hidden" name="key" value="{{ row.kc.key }}">
             {% if row.kc.deprecated %}
               <input type="hidden" name="restore" value="1">
@@ -131,7 +131,7 @@
         {% if not row.used %}
         <details>
           <summary class="desc">削除</summary>
-          <form method="post" action="/manage/courses/{{ course.id }}/kc/delete" style="margin:6px 0 0">
+          <form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/kc/delete" style="margin:6px 0 0">
             <input type="hidden" name="key" value="{{ row.kc.key }}">
             <p class="desc" style="margin:0 0 6px">
               この知識要素は<strong>まだどの課題でも使われていません</strong>。
@@ -162,7 +162,7 @@
    経路で入った別々のシラバスがコースの中に並ぶことになる。 #}
 <h2 id="candidates">コースの基本情報から候補を出す</h2>
 {% if has_basics %}
-<form method="post" action="/manage/courses/{{ course.id }}/kc/candidates" class="card"
+<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/kc/candidates" class="card"
       data-working="読み取り中… 十数秒かかります">
   <div class="inline-field">
     <span class="body desc">
@@ -178,7 +178,7 @@
 {% else %}
 <div class="note">
   コースの基本情報が空です。
-  <a href="/manage/courses/{{ course.id }}/basics">基本情報</a>でシラバスを読み取るか、
+  <a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/basics">基本情報</a>でシラバスを読み取るか、
   概要・到達目標を書いてから候補を出してください。
 </div>
 {% endif %}
@@ -189,7 +189,7 @@
 {# **候補は保存していない**（生成のたびに作られる）ので、取り込みの POST が
    候補一覧そのものを持ち回る。値は**キーで結ぶ** ── 位置で対応づけると、
    選んでいない候補の名前が選んだ鍵に付く（#33 で直したのと同じ形）。 #}
-<form method="post" action="/manage/courses/{{ course.id }}/kc/draft#add">
+<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/kc/draft#add">
   {% for k in proposal.knowledge_components %}
   <input type="hidden" name="candidate" value="{{ k.key }}">
   <input type="hidden" name="label:{{ k.key }}" value="{{ k.label }}">
@@ -243,7 +243,7 @@
 <div class="note">
   <strong>候補が出ませんでした。</strong>
   もう一度押すと出ることがあります。
-  何度試しても出ないときは、<a href="/manage/courses/{{ course.id }}/basics">基本情報</a>に
+  何度試しても出ないときは、<a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/basics">基本情報</a>に
   到達目標や授業計画が入っているかご確認ください。
 </div>
 {% endif %}
@@ -265,7 +265,7 @@
   {% endif %}
 </div>
 {% endif %}
-<form method="post" action="/manage/courses/{{ course.id }}/kc" class="card">
+<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/kc" class="card">
   <div class="inline-field">
     <span class="body">
       <label for="key">キー（<code>{{ namespaces[0] if namespaces else '名前空間' }}.親.子</code>）</label>

@@ -18,7 +18,7 @@
   </tr></thead>
   <tbody>
   {% for row in rows %}
-    <tr class="row-link" data-href="/review/{{ row.submission.id }}/reveal">
+    <tr class="row-link" data-href="{{ root_prefix() }}/review/{{ row.submission.id }}/reveal">
       <td class="fit">{{ row.request.requested_at.strftime('%m-%d %H:%M') }}</td>
       <td class="fit mono">{{ row.learner.login if row.learner else '—' }}</td>
       <td class="fit">
@@ -30,7 +30,7 @@
       <td class="fit">{{ '%.0f' | format(row.run.score_ratio * 100) }}%</td>
       <td class="grow">{{ row.request.reason }}</td>
       <td class="fit">
-        <a href="/review/{{ row.submission.id }}/reveal">確認して確定する</a>
+        <a href="{{ root_prefix() }}/review/{{ row.submission.id }}/reveal">確認して確定する</a>
         {# 抽出された提出は、AI を見る前に自分で段階を付ける段が挟まる
            （ADR 0005）。行の意味は「依頼への対応」のままなので、
            blind の待ち行列とは分けたうえでここに一言だけ添える。 #}
@@ -44,7 +44,7 @@
 </table>
 
 <p class="desc">
-  blind 採点（測定のための抽出）は<a href="/courses/{{ course.id }}/blind">別の画面</a>にあります。
+  blind 採点（測定のための抽出）は<a href="{{ root_prefix() }}/courses/{{ course.id }}/blind">別の画面</a>にあります。
 </p>
 
 {# 対応済みの依頼（#102）。**待ち行列の下に置く。** 上に混ぜると手を動かす
@@ -61,7 +61,7 @@
   </tr></thead>
   <tbody>
   {% for row in resolved %}
-    <tr class="row-link" data-href="/review/{{ row.submission.id }}/reveal">
+    <tr class="row-link" data-href="{{ root_prefix() }}/review/{{ row.submission.id }}/reveal">
       <td class="fit">{{ row.request.requested_at.strftime('%m-%d %H:%M') }}</td>
       <td class="fit mono">{{ row.learner.login if row.learner else '—' }}</td>
       <td class="grow">
@@ -74,7 +74,7 @@
           {% if row.review %}<br><span class="desc">{{ row.review.reviewed_at.strftime('%m-%d %H:%M') }}</span>{% endif %}
         {% else %}<span class="desc">記録なし</span>{% endif %}
       </td>
-      <td class="fit"><a href="/review/{{ row.submission.id }}/reveal">見る</a></td>
+      <td class="fit"><a href="{{ root_prefix() }}/review/{{ row.submission.id }}/reveal">見る</a></td>
     </tr>
   {% endfor %}
   </tbody>

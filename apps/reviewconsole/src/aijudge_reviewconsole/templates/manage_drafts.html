@@ -141,11 +141,11 @@
      還流させる操作で、「少し直せば使える」課題まで却下に回すと、その理由が
      プロンプトの改善材料として役に立たない。 #}
   <p class="desc">
-    <a href="/manage/courses/{{ course.id }}/tasks/{{ row.task.id }}/edit">問題文・ルーブリックの修正 →</a>
+    <a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/tasks/{{ row.task.id }}/edit">問題文・ルーブリックの修正 →</a>
     直したうえで承認できます（直すと版が上がります）。
   </p>
 
-  <form method="post" action="/manage/courses/{{ course.id }}/drafts/{{ row.version.id }}">
+  <form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/drafts/{{ row.version.id }}">
     <fieldset>
       <legend>却下の理由（却下するなら {{ min_reason }} 文字以上・必須）</legend>
       <p class="desc">
@@ -188,7 +188,7 @@
 {% if kcs %}
 {# **いちばん時間の掛かる操作。** 参照解答・テストケース・変異テストまで
    回るので数十秒かかる。押し直すと倍払って倍待つ。 #}
-<form method="post" action="/manage/courses/{{ course.id }}/drafts/generate"
+<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/drafts/generate"
       class="card" data-working="生成中… 数十秒かかります（このまま待ってください）">
   <div class="field">
     <label>問う知識要素（1 つ以上・登録済みのものから選びます）</label>
@@ -199,7 +199,7 @@
       {% endfor %}
     </div>
     <p class="desc" style="margin:6px 0 0">
-      足りないものは<a href="/manage/courses/{{ course.id }}/kc">知識要素</a>から追加してください。
+      足りないものは<a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/kc">知識要素</a>から追加してください。
     </p>
   </div>
   <div class="field">
@@ -244,7 +244,7 @@
 <div class="note warn">
   <strong>知識要素が登録されていないので生成できません。</strong>
   何を問う課題かを決めずに生成させると、既存の課題と見分けの付かないものが出ます。
-  <a href="/manage/courses/{{ course.id }}/kc">知識要素</a>から追加してください。
+  <a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/kc">知識要素</a>から追加してください。
 </div>
 {% endif %}
 {% endblock %}

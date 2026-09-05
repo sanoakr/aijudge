@@ -16,6 +16,7 @@ from __future__ import annotations
 import contextlib
 import os
 import re
+import tomllib
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -78,7 +79,34 @@ from aijudge_submission import (
 from .progress import EMPTY, load_progress
 from .visibility import ResultView, build_result_view
 
+
+def _read_app_version() -> str:
+    """release-tagging（ルート pyproject の version、`v<version>` タグ）を読む。
+
+    デプロイは `git checkout --detach vX.Y.Z` した作業木からそのまま起動する
+    ので、リポジトリルートの `pyproject.toml` がデプロイ済みタグを表す。
+    `apps/studentweb/pyproject.toml` 自身にも `version` はあるが、
+    こちらは `0.0.1` に固定されたプレースホルダで運用しない（`name` で見分ける）。
+    フッターの表示を壊す理由にはならないので、読めなければ "unknown" とする。
+    """
+    for parent in Path(__file__).resolve().parents:
+        candidate = parent / "pyproject.toml"
+        if not candidate.is_file():
+            continue
+        try:
+            data = tomllib.loads(candidate.read_text())
+        except (OSError, tomllib.TOMLDecodeError):
+            continue
+        project = data.get("project")
+        if isinstance(project, dict) and project.get("name") == "aijudge":
+            version = project.get("version")
+            if isinstance(version, str):
+                return version
+    return "unknown"
+
+
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+TEMPLATES.env.globals["app_version"] = _read_app_version()
 
 # 受け付ける `Host`（#116）。コンマ区切り。既定は素通し（`*`）。
 ENV_ALLOWED_HOSTS = "AIJUDGE_ALLOWED_HOSTS"
