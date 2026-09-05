@@ -213,6 +213,56 @@ class OllamaProvider:
         )
 
 
+class FallbackProvider:
+    """プライマリが繋がらない間だけ、セカンダリに切り替える。
+
+    負荷分散ではない ── 毎回両方を試すとレイテンシが倍になるので、
+    プライマリを先に呼び、失敗（`LlmError`）した回だけセカンダリへ回す。
+    プライマリが復旧すれば次の呼び出しから自然にプライマリへ戻る
+    （どちらが落ちているかを継続的に覚えておく仕組みは持たない）。
+
+    `.name` は直近に実際に応答した側の名前に更新する。`StructuredResult.provider`
+    （P8: どのプロバイダが採点したかの記録）が実体を反映するようにするため。
+
+    両者の `capabilities.local` は一致していなければならない（P7）。フォールバック先が
+    学外 API だと、プライマリが落ちた瞬間に学習者データが学外へ流れる経路になる。
+    """
+
+    def __init__(self, primary: Provider, secondary: Provider) -> None:
+        if primary.capabilities.local != secondary.capabilities.local:
+            raise ValueError(
+                "fallback provider must match the primary's data locality (P7); "
+                f"{primary.name!r} is local={primary.capabilities.local} but "
+                f"{secondary.name!r} is local={secondary.capabilities.local}"
+            )
+        self._primary = primary
+        self._secondary = secondary
+        self.capabilities = primary.capabilities
+        self.name = primary.name
+
+    def complete(self, request: LlmRequest) -> LlmResponse:
+        try:
+            response = self._primary.complete(request)
+            self.name = self._primary.name
+            return response
+        except LlmError:
+            pass
+        response = self._secondary.complete(request)
+        self.name = self._secondary.name
+        return response
+
+    def embed(self, request: EmbeddingRequest) -> EmbeddingResponse:
+        try:
+            response = self._primary.embed(request)  # type: ignore[union-attr]
+            self.name = self._primary.name
+            return response
+        except LlmError:
+            pass
+        response = self._secondary.embed(request)  # type: ignore[union-attr]
+        self.name = self._secondary.name
+        return response
+
+
 class ScriptedProvider:
     """テスト用。決められた応答を順に返す。
 
