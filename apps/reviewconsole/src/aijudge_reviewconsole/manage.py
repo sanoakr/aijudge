@@ -66,7 +66,7 @@ from aijudge_admin import (
     try_settings,
 )
 from aijudge_admin.drafting import TaskDrafter
-from aijudge_admin.roster import RosterError
+from aijudge_admin.roster import RosterError, generate_password
 from aijudge_admin.syllabus import (
     MAX_SYLLABUS_BYTES,
     KcHint,
@@ -108,7 +108,7 @@ from aijudge_grading import (
     load_profile,
 )
 from aijudge_grading.overrides import diff
-from aijudge_identity import AuthService, PermissionDenied, Principal
+from aijudge_identity import AuthenticationFailed, AuthService, PermissionDenied, Principal
 from aijudge_submission import SubmissionService
 
 from .overview import empty_unit, find_unit, load_units, unit_key
@@ -985,6 +985,63 @@ def register(templates) -> APIRouter:
                     )
             uow.commit()
         return RedirectResponse(f"/courses/{course.id}", status_code=303)
+
+    # -- 利用者の作成（画面から、管理者専用）-------------------------------
+    #
+    # **#127: `admin` にだけ開ける例外。** 利用者の新規作成は
+    # `aijudge-admin`（CLI）に限る、という規則（#100 のコメント、
+    # `add_enrolments` の docstring）はそのまま ── ここは「画面から
+    # 操作できるのが管理者本人に限られるなら、画面共有・端末履歴の
+    # リスクは許容できる」という別枠で、一般の教員には開かない。
+
+    @router.get("/users/new", response_class=HTMLResponse)
+    def new_user_form(request: Request) -> Response:
+        from .app import require_principal
+
+        me = require_principal(request)
+        _require_admin(request, me)
+        return templates.TemplateResponse(request, "manage_new_user.html", {"me": me})
+
+    @router.post("/users")
+    def create_user(
+        request: Request,
+        login: Annotated[str, Form()],
+        display_name: Annotated[str, Form()] = "",
+        tenant_admin: Annotated[bool, Form()] = False,
+    ) -> Response:
+        """ローカル利用者を作る。パスワードはここで生成し、**一度だけ**表示する。
+
+        以降どこにも平文を残さない ── `AuthService.issue_token` が API
+        トークンでやっているのと同じ約束。コースへの受講登録はここでは
+        行わない（既存の受講者一覧画面が、既存利用者を対象にそれをやる）。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        _require_admin(request, me)
+        console = _console(request)
+
+        login = login.strip()
+        password = generate_password()
+        with console.database.unit_of_work() as uow:
+            auth = AuthService(uow.identity)
+            try:
+                principal = auth.register(
+                    tenant_id=me.tenant_id,
+                    login=login,
+                    display_name=display_name.strip() or login,
+                    password=password,
+                )
+            except AuthenticationFailed as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            if tenant_admin:
+                auth.set_tenant_admin(principal.user_id, admin=True)
+            uow.commit()
+        return templates.TemplateResponse(
+            request,
+            "manage_new_user_created.html",
+            {"me": me, "login": login, "password": password, "tenant_admin": tenant_admin},
+        )
 
     @router.get("/courses/{course_id}", response_class=HTMLResponse)
     def course_settings(request: Request, course_id: str, saved: str = "") -> Response:

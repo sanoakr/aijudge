@@ -285,6 +285,60 @@ def test_a_tenant_admin_sees_every_course_on_the_landing_page(world: World) -> N
     assert "採点を担当しているコースがありません" not in body
 
 
+# --------------------------------------------------------------------------
+# 利用者の作成（画面から、管理者専用 — #127）
+# --------------------------------------------------------------------------
+
+
+def test_only_an_admin_can_open_the_new_user_form(world: World) -> None:
+    world.register("teacher", Role.INSTRUCTOR)
+    assert world.client("teacher").get("/manage/users/new").status_code == 403
+
+
+def test_only_an_admin_can_create_a_user(world: World) -> None:
+    world.register("teacher", Role.INSTRUCTOR)
+    response = world.client("teacher").post(
+        "/manage/users", data={"login": "newperson", "display_name": ""}
+    )
+    assert response.status_code == 403
+    with world.database.unit_of_work() as uow:
+        assert uow.identity.find_user_by_login(TENANT, "newperson") is None
+
+
+def test_an_admin_creates_a_local_user_and_sees_the_password_once(world: World) -> None:
+    world.register("boss", Role.ADMIN)
+    response = world.client("boss").post(
+        "/manage/users", data={"login": "newperson", "display_name": "新しい人"}
+    )
+    assert response.status_code == 200
+    assert "newperson" in response.text
+    # パスワードが生成され、この応答にだけ表示される。
+    with world.database.unit_of_work() as uow:
+        user = uow.identity.find_user_by_login(TENANT, "newperson")
+    assert user is not None
+    assert not user.is_tenant_admin
+
+
+def test_an_admin_can_create_another_tenant_admin(world: World) -> None:
+    world.register("boss", Role.ADMIN)
+    response = world.client("boss").post(
+        "/manage/users",
+        data={"login": "boss2", "display_name": "", "tenant_admin": "true"},
+    )
+    assert response.status_code == 200
+    with world.database.unit_of_work() as uow:
+        user = uow.identity.find_user_by_login(TENANT, "boss2")
+    assert user is not None and user.is_tenant_admin
+
+
+def test_creating_a_duplicate_login_is_refused(world: World) -> None:
+    world.register("boss", Role.ADMIN)
+    response = world.client("boss").post(
+        "/manage/users", data={"login": "boss", "display_name": ""}
+    )
+    assert response.status_code == 400
+
+
 def test_an_unknown_subject_profile_is_refused(world: World) -> None:
     """存在しないプロファイルでコースを作ると、採点が恒久的に失敗する。"""
     world.register("boss", Role.ADMIN)

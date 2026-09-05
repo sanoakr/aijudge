@@ -345,6 +345,24 @@ def test_staff_can_be_created_without_a_course(database: Database) -> None:
     )
 
 
+def test_role_admin_without_a_course_makes_a_tenant_admin(database: Database) -> None:
+    """#127・#128: `--role admin` だけ（`--course` 無し）でテナント管理者を
+    作れる。管理者はコースの受講ではなくテナント単位の属性なので、
+    ダミーのコースを経由させる必要が無い。
+    """
+    create_staff(
+        database,
+        tenant_id=TENANT,
+        login="admin",
+        display_name="admin",
+        password="a-long-password",
+        role=Role.ADMIN,
+    )
+    with database.unit_of_work() as uow:
+        user = uow.identity.find_user_by_login(TENANT, "admin")
+    assert user is not None and user.is_tenant_admin
+
+
 # --------------------------------------------------------------------------
 # 課題の取り込み
 # --------------------------------------------------------------------------

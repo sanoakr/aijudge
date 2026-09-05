@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}利用者を作成しました — aiJudge{% endblock %}
+{% block body %}
+<h1>利用者を作成しました</h1>
+
+<div class="card">
+  <p><strong>このパスワードは今しか表示されません。</strong>
+     この画面を閉じると、二度と取り出せません（再発行のみ可能）。</p>
+  <div class="field">
+    <label>ログイン ID</label>
+    <p class="mono">{{ login }}</p>
+  </div>
+  <div class="field">
+    <label>パスワード</label>
+    <p class="mono">{{ password }}</p>
+  </div>
+  {% if tenant_admin %}
+  <p class="desc">テナント管理者として作成しました（#128）。</p>
+  {% endif %}
+</div>
+
+<p class="crumb">
+  <a href="/manage/users/new">別の利用者を作成する</a>
+  ・
+  <a href="/">担当コースへ戻る</a>
+</p>
+{% endblock %}
