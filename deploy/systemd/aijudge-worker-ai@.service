@@ -4,7 +4,8 @@
 [Unit]
 Description=aiJudge worker (AI phase, instance %i)
 PartOf=aijudge.target
-After=network-online.target postgresql.service
+After=network-online.target postgresql.service docker.service
+Wants=postgresql.service
 
 [Service]
 Type=simple
@@ -12,9 +13,14 @@ User=aijudge
 Group=aijudge
 WorkingDirectory=/opt/aijudge
 EnvironmentFile=/srv/aijudge/config/aijudge.env
-ExecStart=/usr/local/bin/uv run --project /opt/aijudge aijudge-worker --phase ai --name ai%i
+ExecStart=/opt/aijudge/.venv/bin/aijudge-worker --phase ai --name ai%i
 Restart=on-failure
-RestartSec=2
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/srv/aijudge /var/lib/aijudge
+PrivateTmp=yes
 
 [Install]
 WantedBy=aijudge.target
