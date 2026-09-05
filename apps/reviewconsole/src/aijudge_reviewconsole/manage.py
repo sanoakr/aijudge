@@ -124,29 +124,19 @@ def _console(request: Request):
 
 
 def _require_admin(request: Request, me: Principal) -> None:
-    """テナント内に ADMIN の受講が 1 つでもあるか。
+    """テナント全体の管理者であること（#128）。
 
     コースの作成はコース単位の権限では表せない（まだコースが無い）。
-    テナント単位の役割を持つまでの暫定で、**どこかのコースで ADMIN** を
-    その代わりにしている。Phase 8 でテナント単位の役割に置き換える。
+    以前は「どこかのコースで ADMIN の受講がある」を代わりにしていたが、
+    #128 でテナント単位の属性（`User.is_tenant_admin`）に置き換えた。
     """
-    console = _console(request)
-    with console.database.unit_of_work() as uow:
-        auth = AuthService(uow.identity)
-        for course in auth.courses_for(me.tenant_id, me.user_id):
-            enrollment = uow.identity.find_enrollment(course.id, me.user_id)
-            if enrollment is not None and enrollment.role is Role.ADMIN:
-                return
-    raise HTTPException(status_code=403, detail="コースの作成には管理者権限が必要です")
+    if not me.is_tenant_admin:
+        raise HTTPException(status_code=403, detail="コースの作成には管理者権限が必要です")
 
 
 def _is_admin(request: Request, me: Principal) -> bool:
-    """テナント内に ADMIN の受講が 1 つでもあるか（`_require_admin` の判定版）。"""
-    try:
-        _require_admin(request, me)
-    except HTTPException:
-        return False
-    return True
+    """テナント全体の管理者か（`_require_admin` の判定版）。"""
+    return me.is_tenant_admin
 
 
 # 画面から与えてよい役割。**`admin` は入らない。**
