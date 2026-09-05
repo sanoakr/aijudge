@@ -11,7 +11,7 @@
   <strong>個別に読んでいない成績を確定させる操作です。</strong>
   根拠説明は学習者にそのまま表示されます。
   <strong>未対応の再確認の依頼は確定しません</strong> —
-  そこは <a href="/courses/{{ course.id }}/queue">再確認の依頼</a>（{{ contested }} 件）で
+  そこは <a href="{{ root_prefix() }}/courses/{{ course.id }}/queue">再確認の依頼</a>（{{ contested }} 件）で
   1 件ずつ読んでください。
 </div>
 
@@ -32,7 +32,7 @@
     <strong>{{ unit.unit or unit.label }}</strong>
     <span class="desc">{{ unit.count }} 問・未確定 {{ unit.unfinalized }} 件</span>
   </summary>
-  <form method="post" action="/manage/courses/{{ course.id }}/units/{{ unit.key }}/finalize"
+  <form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/units/{{ unit.key }}/finalize"
         style="margin-top:10px">
     <div class="field">
       <label for="uj-{{ unit.key }}">確定の根拠（{{ min_reason }} 文字以上・学習者に表示されます）</label>
@@ -54,7 +54,7 @@
           {% if pending.get(task.id, 0) %}
           <details>
             <summary class="desc">この問題を確定する</summary>
-            <form method="post" action="/manage/courses/{{ course.id }}/tasks/{{ task.id }}/finalize"
+            <form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/tasks/{{ task.id }}/finalize"
                   style="margin:6px 0 0">
               <div class="field">
                 <label for="tj-{{ task.id }}">確定の根拠（{{ min_reason }} 文字以上）</label>
@@ -84,7 +84,7 @@
   </tr></thead>
   <tbody>
   {% for row in rows %}
-    <tr class="row-link" data-href="/review/{{ row.submission.id }}/reveal">
+    <tr class="row-link" data-href="{{ root_prefix() }}/review/{{ row.submission.id }}/reveal">
       <td class="fit">{{ row.submission.submitted_at.strftime('%m-%d %H:%M') if row.submission.submitted_at else '—' }}</td>
       <td class="fit mono">{{ row.learner.login if row.learner else '—' }}</td>
       <td class="grow">
@@ -94,7 +94,7 @@
       <td class="fit">{{ row.submission.attempt }} 回目</td>
       <td class="fit">{{ '%.0f' | format(row.run.score_ratio * 100) }}%</td>
       <td class="fit">
-        <a href="/review/{{ row.submission.id }}/reveal">確認して確定する</a>
+        <a href="{{ root_prefix() }}/review/{{ row.submission.id }}/reveal">確認して確定する</a>
         {% if row.contested %}<br><span class="desc">再確認の依頼あり</span>{% endif %}
       </td>
     </tr>

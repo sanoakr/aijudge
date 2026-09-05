@@ -7,7 +7,7 @@
 <h1>{{ task.title }}</h1>
 <p class="crumb">
   {{ course.title }} <span class="sep">·</span>
-  <a href="/manage/courses/{{ course.id }}/units/{{ unit_key }}">問題セット {{ unit_key }}</a>
+  <a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/units/{{ unit_key }}">問題セット {{ unit_key }}</a>
   <span class="sep">·</span> {{ version.version }} 版
   <span class="sep">·</span> <span class="desc">読むだけの画面です（訂正は担当教員が行います）</span>
 </p>

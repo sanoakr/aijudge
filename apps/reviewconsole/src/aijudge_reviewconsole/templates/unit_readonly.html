@@ -37,10 +37,10 @@
   </tr></thead>
   <tbody>
   {% for row in tasks %}
-    <tr class="row-link" data-href="/manage/courses/{{ course.id }}/tasks/{{ row.task.id }}/edit">
+    <tr class="row-link" data-href="{{ root_prefix() }}/manage/courses/{{ course.id }}/tasks/{{ row.task.id }}/edit">
       <td class="fit mono">{{ row.version.source_key or '—' }}</td>
       <td class="grow">
-        <a href="/manage/courses/{{ course.id }}/tasks/{{ row.task.id }}/edit">{{ row.task.title }}</a>
+        <a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/tasks/{{ row.task.id }}/edit">{{ row.task.title }}</a>
         {% if row.duplicate_title %}<span class="pill attn">同じ題名が複数</span>{% endif %}
       </td>
       <td class="fit">{{ row.version.criteria | length }}</td>

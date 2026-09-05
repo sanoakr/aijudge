@@ -11,7 +11,7 @@
    押させると手が止まる。使うのは教員だけで件数も知れているので、変更のたびに
    読み直してよい。JavaScript は「フォームを送る」だけに留める ── 絞り込みの
    規則をサーバと画面の 2 か所に書くと、必ず食い違う。 #}
-<form method="get" action="/courses/{{ course.id }}/submissions" class="card" id="filters"
+<form method="get" action="{{ root_prefix() }}/courses/{{ course.id }}/submissions" class="card" id="filters"
       onchange="this.requestSubmit()">
   <div class="field row-form">
     <span><label for="f-unit">問題セット</label>
@@ -78,7 +78,7 @@
     <strong>採用提出</strong>は、学習者ごと・課題ごとに最も点の高い提出です（成績に採用されるもの）。
     全提出を平らに数えた分布は「何度も試した人ほど低い点が多い」形になり、到達度としては読めません。
     {% if filters.unit or filters.task or filters.learner or filters.role or filters.state or filters.adopted %}
-      <a href="/courses/{{ course.id }}/submissions">絞り込みを解除</a>
+      <a href="{{ root_prefix() }}/courses/{{ course.id }}/submissions">絞り込みを解除</a>
     {% endif %}
   </p>
 </form>
@@ -117,7 +117,7 @@
   </tr></thead>
   <tbody>
   {% for row in rows %}
-    <tr class="row-link" data-href="/review/{{ row.submission.id }}/reveal">
+    <tr class="row-link" data-href="{{ root_prefix() }}/review/{{ row.submission.id }}/reveal">
       <td class="fit">{{ row.submission.submitted_at.strftime('%m-%d %H:%M') if row.submission.submitted_at else '—' }}</td>
       <td class="fit mono">{{ row.login }}
         {# 教員・TA 自身の試行（#108）。**隠さずに印を付ける** ── 成績にも
@@ -142,7 +142,7 @@
         <br><span class="desc mono">{{ row.finalized_by_login }}</span>
         {% endif %}
       </td>
-      <td class="fit"><a href="/review/{{ row.submission.id }}/reveal">確認する</a></td>
+      <td class="fit"><a href="{{ root_prefix() }}/review/{{ row.submission.id }}/reveal">確認する</a></td>
     </tr>
   {% else %}
     <tr><td colspan="7" class="desc">条件に合う提出がありません。</td></tr>

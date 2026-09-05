@@ -6,11 +6,22 @@
 （autodeploy timer）・restic target 1 稼働まで完了。
 残るは restic target 2・初回データ投入(#10)・§7 の判断待ち 2 件（2026-09-06）**
 
-## 決定事項（2026-09-04）
+## 決定事項（2026-09-04、ホスト名/ポートは 2026-09-06 に更新）
 
-- **ホスト名**: `judge.math.ryukoku.ac.jp` 一本。443=学生 UI、8443=教員コンソール。
-  8443 は大学ファイアウォールで閉じているため学外からは到達不可＝事実上の学内限定
-  （学外の教員は VPN 経由）。**教員コンソールに nginx の IP 制限はかけない。**
+- **ホスト名・ポート（2026-09-06 変更、#103）**: `judge.math.ryukoku.ac.jp` 一本、
+  **443 のみ**。学生 UI はルート直下、教員コンソールは `/console` 配下
+  （`deploy/nginx/aijudge.conf.template`、`AIJUDGE_CONSOLE_ROOT_PREFIX=/console`）。
+  8443 は廃止 ── 学内限定を担っていた「FW で 8443 を閉じる」という防壁が
+  無くなるため、**教員コンソールも学外に開く**ことを明示的に許容する
+  （2026-09-06、本人確認済み。旧方針「nginx の IP 制限はかけない」はそのまま、
+  ただし前提が「FW が別途閉じている」から「本当に開いている」に変わったことに
+  注意）。DNS・証明書（`judge.math.ryukoku.ac.jp` 単体、下記）はこの変更でも
+  そのまま使える ── 新しいサブドメインを増やしていないため。
+  <details><summary>旧方針（2026-09-04〜2026-09-06、置き換え済み）</summary>
+  443=学生 UI、8443=教員コンソール。8443 は大学ファイアウォールで閉じているため
+  学外からは到達不可＝事実上の学内限定（学外の教員は VPN 経由）。教員コンソールに
+  nginx の IP 制限はかけない。
+  </details>
 - **TLS**: `elite.math.ryukoku.ac.jp`（既存）と `judge.math.ryukoku.ac.jp`（新規・webroot・ECDSA）
   の Let's Encrypt 証明書を取得済み。`certbot.timer` で自動更新、更新後 nginx reload の
   deploy hook 設置済み。`certbot renew --dry-run` 両方成功。
@@ -233,30 +244,40 @@ sudo -u postgres createdb -O aijudge aijudge
 
 ### 3.6 リバースプロキシ / TLS
 
-学生 UI（8080）と教員 UI（8765）の **2 つ**を TLS で出す。既存 vhost の `/` は静的サイト
-かつ aiJudge のアプリは**サブパス動作（root_path）に未対応**なので、専用サブドメイン
-`judge.math.ryukoku.ac.jp` を使う（作成済み・証明書取得済み）。
+**2026-09-06 変更（#103）**: 学生 UI（8080）と教員 UI（8765）を **443 番ポート 1 つ**
+で TLS 終端する。アプリ自身は長らく**サブパス動作（root_path）に未対応**だったが、
+教員コンソール側（`apps/reviewconsole`）に `AIJUDGE_CONSOLE_ROOT_PREFIX` を追加し、
+絶対リンクと `RedirectResponse` の両方がこれを見て接頭辞を足すようにした
+（`apps/reviewconsole/.../urls.py`）。専用サブドメイン `judge.math.ryukoku.ac.jp`
+は変わらず使う（作成済み・証明書取得済み。今回の変更でも DNS・証明書の追加は不要）。
 
 ```
-https://judge.math.ryukoku.ac.jp/       (443)  → 127.0.0.1:8080  学生
-https://judge.math.ryukoku.ac.jp:8443/  (8443) → 127.0.0.1:8765  教員（学内のみ／FW で 8443 閉）
+https://judge.math.ryukoku.ac.jp/          (443) → 127.0.0.1:8080  学生
+https://judge.math.ryukoku.ac.jp/console/  (443) → 127.0.0.1:8765  教員
 ```
 
-- 同一ホスト名なので **1 回のログインで両方に入れる**（RUNNING.md #103。Cookie はホスト単位、ポートは無視される）。
-- 教員コンソールに nginx の IP 制限はかけない（FW が事実上の学内制限）。
+- 同一ホスト名なので **1 回のログインで両方に入れる**（#103。Cookie はホスト単位、
+  パス接頭辞に関わらず `path=/` のまま ── 変更前から成立していた前提で、今回も崩していない）。
+- **教員コンソールを学内限定にしていた「FW で 8443 を閉じる」という防壁は無くなった。**
+  代わりの学内限定手段（nginx 側 `allow`/`deny`・VPN 必須化等）は用意していない
+  ── 学外公開を許容する、という運用判断（決定事項参照）。
 - 新規 vhost ファイル `/etc/nginx/sites-available/judge.math.ryukoku.ac.jp`。
   証明書は取得済み（`/etc/letsencrypt/live/judge.math.ryukoku.ac.jp/`）。
 - `conf.d/tls.conf` と `snippets/security-headers.conf` を再利用。
 - 結果は SSE で段階配信されるので、該当 location に `proxy_buffering off;` と長め（600s）の `proxy_read_timeout`。
 - `client_max_body_size 25M;`（レポート PDF 等）。
-- **8443 の ssl server ブロックにも** `ssl_certificate` を明示（同じ lineage を使う）。
-- アプリ側 env:
+- `location /console/` は `proxy_pass http://127.0.0.1:8765/;`（末尾スラッシュ対）で
+  接頭辞を剥がしてからバックエンドへ渡す（`deploy/nginx/aijudge.conf.template` 参照）。
+- アプリ側 env（`deploy/aijudge.env.example` も同様に更新済み）:
   ```
   AIJUDGE_SECURE_COOKIES=1
-  AIJUDGE_ALLOWED_HOSTS=judge.math.ryukoku.ac.jp,judge.math.ryukoku.ac.jp:8443   # #116: 逆プロキシ必須
+  AIJUDGE_ALLOWED_HOSTS=judge.math.ryukoku.ac.jp
   AIJUDGE_LEARNER_URL=https://judge.math.ryukoku.ac.jp
-  AIJUDGE_CONSOLE_URL=https://judge.math.ryukoku.ac.jp:8443
+  AIJUDGE_CONSOLE_URL=https://judge.math.ryukoku.ac.jp/console
+  AIJUDGE_CONSOLE_ROOT_PREFIX=/console
   ```
+  **elite への未反映**: 上記 env の書き換え・nginx vhost の入れ替え・
+  コードのデプロイ（`v*` タグ）はまだ実施していない（このドキュメント更新時点）。
   nginx が `X-Forwarded-Proto https` を渡すので Cookie の `Secure` は自動で付く。
 - アプリは `127.0.0.1` のみ bind（既定）。
 
@@ -327,6 +348,9 @@ unit / nginx / polkit のコピーをリポジトリの `deploy/` に置いて�
 - [x] 6. **サンドボックス検証**: `test_container.py` が `docker` / `gvisor` とも **16 passed / 0 skipped**。`build_sandbox()` は `auto` で `docker:runsc`（`kernel_isolated`）を選択。
 - [x] 7. systemd unit（web / review / worker-det / worker-ai@ テンプレ / finalize.{service,timer} / `aijudge.target`）配置。web・review・worker-det・finalize.timer を enable+start。`127.0.0.1:8080`/`:8765` で 303（→ /login）。
 - [x] 8. nginx vhost `judge.math.ryukoku.ac.jp`（80→301 / 443→:8080 / 8443→:8765）を sites-enabled に。`nginx -t` OK、ECDSA 証明書 full chain verify OK、HSTS・security-headers 継承、`elite.math` 無影響。
+      **2026-09-06: §3.6 の変更（443 に統一、教員コンソールは `/console`）により
+      この vhost・8443 ブロックは古い。`deploy/nginx/aijudge.conf.template` の
+      新版に elite 上で置き換えること（未実施）。**
 - [x] 9. LLM モデルを評価し `AIJUDGE_LLM_MODEL=gemma4:e4b` に確定（2026-09-05、
       `docs/design/01_`〜`03_`）。slab-llm 側は `qwen3.8:27b-mlx` の常駐ピン
       （blume 用）を無効化し `gemma4:e4b` を常駐に切替え済み（下記注記）。
@@ -380,7 +404,7 @@ elite 上のデプロイタグは `v0.25.3`（`git -C /opt/aijudge describe --ta
 | R2 | elite は共用機で他アプリと同居 | 容量は十分（16C/30GB/259GB 空き）。§7-7 は要判断のまま |
 | R3 | ~~LLM が単一ホスト（slab-llm、Mac）依存~~ → **2026-09-06: elite ローカルの PAIR クラスタ（6 ノード）へ切替、単一ホスト依存は解消** | クラスタ全体が落ちた場合は従来どおり AI 観点が unscored・総点は withheld（P2/P3 の設計どおり）で縮退継続 |
 | R8 | ~~`ollama-proxy`（PAIR）が対話セッション頼み~~ → **2026-09-06 確認: 実際は `nvpair-tui.service`（systemd `--user`、`enabled`・`Restart=on-failure`）配下の tmux セッションの子プロセス。`loginctl show-user sano` で `Linger=yes` も確認済みで、sano のログアウト・elite 再起動どちらにも耐える** | 残る未確認点のみ: `ollama-proxy` 個別プロセスがクラッシュした際、親の `nvpair-ui-broker`（NVIDIA 製、他 8 プロセスの管理が本来の役目）が再起動するか。本番稼働中に落として確認するのは避けた。保守時間帯に一度検証すること |
-| R4 | 8443 は大学 FW で閉 → 学外教員は到達不可 | 承知の上。学外は VPN 経由。IP 制限は不要 |
+| R4 | ~~8443 は大学 FW で閉 → 学外教員は到達不可~~ → **2026-09-06: 8443 廃止・443 に統一。教員コンソールは学外にも開く（#103）** | FW によるアクセス制限は無い。nginx 側の追加制限（`allow`/`deny`）や認証強化はしていない。ログイン自体は必要（セッション認証は従来どおり） |
 | R5 | サブパス未対応 | `judge.math` サブドメイン方式で回避（確定） |
 | R6 | certbot lineage | `judge.math` を別 lineage で取得済み（webroot・ECDSA）。`elite.math` は非改変 |
 | **R7** | **動画提出は現状のコードでは不可** | `ArtifactKind` に動画が無く（`.mp4` 等 未登録）、アップロードは `await upload.read()` で**全体を RAM に載せる**（`MAX_UPLOAD_BYTES=1 MiB` 固定、CLI から変更不可）。数 GB 動画には次が要る: ①動画 `ArtifactKind` と拡張子・MIME 追加 ②アップロードのストリーミング（ディスクへ逐次、RAM に載せない）③`ArtifactStore.put/get` のストリーム対応 ④型別・課題別のサイズ上限（コード）⑤nginx `client_max_body_size` 引き上げ + `proxy_request_buffering off` ⑥レジューム可能アップロード（tus 等、3 GB を学内 Wi-Fi で送るため）⑦動画観点は human-scored（PDF/画像と同様、モデルに渡さない）。§3.2.1(C) の型別ルートもこの PR に含める |
@@ -399,7 +423,8 @@ elite 上のデプロイタグは `v0.25.3`（`git -C /opt/aijudge describe --ta
 ## 7. 残課題
 
 - [x] 1. DNS → `judge.math.ryukoku.ac.jp` で確定。
-- [x] 2. 教員コンソール公開範囲 → 同一サブドメイン 8443、IP 制限なし、FW で学内限定。
+- [x] 2. 教員コンソール公開範囲 → ~~同一サブドメイン 8443、IP 制限なし、FW で学内限定~~ →
+      **2026-09-06 変更: 同一ホスト名の `/console`（443）、IP 制限なし、学外にも開く（#103）。**
 - [x] 3. `docker` グループ → `aijudge` + `sano` を追加、実行 owner は `aijudge`。
 - [x] 4. **LLM モデル名** → `gemma4:e4b` に確定（2026-09-05、`docs/design/01_`〜`03_`）。
 - [ ] 5. **今学期の規模**（受講者数・コース数）。ワーカー本数（既定: 決定的 1 + AI 4）の調整判断。

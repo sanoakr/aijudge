@@ -24,22 +24,22 @@
 {% for file in files %}
   <p class="desc" style="margin:0 0 6px">{{ file.filename }}</p>
   {% if file.is_image %}
-  <a href="/review/{{ submission.id }}/artifacts/{{ file.id }}">
-    <img src="/review/{{ submission.id }}/artifacts/{{ file.id }}" alt="{{ file.filename }}"
+  <a href="{{ root_prefix() }}/review/{{ submission.id }}/artifacts/{{ file.id }}">
+    <img src="{{ root_prefix() }}/review/{{ submission.id }}/artifacts/{{ file.id }}" alt="{{ file.filename }}"
          style="max-width:100%;border:1px solid var(--line);border-radius:3px"></a>
   {% elif file.is_pdf %}
-  <object class="pdf-embed" data="/review/{{ submission.id }}/artifacts/{{ file.id }}"
+  <object class="pdf-embed" data="{{ root_prefix() }}/review/{{ submission.id }}/artifacts/{{ file.id }}"
           type="application/pdf">
-    <p class="desc"><a href="/review/{{ submission.id }}/artifacts/{{ file.id }}">PDF を開く</a></p>
+    <p class="desc"><a href="{{ root_prefix() }}/review/{{ submission.id }}/artifacts/{{ file.id }}">PDF を開く</a></p>
   </object>
   {% elif file.is_video %}
   <video controls preload="metadata"
-         src="/review/{{ submission.id }}/artifacts/{{ file.id }}"
+         src="{{ root_prefix() }}/review/{{ submission.id }}/artifacts/{{ file.id }}"
          style="max-width:100%;border:1px solid var(--line);border-radius:3px">
-    <a href="/review/{{ submission.id }}/artifacts/{{ file.id }}">動画を開く</a>
+    <a href="{{ root_prefix() }}/review/{{ submission.id }}/artifacts/{{ file.id }}">動画を開く</a>
   </video>
   {% else %}
-  <p class="desc"><a href="/review/{{ submission.id }}/artifacts/{{ file.id }}">元のファイル</a></p>
+  <p class="desc"><a href="{{ root_prefix() }}/review/{{ submission.id }}/artifacts/{{ file.id }}">元のファイル</a></p>
   {% endif %}
 {% endfor %}
 {% if lines %}
@@ -49,7 +49,7 @@
 
   <div>
     <h2>あなたの採点</h2>
-    <form method="post" action="/review/{{ submission.id }}/blind">
+    <form method="post" action="{{ root_prefix() }}/review/{{ submission.id }}/blind">
       {% for criterion in criteria %}
       <fieldset>
         <legend>{{ criterion.title }}</legend>

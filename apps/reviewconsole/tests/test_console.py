@@ -29,7 +29,13 @@ from aijudge_grading import EvaluatorRegistry
 from aijudge_identity import AuthService
 from aijudge_llm_gateway import LlmGateway, ScriptedProvider
 from aijudge_persistence import Database, ObservationFileStore
-from aijudge_reviewconsole import SESSION_COOKIE, Console, create_app, is_blind_sample
+from aijudge_reviewconsole import (
+    ENV_ROOT_PREFIX,
+    SESSION_COOKIE,
+    Console,
+    create_app,
+    is_blind_sample,
+)
 from aijudge_submission import (
     FilesystemArtifactStore,
     IncomingFile,
@@ -305,6 +311,52 @@ def test_an_anonymous_visitor_is_sent_to_the_login_page(world: World) -> None:
     response = world.client.get("/", follow_redirects=False)
     assert response.status_code == 303
     assert response.headers["location"] == "/login"
+
+
+def test_the_footer_shows_the_deployed_release_version(world: World) -> None:
+    """release-tagging（ルートの pyproject の version）がそのまま出る。
+
+    デプロイの入れ替えがブラウザだけで確認できるように（CD が実際に
+    新しいタグへ入れ替えたか、SSH せず見える）。
+    """
+    import tomllib
+
+    root_version = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())["project"]["version"]
+
+    world.register("instructor", role=Role.INSTRUCTOR)
+    world.login("instructor")
+    body = world.client.get("/").text
+
+    assert f"aiJudge {root_version}" in body
+
+
+def test_links_carry_the_configured_path_prefix(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`/console` の下にぶら下げて配置しても、絶対リンクが正しい経路を指す（#103）。
+
+    nginx が `/console` の接頭辞を剥がしてこのアプリへ渡すので、アプリ自身は
+    `AIJUDGE_CONSOLE_ROOT_PREFIX` で「自分は /console の下にいる」と教わる。
+    """
+    monkeypatch.setenv(ENV_ROOT_PREFIX, "/console")
+
+    world.register("instructor", role=Role.INSTRUCTOR)
+    world.login("instructor")
+    body = world.client.get("/").text
+
+    assert 'href="/console/courses/' in body
+    assert 'href="/courses/' not in body  # 接頭辞なしの古い形が残っていない
+
+
+def test_a_redirect_also_carries_the_configured_path_prefix(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv(ENV_ROOT_PREFIX, "/console")
+
+    response = world.client.get("/", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/console/login"
 
 
 @needs_c_compiler

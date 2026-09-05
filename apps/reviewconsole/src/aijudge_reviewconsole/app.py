@@ -31,13 +31,14 @@ from __future__ import annotations
 
 import os
 import re
+import tomllib
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
@@ -97,8 +98,40 @@ from .submissions import (
     newest_first,
     summarize,
 )
+from .urls import RedirectResponse, root_prefix
+
+
+def _read_app_version() -> str:
+    """release-tagging（ルート pyproject の version、`v<version>` タグ）を読む。
+
+    デプロイは `git checkout --detach vX.Y.Z` した作業木からそのまま起動する
+    ので、リポジトリルートの `pyproject.toml` がデプロイ済みタグを表す。
+    `apps/reviewconsole/pyproject.toml` 自身にも `version` はあるが、
+    こちらは `0.0.1` に固定されたプレースホルダで運用しない（`name` で見分ける）。
+    フッターの表示を壊す理由にはならないので、読めなければ "unknown" とする。
+    """
+    for parent in Path(__file__).resolve().parents:
+        candidate = parent / "pyproject.toml"
+        if not candidate.is_file():
+            continue
+        try:
+            data = tomllib.loads(candidate.read_text())
+        except (OSError, tomllib.TOMLDecodeError):
+            continue
+        project = data.get("project")
+        if isinstance(project, dict) and project.get("name") == "aijudge":
+            version = project.get("version")
+            if isinstance(version, str):
+                return version
+    return "unknown"
+
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+TEMPLATES.env.globals["app_version"] = _read_app_version()
+# テンプレート側の絶対リンクに接頭辞を足すのに使う（`{{ root_prefix() }}/foo`）。
+# 関数そのものを渡す（呼び出し時に評価する） ── 値をここで固定してしまうと、
+# `RedirectResponse`（呼び出しごとに環境変数を読む）とずれる。
+TEMPLATES.env.globals["root_prefix"] = root_prefix
 # 「人が採点する」を表す評価器の名前。**画面に値を書き写さない** ── 書き写すと、
 # 模型の側で変えたときに画面だけが古い値を送り続ける。
 TEMPLATES.env.globals["HUMAN_SCORED"] = HUMAN_SCORED

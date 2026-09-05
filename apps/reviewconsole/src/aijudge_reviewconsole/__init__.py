@@ -13,5 +13,6 @@ from __future__ import annotations
 
 from .app import SESSION_COOKIE, Console, create_app
 from .sampling import is_blind_sample
+from .urls import ENV_ROOT_PREFIX
 
-__all__ = ["SESSION_COOKIE", "Console", "create_app", "is_blind_sample"]
+__all__ = ["ENV_ROOT_PREFIX", "SESSION_COOKIE", "Console", "create_app", "is_blind_sample"]

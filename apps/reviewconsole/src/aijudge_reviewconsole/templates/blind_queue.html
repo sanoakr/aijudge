@@ -32,7 +32,7 @@
   </tr></thead>
   <tbody>
   {% for row in rows %}
-    <tr class="row-link" data-href="/review/{{ row.submission.id }}/blind">
+    <tr class="row-link" data-href="{{ root_prefix() }}/review/{{ row.submission.id }}/blind">
       <td class="fit">{{ row.submission.submitted_at.strftime('%m-%d %H:%M') if row.submission.submitted_at else '—' }}</td>
       <td class="fit mono">{{ row.learner.login if row.learner else '—' }}</td>
       <td class="grow">
@@ -41,7 +41,7 @@
         {% else %}—{% endif %}
       </td>
       <td class="fit">{{ row.submission.attempt }} 回目</td>
-      <td class="fit"><a href="/review/{{ row.submission.id }}/blind">自分で採点する</a></td>
+      <td class="fit"><a href="{{ root_prefix() }}/review/{{ row.submission.id }}/blind">自分で採点する</a></td>
     </tr>
   {% else %}
     <tr><td colspan="5" class="desc">blind 採点を待っている提出はありません。</td></tr>

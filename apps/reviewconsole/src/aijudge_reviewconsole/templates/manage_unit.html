@@ -28,7 +28,7 @@
 {% endif %}
 
 <h2 id="number">回番号</h2>
-<form method="post" action="/manage/courses/{{ course.id }}/units/{{ unit.key }}/number"
+<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/units/{{ unit.key }}/number"
       class="card">
   <div class="inline-field">
     <span class="body">
@@ -50,7 +50,7 @@
 
    自動確定と回番号は別のフォームにしてある ── 効き方が違うものを 1 つの
    保存ボタンにまとめると、何が変わったのか教員に分からない。 #}
-<form method="post" action="/manage/courses/{{ course.id }}/units/{{ unit.key }}/schedule"
+<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/units/{{ unit.key }}/schedule"
       class="card">
   {# 3 つとも 1 行に収まるので、ボタンも同じ行の右端に置く。 #}
   <div class="field row-form">
@@ -104,7 +104,7 @@
     学習者にはこの時刻を出していません（延長で食い違うため）。
   </p>
   {% endif %}
-  <form method="post" action="/manage/courses/{{ course.id }}/units/{{ unit.key }}/grade-now"
+  <form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/units/{{ unit.key }}/grade-now"
         data-confirm-title="いままでの提出を採点しますか"
         data-confirm="待機中の {{ waiting_jobs }} 件が採点に回ります。試験の設定は解除されないので、このあと出された提出はまた採点開始時刻まで待ちます。">
     <div class="inline-field">
@@ -139,7 +139,7 @@
        ここから流し直せるようにする。自動では戻さない ── 自動で戻すなら
        上限を設けた意味が無い。 #}
     <form method="post"
-          action="/manage/courses/{{ course.id }}/units/{{ unit.key }}/retry-failed"
+          action="{{ root_prefix() }}/manage/courses/{{ course.id }}/units/{{ unit.key }}/retry-failed"
           data-confirm-title="失敗した採点を流し直しますか"
           data-confirm="{{ failed_jobs | length }} 件を採点に回します。原因が直っていなければ、また同じところで失敗します。">
       <div class="actions">
@@ -152,7 +152,7 @@
 {% endif %}
 
 <h2 id="grace">成績の自動確定</h2>
-<form method="post" action="/manage/courses/{{ course.id }}/units/{{ unit.key }}/auto-finalize"
+<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/units/{{ unit.key }}/auto-finalize"
       class="card">
   <div class="inline-field">
     <span class="body">
@@ -167,7 +167,7 @@
   </div>
   <p class="desc" style="margin:10px 0 0">
     いまは<strong>コースの設定</strong>（{% if course_grace %}{{ course_grace }} 分{% else %}自動確定なし{% endif %}）が
-    効いています。<a href="/manage/courses/{{ course.id }}">コース全体の設定</a>で変えられます。
+    効いています。<a href="{{ root_prefix() }}/manage/courses/{{ course.id }}">コース全体の設定</a>で変えられます。
     {# **確定の時刻は提出ごとに違う。** 起点は課題の締切ではなく、その提出の
        採点が終わった時刻なので、セット単位の「いつ確定するか」は無い。 #}
     確定は<strong>提出ごと</strong>に、その採点が終わってから数えます。
@@ -195,16 +195,16 @@
        **承認待ちは含めない。** あちらは「前の版が出ている」であって、
        出ていないのではない（#48）。 #}
     <tr class="row-link{% if row.withdrawn or row.rejected %} hidden-from-learners{% endif %}"
-        data-href="/manage/courses/{{ course.id }}/tasks/{{ row.task.id }}/edit">
+        data-href="{{ root_prefix() }}/manage/courses/{{ course.id }}/tasks/{{ row.task.id }}/edit">
       {# **数字を打たせない。** 出題順は前後関係で、数字で持たせると
          1 問差し込むたびに全部を打ち直すことになる。 #}
       <td class="fit move">
-        <form method="post" action="/manage/courses/{{ course.id }}/tasks/{{ row.task.id }}/move"
+        <form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/tasks/{{ row.task.id }}/move"
               style="margin:0;display:inline">
           <button type="submit" name="direction" value="up" title="上へ"
                   {{ 'disabled' if loop.first }}>↑</button>
         </form>
-        <form method="post" action="/manage/courses/{{ course.id }}/tasks/{{ row.task.id }}/move"
+        <form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/tasks/{{ row.task.id }}/move"
               style="margin:0;display:inline">
           <button type="submit" name="direction" value="down" title="下へ"
                   {{ 'disabled' if loop.last }}>↓</button>
@@ -216,7 +216,7 @@
            そのまま「この回の問題数」と読む。 #}
         {% if row.in_review %}
         {# 承認するまで出題されない ── 教員が開かないと止まったまま。 #}
-        <a class="pill attn" href="/manage/courses/{{ course.id }}/drafts">未承認 — 出題されません</a>
+        <a class="pill attn" href="{{ root_prefix() }}/manage/courses/{{ course.id }}/drafts">未承認 — 出題されません</a>
         {% elif row.rejected %}
         <span class="pill no">却下済み — 出題されません</span>
         {% endif %}
@@ -244,7 +244,7 @@
         {% if row.unfinalized %}<span class="pill {{ 'attn' if unit.deadline_passed }}">{{ row.unfinalized }} 件</span>
         {% else %}<span class="desc">—</span>{% endif %}
       </td>
-      <td class="fit"><a href="/manage/courses/{{ course.id }}/tasks/{{ row.task.id }}/edit">修正</a></td>
+      <td class="fit"><a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/tasks/{{ row.task.id }}/edit">修正</a></td>
     </tr>
   {% else %}
     <tr><td colspan="6" class="desc">この問題セットにはまだ課題がありません。</td></tr>
@@ -252,7 +252,7 @@
   </tbody>
 </table>
 <p class="addline" style="justify-content:flex-end">
-  <a href="/manage/courses/{{ course.id }}/units/{{ unit.key }}/tasks/new">課題を追加する →</a>
+  <a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/units/{{ unit.key }}/tasks/new">課題を追加する →</a>
 </p>
 
 {% if unit.deadline_passed and unit.unfinalized %}
@@ -271,7 +271,7 @@
    **押す前に内訳を出す。** 結果が課題ごとに違う操作なので、実行してからしか
    分からないのでは確認にならない。 #}
 {% if clear_plan.total %}
-<form method="post" action="/manage/courses/{{ course.id }}/units/{{ unit.key }}/clear"
+<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/units/{{ unit.key }}/clear"
       class="card" data-confirm-title="この問題セットを片付けますか"
       data-confirm="削除 {{ clear_plan.deleted }} 件（提出が無いもの・取り消せません）、出題の取り下げ {{ clear_plan.withdrawn }} 件（提出があるもの・あとで取り消せます）。取り下げた課題の提出と採点は残ります。"
       {% if clear_plan.deleted %}data-confirm-danger="1"{% endif %}>
@@ -297,7 +297,7 @@
 {% for row in tasks if row.unfinalized %}
 <details class="card task-edit">
   <summary><b>{{ row.task.title }}</b><span class="desc">未確定 {{ row.unfinalized }} 件</span></summary>
-  <form method="post" action="/manage/courses/{{ course.id }}/tasks/{{ row.task.id }}/finalize"
+  <form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/tasks/{{ row.task.id }}/finalize"
         style="margin-top:12px">
     <div class="field">
       <label for="just-{{ row.task.id }}">確定の根拠（{{ min_reason }} 文字以上・学習者に表示されます）</label>
@@ -325,7 +325,7 @@
 {% if kcs %}
 {# **いちばん時間の掛かる操作。** 参照解答・テストケース・変異テストまで
    回るので数十秒かかる。押し直すと倍払って倍待つ。 #}
-<form method="post" action="/manage/courses/{{ course.id }}/units/{{ unit.key }}/generate"
+<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/units/{{ unit.key }}/generate"
       class="card" data-working="生成中… 数十秒かかります（このまま待ってください）">
   <div class="field">
     <label>問う知識要素（1 つ以上・登録済みのものから選びます）</label>
@@ -336,7 +336,7 @@
       {% endfor %}
     </div>
     <p class="desc" style="margin:6px 0 0">
-      足りないものは<a href="/manage/courses/{{ course.id }}/kc">知識要素</a>から追加してください。
+      足りないものは<a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/kc">知識要素</a>から追加してください。
     </p>
   </div>
   <div class="field">
@@ -369,7 +369,7 @@
     このコースの既存課題を「似せないための材料」として渡します。
     生成には十数秒かかります。
     <strong>できたものは候補であって課題ではありません</strong> —
-    <a href="/manage/courses/{{ course.id }}/drafts">未承認の課題</a>に入り、承認するまで出題されません。
+    <a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/drafts">未承認の課題</a>に入り、承認するまで出題されません。
   </p>
   <div class="actions">
     {% if saved_key == 'generated' %}<span class="flash">{{ saved }}</span>{% endif %}
@@ -380,7 +380,7 @@
 <div class="note warn">
   <strong>知識要素が登録されていないので生成できません。</strong>
   何を問う課題かを決めずに生成させると、既存の課題と見分けの付かないものが出ます。
-  <a href="/manage/courses/{{ course.id }}/kc">知識要素</a>から追加してください。
+  <a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/kc">知識要素</a>から追加してください。
 </div>
 {% endif %}
 
