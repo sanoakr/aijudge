@@ -235,6 +235,11 @@ def create_staff(
             user_id = user.id
         if course_id is not None:
             auth.enroll(tenant_id=tenant_id, course_id=course_id, user_id=user_id, role=role)
+        elif role is Role.ADMIN:
+            # `--role admin` だけで（`--course` 無しで）テナント管理者を
+            # 作れるようにする。管理者はコースの受講ではなくテナント単位の
+            # 属性（#128）なので、ダミーのコースを経由させる必要が無い。
+            auth.set_tenant_admin(user_id, admin=True)
         uow.commit()
     return created
 
