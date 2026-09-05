@@ -323,6 +323,29 @@ def test_the_footer_shows_the_deployed_release_version(world: World) -> None:
     assert f"aiJudge {root_version}" in body
 
 
+def test_a_tenant_admin_sees_their_role_and_a_console_link_in_the_course_list(
+    world: World,
+) -> None:
+    """テナント管理者はコース単位の受講登録を持たない（#128）。
+
+    役割の判定に `find_enrollment` を直接使うと、管理者の行は常に
+    `None`（=learner）に見え、採点画面へのリンクが出ない ── 入口が
+    1 つになった今（#103）、これがそのまま「管理者が教員コンソールに
+    気づけない」バグになる。`role_in`（テナント管理者を特別扱いする）を
+    使うことで、コース単位の受講が無くても正しい役割が出ること。
+    """
+    principal = world.register("admin1", enrol=False)
+    with world.database.unit_of_work() as uow:
+        AuthService(uow.identity).set_tenant_admin(principal.user_id, admin=True)
+        uow.commit()
+    world.login("admin1")
+
+    body = world.client.get("/").text
+
+    assert "learner" not in body
+    assert "採点の画面へ" in body
+
+
 # --------------------------------------------------------------------------
 # 見えてはいけないもの
 # --------------------------------------------------------------------------
