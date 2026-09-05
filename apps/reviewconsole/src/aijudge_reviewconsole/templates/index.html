@@ -88,6 +88,14 @@
       この画面では選ぶだけです。
     </p>
   </div>
+  <div class="field">
+    <label for="instructors">担当教員（1 行 1 名・既存の利用者。1 名以上必須）</label>
+    <textarea id="instructors" name="instructors" rows="3" required placeholder="teacher"></textarea>
+    <p class="desc" style="margin-top:6px">
+      新規の利用者はここでは作れません（`aijudge-admin` で作成してから指定します）。
+      作成した本人も自動的に担当教員になります。
+    </p>
+  </div>
   <div class="actions"><button type="submit">作成</button></div>
 </form>
 {% endif %}
