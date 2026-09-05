@@ -3,7 +3,7 @@
 対象ホスト: `elite.math.ryukoku.ac.jp`（数理・情報科学課程の共用アプリサーバ）
 学生/教員 UI のホスト名: `judge.math.ryukoku.ac.jp`（elite を指す。TLS 証明書取得済み・自動更新設定済み 2026-09-04）
 状態: **設計は確定済み。§4 の作業は AI ワーカー稼働・deploy 材配置・CD 自動化
-（autodeploy timer）・restic target 1 稼働まで完了。
+（autodeploy timer）・restic target 1 稼働・443 への統一（#103、8443 撤去）まで完了。
 残るは restic target 2・初回データ投入(#10)・§7 の判断待ち 2 件（2026-09-06）**
 
 ## 決定事項（2026-09-04、ホスト名/ポートは 2026-09-06 に更新）
@@ -276,8 +276,17 @@ https://judge.math.ryukoku.ac.jp/console/  (443) → 127.0.0.1:8765  教員
   AIJUDGE_CONSOLE_URL=https://judge.math.ryukoku.ac.jp/console
   AIJUDGE_CONSOLE_ROOT_PREFIX=/console
   ```
-  **elite への未反映**: 上記 env の書き換え・nginx vhost の入れ替え・
-  コードのデプロイ（`v*` タグ）はまだ実施していない（このドキュメント更新時点）。
+  **2026-09-06 elite に反映・稼働確認済み。** `v0.27.0` デプロイ後、
+  nginx vhost（8443 ブロック撤去・`/console` location 追加。旧ファイルは
+  `judge.math.ryukoku.ac.jp.bak.<日時>` に保管）と上記 env を書き換え、
+  `nginx -t` 成功 → `reload`、`aijudge-web`・`aijudge-review` を再起動して確認:
+  - `https://judge.math.ryukoku.ac.jp/login` → 200
+  - `https://judge.math.ryukoku.ac.jp/console/login` → 200、
+    `action="/console/login"` と接頭辞が正しく付いている
+  - `https://judge.math.ryukoku.ac.jp:8443/` → 接続不可（8443 ブロック撤去済み）
+  - フッターの表示バージョンが両画面とも `0.27.0`（デプロイ済みタグと一致）
+  - certbot 用の ACME challenge location（`/.well-known/acme-challenge/`,
+    webroot: `/var/www/letsencrypt`）は新 vhost にも残してある（更新の妨げにならない）。
   nginx が `X-Forwarded-Proto https` を渡すので Cookie の `Secure` は自動で付く。
 - アプリは `127.0.0.1` のみ bind（既定）。
 
@@ -348,9 +357,10 @@ unit / nginx / polkit のコピーをリポジトリの `deploy/` に置いて�
 - [x] 6. **サンドボックス検証**: `test_container.py` が `docker` / `gvisor` とも **16 passed / 0 skipped**。`build_sandbox()` は `auto` で `docker:runsc`（`kernel_isolated`）を選択。
 - [x] 7. systemd unit（web / review / worker-det / worker-ai@ テンプレ / finalize.{service,timer} / `aijudge.target`）配置。web・review・worker-det・finalize.timer を enable+start。`127.0.0.1:8080`/`:8765` で 303（→ /login）。
 - [x] 8. nginx vhost `judge.math.ryukoku.ac.jp`（80→301 / 443→:8080 / 8443→:8765）を sites-enabled に。`nginx -t` OK、ECDSA 証明書 full chain verify OK、HSTS・security-headers 継承、`elite.math` 無影響。
-      **2026-09-06: §3.6 の変更（443 に統一、教員コンソールは `/console`）により
-      この vhost・8443 ブロックは古い。`deploy/nginx/aijudge.conf.template` の
-      新版に elite 上で置き換えること（未実施）。**
+      **2026-09-06: §3.6 の変更（443 に統一、教員コンソールは `/console`）を
+      elite 上に反映済み。** 旧 vhost は `judge.math.ryukoku.ac.jp.bak.<日時>`
+      に保管、8443 の server ブロックは撤去。`/login`・`/console/login` とも
+      200、`:8443` は接続不可を確認。§3.6 参照。
 - [x] 9. LLM モデルを評価し `AIJUDGE_LLM_MODEL=gemma4:e4b` に確定（2026-09-05、
       `docs/design/01_`〜`03_`）。slab-llm 側は `qwen3.8:27b-mlx` の常駐ピン
       （blume 用）を無効化し `gemma4:e4b` を常駐に切替え済み（下記注記）。
@@ -388,8 +398,9 @@ unit / nginx / polkit のコピーをリポジトリの `deploy/` に置いて�
 
 ### 現在の状態（2026-09-06 実地確認）
 
-`https://judge.math.ryukoku.ac.jp/`（学生・200）と `https://judge.math.ryukoku.ac.jp:8443/`（教員・学内のみ・200）
-とも `/login` を返す。決定的パイプラインに加え **AI ワーカーも稼働中**（`gemma4:e4b`）。
+`https://judge.math.ryukoku.ac.jp/`（学生・200）と `https://judge.math.ryukoku.ac.jp/console/`（教員・200、
+学外にも開いている）とも `/login` を返す。8443 は撤去済み。決定的パイプラインに加え
+**AI ワーカーも稼働中**（`gemma4:e4b`、主系 PAIR・従系 slab-llm）。
 elite 上のデプロイタグは `v0.25.3`（`git -C /opt/aijudge describe --tags` で確認、リポジトリ HEAD と一致・遅延なし）。
 残るのは §7-5・§7-7 の判断待ちと、CD 自動化（autodeploy timer 有効化）・restic 2 target・
 初回データ投入（#10）・ドキュメント追記（#11 残）。
