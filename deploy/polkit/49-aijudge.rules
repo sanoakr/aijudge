@@ -1,0 +1,15 @@
+// aijudge グループのメンバーは aijudge-*.service / aijudge.target の
+// start/stop/restart をパスワードなしで実行できる。これで、専用の
+// system ユーザ（aijudge）が実行 owner のまま、運用担当の人間アカウントは
+// sudo なしにサーバ・ワーカーを起動停止できる。
+//
+// 対象は unit 名のパターンだけに絞ってある ── 他のサービスへは及ばない。
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.freedesktop.systemd1.manage-units" &&
+        subject.isInGroup("aijudge")) {
+        var unit = action.lookup("unit");
+        if (unit && /^aijudge(-[\w@.]+)?\.(service|target|timer)$/.test(unit)) {
+            return polkit.Result.YES;
+        }
+    }
+});

@@ -1,0 +1,12 @@
+# 締切を過ぎた成績を確定する。`--once` で 1 回走って終わる（timer が呼ぶ）。
+[Unit]
+Description=aiJudge finalize (close grades past the deadline)
+After=network-online.target postgresql.service
+
+[Service]
+Type=oneshot
+User=aijudge
+Group=aijudge
+WorkingDirectory=/opt/aijudge
+EnvironmentFile=/srv/aijudge/config/aijudge.env
+ExecStart=/usr/local/bin/uv run --project /opt/aijudge aijudge-finalize --once

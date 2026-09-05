@@ -1,0 +1,70 @@
+# aiJudge のリバースプロキシ雛形。`bootstrap.sh` が __AIJUDGE_HOSTNAME__ を
+# 実際のホスト名に置換してから /etc/nginx/sites-available/ に配置する。
+#
+# 学生 UI（443）と教員コンソール（8443）を同一ホスト名で出す。**同じホスト名
+# にするのは 1 回のログインで両方に入るため**（Cookie はホスト単位、ポートは
+# 無視される）。教員コンソールに IP 制限は掛けない ── 学内限定はファイア
+# ウォールで 8443 を閉じる側で担保する運用を前提にしている
+# （導入先のネットワーク方針に合わせて調整すること）。
+#
+# 前提: aiJudge のアプリはサブパス動作（root_path）に未対応。専用の
+# （サブ）ドメインを 1 つ用意すること。
+# 証明書取得（Let's Encrypt 等）は含まない。導入側の既存運用に従う。
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name __AIJUDGE_HOSTNAME__;
+
+    ssl_certificate     /etc/letsencrypt/live/__AIJUDGE_HOSTNAME__/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/__AIJUDGE_HOSTNAME__/privkey.pem;
+    include conf.d/tls.conf;
+    include snippets/security-headers.conf;
+
+    # レポート PDF 等。動画は別経路（AIJUDGE_VIDEO_* 系、docs/RUNNING.md 参照）。
+    client_max_body_size 25M;
+
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        # 採点結果は SSE で段階配信される。バッファすると更新が遅れて見える。
+        proxy_buffering off;
+        proxy_read_timeout 600s;
+    }
+}
+
+server {
+    listen 8443 ssl;
+    listen [::]:8443 ssl;
+    http2 on;
+    server_name __AIJUDGE_HOSTNAME__;
+
+    # 8443 のブロックにも証明書を明示する（同じ lineage を使う）。
+    ssl_certificate     /etc/letsencrypt/live/__AIJUDGE_HOSTNAME__/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/__AIJUDGE_HOSTNAME__/privkey.pem;
+    include conf.d/tls.conf;
+    include snippets/security-headers.conf;
+
+    client_max_body_size 25M;
+
+    location / {
+        proxy_pass http://127.0.0.1:8765;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_buffering off;
+        proxy_read_timeout 600s;
+    }
+}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name __AIJUDGE_HOSTNAME__;
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}

@@ -1,0 +1,15 @@
+# aiJudge の全プロセスをまとめる target。
+#
+# `systemctl restart aijudge.target` で web/review/worker-* を全部入れ替える。
+# ワーカーだけ古いままにすると、新しいコードが書いた採点行を古いワーカーの
+# コードが読めずに詰まる（`docs/RUNNING.md` #60/#80 の実例）。
+[Unit]
+Description=aiJudge (web, instructor console, workers)
+Wants=aijudge-web.service aijudge-review.service aijudge-worker-det.service
+Wants=aijudge-worker-ai@1.service aijudge-worker-ai@2.service
+Wants=aijudge-worker-ai@3.service aijudge-worker-ai@4.service
+Wants=aijudge-finalize.timer
+After=network-online.target postgresql.service
+
+[Install]
+WantedBy=multi-user.target

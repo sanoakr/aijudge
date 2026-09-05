@@ -1,0 +1,22 @@
+# 学習者アプリ。
+[Unit]
+Description=aiJudge learner web
+PartOf=aijudge.target
+After=network-online.target postgresql.service
+
+[Service]
+Type=simple
+User=aijudge
+Group=aijudge
+WorkingDirectory=/opt/aijudge
+EnvironmentFile=/srv/aijudge/config/aijudge.env
+# --workers 4: 1 本のアップロードの write/fsync が他の接続を巻き込まないため
+# （動画の同時アップロード対策。設定は env からしか読ませないので必ず
+# EnvironmentFile を通す）。
+ExecStart=/usr/local/bin/uv run --project /opt/aijudge aijudge-web --host 127.0.0.1 --port 8080 --workers 4
+Restart=on-failure
+RestartSec=2
+LimitNOFILE=65536
+
+[Install]
+WantedBy=aijudge.target
