@@ -2,6 +2,7 @@
 [Unit]
 Description=aiJudge finalize (close grades past the deadline)
 After=network-online.target postgresql.service
+Wants=postgresql.service
 
 [Service]
 Type=oneshot
@@ -9,4 +10,9 @@ User=aijudge
 Group=aijudge
 WorkingDirectory=/opt/aijudge
 EnvironmentFile=/srv/aijudge/config/aijudge.env
-ExecStart=/usr/local/bin/uv run --project /opt/aijudge aijudge-finalize --once
+ExecStart=/opt/aijudge/.venv/bin/aijudge-finalize --once
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/srv/aijudge /var/lib/aijudge
+PrivateTmp=yes

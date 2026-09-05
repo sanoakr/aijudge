@@ -3,6 +3,7 @@
 Description=aiJudge instructor console
 PartOf=aijudge.target
 After=network-online.target postgresql.service
+Wants=postgresql.service
 
 [Service]
 Type=simple
@@ -10,9 +11,14 @@ User=aijudge
 Group=aijudge
 WorkingDirectory=/opt/aijudge
 EnvironmentFile=/srv/aijudge/config/aijudge.env
-ExecStart=/usr/local/bin/uv run --project /opt/aijudge aijudge-review --host 127.0.0.1 --port 8765
+ExecStart=/opt/aijudge/.venv/bin/aijudge-review --host 127.0.0.1 --port 8765
 Restart=on-failure
-RestartSec=2
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/srv/aijudge /var/lib/aijudge
+PrivateTmp=yes
 
 [Install]
 WantedBy=aijudge.target

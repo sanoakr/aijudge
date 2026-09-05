@@ -3,6 +3,7 @@
 Description=aiJudge learner web
 PartOf=aijudge.target
 After=network-online.target postgresql.service
+Wants=postgresql.service
 
 [Service]
 Type=simple
@@ -12,11 +13,18 @@ WorkingDirectory=/opt/aijudge
 EnvironmentFile=/srv/aijudge/config/aijudge.env
 # --workers 4: 1 本のアップロードの write/fsync が他の接続を巻き込まないため
 # （動画の同時アップロード対策。設定は env からしか読ませないので必ず
-# EnvironmentFile を通す）。
-ExecStart=/usr/local/bin/uv run --project /opt/aijudge aijudge-web --host 127.0.0.1 --port 8080 --workers 4
+# EnvironmentFile を通す）。`.venv/bin` を直接呼ぶ ── `uv run` は再起動の
+# たびに解決をやり直すので、常駐サービスでは直接パスの方が速く確実。
+ExecStart=/opt/aijudge/.venv/bin/aijudge-web --host 127.0.0.1 --port 8080 --workers 4
 Restart=on-failure
-RestartSec=2
+RestartSec=5
 LimitNOFILE=65536
+# サンドボックス化。書き込みを許すのはデータ・作業域だけに絞る。
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/srv/aijudge /var/lib/aijudge
+PrivateTmp=yes
 
 [Install]
 WantedBy=aijudge.target
