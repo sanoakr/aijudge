@@ -909,12 +909,47 @@ def register(templates) -> APIRouter:
         title: Annotated[str, Form()],
         term: Annotated[str, Form()],
         profile: Annotated[str, Form()],
+        instructors: Annotated[str, Form()],
     ) -> Response:
+        """コースを作る。**担当教員を 1 名以上、明示的に指定させる**（#130）。
+
+        指定が無いまま作れてしまうと、誰も教えていないコースができる
+        ── 「作成者を機械的に教員にする」だけでは、管理者自身が実際に
+        教えるとは限らない（コースを立てるのと教えるのは別の役目）。
+        """
         from .app import require_principal
 
         me = require_principal(request)
         _require_admin(request, me)
         console = _console(request)
+
+        # 名簿の貼り付けと同じ書式（`add_enrolments`）。1 行 1 ID でよい。
+        # `parse_roster` は有効な行が 1 つも無ければ自分で例外にする
+        # （「1 名以上」の要求はこれで足りる）。
+        try:
+            entries = parse_roster(instructors, default_role=Role.INSTRUCTOR)
+        except (RosterError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        logins = [entry.login for entry in entries]
+
+        with console.database.unit_of_work() as uow:
+            unknown = [
+                login
+                for login in logins
+                if uow.identity.find_user_by_login(me.tenant_id, login) is None
+            ]
+        if unknown:
+            # 画面からは既存利用者の指定だけを許す（`add_enrolments` と同じ
+            # 規則）。新規作成はパスワード配布が伴うので CLI に回す。
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"利用者が未登録です: {', '.join(unknown[:10])}"
+                    f"{' ほか' if len(unknown) > 10 else ''}。"
+                    "新規作成は `aijudge-admin` で行ってください"
+                ),
+            )
+
         try:
             course, _created = ensure_course(
                 console.database,
@@ -927,14 +962,27 @@ def register(templates) -> APIRouter:
             )
         except AdminError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        # 作った本人を担当教員にする。でないと自分のコースが見えない。
+
         with console.database.unit_of_work() as uow:
-            AuthService(uow.identity).enroll(
+            auth = AuthService(uow.identity)
+            # 作った本人も担当教員にする。でないと自分のコースが見えない
+            # （テナント管理者が受講登録なしで全コースに届くようになるまでの
+            # 措置。#128 が入ればここは指定した教員だけで足りる）。
+            auth.enroll(
                 tenant_id=me.tenant_id,
                 course_id=course.id,
                 user_id=me.user_id,
                 role=Role.INSTRUCTOR,
             )
+            for login in logins:
+                user = uow.identity.find_user_by_login(me.tenant_id, login)
+                if user is not None and user.id != me.user_id:
+                    auth.enroll(
+                        tenant_id=me.tenant_id,
+                        course_id=course.id,
+                        user_id=user.id,
+                        role=Role.INSTRUCTOR,
+                    )
             uow.commit()
         return RedirectResponse(f"/courses/{course.id}", status_code=303)
 

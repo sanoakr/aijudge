@@ -173,6 +173,7 @@ def test_only_an_admin_can_create_a_course(world: World) -> None:
         "title": "ネットワーク",
         "term": "2025-後期",
         "profile": "net_python",
+        "instructors": "teacher",
     }
     assert world.client("teacher").post("/manage/courses", data=data).status_code == 403
 
@@ -188,12 +189,72 @@ def test_an_admin_creates_a_course_and_becomes_its_instructor(world: World) -> N
             "title": "ネットワーク及び演習",
             "term": "2025-後期",
             "profile": "net_python",
+            "instructors": "boss",
         },
         follow_redirects=False,
     )
     assert response.status_code == 303
     body = client.get("/manage").text
     assert "ネットワーク及び演習" in body
+
+
+def test_creating_a_course_requires_at_least_one_instructor(world: World) -> None:
+    """#130: 担当教員を指定しないコースは作れない。"""
+    world.register("boss", Role.ADMIN)
+    response = world.client("boss").post(
+        "/manage/courses",
+        data={
+            "code": "network",
+            "title": "ネットワーク及び演習",
+            "term": "2025-後期",
+            "profile": "net_python",
+            "instructors": "   \n  ",
+        },
+    )
+    assert response.status_code == 400
+
+
+def test_creating_a_course_with_an_unregistered_instructor_is_refused(world: World) -> None:
+    """#130: 新規利用者はここでは作れない（`add_enrolments` と同じ規則）。"""
+    world.register("boss", Role.ADMIN)
+    response = world.client("boss").post(
+        "/manage/courses",
+        data={
+            "code": "network",
+            "title": "ネットワーク及び演習",
+            "term": "2025-後期",
+            "profile": "net_python",
+            "instructors": "nobody-yet",
+        },
+    )
+    assert response.status_code == 400
+    assert "nobody-yet" in response.json()["detail"]
+
+
+def test_creating_a_course_enrolls_the_specified_instructor(world: World) -> None:
+    """#130: 作成者以外を指定すれば、その利用者も担当教員になる。"""
+    boss = world.register("boss", Role.ADMIN)
+    other_teacher = world.register("other-teacher", None)
+    client = world.client("boss")
+    response = client.post(
+        "/manage/courses",
+        data={
+            "code": "network",
+            "title": "ネットワーク及び演習",
+            "term": "2025-後期",
+            "profile": "net_python",
+            "instructors": "other-teacher",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    course_id = CourseId(response.headers["location"].split("/")[-1])
+    with world.database.unit_of_work() as uow:
+        other_enrollment = uow.identity.find_enrollment(course_id, other_teacher.user_id)
+        # 作成者自身も引き続き担当教員になる（#128 が入るまでの措置）。
+        boss_enrollment = uow.identity.find_enrollment(course_id, boss.user_id)
+    assert other_enrollment is not None and other_enrollment.role is Role.INSTRUCTOR
+    assert boss_enrollment is not None and boss_enrollment.role is Role.INSTRUCTOR
 
 
 def test_a_tenant_admin_manages_a_course_they_never_enrolled_in(world: World) -> None:
@@ -229,7 +290,13 @@ def test_an_unknown_subject_profile_is_refused(world: World) -> None:
     world.register("boss", Role.ADMIN)
     response = world.client("boss").post(
         "/manage/courses",
-        data={"code": "x", "title": "x", "term": "2025", "profile": "no_such_profile"},
+        data={
+            "code": "x",
+            "title": "x",
+            "term": "2025",
+            "profile": "no_such_profile",
+            "instructors": "boss",
+        },
     )
     assert response.status_code == 400
     assert "科目プロファイル" in response.json()["detail"]
