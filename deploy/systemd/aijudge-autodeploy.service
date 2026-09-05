@@ -1,0 +1,13 @@
+# CD（方式 B・pull 型）のポーリング本体。origin の v* タグを見て、
+# デプロイ済みより新しければ deploy.sh を呼ぶ（詳細は ../README.md）。
+[Unit]
+Description=aiJudge pull-deploy latest v* tag
+After=network-online.target postgresql.service
+
+[Service]
+Type=oneshot
+User=aijudge
+Group=aijudge
+WorkingDirectory=/opt/aijudge
+EnvironmentFile=/srv/aijudge/config/aijudge.env
+ExecStart=/opt/aijudge/deploy/aijudge-autodeploy.sh

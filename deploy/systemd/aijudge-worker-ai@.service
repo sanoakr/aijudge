@@ -1,0 +1,20 @@
+# AI 評価（LLM 呼び出し）を処理する遅い段階のワーカー。テンプレートユニットなので
+# `aijudge-worker-ai@1` 〜 `aijudge-worker-ai@4` のように複数本立てる
+# （本数の目安は docs/RUNNING.md の実測を参照。受講規模で調整する）。
+[Unit]
+Description=aiJudge worker (AI phase, instance %i)
+PartOf=aijudge.target
+After=network-online.target postgresql.service
+
+[Service]
+Type=simple
+User=aijudge
+Group=aijudge
+WorkingDirectory=/opt/aijudge
+EnvironmentFile=/srv/aijudge/config/aijudge.env
+ExecStart=/usr/local/bin/uv run --project /opt/aijudge aijudge-worker --phase ai --name ai%i
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=aijudge.target

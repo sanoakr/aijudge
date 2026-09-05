@@ -1,0 +1,20 @@
+# 決定的評価だけを処理する速い段階。AI 評価（遅い）とキューを分ける
+# （ADR 0011）── 遅い LLM 呼び出しの後ろに、2 秒で終わるテスト実行が
+# 並んで待たされない。
+[Unit]
+Description=aiJudge worker (deterministic phase)
+PartOf=aijudge.target
+After=network-online.target postgresql.service
+
+[Service]
+Type=simple
+User=aijudge
+Group=aijudge
+WorkingDirectory=/opt/aijudge
+EnvironmentFile=/srv/aijudge/config/aijudge.env
+ExecStart=/usr/local/bin/uv run --project /opt/aijudge aijudge-worker --phase deterministic --name det
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=aijudge.target
