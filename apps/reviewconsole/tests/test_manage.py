@@ -179,6 +179,40 @@ def test_only_an_admin_can_create_a_course(world: World) -> None:
     assert world.client("teacher").post("/manage/courses", data=data).status_code == 403
 
 
+def test_only_an_admin_can_delete_a_course(world: World) -> None:
+    """コースを消すのは、そのコースの中の操作ではない（作成と同じ権限・#156）。"""
+    world.register("teacher", Role.INSTRUCTOR)
+
+    response = world.client("teacher").post(f"/manage/courses/{world.course.id}/delete")
+
+    assert response.status_code == 403
+    with world.database.unit_of_work() as uow:
+        assert uow.identity.get_course(world.course.id) is not None
+
+
+def test_an_admin_deletes_a_course_with_no_learner_submissions(world: World) -> None:
+    world.register("boss", Role.ADMIN)
+
+    response = world.client("boss").post(
+        f"/manage/courses/{world.course.id}/delete", follow_redirects=False
+    )
+
+    assert response.status_code == 303
+    with world.database.unit_of_work() as uow:
+        assert uow.identity.get_course(world.course.id) is None
+
+
+def test_the_course_page_offers_deletion_only_to_an_admin(world: World) -> None:
+    world.register("teacher", Role.INSTRUCTOR)
+    world.register("boss", Role.ADMIN)
+
+    teacher_page = world.client("teacher").get(f"/manage/courses/{world.course.id}").text
+    admin_page = world.client("boss").get(f"/manage/courses/{world.course.id}").text
+
+    assert "このコースを削除する" not in teacher_page
+    assert "このコースを削除する" in admin_page
+
+
 def test_an_admin_creates_a_course_and_becomes_its_instructor(world: World) -> None:
     """作った本人が担当教員にならないと、自分のコースが見えない。"""
     world.register("boss", Role.ADMIN)

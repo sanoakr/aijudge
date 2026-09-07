@@ -296,4 +296,26 @@
   <pre class="code mono" style="margin:4px 0 0">{{ last_image }}</pre>
   {% endif %}
 </form>
+
+{% if is_admin %}
+{# コースの削除は作成と同じく管理者だけ。担当教員には出さない。 #}
+<h2 id="delete">このコースを削除する</h2>
+{% if learner_submissions %}
+<div class="note warn">
+  <strong>このコースは削除できません。</strong>
+  学習者の提出が {{ learner_submissions }} 件あります ──
+  消すと、その提出に付いた成績が何のコースの点なのか辿れなくなります。
+</div>
+{% else %}
+<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/delete" class="card"
+      onsubmit="return confirm('{{ course.code }}（{{ course.term }}）を削除します。課題と受講登録も消えます。元に戻せません。よろしいですか？')">
+  <p class="desc">
+    学習者の提出がまだ 1 件も無いので削除できます。
+    <strong>コース・課題・受講登録と、教員の動作確認の提出がまとめて消えます。</strong>
+    元には戻せません。
+  </p>
+  <div class="actions"><button type="submit">このコースを削除する</button></div>
+</form>
+{% endif %}
+{% endif %}
 {% endblock %}

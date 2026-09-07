@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from . import rubric
 from .authoring import SavedTask, save_task
+from .courses import DeletedCourse, delete_course
 from .duplicates import DuplicateChecker
 from .finalization import (
     FinalizeReport,
@@ -84,6 +85,7 @@ __all__ = [
     "DEFAULT_MUTATION_LIMIT",
     "AdminError",
     "ApprovalRate",
+    "DeletedCourse",
     "DuplicateChecker",
     "EnrolReport",
     "FinalizeReport",
@@ -105,6 +107,7 @@ __all__ = [
     "assert_registered",
     "build_packet",
     "create_staff",
+    "delete_course",
     "delete_kc",
     "duplicate_profile",
     "edit_kc",

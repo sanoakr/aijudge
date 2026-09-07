@@ -94,6 +94,18 @@ class IdentityRepository(Protocol):
         """
         ...
 
+    def delete_course(self, course_id: CourseId) -> None:
+        """コースと、その受講登録を消す（#156）。
+
+        **提出が無いことは呼び出し側が確かめる**（`aijudge_admin.courses`）。
+        保存層は言われたものを消す ── 規則の置き場所を 1 つにするため
+        （`delete_task` と同じ分担）。
+
+        受講登録も一緒に消す。`enrollments` はコースへの外部キーを持つので、
+        残すと消せない。**利用者は消さない**（他のコースにも居る）。
+        """
+        ...
+
     def list_courses_using_profile(self, subject_profile: str) -> tuple[Course, ...]:
         """この科目プロファイルを参照しているコース。**テナントを越えて調べる。**
 
@@ -241,6 +253,11 @@ class InMemoryIdentityRepository:
                 key=lambda course: (course.term, course.code),
             )
         )
+
+    def delete_course(self, course_id: CourseId) -> None:
+        self._courses.pop(course_id, None)
+        for key in [key for key in self._enrollments if key[0] == course_id]:
+            del self._enrollments[key]
 
     def list_courses_using_profile(self, subject_profile: str) -> tuple[Course, ...]:
         return tuple(

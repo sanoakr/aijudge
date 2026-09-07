@@ -13,7 +13,7 @@ import os
 from datetime import UTC, datetime
 
 from cryptography.fernet import Fernet, InvalidToken
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session as DbSession
 
 from aijudge_core import Aggregation, Course, Enrollment, LatePenaltyStep, Role
@@ -335,6 +335,14 @@ class SqlIdentityRepository:
             .order_by(CourseRow.term, CourseRow.code)
         ).scalars()
         return tuple(_course(row) for row in rows if row is not None)  # type: ignore[misc]
+
+    def delete_course(self, course_id: CourseId) -> None:
+        """コースと受講登録を消す。**提出が無いことは呼び出し側が確かめる**（#156）。"""
+        self._session.execute(
+            delete(EnrollmentRow).where(EnrollmentRow.course_id == str(course_id))
+        )
+        self._session.execute(delete(CourseRow).where(CourseRow.id == str(course_id)))
+        self._session.flush()
 
     def list_courses_using_profile(self, subject_profile: str) -> tuple[Course, ...]:
         """**テナントで絞らない。** 理由は Protocol の docstring（#146）。"""
