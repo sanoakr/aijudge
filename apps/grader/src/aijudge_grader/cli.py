@@ -2,7 +2,7 @@
 
     uv run aijudge-worker --once            # キューが空になるまで処理して終わる
     uv run aijudge-worker                   # 常駐して待つ
-    uv run aijudge-worker --subject cs_intro_c   # 科目を絞る（GPU の割り当てを分ける）
+    uv run aijudge-worker --subject cs_langc_intro   # 科目を絞る（GPU の割り当てを分ける）
     uv run aijudge-worker --phase deterministic  # 速い段階だけを担当する
 
 **レビューとは独立に走る。** レビューは採点の前提条件ではない（ADR 0007）。
@@ -35,6 +35,9 @@ REPO_ROOT = Path(__file__).resolve().parents[4]
 
 ENV_ARTIFACT_DIR = "AIJUDGE_ARTIFACT_DIR"
 ENV_OBSERVATION_DIR = "AIJUDGE_OBSERVATION_DIR"
+# 科目プロファイルの置き場所。**web / review と同じ場所を指すこと** ──
+# ワーカーだけ古い宣言を読むと、画面で見えている設定と採点が食い違う。
+ENV_PROFILES_DIR = "AIJUDGE_PROFILES_DIR"
 DEFAULT_ARTIFACT_DIR = Path.home() / ".aijudge" / "artifacts"
 DEFAULT_OBSERVATION_DIR = Path.home() / ".aijudge" / "observations"
 
@@ -84,7 +87,10 @@ def main(argv: list[str] | None = None) -> int:
         help="観測レコードの置き場所（測定用。無くても採点は動く）",
     )
     parser.add_argument(
-        "--profiles", type=Path, default=REPO_ROOT / "subjects", help="科目プロファイルの場所"
+        "--profiles",
+        type=Path,
+        default=Path(os.environ.get(ENV_PROFILES_DIR, REPO_ROOT / "subjects")).expanduser(),
+        help="科目プロファイルの場所（既定はリポジトリの subjects/ ── これはサンプル）",
     )
     parser.add_argument("--subject", default=None, help="この科目のジョブだけ処理する")
     parser.add_argument(

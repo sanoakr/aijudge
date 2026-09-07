@@ -42,7 +42,7 @@ def observation(
     graded: bool = True,
 ) -> Observation:
     return Observation(
-        subject_profile="cs_intro_c",
+        subject_profile="cs_langc_intro",
         task_name="example-task",
         submission=submission,
         criterion_code=code,
@@ -72,7 +72,7 @@ def _gates(**overrides: object) -> Gates:
 
 
 def _write(root: Path, submission: str, observations: list[Observation]) -> None:
-    folder = root / "cs_intro_c" / "example-task" / "observations"
+    folder = root / "cs_langc_intro" / "example-task" / "observations"
     folder.mkdir(parents=True, exist_ok=True)
     (folder / f"{Path(submission).stem}.json").write_text(
         json.dumps([item.model_dump(mode="json") for item in observations], ensure_ascii=False),
@@ -90,7 +90,7 @@ def test_measuring_needs_nothing_but_observations() -> None:
     report = measure(
         [observation("s001.c", human=1, machine=1), observation("s002.c", human=2, machine=2)],
         gates=_gates(),
-        subject_profile="cs_intro_c",
+        subject_profile="cs_langc_intro",
     )
     assert report.agreement["readability"].sample_size == 2
     assert report.agreement["readability"].cohen_kappa == 1.0
@@ -108,7 +108,7 @@ def test_the_levels_come_from_the_record_not_from_a_task_definition() -> None:
         observation("s001.c", human=0, machine=0).model_copy(update={"levels": (0, 1, 2, 3, 4)}),
         observation("s002.c", human=4, machine=4).model_copy(update={"levels": (0, 1, 2, 3, 4)}),
     ]
-    report = measure(wide, gates=_gates(), subject_profile="cs_intro_c")
+    report = measure(wide, gates=_gates(), subject_profile="cs_langc_intro")
     assert report.agreement["readability"].levels == (0, 1, 2, 3, 4)
 
 
@@ -119,7 +119,7 @@ def test_conflicting_level_sets_are_refused() -> None:
         observation("s002.c").model_copy(update={"levels": (0, 1, 2, 3, 4)}),
     ]
     with pytest.raises(ValueError, match="conflicting level sets"):
-        measure(mixed, gates=_gates(), subject_profile="cs_intro_c")
+        measure(mixed, gates=_gates(), subject_profile="cs_langc_intro")
 
 
 # --------------------------------------------------------------------------
@@ -136,7 +136,7 @@ def test_non_blind_marks_are_excluded() -> None:
             observation("s003.c", blind=True),
         ],
         gates=_gates(),
-        subject_profile="cs_intro_c",
+        subject_profile="cs_langc_intro",
     )
     assert report.agreement["readability"].sample_size == 2
     assert report.excluded["blind でない教員採点"] == 1
@@ -150,7 +150,7 @@ def test_deterministic_criteria_are_excluded() -> None:
             observation("s002.c", code="correctness", conclusive=True),
         ],
         gates=_gates(),
-        subject_profile="cs_intro_c",
+        subject_profile="cs_langc_intro",
     )
     assert "correctness" not in report.agreement
     assert report.excluded["決定的評価が確定（AI は関与しない）"] == 2
@@ -160,7 +160,7 @@ def test_unscored_criteria_are_counted_as_neither_agreement_nor_disagreement() -
     report = measure(
         [observation("s001.c", unscored=True), observation("s002.c")],
         gates=_gates(),
-        subject_profile="cs_intro_c",
+        subject_profile="cs_langc_intro",
     )
     assert report.agreement["readability"].sample_size == 1
     assert report.excluded["採点できなかった観点"] == 1
@@ -171,7 +171,7 @@ def test_submissions_without_an_instructor_mark_are_excluded() -> None:
     report = measure(
         [observation("s001.c", human=None, blind=False, changed=None)],
         gates=_gates(),
-        subject_profile="cs_intro_c",
+        subject_profile="cs_langc_intro",
     )
     assert not report.agreement
     assert report.excluded["教員採点がない"] == 1
@@ -182,7 +182,7 @@ def test_excluded_observations_are_reported_not_hidden() -> None:
     report = measure(
         [observation("s001.c", blind=False), observation("s002.c", unscored=True)],
         gates=_gates(),
-        subject_profile="cs_intro_c",
+        subject_profile="cs_langc_intro",
     )
     assert sum(report.excluded.values()) == 2
     assert "一致度の標本から外した観測" in render(report)
@@ -203,7 +203,7 @@ def test_the_review_rate_counts_submissions_not_criteria() -> None:
             observation("s002.c", code="readability", auto_confirmed=False),
         ],
         gates=_gates(),
-        subject_profile="cs_intro_c",
+        subject_profile="cs_langc_intro",
     )
     assert report.submission_count == 2
     assert report.observed_review_rate == 0.5
@@ -219,7 +219,7 @@ def test_the_miss_rate_uses_what_the_instructor_changed_after_seeing_the_ai() ->
             observation("s004.c", auto_confirmed=True, changed=False),
         ],
         gates=_gates(),
-        subject_profile="cs_intro_c",
+        subject_profile="cs_langc_intro",
     )
     assert report.observed_miss_rate == 0.25
 
@@ -232,13 +232,13 @@ def test_unfinalized_submissions_are_not_in_the_miss_rate_denominator() -> None:
             observation("s002.c", auto_confirmed=True, changed=None),
         ],
         gates=_gates(),
-        subject_profile="cs_intro_c",
+        subject_profile="cs_langc_intro",
     )
     assert report.observed_miss_rate == 1.0
 
 
 def test_no_observations_at_all_is_not_measured() -> None:
-    report = measure([], gates=_gates(), subject_profile="cs_intro_c")
+    report = measure([], gates=_gates(), subject_profile="cs_langc_intro")
     assert report.verdict is Verdict.NOT_MEASURED
     assert report.observation_count == 0
 
@@ -252,7 +252,7 @@ def test_a_small_sample_is_not_measured_however_good_the_numbers_are() -> None:
     report = measure(
         [observation("s001.c", human=2, machine=2)],
         gates=_gates(min_sample_size=30),
-        subject_profile="cs_intro_c",
+        subject_profile="cs_langc_intro",
     )
     assert report.agreement["readability"].cohen_kappa == 1.0
     assert report.verdict is Verdict.NOT_MEASURED
@@ -267,7 +267,7 @@ def test_falling_short_of_the_threshold_fails() -> None:
             observation("s003.c", human=3, machine=1),
         ],
         gates=_gates(),
-        subject_profile="cs_intro_c",
+        subject_profile="cs_langc_intro",
     )
     assert report.verdict is Verdict.FAIL
 
@@ -279,7 +279,7 @@ def test_falling_short_of_the_threshold_fails() -> None:
 
 def test_observations_are_read_from_the_tree(tmp_path: Path) -> None:
     _write(tmp_path, "s001.c", [observation("s001.c"), observation("s001.c", code="correctness")])
-    loaded = load_observations(tmp_path, "cs_intro_c")
+    loaded = load_observations(tmp_path, "cs_langc_intro")
     assert len(loaded) == 2
 
 
@@ -290,11 +290,11 @@ def test_another_subject_is_not_mixed_in(tmp_path: Path) -> None:
 
 def test_a_broken_observation_file_raises(tmp_path: Path) -> None:
     """黙って飛ばすと、標本が減ったことに気づかないまま κ を見る。"""
-    folder = tmp_path / "cs_intro_c" / "example-task" / "observations"
+    folder = tmp_path / "cs_langc_intro" / "example-task" / "observations"
     folder.mkdir(parents=True)
     (folder / "s001.json").write_text('{"not": "a list"}', encoding="utf-8")
     with pytest.raises(ObservationSetError, match="list of observations"):
-        load_observations(tmp_path, "cs_intro_c")
+        load_observations(tmp_path, "cs_langc_intro")
 
 
 def test_a_missing_root_is_empty_not_an_error(tmp_path: Path) -> None:
@@ -344,5 +344,5 @@ def test_the_cli_reports_pass_and_fail_from_the_gates(tmp_path: Path) -> None:
 
 
 def test_the_report_says_it_did_not_grade(tmp_path: Path) -> None:
-    report = measure([observation("s001.c")], gates=_gates(), subject_profile="cs_intro_c")
+    report = measure([observation("s001.c")], gates=_gates(), subject_profile="cs_langc_intro")
     assert "このコマンドは採点しません" in render(report)

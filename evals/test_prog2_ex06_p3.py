@@ -44,7 +44,7 @@ from aijudge_grading import (
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = REPO_ROOT / "evals" / "fixtures" / "prog2-2025-ex06-p3"
-PROFILE_PATH = REPO_ROOT / "subjects" / "cs_intro_c.yaml"
+PROFILE_PATH = REPO_ROOT / "subjects" / "cs_langc_intro.yaml"
 
 NOW = datetime(2026, 4, 1, 9, 0, tzinfo=UTC)
 INSTRUCTOR = UserId(new_id("usr"))
@@ -68,7 +68,7 @@ def task_version():
     return sharif_judge.import_problem(
         FIXTURE,
         course_id=COURSE,
-        subject_profile="cs_intro_c",
+        subject_profile="cs_langc_intro",
         authored_by=INSTRUCTOR,
     )
 
@@ -96,7 +96,7 @@ def test_import_fails_loudly_on_a_broken_directory(tmp_path: Path) -> None:
     (tmp_path / "desc.md").write_text("本文だけで見出しがない\n", encoding="utf-8")
     with pytest.raises(sharif_judge.ImportError_, match="markdown heading"):
         sharif_judge.import_problem(
-            tmp_path, course_id=COURSE, subject_profile="cs_intro_c", authored_by=INSTRUCTOR
+            tmp_path, course_id=COURSE, subject_profile="cs_langc_intro", authored_by=INSTRUCTOR
         )
 
 
@@ -330,7 +330,7 @@ def test_the_case_timeout_is_separate_from_the_evaluator_budget() -> None:
     )
     from aijudge_grading import load_profile
 
-    profile = load_profile(Path(__file__).resolve().parents[1] / "subjects" / "cs_intro_c.yaml")
+    profile = load_profile(Path(__file__).resolve().parents[1] / "subjects" / "cs_langc_intro.yaml")
     options = profile.evaluator_options.get("code_test_runner", {})
     case_timeout = float(options.get(OPTION_CASE_TIMEOUT, DEFAULT_CASE_TIMEOUT_SECONDS))
 
@@ -421,8 +421,8 @@ def test_both_subject_profiles_declare_their_language() -> None:
         options = profile.evaluator_options.get("code_test_runner", {})
         languages[profile.name] = options.get("language")
 
-    assert languages.get("cs_intro_c") == "c"
-    assert languages.get("net_python") == "python"
+    assert languages.get("cs_langc_intro") == "c"
+    assert languages.get("cs_python_network") == "python"
 
 
 def test_a_common_error_is_reported_instead_of_case_names() -> None:

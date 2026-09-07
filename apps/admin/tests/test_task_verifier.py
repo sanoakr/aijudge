@@ -29,7 +29,7 @@ from aijudge_core.ids import CriterionId, TaskId, TaskVersionId, UserId
 from aijudge_grading import EvaluatorRegistry, load_profile
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-PROFILE = load_profile(REPO_ROOT / "subjects" / "cs_intro_c.yaml")
+PROFILE = load_profile(REPO_ROOT / "subjects" / "cs_langc_intro.yaml")
 AUTHOR = UserId("usr_" + "1" * 32)
 VERSION = TaskVersionId("tsv_" + "2" * 32)
 
@@ -67,7 +67,7 @@ def _task(reference: str, cases: tuple[TestCase, ...]) -> TaskVersion:
         id=VERSION,
         task_id=TaskId("tsk_" + "3" * 32),
         version=1,
-        subject_profile="cs_intro_c",
+        subject_profile="cs_langc_intro",
         statement="## 課題 ##\n\n書きなさい。",
         reference_solution=reference,
         criteria=(

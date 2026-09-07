@@ -30,7 +30,7 @@ Google OIDC ログイン（#121、§9）は 2026-09-07 に本番で稼働確認�
   デプロイ・起動停止を sano も行えるようにする。`aijudge` と `sano` の両方を `docker`
   グループに入れる（サンドボックスに必須）。詳細は §3.2。
 - **LLM モデル**: **`gemma4:e4b` に確定（2026-09-05）。** `docs/design/01_モデル評価実験計画.md`
-  〜`03_モデル評価_具体例.md` の実測（cs_intro_c の合成優劣サンプルでの判別性、
+  〜`03_モデル評価_具体例.md` の実測（cs_langc_intro の合成優劣サンプルでの判別性、
   `report_ja` での採点者間一致、速度・頑健性・コスト）に基づく。コードの既定値と
   一致するため、`AIJUDGE_LLM_MODEL` は**明示的に**この値をピン留めする
   （将来コード側の既定が変わっても本番の挙動を変えないため）。
@@ -619,5 +619,44 @@ elite 上で実施し、実際に大学アカウントでログイン → 学生
 - 既存のローカルパスワード利用者（`admin` を除く。SSO 移行前に作られた
   ものがあれば）は #121 の決定どおり無効化の対象。実施は #10（初回データ
   投入）と合わせて別途行う。
+
+---
+
+## 10. 科目プロファイルを `/srv/aijudge/subjects` へ（#146 の前提、2026-09-07）
+
+### なぜ
+
+`/opt/aijudge` は autodeploy が `git checkout <tag>` する**コードの置き場所**で、
+`profiles_dir` の既定はその中の `subjects/`（リポジトリのサンプル）だった。
+#146 で科目プロファイルを画面から編集・複製できるようにすると、**書いた
+YAML が次のデプロイで消える**。運用のプロファイルはデータ側（`/srv/aijudge`）
+に置き、`AIJUDGE_PROFILES_DIR` で指す。
+
+あわせて科目名を改名した（同じ PR）:
+`cs_intro_c` → `cs_langc_intro`、`net_python` → `cs_python_network`。
+`report_ja` は変更なし。**本番 DB は `courses` 0 件・`submissions` 0 件だった
+ので、データ移行は不要**（2026-09-07 に確認）。
+
+### 手順（elite 上、`sano` で）
+
+```fish
+# 運用の置き場所を作り、サンプルを種にする
+sudo -u aijudge mkdir -p /srv/aijudge/subjects
+sudo -u aijudge cp /opt/aijudge/subjects/*.yaml /srv/aijudge/subjects/
+
+# env に追記（deploy/aijudge.env.example 参照）
+#   AIJUDGE_PROFILES_DIR=/srv/aijudge/subjects
+sudo $EDITOR /srv/aijudge/config/aijudge.env
+sudo systemctl restart aijudge.target
+```
+
+- **web・review・worker・admin のすべてが同じ場所を読む**（`aijudge.env` は
+  全 unit の `EnvironmentFile` なので、1 行足せば揃う）。ワーカーだけ古い
+  宣言を読むと、画面で見えている設定と実際の採点が食い違う。
+- `/srv/aijudge` 配下なので **restic のバックアップ対象に自動的に入る**
+  （§3.8。除外設定は要らない）。
+- 確認: `sudo -u aijudge ls /srv/aijudge/subjects` に 3 ファイル、
+  `sudo tr '\0' '\n' < /proc/$(systemctl show -p MainPID --value aijudge-review)/environ | grep PROFILES`
+  で反映を確かめる。
 
 

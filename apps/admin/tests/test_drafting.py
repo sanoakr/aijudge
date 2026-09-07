@@ -29,7 +29,7 @@ from aijudge_grading import EvaluatorRegistry, load_profile
 from aijudge_llm_gateway import LlmGateway, ScriptedProvider
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-PROFILE = load_profile(REPO_ROOT / "subjects" / "cs_intro_c.yaml")
+PROFILE = load_profile(REPO_ROOT / "subjects" / "cs_langc_intro.yaml")
 AUTHOR = UserId("usr_" + "1" * 32)
 COURSE = CourseId("crs_" + "0" * 32)
 
@@ -40,7 +40,7 @@ needs_c_compiler = pytest.mark.skipif(
 
 BLUEPRINT = Blueprint(
     knowledge_components=("cs.io.formatted_input", "cs.arithmetic.sum"),
-    subject_profile="cs_intro_c",
+    subject_profile="cs_langc_intro",
     difficulty=Difficulty.INTRODUCTORY,
     constraints=("標準入力から読むこと",),
     test_case_count=3,
@@ -113,7 +113,7 @@ def test_a_draft_becomes_an_ordinary_task_spec() -> None:
     assert result.spec.knowledge_components == BLUEPRINT.knowledge_components
 
     version = build_task_version(
-        result.spec, course_id=COURSE, subject_profile="cs_intro_c", authored_by=AUTHOR
+        result.spec, course_id=COURSE, subject_profile="cs_langc_intro", authored_by=AUTHOR
     )
     assert len(version.q_matrix) == 2
     assert version.reference_solution
@@ -147,7 +147,7 @@ def test_a_good_draft_passes_both_gates() -> None:
     drafter, _ = _drafter(GOOD)
     result = drafter.draft(BLUEPRINT, key="gen/sum")
     version = build_task_version(
-        result.spec, course_id=COURSE, subject_profile="cs_intro_c", authored_by=AUTHOR
+        result.spec, course_id=COURSE, subject_profile="cs_langc_intro", authored_by=AUTHOR
     )
 
     report = _verifier(mutation_limit=8).verify(version)
@@ -164,7 +164,7 @@ def test_a_draft_whose_tests_see_nothing_is_refused() -> None:
     drafter, _ = _drafter(WEAK)
     result = drafter.draft(BLUEPRINT, key="gen/fixed")
     version = build_task_version(
-        result.spec, course_id=COURSE, subject_profile="cs_intro_c", authored_by=AUTHOR
+        result.spec, course_id=COURSE, subject_profile="cs_langc_intro", authored_by=AUTHOR
     )
 
     report = _verifier(mutation_limit=10).verify(version)
@@ -184,7 +184,7 @@ def test_a_generated_task_is_not_approved_by_being_generated() -> None:
     version = build_task_version(
         result.spec,
         course_id=COURSE,
-        subject_profile="cs_intro_c",
+        subject_profile="cs_langc_intro",
         authored_by=AUTHOR,
         generated_by=result.model,
         generation_prompt_version=result.prompt_id,
@@ -201,7 +201,7 @@ def test_a_hand_written_task_is_still_approved_on_the_spot() -> None:
     drafter, _ = _drafter(GOOD)
     result = drafter.draft(BLUEPRINT, key="gen/sum")
     version = build_task_version(
-        result.spec, course_id=COURSE, subject_profile="cs_intro_c", authored_by=AUTHOR
+        result.spec, course_id=COURSE, subject_profile="cs_langc_intro", authored_by=AUTHOR
     )
     assert version.provenance.review_state is ReviewState.APPROVED
     assert version.provenance.generated_by is None
@@ -216,7 +216,7 @@ def test_the_course_outline_reaches_the_prompt() -> None:
     section = _course_section(
         Blueprint(
             knowledge_components=("cs.loops",),
-            subject_profile="cs_intro_c",
+            subject_profile="cs_langc_intro",
             course_title="プログラミング及び実習 II",
             course_outline="配列と繰り返しを扱う。ポインタは扱わない。",
         )
@@ -232,6 +232,8 @@ def test_a_course_without_an_outline_gets_no_section() -> None:
     from aijudge_admin.drafting import _course_section
 
     assert (
-        _course_section(Blueprint(knowledge_components=("cs.loops",), subject_profile="cs_intro_c"))
+        _course_section(
+            Blueprint(knowledge_components=("cs.loops",), subject_profile="cs_langc_intro")
+        )
         == ""
     )

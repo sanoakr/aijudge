@@ -176,7 +176,7 @@ def _request(source: str, cases: tuple[SpecCase, ...]) -> EvaluationRequest:
         id=TaskVersionId("tsv_" + "2" * 32),
         task_id=TaskId("tsk_" + "3" * 32),
         version=1,
-        subject_profile="net_python",
+        subject_profile="cs_python_network",
         statement="## echoClient2.py\n\nホストとポートを読んで接続しなさい。",
         criteria=(criterion,),
         test_cases=cases,

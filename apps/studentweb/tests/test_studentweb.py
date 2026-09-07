@@ -46,8 +46,10 @@ from aijudge_studentweb import SESSION_COOKIE, StudentApp, create_app
 from aijudge_submission import FilesystemArtifactStore
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-EXAMPLE_TASK = REPO_ROOT / "evals" / "golden" / "cs_intro_c" / "example-task" / "task"
-EXAMPLE_SOURCE = REPO_ROOT / "evals" / "golden" / "cs_intro_c" / "example-task" / "marks" / "s001.c"
+EXAMPLE_TASK = REPO_ROOT / "evals" / "golden" / "cs_langc_intro" / "example-task" / "task"
+EXAMPLE_SOURCE = (
+    REPO_ROOT / "evals" / "golden" / "cs_langc_intro" / "example-task" / "marks" / "s001.c"
+)
 PROFILES = REPO_ROOT / "subjects"
 
 TENANT = TenantId("ten_" + "0" * 32)
@@ -94,14 +96,14 @@ class World:
                     code="prog2",
                     title="プログラミング演習 II",
                     term="2026-前期",
-                    subject_profile="cs_intro_c",
+                    subject_profile="cs_langc_intro",
                 )
             )
             uow.commit()
         self.task_version = sharif_judge.import_problem(
             EXAMPLE_TASK,
             course_id=COURSE,
-            subject_profile="cs_intro_c",
+            subject_profile="cs_langc_intro",
             authored_by=AUTHOR,
             readability_weight=0.3,
         )
@@ -413,7 +415,7 @@ def test_a_course_you_are_not_enrolled_in_looks_like_it_does_not_exist(world: Wo
                 code="secret",
                 title="別のコース",
                 term="2026-前期",
-                subject_profile="cs_intro_c",
+                subject_profile="cs_langc_intro",
             )
         )
         uow.commit()

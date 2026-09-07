@@ -84,7 +84,7 @@ def _run(
         submission_id=SubmissionId("sub_" + "b" * 32),
         context=GradingContext(
             task_version_id=VERSION,
-            subject_profile="cs_intro_c",
+            subject_profile="cs_langc_intro",
             rubric_version="1",
             input_hash="sha256:x",
             pipeline_version="1",
@@ -228,7 +228,7 @@ def _rubric(*criteria: tuple[CriterionId, str, float]) -> TaskVersion:
         id=VERSION,
         task_id=TaskId("tsk_" + "5" * 32),
         version=1,
-        subject_profile="cs_intro_c",
+        subject_profile="cs_langc_intro",
         statement="## 課題 ##\n\n出しなさい。",
         criteria=tuple(
             RubricCriterion(

@@ -32,7 +32,7 @@ import せず、`aijudge_core.events` のイベントだけで連携する。こ
 エントリポイントで登録し、`subjects/` の科目プロファイルが名前で指名する。
 
 ```yaml
-# subjects/cs_intro_c.yaml
+# subjects/cs_langc_intro.yaml
 deterministic:  [code_test_runner]
 ai_evaluators:  [rubric_ai_judge]   # 消しても採点は成立する（設計原則 P2）
 review_policy:  {boundary_score: 0.6, boundary_margin: 0.05}
@@ -281,7 +281,7 @@ authoring にあり、保存先を知らない。
 ## 精度は測る。そして「測れていない」は合格ではない
 
 ```fish
-uv run aijudge-eval --subject cs_intro_c --out accuracy.md
+uv run aijudge-eval --subject cs_langc_intro --out accuracy.md
 ```
 
 **これは採点しない。** 採点とレビューが残した観測レコード（提出 × 観点で 1 行）を

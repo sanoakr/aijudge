@@ -16,7 +16,7 @@ from aijudge_observation import Observation
 
 def make(**overrides: object) -> Observation:
     base: dict[str, object] = {
-        "subject_profile": "cs_intro_c",
+        "subject_profile": "cs_langc_intro",
         "task_name": "example-task",
         "submission": "s001.c",
         "criterion_code": "readability",

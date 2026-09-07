@@ -235,7 +235,7 @@ def _course(service: AuthService, repository: InMemoryIdentityRepository) -> Cou
         code="prog2",
         title="プログラミング演習 II",
         term="2026-前期",
-        subject_profile="cs_intro_c",
+        subject_profile="cs_langc_intro",
     )
     repository.save_course(course)
     return course

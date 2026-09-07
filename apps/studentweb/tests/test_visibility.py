@@ -57,7 +57,7 @@ def _task_version() -> TaskVersion:
         id=TASK_VERSION,
         task_id=TaskId("tsk_" + "4" * 32),
         version=1,
-        subject_profile="cs_intro_c",
+        subject_profile="cs_langc_intro",
         statement="問題文",
         criteria=(
             RubricCriterion(
@@ -94,7 +94,7 @@ def _run_missing_the_ai_criterion() -> GradingRun:
         submission_id=SubmissionId(new_id("sub")),
         context=GradingContext(
             task_version_id=TASK_VERSION,
-            subject_profile="cs_intro_c",
+            subject_profile="cs_langc_intro",
             rubric_version="v1",
             input_hash="sha256:abc",
             pipeline_version="0.1.0",

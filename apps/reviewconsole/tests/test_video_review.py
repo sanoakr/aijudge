@@ -57,7 +57,7 @@ def world(tmp_path: Path):
                 code="media1",
                 title="メディア演習",
                 term="2026-前期",
-                subject_profile="cs_intro_c",
+                subject_profile="cs_langc_intro",
             )
         )
         uow.commit()
@@ -66,7 +66,7 @@ def world(tmp_path: Path):
         id=TaskVersionId(new_id("tsv")),
         task_id=TaskId(new_id("tsk")),
         version=1,
-        subject_profile="cs_intro_c",
+        subject_profile="cs_langc_intro",
         statement="デモ動画を提出してください。",
         criteria=(
             RubricCriterion(
@@ -112,7 +112,7 @@ def world(tmp_path: Path):
         tenant_id=TENANT,
         task_version_id=version.id,
         learner_id=learner,
-        subject_profile="cs_intro_c",
+        subject_profile="cs_langc_intro",
         filename="demo.mp4",
         kind=ArtifactKind.VIDEO,
         chunks=iter([bytes(range(256))]),

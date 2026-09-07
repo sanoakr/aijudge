@@ -102,7 +102,7 @@ def test_the_importer_uses_the_companion_declaration(tmp_path: Path) -> None:
     """`in/` `out/` が無くても自動採点できる課題になること。"""
     problem = _problem(tmp_path, CLIENT_YAML)
     version = sharif_judge.import_problem(
-        problem, course_id=COURSE, subject_profile="net_python", authored_by=AUTHOR
+        problem, course_id=COURSE, subject_profile="cs_python_network", authored_by=AUTHOR
     )
     assert len(version.test_cases) == 2
     assert [c.evaluator_id for c in version.criteria] == ["network_test_runner"], (
@@ -121,7 +121,7 @@ def test_the_importer_still_prefers_in_out_when_there_is_no_declaration(
     (problem / "out" / "output1.txt").write_text("3\n", encoding="utf-8")
 
     version = sharif_judge.import_problem(
-        problem, course_id=COURSE, subject_profile="net_python", authored_by=AUTHOR
+        problem, course_id=COURSE, subject_profile="cs_python_network", authored_by=AUTHOR
     )
     assert [c.evaluator_id for c in version.criteria] == ["code_test_runner"]
 

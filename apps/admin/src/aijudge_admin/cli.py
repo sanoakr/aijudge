@@ -1,7 +1,7 @@
 """`aijudge-admin` — 学期の頭に要る操作。
 
     aijudge-admin course create --code network --title "ネットワーク及び演習" \
-        --term 2025-後期 --profile net_python
+        --term 2025-後期 --profile cs_python_network
     aijudge-admin enrol --course <id> --roster 2025shj-user.txt --credentials ~/pw.tsv
     aijudge-admin task import --course <id> --dir .../sharif-judge/ex3
     aijudge-admin course list
@@ -42,6 +42,9 @@ from .tasks import clear_unit
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 DEFAULT_TENANT = "ten_" + "0" * 32
+# 科目プロファイルの置き場所。**web / review / worker と同じ場所を指すこと**
+# ── CLI だけ別の場所を読むと、コースを作るときに通った宣言で採点されない。
+ENV_PROFILES_DIR = "AIJUDGE_PROFILES_DIR"
 
 
 def _database(args: argparse.Namespace) -> Database:
@@ -365,7 +368,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--database-url", default=os.environ.get(ENV_DATABASE_URL))
     parser.add_argument("--tenant", default=DEFAULT_TENANT, help="テナント ID（単独運用では既定）")
-    parser.add_argument("--profiles", type=Path, default=REPO_ROOT / "subjects")
+    parser.add_argument(
+        "--profiles",
+        type=Path,
+        default=Path(os.environ.get(ENV_PROFILES_DIR, REPO_ROOT / "subjects")).expanduser(),
+        help="科目プロファイルの置き場所（既定はリポジトリの subjects/ ── これはサンプル）",
+    )
     parser.add_argument("--create-schema", action="store_true", help="開発用")
     sub = parser.add_subparsers(dest="command", required=True)
 
