@@ -887,39 +887,175 @@ def test_an_instructor_cannot_remove_themselves(world: World) -> None:
 
 
 # --------------------------------------------------------------------------
-# 科目プロファイル — 表示だけ
+# 科目プロファイル — 参照中は読み取り専用、未参照なら編集できる（#146）
 # --------------------------------------------------------------------------
 
 
-def test_the_template_itself_stays_read_only(world: World) -> None:
-    """雛形は共有の既定。**ブラウザからは変えられない。**
+def test_the_template_stays_read_only_from_the_course_page(world: World) -> None:
+    """**コース設定の画面からは雛形を変えられない。**
 
-    同じ雛形を使う他のコースにも効くので、1 人の操作で全員の採点が止まる。
+    このコースの雛形は他のコースも使っている（`world.course` が参照中）。
     コースごとの調整は上書きで行う（`aijudge_grading.overrides`）。
+    雛形そのものを触るのは `/manage/subjects` で、そこでも参照中のものは
+    読み取り専用（下のテスト群）。
     """
     world.register("teacher", Role.INSTRUCTOR)
     body = world.client("teacher").get(f"/manage/courses/{world.course.id}").text
 
     # 実効設定は見える（評価器の名前が並ぶ）。
     assert "code_test_runner" in body
-    # 雛形そのものを書き換える口は無い。
+    # 雛形そのものを書き換える口は、この画面には無い。
     assert 'name="profile_text"' not in body
     assert "ここからは変えません" in body
 
 
-def test_there_is_no_route_that_writes_a_subject_profile(world: World) -> None:
-    """将来うっかり足さないよう、経路の不在をテストで固定する。
+def test_a_profile_a_course_uses_cannot_be_written_through_the_route(world: World) -> None:
+    """**参照中のプロファイルを書き換える経路が無い**ことを、経路を叩いて固定する。
 
-    採点の設定を Web から書ける経路ができた瞬間、1 人の操作で全員の採点を
-    止められるようになる。
+    以前は「`profile` を含む経路が 1 つも無い」ことを固定していた（#146 で
+    未参照のものだけ編集できるようにしたので、経路自体は存在する）。守りたい
+    のは経路の不在ではなく、**1 人の操作で他のコースの採点が変わらない**こと。
     """
-    app = create_app(world.console)
-    # `app.routes` は include_router したものを畳まないので OpenAPI から取る。
-    paths = set(app.openapi()["paths"])
-    writable = {path for path in paths if "profile" in path or path.endswith("/subjects")}
-    assert not writable, sorted(writable)
-    # 管理画面の経路は列挙できていること（走査に失敗していない）。
-    assert "/manage/courses/{course_id}" in paths
+    world.register("boss", Role.ADMIN)
+    name = world.course.subject_profile
+    before = (PROFILES / f"{name}.yaml").read_text(encoding="utf-8")
+
+    response = world.client("boss").post(
+        f"/manage/subjects/{name}", data={"text": "name: " + name + "\ndeterministic: []\n"}
+    )
+
+    assert response.status_code == 400
+    assert "コースが使っています" in response.text
+    # ファイルは 1 バイトも変わっていない。
+    assert (PROFILES / f"{name}.yaml").read_text(encoding="utf-8") == before
+
+
+def test_only_an_admin_can_open_the_profile_list(world: World) -> None:
+    world.register("teacher", Role.INSTRUCTOR)
+    assert world.client("teacher").get("/manage/subjects").status_code == 403
+
+
+def test_the_list_separates_used_profiles_from_editable_ones(world: World) -> None:
+    world.register("boss", Role.ADMIN)
+
+    body = world.client("boss").get("/manage/subjects").text
+
+    # このコースが使っている雛形は「読み取り専用」側に、参照コードつきで出る。
+    assert world.course.subject_profile in body
+    assert world.course.code in body
+    assert "使われていないプロファイル" in body
+    assert "コースが使っているプロファイル" in body
+
+
+def test_a_used_profile_says_why_it_cannot_be_edited(world: World) -> None:
+    """**灰色にするだけでは、バグか権限かを区別できない**（#146）。"""
+    world.register("boss", Role.ADMIN)
+
+    body = world.client("boss").get(f"/manage/subjects/{world.course.subject_profile}").text
+
+    assert "編集できません" in body
+    assert "複製して" in body
+    assert world.course.title in body
+
+
+def test_duplicating_a_used_profile_keeps_the_comments_and_leaves_the_original(
+    world: World, tmp_path: Path
+) -> None:
+    """複製は**ファイルを写す**。模型を経由して書き戻すとコメントが消える。"""
+    profiles = tmp_path / "subjects"
+    profiles.mkdir()
+    source = PROFILES / f"{world.course.subject_profile}.yaml"
+    original = source.read_text(encoding="utf-8")
+    (profiles / source.name).write_text(original, encoding="utf-8")
+    world.console.profiles_dir = profiles
+    world.register("boss", Role.ADMIN)
+
+    response = world.client("boss").post(
+        f"/manage/subjects/{world.course.subject_profile}/duplicate",
+        data={"new_name": "cs_copy", "description": "複製したもの"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    copied = (profiles / "cs_copy.yaml").read_text(encoding="utf-8")
+    # コメント（なぜその値なのかの記録）が残っている。
+    assert "# " in copied
+    assert copied.count("#") == original.count("#")
+    assert "name: cs_copy" in copied
+    assert "description: 複製したもの" in copied
+    # 元は変わっていない。
+    assert (profiles / source.name).read_text(encoding="utf-8") == original
+
+
+def test_an_unused_profile_can_be_edited_and_renamed(world: World, tmp_path: Path) -> None:
+    profiles = tmp_path / "subjects"
+    profiles.mkdir()
+    (profiles / "cs_unused.yaml").write_text(
+        "# なぜ deterministic だけなのかの記録\nname: cs_unused\ndeterministic: []\n",
+        encoding="utf-8",
+    )
+    world.console.profiles_dir = profiles
+    world.register("boss", Role.ADMIN)
+    client = world.client("boss")
+
+    saved = client.post(
+        "/manage/subjects/cs_unused",
+        data={"text": "# 記録は残す\nname: cs_unused\ntimeout_seconds: 42\n"},
+        follow_redirects=False,
+    )
+    assert saved.status_code == 303
+    assert "timeout_seconds: 42" in (profiles / "cs_unused.yaml").read_text(encoding="utf-8")
+
+    renamed = client.post(
+        "/manage/subjects/cs_unused/rename",
+        data={"new_name": "cs_renamed"},
+        follow_redirects=False,
+    )
+    assert renamed.status_code == 303
+    assert not (profiles / "cs_unused.yaml").exists()
+    assert "name: cs_renamed" in (profiles / "cs_renamed.yaml").read_text(encoding="utf-8")
+
+
+def test_a_broken_profile_is_not_saved(world: World, tmp_path: Path) -> None:
+    """通らない設定を書くと、その科目の採点が次から止まる。保存の前に弾く。"""
+    profiles = tmp_path / "subjects"
+    profiles.mkdir()
+    good = "name: cs_unused\ndeterministic: []\n"
+    (profiles / "cs_unused.yaml").write_text(good, encoding="utf-8")
+    world.console.profiles_dir = profiles
+    world.register("boss", Role.ADMIN)
+    client = world.client("boss")
+
+    # 評価器の名前が実在しない。
+    unknown = client.post(
+        "/manage/subjects/cs_unused",
+        data={"text": "name: cs_unused\ndeterministic: [no_such_evaluator]\n"},
+    )
+    assert unknown.status_code == 400
+    assert (profiles / "cs_unused.yaml").read_text(encoding="utf-8") == good
+
+    # YAML として壊れている。
+    malformed = client.post("/manage/subjects/cs_unused", data={"text": "name: [unclosed\n"})
+    assert malformed.status_code == 400
+    assert (profiles / "cs_unused.yaml").read_text(encoding="utf-8") == good
+    # **書きかけを捨てない**（直して出し直せるように返す）。
+    assert "unclosed" in malformed.text
+
+
+def test_a_profile_name_cannot_escape_the_directory(world: World, tmp_path: Path) -> None:
+    """名前はファイル名になる。検査せずに繋ぐとディレクトリの外に書ける。"""
+    profiles = tmp_path / "subjects"
+    profiles.mkdir()
+    (profiles / "cs_unused.yaml").write_text("name: cs_unused\n", encoding="utf-8")
+    world.console.profiles_dir = profiles
+    world.register("boss", Role.ADMIN)
+
+    response = world.client("boss").post(
+        "/manage/subjects/cs_unused/duplicate", data={"new_name": "../escaped"}
+    )
+
+    assert response.status_code == 400
+    assert not (tmp_path / "escaped.yaml").exists()
 
 
 # --------------------------------------------------------------------------

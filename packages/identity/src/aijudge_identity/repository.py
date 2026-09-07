@@ -94,6 +94,16 @@ class IdentityRepository(Protocol):
         """
         ...
 
+    def list_courses_using_profile(self, subject_profile: str) -> tuple[Course, ...]:
+        """この科目プロファイルを参照しているコース。**テナントを越えて調べる。**
+
+        `subjects/` はデプロイ全体で 1 つの共有ディレクトリで、テナント別に
+        分かれていない。だから「このプロファイルを書き換えてよいか」は
+        テナント内だけを見ても決められない ── 他のテナントのコースが
+        参照していれば、その採点が変わる。
+        """
+        ...
+
     def list_enrollments(self, course_id: CourseId) -> tuple[Enrollment, ...]: ...
 
     def remove_enrollment(self, course_id: CourseId, user_id: UserId) -> None:
@@ -228,6 +238,14 @@ class InMemoryIdentityRepository:
         return tuple(
             sorted(
                 (c for c in self._courses.values() if c.tenant_id == tenant_id),
+                key=lambda course: (course.term, course.code),
+            )
+        )
+
+    def list_courses_using_profile(self, subject_profile: str) -> tuple[Course, ...]:
+        return tuple(
+            sorted(
+                (c for c in self._courses.values() if c.subject_profile == subject_profile),
                 key=lambda course: (course.term, course.code),
             )
         )

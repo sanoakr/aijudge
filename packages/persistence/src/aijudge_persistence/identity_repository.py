@@ -336,6 +336,15 @@ class SqlIdentityRepository:
         ).scalars()
         return tuple(_course(row) for row in rows if row is not None)  # type: ignore[misc]
 
+    def list_courses_using_profile(self, subject_profile: str) -> tuple[Course, ...]:
+        """**テナントで絞らない。** 理由は Protocol の docstring（#146）。"""
+        rows = self._session.execute(
+            select(CourseRow)
+            .where(CourseRow.subject_profile == subject_profile)
+            .order_by(CourseRow.term, CourseRow.code)
+        ).scalars()
+        return tuple(_course(row) for row in rows if row is not None)  # type: ignore[misc]
+
     def remove_enrollment(self, course_id: CourseId, user_id: UserId) -> None:
         """受講を取り消す。**利用者の行は残す。**
 

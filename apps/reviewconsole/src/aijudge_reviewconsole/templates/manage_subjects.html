@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}科目プロファイル — aiJudge{% endblock %}
+{% block body %}
+<h1>科目プロファイル</h1>
+<p class="crumb">
+  どの評価器をどの順で走らせるか、どこから人が見るかの宣言です。
+  コースごとの調整は各コースの「採点設定」で行います（こちらは共有の雛形）。
+</p>
+
+{% if saved %}<div class="note saved">{{ saved }}</div>{% endif %}
+
+<div class="note">
+  <strong>コースが使っているプロファイルは、ここからは変えられません。</strong>
+  1 つのプロファイルは複数のコースの雛形になりうるので、書き換えると
+  自分が担当していないコースの採点まで変わります。変えたいときは
+  <strong>複製して、複製の方を編集</strong>してください
+  （既存のコースは元のプロファイルを参照し続けます）。
+</div>
+
+<h2>使われていないプロファイル（編集できます）</h2>
+<table>
+  <thead><tr><th class="fit">名前</th><th class="grow">説明</th></tr></thead>
+  <tbody>
+  {% for profile in profiles if profile.editable %}
+    <tr>
+      <td class="fit mono"><a href="{{ root_prefix() }}/manage/subjects/{{ profile.name }}">{{ profile.name }}</a></td>
+      <td class="grow">{{ profile.description or '—' }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="2" class="desc">ありません（すべてのプロファイルがどこかのコースで使われています）。</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<h2>コースが使っているプロファイル（読み取り専用）</h2>
+<table>
+  <thead><tr>
+    <th class="fit">名前</th><th class="grow">説明</th><th class="fit">使っているコース</th>
+  </tr></thead>
+  <tbody>
+  {% for profile in profiles if not profile.editable %}
+    <tr>
+      <td class="fit mono"><a href="{{ root_prefix() }}/manage/subjects/{{ profile.name }}">{{ profile.name }}</a></td>
+      <td class="grow">{{ profile.description or '—' }}</td>
+      <td class="fit desc">
+        {% for course in profile.used_by %}
+        <span class="mono">{{ course.code }}</span>（{{ course.term }}）{% if not loop.last %}<br>{% endif %}
+        {% endfor %}
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="3" class="desc">ありません。</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<p class="crumb"><a href="{{ root_prefix() }}/">担当コースへ戻る</a></p>
+{% endblock %}

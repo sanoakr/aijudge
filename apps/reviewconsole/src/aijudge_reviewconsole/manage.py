@@ -11,11 +11,17 @@
 終わったあとも一生ついて回る形だった。まとまった投入は API で行う
 （`api.py`）。
 
-**科目プロファイル（`subjects/*.yaml`）は編集させない。** 表示だけする。
-あれは評価器の指名とタイムアウトを持つ採点の設定であり、ブラウザから壊せる
-ようにすると、1 人の操作で全員の採点が止まる。コードと同じ扱いでレビューを
-通す（ADR 0002）。運用者が「いま何が設定されているか」を見られれば十分で、
-それがこの画面の役割。
+**コースが使っている科目プロファイル（`*.yaml`）は読み取り専用。** 1 つの
+プロファイルは複数のコースの雛形になりうるので、書き換えると自分が担当して
+いないコースの採点まで変わる（ADR 0002 の「コードと同じ扱いでレビューを
+通す」はこの範囲のこと）。
+
+そこで #146 で編集できる範囲を絞った ── **未参照のものだけ直接編集・改名
+でき、参照中のものへの唯一の操作は「複製して編集」**（`/manage/subjects`）。
+判定は `aijudge_admin.profiles` が持ち、この層は画面と繋ぐだけ。判定を画面に
+写すと、食い違ったときに「画面では編集できるのに保存が拒否される」形で出る。
+コース設定の画面（`_course_page`）から雛形を書く口は、以前どおり無い
+── そこで触るのはコースごとの上書き（`aijudge_grading.overrides`）。
 
 権限は 2 段。
 - コースの作成・削除は **ADMIN**
@@ -47,6 +53,7 @@ from aijudge_admin import (
     allowed_namespaces,
     assert_registered,
     delete_kc,
+    duplicate_profile,
     edit_kc,
     enrol_roster,
     ensure_course,
@@ -54,13 +61,17 @@ from aijudge_admin import (
     finalize_tasks,
     kc_usage,
     list_for_namespaces,
+    list_profiles,
     parse_roster,
     pending_counts,
+    read_profile_text,
     register_kc,
+    rename_profile,
     restore_kc,
     retire_kc,
     rubric,
     save_grading_settings,
+    save_profile_text,
     save_task,
     template_of,
     try_settings,
@@ -516,6 +527,13 @@ SAVED_MESSAGES: dict[str, str] = {
     # 利用者を参照しているので、行は残したまま状態を倒し、セッションを切る。
     "disabled": "利用者を無効化しました（記録は残ります。セッションも切りました）",
     "grading": "採点設定を保存しました",
+    # 科目プロファイル（#146）。**参照中のものは書き換えられない**ので、
+    # 保存できたのは未参照のものだけ。
+    "profile_saved": "科目プロファイルを保存しました",
+    "profile_duplicated": (
+        "複製しました。この複製はどのコースからも参照されていないので、自由に編集できます"
+    ),
+    "profile_renamed": "名前を変えました",
     "order": "並びを変えました",
     "task": "課題を保存しました",
     # **黙って落とさない。** テストケースが無いと正しさの観点は AI 判定に
@@ -1247,6 +1265,161 @@ def register(templates) -> APIRouter:
             )
             uow.commit()
         return RedirectResponse("/manage/oidc-settings?saved=1", status_code=303)
+
+    # -- 科目プロファイル（管理者専用、#146）--------------------------------
+    #
+    # **参照されているプロファイルは読み取り専用のまま。** 1 つのプロファイルは
+    # 複数のコースの雛形になりうるので、書き換えると自分が担当していない
+    # コースの採点まで変わる（ADR 0002 の「コードと同じ扱いでレビューを通す」）。
+    #
+    # 未参照のものだけ直接編集・改名でき、参照中のものへの唯一の操作は
+    # 「複製して編集」。この判定は `aijudge_admin.profiles` が持ち、ここは
+    # 画面と繋ぐだけ ── 判定を画面側に写すと、2 つが食い違ったときに
+    # 「画面では編集できるのに保存が拒否される」形で現れる。
+
+    def _used_by(request: Request, names: list[str]) -> dict[str, tuple]:
+        """名前ごとの参照コース。**テナントを越えて調べる**（profiles.py 参照）。"""
+        console = _console(request)
+        with console.database.unit_of_work() as uow:
+            return {name: uow.identity.list_courses_using_profile(name) for name in names}
+
+    @router.get("/subjects", response_class=HTMLResponse)
+    def subject_list(request: Request, saved: str = "") -> Response:
+        from .app import require_principal
+
+        me = require_principal(request)
+        _require_admin(request, me)
+        console = _console(request)
+
+        names = [path.stem for path in sorted(console.profiles_dir.glob("*.yaml"))]
+        profiles = list_profiles(console.profiles_dir, _used_by(request, names))
+        return templates.TemplateResponse(
+            request,
+            "manage_subjects.html",
+            {
+                "me": me,
+                "profiles": profiles,
+                "saved": SAVED_MESSAGES.get(saved),
+            },
+        )
+
+    @router.get("/subjects/{name}", response_class=HTMLResponse)
+    def subject_detail(request: Request, name: str, saved: str = "") -> Response:
+        """1 件の全文。**参照中なら読み取り専用で、参照コースをその場に出す。**
+
+        単に灰色にするだけでは、教員は「バグか」「権限が無いだけか」を
+        判別できない（#146）。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        _require_admin(request, me)
+        console = _console(request)
+
+        try:
+            text = read_profile_text(name, console.profiles_dir)
+        except AdminError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from None
+        used_by = _used_by(request, [name])[name]
+        return templates.TemplateResponse(
+            request,
+            "manage_subject.html",
+            {
+                "me": me,
+                "name": name,
+                "text": text,
+                "used_by": used_by,
+                "editable": not used_by,
+                "saved": SAVED_MESSAGES.get(saved),
+            },
+        )
+
+    @router.post("/subjects/{name}", response_class=HTMLResponse)
+    async def save_subject(request: Request, name: str) -> Response:
+        """全文を保存する。**参照中なら `AdminError` で拒否される**（profiles.py）。"""
+        from .app import require_principal
+
+        me = require_principal(request)
+        _require_admin(request, me)
+        console = _console(request)
+
+        form = await request.form()
+        text = str(form.get("text") or "")
+        used_by = _used_by(request, [name])[name]
+        try:
+            save_profile_text(
+                name,
+                text,
+                profiles_dir=console.profiles_dir,
+                registry=EvaluatorRegistry().load_installed(),
+                used_by=used_by,
+            )
+        except AdminError as exc:
+            # **書きかけを捨てない。** 直して出し直せるように、送られてきた
+            # 全文をそのまま返す（検証エラーで消えると打ち直しになる）。
+            return templates.TemplateResponse(
+                request,
+                "manage_subject.html",
+                {
+                    "me": me,
+                    "name": name,
+                    "text": text,
+                    "used_by": used_by,
+                    "editable": not used_by,
+                    "error": str(exc),
+                },
+                status_code=400,
+            )
+        return RedirectResponse(f"/manage/subjects/{name}?saved=profile_saved", status_code=303)
+
+    @router.post("/subjects/{name}/duplicate")
+    def duplicate_subject(
+        request: Request,
+        name: str,
+        new_name: Annotated[str, Form()],
+        description: Annotated[str, Form()] = "",
+    ) -> Response:
+        """複製して、複製先の編集画面へ渡す（#146 の「複製して編集」）。"""
+        from .app import require_principal
+
+        me = require_principal(request)
+        _require_admin(request, me)
+        console = _console(request)
+
+        try:
+            duplicate_profile(
+                name,
+                new_name.strip(),
+                profiles_dir=console.profiles_dir,
+                description=description.strip() or None,
+            )
+        except AdminError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from None
+        return RedirectResponse(
+            f"/manage/subjects/{new_name.strip()}?saved=profile_duplicated", status_code=303
+        )
+
+    @router.post("/subjects/{name}/rename")
+    def rename_subject(request: Request, name: str, new_name: Annotated[str, Form()]) -> Response:
+        """改名する。**未参照のときだけ**（参照中は採点が止まるので拒否）。"""
+        from .app import require_principal
+
+        me = require_principal(request)
+        _require_admin(request, me)
+        console = _console(request)
+
+        try:
+            rename_profile(
+                name,
+                new_name.strip(),
+                profiles_dir=console.profiles_dir,
+                used_by=_used_by(request, [name])[name],
+            )
+        except AdminError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from None
+        return RedirectResponse(
+            f"/manage/subjects/{new_name.strip()}?saved=profile_renamed", status_code=303
+        )
 
     # -- 自分のパスワードを変える --------------------------------------------
     #
