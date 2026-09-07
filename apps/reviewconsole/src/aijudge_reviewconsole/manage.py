@@ -109,6 +109,7 @@ from aijudge_grading import (
 )
 from aijudge_grading.overrides import diff
 from aijudge_identity import AuthenticationFailed, AuthService, PermissionDenied, Principal
+from aijudge_identity.oidc import OidcSettings
 from aijudge_submission import SubmissionService
 
 from .overview import empty_unit, find_unit, load_units, unit_key
@@ -1043,6 +1044,84 @@ def register(templates) -> APIRouter:
             "manage_new_user_created.html",
             {"me": me, "login": login, "password": password, "tenant_admin": tenant_admin},
         )
+
+    # -- Google OIDC 設定（テナント単位、管理者専用、#124）------------------
+    #
+    # ログイン画面自体の切替え（`/auth/login` `/auth/callback` の実際の配線・
+    # 「大学アカウントでログイン」ボタン）は #125 の範囲。ここは管理者が
+    # client_id/secret・許可ドメインを設定する画面だけを持つ。**このリポジトリ
+    # は公開物なので、特定機関のドメインや値はどこにもハードコードしない**
+    # ── 未設定テナントでは #125 のログイン画面が Google ボタンを出さない。
+
+    @router.get("/oidc-settings", response_class=HTMLResponse)
+    def oidc_settings_form(request: Request, saved: str = "") -> Response:
+        from .app import require_principal
+
+        me = require_principal(request)
+        _require_admin(request, me)
+        console = _console(request)
+        with console.database.unit_of_work() as uow:
+            settings = uow.identity.get_oidc_settings(me.tenant_id)
+        return templates.TemplateResponse(
+            request,
+            "manage_oidc_settings.html",
+            {"me": me, "settings": settings, "saved": bool(saved)},
+        )
+
+    @router.post("/oidc-settings", response_class=HTMLResponse)
+    def oidc_settings_save(
+        request: Request,
+        client_id: Annotated[str, Form()],
+        client_secret: Annotated[str, Form()] = "",
+        allowed_domains: Annotated[str, Form()] = "",
+        issuer: Annotated[str, Form()] = "",
+    ) -> Response:
+        """保存する。
+
+        **`client_secret` は空欄なら既存の値を引き継ぐ。** 画面には保存後
+        二度と平文を出さない ── ただし `/manage/users` の生成パスワードの
+        「一度だけ表示」とは違い、こちらは管理者自身が入力した値なので、
+        常に伏せておくだけでよい（見せ直す約束はしない）。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        _require_admin(request, me)
+        console = _console(request)
+
+        domains = tuple(
+            sorted(
+                {d.strip() for d in allowed_domains.replace(",", "\n").splitlines() if d.strip()}
+            )
+        )
+
+        with console.database.unit_of_work() as uow:
+            existing = uow.identity.get_oidc_settings(me.tenant_id)
+
+            def error(message: str) -> Response:
+                return templates.TemplateResponse(
+                    request,
+                    "manage_oidc_settings.html",
+                    {"me": me, "settings": existing, "error": message},
+                )
+
+            secret = client_secret.strip() or (existing.client_secret if existing else "")
+            if not secret:
+                return error("client secret を入力してください")
+            if not domains:
+                return error("許可ドメインを 1 つ以上入力してください")
+
+            uow.identity.save_oidc_settings(
+                OidcSettings(
+                    tenant_id=me.tenant_id,
+                    client_id=client_id.strip(),
+                    client_secret=secret,
+                    allowed_domains=domains,
+                    issuer=issuer.strip() or "https://accounts.google.com",
+                )
+            )
+            uow.commit()
+        return RedirectResponse("/manage/oidc-settings?saved=1", status_code=303)
 
     # -- 自分のパスワードを変える --------------------------------------------
     #

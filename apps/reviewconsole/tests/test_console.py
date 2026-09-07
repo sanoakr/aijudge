@@ -17,6 +17,7 @@ import shutil
 from pathlib import Path
 
 import pytest
+from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 
 from aijudge_authoring import render_statement
@@ -28,7 +29,7 @@ from aijudge_grader import GradingWorker
 from aijudge_grading import EvaluatorRegistry
 from aijudge_identity import AuthService
 from aijudge_llm_gateway import LlmGateway, ScriptedProvider
-from aijudge_persistence import Database, ObservationFileStore
+from aijudge_persistence import ENV_OIDC_SECRET_KEY, Database, ObservationFileStore
 from aijudge_reviewconsole import (
     ENV_ROOT_PREFIX,
     SESSION_COOKIE,
@@ -1025,3 +1026,96 @@ def test_the_learner_box_keeps_the_focus(world: World) -> None:
     assert "setSelectionRange" in body
     # 何も入っていないときは焦点を奪わない。
     assert "autofocus" not in world.client.get(f"/courses/{COURSE}/submissions").text
+
+
+# --------------------------------------------------------------------------
+# Google OIDC 設定（管理者専用、#124）
+# --------------------------------------------------------------------------
+
+
+def _make_admin(world: World, login: str) -> UserId:
+    """テナント管理者を作る。ドメインは架空値のみ使う（#124）。"""
+    principal = world.register(login, role=Role.ASSISTANT)
+    with world.database.unit_of_work() as uow:
+        AuthService(uow.identity).set_tenant_admin(principal.user_id, admin=True)
+        uow.commit()
+    return principal.user_id
+
+
+def test_a_non_admin_cannot_open_the_oidc_settings_screen(world: World) -> None:
+    world.register("instructor3", role=Role.INSTRUCTOR)
+    world.login("instructor3")
+
+    response = world.client.get("/manage/oidc-settings")
+
+    assert response.status_code == 403
+
+
+def test_an_admin_can_save_oidc_settings_and_the_secret_never_leaks(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv(ENV_OIDC_SECRET_KEY, Fernet.generate_key().decode("ascii"))
+    _make_admin(world, "admin9")
+    world.login("admin9")
+
+    response = world.client.post(
+        "/manage/oidc-settings",
+        data={
+            "client_id": "client-abc",
+            "client_secret": "super-secret-value",
+            "allowed_domains": "example.ac.jp",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+
+    body = world.client.get("/manage/oidc-settings").text
+    assert "super-secret-value" not in body
+    assert "example.ac.jp" in body
+    assert "client-abc" in body
+
+
+def test_leaving_the_secret_blank_on_update_keeps_the_existing_one(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv(ENV_OIDC_SECRET_KEY, Fernet.generate_key().decode("ascii"))
+    _make_admin(world, "admin10")
+    world.login("admin10")
+
+    world.client.post(
+        "/manage/oidc-settings",
+        data={
+            "client_id": "client-abc",
+            "client_secret": "first-secret",
+            "allowed_domains": "example.ac.jp",
+        },
+        follow_redirects=False,
+    )
+    world.client.post(
+        "/manage/oidc-settings",
+        data={"client_id": "client-xyz", "client_secret": "", "allowed_domains": "example.ac.jp"},
+        follow_redirects=False,
+    )
+
+    with world.database.unit_of_work() as uow:
+        settings = uow.identity.get_oidc_settings(TENANT)
+    assert settings is not None
+    assert settings.client_id == "client-xyz"
+    assert settings.client_secret == "first-secret"
+
+
+def test_saving_without_a_secret_or_domain_is_rejected(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv(ENV_OIDC_SECRET_KEY, Fernet.generate_key().decode("ascii"))
+    _make_admin(world, "admin11")
+    world.login("admin11")
+
+    response = world.client.post(
+        "/manage/oidc-settings",
+        data={"client_id": "client-abc", "client_secret": "", "allowed_domains": ""},
+    )
+
+    assert response.status_code == 200
+    with world.database.unit_of_work() as uow:
+        assert uow.identity.get_oidc_settings(TENANT) is None

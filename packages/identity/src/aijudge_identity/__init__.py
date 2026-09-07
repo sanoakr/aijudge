@@ -11,7 +11,9 @@ Phase 8 で、**この層のアダプタとして足す**。外向きの型（`P
 from __future__ import annotations
 
 from .cookies import ENV_SECURE_COOKIES, secure_cookies, session_cookie_kwargs
+from .errors import AuthenticationFailed, PermissionDenied
 from .models import ApiToken, Principal, Session, User, UserState
+from .oidc import GoogleOidcIdentity, GoogleOidcProvider, OidcSettings
 from .passwords import (
     MIN_PASSWORD_LENGTH,
     WeakPassword,
@@ -24,9 +26,7 @@ from .service import (
     DEFAULT_SESSION_HOURS,
     DEFAULT_TOKEN_DAYS,
     TOKEN_PREFIX,
-    AuthenticationFailed,
     AuthService,
-    PermissionDenied,
 )
 
 __all__ = [
@@ -38,8 +38,11 @@ __all__ = [
     "ApiToken",
     "AuthService",
     "AuthenticationFailed",
+    "GoogleOidcIdentity",
+    "GoogleOidcProvider",
     "IdentityRepository",
     "InMemoryIdentityRepository",
+    "OidcSettings",
     "PermissionDenied",
     "Principal",
     "Session",

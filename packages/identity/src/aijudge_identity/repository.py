@@ -13,6 +13,7 @@ from aijudge_core import Course, Enrollment
 from aijudge_core.ids import ApiTokenId, CourseId, TenantId, UserId
 
 from .models import ApiToken, Session, User
+from .oidc import OidcSettings
 
 
 @runtime_checkable
@@ -23,6 +24,17 @@ class IdentityRepository(Protocol):
     def get_user(self, user_id: UserId) -> User | None: ...
 
     def find_user_by_login(self, tenant_id: TenantId, login: str) -> User | None: ...
+
+    def find_user_by_external_id(self, tenant_id: TenantId, external_id: str) -> User | None:
+        """Google の `sub` から利用者を引く（#124）。JIT 突合の要。"""
+        ...
+
+    # -- OIDC 設定（テナント単位、#124）--
+    def save_oidc_settings(self, settings: OidcSettings) -> None: ...
+
+    def get_oidc_settings(self, tenant_id: TenantId) -> OidcSettings | None:
+        """未設定なら None ── ログイン画面はこれで Google ボタンの出し分けをする。"""
+        ...
 
     # -- セッション --
     def save_session(self, session: Session) -> None: ...
@@ -100,10 +112,14 @@ class InMemoryIdentityRepository:
         self._api_tokens: dict[ApiTokenId, ApiToken] = {}
         self._courses: dict[CourseId, Course] = {}
         self._enrollments: dict[tuple[CourseId, UserId], Enrollment] = {}
+        self._by_external_id: dict[tuple[TenantId, str], UserId] = {}
+        self._oidc_settings: dict[TenantId, OidcSettings] = {}
 
     def save_user(self, user: User) -> None:
         self._users[user.id] = user
         self._logins[(user.tenant_id, user.login)] = user.id
+        if user.external_id is not None:
+            self._by_external_id[(user.tenant_id, user.external_id)] = user.id
 
     def get_user(self, user_id: UserId) -> User | None:
         return self._users.get(user_id)
@@ -111,6 +127,16 @@ class InMemoryIdentityRepository:
     def find_user_by_login(self, tenant_id: TenantId, login: str) -> User | None:
         user_id = self._logins.get((tenant_id, login))
         return None if user_id is None else self._users.get(user_id)
+
+    def find_user_by_external_id(self, tenant_id: TenantId, external_id: str) -> User | None:
+        user_id = self._by_external_id.get((tenant_id, external_id))
+        return None if user_id is None else self._users.get(user_id)
+
+    def save_oidc_settings(self, settings: OidcSettings) -> None:
+        self._oidc_settings[settings.tenant_id] = settings
+
+    def get_oidc_settings(self, tenant_id: TenantId) -> OidcSettings | None:
+        return self._oidc_settings.get(tenant_id)
 
     def save_session(self, session: Session) -> None:
         self._sessions[session.id] = session

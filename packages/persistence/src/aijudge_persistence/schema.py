@@ -307,13 +307,40 @@ class UserRow(Base):
     # テナント全体の管理者か（#128）。コースの Enrollment(role=ADMIN) に
     # 頼っていた暫定をここへ移した。既定 False ── 昇格は `aijudge-admin` のみ。
     is_tenant_admin: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    # Google の `sub`（不変 ID）。ローカル利用者は NULL（#124）。
+    # メールアドレスを主キーにしないのは、それが変わりうるため。
+    external_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
     created_at: Mapped[datetime] = mapped_column(Timestamp)
 
     __table_args__ = (
         # 同じテナント内でログイン ID は一意。別テナントでは衝突してよい
         # （機関をまたいで学籍番号が重なるのは普通のこと）。
         UniqueConstraint("tenant_id", "login", name="uq_users_tenant_login"),
+        # 認証方式が違っても同じ Google アカウントの重複作成を防ぐ。
+        UniqueConstraint("tenant_id", "external_id", name="uq_users_tenant_external_id"),
     )
+
+
+class OidcSettingsRow(Base):
+    """テナント単位の Google OIDC 設定（#124）。
+
+    1 テナントにつき 1 設定。**このリポジトリは公開物なので、特定機関の
+    ドメイン・client_id/secret はここにも他のどこにも書かない** ──
+    管理者が `/manage` から設定する値がここに入るだけ。
+    """
+
+    __tablename__ = "oidc_settings"
+
+    tenant_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    client_id: Mapped[str] = mapped_column(String(256))
+    # 平文はここに置かない。`Fernet` で暗号化した文字列（persistence 層の
+    # 責務。`aijudge_identity` の `OidcSettings` は常に平文を扱う）。
+    client_secret_encrypted: Mapped[str] = mapped_column(Text)
+    # 1 機関が複数ドメインを許すこともあるので単一値にしない。
+    allowed_domains: Mapped[list] = mapped_column(JsonType)
+    issuer: Mapped[str] = mapped_column(String(256))
+    created_at: Mapped[datetime] = mapped_column(Timestamp)
+    updated_at: Mapped[datetime] = mapped_column(Timestamp)
 
 
 class SessionRow(Base):

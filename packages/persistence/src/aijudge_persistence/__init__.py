@@ -21,7 +21,7 @@ from .engine import (
     database_url,
     supports_row_locking,
 )
-from .identity_repository import SqlIdentityRepository
+from .identity_repository import ENV_OIDC_SECRET_KEY, SqlIdentityRepository
 from .objectstore import ObjectArtifactStore
 from .observations import OBSERVATIONS_DIR, ObservationFileStore
 from .repositories import (
@@ -38,6 +38,7 @@ from .skill_repository import SqlSkillRepository
 __all__ = [
     "DEFAULT_DATABASE_URL",
     "ENV_DATABASE_URL",
+    "ENV_OIDC_SECRET_KEY",
     "OBSERVATIONS_DIR",
     "Base",
     "Database",

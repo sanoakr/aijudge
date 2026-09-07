@@ -45,6 +45,9 @@ class User(BaseModel):
     # 「管理者だから触れる」と「このコースの教員だから触れる」を記録の上で
     # 分けるため、コース単位の `Enrollment` とは別に持つ。
     is_tenant_admin: bool = False
+    # Google の `sub`（不変 ID）。ローカル利用者は None。メールアドレスを
+    # 主キーにしないのは、それが変わりうるため（#124）。
+    external_id: str | None = None
     created_at: datetime
 
     @property
