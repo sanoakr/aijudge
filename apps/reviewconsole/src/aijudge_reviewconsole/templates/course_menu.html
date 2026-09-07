@@ -76,33 +76,6 @@
 </form>
 {% endif %}
 
-{# **作問はここに集める**（#84）。AI 作問は問題セットの画面の中にあり、
-   未承認の課題はコースの設定に混ざっていた。どちらも「課題を作る」作業で、
-   日程を決めることやコースの設定を変えることとは性質が違う。
-
-   **問題セットの画面にも入口は残してある。** 第 6 回を編集中に 1 問足したい、
-   は普通の動機なので ── 作る場所は 1 つ、入口は 2 つ。 #}
-{# 作問は担当教員以上（#102）。以前はここが `can_manage` の外にあり、
-   TA には**押すと 403 になるリンク**として見えていた。 #}
-{% if can_manage %}
-<h2>作問</h2>
-<nav class="menu">
-  <a class="row" href="{{ root_prefix() }}/manage/courses/{{ course.id }}/drafts">
-    <span class="what"><b>未承認の課題</b>
-      <span class="desc">承認するまで出題されません。出題する問題セットは承認のときに決めます</span></span>
-    <span class="meta">
-      {% if drafts %}<span class="pill">{{ drafts }} 件</span>
-      {% else %}<span class="desc">0 件</span>{% endif %}
-    </span>
-  </a>
-  <a class="row" href="{{ root_prefix() }}/manage/courses/{{ course.id }}/drafts#generate">
-    <span class="what"><b>AI に課題を作らせる</b>
-      <span class="desc">問題セットは決めずに作れます。狙う知識要素を選んで生成します</span></span>
-    <span class="meta desc">→</span>
-  </a>
-</nav>
-{% endif %}
-
 <h2>採点</h2>
 <nav class="menu">
   <a class="row" href="{{ root_prefix() }}/courses/{{ course.id }}/submissions">
@@ -140,6 +113,36 @@
     </span>
   </a>
 </nav>
+
+{# **AI 作問はここに集める**（#84）。生成は問題セットの画面の中にあり、
+   未承認の課題はコースの設定に混ざっていた。どちらも「AI に課題を作らせて
+   確かめる」作業で、日程を決めることやコースの設定を変えることとは性質が違う。
+
+   **採点の下に置く**（学期中に開く回数がこの順）── 問題セットと採点が
+   日常で、AI 作問はその合間に使う。
+
+   **問題セットの画面にも入口は残してある。** 第 6 回を編集中に 1 問足したい、
+   は普通の動機なので ── 作る場所は 1 つ、入口は 2 つ。 #}
+{# 作問は担当教員以上（#102）。以前はここが `can_manage` の外にあり、
+   TA には**押すと 403 になるリンク**として見えていた。 #}
+{% if can_manage %}
+<h2>AI 作問</h2>
+<nav class="menu">
+  <a class="row" href="{{ root_prefix() }}/manage/courses/{{ course.id }}/drafts">
+    <span class="what"><b>未承認の課題</b>
+      <span class="desc">承認するまで出題されません。出題する問題セットは承認のときに決めます</span></span>
+    <span class="meta">
+      {% if drafts %}<span class="pill">{{ drafts }} 件</span>
+      {% else %}<span class="desc">0 件</span>{% endif %}
+    </span>
+  </a>
+  <a class="row" href="{{ root_prefix() }}/manage/courses/{{ course.id }}/drafts#generate">
+    <span class="what"><b>AI に課題を作らせる</b>
+      <span class="desc">問題セットは決めずに作れます。狙う知識要素を選んで生成します</span></span>
+    <span class="meta desc">→</span>
+  </a>
+</nav>
+{% endif %}
 
 {% if can_manage %}
 <h2>コースの設定</h2>

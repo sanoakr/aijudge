@@ -1508,12 +1508,24 @@ def test_the_course_menu_shows_each_role_what_it_can_use(world: World) -> None:
 
     ta_page = world.client("ta").get(f"/courses/{world.course.id}").text
     assert "問題セット" in ta_page, "TA に問題セットが出ていない"
-    assert "作問" not in ta_page, "TA に作問が出ている"
+    assert "AI 作問" not in ta_page, "TA に作問が出ている"
     assert "受講者" not in ta_page or "/enrolments" not in ta_page
 
     teacher_page = world.client("teacher").get(f"/courses/{world.course.id}").text
-    assert "作問" in teacher_page
+    assert "AI 作問" in teacher_page
     assert "/enrolments" in teacher_page
+
+
+def test_the_course_menu_puts_ai_authoring_below_grading(world: World) -> None:
+    """**学期中に開く回数の順に置く。** 問題セットと採点が日常で、
+    AI 作問はその合間に使う。
+    """
+    _world_with_every_role(world)
+
+    page = world.client("teacher").get(f"/courses/{world.course.id}").text
+
+    assert page.index("<h2>問題セット</h2>") < page.index("<h2>採点</h2>")
+    assert page.index("<h2>採点</h2>") < page.index("<h2>AI 作問</h2>")
 
 
 def test_an_admin_gets_everything_an_instructor_gets(world: World) -> None:
