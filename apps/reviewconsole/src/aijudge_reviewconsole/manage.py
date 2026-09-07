@@ -52,6 +52,7 @@ from aijudge_admin import (
     AdminError,
     allowed_namespaces,
     assert_registered,
+    delete_course,
     delete_kc,
     duplicate_profile,
     edit_kc,
@@ -522,6 +523,7 @@ SAVED_MESSAGES: dict[str, str] = {
     # **削除ではない**（#144・`AuthService.disable`）。過去の提出と採点が
     # 利用者を参照しているので、行は残したまま状態を倒し、セッションを切る。
     "disabled": "利用者を無効化しました（記録は残ります。セッションも切りました）",
+    "course_deleted": "コースを削除しました（学習者の提出はありませんでした）",
     "tenant_admin_granted": "テナント管理者にしました（すべてのコースで教員として扱われます）",
     "tenant_admin_revoked": "テナント管理者から外しました（役割はコースごとの受講で決まります）",
     "grading": "採点設定を保存しました",
@@ -1601,6 +1603,12 @@ def register(templates) -> APIRouter:
 
         with console.database.unit_of_work() as uow:
             enrollments = uow.identity.list_enrollments(course.id)
+            # 学習者の提出があるコースは消せない（#156）。**何件あるかを
+            # 先に出す** ── 押してから断られるより、押す前に理由が読める方が
+            # よい。教員の動作確認（trial・#108）は数えない（消せる）。
+            learner_submissions = sum(
+                1 for item in uow.submissions.list_for_course(course.id) if not item.is_trial
+            )
         people_count = len(enrollments)
 
         return templates.TemplateResponse(
@@ -1612,6 +1620,10 @@ def register(templates) -> APIRouter:
                 "section": {"label": "コース全体の設定", "href": f"/manage/courses/{course.id}"},
                 "saved": note or SAVED_MESSAGES.get(saved),
                 "saved_key": saved,
+                # コースの削除は作成と同じくテナント管理者だけ（#156）。
+                # 担当教員には出さない ── 押せないものを見せない。
+                "is_admin": _is_admin(request, me),
+                "learner_submissions": learner_submissions,
                 # 直前に上げた画像の貼り付け行（#64）。
                 "last_image": (
                     console.last_image[1]
@@ -2407,6 +2419,35 @@ def register(templates) -> APIRouter:
         return _kc_page(
             request, me, course, proposal=proposal, draft=draft, draft_exists=stored is not None
         )
+
+    @router.post("/courses/{course_id}/delete")
+    def delete_course_route(request: Request, course_id: str) -> Response:
+        """コースを消す。**学習者の提出が無いときだけ**（#156）。
+
+        権限はコースの作成と同じ**テナント管理者**。担当教員には開けない
+        ── コースを消すのは、そのコースの中の操作ではない。
+
+        規則は `aijudge_admin.courses` に置いてある（画面と CLI の両方から
+        使うので、どちらが正しいかを問わずに済むよう 1 か所にする）。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        _require_admin(request, me)
+        console = _console(request)
+
+        with console.database.unit_of_work() as uow:
+            course = uow.identity.get_course(CourseId(course_id))
+        if course is None or course.tenant_id != me.tenant_id:
+            raise HTTPException(status_code=404, detail="コースが見つかりません")
+
+        try:
+            delete_course(console.database, course_id=course.id, artifact_store=console.store)
+        except AdminError as exc:
+            # **なぜ消せないかをその場に出す**（提出が何件あるか）。
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        # 消したコースの画面はもう無いので、担当コースの一覧へ戻す。
+        return RedirectResponse("/?saved=course_deleted", status_code=303)
 
     @router.post("/courses/{course_id}/rubric")
     async def save_course_rubric(request: Request, course_id: str) -> Response:

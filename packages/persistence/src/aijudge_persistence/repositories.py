@@ -189,6 +189,34 @@ class SqlSubmissionRepository:
     ) -> int:
         return len(self.list_for_learner(tenant_id, learner_id, task_version_id)) + 1
 
+    def delete(self, submission_ids: Sequence[SubmissionId]) -> None:
+        """提出と、それを指す記録を消す（#156）。
+
+        **提出を消す経路はここだけ。** コースを丸ごと消すときにしか通らない
+        （学習者の提出があるコースは消せないので、届くのは教員の動作確認＝
+        trial だけ・`aijudge_admin.courses`）。
+
+        **提出を指す表を数え漏らすと、存在しない提出を指す行が残る。**
+        `submission_id` を持つ表を足したら、ここにも足すこと ──
+        `tests/test_deleting_a_course_leaves_nothing_behind.py` が、
+        スキーマを走査して漏れを検出する。
+        """
+        keys = [str(submission_id) for submission_id in submission_ids]
+        if not keys:
+            return
+        for table, column in (
+            (SubmissionKeyRow, SubmissionKeyRow.submission_id),
+            (GradingRunRow, GradingRunRow.submission_id),
+            (HumanReviewRow, HumanReviewRow.submission_id),
+            (FinalizationRow, FinalizationRow.submission_id),
+            (ReviewRequestRow, ReviewRequestRow.submission_id),
+            (BlindMarkRow, BlindMarkRow.submission_id),
+            (GradingJobRow, GradingJobRow.submission_id),
+        ):
+            self._session.execute(delete(table).where(column.in_(keys)))
+        self._session.execute(delete(SubmissionRow).where(SubmissionRow.id.in_(keys)))
+        self._session.flush()
+
 
 class SqlGradingRunRepository:
     def __init__(self, session: Session) -> None:

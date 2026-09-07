@@ -106,12 +106,26 @@ class InMemorySubmissionRepository:
     def list_for_course(self, course_id: CourseId, *, limit: int = 5000) -> tuple[Submission, ...]:
         # インメモリ実装は課題を持たないので、コースでは絞れない。
         # 使うのは教員 UI（SQL 実装）だけなので、ここでは全件を返す。
-        return tuple(self._items[key] for key in self._order)[:limit]
+        #
+        # **保存順で返す。** 以前は存在しない `self._order` を引いていて、
+        # 呼べば `AttributeError` になっていた（誰も呼んでいなかったので
+        # 気づかれていない）。`dict` は挿入順を保つので、それで足りる。
+        return tuple(self._items.values())[:limit]
 
     def next_attempt(
         self, tenant_id: TenantId, learner_id: UserId, task_version_id: TaskVersionId
     ) -> int:
         return len(self.list_for_learner(tenant_id, learner_id, task_version_id)) + 1
+
+    def delete(self, submission_ids: Sequence[SubmissionId]) -> None:
+        wanted = set(submission_ids)
+        for submission_id in wanted:
+            self._items.pop(submission_id, None)
+            self._tenants.pop(submission_id, None)
+        # 冪等キーも消す。残すと、消した提出を指すキーで二重投入の判定が通る。
+        for key, value in list(self._keys.items()):
+            if value in wanted:
+                del self._keys[key]
 
 
 class InMemoryGradingRunRepository:

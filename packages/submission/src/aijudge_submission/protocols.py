@@ -138,6 +138,19 @@ class SubmissionRepository(Protocol):
         """この学習者のこの課題に対する次の提出回数。"""
         ...
 
+    def delete(self, submission_ids: Sequence[SubmissionId]) -> None:
+        """提出と、それを指す記録を消す（#156）。
+
+        **提出を消すのはコースを丸ごと消すときだけ。** 学習者の提出が
+        1 件でもあるコースは消せない（規則は `aijudge_admin.courses`）ので、
+        ここに届くのは教員の動作確認（trial、#108）だけになる。
+
+        採点結果・確定・再確認の依頼・blind 採点・キューの行も一緒に消す
+        ── 残すと、存在しない提出を指す行が溜まる。**規則は書かない。**
+        保存層は言われたものを消す（`delete_task` と同じ分担）。
+        """
+        ...
+
     def remember_idempotency_key(
         self, tenant_id: TenantId, key: str, submission_id: SubmissionId
     ) -> None:
