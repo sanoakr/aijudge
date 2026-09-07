@@ -29,3 +29,6 @@ evals/report_ja/bodies/
 evals/report_ja/bodies_anon/
 evals/report_ja/prompts/
 evals/report_ja/agent_out/
+
+# モデル比較ベンチマーク（ローカルの実験結果、追跡しない）
+evals/model_bench/

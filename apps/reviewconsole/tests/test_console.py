@@ -332,6 +332,26 @@ def test_the_footer_shows_the_deployed_release_version(world: World) -> None:
     assert f"aiJudge {root_version}" in body
 
 
+def test_the_footer_shows_a_copyright_notice_read_from_license(world: World) -> None:
+    """`LICENSE` の Copyright 行を書き写さず、そこから読む（#145）。"""
+    import re
+
+    match = re.search(
+        r"^\s*Copyright\s+(\d{4})\s+(.+?)\s*$",
+        (REPO_ROOT / "LICENSE").read_text(),
+        re.MULTILINE,
+    )
+    assert match is not None
+    start_year, holder = match.group(1), match.group(2)
+
+    world.register("instructor2", role=Role.INSTRUCTOR)
+    world.login("instructor2")
+    body = world.client.get("/").text
+
+    assert start_year in body
+    assert holder in body
+
+
 def test_links_carry_the_configured_path_prefix(
     world: World, monkeypatch: pytest.MonkeyPatch
 ) -> None:
