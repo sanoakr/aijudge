@@ -92,7 +92,7 @@ def course(database: Database):
         code="prog2",
         title="プログラミング演習 II",
         term="2026-前期",
-        subject_profile="cs_intro_c",
+        subject_profile="cs_lang_c_intro",
         profiles_dir=PROFILES,
     )
     return obj
@@ -117,7 +117,7 @@ def _task_version() -> TaskVersion:
         id=TASK_VERSION,
         task_id=TASK_ID,
         version=1,
-        subject_profile="cs_intro_c",
+        subject_profile="cs_lang_c_intro",
         statement="問題文",
         criteria=(criterion,),
         max_score=100.0,
@@ -132,7 +132,7 @@ def _run(submission_id: SubmissionId, *, routing: Routing, unscored: bool = Fals
         submission_id=submission_id,
         context=GradingContext(
             task_version_id=TASK_VERSION,
-            subject_profile="cs_intro_c",
+            subject_profile="cs_lang_c_intro",
             rubric_version="v1",
             input_hash="sha256:abc",
             pipeline_version="0.1.0",
@@ -186,7 +186,7 @@ def _world(
             tenant_id=TENANT,
             task_version_id=TASK_VERSION,
             learner_id=UserId(new_id("usr")),
-            subject_profile="cs_intro_c",
+            subject_profile="cs_lang_c_intro",
             files=[
                 IncomingFile(
                     filename="main.c",

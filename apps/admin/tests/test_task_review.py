@@ -36,7 +36,7 @@ def _version(suffix: str, *, generated: bool, state: ReviewState) -> TaskVersion
         id=TaskVersionId("tsv_" + suffix * 32),
         task_id=TaskId("tsk_" + suffix * 32),
         version=1,
-        subject_profile="cs_intro_c",
+        subject_profile="cs_lang_c_intro",
         statement="## 課題 ##\n\n書きなさい。",
         criteria=(
             RubricCriterion(

@@ -55,7 +55,7 @@ def course(database: Database):
         code="prog2",
         title="プログラミング演習 II",
         term="2026-前期",
-        subject_profile="cs_intro_c",
+        subject_profile="cs_lang_c_intro",
         profiles_dir=PROFILES,
     )
     return obj
@@ -189,7 +189,7 @@ def test_a_task_cannot_name_an_unregistered_component(database: Database, course
             database,
             course_id=course.id,
             spec=spec,
-            subject_profile="cs_intro_c",
+            subject_profile="cs_lang_c_intro",
             authored_by=TEACHER,
         )
 
@@ -206,7 +206,7 @@ def test_a_task_with_registered_components_is_saved(database: Database, course) 
         database,
         course_id=course.id,
         spec=spec,
-        subject_profile="cs_intro_c",
+        subject_profile="cs_lang_c_intro",
         authored_by=TEACHER,
     )
     assert saved.version.q_matrix
@@ -229,7 +229,7 @@ def test_usage_counts_tasks_and_courses(database: Database, course) -> None:
             statement="## 課題 ##\n\n本文",
             knowledge_components=("cs.loops.termination",),
         ),
-        subject_profile="cs_intro_c",
+        subject_profile="cs_lang_c_intro",
         authored_by=TEACHER,
     )
 
@@ -272,7 +272,7 @@ def test_a_used_component_is_never_deleted(database: Database, course) -> None:
             statement="## 課題 ##\n\n本文",
             knowledge_components=("cs.loops.termination",),
         ),
-        subject_profile="cs_intro_c",
+        subject_profile="cs_lang_c_intro",
         authored_by=TEACHER,
     )
 
@@ -341,7 +341,7 @@ def test_editing_a_used_component_is_allowed(database: Database, course) -> None
             statement="## 課題 ##\n\n本文",
             knowledge_components=("cs.loops.termination",),
         ),
-        subject_profile="cs_intro_c",
+        subject_profile="cs_lang_c_intro",
         authored_by=TEACHER,
     )
 
@@ -415,6 +415,6 @@ def test_saving_a_task_respects_the_course_selection(database: Database, course)
                 statement="## 課題 ##\n\n本文",
                 knowledge_components=("cs.python",),
             ),
-            subject_profile="cs_intro_c",
+            subject_profile="cs_lang_c_intro",
             authored_by=TEACHER,
         )

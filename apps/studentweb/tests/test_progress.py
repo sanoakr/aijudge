@@ -79,7 +79,7 @@ def version() -> TaskVersion:
         id=VERSION,
         task_id=TASK,
         version=1,
-        subject_profile="cs_intro_c",
+        subject_profile="cs_lang_c_intro",
         statement="問題文",
         criteria=(
             RubricCriterion(
@@ -113,7 +113,7 @@ def course() -> Course:
         code="prog2",
         title="プログラミング演習 II",
         term="2026-前期",
-        subject_profile="cs_intro_c",
+        subject_profile="cs_lang_c_intro",
     )
 
 
@@ -204,7 +204,7 @@ class World:
             submission_id=submission.id,
             context=GradingContext(
                 task_version_id=VERSION,
-                subject_profile="cs_intro_c",
+                subject_profile="cs_lang_c_intro",
                 rubric_version="v1",
                 input_hash=f"sha256:{submission.attempt}",
                 pipeline_version="0.1.0",

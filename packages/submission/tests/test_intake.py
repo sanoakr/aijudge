@@ -30,7 +30,7 @@ from aijudge_submission import (
 TENANT = TenantId("ten_" + "0" * 32)
 TASK = TaskVersionId("tsv_" + "1" * 32)
 LEARNER = UserId("usr_" + "2" * 32)
-PROFILE = "cs_intro_c"
+PROFILE = "cs_lang_c_intro"
 
 START = datetime(2026, 8, 28, 9, 0, tzinfo=UTC)
 

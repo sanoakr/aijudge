@@ -28,7 +28,7 @@ from aijudge_grading import EvaluatorRegistry, load_profile
 from aijudge_llm_gateway import LlmGateway, ScriptedProvider
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-PROFILE = load_profile(REPO_ROOT / "subjects" / "cs_intro_c.yaml")
+PROFILE = load_profile(REPO_ROOT / "subjects" / "cs_lang_c_intro.yaml")
 AUTHOR = UserId("usr_" + "1" * 32)
 VERSION = TaskVersionId("tsv_" + "2" * 32)
 
@@ -91,7 +91,7 @@ def _task(reference: str = REFERENCE, cases: bool = True) -> TaskVersion:
         id=VERSION,
         task_id=TaskId("tsk_" + "3" * 32),
         version=1,
-        subject_profile="cs_intro_c",
+        subject_profile="cs_lang_c_intro",
         statement="## 2 数の和 ##\n\n2 つの整数を読み、その和を出力しなさい。",
         reference_solution=reference,
         criteria=(

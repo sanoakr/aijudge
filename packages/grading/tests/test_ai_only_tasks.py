@@ -1,6 +1,6 @@
 """AI 観点しか持たない課題も決定的段階を通る（#80）。
 
-**科目の宣言だけでは足りない。** `cs_intro_c` は `code_test_runner` を宣言して
+**科目の宣言だけでは足りない。** `cs_lang_c_intro` は `code_test_runner` を宣言して
 いるが、取り込み器はテストケースの無い課題を AI 観点だけで構成する。以前は
 「科目が決定的評価器を宣言しているのに点が 1 つも出ない」ことを異常として
 扱っていたので、そういう課題の提出は再試行の上限まで落ち、**永久に採点
@@ -64,7 +64,7 @@ def _task_version(*criteria: RubricCriterion) -> TaskVersion:
         id=TaskVersionId(new_id("tsv")),
         task_id=TaskId(new_id("tsk")),
         version=1,
-        subject_profile="cs_intro_c",
+        subject_profile="cs_lang_c_intro",
         statement="## 課題 ##\n\n出しなさい。",
         criteria=criteria,
         max_score=100.0,
@@ -118,7 +118,7 @@ def _pipeline() -> GradingPipeline:
     registry.register(_Silent())
     return GradingPipeline(
         registry,
-        SubjectProfile(name="cs_intro_c", deterministic=("code_test_runner",)),
+        SubjectProfile(name="cs_lang_c_intro", deterministic=("code_test_runner",)),
     )
 
 

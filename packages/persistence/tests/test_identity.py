@@ -186,7 +186,7 @@ def test_enrolment_decides_what_a_user_may_do(backend) -> None:
         code="prog2",
         title="プログラミング演習 II",
         term="2026-前期",
-        subject_profile="cs_intro_c",
+        subject_profile="cs_lang_c_intro",
     )
     auth.do(lambda service: service._repository.save_course(course))
     auth.do(

@@ -27,6 +27,10 @@ ENV_ARTIFACT_DIR = "AIJUDGE_ARTIFACT_DIR"
 # 動画の置き場所。**学習者アプリと同じディレクトリを指す**（同じファイルを見る）。
 ENV_VIDEO_DIR = "AIJUDGE_VIDEO_DIR"
 ENV_OBSERVATION_DIR = "AIJUDGE_OBSERVATION_DIR"
+# 科目プロファイルの置き場所。**運用では git のチェックアウトの外を指す**
+# ── リポジトリの `subjects/` はサンプルで、デプロイのたびに入れ替わる
+# （`docs/RUNNING.md` の環境変数表）。
+ENV_PROFILES_DIR = "AIJUDGE_PROFILES_DIR"
 # 学習者アプリの場所（#103）。同じ人が「A では学習者・B では教員」になるので、
 # 採点しないコースの行から学習者側へ渡す。**空でも動く。**
 ENV_LEARNER_URL = "AIJUDGE_LEARNER_URL"
@@ -70,7 +74,12 @@ def main(argv: list[str] | None = None) -> int:
         ),
         help="動画の置き場所（学習者アプリの --video-dir と同じディレクトリ）",
     )
-    parser.add_argument("--profiles", type=Path, default=REPO_ROOT / "subjects")
+    parser.add_argument(
+        "--profiles",
+        type=Path,
+        default=Path(os.environ.get(ENV_PROFILES_DIR, REPO_ROOT / "subjects")).expanduser(),
+        help="科目プロファイルの置き場所（既定はリポジトリの subjects/ ── これはサンプル）",
+    )
     parser.add_argument(
         "--learner-url",
         default=os.environ.get(ENV_LEARNER_URL, ""),

@@ -67,7 +67,7 @@ def _task() -> TaskVersion:
         id=TaskVersionId("tsv_" + "3" * 32),
         task_id=TaskId("tsk_" + "4" * 32),
         version=1,
-        subject_profile="cs_intro_c",
+        subject_profile="cs_lang_c_intro",
         statement="標準入力から n を読み、最大値・最小値・平均値を出力せよ。",
         criteria=(
             _criterion(CORRECTNESS, "correctness", "正しさ", 0.7),
@@ -128,7 +128,7 @@ def _run(*, with_ai: bool = True, unscored: tuple = ()) -> GradingRun:
         submission_id=SubmissionId("sub_" + "8" * 32),
         context=GradingContext(
             task_version_id=TaskVersionId("tsv_" + "3" * 32),
-            subject_profile="cs_intro_c",
+            subject_profile="cs_lang_c_intro",
             rubric_version="v1",
             input_hash="sha256:abc",
             pipeline_version="0.1.0",

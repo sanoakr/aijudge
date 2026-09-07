@@ -222,6 +222,7 @@ set -gx AIJUDGE_ALLOWED_HOSTS aijudge.example.jp,aijudge.example.jp:8765
 | `AIJUDGE_LLM_BASE_URL` / `AIJUDGE_LLM_MODEL` | ローカル LLM | — |
 | `AIJUDGE_FEEDBACK_MODEL` | フィードバック生成のモデル。未設定なら要約に落ちる | — |
 | `AIJUDGE_OIDC_SECRET_KEY` | Google OIDC 設定の `client_secret` を暗号化する鍵（#124）。`Fernet.generate_key()` の値。**Google ログインを使うなら必須**（未設定だと `/manage/oidc-settings` での保存が失敗する） | — |
+| `AIJUDGE_PROFILES_DIR` | 科目プロファイル（`*.yaml`）の置き場所。**運用では git のチェックアウトの外を指す** ── リポジトリの `subjects/` はサンプルで、デプロイのたびに入れ替わる（`subjects/README.md`）。**web・review・worker・admin のすべてが同じ場所を指すこと** | リポジトリの `subjects/` |
 
 ## 締切集中に備える
 
@@ -270,7 +271,7 @@ uv run aijudge-worker --phase ai --name ai4 &
 GPU を使う科目と使わない科目でキューを分けたい場合は `--subject` で絞る。
 
 ```fish
-uv run aijudge-worker --subject net_python --name py1
+uv run aijudge-worker --subject cs_network_python --name py1
 ```
 
 ## 成績を閉じる
@@ -516,7 +517,7 @@ uv run aijudge-web --create-schema
 ## 測定（Phase 1・任意）
 
 ```fish
-uv run aijudge-eval --subject cs_intro_c
+uv run aijudge-eval --subject cs_lang_c_intro
 ```
 
 記録済みの観測を読むだけで、**採点は行わない**。`packages/analytics` と

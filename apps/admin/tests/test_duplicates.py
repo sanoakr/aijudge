@@ -30,7 +30,7 @@ def _version(vid: TaskVersionId, statement: str) -> TaskVersion:
         id=vid,
         task_id=TaskId("tsk_" + "5" * 32),
         version=1,
-        subject_profile="cs_intro_c",
+        subject_profile="cs_lang_c_intro",
         statement=statement,
         criteria=(
             RubricCriterion(
@@ -111,7 +111,7 @@ def test_vectors_from_another_model_are_not_compared() -> None:
         with database.unit_of_work() as uow:
             # 別のモデルで作った、次元の違うベクトルを既存として置く。
             uow.tasks.save_embedding(
-                TWIN, model="emb", subject_profile="cs_intro_c", vector=(1.0, 0.0)
+                TWIN, model="emb", subject_profile="cs_lang_c_intro", vector=(1.0, 0.0)
             )
             checker = DuplicateChecker(
                 uow.tasks, LlmGateway(ScriptedProvider([])), embedding_model="emb"

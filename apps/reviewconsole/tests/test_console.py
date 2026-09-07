@@ -45,15 +45,17 @@ from aijudge_submission import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-EXAMPLE_TASK = REPO_ROOT / "evals" / "golden" / "cs_intro_c" / "example-task" / "task"
-EXAMPLE_SOURCE = REPO_ROOT / "evals" / "golden" / "cs_intro_c" / "example-task" / "marks" / "s001.c"
+EXAMPLE_TASK = REPO_ROOT / "evals" / "golden" / "cs_lang_c_intro" / "example-task" / "task"
+EXAMPLE_SOURCE = (
+    REPO_ROOT / "evals" / "golden" / "cs_lang_c_intro" / "example-task" / "marks" / "s001.c"
+)
 PROFILES = REPO_ROOT / "subjects"
 
 TENANT = TenantId("ten_" + "0" * 32)
 COURSE = CourseId("crs_" + "1" * 32)
 AUTHOR = UserId("usr_" + "a" * 32)
 PASSWORD = "correct horse battery"
-PROFILE = "cs_intro_c"
+PROFILE = "cs_lang_c_intro"
 PROFILE_SAMPLES = 3
 
 needs_c_compiler = pytest.mark.skipif(

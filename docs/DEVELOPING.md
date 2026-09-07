@@ -34,7 +34,7 @@ See [ADR 0001](adr/0001-modular-monolith.md) for why.
 names the ones it wants:
 
 ```yaml
-# subjects/cs_intro_c.yaml
+# subjects/cs_lang_c_intro.yaml
 deterministic:  [code_test_runner]
 ai_evaluators:  [rubric_ai_judge]   # removing this still grades — principle P2
 review_policy:  {boundary_score: 0.6, boundary_margin: 0.05}
@@ -361,7 +361,7 @@ read as "hard".
 ## Accuracy is measured, and "unmeasured" is not a pass
 
 ```fish
-uv run aijudge-eval --subject cs_intro_c --out accuracy.md
+uv run aijudge-eval --subject cs_lang_c_intro --out accuracy.md
 ```
 
 **It does not grade.** It reads the observation records that grading and review

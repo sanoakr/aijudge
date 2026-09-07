@@ -70,7 +70,7 @@ jobs:
           AIJUDGE_LLM_BASE_URL: ${{ vars.AIJUDGE_LLM_BASE_URL }}
         run: |
           set +e
-          uv run aijudge-eval --subject cs_intro_c --out accuracy.md
+          uv run aijudge-eval --subject cs_lang_c_intro --out accuracy.md
           code=$?
           set -e
           case $code in

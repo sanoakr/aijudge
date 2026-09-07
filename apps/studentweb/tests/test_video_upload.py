@@ -65,7 +65,7 @@ class World:
                     code="media1",
                     title="メディア演習",
                     term="2026-前期",
-                    subject_profile="cs_intro_c",
+                    subject_profile="cs_lang_c_intro",
                     upload_suffixes=(".mp4",),
                 )
             )
@@ -75,7 +75,7 @@ class World:
             id=TaskVersionId(new_id("tsv")),
             task_id=TaskId(new_id("tsk")),
             version=1,
-            subject_profile="cs_intro_c",
+            subject_profile="cs_lang_c_intro",
             statement="デモ動画を提出してください。",
             criteria=(
                 RubricCriterion(

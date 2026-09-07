@@ -1,10 +1,10 @@
 # ネットワーク及び演習（Python）— network2025 相当
 #
-# 2 つめの科目。**cs_intro_c との差はこのファイルと評価器の言語定義だけ**で、
+# 2 つめの科目。**cs_lang_c_intro との差はこのファイルと評価器の言語定義だけ**で、
 # `packages/core` と `packages/grading` は変わらないこと ── それが
 # ADR 0002 の主張であり、Phase 2 の検証項目そのもの（設計方針 §9.2）。
 
-name: net_python
+name: cs_network_python
 description: >
   ネットワーク及び演習。Python によるソケット・HTTP・スレッドの演習。
   ex1–ex3 は標準入出力で完結する。ex4 以降のクライアント／サーバ課題は

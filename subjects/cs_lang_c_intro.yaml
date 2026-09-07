@@ -4,7 +4,7 @@
 # ここに並べた evaluator は entry point から発見される。
 # 存在しない名前を書けばロード時に落ちる。
 
-name: cs_intro_c
+name: cs_lang_c_intro
 description: 入門プログラミング演習。テスト実行による正誤判定を主とする。
 
 # この科目が使う KC の名前空間（分野）。教員はここを増やせない。
