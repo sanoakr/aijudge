@@ -358,7 +358,7 @@ form[data-working] button[disabled]{opacity:.55;cursor:progress}
    埋め込みだけで画面を使い切って前後の文脈が消える。 */
 .pdf-embed{width:100%;aspect-ratio:210/297;max-height:85vh;min-height:520px;
   border:1px solid var(--line);border-radius:3px}
-footer.app-footer{max-width:1100px;margin:24px auto 0;padding:12px 24px;
+footer.app-footer{max-width:1100px;margin:24px auto 0;padding:12px 24px;text-align:right;
   font-size:.72rem;color:var(--muted);border-top:1px solid var(--line-soft)}
 </style>
 </head>
@@ -407,7 +407,7 @@ footer.app-footer{max-width:1100px;margin:24px auto 0;padding:12px 24px;
 </div></div>
 {% endif %}
 <main>{% block body %}{% endblock %}</main>
-<footer class="app-footer">aiJudge {{ app_version }}</footer>
+<footer class="app-footer">aiJudge {{ app_version }}{% if copyright_notice %} · {{ copyright_notice }}{% endif %}</footer>
 {# **モデルが動いているあいだ、動いていることを出す。** 生成は十数秒から
    数十秒かかり、何も出ないと押せていないのか固まったのか分からない。
 

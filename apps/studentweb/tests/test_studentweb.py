@@ -325,6 +325,26 @@ def test_the_footer_shows_the_deployed_release_version(world: World) -> None:
     assert f"aiJudge {root_version}" in body
 
 
+def test_the_footer_shows_a_copyright_notice_read_from_license(world: World) -> None:
+    """`LICENSE` の Copyright 行を書き写さず、そこから読む（#145）。"""
+    import re
+
+    match = re.search(
+        r"^\s*Copyright\s+(\d{4})\s+(.+?)\s*$",
+        (REPO_ROOT / "LICENSE").read_text(),
+        re.MULTILINE,
+    )
+    assert match is not None
+    start_year, holder = match.group(1), match.group(2)
+
+    world.register("s2400002")
+    world.login("s2400002")
+    body = world.client.get("/").text
+
+    assert start_year in body
+    assert holder in body
+
+
 def test_a_tenant_admin_sees_their_role_and_a_console_link_in_the_course_list(
     world: World,
 ) -> None:
@@ -346,6 +366,36 @@ def test_a_tenant_admin_sees_their_role_and_a_console_link_in_the_course_list(
 
     assert "learner" not in body
     assert "採点の画面へ" in body
+
+
+def test_a_plain_learner_gets_no_console_entry_link(world: World) -> None:
+    world.register("s2400003")
+    world.login("s2400003")
+
+    body = world.client.get("/").text
+
+    assert "教員コンソールへ" not in body
+
+
+def test_someone_grading_any_course_gets_a_console_entry_link(world: World) -> None:
+    world.register("ta1", role=Role.ASSISTANT)
+    world.login("ta1")
+
+    body = world.client.get("/").text
+
+    assert "教員コンソールへ" in body
+
+
+def test_a_tenant_admin_gets_a_console_entry_link_too(world: World) -> None:
+    principal = world.register("admin2", enrol=False)
+    with world.database.unit_of_work() as uow:
+        AuthService(uow.identity).set_tenant_admin(principal.user_id, admin=True)
+        uow.commit()
+    world.login("admin2")
+
+    body = world.client.get("/").text
+
+    assert "教員コンソールへ" in body
 
 
 # --------------------------------------------------------------------------

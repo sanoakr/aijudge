@@ -191,7 +191,7 @@ details.unit > summary h3{display:inline-flex;vertical-align:middle}
    埋め込みだけで画面を使い切って前後の文脈が消える。 */
 .pdf-embed{width:100%;aspect-ratio:210/297;max-height:85vh;min-height:520px;
   border:1px solid var(--line);border-radius:3px}
-footer.app-footer{max-width:1100px;margin:24px auto 0;padding:12px 24px;
+footer.app-footer{max-width:1100px;margin:24px auto 0;padding:12px 24px;text-align:right;
   font-size:.72rem;color:var(--muted);border-top:1px solid var(--line-soft)}
 </style>
 </head>
@@ -227,7 +227,7 @@ footer.app-footer{max-width:1100px;margin:24px auto 0;padding:12px 24px;
 </div></div>
 {% endif %}
 <main>{% block body %}{% endblock %}</main>
-<footer class="app-footer">aiJudge {{ app_version }}</footer>
+<footer class="app-footer">aiJudge {{ app_version }}{% if copyright_notice %} · {{ copyright_notice }}{% endif %}</footer>
 {# 採点待ちのあいだだけ状態を問い合わせ、終わったら 1 回だけ取り直す。
    **JavaScript 無しでも困らない** ── 無ければ `<noscript>` の案内が出て、
    従来どおり手で再読み込みできる（この画面群の作法・`manage.py` 冒頭）。
