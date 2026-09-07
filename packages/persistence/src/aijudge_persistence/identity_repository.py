@@ -98,6 +98,12 @@ class SqlIdentityRepository:
         )
         return _user(row)
 
+    def list_all_users(self, tenant_id: TenantId) -> tuple[User, ...]:
+        rows = self._session.execute(
+            select(UserRow).where(UserRow.tenant_id == str(tenant_id)).order_by(UserRow.login)
+        ).scalars()
+        return tuple(user for row in rows if (user := _user(row)) is not None)
+
     # -- OIDC 設定（テナント単位、#124）------------------------------------
 
     def save_oidc_settings(self, settings: OidcSettings) -> None:

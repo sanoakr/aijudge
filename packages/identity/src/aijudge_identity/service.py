@@ -96,6 +96,23 @@ class AuthService:
         # 復旧手段がこれしかない。
         self._repository.revoke_sessions_for(user_id, self._clock())
 
+    def reissue_password(self, user_id: UserId, *, new: str) -> None:
+        """管理者がパスワードを再発行する（#144）。
+
+        `change_password` と違って**現在のパスワードを検証しない** ──
+        再発行が要るのは本人が忘れた場面なので、管理者は現在の値を知らない。
+        代わりに呼び出し側（`/manage` の管理者専用画面）が権限を見る。
+
+        平文はここでは作らない・保存しない。呼び出し側が生成して渡し、
+        一度だけ画面に出す（`AuthService.issue_token` と同じ約束）。
+        """
+        user = self._repository.get_user(user_id)
+        if user is None:
+            raise AuthenticationFailed("利用者が見つかりません")
+        self._repository.save_user(user.model_copy(update={"password_hash": hash_password(new)}))
+        # 変更後は既存のセッションを切る（`change_password` と同じ理屈）。
+        self._repository.revoke_sessions_for(user_id, self._clock())
+
     def disable(self, user_id: UserId) -> None:
         """利用者を無効化する。**削除しない。**
 

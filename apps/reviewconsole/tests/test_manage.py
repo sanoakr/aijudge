@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import io
+import re
 import zipfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -337,6 +338,136 @@ def test_creating_a_duplicate_login_is_refused(world: World) -> None:
         "/manage/users", data={"login": "boss", "display_name": ""}
     )
     assert response.status_code == 400
+
+
+# --------------------------------------------------------------------------
+# ローカル利用者の管理 — 一覧・属性・無効化・再発行（#144）
+# --------------------------------------------------------------------------
+
+
+def test_only_an_admin_can_list_local_users(world: World) -> None:
+    world.register("teacher", Role.INSTRUCTOR)
+    assert world.client("teacher").get("/manage/users").status_code == 403
+
+
+def test_only_an_admin_can_open_a_user(world: World) -> None:
+    teacher = world.register("teacher", Role.INSTRUCTOR)
+    response = world.client("teacher").get(f"/manage/users/{teacher.user_id}")
+    assert response.status_code == 403
+
+
+def test_the_list_shows_local_users_and_filters_by_prefix(world: World) -> None:
+    world.register("boss", Role.ADMIN)
+    world.register("s2400001", Role.LEARNER)
+    world.register("y2399001", Role.LEARNER)
+    client = world.client("boss")
+
+    body = client.get("/manage/users").text
+    assert "s2400001" in body
+    assert "y2399001" in body
+
+    filtered = client.get("/manage/users", params={"q": "s24"}).text
+    assert "s2400001" in filtered
+    assert "y2399001" not in filtered
+
+
+def test_a_user_page_shows_the_courses_and_roles_they_hold(world: World) -> None:
+    world.register("boss", Role.ADMIN)
+    assistant = world.register("ta1", Role.ASSISTANT)
+
+    body = world.client("boss").get(f"/manage/users/{assistant.user_id}").text
+
+    assert "prog2" in body
+    assert Role.ASSISTANT.value in body
+
+
+def test_a_tenant_admins_page_says_they_reach_every_course(world: World) -> None:
+    """**管理者は受講登録なしで全コースに届く。** 全コースを役割つきで並べると、
+    無い受講登録があるように見える（#128 の意味を画面が誤って伝える）。
+    """
+    world.register("boss", Role.ADMIN)
+    other = world.register("boss2", None, tenant_admin=True)
+
+    body = world.client("boss").get(f"/manage/users/{other.user_id}").text
+
+    assert "すべてのコース" in body
+    assert "受講登録がありません" in body
+
+
+def test_disabling_a_user_stops_their_login_and_keeps_the_record(world: World) -> None:
+    world.register("boss", Role.ADMIN)
+    learner = world.register("s2400002", Role.LEARNER)
+    # 無効化の前にセッションを張っておく（切れることを確かめるため）。
+    learner_client = world.client("s2400002")
+    assert learner_client.get("/").status_code == 200
+
+    response = world.client("boss").post(
+        f"/manage/users/{learner.user_id}/disable", follow_redirects=False
+    )
+
+    assert response.status_code == 303
+    with world.database.unit_of_work() as uow:
+        user = uow.identity.get_user(learner.user_id)
+        # **消さない。** 過去の提出と採点が参照している。
+        assert user is not None
+        assert not user.is_active
+    # 既存のセッションも切れている。
+    assert learner_client.get("/", follow_redirects=False).status_code == 303
+
+
+def test_an_admin_cannot_disable_themselves(world: World) -> None:
+    """自分を無効化すると、自分の権限で自分を戻せない（復旧が CLI だけになる）。"""
+    boss = world.register("boss", Role.ADMIN)
+
+    response = world.client("boss").post(f"/manage/users/{boss.user_id}/disable")
+
+    assert response.status_code == 400
+    with world.database.unit_of_work() as uow:
+        user = uow.identity.get_user(boss.user_id)
+    assert user is not None and user.is_active
+
+
+def test_reissuing_a_password_shows_it_once_and_replaces_the_old_one(world: World) -> None:
+    world.register("boss", Role.ADMIN)
+    learner = world.register("s2400003", Role.LEARNER)
+
+    response = world.client("boss").post(f"/manage/users/{learner.user_id}/password")
+
+    assert response.status_code == 200
+    # 平文はこの応答にだけ出る。どの値かは画面から読み取って確かめる。
+    shown = re.search(r'class="mono">([^<]+)</p>', response.text.split("新しいパスワード")[1])
+    assert shown is not None
+    new_password = shown.group(1).strip()
+
+    fresh = TestClient(create_app(world.console))
+    # 古いパスワードでは通らない。
+    assert (
+        fresh.post("/auth/local", data={"login": "s2400003", "password": PASSWORD}).status_code
+        == 401
+    )
+    # 新しいパスワードで通る。
+    assert (
+        fresh.post(
+            "/auth/local",
+            data={"login": "s2400003", "password": new_password},
+            follow_redirects=False,
+        ).status_code
+        == 303
+    )
+
+
+def test_the_password_is_not_shown_again_on_the_user_page(world: World) -> None:
+    """平文はレスポンス以外のどこにも残さない（作成画面と同じ約束）。"""
+    world.register("boss", Role.ADMIN)
+    learner = world.register("s2400004", Role.LEARNER)
+    client = world.client("boss")
+    issued = client.post(f"/manage/users/{learner.user_id}/password").text
+    shown = re.search(r'class="mono">([^<]+)</p>', issued.split("新しいパスワード")[1])
+    assert shown is not None
+    new_password = shown.group(1).strip()
+
+    assert new_password not in client.get(f"/manage/users/{learner.user_id}").text
+    assert new_password not in client.get("/manage/users").text
 
 
 def test_an_unknown_subject_profile_is_refused(world: World) -> None:

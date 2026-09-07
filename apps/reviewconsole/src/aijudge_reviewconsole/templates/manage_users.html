@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}ローカル利用者 — aiJudge{% endblock %}
+{% block body %}
+<h1>ローカル利用者</h1>
+<p class="crumb">
+  {{ users | length }} 名{% if q %}（<span class="mono">{{ q }}</span> で絞り込み）{% endif %}。
+  ここに出るのはこのテナントの利用者です。SSO（Google）でログインした人も
+  初回に利用者が作られるので並びます。
+</p>
+
+{% if saved %}<div class="note saved">{{ saved }}</div>{% endif %}
+
+{# 規模が大きくなると一覧を読むより ID を打つ方が速い（受講者一覧と同じ作法）。 #}
+<form method="get" action="{{ root_prefix() }}/manage/users" class="addline">
+  <label for="q" class="desc">ログイン ID で絞り込む（前方一致）</label>
+  <input id="q" name="q" value="{{ q }}" placeholder="s2400" style="max-width:12rem"
+         {{ 'autofocus' if q }}
+         onfocus="this.setSelectionRange(this.value.length, this.value.length)">
+  <button type="submit">絞り込み</button>
+  {% if q %}<a href="{{ root_prefix() }}/manage/users" class="desc">解除</a>{% endif %}
+</form>
+
+<table>
+  <thead><tr>
+    <th class="fit">ログイン ID</th><th class="grow">表示名</th>
+    <th class="fit">権限</th><th class="fit">状態</th><th class="fit">作成</th>
+  </tr></thead>
+  <tbody>
+  {% for user in users %}
+    <tr>
+      <td class="fit mono"><a href="{{ root_prefix() }}/manage/users/{{ user.id }}">{{ user.login }}</a></td>
+      <td class="grow">{{ user.display_name }}</td>
+      <td class="fit">
+        {% if user.is_tenant_admin %}<span class="pill attn">管理者</span>{% else %}<span class="desc">—</span>{% endif %}
+      </td>
+      <td class="fit">
+        {% if user.is_active %}<span class="pill ok">有効</span>{% else %}<span class="pill no">無効</span>{% endif %}
+      </td>
+      <td class="fit desc">{{ user.created_at.strftime('%Y-%m-%d') }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="5" class="desc">利用者が居ません。</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<p class="crumb">
+  <a href="{{ root_prefix() }}/manage/users/new">利用者を作成する</a>
+  ・
+  <a href="{{ root_prefix() }}/">担当コースへ戻る</a>
+</p>
+{% endblock %}

@@ -512,6 +512,9 @@ SAVED_MESSAGES: dict[str, str] = {
     "kc_scoped": "このコースが使う知識要素を保存しました（語彙からは消えません）",
     "basics": "基本情報を保存しました",
     "role": "役割を変えました",
+    # **削除ではない**（#144・`AuthService.disable`）。過去の提出と採点が
+    # 利用者を参照しているので、行は残したまま状態を倒し、セッションを切る。
+    "disabled": "利用者を無効化しました（記録は残ります。セッションも切りました）",
     "grading": "採点設定を保存しました",
     "order": "並びを変えました",
     "task": "課題を保存しました",
@@ -988,13 +991,17 @@ def register(templates) -> APIRouter:
             uow.commit()
         return RedirectResponse(f"/courses/{course.id}", status_code=303)
 
-    # -- 利用者の作成（画面から、管理者専用）-------------------------------
+    # -- ローカル利用者の管理（画面から、管理者専用）-----------------------
     #
     # **#127: `admin` にだけ開ける例外。** 利用者の新規作成は
     # `aijudge-admin`（CLI）に限る、という規則（#100 のコメント、
     # `add_enrolments` の docstring）はそのまま ── ここは「画面から
     # 操作できるのが管理者本人に限られるなら、画面共有・端末履歴の
     # リスクは許容できる」という別枠で、一般の教員には開かない。
+    #
+    # #144 で作成だけの画面から一覧・属性確認・無効化・パスワード再発行へ
+    # 広げた。**無効化は削除ではない**（`AuthService.disable` ── 過去の提出と
+    # 採点が利用者を参照しているので、消すと成績の履歴が壊れる）。
 
     @router.get("/users/new", response_class=HTMLResponse)
     def new_user_form(request: Request) -> Response:
@@ -1043,6 +1050,124 @@ def register(templates) -> APIRouter:
             request,
             "manage_new_user_created.html",
             {"me": me, "login": login, "password": password, "tenant_admin": tenant_admin},
+        )
+
+    @router.get("/users", response_class=HTMLResponse)
+    def user_list(request: Request, q: str = "", saved: str = "") -> Response:
+        """ローカル利用者の一覧（#144）。
+
+        絞り込みは前方一致（受講者一覧と同じ作法）。テナントの規模が
+        大きくなると、一覧をそのまま読むより ID を打つ方が速くなる。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        _require_admin(request, me)
+        console = _console(request)
+
+        prefix = q.strip()
+        with console.database.unit_of_work() as uow:
+            users = uow.identity.list_all_users(me.tenant_id)
+        if prefix:
+            users = tuple(user for user in users if user.login.startswith(prefix))
+        return templates.TemplateResponse(
+            request,
+            "manage_users.html",
+            {
+                "me": me,
+                "users": users,
+                "q": prefix,
+                "saved": SAVED_MESSAGES.get(saved),
+            },
+        )
+
+    @router.get("/users/{user_id}", response_class=HTMLResponse)
+    def user_detail(request: Request, user_id: str, saved: str = "") -> Response:
+        """1 人の属性と、どのコースにどの役割で居るか（#144）。"""
+        from .app import require_principal
+
+        me = require_principal(request)
+        _require_admin(request, me)
+        console = _console(request)
+
+        with console.database.unit_of_work() as uow:
+            user = uow.identity.get_user(UserId(user_id))
+            if user is None or user.tenant_id != me.tenant_id:
+                # 他テナントの利用者は「無い」として扱う（存在を漏らさない）。
+                raise HTTPException(status_code=404, detail="利用者が見つかりません")
+            # **テナント管理者は受講登録なしで全コースに届く**（#128）。
+            # `AuthService.courses_for` はその場合に全コースを返すので、
+            # ここでは使わずに実際の受講登録だけを並べる ── 全コースを
+            # 並べると、無い `Enrollment` があるように見えてしまう。
+            # 「管理者だからすべてに届く」はテンプレート側で明示する。
+            rows: list[dict[str, object]] = []
+            for course in uow.identity.list_courses_for_user(me.tenant_id, user.id):
+                enrollment = uow.identity.find_enrollment(course.id, user.id)
+                rows.append(
+                    {"course": course, "role": None if enrollment is None else enrollment.role}
+                )
+        return templates.TemplateResponse(
+            request,
+            "manage_user_detail.html",
+            {
+                "me": me,
+                "user": user,
+                "rows": rows,
+                "is_self": user.id == me.user_id,
+                "saved": SAVED_MESSAGES.get(saved),
+            },
+        )
+
+    @router.post("/users/{user_id}/disable")
+    def disable_user(request: Request, user_id: str) -> Response:
+        """利用者を無効化する。**削除ではない**（`AuthService.disable`）。"""
+        from .app import require_principal
+
+        me = require_principal(request)
+        _require_admin(request, me)
+        console = _console(request)
+
+        if UserId(user_id) == me.user_id:
+            # 自分を無効化すると、自分の管理者権限で自分を戻せない
+            # （復旧手段が CLI だけになる）。画面からは塞ぐ。
+            raise HTTPException(status_code=400, detail="自分自身は無効化できません")
+
+        with console.database.unit_of_work() as uow:
+            user = uow.identity.get_user(UserId(user_id))
+            if user is None or user.tenant_id != me.tenant_id:
+                raise HTTPException(status_code=404, detail="利用者が見つかりません")
+            AuthService(uow.identity).disable(user.id)
+            uow.commit()
+        return RedirectResponse(f"/manage/users/{user_id}?saved=disabled", status_code=303)
+
+    @router.post("/users/{user_id}/password", response_class=HTMLResponse)
+    def reissue_user_password(request: Request, user_id: str) -> Response:
+        """パスワードを再発行し、**一度だけ**表示する（#144）。
+
+        `manage_new_user_created.html` が「再発行のみ可能」と書いていた
+        その再発行がこれ。平文はレスポンス以外のどこにも残さない。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        _require_admin(request, me)
+        console = _console(request)
+
+        password = generate_password()
+        with console.database.unit_of_work() as uow:
+            user = uow.identity.get_user(UserId(user_id))
+            if user is None or user.tenant_id != me.tenant_id:
+                raise HTTPException(status_code=404, detail="利用者が見つかりません")
+            try:
+                AuthService(uow.identity).reissue_password(user.id, new=password)
+            except AuthenticationFailed as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            uow.commit()
+            login = user.login
+        return templates.TemplateResponse(
+            request,
+            "manage_password_reissued.html",
+            {"me": me, "login": login, "password": password, "user_id": user_id},
         )
 
     # -- Google OIDC 設定（テナント単位、管理者専用、#124）------------------

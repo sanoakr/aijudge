@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}{{ user.login }} — ローカル利用者 — aiJudge{% endblock %}
+{% block body %}
+<h1><span class="mono">{{ user.login }}</span></h1>
+<p class="crumb"><a href="{{ root_prefix() }}/manage/users">ローカル利用者の一覧へ戻る</a></p>
+
+{% if saved %}<div class="note saved">{{ saved }}</div>{% endif %}
+
+<div class="card">
+  <div class="field">
+    <label>表示名</label>
+    <p>{{ user.display_name }}</p>
+  </div>
+  <div class="field">
+    <label>状態</label>
+    <p>
+      {% if user.is_active %}<span class="pill ok">有効</span>
+      {% else %}<span class="pill no">無効</span>
+        <span class="desc">無効化した利用者は記録に残りますが、ログインできません。</span>
+      {% endif %}
+    </p>
+  </div>
+  <div class="field">
+    <label>権限</label>
+    <p>
+      {% if user.is_tenant_admin %}<span class="pill attn">テナント管理者</span>
+      {% else %}<span class="desc">一般（役割はコースごとの受講で決まります）</span>{% endif %}
+    </p>
+  </div>
+  <div class="field">
+    <label>ログイン方式</label>
+    <p class="desc">
+      {% if user.external_id %}Google（SSO）でログインします。
+      {% else %}ローカルのパスワードでログインします。{% endif %}
+    </p>
+  </div>
+  <div class="field">
+    <label>作成</label>
+    <p class="desc">{{ user.created_at.strftime('%Y-%m-%d %H:%M') }}</p>
+  </div>
+</div>
+
+<h2>受講しているコース</h2>
+{% if user.is_tenant_admin %}
+{# **管理者は受講登録なしで全コースに届く**（#128）。ここに全コースを並べると
+   無い `Enrollment` があるように見えるので、事実の方を書く。 #}
+<div class="note">
+  この利用者はテナント管理者なので、受講登録の有無に関わらず
+  <strong>すべてのコースで教員（管理者）として扱われます。</strong>
+  下の一覧は、それとは別に実際に受講登録がある分です。
+</div>
+{% endif %}
+<table>
+  <thead><tr>
+    <th class="fit">コード</th><th class="grow">コース</th><th class="fit">学期</th><th class="fit">役割</th>
+  </tr></thead>
+  <tbody>
+  {% for row in rows %}
+    <tr>
+      <td class="fit mono">{{ row.course.code }}</td>
+      <td class="grow"><a href="{{ root_prefix() }}/manage/courses/{{ row.course.id }}">{{ row.course.title }}</a></td>
+      <td class="fit desc">{{ row.course.term }}</td>
+      <td class="fit mono">{{ row.role.value if row.role else '—' }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="4" class="desc">受講登録がありません。</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<h2>操作</h2>
+<div class="card">
+  <div class="field">
+    <label>パスワードの再発行</label>
+    <p class="desc">
+      新しいパスワードを生成し、<strong>次の画面に一度だけ表示します。</strong>
+      再発行すると、この利用者の既存のセッションはすべて切れます。
+      {% if user.external_id %}この利用者は SSO でログインするので、通常は不要です。{% endif %}
+    </p>
+    <form method="post" action="{{ root_prefix() }}/manage/users/{{ user.id }}/password" style="margin:0">
+      <button type="submit">パスワードを再発行する</button>
+    </form>
+  </div>
+
+  {% if user.is_active %}
+  <div class="field">
+    <label>無効化</label>
+    <p class="desc">
+      <strong>削除ではありません。</strong>過去の提出と採点がこの利用者を
+      参照しているので、行は残したままログインを止めます（既存のセッションも
+      切ります）。
+    </p>
+    {% if is_self %}
+    <p class="desc">自分自身は無効化できません（戻す手段が画面に無くなるため）。</p>
+    {% else %}
+    <form method="post" action="{{ root_prefix() }}/manage/users/{{ user.id }}/disable" style="margin:0"
+          onsubmit="return confirm('{{ user.login }} を無効化します。ログインできなくなります。よろしいですか？')">
+      <button type="submit">無効化する</button>
+    </form>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
