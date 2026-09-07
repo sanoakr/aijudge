@@ -221,6 +221,7 @@ set -gx AIJUDGE_ALLOWED_HOSTS aijudge.example.jp,aijudge.example.jp:8765
 | `AIJUDGE_ALLOWED_HOSTS` | 受け付ける `Host`（コンマ区切り・#116）。**逆プロキシを前に立てるなら設定する** | `*`（素通し） |
 | `AIJUDGE_LLM_BASE_URL` / `AIJUDGE_LLM_MODEL` | ローカル LLM | — |
 | `AIJUDGE_FEEDBACK_MODEL` | フィードバック生成のモデル。未設定なら要約に落ちる | — |
+| `AIJUDGE_OIDC_SECRET_KEY` | Google OIDC 設定の `client_secret` を暗号化する鍵（#124）。`Fernet.generate_key()` の値。**Google ログインを使うなら必須**（未設定だと `/manage/oidc-settings` での保存が失敗する） | — |
 
 ## 締切集中に備える
 
