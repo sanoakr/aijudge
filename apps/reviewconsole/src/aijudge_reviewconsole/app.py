@@ -69,11 +69,13 @@ from aijudge_core.ids import (
     FinalizationId,
     HumanReviewId,
     SubmissionId,
+    TenantId,
 )
 from aijudge_grading import load_profile, project_observations
 from aijudge_identity import (
     AuthenticationFailed,
     AuthService,
+    GoogleOidcProvider,
     PermissionDenied,
     Principal,
     session_cookie_kwargs,
@@ -98,7 +100,7 @@ from .submissions import (
     newest_first,
     summarize,
 )
-from .urls import RedirectResponse, root_prefix
+from .urls import RedirectResponse, prefixed, root_prefix
 
 
 def _read_app_version() -> str:
@@ -191,6 +193,31 @@ ENV_ALLOWED_HOSTS = "AIJUDGE_ALLOWED_HOSTS"
 
 SESSION_COOKIE = "aijudge_session"
 DEFAULT_TENANT = "ten_" + "0" * 32
+# Google の認可コードフローの間だけ生きる短命 Cookie（#124・#125）。
+# state・nonce の突き合わせにセッションを使わない ── まだ利用者が
+# 誰かも決まっていない段階だから。
+OIDC_STATE_COOKIE = "aijudge_oidc_state"
+
+
+def _external_url(request: Request, path: str) -> str:
+    """逆プロキシ越しでも正しい絶対 URL を作る（#125）。
+
+    Google に渡す redirect_uri は、事前に登録した値と完全一致しなければ
+    ならない。`X-Forwarded-*` はクライアントが決められる値だが、`Host` の
+    検査（#116）と同じ前提 ── 学内などの届く先を絞った経路にこのアプリを
+    置く運用なので、ここでも同じだけ信じる。
+    """
+    scheme = (request.headers.get("x-forwarded-proto") or request.url.scheme).split(",")[0].strip()
+    host = (
+        (
+            request.headers.get("x-forwarded-host")
+            or request.headers.get("host")
+            or request.url.netloc
+        )
+        .split(",")[0]
+        .strip()
+    )
+    return f"{scheme}://{host}{prefixed(path)}"
 
 
 class Console:
@@ -404,21 +431,116 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
     app.include_router(register_api())
 
     # -- ログイン ----------------------------------------------------------
+    #
+    # **既定の導線は Google（#121・#125）。** ローカルパスワードは
+    # `/auth/local` の隠し経路にのみ残す（`admin` 専用、#127）。トップの
+    # ログイン画面（このページ）からはリンクしない。
 
     @app.get("/login", response_class=HTMLResponse)
-    def login_form(request: Request, changed: str = "") -> HTMLResponse:
+    def login_form(request: Request, changed: str = "", error: str = "") -> HTMLResponse:
+        with console.database.unit_of_work() as uow:
+            settings = uow.identity.get_oidc_settings(TenantId(DEFAULT_TENANT))
         return TEMPLATES.TemplateResponse(
-            request, "login.html", {"error": None, "changed": bool(changed)}
+            request,
+            "login.html",
+            {
+                "error": error or None,
+                "changed": bool(changed),
+                "google_configured": settings is not None,
+            },
         )
 
-    @app.post("/login")
-    def login(
+    @app.get("/auth/login")
+    def auth_login(request: Request) -> Response:
+        """Google の認可エンドポイントへ渡す（#124・#125）。"""
+        with console.database.unit_of_work() as uow:
+            settings = uow.identity.get_oidc_settings(TenantId(DEFAULT_TENANT))
+        if settings is None:
+            # ボタンは未設定なら出していないはずだが、URL を直接叩かれても
+            # 静かに戻すだけにする（エラー画面にするほどのことではない）。
+            return RedirectResponse("/login", status_code=303)
+        url, state, nonce = GoogleOidcProvider().authorization_url(
+            settings, redirect_uri=_external_url(request, "/auth/callback")
+        )
+        response = RedirectResponse(url, status_code=303)
+        response.set_cookie(
+            OIDC_STATE_COOKIE,
+            f"{state}:{nonce}",
+            max_age=600,
+            **session_cookie_kwargs(forwarded_proto=request.headers.get("x-forwarded-proto")),
+        )
+        return response
+
+    @app.get("/auth/callback", response_class=HTMLResponse)
+    def auth_callback(
+        request: Request, code: str = "", state: str = "", error: str = ""
+    ) -> Response:
+        def failed(message: str) -> Response:
+            response = TEMPLATES.TemplateResponse(
+                request,
+                "login.html",
+                {"error": message, "changed": False, "google_configured": True},
+                status_code=401,
+            )
+            response.delete_cookie(OIDC_STATE_COOKIE, path="/")
+            return response
+
+        if error:
+            return failed("Google 側でログインできませんでした。もう一度お試しください")
+
+        expected_state, _, expected_nonce = request.cookies.get(OIDC_STATE_COOKIE, "").partition(
+            ":"
+        )
+        if not code or not expected_state:
+            return failed("ログインの状態を確認できませんでした")
+
+        with console.database.unit_of_work() as uow:
+            settings = uow.identity.get_oidc_settings(TenantId(DEFAULT_TENANT))
+            if settings is None:
+                return failed("Google ログインは設定されていません")
+            try:
+                identity = GoogleOidcProvider().exchange_code(
+                    settings,
+                    code=code,
+                    redirect_uri=_external_url(request, "/auth/callback"),
+                    expected_state=expected_state,
+                    actual_state=state,
+                    expected_nonce=expected_nonce,
+                )
+            except AuthenticationFailed as exc:
+                return failed(str(exc))
+
+            _, token = AuthService(uow.identity).login_with_google(
+                tenant_id=TenantId(DEFAULT_TENANT), identity=identity
+            )
+            uow.commit()
+
+        response = RedirectResponse("/", status_code=303)
+        response.set_cookie(
+            SESSION_COOKIE,
+            token,
+            **session_cookie_kwargs(forwarded_proto=request.headers.get("x-forwarded-proto")),
+        )
+        response.delete_cookie(OIDC_STATE_COOKIE, path="/")
+        return response
+
+    # -- ローカルパスワードログイン（隠し経路。#121・#125）-------------------
+    #
+    # `admin`（#127）専用の抜け道。URL を知っている人だけが辿り着く ──
+    # トップのログイン画面（`/login`）からは意図的にリンクしない。
+
+    @app.get("/auth/local", response_class=HTMLResponse)
+    def local_login_form(request: Request, changed: str = "") -> HTMLResponse:
+        return TEMPLATES.TemplateResponse(
+            request, "login_local.html", {"error": None, "changed": bool(changed)}
+        )
+
+    @app.post("/auth/local")
+    def local_login(
         request: Request,
         login: Annotated[str, Form()],
         password: Annotated[str, Form()],
     ) -> Response:
-        from aijudge_core.ids import TenantId
-
         with console.database.unit_of_work() as uow:
             try:
                 _, token = AuthService(uow.identity).login(
@@ -426,7 +548,7 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 )
             except AuthenticationFailed as exc:
                 return TEMPLATES.TemplateResponse(
-                    request, "login.html", {"error": str(exc)}, status_code=401
+                    request, "login_local.html", {"error": str(exc)}, status_code=401
                 )
             uow.commit()
         response = RedirectResponse("/", status_code=303)

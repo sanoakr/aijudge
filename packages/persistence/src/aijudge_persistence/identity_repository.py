@@ -9,16 +9,36 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+import os
+from datetime import UTC, datetime
 
+from cryptography.fernet import Fernet, InvalidToken
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session as DbSession
 
 from aijudge_core import Aggregation, Course, Enrollment, LatePenaltyStep, Role
 from aijudge_core.ids import ApiTokenId, CourseId, SessionId, TenantId, UserId
 from aijudge_identity.models import ApiToken, Session, User, UserState
+from aijudge_identity.oidc import OidcSettings
 
-from .schema import ApiTokenRow, CourseRow, EnrollmentRow, SessionRow, UserRow
+from .schema import ApiTokenRow, CourseRow, EnrollmentRow, OidcSettingsRow, SessionRow, UserRow
+
+# OIDC の client_secret を暗号化する鍵（#124）。DB が漏れても secret が
+# そのまま読めないようにする ── パスワード・トークンをハッシュで持つのと
+# 同じ理屈だが、こちらは（ログイン時に Google へ送る必要があるので）
+# 復元できなければならず、ハッシュではなく対称暗号にする。
+ENV_OIDC_SECRET_KEY = "AIJUDGE_OIDC_SECRET_KEY"
+
+
+def _cipher() -> Fernet:
+    key = os.environ.get(ENV_OIDC_SECRET_KEY)
+    if not key:
+        raise RuntimeError(
+            f"{ENV_OIDC_SECRET_KEY} が設定されていません。"
+            "OIDC 設定の client_secret は暗号化なしでは保存できません"
+            "（`Fernet.generate_key()` で生成した値を設定してください）。"
+        )
+    return Fernet(key)
 
 
 class SqlIdentityRepository:
@@ -40,6 +60,7 @@ class SqlIdentityRepository:
                     password_hash=user.password_hash,
                     state=user.state.value,
                     is_tenant_admin=user.is_tenant_admin,
+                    external_id=user.external_id,
                     created_at=user.created_at,
                 )
             )
@@ -49,6 +70,7 @@ class SqlIdentityRepository:
             row.password_hash = user.password_hash
             row.state = user.state.value
             row.is_tenant_admin = user.is_tenant_admin
+            row.external_id = user.external_id
         self._session.flush()
 
     def get_user(self, user_id: UserId) -> User | None:
@@ -63,6 +85,69 @@ class SqlIdentityRepository:
             .first()
         )
         return _user(row)
+
+    def find_user_by_external_id(self, tenant_id: TenantId, external_id: str) -> User | None:
+        row = (
+            self._session.execute(
+                select(UserRow).where(
+                    UserRow.tenant_id == str(tenant_id), UserRow.external_id == external_id
+                )
+            )
+            .scalars()
+            .first()
+        )
+        return _user(row)
+
+    # -- OIDC 設定（テナント単位、#124）------------------------------------
+
+    def save_oidc_settings(self, settings: OidcSettings) -> None:
+        encrypted_secret = _cipher().encrypt(settings.client_secret.encode("utf-8")).decode("ascii")
+        now = datetime.now(UTC)
+        row = self._session.get(OidcSettingsRow, str(settings.tenant_id))
+        if row is None:
+            self._session.add(
+                OidcSettingsRow(
+                    tenant_id=str(settings.tenant_id),
+                    client_id=settings.client_id,
+                    client_secret_encrypted=encrypted_secret,
+                    allowed_domains=list(settings.allowed_domains),
+                    issuer=settings.issuer,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+        else:
+            row.client_id = settings.client_id
+            row.client_secret_encrypted = encrypted_secret
+            row.allowed_domains = list(settings.allowed_domains)
+            row.issuer = settings.issuer
+            row.updated_at = now
+        self._session.flush()
+
+    def get_oidc_settings(self, tenant_id: TenantId) -> OidcSettings | None:
+        row = self._session.get(OidcSettingsRow, str(tenant_id))
+        if row is None:
+            return None
+        try:
+            client_secret = (
+                _cipher().decrypt(row.client_secret_encrypted.encode("ascii")).decode("utf-8")
+            )
+        except InvalidToken as exc:
+            # 鍵が変わった（ローテーション）か、設定が壊れている。
+            # 平文が読めない secret で「設定済み」として通すと、ログイン画面に
+            # Google ボタンだけ出て実際には繋がらない状態になる ── 気づける
+            # ように例外で止める。
+            raise RuntimeError(
+                f"tenant {tenant_id} の OIDC 設定を復号できません "
+                f"({ENV_OIDC_SECRET_KEY} が変わっていませんか？)"
+            ) from exc
+        return OidcSettings(
+            tenant_id=TenantId(row.tenant_id),
+            client_id=row.client_id,
+            client_secret=client_secret,
+            allowed_domains=tuple(row.allowed_domains),
+            issuer=row.issuer,
+        )
 
     # -- セッション --------------------------------------------------------
 
@@ -294,6 +379,7 @@ def _user(row: UserRow | None) -> User | None:
         password_hash=row.password_hash,
         state=UserState(row.state),
         is_tenant_admin=row.is_tenant_admin,
+        external_id=row.external_id,
         created_at=row.created_at,
     )
 

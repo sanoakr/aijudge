@@ -117,7 +117,7 @@ class World:
             )
             uow.commit()
         res = self.client.post(
-            "/login", data={"login": login, "password": PASSWORD}, follow_redirects=False
+            "/auth/local", data={"login": login, "password": PASSWORD}, follow_redirects=False
         )
         assert res.status_code == 303, res.text
         self.client.cookies.set(SESSION_COOKIE, res.cookies[SESSION_COOKIE])

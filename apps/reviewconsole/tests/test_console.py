@@ -17,6 +17,7 @@ import shutil
 from pathlib import Path
 
 import pytest
+from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 
 from aijudge_authoring import render_statement
@@ -26,9 +27,10 @@ from aijudge_core.ids import CourseId, TenantId, UserId
 from aijudge_eval_rubric_ai_judge import EvidenceSpan, RubricAiJudge, Verdict
 from aijudge_grader import GradingWorker
 from aijudge_grading import EvaluatorRegistry
-from aijudge_identity import AuthService
+from aijudge_identity import AuthenticationFailed, AuthService, GoogleOidcIdentity
+from aijudge_identity.oidc import OidcSettings
 from aijudge_llm_gateway import LlmGateway, ScriptedProvider
-from aijudge_persistence import Database, ObservationFileStore
+from aijudge_persistence import ENV_OIDC_SECRET_KEY, Database, ObservationFileStore
 from aijudge_reviewconsole import (
     ENV_ROOT_PREFIX,
     SESSION_COOKIE,
@@ -129,7 +131,7 @@ class World:
 
     def login(self, login: str) -> None:
         response = self.client.post(
-            "/login", data={"login": login, "password": PASSWORD}, follow_redirects=False
+            "/auth/local", data={"login": login, "password": PASSWORD}, follow_redirects=False
         )
         assert response.status_code == 303, response.text
         self.client.cookies.set(SESSION_COOKIE, response.cookies[SESSION_COOKIE])
@@ -1025,3 +1027,221 @@ def test_the_learner_box_keeps_the_focus(world: World) -> None:
     assert "setSelectionRange" in body
     # 何も入っていないときは焦点を奪わない。
     assert "autofocus" not in world.client.get(f"/courses/{COURSE}/submissions").text
+
+
+# --------------------------------------------------------------------------
+# Google OIDC 設定（管理者専用、#124）
+# --------------------------------------------------------------------------
+
+
+def _make_admin(world: World, login: str) -> UserId:
+    """テナント管理者を作る。ドメインは架空値のみ使う（#124）。"""
+    principal = world.register(login, role=Role.ASSISTANT)
+    with world.database.unit_of_work() as uow:
+        AuthService(uow.identity).set_tenant_admin(principal.user_id, admin=True)
+        uow.commit()
+    return principal.user_id
+
+
+def test_a_non_admin_cannot_open_the_oidc_settings_screen(world: World) -> None:
+    world.register("instructor3", role=Role.INSTRUCTOR)
+    world.login("instructor3")
+
+    response = world.client.get("/manage/oidc-settings")
+
+    assert response.status_code == 403
+
+
+def test_an_admin_can_save_oidc_settings_and_the_secret_never_leaks(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv(ENV_OIDC_SECRET_KEY, Fernet.generate_key().decode("ascii"))
+    _make_admin(world, "admin9")
+    world.login("admin9")
+
+    response = world.client.post(
+        "/manage/oidc-settings",
+        data={
+            "client_id": "client-abc",
+            "client_secret": "super-secret-value",
+            "allowed_domains": "example.ac.jp",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+
+    body = world.client.get("/manage/oidc-settings").text
+    assert "super-secret-value" not in body
+    assert "example.ac.jp" in body
+    assert "client-abc" in body
+
+
+def test_leaving_the_secret_blank_on_update_keeps_the_existing_one(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv(ENV_OIDC_SECRET_KEY, Fernet.generate_key().decode("ascii"))
+    _make_admin(world, "admin10")
+    world.login("admin10")
+
+    world.client.post(
+        "/manage/oidc-settings",
+        data={
+            "client_id": "client-abc",
+            "client_secret": "first-secret",
+            "allowed_domains": "example.ac.jp",
+        },
+        follow_redirects=False,
+    )
+    world.client.post(
+        "/manage/oidc-settings",
+        data={"client_id": "client-xyz", "client_secret": "", "allowed_domains": "example.ac.jp"},
+        follow_redirects=False,
+    )
+
+    with world.database.unit_of_work() as uow:
+        settings = uow.identity.get_oidc_settings(TENANT)
+    assert settings is not None
+    assert settings.client_id == "client-xyz"
+    assert settings.client_secret == "first-secret"
+
+
+def test_saving_without_a_secret_or_domain_is_rejected(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv(ENV_OIDC_SECRET_KEY, Fernet.generate_key().decode("ascii"))
+    _make_admin(world, "admin11")
+    world.login("admin11")
+
+    response = world.client.post(
+        "/manage/oidc-settings",
+        data={"client_id": "client-abc", "client_secret": "", "allowed_domains": ""},
+    )
+
+    assert response.status_code == 200
+    with world.database.unit_of_work() as uow:
+        assert uow.identity.get_oidc_settings(TENANT) is None
+
+
+# --------------------------------------------------------------------------
+# Google ログインへの切替え・ローカルログインの隠し経路（#125）
+# --------------------------------------------------------------------------
+
+
+def _a_google_settings() -> OidcSettings:
+    return OidcSettings(
+        tenant_id=TENANT,
+        client_id="client-abc",
+        client_secret="test-secret",
+        allowed_domains=("example.ac.jp",),
+    )
+
+
+class _StubOidcProvider:
+    """`GoogleOidcProvider` の代わり。配線を確かめたいだけで、署名検証
+    そのものは `packages/identity/tests/test_oidc.py` が固定している。"""
+
+    def __init__(self, *, identity: GoogleOidcIdentity | None = None, fail: bool = False) -> None:
+        self._identity = identity
+        self._fail = fail
+
+    def authorization_url(self, settings: OidcSettings, *, redirect_uri: str):
+        return "https://accounts.google.com/o/oauth2/v2/auth?stub=1", "stub-state", "stub-nonce"
+
+    def exchange_code(self, settings: OidcSettings, **kwargs: object) -> GoogleOidcIdentity:
+        if self._fail:
+            raise AuthenticationFailed("このドメインのアカウントではログインできません")
+        assert self._identity is not None
+        return self._identity
+
+
+def test_the_login_screen_shows_no_google_button_when_unconfigured(world: World) -> None:
+    body = world.client.get("/login").text
+    assert "大学アカウントでログイン" not in body
+    assert "設定されていません" in body
+
+
+def test_the_login_screen_shows_the_google_button_once_configured(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv(ENV_OIDC_SECRET_KEY, Fernet.generate_key().decode("ascii"))
+    with world.database.unit_of_work() as uow:
+        uow.identity.save_oidc_settings(_a_google_settings())
+        uow.commit()
+
+    body = world.client.get("/login").text
+
+    assert "大学アカウントでログイン" in body
+
+
+def test_the_login_screen_never_links_to_the_hidden_local_route(world: World) -> None:
+    """#121: ローカルログインはトップのログイン画面からリンクしない。"""
+    body = world.client.get("/login").text
+    assert "/auth/local" not in body
+
+
+def test_a_successful_google_callback_creates_a_session(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import aijudge_reviewconsole.app as review_app
+
+    monkeypatch.setenv(ENV_OIDC_SECRET_KEY, Fernet.generate_key().decode("ascii"))
+    with world.database.unit_of_work() as uow:
+        uow.identity.save_oidc_settings(_a_google_settings())
+        uow.commit()
+    identity = GoogleOidcIdentity(sub="sub-1", email="taro@example.ac.jp", hd="example.ac.jp")
+    monkeypatch.setattr(
+        review_app, "GoogleOidcProvider", lambda: _StubOidcProvider(identity=identity)
+    )
+
+    started = world.client.get("/auth/login", follow_redirects=False)
+    assert started.status_code == 303
+    world.client.cookies.set("aijudge_oidc_state", started.cookies["aijudge_oidc_state"])
+
+    callback = world.client.get(
+        "/auth/callback",
+        params={"code": "auth-code", "state": "stub-state"},
+        follow_redirects=False,
+    )
+
+    assert callback.status_code == 303
+    assert SESSION_COOKIE in callback.cookies
+    with world.database.unit_of_work() as uow:
+        principal = AuthService(uow.identity).resolve(callback.cookies[SESSION_COOKIE])
+    assert principal is not None
+    assert principal.login == "taro@example.ac.jp"
+
+
+def test_a_rejected_domain_falls_back_to_an_error_on_the_login_screen(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import aijudge_reviewconsole.app as review_app
+
+    monkeypatch.setenv(ENV_OIDC_SECRET_KEY, Fernet.generate_key().decode("ascii"))
+    with world.database.unit_of_work() as uow:
+        uow.identity.save_oidc_settings(_a_google_settings())
+        uow.commit()
+    monkeypatch.setattr(review_app, "GoogleOidcProvider", lambda: _StubOidcProvider(fail=True))
+
+    started = world.client.get("/auth/login", follow_redirects=False)
+    world.client.cookies.set("aijudge_oidc_state", started.cookies["aijudge_oidc_state"])
+
+    callback = world.client.get(
+        "/auth/callback", params={"code": "auth-code", "state": "stub-state"}
+    )
+
+    assert callback.status_code == 401
+    assert "ログインできません" in callback.text
+
+
+def test_the_hidden_local_route_still_logs_in_local_accounts(world: World) -> None:
+    """`admin`（#127）専用の抜け道が生きていることの確認。"""
+    world.register("instructor4", role=Role.INSTRUCTOR)
+
+    response = world.client.post(
+        "/auth/local",
+        data={"login": "instructor4", "password": PASSWORD},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert SESSION_COOKIE in response.cookies

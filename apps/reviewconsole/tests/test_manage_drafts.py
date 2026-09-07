@@ -101,7 +101,7 @@ class World:
 
     def login(self, login: str) -> None:
         response = self.client.post(
-            "/login", data={"login": login, "password": PASSWORD}, follow_redirects=False
+            "/auth/local", data={"login": login, "password": PASSWORD}, follow_redirects=False
         )
         assert response.status_code == 303, response.text
         self.client.cookies.set(SESSION_COOKIE, response.cookies[SESSION_COOKIE])

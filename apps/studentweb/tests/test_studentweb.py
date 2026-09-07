@@ -14,6 +14,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 
 from aijudge_authoring.importers import sharif_judge
@@ -37,9 +38,10 @@ from aijudge_core.ids import (
 from aijudge_eval_rubric_ai_judge import EvidenceSpan, RubricAiJudge, Verdict
 from aijudge_grader import GradingWorker
 from aijudge_grading import EvaluatorRegistry
-from aijudge_identity import AuthService
+from aijudge_identity import AuthenticationFailed, AuthService, GoogleOidcIdentity
+from aijudge_identity.oidc import OidcSettings
 from aijudge_llm_gateway import LlmGateway, ScriptedProvider
-from aijudge_persistence import Database
+from aijudge_persistence import ENV_OIDC_SECRET_KEY, Database
 from aijudge_studentweb import SESSION_COOKIE, StudentApp, create_app
 from aijudge_submission import FilesystemArtifactStore
 
@@ -125,7 +127,7 @@ class World:
 
     def login(self, login: str) -> None:
         response = self.client.post(
-            "/login", data={"login": login, "password": PASSWORD}, follow_redirects=False
+            "/auth/local", data={"login": login, "password": PASSWORD}, follow_redirects=False
         )
         assert response.status_code == 303, response.text
         self.client.cookies.set(SESSION_COOKIE, response.cookies[SESSION_COOKIE])
@@ -278,7 +280,7 @@ def test_an_anonymous_visitor_is_sent_to_the_login_page(world: World) -> None:
 
 def test_a_wrong_password_does_not_set_a_session(world: World) -> None:
     world.register("s2400001")
-    response = world.client.post("/login", data={"login": "s2400001", "password": "wrong"})
+    response = world.client.post("/auth/local", data={"login": "s2400001", "password": "wrong"})
     assert response.status_code == 401
     assert SESSION_COOKIE not in response.cookies
 
@@ -287,7 +289,7 @@ def test_the_session_cookie_is_not_readable_by_scripts(world: World) -> None:
     """XSS が起きてもセッションを盗まれないようにする。"""
     world.register("s2400001")
     response = world.client.post(
-        "/login", data={"login": "s2400001", "password": PASSWORD}, follow_redirects=False
+        "/auth/local", data={"login": "s2400001", "password": PASSWORD}, follow_redirects=False
     )
     header = response.headers["set-cookie"]
     assert "HttpOnly" in header
@@ -762,7 +764,7 @@ def test_the_session_cookie_becomes_secure_behind_a_tls_proxy(world: World) -> N
     """
     world.register("s2400001")
     response = world.client.post(
-        "/login",
+        "/auth/local",
         data={"login": "s2400001", "password": PASSWORD},
         headers={"X-Forwarded-Proto": "https"},
         follow_redirects=False,
@@ -775,7 +777,7 @@ def test_the_session_cookie_is_not_secure_on_plain_localhost(world: World) -> No
     """真にすると localhost の平文アクセスでログインできない。"""
     world.register("s2400001")
     response = world.client.post(
-        "/login",
+        "/auth/local",
         data={"login": "s2400001", "password": PASSWORD},
         follow_redirects=False,
     )
@@ -1690,3 +1692,128 @@ def test_the_task_page_says_a_trial_is_a_trial(world: World) -> None:
     world.login("s2400001")
     learner_page = world.client.get(f"/tasks/{world.task_version.id}").text
     assert "動作確認の提出です" not in learner_page
+
+
+# --------------------------------------------------------------------------
+# Google ログインへの切替え・ローカルログインの隠し経路（#125）
+# --------------------------------------------------------------------------
+
+
+def _a_google_settings() -> OidcSettings:
+    return OidcSettings(
+        tenant_id=TENANT,
+        client_id="client-abc",
+        client_secret="test-secret",
+        allowed_domains=("example.ac.jp",),
+    )
+
+
+class _StubOidcProvider:
+    """`GoogleOidcProvider` の代わり。配線を確かめたいだけで、署名検証
+    そのものは `packages/identity/tests/test_oidc.py` が固定している。"""
+
+    def __init__(self, *, identity: GoogleOidcIdentity | None = None, fail: bool = False) -> None:
+        self._identity = identity
+        self._fail = fail
+
+    def authorization_url(self, settings: OidcSettings, *, redirect_uri: str):
+        return "https://accounts.google.com/o/oauth2/v2/auth?stub=1", "stub-state", "stub-nonce"
+
+    def exchange_code(self, settings: OidcSettings, **kwargs: object) -> GoogleOidcIdentity:
+        if self._fail:
+            raise AuthenticationFailed("このドメインのアカウントではログインできません")
+        assert self._identity is not None
+        return self._identity
+
+
+def test_the_login_screen_shows_no_google_button_when_unconfigured(world: World) -> None:
+    body = world.client.get("/login").text
+    assert "大学アカウントでログイン" not in body
+    assert "設定されていません" in body
+
+
+def test_the_login_screen_shows_the_google_button_once_configured(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv(ENV_OIDC_SECRET_KEY, Fernet.generate_key().decode("ascii"))
+    with world.database.unit_of_work() as uow:
+        uow.identity.save_oidc_settings(_a_google_settings())
+        uow.commit()
+
+    body = world.client.get("/login").text
+
+    assert "大学アカウントでログイン" in body
+
+
+def test_the_login_screen_never_links_to_the_hidden_local_route(world: World) -> None:
+    """#121: ローカルログインはトップのログイン画面からリンクしない。"""
+    body = world.client.get("/login").text
+    assert "/auth/local" not in body
+
+
+def test_a_successful_google_callback_creates_a_session(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import aijudge_studentweb.app as student_app
+
+    monkeypatch.setenv(ENV_OIDC_SECRET_KEY, Fernet.generate_key().decode("ascii"))
+    with world.database.unit_of_work() as uow:
+        uow.identity.save_oidc_settings(_a_google_settings())
+        uow.commit()
+    identity = GoogleOidcIdentity(sub="sub-1", email="taro@example.ac.jp", hd="example.ac.jp")
+    monkeypatch.setattr(
+        student_app, "GoogleOidcProvider", lambda: _StubOidcProvider(identity=identity)
+    )
+
+    started = world.client.get("/auth/login", follow_redirects=False)
+    assert started.status_code == 303
+    world.client.cookies.set("aijudge_oidc_state", started.cookies["aijudge_oidc_state"])
+
+    callback = world.client.get(
+        "/auth/callback",
+        params={"code": "auth-code", "state": "stub-state"},
+        follow_redirects=False,
+    )
+
+    assert callback.status_code == 303
+    assert SESSION_COOKIE in callback.cookies
+    with world.database.unit_of_work() as uow:
+        principal = AuthService(uow.identity).resolve(callback.cookies[SESSION_COOKIE])
+    assert principal is not None
+    assert principal.login == "taro@example.ac.jp"
+
+
+def test_a_rejected_domain_falls_back_to_an_error_on_the_login_screen(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import aijudge_studentweb.app as student_app
+
+    monkeypatch.setenv(ENV_OIDC_SECRET_KEY, Fernet.generate_key().decode("ascii"))
+    with world.database.unit_of_work() as uow:
+        uow.identity.save_oidc_settings(_a_google_settings())
+        uow.commit()
+    monkeypatch.setattr(student_app, "GoogleOidcProvider", lambda: _StubOidcProvider(fail=True))
+
+    started = world.client.get("/auth/login", follow_redirects=False)
+    world.client.cookies.set("aijudge_oidc_state", started.cookies["aijudge_oidc_state"])
+
+    callback = world.client.get(
+        "/auth/callback", params={"code": "auth-code", "state": "stub-state"}
+    )
+
+    assert callback.status_code == 401
+    assert "ログインできません" in callback.text
+
+
+def test_the_hidden_local_route_still_logs_in_local_accounts(world: World) -> None:
+    """`admin`（#127）専用の抜け道が生きていることの確認。"""
+    world.register("s2400009")
+
+    response = world.client.post(
+        "/auth/local",
+        data={"login": "s2400009", "password": PASSWORD},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert SESSION_COOKIE in response.cookies

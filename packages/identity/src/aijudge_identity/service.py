@@ -17,13 +17,20 @@ import hashlib
 import secrets
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 
 from aijudge_core import Course, Enrollment, Role
 from aijudge_core.ids import ApiTokenId, CourseId, SessionId, TenantId, UserId, new_id
 
+from .errors import AuthenticationFailed, PermissionDenied
 from .models import ApiToken, Principal, Session, User, UserState
 from .passwords import hash_password, needs_rehash, verify_password
 from .repository import IdentityRepository
+
+if TYPE_CHECKING:
+    # `oidc.py` は `repository.py`（`OidcSettings` を持つ）に依存しており、
+    # 実行時に取り込むと循環 import になる。型のためだけに読む。
+    from .oidc import GoogleOidcIdentity
 
 # セッションの有効期間。学生が 1 コマの授業中に切れない程度、かつ
 # 共用端末に置き去りにされたまま延々と生きない程度。
@@ -41,18 +48,6 @@ TOKEN_PREFIX = "aij_"
 # 存在しない login に対しても検証を走らせるためのダミー。
 # 応答時間の差で「その ID は存在する」と分かってしまうのを防ぐ。
 _DUMMY_HASH = hash_password("dummy-password-for-constant-time-comparison")
-
-
-class AuthenticationFailed(Exception):
-    """認証に失敗した。
-
-    **理由を分けない。** 「利用者が居ない」と「パスワードが違う」を
-    分けて返すと、有効な ID の一覧を作れてしまう。
-    """
-
-
-class PermissionDenied(Exception):
-    """権限が無い。"""
 
 
 class AuthService:
@@ -135,13 +130,45 @@ class AuthService:
             user = user.model_copy(update={"password_hash": hash_password(password)})
             self._repository.save_user(user)
 
+        return self._start_session(user)
+
+    def login_with_google(
+        self, *, tenant_id: TenantId, identity: GoogleOidcIdentity
+    ) -> tuple[Principal, str]:
+        """Google で確認済みの利用者からセッションを作る（#121・#124）。
+
+        ドメイン制限は `GoogleOidcProvider.exchange_code` が既に済ませている
+        ── ここでの仕事は「この `sub` に対応する `User` を引く、無ければ
+        JIT で作る」だけ。**事前の名簿投入は要らない**（#121 で決定済み）。
+        """
+        user = self._repository.find_user_by_external_id(tenant_id, identity.sub)
+        if user is None:
+            user = User(
+                id=UserId(new_id("usr")),
+                tenant_id=tenant_id,
+                login=identity.email,
+                display_name=identity.email.split("@", 1)[0],
+                email=identity.email,
+                # ローカルパスワードでは絶対にログインできない捨て値。
+                # 平文はここでしか作られず、誰も知らないので使いようがない。
+                password_hash=hash_password(secrets.token_urlsafe(32)),
+                external_id=identity.sub,
+                created_at=self._clock(),
+            )
+            self._repository.save_user(user)
+        if not user.is_active:
+            raise AuthenticationFailed("この利用者は無効化されています")
+
+        return self._start_session(user)
+
+    def _start_session(self, user: User) -> tuple[Principal, str]:
         now = self._clock()
         token = secrets.token_urlsafe(TOKEN_BYTES)
         self._repository.save_session(
             Session(
                 id=SessionId(new_id("ses")),
                 user_id=user.id,
-                tenant_id=tenant_id,
+                tenant_id=user.tenant_id,
                 token_hash=_token_hash(token),
                 created_at=now,
                 expires_at=now + timedelta(hours=self._session_hours),

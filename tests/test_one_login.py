@@ -133,7 +133,7 @@ def test_one_login_opens_both(world: World) -> None:
     world.register_dual_role("sano")
 
     response = world.learner.post(
-        "/login", data={"login": "sano", "password": PASSWORD}, follow_redirects=False
+        "/auth/local", data={"login": "sano", "password": PASSWORD}, follow_redirects=False
     )
     assert response.status_code == 303
     token = response.cookies[LEARNER_COOKIE]
@@ -149,7 +149,7 @@ def test_each_course_opens_the_surface_its_role_allows(world: World) -> None:
     """**役割はコースごと。** 教えるコースと取っているコースが 1 つの一覧に並ぶ。"""
     world.register_dual_role("sano")
     response = world.learner.post(
-        "/login", data={"login": "sano", "password": PASSWORD}, follow_redirects=False
+        "/auth/local", data={"login": "sano", "password": PASSWORD}, follow_redirects=False
     )
     world.console.cookies.set(CONSOLE_COOKIE, response.cookies[LEARNER_COOKIE])
 
@@ -171,7 +171,7 @@ def test_a_course_the_person_only_attends_has_no_grading_link(world: World) -> N
     """**取っているだけのコースに採点の導線を出さない。** 押せない口を見せない。"""
     world.register_dual_role("sano")
     response = world.learner.post(
-        "/login", data={"login": "sano", "password": PASSWORD}, follow_redirects=False
+        "/auth/local", data={"login": "sano", "password": PASSWORD}, follow_redirects=False
     )
     world.console.cookies.set(CONSOLE_COOKIE, response.cookies[LEARNER_COOKIE])
 
@@ -191,7 +191,7 @@ def test_the_link_stays_on_the_host_the_browser_is_using(world: World) -> None:
     """
     world.register_dual_role("sano")
     response = world.plain_learner.post(
-        "/login", data={"login": "sano", "password": PASSWORD}, follow_redirects=False
+        "/auth/local", data={"login": "sano", "password": PASSWORD}, follow_redirects=False
     )
     world.plain_learner.cookies.set(LEARNER_COOKIE, response.cookies[LEARNER_COOKIE])
 
@@ -208,7 +208,7 @@ def test_a_configured_url_still_wins(world: World) -> None:
     """逆プロキシの後ろでは、名前を知っているのは運用者のほう（#114）。"""
     world.register_dual_role("sano")
     response = world.learner.post(
-        "/login", data={"login": "sano", "password": PASSWORD}, follow_redirects=False
+        "/auth/local", data={"login": "sano", "password": PASSWORD}, follow_redirects=False
     )
     world.learner.cookies.set(LEARNER_COOKIE, response.cookies[LEARNER_COOKIE])
     assert "https://teach.example.jp/courses/" in world.learner.get("/").text
@@ -227,7 +227,7 @@ def test_a_forged_scheme_never_reaches_the_link(world: World) -> None:
     """
     world.register_dual_role("sano")
     response = world.plain_learner.post(
-        "/login", data={"login": "sano", "password": PASSWORD}, follow_redirects=False
+        "/auth/local", data={"login": "sano", "password": PASSWORD}, follow_redirects=False
     )
     world.plain_learner.cookies.set(LEARNER_COOKIE, response.cookies[LEARNER_COOKIE])
 
@@ -243,7 +243,7 @@ def test_a_forged_host_does_not_become_the_link(world: World) -> None:
     """**リンク先が攻撃者のホストになると、同じ見た目のログイン画面へ渡せる。**"""
     world.register_dual_role("sano")
     response = world.plain_learner.post(
-        "/login", data={"login": "sano", "password": PASSWORD}, follow_redirects=False
+        "/auth/local", data={"login": "sano", "password": PASSWORD}, follow_redirects=False
     )
     world.plain_learner.cookies.set(LEARNER_COOKIE, response.cookies[LEARNER_COOKIE])
 

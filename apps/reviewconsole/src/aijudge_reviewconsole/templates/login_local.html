@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}ローカルログイン — aiJudge{% endblock %}
+{% block body %}
+<div class="narrow">
+  <h1>aiJudge レビュー（ローカル）</h1>
+  <p class="crumb">
+    ローカル運用アカウント（<code>admin</code> など、#127）専用のログインです。
+    通常は <a href="{{ root_prefix() }}/login">大学アカウントでのログイン</a>を使ってください。
+  </p>
+  {% if error %}<div class="note warn">{{ error }}</div>{% endif %}
+  {% if changed %}<div class="note">パスワードを変更しました。新しいパスワードでログインしてください。</div>{% endif %}
+  <form method="post" action="{{ root_prefix() }}/auth/local" class="card">
+    <div class="field">
+      <label for="login">ID</label>
+      <input id="login" name="login" autocomplete="username" required autofocus>
+    </div>
+    <div class="field">
+      <label for="password">パスワード</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required>
+    </div>
+    <div class="actions"><button type="submit">ログイン</button></div>
+  </form>
+</div>
+{% endblock %}

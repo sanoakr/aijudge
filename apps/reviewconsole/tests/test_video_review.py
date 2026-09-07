@@ -104,7 +104,7 @@ def world(tmp_path: Path):
     learner = register("s2400001", Role.LEARNER)
     register("teacher", Role.INSTRUCTOR)
     res = client.post(
-        "/login", data={"login": "teacher", "password": PASSWORD}, follow_redirects=False
+        "/auth/local", data={"login": "teacher", "password": PASSWORD}, follow_redirects=False
     )
     client.cookies.set(SESSION_COOKIE, res.cookies[SESSION_COOKIE])
 
