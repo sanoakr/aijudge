@@ -81,7 +81,7 @@ class World:
     def client(self, login: str) -> TestClient:
         client = TestClient(create_app(self.console))
         response = client.post(
-            "/login", data={"login": login, "password": PASSWORD}, follow_redirects=False
+            "/auth/local", data={"login": login, "password": PASSWORD}, follow_redirects=False
         )
         assert response.status_code == 303, response.text
         client.cookies.set(SESSION_COOKIE, response.cookies[SESSION_COOKIE])
@@ -426,7 +426,7 @@ def test_changing_password_succeeds_and_revokes_every_session(world: World) -> N
         follow_redirects=False,
     )
     assert response.status_code == 303
-    assert response.headers["location"] == "/login?changed=1"
+    assert response.headers["location"] == "/auth/local?changed=1"
 
     # 使い回した Cookie（変更前のセッション）はもう通らない
     # （`/manage` は認可を挟まず `/` へリダイレクトするだけなので、認可を

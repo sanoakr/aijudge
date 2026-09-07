@@ -148,7 +148,7 @@ class Campus:
             student_app(StudentApp(self.database, self.store, profiles_dir=PROFILES))
         )
         response = client.post(
-            "/login", data={"login": login, "password": PASSWORD}, follow_redirects=False
+            "/auth/local", data={"login": login, "password": PASSWORD}, follow_redirects=False
         )
         assert response.status_code == 303, response.text
         client.cookies.set(STUDENT_COOKIE, response.cookies[STUDENT_COOKIE])
@@ -157,7 +157,7 @@ class Campus:
     def login_teacher(self, login: str) -> TestClient:
         client = TestClient(review_app(self.console))
         response = client.post(
-            "/login", data={"login": login, "password": PASSWORD}, follow_redirects=False
+            "/auth/local", data={"login": login, "password": PASSWORD}, follow_redirects=False
         )
         assert response.status_code == 303, response.text
         client.cookies.set(REVIEW_COOKIE, response.cookies[REVIEW_COOKIE])

@@ -1172,7 +1172,8 @@ def register(templates) -> APIRouter:
         # change_password は自分のセッションも含めて全部失効させる
         # （乗っ取られていた場合の復旧手段がこれしかない、が本人の操作でも
         # 例外なく効く）。ログイン画面へ戻し、Cookie も捨てる。
-        response = RedirectResponse("/login?changed=1", status_code=303)
+        # ローカル利用者向けの画面（#125）。ログインし直す先も隠し経路。
+        response = RedirectResponse("/auth/local?changed=1", status_code=303)
         response.delete_cookie(SESSION_COOKIE, path="/")
         return response
 

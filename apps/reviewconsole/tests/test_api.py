@@ -128,7 +128,7 @@ def test_a_session_cookie_does_not_open_the_api(world: World) -> None:
     """
     world.user("teacher", Role.INSTRUCTOR)
     login = world.client.post(
-        "/login", data={"login": "teacher", "password": PASSWORD}, follow_redirects=False
+        "/auth/local", data={"login": "teacher", "password": PASSWORD}, follow_redirects=False
     )
     world.client.cookies.set(SESSION_COOKIE, login.cookies[SESSION_COOKIE])
 

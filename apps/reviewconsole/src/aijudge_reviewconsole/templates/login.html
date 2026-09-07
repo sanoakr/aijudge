@@ -6,16 +6,14 @@
   <p class="crumb">教員・TA 用の画面です。</p>
   {% if error %}<div class="note warn">{{ error }}</div>{% endif %}
   {% if changed %}<div class="note">パスワードを変更しました。新しいパスワードでログインしてください。</div>{% endif %}
-  <form method="post" action="{{ root_prefix() }}/login" class="card">
-    <div class="field">
-      <label for="login">ID</label>
-      <input id="login" name="login" autocomplete="username" required autofocus>
-    </div>
-    <div class="field">
-      <label for="password">パスワード</label>
-      <input id="password" name="password" type="password" autocomplete="current-password" required>
-    </div>
-    <div class="actions"><button type="submit">ログイン</button></div>
+  {% if google_configured %}
+  <form method="get" action="{{ root_prefix() }}/auth/login" class="card">
+    <div class="actions"><button type="submit">大学アカウントでログイン</button></div>
   </form>
+  {% else %}
+  <div class="note warn">
+    大学アカウントでのログインはまだ設定されていません。管理者にお問い合わせください。
+  </div>
+  {% endif %}
 </div>
 {% endblock %}
