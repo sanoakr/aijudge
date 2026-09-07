@@ -30,7 +30,7 @@ Google OIDC ログイン（#121、§9）は 2026-09-07 に本番で稼働確認�
   デプロイ・起動停止を sano も行えるようにする。`aijudge` と `sano` の両方を `docker`
   グループに入れる（サンドボックスに必須）。詳細は §3.2。
 - **LLM モデル**: **`gemma4:e4b` に確定（2026-09-05）。** `docs/design/01_モデル評価実験計画.md`
-  〜`03_モデル評価_具体例.md` の実測（cs_langc_intro の合成優劣サンプルでの判別性、
+  〜`03_モデル評価_具体例.md` の実測（cs_lang_c_intro の合成優劣サンプルでの判別性、
   `report_ja` での採点者間一致、速度・頑健性・コスト）に基づく。コードの既定値と
   一致するため、`AIJUDGE_LLM_MODEL` は**明示的に**この値をピン留めする
   （将来コード側の既定が変わっても本番の挙動を変えないため）。
@@ -633,7 +633,7 @@ YAML が次のデプロイで消える**。運用のプロファイルはデー�
 に置き、`AIJUDGE_PROFILES_DIR` で指す。
 
 あわせて科目名を改名した（同じ PR）:
-`cs_intro_c` → `cs_langc_intro`、`net_python` → `cs_python_network`。
+`cs_intro_c` → `cs_lang_c_intro`、`net_python` → `cs_network_python`。
 `report_ja` は変更なし。**本番 DB は `courses` 0 件・`submissions` 0 件だった
 ので、データ移行は不要**（2026-09-07 に確認）。
 

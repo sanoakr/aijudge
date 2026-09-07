@@ -46,7 +46,7 @@ def run(run_id: str) -> GradingRun:
         submission_id=SUBMISSION,
         context=GradingContext(
             task_version_id=TaskVersionId("tsv_" + "2" * 32),
-            subject_profile="cs_langc_intro",
+            subject_profile="cs_lang_c_intro",
             rubric_version="v1",
             input_hash="sha256:abc",
             pipeline_version="0.1.0",

@@ -100,7 +100,7 @@ def a_run(run_id: str, submission_id: SubmissionId) -> GradingRun:
         submission_id=submission_id,
         context=GradingContext(
             task_version_id=TASK_VERSION,
-            subject_profile="cs_langc_intro",
+            subject_profile="cs_lang_c_intro",
             rubric_version="v1",
             input_hash="sha256:abc",
             pipeline_version="0.1.0",
@@ -142,7 +142,7 @@ def a_task_version(version: int = 1, statement: str = "問題文") -> TaskVersio
         id=TaskVersionId(f"tsv_{version:032d}"),
         task_id=TASK_ID,
         version=version,
-        subject_profile="cs_langc_intro",
+        subject_profile="cs_lang_c_intro",
         statement=statement,
         criteria=(criterion,),
         max_score=100.0,
@@ -162,7 +162,7 @@ def test_a_submission_round_trips(database: Database) -> None:
         tenant_id=TENANT,
         task_version_id=TASK_VERSION,
         learner_id=LEARNER,
-        subject_profile="cs_langc_intro",
+        subject_profile="cs_lang_c_intro",
         files=code(),
     )
 
@@ -178,7 +178,7 @@ def test_the_idempotency_key_survives_a_commit(database: Database) -> None:
         "tenant_id": TENANT,
         "task_version_id": TASK_VERSION,
         "learner_id": LEARNER,
-        "subject_profile": "cs_langc_intro",
+        "subject_profile": "cs_lang_c_intro",
         "files": code(),
     }
     first = service.accept(**kwargs)
@@ -196,7 +196,7 @@ def test_the_attempt_counter_survives_a_commit(database: Database) -> None:
         "tenant_id": TENANT,
         "task_version_id": TASK_VERSION,
         "learner_id": LEARNER,
-        "subject_profile": "cs_langc_intro",
+        "subject_profile": "cs_lang_c_intro",
     }
     first = service.accept(**base, files=code("one"))
     second = service.accept(**base, files=code("two"))
@@ -210,14 +210,14 @@ def test_a_learner_only_sees_their_own_submissions(database: Database) -> None:
         tenant_id=TENANT,
         task_version_id=TASK_VERSION,
         learner_id=LEARNER,
-        subject_profile="cs_langc_intro",
+        subject_profile="cs_lang_c_intro",
         files=code("mine"),
     )
     service.accept(
         tenant_id=TENANT,
         task_version_id=TASK_VERSION,
         learner_id=other,
-        subject_profile="cs_langc_intro",
+        subject_profile="cs_lang_c_intro",
         files=code("theirs"),
     )
     with database.unit_of_work() as uow:
@@ -288,7 +288,7 @@ def test_a_job_is_reserved_and_completed(database: Database) -> None:
         tenant_id=TENANT,
         task_version_id=TASK_VERSION,
         learner_id=LEARNER,
-        subject_profile="cs_langc_intro",
+        subject_profile="cs_lang_c_intro",
         files=code(),
     )
 
@@ -317,7 +317,7 @@ def test_position_in_queue(database: Database) -> None:
             tenant_id=TENANT,
             task_version_id=TASK_VERSION,
             learner_id=UserId(f"usr_{i:032d}"),
-            subject_profile="cs_langc_intro",
+            subject_profile="cs_lang_c_intro",
             files=code(f"int main(void){{return {i};}}"),
         )
         subs.append(r.submission.id)
@@ -351,7 +351,7 @@ def test_a_reserved_job_is_not_handed_out_twice(database: Database) -> None:
         tenant_id=TENANT,
         task_version_id=TASK_VERSION,
         learner_id=LEARNER,
-        subject_profile="cs_langc_intro",
+        subject_profile="cs_lang_c_intro",
         files=code(),
     )
     later = NOW + timedelta(seconds=1)
@@ -369,7 +369,7 @@ def test_an_expired_lease_is_handed_to_another_worker(database: Database) -> Non
         tenant_id=TENANT,
         task_version_id=TASK_VERSION,
         learner_id=LEARNER,
-        subject_profile="cs_langc_intro",
+        subject_profile="cs_lang_c_intro",
         files=code(),
     )
     with database.unit_of_work() as uow:
@@ -395,7 +395,9 @@ def test_a_worker_can_be_limited_to_one_subject(database: Database) -> None:
     )
     with database.unit_of_work() as uow:
         assert (
-            uow.jobs.reserve(NOW, worker="w1", lease_seconds=60.0, subject_profile="cs_langc_intro")
+            uow.jobs.reserve(
+                NOW, worker="w1", lease_seconds=60.0, subject_profile="cs_lang_c_intro"
+            )
             is None
         )
         assert (
@@ -425,7 +427,7 @@ def test_the_event_is_stored_with_the_submission(database: Database) -> None:
         tenant_id=TENANT,
         task_version_id=TASK_VERSION,
         learner_id=LEARNER,
-        subject_profile="cs_langc_intro",
+        subject_profile="cs_lang_c_intro",
         files=code(),
     )
     with database.unit_of_work() as uow:
@@ -441,7 +443,7 @@ def test_a_published_event_is_not_returned_again(database: Database) -> None:
         tenant_id=TENANT,
         task_version_id=TASK_VERSION,
         learner_id=LEARNER,
-        subject_profile="cs_langc_intro",
+        subject_profile="cs_lang_c_intro",
         files=code(),
     )
     with database.unit_of_work() as uow:
@@ -558,7 +560,7 @@ def test_datetimes_come_back_timezone_aware(database: Database) -> None:
         tenant_id=TENANT,
         task_version_id=TASK_VERSION,
         learner_id=LEARNER,
-        subject_profile="cs_langc_intro",
+        subject_profile="cs_lang_c_intro",
         files=code(),
     )
     with database.unit_of_work() as uow:
@@ -622,7 +624,7 @@ def test_concurrent_workers_never_take_the_same_job() -> None:
                 tenant_id=TENANT,
                 task_version_id=TASK_VERSION,
                 learner_id=UserId(f"usr_{index:032d}"),
-                subject_profile="cs_langc_intro",
+                subject_profile="cs_lang_c_intro",
                 files=code(f"int main(void){{return {index};}}"),
             )
 

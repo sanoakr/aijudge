@@ -268,7 +268,7 @@ def register(task_parser) -> None:
     draft.add_argument(
         "--kc", action="append", required=True, help="問う知識要素の正準キー（複数可）"
     )
-    draft.add_argument("--profile-name", default="cs_langc_intro", help="科目プロファイル名")
+    draft.add_argument("--profile-name", default="cs_lang_c_intro", help="科目プロファイル名")
     draft.add_argument("--language", default="c")
     draft.add_argument(
         "--difficulty",

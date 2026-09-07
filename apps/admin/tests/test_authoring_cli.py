@@ -71,7 +71,7 @@ def database(monkeypatch):
                 code="prog2",
                 title="演習",
                 term="2026",
-                subject_profile="cs_langc_intro",
+                subject_profile="cs_lang_c_intro",
             )
         )
         uow.skills.save_kc(
@@ -91,7 +91,7 @@ def _version() -> TaskVersion:
         id=VERSION,
         task_id=TaskId("tsk_" + "3" * 32),
         version=1,
-        subject_profile="cs_langc_intro",
+        subject_profile="cs_lang_c_intro",
         statement="## 課題 ##\n\n書きなさい。",
         criteria=(
             RubricCriterion(

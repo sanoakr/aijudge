@@ -271,7 +271,7 @@ uv run aijudge-worker --phase ai --name ai4 &
 GPU を使う科目と使わない科目でキューを分けたい場合は `--subject` で絞る。
 
 ```fish
-uv run aijudge-worker --subject cs_python_network --name py1
+uv run aijudge-worker --subject cs_network_python --name py1
 ```
 
 ## 成績を閉じる
@@ -517,7 +517,7 @@ uv run aijudge-web --create-schema
 ## 測定（Phase 1・任意）
 
 ```fish
-uv run aijudge-eval --subject cs_langc_intro
+uv run aijudge-eval --subject cs_lang_c_intro
 ```
 
 記録済みの観測を読むだけで、**採点は行わない**。`packages/analytics` と

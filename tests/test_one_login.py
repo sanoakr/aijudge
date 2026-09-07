@@ -77,7 +77,7 @@ class World:
             code="prog2",
             title="プログラミング及び実習 2",
             term="2026-後期",
-            subject_profile="cs_langc_intro",
+            subject_profile="cs_lang_c_intro",
             profiles_dir=PROFILES,
         )
         self.attended, _ = ensure_course(
@@ -86,7 +86,7 @@ class World:
             code="stats",
             title="統計学",
             term="2026-後期",
-            subject_profile="cs_langc_intro",
+            subject_profile="cs_lang_c_intro",
             profiles_dir=PROFILES,
         )
 

@@ -30,7 +30,7 @@ from aijudge_submission import FilesystemArtifactStore
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PROFILES = REPO_ROOT / "subjects"
-EXAMPLE_TASK = REPO_ROOT / "evals" / "golden" / "cs_langc_intro" / "example-task" / "task"
+EXAMPLE_TASK = REPO_ROOT / "evals" / "golden" / "cs_lang_c_intro" / "example-task" / "task"
 TENANT = TenantId("ten_" + "0" * 32)
 PASSWORD = "correct horse battery"
 
@@ -49,7 +49,7 @@ class World:
             code="prog2",
             title="プログラミング及び実習 2",
             term="2025-後期",
-            subject_profile="cs_langc_intro",
+            subject_profile="cs_lang_c_intro",
             profiles_dir=PROFILES,
         )
 
@@ -173,7 +173,7 @@ def test_only_an_admin_can_create_a_course(world: World) -> None:
         "code": "network",
         "title": "ネットワーク",
         "term": "2025-後期",
-        "profile": "cs_python_network",
+        "profile": "cs_network_python",
         "instructors": "teacher",
     }
     assert world.client("teacher").post("/manage/courses", data=data).status_code == 403
@@ -189,7 +189,7 @@ def test_an_admin_creates_a_course_and_becomes_its_instructor(world: World) -> N
             "code": "network",
             "title": "ネットワーク及び演習",
             "term": "2025-後期",
-            "profile": "cs_python_network",
+            "profile": "cs_network_python",
             "instructors": "boss",
         },
         follow_redirects=False,
@@ -208,7 +208,7 @@ def test_creating_a_course_requires_at_least_one_instructor(world: World) -> Non
             "code": "network",
             "title": "ネットワーク及び演習",
             "term": "2025-後期",
-            "profile": "cs_python_network",
+            "profile": "cs_network_python",
             "instructors": "   \n  ",
         },
     )
@@ -224,7 +224,7 @@ def test_creating_a_course_with_an_unregistered_instructor_is_refused(world: Wor
             "code": "network",
             "title": "ネットワーク及び演習",
             "term": "2025-後期",
-            "profile": "cs_python_network",
+            "profile": "cs_network_python",
             "instructors": "nobody-yet",
         },
     )
@@ -243,7 +243,7 @@ def test_creating_a_course_enrolls_the_specified_instructor(world: World) -> Non
             "code": "network",
             "title": "ネットワーク及び演習",
             "term": "2025-後期",
-            "profile": "cs_python_network",
+            "profile": "cs_network_python",
             "instructors": "other-teacher",
         },
         follow_redirects=False,
@@ -676,7 +676,7 @@ def test_a_problem_set_from_another_course_cannot_be_scheduled(world: World) -> 
         code="network",
         title="ネットワーク",
         term="2025-後期",
-        subject_profile="cs_python_network",
+        subject_profile="cs_network_python",
         profiles_dir=PROFILES,
     )
     world.register("other_teacher", Role.INSTRUCTOR, other.id)
@@ -1001,7 +1001,7 @@ def test_bulk_finalization_refuses_a_task_from_another_course(world: World) -> N
         code="network",
         title="ネットワーク",
         term="2025-後期",
-        subject_profile="cs_python_network",
+        subject_profile="cs_network_python",
         profiles_dir=PROFILES,
     )
     world.register("other_teacher", Role.INSTRUCTOR, other.id)
@@ -1036,7 +1036,7 @@ def test_a_bulk_finalization_result_does_not_leak_to_another_course(world: World
         code="network",
         title="ネットワーク",
         term="2025-後期",
-        subject_profile="cs_python_network",
+        subject_profile="cs_network_python",
         profiles_dir=PROFILES,
     )
     world.register("other_teacher", Role.INSTRUCTOR, other.id)
@@ -2007,7 +2007,7 @@ def test_a_component_the_course_still_uses_stays_visible_when_unselected(
             statement="## 課題 ##\n\n本文",
             knowledge_components=("cs.loops",),
         ),
-        subject_profile="cs_langc_intro",
+        subject_profile="cs_lang_c_intro",
         authored_by=world.register("t2", Role.INSTRUCTOR).user_id,
     )
 
@@ -2092,7 +2092,7 @@ def test_the_delete_control_is_hidden_for_a_used_component(world: World) -> None
             statement="## 課題 ##\n\n本文",
             knowledge_components=("cs.loops",),
         ),
-        subject_profile="cs_langc_intro",
+        subject_profile="cs_lang_c_intro",
         authored_by=world.register("t2", Role.INSTRUCTOR).user_id,
     )
 
@@ -2932,7 +2932,7 @@ def test_a_generated_revision_is_not_approved_by_itself(monkeypatch, world: Worl
     version = build_task_version(
         spec,
         course_id=world.course.id,
-        subject_profile="cs_langc_intro",
+        subject_profile="cs_lang_c_intro",
         authored_by=UserId("usr_" + "1" * 32),
         generated_by="stub-model",
         generation_prompt_version="p@1",
@@ -3207,7 +3207,7 @@ def test_an_admin_can_manage_a_course_they_are_not_enrolled_in(world: World) -> 
         code="other",
         title="別コース",
         term="2025-後期",
-        subject_profile="cs_langc_intro",
+        subject_profile="cs_lang_c_intro",
         profiles_dir=PROFILES,
     )
     boss = world.register("boss", Role.ADMIN, course_id=other_course.id)
@@ -3416,7 +3416,7 @@ def test_grading_settings_are_scoped_to_the_course(world: World) -> None:
         code="prog1",
         title="プログラミング及び実習 I",
         term="2025-後期",
-        subject_profile="cs_langc_intro",
+        subject_profile="cs_lang_c_intro",
         profiles_dir=PROFILES,
     )
     world.register("other_teacher", Role.INSTRUCTOR, other.id)
@@ -4394,8 +4394,8 @@ def test_a_trial_is_never_sampled_for_blind_marking(world: World) -> None:
     _task, submission = _trial_submission(world, Role.ASSISTANT)
     console = world.console
     # 抽出率を 100% にしても、試行は選ばれない。
-    assert console.blind_sample_rate("cs_langc_intro") >= 0.0
-    assert console.needs_blind_mark(submission, "cs_langc_intro") is False
+    assert console.blind_sample_rate("cs_lang_c_intro") >= 0.0
+    assert console.needs_blind_mark(submission, "cs_lang_c_intro") is False
 
 
 # --------------------------------------------------------------------------

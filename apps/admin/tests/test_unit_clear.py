@@ -43,7 +43,7 @@ def course(database: Database):
         code="prog2",
         title="プログラミング演習 II",
         term="2026-前期",
-        subject_profile="cs_langc_intro",
+        subject_profile="cs_lang_c_intro",
         profiles_dir=PROFILES,
     )
     return obj
@@ -60,7 +60,7 @@ def _task(database: Database, course, key: str, unit: str, position: int):
             position=position,
             readability_weight=0.3,
         ),
-        subject_profile="cs_langc_intro",
+        subject_profile="cs_lang_c_intro",
         authored_by=TEACHER,
     )
 

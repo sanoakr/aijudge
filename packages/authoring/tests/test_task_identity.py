@@ -19,7 +19,7 @@ SPEC = TaskSpec(key="ex01/p1", statement="## 課題 ##\n\n本文")
 
 def _version(course: CourseId):
     return build_task_version(
-        SPEC, course_id=course, subject_profile="cs_langc_intro", authored_by=AUTHOR
+        SPEC, course_id=course, subject_profile="cs_lang_c_intro", authored_by=AUTHOR
     )
 
 

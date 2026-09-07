@@ -59,7 +59,7 @@ class World:
             code="prog2",
             title="プログラミング及び実習 2",
             term="2025-後期",
-            subject_profile="cs_langc_intro",
+            subject_profile="cs_lang_c_intro",
             profiles_dir=PROFILES,
         )
 

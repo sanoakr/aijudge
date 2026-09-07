@@ -1,7 +1,7 @@
 """`aijudge-admin` — 学期の頭に要る操作。
 
     aijudge-admin course create --code network --title "ネットワーク及び演習" \
-        --term 2025-後期 --profile cs_python_network
+        --term 2025-後期 --profile cs_network_python
     aijudge-admin enrol --course <id> --roster 2025shj-user.txt --credentials ~/pw.tsv
     aijudge-admin task import --course <id> --dir .../sharif-judge/ex3
     aijudge-admin course list

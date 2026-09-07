@@ -36,7 +36,7 @@ from aijudge_persistence import Database
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PROFILES = REPO_ROOT / "subjects"
-EXAMPLE_TASK = REPO_ROOT / "evals" / "golden" / "cs_langc_intro" / "example-task" / "task"
+EXAMPLE_TASK = REPO_ROOT / "evals" / "golden" / "cs_lang_c_intro" / "example-task" / "task"
 TENANT = TenantId("ten_" + "0" * 32)
 
 # 移行元に実在する形式（network2025/2025shj-user.txt）。
@@ -65,7 +65,7 @@ def course(database: Database):
         code="prog2",
         title="プログラミング演習 II",
         term="2026-前期",
-        subject_profile="cs_langc_intro",
+        subject_profile="cs_lang_c_intro",
         profiles_dir=PROFILES,
     )
     return obj
@@ -160,7 +160,7 @@ def test_creating_the_same_course_twice_updates_it(database: Database) -> None:
         code="network",
         title="ネットワーク及び演習",
         term="2025-後期",
-        subject_profile="cs_langc_intro",
+        subject_profile="cs_lang_c_intro",
         profiles_dir=PROFILES,
     )
     second, created_second = ensure_course(
@@ -169,7 +169,7 @@ def test_creating_the_same_course_twice_updates_it(database: Database) -> None:
         code="network",
         title="ネットワーク及び演習（改）",
         term="2025-後期",
-        subject_profile="cs_langc_intro",
+        subject_profile="cs_lang_c_intro",
         profiles_dir=PROFILES,
     )
     assert first.id == second.id
@@ -185,7 +185,7 @@ def test_a_different_term_is_a_different_course(database: Database) -> None:
         code="network",
         title="ネットワーク",
         term="2025-後期",
-        subject_profile="cs_langc_intro",
+        subject_profile="cs_lang_c_intro",
         profiles_dir=PROFILES,
     )
     b, _ = ensure_course(
@@ -194,7 +194,7 @@ def test_a_different_term_is_a_different_course(database: Database) -> None:
         code="network",
         title="ネットワーク",
         term="2026-後期",
-        subject_profile="cs_langc_intro",
+        subject_profile="cs_lang_c_intro",
         profiles_dir=PROFILES,
     )
     assert a.id != b.id
@@ -524,7 +524,7 @@ def test_the_cli_creates_a_course_and_lists_it(tmp_path: Path, capsys) -> None:
             "--term",
             "2025-後期",
             "--profile",
-            "cs_langc_intro",
+            "cs_lang_c_intro",
         )
         == 0
     )
@@ -549,7 +549,7 @@ def test_the_cli_refuses_to_enrol_without_a_credentials_path(tmp_path: Path, cap
         "--term",
         "2025-後期",
         "--profile",
-        "cs_langc_intro",
+        "cs_lang_c_intro",
     )
     course_id = next(
         line.split()[-1] for line in capsys.readouterr().out.splitlines() if "作成" in line
@@ -575,7 +575,7 @@ def test_the_cli_never_prints_a_password(tmp_path: Path, capsys) -> None:
         "--term",
         "2025-後期",
         "--profile",
-        "cs_langc_intro",
+        "cs_lang_c_intro",
     )
     course_id = next(
         line.split()[-1] for line in capsys.readouterr().out.splitlines() if "作成" in line

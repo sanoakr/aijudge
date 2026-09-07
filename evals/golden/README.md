@@ -13,7 +13,7 @@ reads from **outside the repository** by default:
 $AIJUDGE_GOLDEN_DIR         # override
 ```
 
-The `cs_langc_intro/example-task/` directory here is a **synthetic example of the
+The `cs_lang_c_intro/example-task/` directory here is a **synthetic example of the
 format** — invented code, invented marks. It exists so the loader has something
 to test against and so the layout is documented by a working instance. It is
 deliberately too small to satisfy the gate, and must never be treated as data.
@@ -22,7 +22,7 @@ deliberately too small to satisfy the gate, and must never be treated as data.
 
 ```
 <golden_dir>/
-  cs_langc_intro/                      subject profile name
+  cs_lang_c_intro/                      subject profile name
     prog2-2025-ex06-p3/            task, named after its Sharif Judge directory
       task/                        desc.md, in/, out/, reference solution
       marks/
@@ -51,7 +51,7 @@ never to fill out a sample.
 ## Running
 
 ```fish
-uv run aijudge-eval --subject cs_langc_intro --out report.md
+uv run aijudge-eval --subject cs_lang_c_intro --out report.md
 ```
 
 Exit codes: `0` pass, `1` fail, `2` not measurable. A thin sample reports `2`,

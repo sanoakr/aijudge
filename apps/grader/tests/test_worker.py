@@ -38,9 +38,9 @@ from aijudge_submission import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-EXAMPLE_TASK = REPO_ROOT / "evals" / "golden" / "cs_langc_intro" / "example-task" / "task"
+EXAMPLE_TASK = REPO_ROOT / "evals" / "golden" / "cs_lang_c_intro" / "example-task" / "task"
 EXAMPLE_SOURCE = (
-    REPO_ROOT / "evals" / "golden" / "cs_langc_intro" / "example-task" / "marks" / "s001.c"
+    REPO_ROOT / "evals" / "golden" / "cs_lang_c_intro" / "example-task" / "marks" / "s001.c"
 )
 PROFILES = REPO_ROOT / "subjects"
 
@@ -48,7 +48,7 @@ TENANT = TenantId("ten_" + "0" * 32)
 COURSE = CourseId("crs_" + "1" * 32)
 LEARNER = UserId("usr_" + "2" * 32)
 AUTHOR = UserId("usr_" + "3" * 32)
-PROFILE = "cs_langc_intro"
+PROFILE = "cs_lang_c_intro"
 PROFILE_SAMPLES = 3
 
 needs_c_compiler = pytest.mark.skipif(
@@ -404,9 +404,9 @@ def test_a_worker_without_an_observation_store_still_grades(world: World) -> Non
 @needs_c_compiler
 def test_grading_completes_without_the_ai_evaluator(world: World, tmp_path: Path) -> None:
     """S6 を止めても決定的評価だけで採点が完結する（設計原則 P2）。"""
-    profile = tmp_path / "cs_langc_intro.yaml"
+    profile = tmp_path / "cs_lang_c_intro.yaml"
     profile.write_text(
-        "name: cs_langc_intro\n"
+        "name: cs_lang_c_intro\n"
         "deterministic: [code_test_runner]\n"
         "ai_evaluators: []\n"
         "timeout_seconds: 60\n",

@@ -38,7 +38,7 @@ from aijudge_submission import FilesystemArtifactStore, IncomingFile, Submission
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PROFILES = REPO_ROOT / "subjects"
-C_TASK = REPO_ROOT / "evals" / "golden" / "cs_langc_intro" / "example-task" / "task"
+C_TASK = REPO_ROOT / "evals" / "golden" / "cs_lang_c_intro" / "example-task" / "task"
 TENANT = TenantId("ten_" + "0" * 32)
 PASSWORD = "correct horse battery"
 
@@ -89,7 +89,7 @@ class Campus:
             code="prog2",
             title="プログラミング及び実習 2",
             term="2025-後期",
-            subject_profile="cs_langc_intro",
+            subject_profile="cs_lang_c_intro",
             profiles_dir=PROFILES,
         )
         # --- 科目 2: Python ---
@@ -99,7 +99,7 @@ class Campus:
             code="network",
             title="ネットワーク及び演習",
             term="2025-後期",
-            subject_profile="cs_python_network",
+            subject_profile="cs_network_python",
             profiles_dir=PROFILES,
         )
 
@@ -196,8 +196,8 @@ def campus(tmp_path: Path):
 
 
 def test_two_subjects_coexist_with_different_languages(campus: Campus) -> None:
-    assert campus.c_course.subject_profile == "cs_langc_intro"
-    assert campus.py_course.subject_profile == "cs_python_network"
+    assert campus.c_course.subject_profile == "cs_lang_c_intro"
+    assert campus.py_course.subject_profile == "cs_network_python"
     assert len(campus.tasks_of(campus.c_course.id)) == 1
     assert len(campus.tasks_of(campus.py_course.id)) == 1
 
@@ -235,11 +235,11 @@ def test_a_worker_can_be_pinned_to_one_subject(campus: Campus) -> None:
     campus.submit("c_student", campus.c_course, (C_TASK / "maxmin.c").read_bytes(), "main.c")
     campus.submit("py_student", campus.py_course, PY_REFERENCE.encode(), "main.py")
 
-    graded, _ = campus.worker.run_until_empty(subject_profile="cs_python_network")
+    graded, _ = campus.worker.run_until_empty(subject_profile="cs_network_python")
     assert graded == 1
     with campus.database.unit_of_work() as uow:
-        assert uow.jobs.pending_count(subject_profile="cs_langc_intro") == 1
-        assert uow.jobs.pending_count(subject_profile="cs_python_network") == 0
+        assert uow.jobs.pending_count(subject_profile="cs_lang_c_intro") == 1
+        assert uow.jobs.pending_count(subject_profile="cs_network_python") == 0
 
 
 # --------------------------------------------------------------------------

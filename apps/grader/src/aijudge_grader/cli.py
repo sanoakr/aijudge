@@ -2,7 +2,7 @@
 
     uv run aijudge-worker --once            # キューが空になるまで処理して終わる
     uv run aijudge-worker                   # 常駐して待つ
-    uv run aijudge-worker --subject cs_langc_intro   # 科目を絞る（GPU の割り当てを分ける）
+    uv run aijudge-worker --subject cs_lang_c_intro   # 科目を絞る（GPU の割り当てを分ける）
     uv run aijudge-worker --phase deterministic  # 速い段階だけを担当する
 
 **レビューとは独立に走る。** レビューは採点の前提条件ではない（ADR 0007）。

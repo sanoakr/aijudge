@@ -27,9 +27,9 @@ from aijudge_persistence import Database
 from aijudge_submission import FilesystemArtifactStore, IncomingFile, SubmissionService
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-EXAMPLE_TASK = REPO_ROOT / "evals" / "golden" / "cs_langc_intro" / "example-task" / "task"
+EXAMPLE_TASK = REPO_ROOT / "evals" / "golden" / "cs_lang_c_intro" / "example-task" / "task"
 EXAMPLE_SOURCE = (
-    REPO_ROOT / "evals" / "golden" / "cs_langc_intro" / "example-task" / "marks" / "s001.c"
+    REPO_ROOT / "evals" / "golden" / "cs_lang_c_intro" / "example-task" / "marks" / "s001.c"
 )
 PROFILES = REPO_ROOT / "subjects"
 
@@ -68,7 +68,7 @@ class World:
         self.task_version = sharif_judge.import_problem(
             EXAMPLE_TASK,
             course_id=COURSE,
-            subject_profile="cs_langc_intro",
+            subject_profile="cs_lang_c_intro",
             authored_by=AUTHOR,
             readability_weight=0.3,
             knowledge_components=kcs,
@@ -81,7 +81,7 @@ class World:
                     code="prog2",
                     title="プログラミング演習 II",
                     term="2026-前期",
-                    subject_profile="cs_langc_intro",
+                    subject_profile="cs_lang_c_intro",
                 )
             )
             uow.tasks.save_task(Task(id=self.task_version.task_id, course_id=COURSE, title="例題"))
@@ -103,7 +103,7 @@ class World:
             tenant_id=TENANT,
             task_version_id=self.task_version.id,
             learner_id=LEARNER,
-            subject_profile="cs_langc_intro",
+            subject_profile="cs_lang_c_intro",
             files=[
                 IncomingFile(
                     filename="main.c",

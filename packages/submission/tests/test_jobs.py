@@ -31,7 +31,7 @@ def make(**overrides) -> GradingJob:
         "tenant_id": TenantId("ten_" + "0" * 32),
         "submission_id": SUBMISSION,
         "task_version_id": TaskVersionId("tsv_" + "4" * 32),
-        "subject_profile": "cs_langc_intro",
+        "subject_profile": "cs_lang_c_intro",
         "idempotency_key": job_idempotency_key(SUBMISSION, JobReason.SUBMISSION),
         "available_at": NOW,
         "created_at": NOW,
@@ -190,7 +190,7 @@ def test_a_worker_can_take_only_its_own_subject() -> None:
     queue = InMemoryJobQueue()
     queue.enqueue(make(subject_profile="math_calculus", idempotency_key="math"))
     assert (
-        queue.reserve(NOW, worker="w1", lease_seconds=60.0, subject_profile="cs_langc_intro")
+        queue.reserve(NOW, worker="w1", lease_seconds=60.0, subject_profile="cs_lang_c_intro")
         is None
     )
     assert (

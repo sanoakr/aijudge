@@ -1,6 +1,6 @@
 """`aijudge-eval` — 採点精度の測定コマンド。
 
-    uv run aijudge-eval --subject cs_langc_intro
+    uv run aijudge-eval --subject cs_lang_c_intro
 
 **このコマンドは採点しない。** 採点とレビューが残した観測レコードを読み、
 指標を計算するだけ（ADR 0007）。採点運用はこのコマンドに依存しない。
@@ -143,7 +143,7 @@ def main(argv: list[str] | None = None) -> int:
         prog="aijudge-eval",
         description="記録済みの観測から教員採点と AI 採点の一致度を測る（採点はしない）",
     )
-    parser.add_argument("--subject", default="cs_langc_intro", help="科目プロファイル名")
+    parser.add_argument("--subject", default="cs_lang_c_intro", help="科目プロファイル名")
     parser.add_argument(
         "--golden",
         type=Path,

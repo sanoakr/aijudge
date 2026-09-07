@@ -89,7 +89,7 @@ def world(tmp_path: Path):
         code="prog2",
         title="プログラミング及び実習 2",
         term="2025-後期",
-        subject_profile="cs_langc_intro",
+        subject_profile="cs_lang_c_intro",
         profiles_dir=PROFILES,
     )
     with database.unit_of_work() as uow:
@@ -143,7 +143,7 @@ def _submit_and_grade(world, source: str):
         tenant_id=TENANT,
         task_version_id=version_id,
         learner_id=world["learner"].user_id,
-        subject_profile="cs_langc_intro",
+        subject_profile="cs_lang_c_intro",
         files=[IncomingFile(filename="main.c", kind=ArtifactKind.CODE, payload=source.encode())],
     )
     world["worker"].run_until_empty()

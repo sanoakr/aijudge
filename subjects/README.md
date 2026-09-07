@@ -5,8 +5,8 @@
 
 | ファイル | 想定する科目 |
 |---|---|
-| `cs_langc_intro.yaml` | プログラミング入門（C 言語）。テスト実行による正誤判定が主 |
-| `cs_python_network.yaml` | ネットワークプログラミング（Python） |
+| `cs_lang_c_intro.yaml` | プログラミング入門（C 言語）。テスト実行による正誤判定が主 |
+| `cs_network_python.yaml` | ネットワークプログラミング（Python） |
 | `report_ja.yaml` | 実験レポート（PDF 提出）。内容は AI とルーブリックで判定 |
 
 **コメントを消さずに読むこと。** 各ファイルの行数の大半はコメントで、そこには

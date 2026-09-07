@@ -68,7 +68,7 @@ class World:
                         code=code,
                         title=f"演習 {code}",
                         term="2026",
-                        subject_profile="cs_langc_intro",
+                        subject_profile="cs_lang_c_intro",
                     )
                 )
             uow.tasks.save_task(
@@ -112,7 +112,7 @@ def _version() -> TaskVersion:
         id=VERSION,
         task_id=TaskId("tsk_" + "3" * 32),
         version=1,
-        subject_profile="cs_langc_intro",
+        subject_profile="cs_lang_c_intro",
         statement="## 生成された課題 ##\n\n2 つの整数を読み、和を出力しなさい。",
         criteria=(
             RubricCriterion(
