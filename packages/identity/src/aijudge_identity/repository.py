@@ -29,6 +29,14 @@ class IdentityRepository(Protocol):
         """Google の `sub` から利用者を引く（#124）。JIT 突合の要。"""
         ...
 
+    def list_all_users(self, tenant_id: TenantId) -> tuple[User, ...]:
+        """このテナントの全利用者（#144）。
+
+        `list_users(tenant_id, logins)` は受講者一覧のために「この login を
+        まとめて引く」もので、名簿を持たない管理画面からは呼べない。
+        """
+        ...
+
     # -- OIDC 設定（テナント単位、#124）--
     def save_oidc_settings(self, settings: OidcSettings) -> None: ...
 
@@ -131,6 +139,14 @@ class InMemoryIdentityRepository:
     def find_user_by_external_id(self, tenant_id: TenantId, external_id: str) -> User | None:
         user_id = self._by_external_id.get((tenant_id, external_id))
         return None if user_id is None else self._users.get(user_id)
+
+    def list_all_users(self, tenant_id: TenantId) -> tuple[User, ...]:
+        return tuple(
+            sorted(
+                (user for user in self._users.values() if user.tenant_id == tenant_id),
+                key=lambda user: user.login,
+            )
+        )
 
     def save_oidc_settings(self, settings: OidcSettings) -> None:
         self._oidc_settings[settings.tenant_id] = settings
