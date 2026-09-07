@@ -162,6 +162,11 @@ header.top button{background:none;color:var(--muted);border:1px solid var(--line
   background:var(--surface);color:var(--ink)}
 .inline-field > button{flex:none;margin-left:auto}
 .actions{display:flex;justify-content:flex-end;gap:10px;margin-top:12px}
+/* ログイン画面のように、カードの中身がボタン 1 つだけのとき用。
+   `.actions`（右端寄せ）は複数の入力の下に添える前提で、単体だと
+   カードの中で不釣り合いに小さく右に寄って見える。 */
+.cta{display:flex}
+.cta button{flex:1;padding:14px 22px;font-size:1rem}
 /* 問題セット。段階（提出できる／公開済／締切済）の見出しの下に並ぶ。 */
 .unit{margin-bottom:22px}
 /* 問題セットの開閉（#93）。**畳んだ見出しが押せることを示す。** 三角は

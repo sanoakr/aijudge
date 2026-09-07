@@ -311,6 +311,11 @@ h3:first-child{margin-top:0}
   background:var(--surface);color:var(--ink)}
 .inline-field > button{flex:none;margin-left:auto}
 .actions{display:flex;justify-content:flex-end;gap:10px;margin-top:12px}
+/* ログイン画面のように、カードの中身がボタン 1 つだけのとき用。
+   `.actions`（右端寄せ）は複数の入力の下に添える前提で、単体だと
+   カードの中で不釣り合いに小さく右に寄って見える。 */
+.cta{display:flex}
+.cta button{flex:1;padding:14px 22px;font-size:1rem}
 /* 複数の入力が 1 行に収まるフォーム。ボタンはその行の右端。 */
 .row-form{display:flex;flex-wrap:wrap;align-items:flex-end;gap:16px}
 .row-form > button{margin-left:auto}
