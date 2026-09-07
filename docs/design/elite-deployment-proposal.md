@@ -4,7 +4,9 @@
 学生/教員 UI のホスト名: `judge.math.ryukoku.ac.jp`（elite を指す。TLS 証明書取得済み・自動更新設定済み 2026-09-04）
 状態: **設計は確定済み。§4 の作業は AI ワーカー稼働・deploy 材配置・CD 自動化
 （autodeploy timer）・restic target 1 稼働・443 への統一（#103、8443 撤去）まで完了。
-残るは restic target 2・初回データ投入(#10)・§7 の判断待ち 2 件（2026-09-06）**
+残るは restic target 2・初回データ投入(#10)・§7 の判断待ち 2 件・
+Google OIDC ログインの本番有効化（#121、§9、2026-09-07 コードはマージ済み・
+elite 側の設定作業が未着手）**
 
 ## 決定事項（2026-09-04、ホスト名/ポートは 2026-09-06 に更新）
 
@@ -563,4 +565,59 @@ WantedBy=timers.target
 
 ---
 
-https://claude.ai/code/session_01XnU3ihHEw7ssmFjNeDC4vF
+## 9. Google OIDC ログイン（#121・#124・#125、2026-09-07）
+
+**コードは `main` にマージ・`v0.28.1` としてタグ済み。** autodeploy timer が
+次のポーリング（最大 5 分）で elite に取り込む。ただし **ログイン方式の切替え
+自体は、下記の手順を elite 上で行うまで有効にならない**（`OidcSettings` が
+テナントに無いあいだは、`/login` に「設定されていません」の案内が出るだけで、
+今までどおりの挙動は変わらない）。
+
+### やること（elite 上、`sano` で）
+
+1. **暗号化鍵を発行して env に追加**（`client_secret` を DB に平文で置かない
+   ための鍵。#124）:
+   ```fish
+   uv run python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+   ```
+   出力を `/srv/aijudge/config/aijudge.env` に
+   `AIJUDGE_OIDC_SECRET_KEY=<出力値>` として追記（`deploy/aijudge.env.example`
+   参照）。**一度設定したら変更しない** ── 変更すると既存の OIDC 設定が
+   復号できなくなる。
+   ```fish
+   sudo systemctl restart aijudge.target   # env の変更を反映
+   ```
+2. **Google Cloud Console で OAuth クライアントを発行**（数理・情報科学課程の
+   Google Cloud プロジェクトで。大学ITへの申請は不要 ── 必要なのは GCP 側の
+   設定だけ）:
+   - OAuth 同意画面を設定（内部/外部は組織の Google Workspace 方針に従う）。
+   - OAuth クライアント ID（種類: ウェブアプリケーション）を作成。
+   - **承認済みのリダイレクト URI** に
+     `https://judge.math.ryukoku.ac.jp/auth/callback` を登録。
+   - 発行された `client_id` / `client_secret` を控える（この画面以降、
+     `client_secret` は二度と表示されない）。
+3. **ローカル管理者アカウントでログイン**して設定画面を開く。
+   **`v0.28.1` からログインパスが変わっている**: 従来の `/login`（`/console/login`）
+   はローカルパスワードの画面ではなくなり、Google ボタン（または未設定の
+   案内）だけになった。ローカル管理者（`admin`）は
+   `https://judge.math.ryukoku.ac.jp/console/auth/local` の**隠し経路**から
+   ログインする（#121・#125。トップの画面にはリンクがない）。
+4. `https://judge.math.ryukoku.ac.jp/console/manage/oidc-settings` を開き、
+   手順 2 の `client_id` / `client_secret` と、許可ドメイン
+   （`ryukoku.ac.jp`。学部・研究科でサブドメインが分かれる場合は複数行で
+   追加）を入力して保存。
+5. **確認**:
+   - `https://judge.math.ryukoku.ac.jp/login` に「大学アカウントでログイン」
+     ボタンが出ること。
+   - 実際に大学アカウントでログインでき、学生 UI・教員コンソール双方の
+     セッションが張られること（Cookie 共有は #103 のとおり変わらない）。
+   - `/auth/local` はトップ画面のどこからもリンクされていないこと
+     （`grep` でもよい）。
+
+### 移行
+
+- 既存のローカルパスワード利用者（`admin` を除く。SSO 移行前に作られた
+  ものがあれば）は #121 の決定どおり無効化の対象。実施は #10（初回データ
+  投入）と合わせて別途行う。
+
+
