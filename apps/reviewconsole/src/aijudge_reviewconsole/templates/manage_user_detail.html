@@ -60,27 +60,75 @@
       <td class="fit mono">{{ row.course.code }}</td>
       <td class="grow"><a href="{{ root_prefix() }}/manage/courses/{{ row.course.id }}">{{ row.course.title }}</a></td>
       <td class="fit desc">{{ row.course.term }}</td>
-      <td class="fit mono">{{ row.role.value if row.role else '—' }}</td>
+      <td class="fit">
+        {% if is_self %}
+        {# **自分の役割は変えられない**（受講者一覧と同じ）。学習者に落とすと
+           コースが見えなくなり、戻す手段が無い。 #}
+        <span class="mono">{{ row.role.value if row.role else '—' }}</span><br>
+        <span class="desc">自分</span>
+        {% else %}
+        <form method="post"
+              action="{{ root_prefix() }}/manage/users/{{ user.id }}/courses/{{ row.course.id }}/role"
+              style="margin:0" onchange="this.requestSubmit()">
+          <select name="role">
+            {% for r in roles %}
+            <option value="{{ r }}" {{ 'selected' if row.role and r == row.role.value }}>{{ r }}</option>
+            {% endfor %}
+          </select>
+          <noscript><button type="submit">変更</button></noscript>
+        </form>
+        {% endif %}
+      </td>
     </tr>
   {% else %}
     <tr><td colspan="4" class="desc">受講登録がありません。</td></tr>
   {% endfor %}
   </tbody>
 </table>
+<p class="desc">
+  受講登録そのもの（追加・取り消し）は各コースの受講者一覧で行います。
+  ここで変えられるのは、既に受講しているコースでの役割だけです。
+</p>
 
 <h2>操作</h2>
 <div class="card">
+  <div class="field">
+    <label>テナント管理者</label>
+    <p class="desc">
+      テナント管理者は受講登録なしで<strong>すべてのコースの教員権限</strong>を持ち、
+      利用者の作成・科目プロファイルの管理も行えます。
+      コース単位の役割（下の一覧）とは別の権限です。
+    </p>
+    {% if is_self %}
+    <p class="desc">自分自身の管理者権限は変えられません（戻す手段が画面に無くなるため）。</p>
+    {% elif user.is_tenant_admin %}
+    <form method="post" action="{{ root_prefix() }}/manage/users/{{ user.id }}/tenant-admin" style="margin:0"
+          onsubmit="return confirm('{{ user.login }} をテナント管理者から外します。よろしいですか？')">
+      <button type="submit">管理者から外す</button>
+    </form>
+    {% else %}
+    <form method="post" action="{{ root_prefix() }}/manage/users/{{ user.id }}/tenant-admin" style="margin:0"
+          onsubmit="return confirm('{{ user.login }} をテナント管理者にします。すべてのコースの教員権限を持ちます。よろしいですか？')">
+      <input type="hidden" name="admin" value="1">
+      <button type="submit">テナント管理者にする</button>
+    </form>
+    {% endif %}
+  </div>
+
+  {% if is_local %}
+  {# **大学アカウントの利用者には出さない。** パスワードでログインしないので、
+     発行しても使い道が無く「配ったのに入れない」を生むだけ。 #}
   <div class="field">
     <label>パスワードの再発行</label>
     <p class="desc">
       新しいパスワードを生成し、<strong>次の画面に一度だけ表示します。</strong>
       再発行すると、この利用者の既存のセッションはすべて切れます。
-      {% if user.external_id %}この利用者は SSO でログインするので、通常は不要です。{% endif %}
     </p>
     <form method="post" action="{{ root_prefix() }}/manage/users/{{ user.id }}/password" style="margin:0">
       <button type="submit">パスワードを再発行する</button>
     </form>
   </div>
+  {% endif %}
 
   {% if user.is_active %}
   <div class="field">

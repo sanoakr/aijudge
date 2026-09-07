@@ -470,6 +470,140 @@ def test_the_password_is_not_shown_again_on_the_user_page(world: World) -> None:
     assert new_password not in client.get("/manage/users").text
 
 
+def _google_user(world: World, login: str, sub: str):
+    """大学アカウント（SSO）でログインした利用者。JIT で作られる形と同じ。"""
+    from aijudge_identity import GoogleOidcIdentity
+
+    with world.database.unit_of_work() as uow:
+        principal, _ = AuthService(uow.identity).login_with_google(
+            tenant_id=TENANT,
+            identity=GoogleOidcIdentity(sub=sub, email=login, hd="example.ac.jp"),
+        )
+        uow.commit()
+    return principal
+
+
+def test_the_list_tags_local_and_university_accounts(world: World) -> None:
+    world.register("boss", Role.ADMIN)
+    world.register("s2400010", Role.LEARNER)
+    _google_user(world, "taro@example.ac.jp", "sub-list")
+
+    body = world.client("boss").get("/manage/users").text
+
+    assert "ローカル" in body
+    assert "大学アカウント" in body
+
+
+def test_the_list_can_show_local_accounts_only(world: World) -> None:
+    """再発行や無効化の対象になるのはローカル利用者だけ。運用の単位で絞れる。"""
+    world.register("boss", Role.ADMIN)
+    world.register("s2400011", Role.LEARNER)
+    _google_user(world, "hanako@example.ac.jp", "sub-filter")
+
+    body = world.client("boss").get("/manage/users", params={"local": "1"}).text
+
+    assert "s2400011" in body
+    assert "hanako@example.ac.jp" not in body
+
+
+def test_a_university_account_is_offered_no_password_reissue(world: World) -> None:
+    world.register("boss", Role.ADMIN)
+    google = _google_user(world, "jiro@example.ac.jp", "sub-nopass")
+
+    body = world.client("boss").get(f"/manage/users/{google.user_id}").text
+
+    assert "パスワードを再発行する" not in body
+
+
+def test_reissuing_a_password_for_a_university_account_is_refused(world: World) -> None:
+    """**画面で隠すだけにしない。** POST は手で作れる。"""
+    world.register("boss", Role.ADMIN)
+    google = _google_user(world, "saburo@example.ac.jp", "sub-refuse")
+
+    response = world.client("boss").post(f"/manage/users/{google.user_id}/password")
+
+    assert response.status_code == 400
+
+
+def test_an_admin_can_grant_and_revoke_tenant_admin(world: World) -> None:
+    world.register("boss", Role.ADMIN)
+    teacher = world.register("teacher2", Role.INSTRUCTOR)
+    client = world.client("boss")
+
+    granted = client.post(
+        f"/manage/users/{teacher.user_id}/tenant-admin",
+        data={"admin": "1"},
+        follow_redirects=False,
+    )
+    assert granted.status_code == 303
+    with world.database.unit_of_work() as uow:
+        user = uow.identity.get_user(teacher.user_id)
+    assert user is not None and user.is_tenant_admin
+
+    revoked = client.post(f"/manage/users/{teacher.user_id}/tenant-admin", follow_redirects=False)
+    assert revoked.status_code == 303
+    with world.database.unit_of_work() as uow:
+        user = uow.identity.get_user(teacher.user_id)
+    assert user is not None and not user.is_tenant_admin
+
+
+def test_an_admin_cannot_change_their_own_tenant_admin_flag(world: World) -> None:
+    """自分から外すと、自分では戻せない（無効化と同じ理屈）。"""
+    boss = world.register("boss", Role.ADMIN)
+
+    response = world.client("boss").post(f"/manage/users/{boss.user_id}/tenant-admin")
+
+    assert response.status_code == 400
+    with world.database.unit_of_work() as uow:
+        user = uow.identity.get_user(boss.user_id)
+    assert user is not None and user.is_tenant_admin
+
+
+def test_a_course_role_can_be_changed_from_the_user_page(world: World) -> None:
+    world.register("boss", Role.ADMIN)
+    learner = world.register("s2400012", Role.LEARNER)
+
+    response = world.client("boss").post(
+        f"/manage/users/{learner.user_id}/courses/{world.course.id}/role",
+        data={"role": "assistant"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    with world.database.unit_of_work() as uow:
+        enrollment = uow.identity.find_enrollment(world.course.id, learner.user_id)
+    assert enrollment is not None and enrollment.role is Role.ASSISTANT
+
+
+def test_admin_cannot_be_granted_from_the_user_page(world: World) -> None:
+    """コースをまたぐ権限は、コース単位の欄からは配れない（受講者一覧と同じ）。"""
+    world.register("boss", Role.ADMIN)
+    learner = world.register("s2400013", Role.LEARNER)
+
+    response = world.client("boss").post(
+        f"/manage/users/{learner.user_id}/courses/{world.course.id}/role",
+        data={"role": "admin"},
+    )
+
+    assert response.status_code == 403
+    with world.database.unit_of_work() as uow:
+        enrollment = uow.identity.find_enrollment(world.course.id, learner.user_id)
+    assert enrollment is not None and enrollment.role is Role.LEARNER
+
+
+def test_a_course_role_cannot_be_set_without_an_enrolment(world: World) -> None:
+    """受講登録そのものはコース側の画面の仕事（ここで作らない）。"""
+    world.register("boss", Role.ADMIN)
+    outsider = world.register("s2400014", None)
+
+    response = world.client("boss").post(
+        f"/manage/users/{outsider.user_id}/courses/{world.course.id}/role",
+        data={"role": "assistant"},
+    )
+
+    assert response.status_code == 404
+
+
 def test_an_unknown_subject_profile_is_refused(world: World) -> None:
     """存在しないプロファイルでコースを作ると、採点が恒久的に失敗する。"""
     world.register("boss", Role.ADMIN)
@@ -3248,29 +3382,28 @@ def test_the_enrolment_form_explains_the_roles_as_differences(world: World) -> N
         assert role in table
 
 
-def test_the_console_does_not_offer_admin_or_instructor_to_a_teacher(world: World) -> None:
-    """**教員が配れるのは assistant まで**（#126。#100 時点では instructor まで
-    だったが、教員どうしが際限なく教員を増やせるのを避けるため狭めた）。
+def test_the_console_does_not_offer_admin_to_a_teacher(world: World) -> None:
+    """**`admin` は画面から配れない。**
 
-    `admin` はコースを作れてテナント内の全コースに届く。担当教員が自分の
-    コースの受講者一覧から配れる権限ではない。以前は `Role` の全値を選択肢に
-    していたので、`assistant` と `instructor` の間に `admin` が並んでいた。
+    `admin` はコースを作れてテナント内の全コースに届く ── コースをまたぐ
+    権限なので、コースの受講者一覧から配れる範囲ではない。以前は `Role` の
+    全値を選択肢にしていたので、`assistant` と `instructor` の間に `admin` が
+    並んでいた（#100）。
+
+    `instructor` は**担当教員も配れる**（2026-09-08 に #126 を覆した。
+    コース単位の権限なので、担当を任せる相手は担当教員が決められる）。
     """
     world.register("teacher", Role.INSTRUCTOR)
     page = world.client("teacher").get(f"/manage/courses/{world.course.id}/enrolments").text
 
-    # 選択肢に無い（役割の変更・名簿の既定のどちらにも）。
     options = {line for line in page.splitlines() if "<option" in line}
     assert not [line for line in options if 'value="admin"' in line], "admin が選択肢にある"
-    assert not [line for line in options if 'value="instructor"' in line], (
-        "教員に instructor が選択肢として出ている"
-    )
-    for role in ("learner", "assistant"):
+    for role in ("learner", "assistant", "instructor"):
         assert [line for line in options if f'value="{role}"' in line], f"{role} が選べない"
 
 
 def test_the_console_offers_instructor_to_an_admin(world: World) -> None:
-    """**管理者が配れるのは instructor まで**（#126）。"""
+    """管理者も同じ範囲（`admin` だけが画面の外）。"""
     world.register("boss", Role.ADMIN)
     page = world.client("boss").get(f"/manage/courses/{world.course.id}/enrolments").text
     options = {line for line in page.splitlines() if "<option" in line}
@@ -3294,17 +3427,18 @@ def test_admin_cannot_be_granted_through_the_form(world: World) -> None:
         enrollment = uow.identity.find_enrollment(world.course.id, student.user_id)
     assert enrollment is not None and enrollment.role is Role.LEARNER, "役割が上がっている"
 
-    # 教員の上限は assistant（#126）。instructor は教員には付与できない。
-    denied = client.post(
+    # **担当教員も `instructor` を付けられる**（2026-09-08 に #126 を覆した）。
+    promoted = client.post(
         f"/manage/courses/{world.course.id}/enrolments/{student.user_id}/role",
         data={"role": "instructor"},
+        follow_redirects=False,
     )
-    assert denied.status_code == 403
+    assert promoted.status_code == 303
     with world.database.unit_of_work() as uow:
         enrollment = uow.identity.find_enrollment(world.course.id, student.user_id)
-    assert enrollment is not None and enrollment.role is Role.LEARNER, "役割が上がっている"
+    assert enrollment is not None and enrollment.role is Role.INSTRUCTOR
 
-    # assistant までは通る。
+    # 降格も同じ経路でできる。
     ok = client.post(
         f"/manage/courses/{world.course.id}/enrolments/{student.user_id}/role",
         data={"role": "assistant"},
