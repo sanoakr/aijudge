@@ -8,7 +8,7 @@
   {% if changed %}<div class="note">パスワードを変更しました。新しいパスワードでログインしてください。</div>{% endif %}
   {% if google_configured %}
   <form method="get" action="{{ root_prefix() }}/auth/login" class="card">
-    <div class="actions"><button type="submit">大学アカウントでログイン</button></div>
+    <div class="cta"><button type="submit">大学アカウントでログイン</button></div>
   </form>
   {% else %}
   <div class="note warn">
