@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}{{ name }} — 科目プロファイル — aiJudge{% endblock %}
+{% block body %}
+<h1><span class="mono">{{ name }}</span></h1>
+<p class="crumb"><a href="{{ root_prefix() }}/manage/subjects">科目プロファイルの一覧へ戻る</a></p>
+
+{% if saved %}<div class="note saved">{{ saved }}</div>{% endif %}
+{% if error %}<div class="note warn">{{ error }}</div>{% endif %}
+
+{% if editable %}
+<div class="note">
+  このプロファイルは<strong>どのコースからも使われていない</strong>ので、
+  直接編集できます。保存するときに設定として通るかを検査します
+  （通らないものは保存しません ── 通してしまうと、この科目の採点が次から止まります）。
+</div>
+
+<form method="post" action="{{ root_prefix() }}/manage/subjects/{{ name }}" class="card">
+  <div class="field">
+    <label for="text">YAML 全文</label>
+    <textarea id="text" name="text" rows="28" class="mono" spellcheck="false">{{ text }}</textarea>
+    <p class="desc">
+      コメント（<span class="mono">#</span> で始まる行）はそのまま保存されます。
+      <strong>消さずに残してください</strong> ── 各値の根拠がそこに書かれています。
+    </p>
+  </div>
+  <div class="actions"><button type="submit">保存</button></div>
+</form>
+
+<h2>名前を変える</h2>
+<form method="post" action="{{ root_prefix() }}/manage/subjects/{{ name }}/rename" class="card">
+  <div class="field">
+    <label for="rename_to">新しい名前</label>
+    <input id="rename_to" name="new_name" required placeholder="cs_lang_c_advanced"
+           pattern="[a-z][a-z0-9_]{1,62}">
+    <p class="desc">英小文字で始まり、英小文字・数字・下線のみ。ファイル名になります。</p>
+  </div>
+  <div class="actions"><button type="submit">名前を変える</button></div>
+</form>
+
+{% else %}
+<div class="note warn">
+  <strong>このプロファイルは編集できません。</strong>
+  下のコースが雛形として使っているので、書き換えるとそのコースの採点が変わります。
+  変えたいときは<strong>複製して、複製の方を編集</strong>してください
+  （下のコースは元のプロファイルを参照し続けます）。
+</div>
+
+<h2>使っているコース</h2>
+<table>
+  <thead><tr><th class="fit">コード</th><th class="grow">コース</th><th class="fit">学期</th></tr></thead>
+  <tbody>
+  {% for course in used_by %}
+    <tr>
+      <td class="fit mono">{{ course.code }}</td>
+      <td class="grow"><a href="{{ root_prefix() }}/manage/courses/{{ course.id }}">{{ course.title }}</a></td>
+      <td class="fit desc">{{ course.term }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<h2>内容（読み取り専用）</h2>
+<div class="card">
+  <textarea rows="28" class="mono" readonly spellcheck="false">{{ text }}</textarea>
+</div>
+{% endif %}
+
+<h2>複製して編集する</h2>
+<form method="post" action="{{ root_prefix() }}/manage/subjects/{{ name }}/duplicate" class="card">
+  <p class="desc">
+    このプロファイルをそのまま写して、新しい名前で作ります（コメントも含めて写します）。
+    複製はどのコースからも参照されていないので、そのまま編集できます。
+  </p>
+  <div class="field">
+    <label for="new_name">新しい名前</label>
+    <input id="new_name" name="new_name" required placeholder="cs_lang_c_advanced"
+           pattern="[a-z][a-z0-9_]{1,62}">
+  </div>
+  <div class="field">
+    <label for="description">説明（空なら元のまま）</label>
+    <input id="description" name="description" placeholder="応用プログラミング演習">
+  </div>
+  <div class="actions"><button type="submit">複製して編集へ</button></div>
+</form>
+{% endblock %}
