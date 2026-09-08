@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}取り込みの確認 — {{ unit.label }} — aiJudge{% endblock %}
+{% block body %}
+<h1>取り込みの確認</h1>
+<p class="crumb">
+  {{ course.title }} · {{ unit.label }}
+  <span class="sep">·</span> <strong>まだ保存していません</strong>
+</p>
+
+{# **押したら何件変わったか分からない、を避ける。** まとまった投入で怖いのは
+   そこなので、保存の前に 1 件ずつ何になるかを出す。 #}
+<div class="note">
+  読み取れたのは {{ planned | length }} 件です。下の内容で保存すると、
+  <strong>新規 {{ planned | selectattr('change.value', 'equalto', 'new') | list | length }} 件</strong>・
+  変化なし {{ planned | selectattr('change.value', 'equalto', 'unchanged') | list | length }} 件・
+  <strong>版が上がる {{ planned | selectattr('change.value', 'equalto', 'revised') | list | length }} 件</strong>
+  になります。既にある課題の内容は書き換えません（版を上げます）。
+</div>
+
+<table>
+  <thead><tr>
+    <th class="fit">鍵</th><th class="grow">題名</th>
+    <th class="fit">テスト</th><th class="fit">どうなるか</th>
+  </tr></thead>
+  <tbody>
+  {% for item in planned %}
+    <tr>
+      <td class="fit mono">{{ item.spec.key }}</td>
+      <td class="grow">{{ item.title }}</td>
+      <td class="fit desc">
+        {% if item.spec.test_cases %}{{ item.spec.test_cases | length }} 件
+        {% else %}<span class="pill attn">なし</span>{% endif %}
+      </td>
+      <td class="fit">
+        {% if item.change.value == 'new' %}<span class="pill ok">新規</span>
+        {% elif item.change.value == 'unchanged' %}<span class="desc">変化なし</span>
+        {% else %}<span class="pill attn">版 {{ item.existing_version }} → {{ item.existing_version + 1 }}</span>
+        {% endif %}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<p class="desc">
+  鍵の前半（<span class="mono">{{ unit.unit or '—' }}</span>）はこの問題セットが決めています。
+  zip の中の指定は使いません — フォルダ名の打ち間違いが別の課題として増えるのを防ぐためです。
+</p>
+
+<form method="post"
+      action="{{ root_prefix() }}/manage/courses/{{ course.id }}/units/{{ unit.key }}/bundle/confirm"
+      class="card">
+  <input type="hidden" name="specs" value="{{ payload }}">
+  <div class="field">
+    <label><input type="checkbox" name="approved" value="1"> 承認済みとして取り込む</label>
+    <p class="desc" style="margin-top:6px">
+      既定は<strong>未承認</strong>です — 中身は他所で書かれたもので、この画面で
+      まだ誰も読んでいません。未承認のあいだ学習者には出ません（「未承認の課題」から
+      中身を確かめて承認してください）。
+      <strong>以前この科目で使っていた課題を戻す場合</strong>のように、内容が
+      分かっているものだけチェックしてください。
+    </p>
+  </div>
+  <div class="actions">
+    <a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/units/{{ unit.key }}" class="desc">やめる</a>
+    <button type="submit">この内容で取り込む</button>
+  </div>
+</form>
+{% endblock %}

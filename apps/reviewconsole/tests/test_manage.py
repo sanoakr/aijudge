@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import html
 import io
 import re
 import zipfile
@@ -21,7 +22,7 @@ from fastapi.testclient import TestClient
 
 from aijudge_admin import ensure_course
 from aijudge_authoring.statement import render_statement
-from aijudge_core import Role
+from aijudge_core import ReviewState, Role
 from aijudge_core.ids import CourseId, TaskVersionId, TenantId
 from aijudge_identity import AuthenticationFailed, AuthService
 from aijudge_persistence import Database
@@ -757,6 +758,11 @@ def _import_example(world: World) -> str:
     )
     (task, _version) = list_tasks(world.database, world.course.id)[0]
     return str(task.id)
+
+
+def _task_count(world: World) -> int:
+    with world.database.unit_of_work() as uow:
+        return len(uow.tasks.list_for_course(world.course.id))
 
 
 def _unit_of(world: World) -> str:
@@ -4894,3 +4900,159 @@ def test_a_fully_withdrawn_set_is_marked_on_the_course_page(world: World) -> Non
     page = client.get(f"/courses/{world.course.id}").text
     assert "出題していません" in page
     assert "hidden-from-learners" in page
+
+
+# --------------------------------------------------------------------------
+# 束（zip）で課題を入れる（#161）
+# --------------------------------------------------------------------------
+
+
+def _bundle(entries: dict[str, bytes | str]) -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        for name, body in entries.items():
+            archive.writestr(name, body if isinstance(body, bytes) else body.encode("utf-8"))
+    return buffer.getvalue()
+
+
+BUNDLED_TASK = "statement: |\n  ## [必須] 束から来た問題 ##\n\n  本文\n"
+
+
+def _upload(client, world: World, bundle: bytes, unit: str = "ex06"):
+    return client.post(
+        f"/manage/courses/{world.course.id}/units/{unit}/bundle",
+        files={"archive": ("ex06.zip", bundle, "application/zip")},
+    )
+
+
+def test_reading_a_bundle_saves_nothing_yet(world: World) -> None:
+    """**押した瞬間に何十件も入る操作にしない。** まず何が起きるかを出す。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    unit = "ex06"
+    before = _task_count(world)
+
+    response = _upload(
+        world.client("teacher"), world, _bundle({"p9/task.yaml": BUNDLED_TASK}), unit
+    )
+
+    assert response.status_code == 200
+    assert "まだ保存していません" in response.text
+    assert "束から来た問題" in response.text
+    assert _task_count(world) == before, "確認の段階で保存されている"
+
+
+def test_the_key_comes_from_the_unit_on_the_page(world: World) -> None:
+    """鍵の前半は画面が持つ問題セットが決める（#70）。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    unit = "ex06"
+
+    body = _upload(
+        world.client("teacher"), world, _bundle({"p9/task.yaml": BUNDLED_TASK}), unit
+    ).text
+
+    assert f"{unit}/p9" in body
+
+
+def test_a_broken_bundle_is_refused_with_the_reason(world: World) -> None:
+    world.register("teacher", Role.INSTRUCTOR)
+
+    response = _upload(world.client("teacher"), world, b"not a zip")
+
+    assert response.status_code == 400
+    assert "zip" in response.text
+
+
+def test_confirming_the_bundle_saves_it_unapproved_by_default(world: World) -> None:
+    """中身は他所で書かれたもの。**このシステムでは誰も読んでいない**（#48）。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    unit = "ex06"
+    preview = _upload(client, world, _bundle({"p9/task.yaml": BUNDLED_TASK}), unit).text
+    specs = re.search(r'name="specs" value="([^"]*)"', preview)
+    assert specs is not None
+
+    response = client.post(
+        f"/manage/courses/{world.course.id}/units/{unit}/bundle/confirm",
+        data={"specs": html.unescape(specs.group(1))},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    with world.database.unit_of_work() as uow:
+        task = next(
+            item
+            for item in uow.tasks.list_for_course(world.course.id)
+            if item.title.endswith("問題")
+        )
+        version = uow.tasks.latest_version(task.id)
+    assert version is not None
+    assert version.provenance.review_state is ReviewState.IN_REVIEW
+    # **生成物のふりをさせない**（承認率の統計が AI の承認率でなくなる）。
+    assert version.provenance.generated_by is None
+
+
+def test_the_bundle_can_be_taken_in_as_approved(world: World) -> None:
+    """以前この科目で使っていた課題を戻す場合。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    unit = "ex06"
+    preview = _upload(client, world, _bundle({"p9/task.yaml": BUNDLED_TASK}), unit).text
+    specs = html.unescape(re.search(r'name="specs" value="([^"]*)"', preview).group(1))
+
+    client.post(
+        f"/manage/courses/{world.course.id}/units/{unit}/bundle/confirm",
+        data={"specs": specs, "approved": "1"},
+        follow_redirects=False,
+    )
+
+    with world.database.unit_of_work() as uow:
+        task = next(
+            item
+            for item in uow.tasks.list_for_course(world.course.id)
+            if item.title.endswith("問題")
+        )
+        version = uow.tasks.latest_version(task.id)
+    assert version is not None and version.provenance.review_state is ReviewState.APPROVED
+
+
+def test_the_same_bundle_twice_adds_nothing(world: World) -> None:
+    """入れ直しても増えない（鍵の冪等性）。移行は何度も流すもの。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    unit = "ex06"
+    bundle = _bundle({"p9/task.yaml": BUNDLED_TASK})
+
+    for _ in range(2):
+        preview = _upload(client, world, bundle, unit).text
+        specs = html.unescape(re.search(r'name="specs" value="([^"]*)"', preview).group(1))
+        client.post(
+            f"/manage/courses/{world.course.id}/units/{unit}/bundle/confirm",
+            data={"specs": specs},
+            follow_redirects=False,
+        )
+
+    with world.database.unit_of_work() as uow:
+        keys = [item.title for item in uow.tasks.list_for_course(world.course.id)]
+    assert len([key for key in keys if key.endswith("問題")]) == 1
+
+
+def test_a_forged_confirm_is_validated_again(world: World) -> None:
+    """**確認画面を経由しても POST は手で作れる。** 検証をもう一度通す。"""
+    world.register("teacher", Role.INSTRUCTOR)
+
+    response = world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/units/ex06/bundle/confirm",
+        data={"specs": '[{"statment": "綴り間違い"}]'},
+    )
+
+    assert response.status_code == 400
+
+
+def test_a_ta_cannot_upload_a_bundle(world: World) -> None:
+    """課題を足すのは担当教員以上（#102）。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    world.register("ta", Role.ASSISTANT)
+
+    response = _upload(world.client("ta"), world, _bundle({"p9/task.yaml": BUNDLED_TASK}))
+
+    assert response.status_code == 403

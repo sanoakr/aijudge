@@ -37,6 +37,7 @@
 
 from __future__ import annotations
 
+import json
 from collections import Counter
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -65,6 +66,8 @@ from aijudge_admin import (
     list_profiles,
     parse_roster,
     pending_counts,
+    plan_bundle,
+    read_bundle,
     read_profile_text,
     register_kc,
     rename_profile,
@@ -77,6 +80,7 @@ from aijudge_admin import (
     template_of,
     try_settings,
 )
+from aijudge_admin.bundles import MAX_ARCHIVE_BYTES
 from aijudge_admin.drafting import TaskDrafter
 from aijudge_admin.roster import RosterError, generate_password
 from aijudge_admin.syllabus import (
@@ -524,6 +528,13 @@ SAVED_MESSAGES: dict[str, str] = {
     # 利用者を参照しているので、行は残したまま状態を倒し、セッションを切る。
     "disabled": "利用者を無効化しました（記録は残ります。セッションも切りました）",
     "course_deleted": "コースを削除しました（学習者の提出はありませんでした）",
+    # 束の取り込み（#161）。**未承認で入ったことを黙らせない** ── 出題されて
+    # いると思ったまま学期が進む形が、いちばん高くつく。
+    "bundle_in_review": (
+        "取り込みました。**未承認なので、まだ学習者には出ません** —— "
+        "「未承認の課題」から中身を確かめて承認してください"
+    ),
+    "bundle_saved": "取り込みました（承認済みとして入れたので、日程の範囲で出題されます）",
     "tenant_admin_granted": "テナント管理者にしました（すべてのコースで教員として扱われます）",
     "tenant_admin_revoked": "テナント管理者から外しました（役割はコースごとの受講で決まります）",
     "grading": "採点設定を保存しました",
@@ -598,6 +609,19 @@ def _unit_group(console, course, unit: str):
     if group is None:
         raise HTTPException(status_code=404, detail="問題セットが見つかりません")
     return group
+
+
+def _unit_group_or_empty(console, course, unit: str):
+    """URL の鍵から問題セットを引く。**無ければ「まだ空の回」として返す。**
+
+    回は課題が持つ属性で、それ自体の記録は無い（`create_unit` は何も保存
+    しない）。だから「まだ 1 問も無い回」は存在しない回と区別できず、
+    404 にすると回を作る導線が消える（`unit_settings` と同じ判断）。
+    """
+    key = _normalized_unit(unit)
+    with console.database.unit_of_work() as uow:
+        units = load_units(uow, course)
+    return find_unit(units, key) or empty_unit(key, course)
 
 
 def _exam_state(console, course, group, now: datetime) -> dict[str, object]:
@@ -1643,6 +1667,9 @@ def register(templates) -> APIRouter:
                 ),
                 "suffix_groups": SUFFIX_GROUPS,
                 "course_suffixes": course.upload_suffixes or DEFAULT_UPLOAD_SUFFIXES,
+                # 束の上限（#161）。**画面に書く値をコードから取る** ──
+                # 書き写すと、上限を変えた日に画面だけが古い数字を出す。
+                "bundle_max_mb": MAX_ARCHIVE_BYTES // (1024 * 1024),
                 # 共通ルーブリック。未設定なら組み込みの既定を出して、
                 # **いま何が使われているか**を見えるようにする。
                 "rubric_rows": rubric.to_rows(
@@ -2019,6 +2046,144 @@ def register(templates) -> APIRouter:
             content=payload,
             media_type=images.content_type(name),
             headers={"Cache-Control": "private, max-age=86400"},
+        )
+
+    # -- 束（zip）で課題を入れる（#161）------------------------------------
+    #
+    # **読み取り → 確認 → 人が保存**（シラバス読み取りと同じ作法）。押した
+    # 瞬間に何十件も入る操作にしない ── まとまった投入で怖いのは「押したら
+    # 何件変わったか分からない」ことである。
+    #
+    # 受け取る構造はこのシステム自身の語彙（`aijudge_admin.bundles`）。
+    # 移行元の形式をここに持ち込まない ── 一度その形で入口を作り、廃止した。
+
+    @router.post("/courses/{course_id}/units/{unit}/bundle", response_class=HTMLResponse)
+    async def read_task_bundle(request: Request, course_id: str, unit: str) -> Response:
+        """zip を読んで、**何が起きるかを見せる**。まだ保存しない。"""
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+        # **まだ課題が 1 問も無い回にも入れられる。** 束で入れるのは
+        # 「新しい問題セットを作る」でもあるので、存在しない回として断ると
+        # 導線が無くなる（`unit_settings` と同じ扱い・`empty_unit`）。
+        group = _unit_group_or_empty(console, course, unit)
+
+        form = await request.form()
+        upload = form.get("archive")
+        payload = await upload.read() if hasattr(upload, "read") else b""
+        try:
+            bundled = read_bundle(payload)
+        except AdminError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from None
+
+        # 画像は**この時点で置く**。鍵は中身のハッシュなので、置き直しても
+        # 増えず、保存しなかった場合に残るのは孤児のファイルだけ（教員が
+        # 画像だけ上げて貼らなかった場合と同じ状態）。こうしておくと、
+        # 確認画面はサーバに一時状態を持たずに済む。
+        prepared = []
+        for task in bundled:
+            spec = task.spec
+            statement = spec.statement
+            for image in task.images:
+                try:
+                    name = images.new_name(image.payload, image.name)
+                    key = images.storage_key(str(course.id), name)
+                except images.ImageError as exc:
+                    raise HTTPException(
+                        status_code=400, detail=f"{task.leaf}/{image.name}: {exc}"
+                    ) from None
+                if not console.store.exists(key):
+                    console.store.put(key, image.payload)
+                # 束の中の相対リンクを、置いた先のリンクに書き換える。
+                statement = statement.replace(
+                    f"images/{image.name}", images.url_for(str(course.id), name)
+                )
+            # 鍵の前半は**この画面が持つ問題セット**が決める（#70）。
+            prepared.append(
+                spec.model_copy(
+                    update={
+                        "statement": statement,
+                        "key": _compose_key(group.unit or "", spec.key),
+                        "unit": group.unit,
+                        "session": group.session,
+                    }
+                )
+            )
+
+        try:
+            planned = plan_bundle(
+                console.database,
+                course_id=course.id,
+                subject_profile=course.subject_profile,
+                authored_by=me.user_id,
+                specs=tuple(prepared),
+            )
+        except AdminError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from None
+
+        return templates.TemplateResponse(
+            request,
+            "manage_bundle_preview.html",
+            {
+                "me": me,
+                "course": course,
+                "unit": group,
+                "planned": planned,
+                # 確認画面から保存へ渡す。**サーバに一時状態を持たない** ──
+                # 持つと、2 人が同時に上げたときにどちらの束か分からなくなる。
+                "payload": json.dumps([item.spec.model_dump(mode="json") for item in planned]),
+            },
+        )
+
+    @router.post("/courses/{course_id}/units/{unit}/bundle/confirm")
+    def save_task_bundle(
+        request: Request,
+        course_id: str,
+        unit: str,
+        specs: Annotated[str, Form()],
+        approved: Annotated[str, Form()] = "",
+    ) -> Response:
+        """確認した束を保存する。**保存は既存の経路（`save_task`）を通す。**
+
+        承認済みで入れるかどうかはここで選ぶ（#161）。既定は未承認 ──
+        中身は他所で書かれたもので、このシステムでは誰も読んでいない。
+        承認するまで学習者には出ない（#48）。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+        group = _unit_group_or_empty(console, course, unit)
+
+        try:
+            # **送られてきたものを信じない。** 確認画面を経由しても、POST は
+            # 手で作れる（`TaskSpec` の検証をもう一度通す）。
+            parsed = tuple(TaskSpec.model_validate(item) for item in json.loads(specs))
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"読み取れませんでした: {exc}") from None
+
+        review_state = ReviewState.APPROVED if approved.strip() else ReviewState.IN_REVIEW
+        for spec in parsed:
+            try:
+                save_task(
+                    console.database,
+                    course_id=course.id,
+                    spec=spec,
+                    subject_profile=course.subject_profile,
+                    authored_by=me.user_id,
+                    revise=True,
+                    course_rubric=course.rubric,
+                    review_state=review_state,
+                )
+            except AdminError as exc:
+                raise HTTPException(status_code=409, detail=f"{spec.key}: {exc}") from None
+
+        saved_key = "bundle_saved" if review_state is ReviewState.APPROVED else "bundle_in_review"
+        return RedirectResponse(
+            f"/manage/courses/{course.id}/units/{group.key}?saved={saved_key}", status_code=303
         )
 
     @router.post("/courses/{course_id}/units/{unit}/clear")

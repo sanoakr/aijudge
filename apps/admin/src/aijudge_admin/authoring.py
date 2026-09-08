@@ -16,7 +16,7 @@ from dataclasses import dataclass
 
 from aijudge_authoring import TaskSpec, build_task_version
 from aijudge_authoring.repository import TaskStoreError, substantive
-from aijudge_core import Task, TaskVersion
+from aijudge_core import ReviewState, Task, TaskVersion
 from aijudge_core.ids import CourseId, UserId
 from aijudge_persistence import Database
 
@@ -58,6 +58,7 @@ def save_task(
     course_rubric: tuple[dict, ...] = (),
     generated_by: str | None = None,
     generation_prompt_version: str | None = None,
+    review_state: ReviewState | None = None,
 ) -> SavedTask:
     """課題を保存する。既にあれば内容の同一性を確かめ、無ければ作る。
 
@@ -98,6 +99,7 @@ def save_task(
         authored_by=authored_by,
         generated_by=generated_by,
         generation_prompt_version=generation_prompt_version,
+        review_state=review_state,
     )
     if revise:
         with database.unit_of_work() as uow:
@@ -121,6 +123,7 @@ def save_task(
                 # 捨てられていた（設計原則 P5）。
                 generated_by=generated_by,
                 generation_prompt_version=generation_prompt_version,
+                review_state=review_state,
             )
     with database.unit_of_work() as uow:
         existing = uow.tasks.get_task(version.task_id)

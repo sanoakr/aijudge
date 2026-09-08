@@ -255,6 +255,34 @@
   <a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/units/{{ unit.key }}/tasks/new">課題を追加する →</a>
 </p>
 
+{# **束で入れる**（#161）。1 問でも問題セット一括でも同じ入口 ── 中身が
+   1 フォルダか複数かの違いしかない。読んだ結果は保存前に確認画面へ出す。 #}
+<h3 id="bundle">zip でまとめて取り込む</h3>
+<form method="post"
+      action="{{ root_prefix() }}/manage/courses/{{ course.id }}/units/{{ unit.key }}/bundle"
+      enctype="multipart/form-data" class="card">
+  <p class="desc" style="margin-top:0">
+    課題ごとのフォルダに <span class="mono">task.yaml</span> を置いた zip を選びます。
+    1 問だけでもかまいません。<strong>読み取った内容を確認してから保存します</strong>
+    （この場では保存しません）。
+  </p>
+  <pre class="code mono" style="margin:0 0 12px"><span class="ln">p1/
+  task.yaml        課題の宣言（statement・criteria・knowledge_components など）
+  statement.md     任意。あれば task.yaml の statement より優先します
+  reference.c      任意。参照解答（.c / .py / .java / .txt）
+  tests/case1.in   任意。case1.out と対にします
+  tests/case1.out
+  images/fig1.png  任意。課題文の images/fig1.png というリンクを書き換えます
+p2/task.yaml</span></pre>
+  <div class="inline-field">
+    <span class="body">
+      <label for="archive">zip（{{ bundle_max_mb }}MB まで）</label>
+      <input id="archive" type="file" name="archive" accept=".zip,application/zip" required>
+    </span>
+    <button type="submit">読み取る</button>
+  </div>
+</form>
+
 {% if unit.deadline_passed and unit.unfinalized %}
 <div class="note warn">
   <strong>期限が過ぎたのに未確定が {{ unit.unfinalized }} 件あります。</strong>
