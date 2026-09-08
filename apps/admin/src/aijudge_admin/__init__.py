@@ -13,7 +13,7 @@ from __future__ import annotations
 from . import rubric
 from .authoring import SavedTask, save_task
 from .bundle_plan import PlannedChange, PlannedTask, plan_bundle
-from .bundles import BundledTask, read_bundle
+from .bundles import BundledTask, read_bundle, template_bundle
 from .course_copy import DuplicatedCourse, duplicate_course
 from .courses import DeletedCourse, delete_course
 from .duplicates import DuplicateChecker
@@ -151,6 +151,7 @@ __all__ = [
     "save_task",
     "set_password",
     "sweep_deadlines",
+    "template_bundle",
     "template_of",
     "try_settings",
     "validate_grading_settings",

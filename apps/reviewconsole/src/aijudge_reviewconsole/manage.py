@@ -78,6 +78,7 @@ from aijudge_admin import (
     save_grading_settings,
     save_profile_text,
     save_task,
+    template_bundle,
     template_of,
     try_settings,
 )
@@ -2163,6 +2164,46 @@ def register(templates) -> APIRouter:
     #
     # 受け取る構造はこのシステム自身の語彙（`aijudge_admin.bundles`）。
     # 移行元の形式をここに持ち込まない ── 一度その形で入口を作り、廃止した。
+
+    @router.get("/courses/{course_id}/units/{unit}/bundle/template")
+    def bundle_template(request: Request, course_id: str, unit: str) -> Response:
+        """アップロードする一式のひな形を返す（#171）。
+
+        **画面の説明文から構造を組み立てさせない。** 書き写しの失敗は
+        「取り込めません」の 1 行になって返り、何を直せばよいかは画面から
+        読めない。書ける状態のものを渡せば、そもそも書き写しが要らない。
+
+        **コースに合わせて作る** ── 使える評価器・共通ルーブリックの観点
+        コード・このコースが使う知識要素のキーを、`task.yaml` のコメントに
+        入れる。知識要素は登録済みのものしか名指しできないので、一覧が
+        手元にあるかどうかで書きやすさが変わる。
+
+        権限は取り込みと同じ（担当教員以上・#102）。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+        profile = load_profile(console.profiles_dir / f"{course.subject_profile}.yaml")
+
+        payload = template_bundle(
+            unit=unit,
+            evaluators=tuple(profile.deterministic),
+            criterion_codes=tuple(
+                criterion.code for criterion in rubric.from_stored(course.rubric)
+            ),
+            kc_keys=tuple(kc.key for kc in _course_kcs(console, course)),
+        )
+        # **ファイル名は ASCII に留める。** 回の名前は教員が付けるもので、
+        # 日本語も入りうる ── `filename*=` の符号化まで持ち込むより、
+        # 中身の README で「どの問題セット向けか」を言う方が壊れない。
+        stem = unit if unit.isascii() and unit.isprintable() else "bundle"
+        return Response(
+            content=payload,
+            media_type="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="{stem}-template.zip"'},
+        )
 
     @router.post("/courses/{course_id}/units/{unit}/bundle", response_class=HTMLResponse)
     async def read_task_bundle(request: Request, course_id: str, unit: str) -> Response:
