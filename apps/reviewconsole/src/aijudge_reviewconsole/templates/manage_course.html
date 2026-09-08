@@ -8,6 +8,13 @@
   <span class="sep">·</span> 課題の設定は<a href="{{ root_prefix() }}/courses/{{ course.id }}">問題セットのページ</a>から
 </p>
 
+{% if saved_key == 'course_duplicated' %}
+{# **複製の直後だけ、画面の頭で告げる。** この画面の他の知らせは節ごとの
+   その場に出るが（保存したのはその節だから）、複製で変わったのは画面
+   まるごとである ── 何件写して、何を写していないかを、最初に読ませる。 #}
+<div class="note">{{ saved }}</div>
+{% endif %}
+
 <h2 id="basics">基本情報</h2>
 <div class="card">
   <p class="desc" style="margin:0 0 4px"><strong>{{ course.title }}</strong>
@@ -317,6 +324,51 @@
 </form>
 
 {% if is_admin %}
+{# **複製は「作る」操作**（#170）。だから削除と同じ管理者権限で、置き場所は
+   その手前 ── 学期の頭にすることが、コース設定の末尾で終わる形にする。 #}
+<h2 id="duplicate">このコースを複製する</h2>
+<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/duplicate" class="card">
+  <p class="desc" style="margin-top:0">
+    問題セットと設定（共通ルーブリック・採点設定・提出形式・知識要素の範囲・
+    遅延の段階）を<strong>そのまま引き継ぎます</strong>。
+    <strong>引き継がないもの</strong>は、日程・受講登録・提出と採点の記録・
+    未承認の課題です ── 元の学期の日付を持ち込むと、新しい学期の初日に
+    全課題が締切済みになるためです。
+  </p>
+  <div class="field">
+    <label for="dup_code">コースコード</label>
+    <input id="dup_code" name="code" required value="{{ course.code }}">
+  </div>
+  <div class="field">
+    <label for="dup_title">コース名</label>
+    <input id="dup_title" name="title" required value="{{ course.title }}">
+  </div>
+  <div class="field">
+    <label for="dup_term_year">学期</label>
+    <div class="row-form">
+      <span>
+        <select id="dup_term_year" name="term_year" required>
+          {% for year in term_years %}
+          <option value="{{ year }}">{{ year }} 年度</option>
+          {% endfor %}
+        </select>
+      </span>
+      <span>
+        <select id="dup_term_division" name="term_division" required aria-label="学期の区分">
+          {% for division in term_divisions %}
+          <option value="{{ division }}">{{ division }}</option>
+          {% endfor %}
+        </select>
+      </span>
+    </div>
+    <p class="desc" style="margin-top:6px">
+      <strong>コードと学期の組み合わせは、いまのコースと変えてください。</strong>
+      コースはこの 2 つで見分けているので、同じ組では複製になりません。
+    </p>
+  </div>
+  <div class="actions"><button type="submit">この内容で複製する</button></div>
+</form>
+
 {# コースの削除は作成と同じく管理者だけ。担当教員には出さない。 #}
 <h2 id="delete">このコースを削除する</h2>
 {% if learner_submissions %}

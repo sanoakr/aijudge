@@ -14,6 +14,7 @@ from . import rubric
 from .authoring import SavedTask, save_task
 from .bundle_plan import PlannedChange, PlannedTask, plan_bundle
 from .bundles import BundledTask, read_bundle
+from .course_copy import DuplicatedCourse, duplicate_course
 from .courses import DeletedCourse, delete_course
 from .duplicates import DuplicateChecker
 from .finalization import (
@@ -44,6 +45,7 @@ from .operations import (
     EnrolReport,
     ImportedTask,
     ImportReport,
+    course_id_for,
     create_staff,
     enrol_roster,
     ensure_course,
@@ -90,6 +92,7 @@ __all__ = [
     "BundledTask",
     "DeletedCourse",
     "DuplicateChecker",
+    "DuplicatedCourse",
     "EnrolReport",
     "FinalizeReport",
     "ImportReport",
@@ -111,9 +114,11 @@ __all__ = [
     "approve",
     "assert_registered",
     "build_packet",
+    "course_id_for",
     "create_staff",
     "delete_course",
     "delete_kc",
+    "duplicate_course",
     "duplicate_profile",
     "edit_kc",
     "enrol_roster",

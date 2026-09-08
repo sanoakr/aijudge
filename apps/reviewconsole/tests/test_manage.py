@@ -5330,3 +5330,89 @@ def test_courses_are_listed_in_chronological_order(world: World) -> None:
         terms = [c.term for c in uow.identity.list_courses(TENANT) if c.code.startswith("c-")]
 
     assert terms == ["2025-後期", "2026-前期", "2026-1Q"]
+
+
+# --------------------------------------------------------------------------
+# コースの複製（#170）
+# --------------------------------------------------------------------------
+
+
+def _duplicate_form(*, code: str = "prog2", term_division: str = "後期") -> dict[str, str]:
+    return {
+        "code": code,
+        "title": "プログラミング及び実習 2",
+        "term_year": "2026",
+        "term_division": term_division,
+    }
+
+
+def test_only_an_admin_can_duplicate_a_course(world: World) -> None:
+    """複製はコースを作る操作。**権限は作成・削除と同じ**（#130・#156）。"""
+    world.register("teacher", Role.INSTRUCTOR)
+
+    response = world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/duplicate", data=_duplicate_form()
+    )
+
+    assert response.status_code == 403
+
+
+def test_duplicating_lands_on_the_new_course_and_says_what_was_copied(world: World) -> None:
+    """**何件写したかを告げる。** 件数を黙って変えると、教員は自分が何を
+    手に入れたのか画面から確かめられない。
+
+    落とす先は複製先のコース設定 ── 複製後にすることは日程の入力である。
+    """
+    world.register("boss", Role.ADMIN, tenant_admin=True)
+    client = world.client("boss")
+
+    response = client.post(
+        f"/manage/courses/{world.course.id}/duplicate",
+        data=_duplicate_form(),
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    location = response.headers["location"]
+    assert location.startswith("/manage/courses/")
+    assert str(world.course.id) not in location
+    body = client.get(location).text
+    assert "複製しました" in body
+    assert "日程は写していません" in body
+
+
+def test_the_duplicate_form_offers_the_same_terms_as_the_create_form(world: World) -> None:
+    world.register("boss", Role.ADMIN, tenant_admin=True)
+
+    body = world.client("boss").get(f"/manage/courses/{world.course.id}").text
+    form = body[body.index("このコースを複製する") :]
+
+    assert 'name="term_year"' in form
+    assert 'name="term_division"' in form
+    for division in ("前期", "1Q", "通年", "集中"):
+        assert f'value="{division}"' in form
+
+
+def test_duplicating_into_the_same_code_and_term_is_refused(world: World) -> None:
+    """**元のコースを上書きしない。** 同じ組では複製にならない。
+
+    コースの同一性は (テナント, コード, 学期) なので、同じ組を指定すると
+    複製先の ID が元と一致する。
+    """
+    world.register("boss", Role.ADMIN, tenant_admin=True)
+
+    response = world.client("boss").post(
+        f"/manage/courses/{world.course.id}/duplicate",
+        # World のコースは prog2 / 2025-後期。
+        data={
+            "code": "prog2",
+            "title": "別名",
+            "term_year": "2025",
+            "term_division": "後期",
+        },
+    )
+
+    assert response.status_code == 409
+    assert "コードと学期" in response.json()["detail"]
+    with world.database.unit_of_work() as uow:
+        assert uow.identity.get_course(world.course.id).title == "プログラミング及び実習 2"
