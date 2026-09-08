@@ -70,7 +70,7 @@ def database(monkeypatch):
                 tenant_id=TENANT,
                 code="prog2",
                 title="演習",
-                term="2026",
+                term="2026-前期",
                 subject_profile="cs_lang_c_intro",
             )
         )

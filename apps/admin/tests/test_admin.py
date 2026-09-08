@@ -607,3 +607,27 @@ def test_the_cli_never_prints_a_password(tmp_path: Path, capsys) -> None:
     for password in passwords:
         assert password not in captured.out
         assert password not in captured.err
+
+
+def test_a_free_text_term_is_refused(database: Database) -> None:
+    """**学期の検査はここ 1 か所**（#167）。画面も CLI もこの関数を通る。
+
+    学期は course_id の素材なので、表記がゆれると同じ授業のつもりで別の
+    コースができ、**あとから直せない**（ID を変えることは別のコースを
+    作ることで、採点結果は課題版を、課題版はコースを指す）。
+    """
+    for term in ("2025後期", "2026-春", "後期", "2026"):
+        with pytest.raises(AdminError) as exc:
+            ensure_course(
+                database,
+                tenant_id=TENANT,
+                code="prog2",
+                title="演習",
+                term=term,
+                subject_profile="cs_lang_c_intro",
+                profiles_dir=PROFILES,
+            )
+        assert "学期" in str(exc.value)
+        # **何なら通るかを言う。** 形が違うと言うだけでは直せない。
+        assert "2026-前期" in str(exc.value)
+        assert "通年" in str(exc.value)

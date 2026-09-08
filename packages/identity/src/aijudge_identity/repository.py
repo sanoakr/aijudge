@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Protocol, runtime_checkable
 
-from aijudge_core import Course, Enrollment
+from aijudge_core import Course, Enrollment, term_sort_key
 from aijudge_core.ids import ApiTokenId, CourseId, TenantId, UserId
 
 from .models import ApiToken, Session, User
@@ -242,7 +242,7 @@ class InMemoryIdentityRepository:
         return tuple(
             sorted(
                 (self._courses[cid] for cid in course_ids if cid in self._courses),
-                key=lambda course: (course.term, course.code),
+                key=lambda course: (term_sort_key(course.term), course.code),
             )
         )
 
@@ -250,7 +250,7 @@ class InMemoryIdentityRepository:
         return tuple(
             sorted(
                 (c for c in self._courses.values() if c.tenant_id == tenant_id),
-                key=lambda course: (course.term, course.code),
+                key=lambda course: (term_sort_key(course.term), course.code),
             )
         )
 
@@ -263,7 +263,7 @@ class InMemoryIdentityRepository:
         return tuple(
             sorted(
                 (c for c in self._courses.values() if c.subject_profile == subject_profile),
-                key=lambda course: (course.term, course.code),
+                key=lambda course: (term_sort_key(course.term), course.code),
             )
         )
 

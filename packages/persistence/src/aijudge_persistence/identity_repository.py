@@ -16,7 +16,14 @@ from cryptography.fernet import Fernet, InvalidToken
 from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session as DbSession
 
-from aijudge_core import Aggregation, Course, Enrollment, LatePenaltyStep, Role
+from aijudge_core import (
+    Aggregation,
+    Course,
+    Enrollment,
+    LatePenaltyStep,
+    Role,
+    term_sort_key,
+)
 from aijudge_core.ids import ApiTokenId, CourseId, SessionId, TenantId, UserId
 from aijudge_identity.models import ApiToken, Session, User, UserState
 from aijudge_identity.oidc import OidcSettings
@@ -324,17 +331,14 @@ class SqlIdentityRepository:
                 EnrollmentRow.tenant_id == str(tenant_id),
                 EnrollmentRow.user_id == str(user_id),
             )
-            .order_by(CourseRow.term, CourseRow.code)
         ).scalars()
-        return tuple(_course(row) for row in rows if row is not None)  # type: ignore[misc]
+        return _in_term_order(_course(row) for row in rows if row is not None)  # type: ignore[misc]
 
     def list_courses(self, tenant_id: TenantId) -> tuple[Course, ...]:
         rows = self._session.execute(
-            select(CourseRow)
-            .where(CourseRow.tenant_id == str(tenant_id))
-            .order_by(CourseRow.term, CourseRow.code)
+            select(CourseRow).where(CourseRow.tenant_id == str(tenant_id))
         ).scalars()
-        return tuple(_course(row) for row in rows if row is not None)  # type: ignore[misc]
+        return _in_term_order(_course(row) for row in rows if row is not None)  # type: ignore[misc]
 
     def delete_course(self, course_id: CourseId) -> None:
         """コースと受講登録を消す。**提出が無いことは呼び出し側が確かめる**（#156）。"""
@@ -347,11 +351,9 @@ class SqlIdentityRepository:
     def list_courses_using_profile(self, subject_profile: str) -> tuple[Course, ...]:
         """**テナントで絞らない。** 理由は Protocol の docstring（#146）。"""
         rows = self._session.execute(
-            select(CourseRow)
-            .where(CourseRow.subject_profile == subject_profile)
-            .order_by(CourseRow.term, CourseRow.code)
+            select(CourseRow).where(CourseRow.subject_profile == subject_profile)
         ).scalars()
-        return tuple(_course(row) for row in rows if row is not None)  # type: ignore[misc]
+        return _in_term_order(_course(row) for row in rows if row is not None)  # type: ignore[misc]
 
     def remove_enrollment(self, course_id: CourseId, user_id: UserId) -> None:
         """受講を取り消す。**利用者の行は残す。**
@@ -421,6 +423,18 @@ def _api_token(row: ApiTokenRow | None) -> ApiToken | None:
         revoked_at=row.revoked_at,
         last_used_at=row.last_used_at,
     )
+
+
+def _in_term_order(courses) -> tuple[Course, ...]:
+    """コースを (学期, コード) 順に並べる。**学期は時系列で並べる**（#167）。
+
+    以前は SQL の `ORDER BY term` に任せていた。`前期`／`後期` はたまたま
+    文字コード順が時系列と一致するが、`1Q`〜`4Q` が混ざると一致しない
+    （`1Q` が `前期` より前に来る）。**並びの規則はここではなく
+    `aijudge_core.terms` にある** ── インメモリ実装も同じ関数を使うので、
+    両方を通す同じテスト（`test_repositories.py`）で並びが食い違わない。
+    """
+    return tuple(sorted(courses, key=lambda course: (term_sort_key(course.term), course.code)))
 
 
 def _course(row: CourseRow | None) -> Course | None:

@@ -67,7 +67,7 @@ class World:
                         tenant_id=TENANT,
                         code=code,
                         title=f"演習 {code}",
-                        term="2026",
+                        term="2026-前期",
                         subject_profile="cs_lang_c_intro",
                     )
                 )

@@ -38,7 +38,7 @@ from aijudge_core.ids import CourseId, FinalizationId, TaskId, TenantId, UserId
 from aijudge_persistence import Database
 from aijudge_submission import ReviewRepository
 
-from .operations import AdminError
+from .operations import AdminError, _in_term_order
 
 
 @dataclass(frozen=True)
@@ -304,10 +304,11 @@ def _courses(database: Database, course_id: CourseId | None) -> tuple[Course, ..
     from aijudge_persistence.schema import CourseRow
 
     with database.session() as session:
-        statement = select(CourseRow).order_by(CourseRow.term, CourseRow.code)
+        statement = select(CourseRow)
         if course_id is not None:
             statement = statement.where(CourseRow.id == str(course_id))
-        return tuple(
+        # 並びは (学期, コード)。**学期は時系列で並べる**（#167・`term_sort_key`）。
+        return _in_term_order(
             Course(
                 id=CourseId(row.id),
                 tenant_id=TenantId(row.tenant_id),

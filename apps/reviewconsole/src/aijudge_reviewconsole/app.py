@@ -45,6 +45,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from aijudge_admin import allowed_namespaces, list_for_namespaces, pending_counts
 from aijudge_authoring import images, render_statement
 from aijudge_core import (
+    DIVISIONS,
     HUMAN_SCORED,
     MIN_JUSTIFICATION_LENGTH,
     ArtifactKind,
@@ -62,6 +63,7 @@ from aijudge_core import (
     blocks_finalization,
     content_type_for,
     new_id,
+    offered_years,
 )
 from aijudge_core.ids import (
     CourseId,
@@ -642,6 +644,11 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 # 入口が 2 つあること自体が分かりにくさの元だったから。
                 "is_admin": is_admin,
                 "profiles": sorted(path.stem for path in console.profiles_dir.glob("*.yaml")),
+                # 学期の選択肢（#167）。**画面で並べる値をコードから取る** ──
+                # 書き写すと、区分を増やした日に画面だけが古い一覧を出す。
+                # 年度は今年度から 3 つ（`offered_years`）。
+                "term_years": offered_years(),
+                "term_divisions": DIVISIONS,
             },
         )
 
