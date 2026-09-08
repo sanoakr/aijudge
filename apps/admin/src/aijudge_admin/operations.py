@@ -12,7 +12,15 @@ from pathlib import Path
 
 from aijudge_authoring.importers import sharif_judge
 from aijudge_authoring.repository import TaskStoreError
-from aijudge_core import Course, Role, Task, TaskVersion
+from aijudge_core import (
+    DIVISIONS,
+    Course,
+    Role,
+    Task,
+    TaskVersion,
+    is_valid_term,
+    term_sort_key,
+)
 from aijudge_core.ids import CourseId, TenantId, UserId, derived_id, new_id
 from aijudge_grading import EvaluatorRegistry, load_profile
 from aijudge_identity import AuthenticationFailed, AuthService
@@ -46,6 +54,17 @@ def ensure_course(
     作れてしまうと、提出は受け付けられるのに採点が恒久的に失敗する
     （ワーカーは `PermanentGradingError` にするしかない）。
     """
+    # **学期の形をここで確かめる**（#167）。画面も CLI もこの関数を通るので、
+    # 検査は 1 か所で足りる ── そして 1 か所でしかできない。学期は
+    # course_id の素材（下の `derived_id`）なので、表記がゆれると同じ授業の
+    # つもりで別のコースができ、**あとから直せない**（ID を変えることは
+    # 別のコースを作ることで、採点結果は課題版を、課題版はコースを指す）。
+    if not is_valid_term(term):
+        raise AdminError(
+            f"学期 {term!r} の形が不正です。`年度-区分` の形で書きます"
+            f"（例 2026-前期）。区分は {'・'.join(DIVISIONS)} のいずれかです。"
+        )
+
     profile_path = profiles_dir / f"{subject_profile}.yaml"
     if not profile_path.is_file():
         raise AdminError(
@@ -81,11 +100,10 @@ def list_courses(database: Database, tenant_id: TenantId) -> tuple[Course, ...]:
 
     with database.session() as session:
         rows = session.execute(
-            select(CourseRow)
-            .where(CourseRow.tenant_id == str(tenant_id))
-            .order_by(CourseRow.term, CourseRow.code)
+            select(CourseRow).where(CourseRow.tenant_id == str(tenant_id))
         ).scalars()
-        return tuple(
+        # 並びは (学期, コード)。**学期は時系列で並べる**（#167・`term_sort_key`）。
+        return _in_term_order(
             Course(
                 id=CourseId(row.id),
                 tenant_id=TenantId(row.tenant_id),
@@ -101,6 +119,11 @@ def list_courses(database: Database, tenant_id: TenantId) -> tuple[Course, ...]:
             )
             for row in rows
         )
+
+
+def _in_term_order(courses) -> tuple[Course, ...]:
+    """(学期, コード) 順。規則は `aijudge_core.terms` に置いてある。"""
+    return tuple(sorted(courses, key=lambda course: (term_sort_key(course.term), course.code)))
 
 
 # --------------------------------------------------------------------------

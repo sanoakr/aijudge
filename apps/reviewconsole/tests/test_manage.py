@@ -173,7 +173,8 @@ def test_only_an_admin_can_create_a_course(world: World) -> None:
     data = {
         "code": "network",
         "title": "ネットワーク",
-        "term": "2025-後期",
+        "term_year": "2025",
+        "term_division": "後期",
         "profile": "cs_network_python",
         "instructors": "teacher",
     }
@@ -223,7 +224,8 @@ def test_an_admin_creates_a_course_and_becomes_its_instructor(world: World) -> N
         data={
             "code": "network",
             "title": "ネットワーク及び演習",
-            "term": "2025-後期",
+            "term_year": "2025",
+            "term_division": "後期",
             "profile": "cs_network_python",
             "instructors": "boss",
         },
@@ -242,7 +244,8 @@ def test_creating_a_course_requires_at_least_one_instructor(world: World) -> Non
         data={
             "code": "network",
             "title": "ネットワーク及び演習",
-            "term": "2025-後期",
+            "term_year": "2025",
+            "term_division": "後期",
             "profile": "cs_network_python",
             "instructors": "   \n  ",
         },
@@ -258,7 +261,8 @@ def test_creating_a_course_with_an_unregistered_instructor_is_refused(world: Wor
         data={
             "code": "network",
             "title": "ネットワーク及び演習",
-            "term": "2025-後期",
+            "term_year": "2025",
+            "term_division": "後期",
             "profile": "cs_network_python",
             "instructors": "nobody-yet",
         },
@@ -277,7 +281,8 @@ def test_creating_a_course_enrolls_the_specified_instructor(world: World) -> Non
         data={
             "code": "network",
             "title": "ネットワーク及び演習",
-            "term": "2025-後期",
+            "term_year": "2025",
+            "term_division": "後期",
             "profile": "cs_network_python",
             "instructors": "other-teacher",
         },
@@ -647,7 +652,8 @@ def test_an_unknown_subject_profile_is_refused(world: World) -> None:
         data={
             "code": "x",
             "title": "x",
-            "term": "2025",
+            "term_year": "2026",
+            "term_division": "前期",
             "profile": "no_such_profile",
             "instructors": "boss",
         },
@@ -5224,3 +5230,103 @@ def test_the_warning_goes_away_once_the_course_declares_its_own_criteria(world: 
     body = client.get(f"/manage/courses/{course.id}").text
 
     assert _UNSCORABLE not in body
+
+
+# --------------------------------------------------------------------------
+# 学期は選ばせる（#167）
+# --------------------------------------------------------------------------
+
+
+def test_the_term_is_chosen_from_a_list(world: World) -> None:
+    """**自由入力の欄を残さない。** 残せば、そこから表記のゆれが入る。
+
+    ゆれは表示の問題ではない ── コースの同一性は (テナント, コード, 学期) で、
+    `2025-後期` と `2025後期` は同じ授業のつもりで別のコースになる。
+    """
+    world.register("boss", Role.ADMIN, tenant_admin=True)
+
+    body = world.client("boss").get("/").text
+    form = body[body.index("コースを追加する") :]
+
+    assert 'name="term_year"' in form
+    assert 'name="term_division"' in form
+    assert 'name="term"' not in form
+    # 区分は語彙の全部が並ぶ（画面に書き写していない）。
+    for division in ("前期", "後期", "1Q", "4Q", "通年", "集中"):
+        assert f'value="{division}"' in form
+
+
+def test_the_years_offered_are_this_year_and_the_next_two(world: World) -> None:
+    from aijudge_core import offered_years
+
+    world.register("boss", Role.ADMIN, tenant_admin=True)
+
+    body = world.client("boss").get("/").text
+
+    for year in offered_years():
+        assert f'value="{year}"' in body
+
+
+def test_the_two_fields_become_one_canonical_term(world: World) -> None:
+    world.register("boss", Role.ADMIN, tenant_admin=True)
+    client = world.client("boss")
+
+    response = client.post(
+        "/manage/courses",
+        data={
+            "code": "network",
+            "title": "ネットワーク及び演習",
+            "term_year": "2026",
+            "term_division": "1Q",
+            "profile": "cs_network_python",
+            "instructors": "boss",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    with world.database.unit_of_work() as uow:
+        created = [c for c in uow.identity.list_courses(TENANT) if c.code == "network"]
+    assert [c.term for c in created] == ["2026-1Q"]
+
+
+def test_an_unknown_division_is_refused_even_though_the_form_only_offers_valid_ones(
+    world: World,
+) -> None:
+    """**フォームは手で作れる。** 選択肢を絞るのは表示の都合で、制限ではない。"""
+    world.register("boss", Role.ADMIN, tenant_admin=True)
+
+    response = world.client("boss").post(
+        "/manage/courses",
+        data={
+            "code": "network",
+            "title": "ネットワーク及び演習",
+            "term_year": "2026",
+            "term_division": "春学期",
+            "profile": "cs_network_python",
+            "instructors": "boss",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "春学期" in response.json()["detail"]
+
+
+def test_courses_are_listed_in_chronological_order(world: World) -> None:
+    """**文字列順ではない。** `1Q` は `前期` より文字コードが小さい。"""
+    world.register("boss", Role.ADMIN, tenant_admin=True)
+    for term in ("2026-1Q", "2026-前期", "2025-後期"):
+        ensure_course(
+            world.database,
+            tenant_id=TENANT,
+            code=f"c-{term}",
+            title=f"科目 {term}",
+            term=term,
+            subject_profile="cs_lang_c_intro",
+            profiles_dir=PROFILES,
+        )
+
+    with world.database.unit_of_work() as uow:
+        terms = [c.term for c in uow.identity.list_courses(TENANT) if c.code.startswith("c-")]
+
+    assert terms == ["2025-後期", "2026-前期", "2026-1Q"]

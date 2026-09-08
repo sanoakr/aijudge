@@ -78,9 +78,32 @@
     <label for="title">コース名</label>
     <input id="title" name="title" required placeholder="ネットワーク及び演習">
   </div>
+  {# **学期は選ばせる**（#167）。自由入力だと表記がゆれ、ゆれは表示の問題では
+     なく別のコースが静かにできることを意味する ── コースの同一性は
+     (テナント, コード, 学期) で、作ったあとの学期は変えられない。
+     年度は今年度から 3 つ。区分の並びは `aijudge_core.terms` の順そのまま。 #}
   <div class="field">
-    <label for="term">学期</label>
-    <input id="term" name="term" required placeholder="2025-後期">
+    <label for="term_year">学期</label>
+    <div class="row-form">
+      <span>
+        <select id="term_year" name="term_year" required>
+          {% for year in term_years %}
+          <option value="{{ year }}">{{ year }} 年度</option>
+          {% endfor %}
+        </select>
+      </span>
+      <span>
+        <select id="term_division" name="term_division" required aria-label="学期の区分">
+          {% for division in term_divisions %}
+          <option value="{{ division }}">{{ division }}</option>
+          {% endfor %}
+        </select>
+      </span>
+    </div>
+    <p class="desc" style="margin-top:6px">
+      <strong>作ったあとは変えられません。</strong>コードと学期でコースを見分けて
+      いるので、変えることは別のコースを作ることになります。
+    </p>
   </div>
   <div class="field">
     <label for="profile">科目プロファイル</label>

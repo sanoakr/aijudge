@@ -21,7 +21,7 @@ import os
 import sys
 from pathlib import Path
 
-from aijudge_core import Role
+from aijudge_core import DIVISIONS, Role
 from aijudge_core.ids import CourseId, TenantId
 from aijudge_identity import DEFAULT_TOKEN_DAYS, AuthenticationFailed, AuthService
 from aijudge_persistence import ENV_DATABASE_URL, Database
@@ -383,7 +383,13 @@ def build_parser() -> argparse.ArgumentParser:
     create = course.add_parser("create", help="作成（既にあれば更新）")
     create.add_argument("--code", required=True, help="コースコード（例: network）")
     create.add_argument("--title", required=True)
-    create.add_argument("--term", required=True, help="学期（例: 2025-後期）")
+    create.add_argument(
+        "--term",
+        required=True,
+        # **選べる値を語彙から書く**（#167）。書き写すと、区分を増やした
+        # 日にヘルプだけが古い一覧を出す。
+        help=f"学期（`年度-区分`。例: 2026-前期。区分は {'・'.join(DIVISIONS)}）",
+    )
     create.add_argument("--profile", required=True, help="科目プロファイル名")
     create.set_defaults(func=cmd_course_create)
     course.add_parser("list", help="一覧").set_defaults(func=cmd_course_list)

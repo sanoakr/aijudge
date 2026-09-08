@@ -111,6 +111,7 @@ from aijudge_core import (
     ReviewState,
     Role,
     Task,
+    format_term,
     is_valid_kc_key,
     normalize_suffixes,
 )
@@ -973,7 +974,8 @@ def register(templates) -> APIRouter:
         request: Request,
         code: Annotated[str, Form()],
         title: Annotated[str, Form()],
-        term: Annotated[str, Form()],
+        term_year: Annotated[int, Form()],
+        term_division: Annotated[str, Form()],
         profile: Annotated[str, Form()],
         instructors: Annotated[str, Form()],
     ) -> Response:
@@ -988,6 +990,15 @@ def register(templates) -> APIRouter:
         me = require_principal(request)
         _require_admin(request, me)
         console = _console(request)
+
+        # **学期は選ばせる**（#167）。年度と区分の 2 つの `<select>` から
+        # 正準形式を組み立てる。組み立てるのは `aijudge_core.terms` で、
+        # ここでは文字列を作らない ── 学期は course_id の素材なので、
+        # 形を知っている場所を増やすと、増えた場所の分だけ表記がゆれる。
+        try:
+            term = format_term(term_year, term_division.strip())
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
         # 名簿の貼り付けと同じ書式（`add_enrolments`）。1 行 1 ID でよい。
         # `parse_roster` は有効な行が 1 つも無ければ自分で例外にする
@@ -1022,7 +1033,7 @@ def register(templates) -> APIRouter:
                 tenant_id=me.tenant_id,
                 code=code.strip(),
                 title=title.strip(),
-                term=term.strip(),
+                term=term,
                 subject_profile=profile.strip(),
                 profiles_dir=console.profiles_dir,
             )
