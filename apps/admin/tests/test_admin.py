@@ -345,6 +345,57 @@ def test_staff_can_be_created_without_a_course(database: Database) -> None:
     )
 
 
+def test_enrolling_an_existing_user_needs_no_password(database: Database, course) -> None:
+    """**要らない値を要求しない**（#175）。
+
+    既にいる利用者に対しては受講登録しかしないので、パスワードは使い道が
+    無い ── 以前は呼び出し側が先に必須にしていたため、使い捨ての文字列を
+    書かされ、しかもその値は捨てられていた。
+    """
+    create_staff(
+        database,
+        tenant_id=TENANT,
+        login="sano",
+        display_name="SANO Akira",
+        password="a-long-password",
+    )
+    with database.unit_of_work() as uow:
+        before = uow.identity.find_user_by_login(TENANT, "sano").password_hash
+
+    created = create_staff(
+        database,
+        tenant_id=TENANT,
+        login="sano",
+        display_name="SANO Akira",
+        course_id=course.id,
+        role=Role.ASSISTANT,
+    )
+
+    assert not created
+    with database.unit_of_work() as uow:
+        user = uow.identity.find_user_by_login(TENANT, "sano")
+        enrollment = uow.identity.find_enrollment(course.id, user.id)
+    # **パスワードは変わらない。** 配ったものが受講登録のたびに無効になると、
+    # この操作は使えない（名簿の流し直しと同じ規則）。
+    assert user.password_hash == before
+    assert enrollment is not None and enrollment.role is Role.ASSISTANT
+
+
+def test_creating_a_new_user_still_needs_a_password(database: Database) -> None:
+    """**黙って作らない。** パスワードの無い利用者はログインできない。"""
+    with pytest.raises(AdminError) as exc:
+        create_staff(
+            database,
+            tenant_id=TENANT,
+            login="nobody-yet",
+            display_name="nobody-yet",
+        )
+
+    assert "パスワードが要ります" in str(exc.value)
+    with database.unit_of_work() as uow:
+        assert uow.identity.find_user_by_login(TENANT, "nobody-yet") is None
+
+
 def test_role_admin_without_a_course_makes_a_tenant_admin(database: Database) -> None:
     """#127・#128: `--role admin` だけ（`--course` 無し）でテナント管理者を
     作れる。管理者はコースの受講ではなくテナント単位の属性なので、
@@ -631,3 +682,33 @@ def test_a_free_text_term_is_refused(database: Database) -> None:
         # **何なら通るかを言う。** 形が違うと言うだけでは直せない。
         assert "2026-前期" in str(exc.value)
         assert "通年" in str(exc.value)
+
+
+def test_enrolling_into_a_course_that_does_not_exist_says_so(database: Database) -> None:
+    """**生のトレースバックを見せない**（#175）。
+
+    `--course` はコースの ID を取る欄で、コードを渡すと外部キー違反で落ちて
+    いた ── 教員に出るのは SQLAlchemy のトレースバックで、何を渡すべきかは
+    どこにも書かれていない（実際に起きた）。`enrol_roster` は同じ場面で
+    理由を言って断っている。
+    """
+    create_staff(
+        database,
+        tenant_id=TENANT,
+        login="sano",
+        display_name="SANO Akira",
+        password="a-long-password",
+    )
+
+    with pytest.raises(AdminError) as exc:
+        create_staff(
+            database,
+            tenant_id=TENANT,
+            login="sano",
+            display_name="SANO Akira",
+            # コースコードを渡してしまった場合。
+            course_id=CourseId("test_c"),
+        )
+
+    assert "コースの ID" in str(exc.value)
+    assert "course list" in str(exc.value)
