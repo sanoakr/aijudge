@@ -5416,3 +5416,69 @@ def test_duplicating_into_the_same_code_and_term_is_refused(world: World) -> Non
     assert "コードと学期" in response.json()["detail"]
     with world.database.unit_of_work() as uow:
         assert uow.identity.get_course(world.course.id).title == "プログラミング及び実習 2"
+
+
+# --------------------------------------------------------------------------
+# 取り込みのひな形（#171）
+# --------------------------------------------------------------------------
+
+
+def _template_url(world: World, unit: str = "ex06") -> str:
+    return f"/manage/courses/{world.course.id}/units/{unit}/bundle/template"
+
+
+def test_the_upload_form_offers_the_template(world: World) -> None:
+    """**書ける状態のものを渡す。** 画面の説明文から構造を書き写させない。"""
+    world.register("teacher", Role.INSTRUCTOR)
+
+    body = world.client("teacher").get(f"/manage/courses/{world.course.id}/units/ex06").text
+
+    assert _template_url(world) in body
+
+
+def test_the_template_downloads_as_a_zip(world: World) -> None:
+    world.register("teacher", Role.INSTRUCTOR)
+
+    response = world.client("teacher").get(_template_url(world))
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/zip"
+    assert "attachment" in response.headers["content-disposition"]
+    assert "ex06-template.zip" in response.headers["content-disposition"]
+    # 返ったものがそのまま取り込めること（構造の定義とひな形が繋がっている）。
+    from aijudge_admin.bundles import read_bundle
+
+    assert [task.leaf for task in read_bundle(response.content)] == ["p1", "p2"]
+
+
+def test_the_template_names_the_knowledge_components_of_this_course(world: World) -> None:
+    """コースに合わせる（#171 の決定）。"""
+    world.register("boss", Role.ADMIN, tenant_admin=True)
+    client = world.client("boss")
+    client.post(
+        f"/manage/courses/{world.course.id}/kc",
+        data={"key": "cs.loops", "label": "繰り返し"},
+    )
+
+    archive = zipfile.ZipFile(io.BytesIO(client.get(_template_url(world)).content))
+
+    assert "cs.loops" in archive.read("p1/task.yaml").decode("utf-8")
+
+
+def test_a_non_ascii_unit_still_gets_a_usable_filename(world: World) -> None:
+    """**ファイル名は ASCII に留める。** 回の名前は教員が付けるもので、
+    日本語も入りうる ── 符号化を持ち込むより、README で言う方が壊れない。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+
+    response = world.client("teacher").get(_template_url(world, "第3回"))
+
+    assert response.status_code == 200
+    assert 'filename="bundle-template.zip"' in response.headers["content-disposition"]
+
+
+def test_a_learner_cannot_download_the_template(world: World) -> None:
+    """権限は取り込みと同じ（担当教員以上・#102）。"""
+    world.register("s2400001", Role.LEARNER)
+
+    assert world.client("s2400001").get(_template_url(world)).status_code in (403, 404)

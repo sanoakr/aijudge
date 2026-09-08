@@ -221,3 +221,80 @@ def test_duplicate_leaf_names_are_refused() -> None:
 def test_a_file_that_is_not_utf8_is_refused() -> None:
     with pytest.raises(AdminError, match="UTF-8"):
         read_bundle(zipped({"p1/task.yaml": b"statement: \xff\xfe"}))
+
+
+# --------------------------------------------------------------------------
+# ひな形（#171）
+# --------------------------------------------------------------------------
+
+
+def test_the_template_reads_back_as_two_tasks() -> None:
+    """**落としたひな形がそのまま通る。**
+
+    ここが構造の定義とひな形を繋いでいる ── 構造を変えてひな形を直し
+    忘れれば、このテストが落ちる（教員のところで「取り込めません」の 1 行に
+    なって現れる前に）。
+    """
+    from aijudge_admin.bundles import template_bundle
+
+    tasks = read_bundle(template_bundle(unit="ex06"))
+
+    assert [task.leaf for task in tasks] == ["p1", "p2"]
+    # p1 は最小（必須は statement だけ）。
+    assert tasks[0].spec.statement.strip()
+    assert tasks[0].spec.test_cases == ()
+    # p2 は側のファイルつき。**全部入りの例も入れる** ── 片方だけだと
+    # 「省略してよいのはどれか」が分からない。
+    assert len(tasks[1].spec.test_cases) == 1
+    assert tasks[1].spec.reference_solution
+    assert [image.name for image in tasks[1].images] == ["fig1.png"]
+    # statement.md が task.yaml の statement を上書きしていること。
+    assert "images/fig1.png" in tasks[1].spec.statement
+
+
+def test_the_template_does_not_write_a_key() -> None:
+    """**鍵は書いても捨てられる**（フォルダ名と画面が決める）。
+
+    ひな形に書かないこと自体が説明になる。
+    """
+    from aijudge_admin.bundles import template_bundle
+
+    archive = zipfile.ZipFile(io.BytesIO(template_bundle()))
+    for name in ("p1/task.yaml", "p2/task.yaml"):
+        body = archive.read(name).decode("utf-8")
+        assert not any(line.startswith("key:") for line in body.splitlines()), (
+            f"{name} が key を書いています"
+        )
+
+
+def test_the_template_carries_the_values_this_course_can_use() -> None:
+    """**コースに合わせる。** 知識要素は登録済みのものしか名指しできず、
+    キーの形も決まっている（#157）ので、一覧が手元にあるかどうかで
+    書きやすさが変わる。
+    """
+    from aijudge_admin.bundles import template_bundle
+
+    payload = template_bundle(
+        unit="ex06",
+        evaluators=("code_test_runner",),
+        criterion_codes=("structure", "discussion"),
+        kc_keys=("cs.loops.termination",),
+    )
+    archive = zipfile.ZipFile(io.BytesIO(payload))
+    minimal = archive.read("p1/task.yaml").decode("utf-8")
+    full = archive.read("p2/task.yaml").decode("utf-8")
+
+    assert "cs.loops.termination" in minimal
+    assert "code_test_runner" in full
+    assert "structure" in full and "discussion" in full
+    assert "ex06" in archive.read("README.txt").decode("utf-8")
+
+
+def test_the_template_says_so_when_the_course_has_nothing_yet() -> None:
+    """**空欄にしない。** 空欄は「まだ無い」のか「壊れている」のか読めない。"""
+    from aijudge_admin.bundles import template_bundle
+
+    archive = zipfile.ZipFile(io.BytesIO(template_bundle()))
+    minimal = archive.read("p1/task.yaml").decode("utf-8")
+
+    assert "まだありません" in minimal

@@ -274,6 +274,16 @@
   tests/case1.out
   images/fig1.png  任意。課題文の images/fig1.png というリンクを書き換えます
 p2/task.yaml</span></pre>
+  {# **書ける状態のものを渡す**（#171）。上の構造を画面から書き写させると、
+     書き写しの失敗が「取り込めません」の 1 行になって返り、何を直せばよいか
+     は画面から読めない。ひな形はこのコースに合わせて作る（使える評価器・
+     観点コード・知識要素のキーがコメントに入る）。 #}
+  <p class="desc">
+    <a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/units/{{ unit.key }}/bundle/template">
+      ひな形をダウンロード</a>
+    ── 2 問ぶん（最小の例と、テストケース・参照解答・画像つきの例）が入っています。
+    書き換えて zip にすれば、そのまま取り込めます。
+  </p>
   <div class="inline-field">
     <span class="body">
       <label for="archive">zip（{{ bundle_max_mb }}MB まで）</label>

@@ -246,10 +246,201 @@ def _images(prefix: str, files: dict[str, bytes]) -> tuple[BundledImage, ...]:
     )
 
 
+# --------------------------------------------------------------------------
+# ひな形（#171）
+# --------------------------------------------------------------------------
+#
+# **読む側と同じモジュールに置く。** 構造の定義（上の定数と docstring）を
+# 2 か所に置くと、構造を変えた日にひな形だけが古くなり、しかもそれは
+# 「取り込めません」の 1 行として教員に返る。落としたひな形がそのまま
+# `read_bundle` を通ることをテストで固定してある。
+
+
+def template_bundle(
+    *,
+    unit: str = "",
+    evaluators: tuple[str, ...] = (),
+    criterion_codes: tuple[str, ...] = (),
+    kc_keys: tuple[str, ...] = (),
+) -> bytes:
+    """アップロードするファイル一式のひな形（zip）。
+
+    **コースに合わせて作る。** `task.yaml` のコメントに、そのコースで実際に
+    使える値を入れる ── 使える評価器、共通ルーブリックの観点コード、
+    このコースが使う知識要素の正準キー。知識要素は登録済みのものしか名指し
+    できず（`kc.assert_registered`）、キーの形も決まっている（半角英小文字・
+    数字・下線と `.`・#157）ので、一覧が手元にあるかどうかで書きやすさが
+    変わる。
+
+    **2 問入れる。** `p1` は最小（`statement` だけ）、`p2` はテストケース・
+    参照解答・画像つき。片方だけだと「省略してよいのはどれか」が分からない。
+    """
+    entries: dict[str, bytes | str] = {
+        f"p1/{SPEC_NAME}": _minimal_spec(kc_keys),
+        f"p2/{SPEC_NAME}": _full_spec(evaluators, criterion_codes, kc_keys),
+        f"p2/{STATEMENT_NAME}": _statement(),
+        "p2/reference.c": _REFERENCE_C,
+        f"p2/{TESTS_DIR}/case1.in": "3 4\n",
+        f"p2/{TESTS_DIR}/case1.out": "7\n",
+        f"p2/{IMAGES_DIR}/fig1.png": _placeholder_png(),
+        "README.txt": _readme(unit),
+    }
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        for name, payload in entries.items():
+            archive.writestr(
+                name, payload if isinstance(payload, bytes) else payload.encode("utf-8")
+            )
+    return buffer.getvalue()
+
+
+def _listing(values: tuple[str, ...], empty: str) -> str:
+    """コメントに埋める一覧。**空のときは空欄にしない** ── 空欄は「まだ無い」
+    のか「欄が壊れている」のか読めない。
+    """
+    if not values:
+        return f"#   （{empty}）"
+    return "\n".join(f"#   {value}" for value in values)
+
+
+def _minimal_spec(kc_keys: tuple[str, ...]) -> str:
+    """最小の `task.yaml`。**必須は `statement` だけである。**"""
+    return f"""# 課題 1 件の宣言。**必須は statement だけ**で、ほかは既定があります。
+#
+# 鍵（key）は書きません。**書いても捨てられます** —— 鍵はフォルダ名
+# （このファイルの入っている `p1`）と、取り込む問題セットが決めます。
+# フォルダ名の打ち間違いが別の課題に化けるのを防ぐためです。
+
+statement: |
+  ## [必須] 二数の和 ##
+
+  2 つの整数を読み、その和を出力してください。
+
+# title: 二数の和          # 省略すると本文の見出しから採ります
+# max_score: 100.0
+# position: 1              # 問題セットの中での順序（p1, p2, … の 1, 2, …）
+
+# 知識要素（正準キー）。**登録済みのものしか名指しできません。**
+# このコースで使えるのは:
+{_listing(kc_keys, "まだありません。コースの「知識要素」で追加してください")}
+# knowledge_components:
+#   - {kc_keys[0] if kc_keys else "cs.loops.termination"}
+"""
+
+
+def _full_spec(
+    evaluators: tuple[str, ...], criterion_codes: tuple[str, ...], kc_keys: tuple[str, ...]
+) -> str:
+    """テストケース・参照解答・画像つきの `task.yaml`。"""
+    codes = _listing(criterion_codes, "宣言していません。組み込みの既定を使います")
+    return f"""# 側のファイルを使う例。長い文字列を YAML に埋めなくて済みます。
+#
+#   statement.md      あればこのファイルの statement より優先します
+#   reference.c       参照解答（{" / ".join(REFERENCE_SUFFIXES)}）
+#   tests/case1.in    期待出力 case1.out と**対で**置きます
+#   tests/case1.out   片方だけだと取り込みを断ります
+#   images/fig1.png   課題文から `images/fig1.png` で参照します
+
+statement: |
+  statement.md があるので、こちらは使われません。
+
+title: 二数の和（図つき）
+position: 2
+
+# 観点。**書かなければコースの共通ルーブリックを引き継ぎます。**
+# このコースの共通ルーブリックの観点コード:
+{codes}
+# 書く場合は重みの合計を 1.0 にします（段階は 2 つ以上・最上位を 1.0 に）。
+# criteria:
+#   - code: correctness
+#     title: 出力の正しさ
+#     description: 仕様どおりの出力を返すか。
+#     weight: 1.0
+#     evaluator: {evaluators[0] if evaluators else "code_test_runner"}
+#     levels:
+#       - {{ level: 0, label: 未達, descriptor: ほとんど正しく動作しない, score_ratio: 0.0 }}
+#       - {{ level: 1, label: 達成, descriptor: すべてのケースで正しい, score_ratio: 1.0 }}
+#
+# この科目で使える評価器:
+{_listing(evaluators, "決定的評価器の宣言がありません")}
+
+# knowledge_components:
+#   - {kc_keys[0] if kc_keys else "cs.loops.termination"}
+"""
+
+
+def _statement() -> str:
+    return """## [必須] 二数の和 ##
+
+2 つの整数を読み、その和を出力してください。
+
+![図](images/fig1.png)
+
+### 入力 ###
+
+空白区切りの整数 2 つ。
+
+### 出力 ###
+
+和を 1 行で。
+"""
+
+
+_REFERENCE_C = """#include <stdio.h>
+
+int main(void) {
+    int a, b;
+    if (scanf("%d %d", &a, &b) != 2) return 1;
+    printf("%d\\n", a + b);
+    return 0;
+}
+"""
+
+
+def _readme(unit: str) -> str:
+    where = f"「{unit}」" if unit else "問題セット"
+    return f"""このひな形の使い方
+
+1. p1 / p2 のフォルダを、作りたい課題の数だけ用意します
+   （フォルダ名がそのまま課題の鍵になります。1 問だけでもかまいません）
+2. task.yaml を書き換えます。**必須は statement だけ**です
+3. このフォルダ全体を zip にして、{where}のページの
+   「zip でまとめて取り込む」から選びます
+4. 読み取った内容が確認画面に出ます。**そこまでは保存されません**
+
+この README.txt は取り込みで無視されます（残したままでかまいません）。
+"""
+
+
+def _placeholder_png() -> bytes:
+    """差し替え用の小さな PNG。**中身のある画像を 1 枚入れておく。**
+
+    空のフォルダは zip に残らないので、`images/` の置き場所を示すには
+    ファイルが 1 つ要る。
+    """
+    import struct
+    import zlib
+
+    width = height = 16
+    raw = b"".join(b"\x00" + bytes([220, 220, 220] * width) for _ in range(height))
+
+    def chunk(kind: bytes, payload: bytes) -> bytes:
+        body = kind + payload
+        return struct.pack(">I", len(payload)) + body + struct.pack(">I", zlib.crc32(body))
+
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(raw))
+        + chunk(b"IEND", b"")
+    )
+
+
 __all__ = [
     "MAX_ARCHIVE_BYTES",
     "MAX_ARCHIVE_ENTRIES",
     "BundledImage",
     "BundledTask",
     "read_bundle",
+    "template_bundle",
 ]
