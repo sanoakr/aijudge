@@ -244,8 +244,9 @@ def test_the_template_reads_back_as_two_tasks() -> None:
     assert tasks[0].spec.statement.strip()
     assert tasks[0].spec.test_cases == ()
     # p2 は側のファイルつき。**全部入りの例も入れる** ── 片方だけだと
-    # 「省略してよいのはどれか」が分からない。
-    assert len(tasks[1].spec.test_cases) == 1
+    # 「省略してよいのはどれか」が分からない。テストケースは 2 件で、
+    # 対の付け方が見える（#177）。
+    assert [case.name for case in tasks[1].spec.test_cases] == ["case1", "case2"]
     assert tasks[1].spec.reference_solution
     assert [image.name for image in tasks[1].images] == ["fig1.png"]
     # statement.md が task.yaml の statement を上書きしていること。
@@ -287,7 +288,7 @@ def test_the_template_carries_the_values_this_course_can_use() -> None:
     assert "cs.loops.termination" in minimal
     assert "code_test_runner" in full
     assert "structure" in full and "discussion" in full
-    assert "ex06" in archive.read("README.txt").decode("utf-8")
+    assert "ex06" in archive.read("README.md").decode("utf-8")
 
 
 def test_the_template_says_so_when_the_course_has_nothing_yet() -> None:
@@ -298,3 +299,58 @@ def test_the_template_says_so_when_the_course_has_nothing_yet() -> None:
     minimal = archive.read("p1/task.yaml").decode("utf-8")
 
     assert "まだありません" in minimal
+
+
+def test_the_readme_explains_every_file_and_the_limits() -> None:
+    """**これだけ読めば書ける**ところまで書く（#177）。
+
+    手順しか書いていなかったので、ファイルごとの書式は `task.yaml` の
+    コメントに散っており、2 つのファイルを行き来しないと全体が掴めなかった。
+    """
+    from aijudge_admin.bundles import (
+        MAX_ARCHIVE_BYTES,
+        MAX_ARCHIVE_ENTRIES,
+        MAX_EXTRACTED_BYTES,
+        template_bundle,
+    )
+
+    archive = zipfile.ZipFile(io.BytesIO(template_bundle()))
+    readme = archive.read("README.md").decode("utf-8")
+
+    for name in ("task.yaml", "statement.md", "reference.", "tests/", "images/"):
+        assert name in readme, name
+    # **上限はコードの定数と一致すること。** 書き写すと、変えた日に README
+    # だけが古い数字を出す。
+    assert f"{MAX_ARCHIVE_BYTES // (1024 * 1024)}MB" in readme
+    assert str(MAX_ARCHIVE_ENTRIES) in readme
+    assert f"{MAX_EXTRACTED_BYTES // (1024 * 1024)}MB" in readme
+
+
+def test_the_readme_explains_how_to_place_several_test_cases() -> None:
+    """入出力のセットを複数置く場合（#177）。
+
+    **`tests/` があると `task.yaml` の `test_cases` が無視される**という関係は
+    コードを読まないと分からない ── 見せるケースや重みの違うケースを作ろうと
+    した教員が、書いたのに効かない理由を画面から知る手段が無い。
+    """
+    from aijudge_admin.bundles import template_bundle
+
+    archive = zipfile.ZipFile(io.BytesIO(template_bundle()))
+    readme = archive.read("README.md").decode("utf-8")
+
+    assert "複数置けます" in readme
+    assert "tests/case2.in" in readme
+    assert "名前順" in readme
+    # 上書きの関係と、その回避方法（task.yaml に書く）。
+    assert "test_cases` は無視されます" in readme
+    assert "見せるケース" in readme
+
+
+def test_the_template_shows_two_test_cases() -> None:
+    """README に「複数置ける」と書くだけでなく、実物で見せる。"""
+    from aijudge_admin.bundles import template_bundle
+
+    names = zipfile.ZipFile(io.BytesIO(template_bundle())).namelist()
+
+    assert "p2/tests/case1.in" in names
+    assert "p2/tests/case2.out" in names
