@@ -28,6 +28,7 @@ from dataclasses import dataclass
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from aijudge_core import is_valid_kc_key
 from aijudge_llm_gateway import (
     DataClass,
     LlmGateway,
@@ -258,6 +259,10 @@ class ProposalResult:
     proposal: SyllabusProposal
     prompt_id: str
     model: str
+    # 形が正準キーになっていないので落とした候補のキー（#157）。
+    # **黙って減らさない。** 20 件出したはずが 14 件しか並んでいないとき、
+    # 何が起きたのか画面から分からないのは、間違った候補が並ぶのと同じくらい悪い。
+    discarded: tuple[str, ...] = ()
 
 
 class SyllabusReader:
@@ -309,7 +314,33 @@ class SyllabusReader:
             existing="\n".join(f"- {k}" for k in existing_keys) or "（まだありません）",
             text=text[:20000],
         )
-        return ProposalResult(proposal=result.value, prompt_id=PROMPT.id, model=self._model)
+        return ProposalResult(
+            proposal=_only_valid_keys(result.value),
+            prompt_id=PROMPT.id,
+            model=self._model,
+            discarded=tuple(
+                hint.key
+                for hint in result.value.knowledge_components
+                if not is_valid_kc_key(hint.key)
+            ),
+        )
+
+
+def _only_valid_keys(proposal: SyllabusProposal) -> SyllabusProposal:
+    """正準キーの形をしていない候補を落とす。**ここが唯一の関門**（#157）。
+
+    プロンプトは「英小文字・数字・下線だけ」と頼んでいるが、頼みは強制では
+    ない ── 日本語のシラバスを読ませると、モデルは日本語のキーを返す。
+    落とさないと、そのキーは一覧 → 採用 → 追加フォームまで素通りし、最後の
+    登録で初めて弾かれる。**教員は往復し終えてから断られることになる。**
+
+    候補の生成はすべてここを通る（画面は `SyllabusReader.propose` しか
+    呼ばない）ので、関門を 1 つに保てる。
+    """
+    kept = tuple(hint for hint in proposal.knowledge_components if is_valid_kc_key(hint.key))
+    if len(kept) == len(proposal.knowledge_components):
+        return proposal
+    return proposal.model_copy(update={"knowledge_components": kept})
 
 
 __all__ = [

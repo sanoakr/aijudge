@@ -111,6 +111,7 @@ from aijudge_core import (
     ReviewState,
     Role,
     Task,
+    is_valid_kc_key,
     normalize_suffixes,
 )
 from aijudge_core.ids import CourseId, TaskId, TaskVersionId, UserId, derived_id
@@ -2520,7 +2521,7 @@ def register(templates) -> APIRouter:
                 detail=f"候補を作れませんでした（S6 が止まっている可能性があります）: {exc}",
             ) from exc
 
-        return _kc_page(request, me, course, proposal=result.proposal)
+        return _kc_page(request, me, course, proposal=result.proposal, discarded=result.discarded)
 
     @router.post("/courses/{course_id}/kc/draft", response_class=HTMLResponse)
     async def draft_candidate(request: Request, course_id: str) -> Response:
@@ -2562,6 +2563,18 @@ def register(templates) -> APIRouter:
         draft = next((k for k in proposal.knowledge_components if k.key == chosen), None)
         if draft is None:
             raise HTTPException(status_code=400, detail="取り込む候補が選ばれていません")
+        if not is_valid_kc_key(chosen):
+            # 候補は `SyllabusReader.propose` で選り分け済みだが、**この POST は
+            # 候補一覧そのものを持ち回る**（候補は保存していない）ので、鍵は
+            # フォーム由来である。関門をもう一度置く（#157）。
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"知識要素のキー {chosen!r} は使えません。"
+                    "半角英小文字・数字・下線と `.` だけで書きます"
+                    "（例 `cs.loops.termination`）。"
+                ),
+            )
 
         # **既にあるキーなら、体系の名前と説明を出す。** `register` は既にある
         # ものをそのまま返す（名前も説明も変わらない）ので、モデルの書いた
@@ -4015,6 +4028,7 @@ def register(templates) -> APIRouter:
         *,
         saved: str = "",
         proposal=None,
+        discarded: tuple[str, ...] = (),
         draft=None,
         draft_exists: bool = False,
     ) -> Response:
@@ -4053,6 +4067,9 @@ def register(templates) -> APIRouter:
                 "is_admin": _is_admin(request, me),
                 # 候補。**既にあるものは採用させない**ので、突き合わせる鍵を渡す。
                 "proposal": proposal,
+                # 形が正準キーになっていないので落とした候補（#157）。
+                # **減った件数を黙らせない。**
+                "discarded": discarded,
                 # **「既にある」はこのコースから見えているものを指す。** 体系に
                 # あっても範囲外なら選べるようにする ── 選べなければ、一度
                 # 外した知識要素を候補から戻す道が無くなる（採用すれば範囲に入る）。

@@ -66,7 +66,13 @@ from .grading import (
     resolve_conflicts,
 )
 from .ids import derived_id, new_id, prefix_of
-from .knowledge import KnowledgeComponent, QMatrixEntry, kc_id_for, parse_kc_key
+from .knowledge import (
+    KnowledgeComponent,
+    QMatrixEntry,
+    is_valid_kc_key,
+    kc_id_for,
+    parse_kc_key,
+)
 from .skill import Credential, CredentialExport, MasteryModel, SkillEvidence, SkillState
 from .spans import (
     ArtifactSpan,
@@ -197,6 +203,7 @@ __all__ = [
     "gate_skipped",
     "grace_minutes",
     "grade_window",
+    "is_valid_kc_key",
     "kc_id_for",
     "kind_for",
     "late_penalty_for",

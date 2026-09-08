@@ -146,7 +146,15 @@ def register(
     try:
         namespace, path = parse_kc_key(key)
     except ValueError as exc:
-        raise AdminError(str(exc)) from None
+        # **形の話を日本語で言い切る。** コアの例外は `invalid KC path
+        # segment: '配列'` のような英語の一行で、これを画面にそのまま出すと
+        # 「何が悪いのか」は伝わっても「何なら通るのか」が伝わらない。
+        # 日本語のキーを書いてしまう人にとって、そこが唯一知りたいこと（#157）。
+        raise AdminError(
+            f"知識要素のキー {key!r} は使えません（{exc}）。"
+            "キーは `名前空間.親.子` の形で、半角英小文字・数字・下線だけを使います"
+            "（例 `cs.loops.termination`）。日本語は名前・説明のほうに書いてください。"
+        ) from None
 
     if namespace not in namespaces:
         raise AdminError(

@@ -107,3 +107,56 @@ def test_no_existing_keys_says_so_rather_than_leaving_it_blank() -> None:
 
     sent = "\n".join(message.content for message in provider.calls[0].messages)
     assert "（まだありません）" in sent
+
+
+# --------------------------------------------------------------------------
+# キーの形（#157）
+# --------------------------------------------------------------------------
+
+
+def test_a_japanese_key_never_leaves_the_reader() -> None:
+    """**日本語のキーは候補にしない。**
+
+    プロンプトは「英小文字・数字・下線だけ」と頼んでいるが、頼みは強制では
+    ない ── 日本語のシラバスを読ませると、モデルは日本語のキーを返す。
+    落とさないと、そのキーは一覧 → 採用 → 追加フォームまで素通りし、
+    **最後の登録で初めて弾かれる**（教員は往復し終えてから断られる）。
+    """
+    payload = {
+        "course": {},
+        "knowledge_components": [
+            {"key": "cs.配列の走査", "label": "配列の走査"},
+            {"key": "cs.loops", "label": "繰り返し"},
+            {"key": "情報.pointers", "label": "ポインタ"},
+        ],
+    }
+    provider = ScriptedProvider([json.dumps(payload)])
+    reader = SyllabusReader(LlmGateway(provider), model="test")
+    result = reader.propose("シラバス本文", namespaces=("cs",))
+
+    assert [k.key for k in result.proposal.knowledge_components] == ["cs.loops"]
+
+
+def test_what_was_dropped_is_reported_rather_than_silently_removed() -> None:
+    """黙って減らさない。20 件出したはずが 14 件しか並んでいないとき、
+    何が起きたのか画面から分からないのは、間違った候補が並ぶのと同じくらい悪い。
+    """
+    payload = {
+        "course": {},
+        "knowledge_components": [{"key": "cs.配列", "label": "配列"}],
+    }
+    provider = ScriptedProvider([json.dumps(payload)])
+    reader = SyllabusReader(LlmGateway(provider), model="test")
+    result = reader.propose("シラバス本文", namespaces=("cs",))
+
+    assert result.proposal.knowledge_components == ()
+    assert result.discarded == ("cs.配列",)
+
+
+def test_a_clean_proposal_is_passed_through_unchanged() -> None:
+    provider = ScriptedProvider([json.dumps(_PAYLOAD)])
+    reader = SyllabusReader(LlmGateway(provider), model="test")
+    result = reader.propose("シラバス本文", namespaces=("cs",))
+
+    assert [k.key for k in result.proposal.knowledge_components] == ["cs.c_language.formatted_io"]
+    assert result.discarded == ()
