@@ -2,7 +2,6 @@
 {% block title %}{{ name }} — 科目プロファイル — aiJudge{% endblock %}
 {% block body %}
 <h1><span class="mono">{{ name }}</span></h1>
-<p class="crumb"><a href="{{ root_prefix() }}/manage/subjects">科目プロファイルの一覧へ戻る</a></p>
 
 {% if saved %}<div class="note saved">{{ saved }}</div>{% endif %}
 {% if error %}<div class="note warn">{{ error }}</div>{% endif %}

@@ -2,7 +2,7 @@
 {% block title %}提出 — {{ course.title }} — aiJudge{% endblock %}
 {% block body %}
 <h1>提出</h1>
-<p class="crumb">{{ course.title }}・{{ rows | length }} 件を表示（全 {{ total }} 件）</p>
+<p class="subtitle">{{ course.title }}・{{ rows | length }} 件を表示（全 {{ total }} 件）</p>
 
 {# **絞り込みは URL に載せる。** 状態をサーバに持たない ── 絞った結果を
    そのまま TA や学生に渡せないと、画面の説明から始めることになる

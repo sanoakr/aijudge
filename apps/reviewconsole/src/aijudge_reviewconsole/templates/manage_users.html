@@ -2,7 +2,7 @@
 {% block title %}利用者の一覧 — aiJudge{% endblock %}
 {% block body %}
 <h1>利用者の一覧</h1>
-<p class="crumb">
+<p class="subtitle">
   {{ users | length }} 名{% if q or local_only %}（絞り込み後）{% endif %}。
   ここに出るのはこのテナントの利用者です。大学アカウント（SSO）でログインした人も
   初回に利用者が作られるので並びます。
@@ -55,9 +55,6 @@
   </tbody>
 </table>
 
-<p class="crumb">
-  <a href="{{ root_prefix() }}/manage/users/new">利用者を作成</a>
-  ・
-  <a href="{{ root_prefix() }}/">担当コースへ戻る</a>
-</p>
+{# 戻る導線はパンくず（`base.html`）が持つ。ここに残すのは**次の操作**だけ。 #}
+<p class="subtitle"><a href="{{ root_prefix() }}/manage/users/new">利用者を作成</a></p>
 {% endblock %}

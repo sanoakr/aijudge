@@ -2,7 +2,7 @@
 {% block title %}{{ unit.label }} — {{ course.title }} — aiJudge{% endblock %}
 {% block body %}
 <h1>問題セット {{ unit.unit or unit.label }}</h1>
-<p class="crumb">
+<p class="subtitle">
   {{ course.title }} <span class="sep">·</span> {{ unit.count }} 問
   {% if unit.session is not none %}<span class="sep">·</span> {{ unit.label }}{% endif %}
 </p>
