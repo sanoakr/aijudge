@@ -185,6 +185,17 @@
 
 {% if proposal %}
 <h3>候補（{{ proposal.knowledge_components | length }} 件）</h3>
+{% if discarded %}
+{# **落とした分を黙らせない。** 20 件出したはずが 14 件しか並んでいないとき、
+   何が起きたのか画面から分からないのは、間違った候補が並ぶのと同じくらい悪い。 #}
+<div class="note">
+  キーの形が正しくない候補を {{ discarded | length }} 件除きました
+  （<span class="mono">{{ discarded | join('、') }}</span>）。
+  キーは半角英小文字・数字・下線と <span class="mono">.</span> だけで書きます
+  ── 日本語は名前・説明のほうに入ります。同じ概念が要るときは、下の
+  「知識要素を追加する」から手で足してください。
+</div>
+{% endif %}
 {% if proposal.knowledge_components %}
 {# **候補は保存していない**（生成のたびに作られる）ので、取り込みの POST が
    候補一覧そのものを持ち回る。値は**キーで結ぶ** ── 位置で対応づけると、

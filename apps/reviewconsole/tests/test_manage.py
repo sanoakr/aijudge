@@ -2888,6 +2888,22 @@ def test_taking_a_candidate_into_the_form_registers_nothing(world: World) -> Non
         assert uow.skills.get_kc(kc_id_for("cs.arrays")) is None
 
 
+def test_a_japanese_key_cannot_be_taken_into_the_form(world: World) -> None:
+    """**関門をもう一度置く**（#157）。
+
+    候補は `SyllabusReader.propose` で選り分け済みだが、この POST は候補一覧
+    そのものを持ち回る（候補は保存していない）ので、鍵はフォーム由来である。
+    ここを通すと、教員は追加フォームまで進んでから登録で断られる。
+    """
+    world.register("boss", Role.ADMIN)
+    response = world.client("boss").post(
+        f"/manage/courses/{world.course.id}/kc/draft",
+        data=_candidate_form(("cs.配列の走査", "配列の走査", ""), use="cs.配列の走査"),
+    )
+    assert response.status_code == 400
+    assert "半角英小文字" in response.text
+
+
 def test_the_form_is_filled_with_the_candidate_that_was_chosen(world: World) -> None:
     """**選んだ鍵に、その鍵の名前が付く。**
 

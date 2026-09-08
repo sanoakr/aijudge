@@ -124,6 +124,24 @@ def parse_kc_key(key: str) -> tuple[str, tuple[str, ...]]:
     return namespace, tuple(path)
 
 
+def is_valid_kc_key(key: str) -> bool:
+    """正準キーとして通る形か（**規則の置き場所はここ 1 つ**・#157）。
+
+    登録の手前（`aijudge_admin.kc.register`）は `parse_kc_key` が見ているが、
+    AI が出した候補は**どこも見ていなかった** ── 日本語を含むキーが生成 →
+    一覧 → 採用 → フォームまで素通りし、最後の登録で初めて弾かれていた。
+    教員は往復し終えてから断られることになる。
+
+    例外ではなく真偽で答えるのは、候補のように「弾くのではなく、採用でき
+    ないものとして見せる」使い方があるため。
+    """
+    try:
+        parse_kc_key(key)
+    except ValueError:
+        return False
+    return True
+
+
 class QMatrixEntry(BaseModel):
     """Task と KC の対応付け（Q-matrix の 1 セル）。
 

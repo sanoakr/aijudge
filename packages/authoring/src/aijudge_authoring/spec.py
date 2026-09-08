@@ -13,7 +13,6 @@ Sharif Judge のディレクトリ形式を知っているのは `importers/shar
 
 from __future__ import annotations
 
-import re
 from datetime import UTC, datetime
 from typing import Self
 
@@ -30,6 +29,7 @@ from aijudge_core import (
     TaskVersion,
     TestCase,
     derived_id,
+    is_valid_kc_key,
     kc_id_for,
 )
 from aijudge_core.ids import CourseId, TaskId, TaskVersionId, UserId
@@ -40,10 +40,6 @@ AI_EVALUATOR = "rubric_ai_judge"
 # 課題キーに許す文字。パスにもファイル名にもならないが、ID の素材になり、
 # 画面にも出るので、素性の知れない文字は入れない。
 _KEY_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_/.")
-
-# KC の正準キー（`namespace.path.path…`）。コアの KnowledgeComponent と
-# 同じ規則で、こちらは文字列のまま検査する。
-_KC_KEY_RE = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$")
 
 
 class TestCaseSpec(BaseModel):
@@ -168,7 +164,7 @@ class TaskSpec(BaseModel):
             # 形だけ検査する。**実在の検査はここではしない** ── 体系は
             # 科目ごとに育つもので、課題を書く時点で全部揃っている前提を
             # 置くと、KC を足すまで課題が登録できなくなる。
-            if not _KC_KEY_RE.match(key):
+            if not is_valid_kc_key(key):
                 raise ValueError(f"KC の正準キーの形が不正です: {key!r}")
         if self.criteria:
             codes = [c.code for c in self.criteria]

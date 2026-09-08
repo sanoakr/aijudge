@@ -119,9 +119,24 @@ def test_registering_the_same_key_twice_does_not_duplicate(database: Database) -
 
 
 def test_a_malformed_key_is_refused(database: Database) -> None:
-    for key in ("loops", "cs..loops", "CS.loops", "cs.1loops"):
+    # 日本語のキーもここで落ちる（#157）。AI の候補がこの形を出してくるので、
+    # 「たまたま通らない」ではなく**規則として通らない**ことを固定する。
+    for key in ("loops", "cs..loops", "CS.loops", "cs.1loops", "cs.配列の走査", "情報.loops"):
         with pytest.raises(AdminError):
             register_kc(database, key=key, label="x", namespaces=SPACES, allow_root=True)
+
+
+def test_the_refusal_says_what_would_be_accepted(database: Database) -> None:
+    """**何が悪いか**ではなく**何なら通るか**を言う（#157）。
+
+    日本語のキーを書いた教員にとって知りたいのはそこだけで、コアの
+    `invalid KC path segment: '配列'` はそれを言っていない。
+    """
+    with pytest.raises(AdminError) as exc:
+        register_kc(database, key="cs.配列", label="配列", namespaces=SPACES, allow_root=True)
+    message = str(exc.value)
+    assert "半角英小文字" in message
+    assert "cs.loops.termination" in message
 
 
 # --------------------------------------------------------------------------
