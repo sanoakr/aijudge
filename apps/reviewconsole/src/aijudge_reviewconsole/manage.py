@@ -55,6 +55,7 @@ from aijudge_admin import (
     assert_registered,
     delete_course,
     delete_kc,
+    duplicate_course,
     duplicate_profile,
     edit_kc,
     enrol_roster,
@@ -102,6 +103,7 @@ from aijudge_authoring.drafting import Blueprint, Difficulty
 from aijudge_authoring.spec import AI_EVALUATOR, TestCaseSpec
 from aijudge_core import (
     DEFAULT_UPLOAD_SUFFIXES,
+    DIVISIONS,
     MIN_JUSTIFICATION_LENGTH,
     SUFFIX_GROUPS,
     Aggregation,
@@ -114,6 +116,7 @@ from aijudge_core import (
     format_term,
     is_valid_kc_key,
     normalize_suffixes,
+    offered_years,
 )
 from aijudge_core.ids import CourseId, TaskId, TaskVersionId, UserId, derived_id
 from aijudge_eval_code_test_runner import EVALUATOR_ID as CODE_TEST_RUNNER
@@ -1657,7 +1660,13 @@ def register(templates) -> APIRouter:
         return response
 
     @router.get("/courses/{course_id}", response_class=HTMLResponse)
-    def course_settings(request: Request, course_id: str, saved: str = "") -> Response:
+    def course_settings(
+        request: Request,
+        course_id: str,
+        saved: str = "",
+        tasks: int = 0,
+        skipped: int = 0,
+    ) -> Response:
         """**コース全体**の設定 ── 基本情報・受講者・自動確定・提出形式・採点設定。
 
         課題（日程・一括確定・追加）はここには出さない。問題セットのページに
@@ -1668,7 +1677,18 @@ def register(templates) -> APIRouter:
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
-        return _course_page(request, me, course, saved=saved)
+        # 複製の直後は**何件写したかを告げる**（#170）。件数だけを黙って
+        # 変えると、教員は自分が何を手に入れたのか画面から確かめられない。
+        note = None
+        if saved == "course_duplicated":
+            note = (
+                f"複製しました（課題 {tasks} 件）。日程は写していません —— "
+                "元の学期の日付を持ち込むと、初日から全課題が締切済みになるためです。"
+                "問題セットのページで日程を入れてください。受講登録は空です。"
+            )
+            if skipped:
+                note += f" 未承認などの理由で写さなかった課題が {skipped} 件あります。"
+        return _course_page(request, me, course, saved=saved, note=note)
 
     def _course_page(
         request: Request,
@@ -1739,6 +1759,10 @@ def register(templates) -> APIRouter:
                 # 束の上限（#161）。**画面に書く値をコードから取る** ──
                 # 書き写すと、上限を変えた日に画面だけが古い数字を出す。
                 "bundle_max_mb": MAX_ARCHIVE_BYTES // (1024 * 1024),
+                # 複製先の学期の選択肢（#170）。作成フォームと同じ語彙から
+                # 取る（#167）── 画面ごとに書き写すと、片方だけが古くなる。
+                "term_years": offered_years(),
+                "term_divisions": DIVISIONS,
                 # 共通ルーブリック。未設定なら組み込みの既定を出して、
                 # **いま何が使われているか**を見えるようにする。
                 "rubric_rows": rubric.to_rows(
@@ -2708,6 +2732,73 @@ def register(templates) -> APIRouter:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         # 消したコースの画面はもう無いので、担当コースの一覧へ戻す。
         return RedirectResponse("/?saved=course_deleted", status_code=303)
+
+    @router.post("/courses/{course_id}/duplicate")
+    def duplicate_course_route(
+        request: Request,
+        course_id: str,
+        code: Annotated[str, Form()],
+        title: Annotated[str, Form()],
+        term_year: Annotated[int, Form()],
+        term_division: Annotated[str, Form()],
+    ) -> Response:
+        """コースを複製する（#170）。
+
+        権限はコースの作成・削除と同じ**テナント管理者** ── コースを作る
+        操作である。
+
+        規則は `aijudge_admin.course_copy` に置いてある（何を引き継ぎ、何を
+        引き継がないかは運用の判断で、画面の都合ではない）。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        _require_admin(request, me)
+        console = _console(request)
+
+        with console.database.unit_of_work() as uow:
+            course = uow.identity.get_course(CourseId(course_id))
+        if course is None or course.tenant_id != me.tenant_id:
+            raise HTTPException(status_code=404, detail="コースが見つかりません")
+
+        try:
+            term = format_term(term_year, term_division.strip())
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        try:
+            copied = duplicate_course(
+                console.database,
+                source_id=course.id,
+                code=code.strip(),
+                title=title.strip(),
+                term=term,
+                authored_by=me.user_id,
+                profiles_dir=console.profiles_dir,
+                artifact_store=console.store,
+            )
+        except AdminError as exc:
+            # **なぜ複製できないかをその場に出す**（同じコードと学期など）。
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+        with console.database.unit_of_work() as uow:
+            # 複製した本人を担当教員にする。受講登録は引き継がないので、
+            # ここで入れないと**自分が作ったコースが自分に見えない**
+            # （作成の経路と同じ理由・#130）。
+            AuthService(uow.identity).enroll(
+                tenant_id=me.tenant_id,
+                course_id=copied.course.id,
+                user_id=me.user_id,
+                role=Role.INSTRUCTOR,
+            )
+            uow.commit()
+
+        # 複製後にすることは日程の入力と設定の確認なので、その入口に落とす。
+        return RedirectResponse(
+            f"/manage/courses/{copied.course.id}"
+            f"?saved=course_duplicated&tasks={copied.tasks}&skipped={len(copied.skipped)}",
+            status_code=303,
+        )
 
     @router.post("/courses/{course_id}/rubric")
     async def save_course_rubric(request: Request, course_id: str) -> Response:

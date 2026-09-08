@@ -38,6 +38,18 @@ class AdminError(Exception):
 # --------------------------------------------------------------------------
 
 
+def course_id_for(tenant_id: TenantId, code: str, term: str) -> CourseId:
+    """コースの ID を (テナント, コースコード, 学期) から導く。**ここが唯一の導出点。**
+
+    コースの同一性はこの 3 つで、同じ授業を二度作らないのはこの性質による
+    （取り込みを流し直しても増えない）。**導出を書き写すと、複製（#170）の
+    ような「既にあるか先に確かめてから作る」操作が、確かめる ID と作る ID を
+    別々に組み立てることになる** ── そして食い違えば、既にあるコースを
+    黙って上書きする。
+    """
+    return CourseId(derived_id("crs", str(tenant_id), code, term))
+
+
 def ensure_course(
     database: Database,
     *,
@@ -76,8 +88,7 @@ def ensure_course(
     except Exception as exc:
         raise AdminError(f"科目プロファイル {subject_profile!r} が不正です: {exc}") from exc
 
-    # コースの同一性は (テナント, コースコード, 学期)。同じ授業を二度作らない。
-    course_id = CourseId(derived_id("crs", str(tenant_id), code, term))
+    course_id = course_id_for(tenant_id, code, term)
     with database.unit_of_work() as uow:
         existing = uow.identity.get_course(course_id)
         course = Course(
