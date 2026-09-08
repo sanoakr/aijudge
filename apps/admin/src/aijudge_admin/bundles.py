@@ -34,6 +34,7 @@ from pathlib import PurePosixPath
 import yaml
 
 from aijudge_authoring import TaskSpec
+from aijudge_authoring import images as image_module
 
 from .operations import AdminError
 
@@ -280,10 +281,14 @@ def template_bundle(
         f"p2/{SPEC_NAME}": _full_spec(evaluators, criterion_codes, kc_keys),
         f"p2/{STATEMENT_NAME}": _statement(),
         "p2/reference.c": _REFERENCE_C,
+        # **2 件入れる。** 「複数置ける」と README に書くだけでなく、
+        # 対の付け方が目に見える形で入っている方が早い（#177）。
         f"p2/{TESTS_DIR}/case1.in": "3 4\n",
         f"p2/{TESTS_DIR}/case1.out": "7\n",
+        f"p2/{TESTS_DIR}/case2.in": "-2 5\n",
+        f"p2/{TESTS_DIR}/case2.out": "3\n",
         f"p2/{IMAGES_DIR}/fig1.png": _placeholder_png(),
-        "README.txt": _readme(unit),
+        "README.md": _readme(unit),
     }
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
@@ -305,11 +310,8 @@ def _listing(values: tuple[str, ...], empty: str) -> str:
 
 def _minimal_spec(kc_keys: tuple[str, ...]) -> str:
     """最小の `task.yaml`。**必須は `statement` だけである。**"""
-    return f"""# 課題 1 件の宣言。**必須は statement だけ**で、ほかは既定があります。
-#
-# 鍵（key）は書きません。**書いても捨てられます** —— 鍵はフォルダ名
-# （このファイルの入っている `p1`）と、取り込む問題セットが決めます。
-# フォルダ名の打ち間違いが別の課題に化けるのを防ぐためです。
+    return f"""# 課題 1 件の宣言。必須は statement だけです（詳しくは README.md）。
+# 鍵（key）は書きません —— 書いても捨てられます。
 
 statement: |
   ## [必須] 二数の和 ##
@@ -333,13 +335,8 @@ def _full_spec(
 ) -> str:
     """テストケース・参照解答・画像つきの `task.yaml`。"""
     codes = _listing(criterion_codes, "宣言していません。組み込みの既定を使います")
-    return f"""# 側のファイルを使う例。長い文字列を YAML に埋めなくて済みます。
-#
-#   statement.md      あればこのファイルの statement より優先します
-#   reference.c       参照解答（{" / ".join(REFERENCE_SUFFIXES)}）
-#   tests/case1.in    期待出力 case1.out と**対で**置きます
-#   tests/case1.out   片方だけだと取り込みを断ります
-#   images/fig1.png   課題文から `images/fig1.png` で参照します
+    return f"""# 側のファイル（statement.md・reference.c・tests/・images/）を使う例。
+# それぞれの役割と書式は README.md にあります。
 
 statement: |
   statement.md があるので、こちらは使われません。
@@ -398,17 +395,122 @@ int main(void) {
 
 
 def _readme(unit: str) -> str:
-    where = f"「{unit}」" if unit else "問題セット"
-    return f"""このひな形の使い方
+    """ひな形の説明（Markdown・#177）。
 
-1. p1 / p2 のフォルダを、作りたい課題の数だけ用意します
-   （フォルダ名がそのまま課題の鍵になります。1 問だけでもかまいません）
-2. task.yaml を書き換えます。**必須は statement だけ**です
-3. このフォルダ全体を zip にして、{where}のページの
-   「zip でまとめて取り込む」から選びます
+    **これだけ読めば書けるところまで書く。** 手順しか書いていなかったので、
+    ファイルごとの書式は `task.yaml` のコメントに散っており、2 つのファイルを
+    行き来しないと全体が掴めなかった。分担は「README が全体、`task.yaml` の
+    コメントはその行の意味」で、**同じことを 2 か所に書かない**。
+
+    **上限や拡張子はコードの定数から埋める。** 書き写すと、変えた日に
+    README だけが古い数字を出す。
+    """
+    where = f"「{unit}」" if unit else "問題セット"
+    mb = MAX_ARCHIVE_BYTES // (1024 * 1024)
+    extracted_mb = MAX_EXTRACTED_BYTES // (1024 * 1024)
+    image_mb = image_module.MAX_BYTES // (1024 * 1024)
+    image_suffixes = " ".join(f"`{suffix}`" for suffix in sorted(image_module.SUFFIX_TYPES))
+    references = " / ".join(f"`{suffix}`" for suffix in REFERENCE_SUFFIXES)
+    return f"""# 問題セットの取り込み — ファイル一式の書き方
+
+このひな形を書き換えて zip にすると、{where}のページの
+「zip でまとめて取り込む」から取り込めます。
+
+## 手順
+
+1. `p1` / `p2` のフォルダを、作りたい課題の数だけ用意します（1 問でもかまいません）
+2. `{SPEC_NAME}` を書き換えます。**必須は `statement` だけ**です
+3. フォルダ全体を zip にして選びます
 4. 読み取った内容が確認画面に出ます。**そこまでは保存されません**
 
-この README.txt は取り込みで無視されます（残したままでかまいません）。
+この `README.md` は取り込みで無視されます（残したままでかまいません）。
+
+## フォルダの決まり
+
+- **`{SPEC_NAME}` のある階層が課題 1 件**で、**フォルダ名がその課題の鍵**になります
+- `{SPEC_NAME}` を zip の直下に置くと断ります（課題ごとのフォルダに入れてください）
+- 同じ名前のフォルダが 2 つあると断ります
+- 鍵の前半（どの問題セットか）は**取り込む画面が決めます**。`{SPEC_NAME}` に
+  `key` を書いても捨てます —— フォルダ名の打ち間違いが別の課題に化けるのを
+  防ぐためです
+- 関係のないファイル（この README や `__MACOSX`）は無視します
+
+## ファイルの役割と書式
+
+### `{SPEC_NAME}`（必須）
+
+課題の宣言です。**知らないキーを書くとその場で断ります**（綴り間違いを
+黙って無視しません）。
+
+| 書くもの | 既定・決まり |
+|---|---|
+| `statement` | **必須。** 課題文（Markdown） |
+| `title` | 省略すると本文の見出しから採ります |
+| `max_score` | 既定 100.0 |
+| `position` | 問題セットの中での順序（`p1`, `p2`, … の 1, 2, …） |
+| `criteria` | 省略するとコースの共通ルーブリックを引き継ぎます |
+| `knowledge_components` | **登録済みの正準キーだけ**。半角英小文字・数字・下線と `.` |
+| `test_cases` | `{TESTS_DIR}/` を置く場合は書きません（下記） |
+
+`criteria` を書く場合は、**重みの合計を 1.0** にし、段階は 2 つ以上、
+最上位の `score_ratio` を 1.0 にします。`criteria` と `readability_weight` は
+併記できません（どちらが効くのか読めなくなるため）。
+
+### `{STATEMENT_NAME}`（任意）
+
+課題文。**あれば `{SPEC_NAME}` の `statement` より優先します。** 長い本文を
+YAML に埋めなくて済ませるためのものです。
+
+### `reference.<拡張子>`（任意）
+
+参照解答。{references} の順で、最初に見つかった 1 つを読みます。
+
+### `{TESTS_DIR}/`（任意） — 入出力のセット
+
+- `<名前>.in` と `<名前>.out` を**対で**置きます。**片方だけだと断ります**
+  （期待出力の無いテストケースは、通ったのか確かめていないのか区別が
+  付かないまま採点に使われるためです）
+- **複数置けます。** 同じ `{TESTS_DIR}/` の中に並べてください:
+
+```
+{TESTS_DIR}/case1.in
+{TESTS_DIR}/case1.out
+{TESTS_DIR}/case2.in
+{TESTS_DIR}/case2.out
+{TESTS_DIR}/big-input.in
+{TESTS_DIR}/big-input.out
+```
+
+- 拡張子を除いた部分（`case1`・`big-input`）が**テストケース名**になり、
+  採点結果の画面にその名前で出ます。並ぶ順は**名前順**です
+- ファイルで置いたケースは**学習者に中身を見せません**。重みはどれも同じ
+  （1.0）です
+- **`{TESTS_DIR}/` を置くと、`{SPEC_NAME}` の `test_cases` は無視されます。**
+  見せるケース（例題）や、重みを変えたいケースがある場合は、`{TESTS_DIR}/` を
+  使わず `{SPEC_NAME}` の `test_cases` に書いてください
+
+### `{IMAGES_DIR}/`（任意）
+
+課題文に貼る画像です。課題文から `{IMAGES_DIR}/<名前>` で参照すると、
+取り込みのときに正しい URL へ書き換えます（外部の URL を書かないでください
+—— 課題文を開くたびに学外へ取りに行くことになります）。
+
+使える形式は {image_suffixes}、1 枚 {image_mb}MB までです。
+
+## 上限
+
+- zip 全体で {mb}MB
+- 項目 {MAX_ARCHIVE_ENTRIES} 件
+- 展開後 {extracted_mb}MB
+
+## 取り込んだあとの扱い
+
+- **既にある鍵の課題は上書きしません。版が上がります。** 確認画面が
+  1 件ずつ「新規 / 変化なし / 版が上がる」を出します
+- 既定は**未承認**です。承認するまで学習者には出ません（「未承認の課題」から
+  中身を確かめて承認してください）
+- 出題済みの版は書き換わらないので、**過去の採点がどの基準で付いたのかは
+  そのまま辿れます**
 """
 
 
