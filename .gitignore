@@ -32,3 +32,9 @@ evals/report_ja/agent_out/
 
 # モデル比較ベンチマーク（ローカルの実験結果、追跡しない）
 evals/model_bench/
+
+# 導入先ごとの運用メモ。**このリポジトリは公開物なので追跡しない** ──
+# 実ホスト名・実 IP・証明書のパスなど、機関固有の値が入る
+# （`deploy/README.md`「機関固有の値はすべて…git 管理外に置く」）。
+docs/design/elite-deployment-proposal.md
+docs/design/disk-and-recovery-plan.md
