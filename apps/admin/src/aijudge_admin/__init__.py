@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from . import rubric
 from .authoring import SavedTask, save_task
+from .bundle_plan import PlannedChange, PlannedTask, plan_bundle
+from .bundles import BundledTask, read_bundle
 from .courses import DeletedCourse, delete_course
 from .duplicates import DuplicateChecker
 from .finalization import (
@@ -85,6 +87,7 @@ __all__ = [
     "DEFAULT_MUTATION_LIMIT",
     "AdminError",
     "ApprovalRate",
+    "BundledTask",
     "DeletedCourse",
     "DuplicateChecker",
     "EnrolReport",
@@ -92,6 +95,8 @@ __all__ = [
     "ImportReport",
     "ImportedTask",
     "KcUsage",
+    "PlannedChange",
+    "PlannedTask",
     "ProfileSummary",
     "ReviewPacket",
     "RosterEntry",
@@ -127,6 +132,8 @@ __all__ = [
     "parse_roster",
     "pending_counts",
     "pending_reviews",
+    "plan_bundle",
+    "read_bundle",
     "read_profile_text",
     "register_kc",
     "reject",

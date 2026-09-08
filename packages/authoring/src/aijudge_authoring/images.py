@@ -165,6 +165,16 @@ def display_width(payload: bytes) -> int | None:
     return DISPLAY_WIDTH
 
 
+def url_for(course_id: str, name: str) -> str:
+    """課題文から画像を指す URL。**形を 1 か所に置く。**
+
+    貼り付け行（`markdown_for`）と、束の中の相対リンクを書き換える側
+    （`aijudge_admin.bundles` を読む画面・#161）の両方が要る。書き写すと、
+    片方だけが古い形のまま残る日が来る。
+    """
+    return f"/images/{course_id}/{name}"
+
+
 def markdown_for(course_id: str, name: str, alt: str = "", width: int | None = None) -> str:
     """課題文に貼り付ける 1 行。**教員に URL を手で書かせない。**
 
@@ -175,7 +185,7 @@ def markdown_for(course_id: str, name: str, alt: str = "", width: int | None = N
     **教員があとから数字を書き換えられる形にしておく** ── 既定の幅が合わない
     課題は必ずあり、そのために画像を貼り直させたくない。
     """
-    line = f"![{alt}](/images/{course_id}/{name})"
+    line = f"![{alt}]({url_for(course_id, name)})"
     return f"{line}{{width={width}}}" if width else line
 
 
@@ -191,4 +201,5 @@ __all__ = [
     "new_name",
     "storage_key",
     "suffix_of",
+    "url_for",
 ]

@@ -208,6 +208,7 @@ def _declared_version(
     version: int,
     generated_by: str | None = None,
     generation_prompt_version: str | None = None,
+    review_state: ReviewState | None = None,
 ) -> TaskVersion:
     """課題が観点を宣言している場合の版。
 
@@ -257,7 +258,7 @@ def _declared_version(
         max_score=spec.max_score,
         source_key=spec.key,
         allow_handwriting=False,
-        provenance=_provenance(authored_by, generated_by, generation_prompt_version),
+        provenance=_provenance(authored_by, generated_by, generation_prompt_version, review_state),
         created_at=datetime.now(UTC),
     )
 
@@ -284,22 +285,36 @@ def q_matrix_for(keys: tuple[str, ...], task_version_id: TaskVersionId) -> tuple
 
 
 def _provenance(
-    authored_by: UserId, generated_by: str | None, prompt_version: str | None
+    authored_by: UserId,
+    generated_by: str | None,
+    prompt_version: str | None,
+    review_state: ReviewState | None = None,
 ) -> Provenance:
-    """出所。**生成物は承認済みにしない**（P5）。"""
+    """出所。**生成物は承認済みにしない**（P5）。
+
+    `review_state` を渡せるのは、**「人が書いたが、このシステムでは誰も
+    読んでいない」**という状態が既定の 2 つに当てはまらないため（#161 の
+    アップロード）。生成物のふりをさせる（`generated_by` に嘘を入れる）と、
+    承認率の統計が「AI が作った課題の承認率」でなくなる。
+    """
     if generated_by is None:
-        # 教員が明示的に足した課題なので、その時点で承認済みとする。
         return Provenance(
             authored_by=authored_by,
-            review_state=ReviewState.APPROVED,
-            reviewed_by=authored_by,
+            # 既定は、教員が明示的に足した課題なのでその時点で承認済み。
+            review_state=review_state or ReviewState.APPROVED,
+            # 承認していないなら「誰が承認したか」は空のまま。
+            reviewed_by=(
+                authored_by
+                if (review_state or ReviewState.APPROVED) is ReviewState.APPROVED
+                else None
+            ),
         )
     return Provenance(
         authored_by=authored_by,
         generated_by=generated_by,
         generation_prompt_version=prompt_version,
         # 教員が読むまでは提案。**却下も承認もされていない。**
-        review_state=ReviewState.IN_REVIEW,
+        review_state=review_state or ReviewState.IN_REVIEW,
     )
 
 
@@ -312,6 +327,7 @@ def build_task_version(
     version: int = 1,
     generated_by: str | None = None,
     generation_prompt_version: str | None = None,
+    review_state: ReviewState | None = None,
 ) -> TaskVersion:
     """宣言から課題版を作る。
 
@@ -327,6 +343,10 @@ def build_task_version(
     その時点で承認済みとしてよいが、生成物は違う ── AI の出力は提案であって
     確定ではない（設計原則 P5）。ここを共通にしていると、生成した課題が
     レビューを経ずにそのまま出題されうる。出所と版も残す（P8、承認率の測定）。
+
+    `review_state` は既定の 2 つに当てはまらない場合に渡す ── 束で
+    取り込んだ課題は「人が書いたが、このシステムでは誰も読んでいない」で、
+    生成物でも教員がその場で書いたものでもない（#161）。
     """
     from .importers.sharif_judge import correctness_criterion, readability_criterion
 
@@ -358,6 +378,7 @@ def build_task_version(
             version=version,
             generated_by=generated_by,
             generation_prompt_version=generation_prompt_version,
+            review_state=review_state,
         )
 
     graded_by = spec.evaluator if spec.auto_graded else AI_EVALUATOR
@@ -397,7 +418,7 @@ def build_task_version(
         max_score=spec.max_score,
         source_key=spec.key,
         allow_handwriting=False,
-        provenance=_provenance(authored_by, generated_by, generation_prompt_version),
+        provenance=_provenance(authored_by, generated_by, generation_prompt_version, review_state),
         created_at=datetime.now(UTC),
     )
 
