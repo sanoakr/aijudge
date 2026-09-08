@@ -2,7 +2,7 @@
 {% block title %}{{ task.title if task else '課題を追加' }} — aiJudge{% endblock %}
 {% block body %}
 <h1>{{ task.title if task else '課題を追加' }}</h1>
-<p class="crumb">
+<p class="subtitle">
   {{ course.title }} <span class="sep">·</span>
   <a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/units/{{ unit_key }}">問題セット {{ unit_key }}</a>
   {% if version %}<span class="sep">·</span> {{ version.version }} 版{% endif %}

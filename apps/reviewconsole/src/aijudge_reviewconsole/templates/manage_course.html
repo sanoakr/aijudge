@@ -2,7 +2,7 @@
 {% block title %}{{ course.title }} の設定 — aiJudge{% endblock %}
 {% block body %}
 <h1>コース全体の設定</h1>
-<p class="crumb">{{ course.title }}
+<p class="subtitle">{{ course.title }}
   {# 課題（日程・一括確定・追加）は問題セットのページにある。1 枚に積むと、
      「ex03 の締切を直す」ために縦に長い画面を目で探すことになる。 #}
   <span class="sep">·</span> 課題の設定は<a href="{{ root_prefix() }}/courses/{{ course.id }}">問題セットのページ</a>から

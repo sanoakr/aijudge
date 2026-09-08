@@ -5072,3 +5072,95 @@ def test_a_ta_cannot_upload_a_bundle(world: World) -> None:
     response = _upload(world.client("ta"), world, _bundle({"p9/task.yaml": BUNDLED_TASK}))
 
     assert response.status_code == 403
+
+
+# --------------------------------------------------------------------------
+# 現在地（パンくず）— テナント単位の管理画面（#165）
+# --------------------------------------------------------------------------
+
+
+def _trail_of(body: str) -> str:
+    """`<nav class="trail">` の中身だけを取り出す。"""
+    start = body.index('<nav class="trail"')
+    return body[start : body.index("</nav>", start)]
+
+
+def test_the_tenant_wide_screens_say_where_you_are(world: World) -> None:
+    """**コースの下にない画面にも現在地を出す**（#165）。
+
+    以前はパンくずが `{% if course %}` の中にあり、利用者の一覧・科目
+    プロファイル・Google ログイン設定には出なかった。戻る導線は画面ごとに
+    上・下・無しとばらばらで、`/manage/users/new` には 1 本も無かった。
+    """
+    world.register("boss", Role.ADMIN, tenant_admin=True)
+    client = world.client("boss")
+    expected = {
+        "/manage/users": "利用者の一覧",
+        "/manage/users/new": "利用者を作成",
+        "/manage/subjects": "科目プロファイル",
+        "/manage/oidc-settings": "Google ログイン設定",
+        "/manage/account/password": "パスワード変更",
+    }
+    for path, label in expected.items():
+        response = client.get(path)
+        assert response.status_code == 200, path
+        trail = _trail_of(response.text)
+        # 根（担当コース）へ戻れること、いまいる場所が出ていること。
+        assert 'href="/"' in trail, path
+        assert label in trail, path
+
+
+def test_a_detail_screen_links_one_step_up(world: World) -> None:
+    """一段上へ戻れること。**詳細から一覧へ**が画面の中に無いと、
+    ブラウザの戻る以外に道が無くなる。
+    """
+    other = world.register("s2400001", Role.LEARNER)
+    world.register("boss", Role.ADMIN, tenant_admin=True)
+
+    trail = _trail_of(world.client("boss").get(f"/manage/users/{other.user_id}").text)
+
+    assert 'href="/manage/users"' in trail
+    assert "s2400001" in trail
+
+
+def test_the_google_login_settings_are_reachable_without_typing_the_url(world: World) -> None:
+    """**どこからもリンクされていなかった**（#165）。URL を直接打つ以外に
+    到達手段が無い画面は、無いのと同じである。
+    """
+    world.register("boss", Role.ADMIN, tenant_admin=True)
+
+    body = world.client("boss").get("/").text
+
+    assert 'href="/manage/oidc-settings"' in body
+
+
+def test_the_breadcrumb_class_is_not_used_for_anything_else() -> None:
+    """`.crumb` は現在地と、見出し直下の説明文の**両方**に使われていた。
+
+    名前が 2 つの意味を持ったままパンくずを足すと、同じ画面に「パンくず」が
+    2 つ出る。説明文は `.subtitle` に分けた（#165）ので、`crumb` という語が
+    テンプレートに残っていないことをここで固定する。
+    """
+    templates = Path(__file__).resolve().parents[1] / "src" / "aijudge_reviewconsole" / "templates"
+    guilty = [path.name for path in templates.glob("*.html") if 'class="crumb"' in path.read_text()]
+
+    assert guilty == []
+
+
+def test_the_section_step_carries_the_path_prefix(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """接頭辞つき配置（`/console` の下）でも区画へ戻れること。
+
+    ここだけ `root_prefix()` が抜けており、パンくずの「区画」だけが 404 に
+    なる状態だった（#103 の書き換え漏れ）。
+    """
+    from aijudge_reviewconsole.urls import ENV_ROOT_PREFIX
+
+    monkeypatch.setenv(ENV_ROOT_PREFIX, "/console")
+    world.register("teacher", Role.INSTRUCTOR)
+
+    trail = _trail_of(world.client("teacher").get(f"/manage/courses/{world.course.id}/kc").text)
+
+    assert 'href="/console/manage/courses/' in trail
+    assert 'href="/manage/courses/' not in trail

@@ -158,6 +158,24 @@ def _is_admin(request: Request, me: Principal) -> bool:
     return me.is_tenant_admin
 
 
+# テナント単位の管理画面の親（#165）。**画面ごとに文字列を書き写さない** ──
+# 書き写すと、一覧の見出しを直したときにパンくずの側が古い名前のまま残る。
+USERS_STEP = ("利用者の一覧", "/manage/users")
+SUBJECTS_STEP = ("科目プロファイル", "/manage/subjects")
+
+
+def _trail(*steps: tuple[str, str | None]) -> tuple[dict[str, str | None], ...]:
+    """パンくずの経路。`担当コース` の下に続く段を `(名前, 経路)` で並べる。
+
+    `経路` が `None` の段が現在地で、リンクにしない。**コースの下にない画面の
+    ためにある**（#165）── コース配下の経路は `course` / `section` /
+    `task_meta` / `submission` から `base.html` が組み立てており、そちらは
+    そのまま。両方を 1 つの `<nav>` に入れると、コース名の位置に管理画面の
+    名前が入る形になり、階層の意味が壊れる。
+    """
+    return tuple({"label": label, "href": href} for label, href in steps)
+
+
 # 画面から与えてよい役割。**`admin` は入らない。**
 #
 # `admin` はコースを作れて、テナント内のどのコースにも届く。担当教員が
@@ -1052,7 +1070,11 @@ def register(templates) -> APIRouter:
 
         me = require_principal(request)
         _require_admin(request, me)
-        return templates.TemplateResponse(request, "manage_new_user.html", {"me": me})
+        return templates.TemplateResponse(
+            request,
+            "manage_new_user.html",
+            {"me": me, "trail": _trail(USERS_STEP, ("利用者を作成", None))},
+        )
 
     @router.post("/users")
     def create_user(
@@ -1092,7 +1114,13 @@ def register(templates) -> APIRouter:
         return templates.TemplateResponse(
             request,
             "manage_new_user_created.html",
-            {"me": me, "login": login, "password": password, "tenant_admin": tenant_admin},
+            {
+                "me": me,
+                "login": login,
+                "password": password,
+                "tenant_admin": tenant_admin,
+                "trail": _trail(USERS_STEP, ("利用者を作成", None)),
+            },
         )
 
     @router.get("/users", response_class=HTMLResponse)
@@ -1125,6 +1153,7 @@ def register(templates) -> APIRouter:
             "manage_users.html",
             {
                 "me": me,
+                "trail": _trail(("利用者の一覧", None)),
                 "users": users,
                 "q": prefix,
                 "local_only": local_only,
@@ -1162,6 +1191,7 @@ def register(templates) -> APIRouter:
             "manage_user_detail.html",
             {
                 "me": me,
+                "trail": _trail(USERS_STEP, (user.login, None)),
                 "user": user,
                 "rows": rows,
                 "is_self": user.id == me.user_id,
@@ -1298,7 +1328,15 @@ def register(templates) -> APIRouter:
         return templates.TemplateResponse(
             request,
             "manage_password_reissued.html",
-            {"me": me, "login": login, "password": password, "user_id": user_id},
+            {
+                "me": me,
+                "login": login,
+                "password": password,
+                "user_id": user_id,
+                "trail": _trail(
+                    USERS_STEP, (login, f"/manage/users/{user_id}"), ("パスワードの再発行", None)
+                ),
+            },
         )
 
     # -- Google OIDC 設定（テナント単位、管理者専用、#124）------------------
@@ -1321,7 +1359,12 @@ def register(templates) -> APIRouter:
         return templates.TemplateResponse(
             request,
             "manage_oidc_settings.html",
-            {"me": me, "settings": settings, "saved": bool(saved)},
+            {
+                "me": me,
+                "settings": settings,
+                "saved": bool(saved),
+                "trail": _trail(("Google ログイン設定", None)),
+            },
         )
 
     @router.post("/oidc-settings", response_class=HTMLResponse)
@@ -1358,7 +1401,12 @@ def register(templates) -> APIRouter:
                 return templates.TemplateResponse(
                     request,
                     "manage_oidc_settings.html",
-                    {"me": me, "settings": existing, "error": message},
+                    {
+                        "me": me,
+                        "settings": existing,
+                        "error": message,
+                        "trail": _trail(("Google ログイン設定", None)),
+                    },
                 )
 
             secret = client_secret.strip() or (existing.client_secret if existing else "")
@@ -1411,6 +1459,7 @@ def register(templates) -> APIRouter:
             "manage_subjects.html",
             {
                 "me": me,
+                "trail": _trail(("科目プロファイル", None)),
                 "profiles": profiles,
                 "saved": SAVED_MESSAGES.get(saved),
             },
@@ -1439,6 +1488,7 @@ def register(templates) -> APIRouter:
             "manage_subject.html",
             {
                 "me": me,
+                "trail": _trail(SUBJECTS_STEP, (name, None)),
                 "name": name,
                 "text": text,
                 "used_by": used_by,
@@ -1475,6 +1525,7 @@ def register(templates) -> APIRouter:
                 "manage_subject.html",
                 {
                     "me": me,
+                    "trail": _trail(SUBJECTS_STEP, (name, None)),
                     "name": name,
                     "text": text,
                     "used_by": used_by,
@@ -1547,7 +1598,11 @@ def register(templates) -> APIRouter:
         from .app import require_principal
 
         me = require_principal(request)
-        return templates.TemplateResponse(request, "manage_account_password.html", {"me": me})
+        return templates.TemplateResponse(
+            request,
+            "manage_account_password.html",
+            {"me": me, "trail": _trail(("パスワード変更", None))},
+        )
 
     @router.post("/account/password", response_class=HTMLResponse)
     def account_password_change(
@@ -1563,7 +1618,9 @@ def register(templates) -> APIRouter:
 
         def error(message: str) -> Response:
             return templates.TemplateResponse(
-                request, "manage_account_password.html", {"me": me, "error": message}
+                request,
+                "manage_account_password.html",
+                {"me": me, "error": message, "trail": _trail(("パスワード変更", None))},
             )
 
         # `hash_password`/`change_password` 自体は長さを見ない

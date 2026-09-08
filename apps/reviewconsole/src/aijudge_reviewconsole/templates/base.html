@@ -33,7 +33,11 @@ main{max-width:1100px;margin:0 auto;padding:32px 24px 80px}
 h1{font-size:1.5rem;margin:0 0 4px}
 h2{font-size:1.1rem;margin:32px 0 10px}
 a{color:var(--shu)}
-.crumb{font-size:.8rem;color:var(--muted);margin-bottom:24px}
+/* 見出しの直下に置く 1 行の説明。**パンくずではない** ── 以前は `.crumb` と
+   いう名前で、現在地を示す `.trail` と同じ語で呼ばれていた。管理画面にも
+   パンくずを出すにあたって名前を分けた（#165）。同じ画面に「パンくず」が
+   2 つ出る形にしないため。 */
+.subtitle{font-size:.8rem;color:var(--muted);margin-bottom:24px}
 .card{background:var(--surface);border:1px solid var(--line-soft);border-radius:4px;padding:20px 22px;margin-bottom:20px}
 .note{border-left:3px solid var(--verd);background:var(--verd-soft);padding:12px 16px;
   border-radius:0 3px 3px 0;font-size:.9rem;color:var(--ink-2);margin-bottom:20px}
@@ -145,7 +149,7 @@ header.top button{background:none;color:var(--muted);border:1px solid var(--line
 .trail{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 8px}
 .trail [aria-current]{color:var(--ink-2)}
 .sep{color:var(--muted);user-select:none}
-.crumb .sep{margin:0 2px}
+.subtitle .sep{margin:0 2px}
 /* コースのメニュー。1 行 1 分岐で、右端に「いま何件待っているか」を出す。 */
 .menu{display:flex;flex-direction:column;border:1px solid var(--line-soft);
   border-radius:4px;overflow:hidden;background:var(--surface)}
@@ -377,7 +381,8 @@ footer.app-footer{max-width:1100px;margin:24px auto 0;padding:12px 24px;text-ali
   <form method="post" action="{{ root_prefix() }}/logout"><button type="submit">ログアウト</button></form>
 </div></header>
 {% endif %}
-{% if course is defined and course %}
+{% set trail = trail if trail is defined and trail else () %}
+{% if (course is defined and course) or trail %}
 <div class="ctx"><div class="inner">
   {# **辿れる形で出す。** いまどのコースのどこを見ているかを示すだけでなく、
      一段上へ戻れること。コースコードと開講期はここでは出さない ── 画面の見出しで
@@ -385,14 +390,25 @@ footer.app-footer{max-width:1100px;margin:24px auto 0;padding:12px 24px;text-ali
 
      階層は 担当コース > コース > 区画 > 課題 > 提出。区画（`section`）は
      「コース全体の設定」「問題セット」「再確認の依頼」などで、コースのメニュー
-     （/courses/{id}）から分岐した先を表す。 #}
+     （/courses/{id}）から分岐した先を表す。
+
+     **コースの下にない画面もここを通る**（#165）。利用者の一覧・科目プロファイル・
+     Google ログイン設定はテナント単位で、コースを持たない ── 以前はこの節が
+     まるごと `{% if course %}` の中にあったので、そういう画面には現在地が
+     出ず、戻る導線が画面ごとに（上に・下に・無し、と）ばらばらだった。
+     `trail` は `(label, href)` の並びで、`href` が無い段が現在地である。 #}
   <nav class="trail" aria-label="現在地">
     <a href="{{ root_prefix() }}/">担当コース</a>
+    {% if course is defined and course %}
     <span class="sep">&gt;</span>
     <a href="{{ root_prefix() }}/courses/{{ course.id }}">{{ course.title }}</a>
+    {% endif %}
     {% if section is defined and section %}
       <span class="sep">&gt;</span>
-      <a href="{{ section.href }}">{{ section.label }}</a>
+      {# 接頭辞つき配置（`AIJUDGE_CONSOLE_ROOT_PREFIX`）でも辿れるように。
+         ここだけ `root_prefix()` が抜けていて、`/console` の下では区画への
+         リンクが 404 になっていた。 #}
+      <a href="{{ root_prefix() }}{{ section.href }}">{{ section.label }}</a>
     {% endif %}
     {% if task_meta is defined and task_meta %}
       <span class="sep">&gt;</span>
@@ -408,6 +424,14 @@ footer.app-footer{max-width:1100px;margin:24px auto 0;padding:12px 24px;text-ali
         {%- if submission.submitted_at %}（{{ submission.submitted_at.strftime('%Y-%m-%d %H:%M') }}）{% endif -%}
       </span>
     {% endif %}
+    {% for step in trail %}
+      <span class="sep">&gt;</span>
+      {% if step.href %}
+        <a href="{{ root_prefix() }}{{ step.href }}">{{ step.label }}</a>
+      {% else %}
+        <span aria-current="page">{{ step.label }}</span>
+      {% endif %}
+    {% endfor %}
   </nav>
 </div></div>
 {% endif %}

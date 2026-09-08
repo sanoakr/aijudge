@@ -2,7 +2,7 @@
 {% block title %}コースの基本情報 — {{ course.title }} — aiJudge{% endblock %}
 {% block body %}
 <h1>コースの基本情報</h1>
-<p class="crumb">{{ course.title }}・{{ course.code }} / {{ course.term }}</p>
+<p class="subtitle">{{ course.title }}・{{ course.code }} / {{ course.term }}</p>
 
 {# **読み取りと登録を分ける。** 出てきたのはモデルが整えた文であって
    シラバスそのものではないので、教員が確かめてから保存する。 #}

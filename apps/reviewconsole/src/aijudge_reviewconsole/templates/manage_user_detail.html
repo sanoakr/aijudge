@@ -2,7 +2,6 @@
 {% block title %}{{ user.login }} — ローカル利用者 — aiJudge{% endblock %}
 {% block body %}
 <h1><span class="mono">{{ user.login }}</span></h1>
-<p class="crumb"><a href="{{ root_prefix() }}/manage/users">ローカル利用者の一覧へ戻る</a></p>
 
 {% if saved %}<div class="note saved">{{ saved }}</div>{% endif %}
 

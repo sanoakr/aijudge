@@ -5,7 +5,7 @@
    Markdown のまま見せると、採点しながら読む相手には学習者の画面と別物になる
    （数式も画像も記号のまま並ぶ・`statement.py`）。訂正の欄は無い。 #}
 <h1>{{ task.title }}</h1>
-<p class="crumb">
+<p class="subtitle">
   {{ course.title }} <span class="sep">·</span>
   <a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/units/{{ unit_key }}">問題セット {{ unit_key }}</a>
   <span class="sep">·</span> {{ version.version }} 版

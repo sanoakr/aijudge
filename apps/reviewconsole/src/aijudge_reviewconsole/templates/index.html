@@ -104,7 +104,7 @@
 </form>
 
 <h2>ローカル利用者</h2>
-<p class="crumb">
+<p class="subtitle">
   ローカルのパスワード利用者を作成・確認できます。
   <a href="{{ root_prefix() }}/manage/users">利用者の一覧</a>
   ・
@@ -112,10 +112,20 @@
 </p>
 
 <h2>科目プロファイル</h2>
-<p class="crumb">
+<p class="subtitle">
   採点の宣言（どの評価器をどの順で走らせるか）を確認できます。
   コースが使っているものは読み取り専用で、複製して編集します。
   <a href="{{ root_prefix() }}/manage/subjects">科目プロファイルの一覧</a>
+</p>
+
+{# **入口をここに置く。** この画面はどこからもリンクされておらず、URL を
+   直接打つしか到達手段が無かった（#165）。管理者向けの入口はこの節が
+   ぜんぶ持っている、という形に揃える。 #}
+<h2>ログイン方式</h2>
+<p class="subtitle">
+  大学アカウント（Google Workspace）でのログインを設定します。
+  未設定のあいだ、ログイン画面に Google でのログインは出ません。
+  <a href="{{ root_prefix() }}/manage/oidc-settings">Google ログイン設定</a>
 </p>
 {% endif %}
 {% endblock %}
