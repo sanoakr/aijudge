@@ -243,17 +243,42 @@ def create_staff(
     tenant_id: TenantId,
     login: str,
     display_name: str,
-    password: str,
+    password: str | None = None,
     course_id: CourseId | None = None,
     role: Role = Role.INSTRUCTOR,
     email: str | None = None,
 ) -> bool:
-    """教員・TA を作る。既にあれば受講登録だけ行う。"""
+    """教員・TA を作る。既にあれば受講登録だけ行う。
+
+    **パスワードは新規に作るときだけ要る**（#175）。既存の利用者に対しては
+    受講登録しかしないので、渡された値は使い道が無い ── 以前は呼び出し側
+    （`aijudge-admin staff`）が**何をするか決まる前に**必須にしていたため、
+    受講登録を足すだけの操作でも使い捨ての文字列を書かされ、しかもその値は
+    捨てられていた。要るかどうかは利用者を引いた後にしか分からないので、
+    検査もここに置く。
+    """
     with database.unit_of_work() as uow:
         auth = AuthService(uow.identity)
+        # **コースの実在を先に確かめる**（#175）。確かめないと、受講登録の
+        # INSERT が外部キー違反で落ち、教員には SQLAlchemy の生の
+        # トレースバックが出る ── 実際に起きた（`--course` にコースの
+        # *コード* を渡した。ID を取る欄である）。`enrol_roster` は同じ
+        # 場面で理由を言って断っているので、そちらに揃える。
+        if course_id is not None and uow.identity.get_course(course_id) is None:
+            raise AdminError(
+                f"コース {course_id!r} がありません。"
+                "`--course` はコースの ID（`crs_…`）を取ります ── "
+                "`aijudge-admin course list` で確かめてください"
+                "（コースコードではありません）。"
+            )
         user = uow.identity.find_user_by_login(tenant_id, login)
         created = user is None
         if user is None:
+            if not password:
+                raise AdminError(
+                    f"利用者 {login!r} はまだいません。新しく作るにはパスワードが要ります"
+                    "（--password か AIJUDGE_ADMIN_PASSWORD）。"
+                )
             try:
                 principal = auth.register(
                     tenant_id=tenant_id,

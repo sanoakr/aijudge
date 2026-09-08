@@ -145,13 +145,14 @@ def cmd_enrol(args: argparse.Namespace) -> int:
 
 
 def cmd_staff(args: argparse.Namespace) -> int:
+    """教員・TA を作る、または既存の利用者をコースに登録する。
+
+    **パスワードを先に要求しない**（#175）。要るのは新規に作るときだけで、
+    それが分かるのは利用者を引いた後である ── 先に弾いていたので、受講登録
+    を足すだけの操作でも使い捨ての文字列を書かされ、その値は捨てられていた。
+    不足の報告は `create_staff` から `AdminError` として上がってくる。
+    """
     password = args.password or os.environ.get("AIJUDGE_ADMIN_PASSWORD")
-    if not password:
-        print(
-            "パスワードを --password か AIJUDGE_ADMIN_PASSWORD で渡してください",
-            file=sys.stderr,
-        )
-        return 1
     database = _database(args)
     try:
         created = create_staff(
@@ -165,7 +166,17 @@ def cmd_staff(args: argparse.Namespace) -> int:
         )
     finally:
         database.dispose()
-    print(f"{'作成' if created else '既存'}: {args.login} / {args.role}")
+    # **何が起きたかで書き分ける。** 「既存」だけでは、受講登録が足された
+    # のか何もされなかったのかが読めない。
+    if created:
+        print(f"作成: {args.login} / {args.role}")
+    elif args.course:
+        print(
+            f"既存の利用者を受講登録しました: {args.login} / {args.role}"
+            "（パスワードは変えていません）"
+        )
+    else:
+        print(f"既存: {args.login} / {args.role}")
     return 0
 
 
