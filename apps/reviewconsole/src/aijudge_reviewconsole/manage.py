@@ -1736,6 +1736,20 @@ def register(templates) -> APIRouter:
                     else _default_rubric_criteria()
                 ),
                 "rubric_is_default": not course.rubric,
+                # **既定の観点が、この科目では誰にも採点できない場合。**
+                #
+                # 組み込みの既定は「正しさ（テスト実行）＋読みやすさ」で、
+                # 正しさの担当は `code_test_runner` である。テスト実行を走らせ
+                # ない科目（レポートなど）のコースがこの既定のままだと、その
+                # 観点は**恒久的に未採点**になり、総点は伏せられる（ADR 0015）。
+                # 設定はどこも正しく見えるのに点が出ない、という形で現れる
+                # ので、画面から理由が読めない ── だからここで言う。
+                #
+                # **黙って別の既定に差し替えない。** 何を問うかは科目の中身で、
+                # 機械が決めてよいことではない（設計原則 P5）。言うだけにする。
+                "rubric_default_is_unscorable": (
+                    not course.rubric and CODE_TEST_RUNNER not in applied.deterministic
+                ),
                 # -- 採点設定 --
                 "base": base,
                 "profile": applied,

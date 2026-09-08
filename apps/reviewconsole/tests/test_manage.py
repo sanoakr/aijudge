@@ -5164,3 +5164,63 @@ def test_the_section_step_carries_the_path_prefix(
 
     assert 'href="/console/manage/courses/' in trail
     assert 'href="/manage/courses/' not in trail
+
+
+# --------------------------------------------------------------------------
+# 既定のルーブリックが、その科目では誰にも採点できない場合
+# --------------------------------------------------------------------------
+
+
+_UNSCORABLE = "この科目はテスト実行を走らせません"
+
+
+def _report_course(world: World):
+    """テスト実行を走らせない科目（レポート）のコース。"""
+    course, _ = ensure_course(
+        world.database,
+        tenant_id=TENANT,
+        code="report1",
+        title="科学技術リテラシー",
+        term="2026-前期",
+        subject_profile="report_ja",
+        profiles_dir=PROFILES,
+    )
+    return course
+
+
+def test_a_report_course_is_told_the_built_in_rubric_cannot_be_scored(world: World) -> None:
+    """**設定はどこも正しく見えるのに点が出ない**、を画面で言う。
+
+    組み込みの既定は「正しさ（テスト実行）＋読みやすさ」で、正しさの担当は
+    `code_test_runner` である。テスト実行を走らせない科目のコースがこの既定の
+    ままだと、その観点は恒久的に未採点になり、総点も伏せられる（ADR 0015）。
+    """
+    course = _report_course(world)
+    teacher = world.register("teacher", Role.INSTRUCTOR, course_id=course.id)
+    assert teacher is not None
+
+    body = world.client("teacher").get(f"/manage/courses/{course.id}").text
+
+    assert _UNSCORABLE in body
+
+
+def test_a_course_that_runs_tests_is_not_warned(world: World) -> None:
+    """**警告を出しすぎない。** テスト実行を走らせる科目では既定で正しく動く。"""
+    world.register("teacher", Role.INSTRUCTOR)
+
+    body = world.client("teacher").get(f"/manage/courses/{world.course.id}").text
+
+    assert _UNSCORABLE not in body
+
+
+def test_the_warning_goes_away_once_the_course_declares_its_own_criteria(world: World) -> None:
+    """観点を決めたら消える。**消えないと、直したことが画面から分からない。**"""
+    course = _report_course(world)
+    world.register("teacher", Role.INSTRUCTOR, course_id=course.id)
+    client = world.client("teacher")
+    data = _rubric_form(("structure", "構成", "0.5", ""), ("discussion", "考察", "0.5", ""))
+    assert client.post(f"/manage/courses/{course.id}/rubric", data=data).status_code == 200
+
+    body = client.get(f"/manage/courses/{course.id}").text
+
+    assert _UNSCORABLE not in body
