@@ -377,7 +377,13 @@ footer.app-footer{max-width:1100px;margin:24px auto 0;padding:12px 24px;text-ali
   <a class="brand" href="{{ root_prefix() }}/">aiJudge</a>
   <span class="spacer"></span>
   <span>{{ me.display_name }}</span>
+  {# SSO 利用者には出さない（#180）。Google で入った利用者のローカルパスワードは
+     誰も知らない捨て値なので、この画面は「現在のパスワードが違います」しか
+     返せない。出せば必ず行き止まりに導く。経路の側でも拒む
+     （`manage.account_password_form`）── 隠すだけの画面は境界にならない。 #}
+  {% if not me.is_external %}
   <a href="{{ root_prefix() }}/manage/account/password">パスワード変更</a>
+  {% endif %}
   <form method="post" action="{{ root_prefix() }}/logout"><button type="submit">ログアウト</button></form>
 </div></header>
 {% endif %}

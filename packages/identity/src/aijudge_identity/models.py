@@ -71,6 +71,12 @@ class Principal(BaseModel):
     # `User.is_tenant_admin` の写し。アプリ層がコース単位の受講に頼らず
     # 「この人は管理者か」を判定できるようにする（#128）。
     is_tenant_admin: bool = False
+    # **外部 IdP（Google）に紐づく利用者か**（`User.external_id` の有無）。
+    # 認証方式そのものではなく利用者の属性である点が肝心 ── SSO 利用者の
+    # `password_hash` は誰も知らない捨て値（`login_with_google` 参照）なので、
+    # どの経路で入ってきてもパスワード変更は成立しない。アプリ層はこれを見て
+    # 「パスワード変更」を出さない・受け付けない（#180）。
+    is_external: bool = False
 
 
 class Session(BaseModel):
