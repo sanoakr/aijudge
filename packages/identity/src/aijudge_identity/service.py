@@ -355,6 +355,7 @@ def _principal(user: User) -> Principal:
         login=user.login,
         display_name=user.display_name,
         is_tenant_admin=user.is_tenant_admin,
+        is_external=user.external_id is not None,
     )
 
 

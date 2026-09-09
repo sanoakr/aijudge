@@ -667,6 +667,60 @@ def test_an_unknown_subject_profile_is_refused(world: World) -> None:
 # --------------------------------------------------------------------------
 
 
+def _google_client(world: World, login: str, sub: str) -> TestClient:
+    """SSO で入った利用者としてのクライアント（`World.client` の SSO 版）。"""
+    from aijudge_identity import GoogleOidcIdentity
+
+    with world.database.unit_of_work() as uow:
+        _, token = AuthService(uow.identity).login_with_google(
+            tenant_id=TENANT,
+            identity=GoogleOidcIdentity(sub=sub, email=login, hd="example.ac.jp"),
+        )
+        uow.commit()
+    client = TestClient(create_app(world.console))
+    client.cookies.set(SESSION_COOKIE, token)
+    return client
+
+
+def test_a_university_account_is_offered_no_password_change(world: World) -> None:
+    """**SSO 利用者に出さない**（#180）。Google で入った利用者のローカル
+    パスワードは誰も知らない捨て値なので、この画面は「現在のパスワードが
+    違います」しか返せない。出せば必ず行き止まりに導く。"""
+    client = _google_client(world, "taro@example.ac.jp", "sub-nochange")
+
+    response = client.get("/")
+    # 画面自体は出ていること（401 でも「出ていない」は成り立ってしまう）。
+    assert response.status_code == 200
+    assert "ログアウト" in response.text
+    assert "パスワード変更" not in response.text
+
+
+def test_the_password_form_is_refused_for_a_university_account(world: World) -> None:
+    """**画面で隠すだけにしない。** URL は手で打てる（再発行と同じ理屈）。"""
+    client = _google_client(world, "hanako@example.ac.jp", "sub-noform")
+
+    assert client.get("/manage/account/password").status_code == 404
+    assert (
+        client.post(
+            "/manage/account/password",
+            data={
+                "current_password": "whatever",
+                "new_password": "a brand new password",
+                "new_password_confirm": "a brand new password",
+            },
+        ).status_code
+        == 404
+    )
+
+
+def test_a_local_account_still_sees_the_password_link(world: World) -> None:
+    """出し分けが行き過ぎていないこと ── #127 のローカル利用者には、
+    ここが唯一のパスワード変更手段である。"""
+    world.register("teacher", Role.INSTRUCTOR)
+
+    assert "パスワード変更" in world.client("teacher").get("/").text
+
+
 def test_anyone_can_open_their_own_password_form(world: World) -> None:
     """管理者専用にしない ── #127 で発行したパスワードを変える手段が
     無かった。学習者やTAでも自分のパスワードは変えられて当然。"""

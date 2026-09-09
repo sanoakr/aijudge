@@ -163,6 +163,17 @@ def _is_admin(request: Request, me: Principal) -> bool:
     return me.is_tenant_admin
 
 
+def _require_local_account(me: Principal) -> None:
+    """ローカルパスワードを持つ利用者であること（#180）。
+
+    存在しない画面として扱う（403 ではなく 404）。権限の問題ではない ──
+    SSO 利用者にはローカルパスワードという概念が無い。「権限がありません」は
+    「昇格すれば使える」と読めてしまう。
+    """
+    if me.is_external:
+        raise HTTPException(status_code=404, detail="この利用者にパスワードはありません")
+
+
 # テナント単位の管理画面の親（#165）。**画面ごとに文字列を書き写さない** ──
 # 書き写すと、一覧の見出しを直したときにパンくずの側が古い名前のまま残る。
 USERS_STEP = ("利用者の一覧", "/manage/users")
@@ -1605,14 +1616,21 @@ def register(templates) -> APIRouter:
     # `/users/new` と違って**本人なら誰でも**使える（管理者限定にしない）。
     # ローカル利用者（#127 で管理者が作った学習者・教員アカウント）は、
     # 発行時の一度きり表示パスワードのまま使い続けるほかなく、それを変える
-    # 手段がどこにも無かった。SSO 利用者にとっては無意味な画面だが、害も
-    # 無いので出し分けはしない（自分の分の一操作が増えるだけ）。
+    # 手段がどこにも無かった。
+    #
+    # **SSO 利用者には出さない**（#180）。当初は「無意味だが害も無い」と
+    # 出し分けをしなかったが、Google で入った利用者の `password_hash` は
+    # 誰も知らない捨て値（`AuthService.login_with_google`）なので、この画面は
+    # 「現在のパスワードが違います」しか返しようがない ── 変えられるはずの
+    # ものが変えられない、という誤った案内になる。ヘッダのリンクを隠すだけ
+    # では境界にならないので、経路の側でも 404 を返す。
 
     @router.get("/account/password", response_class=HTMLResponse)
     def account_password_form(request: Request) -> Response:
         from .app import require_principal
 
         me = require_principal(request)
+        _require_local_account(me)
         return templates.TemplateResponse(
             request,
             "manage_account_password.html",
@@ -1629,6 +1647,7 @@ def register(templates) -> APIRouter:
         from .app import SESSION_COOKIE, require_principal
 
         me = require_principal(request)
+        _require_local_account(me)
         console = _console(request)
 
         def error(message: str) -> Response:
