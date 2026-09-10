@@ -23,6 +23,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 TEMPLATE_DIRS = (
     REPO_ROOT / "apps" / "reviewconsole" / "src" / "aijudge_reviewconsole" / "templates",
     REPO_ROOT / "apps" / "studentweb" / "src" / "aijudge_studentweb" / "templates",
+    # 両アプリが読む共有の断片（#184）。ここも画面に出るので同じ規則で見る。
+    REPO_ROOT / "packages" / "webui" / "src" / "aijudge_webui" / "templates",
 )
 
 # `#127` のような参照。`#141e2b`（CSS の色）は数字が 5 桁以上・英字混じりで外れ、

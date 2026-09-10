@@ -34,6 +34,7 @@ dependencies = [
     "aijudge-skill",
     "aijudge-telemetry",
     "aijudge-audit",
+    "aijudge-webui",
 ]
 
 [project.optional-dependencies]
@@ -75,6 +76,7 @@ aijudge-eval-submission-compliance = { workspace = true }
 aijudge-skill = { workspace = true }
 aijudge-telemetry = { workspace = true }
 aijudge-audit = { workspace = true }
+aijudge-webui = { workspace = true }
 
 [tool.ruff]
 line-length = 100
@@ -111,6 +113,7 @@ known-first-party = [
     "aijudge_skill",
     "aijudge_telemetry",
     "aijudge_audit",
+    "aijudge_webui",
 ]
 
 [tool.pytest.ini_options]

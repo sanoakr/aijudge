@@ -26,10 +26,12 @@ from typing import Annotated
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+import aijudge_webui as webui
 from aijudge_authoring import images, render_statement
 from aijudge_core import (
     MIN_JUSTIFICATION_LENGTH,
@@ -132,15 +134,32 @@ def _read_copyright_notice() -> str:
     return ""
 
 
-TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
-TEMPLATES.env.globals["app_version"] = _read_app_version()
+APP_VERSION = _read_app_version()
+
+# 見た目は `packages/webui` が 1 か所で持つ（#184）。テンプレートの探索先に
+# 共有の断片（`_theme_boot.html` / `_theme_switch.html`）を足す ── 自分の
+# `templates/` を先に見るので、同名を置けばアプリ側で上書きできる。
+TEMPLATES = Jinja2Templates(
+    directory=[str(Path(__file__).parent / "templates"), str(webui.TEMPLATES_DIR)]
+)
+TEMPLATES.env.globals["app_version"] = APP_VERSION
 TEMPLATES.env.globals["copyright_notice"] = _read_copyright_notice()
+
+
+def _static_url(name: str) -> str:
+    """CSS への URL。**版を付ける** ── 付けないと配置し直したのにブラウザが
+    前の CSS を使い続け、症状は「配置に失敗した」ように見える。"""
+    return webui.asset_url(name, version=APP_VERSION)
+
+
+TEMPLATES.env.globals["static_url"] = _static_url
 
 # 受け付ける `Host`（#116）。コンマ区切り。既定は素通し（`*`）。
 ENV_ALLOWED_HOSTS = "AIJUDGE_ALLOWED_HOSTS"
 # アクセスログに残さない経路。画像の取り出しと、画面が数秒ごとに叩く
 # 「まだ動いているか」の問い合わせ ── 締切前は 1 人あたり毎分 30 行になる。
-QUIET_PATHS = ("/images/",)
+# CSS も残さない ── 1 ページ 1 行増えるだけで、内容は毎回同じ。
+QUIET_PATHS = ("/images/", "/static/")
 QUIET_SUFFIXES = ("/state",)
 
 SESSION_COOKIE = "aijudge_session"
@@ -276,6 +295,11 @@ Me = Annotated[Principal, Depends(require_principal)]
 def create_app(app_state: StudentApp) -> FastAPI:
     app = FastAPI(title="aiJudge")
     app.state.aijudge = app_state
+
+    # 共有の CSS（#184）。**セッションを要らない経路にする** ── ここの認証は
+    # 経路ごと（`Depends(require_principal)`）なので何も免除は要らないが、
+    # ログイン画面もフッタを持つ以上、誰も入っていない段階で CSS が必要になる。
+    app.mount(webui.STATIC_MOUNT, StaticFiles(directory=webui.ASSETS_DIR), name="static")
 
     # **`Host` を 1 か所で検査する**（#116）。`Host` も `X-Forwarded-*` も
     # クライアントが決められるので、通してしまうと、それを読む全ての処理が

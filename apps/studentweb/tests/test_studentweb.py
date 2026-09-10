@@ -366,8 +366,12 @@ def test_a_tenant_admin_sees_their_role_and_a_console_link_in_the_course_list(
 
     body = world.client.get("/").text
 
-    assert "learner" not in body
-    assert "採点の画面へ" in body
+    # **`<main>` の中だけを見る。** 以前は本文全体への部分一致だったので、
+    # `<head>` に出てくる CSS の名前（`learner.css`）にも当たっていた（#184）。
+    # 見たいのは「管理者の役割欄が learner になっていないこと」である。
+    page = body[body.index("<main>") : body.index("</main>")]
+    assert "learner" not in page
+    assert "採点の画面へ" in page
 
 
 def test_a_plain_learner_gets_no_console_entry_link(world: World) -> None:
@@ -850,7 +854,10 @@ def test_the_verdict_column_does_not_wrap(world: World) -> None:
     world.worker.run_until_empty()
     body = world.client.get(location).text
 
-    assert "white-space:nowrap" in body, "ピルの折り返しを止めていない"
+    # CSS は 1 か所（`packages/webui`）にある（#184）。**配信されたものを見る**
+    # ── ファイルを直接読むと、mount の設定が壊れていても通ってしまう。
+    stylesheet = world.client.get("/static/base.css").text
+    assert "white-space:nowrap" in stylesheet, "ピルの折り返しを止めていない"
     # 評価列が内容幅、説明列が残りを取る指定になっていること。
     assert 'class="fit">評価' in body
     assert 'class="grow">説明' in body
@@ -1627,7 +1634,9 @@ def test_a_pdf_submission_is_embedded_at_paper_proportions(world: World) -> None
     body = world.client.get(response.headers["location"]).text
     assert 'class="pdf-embed"' in body
     # 紙の比率は 1 か所で決める。**個別の height を戻さない。**
-    assert "aspect-ratio:210/297" in body
+    # CSS は 1 か所（`packages/webui`）にある（#184）。**配信されたものを見る**
+    # ── ファイルを直接読むと、mount の設定が壊れていても通ってしまう。
+    assert "aspect-ratio:210/297" in world.client.get("/static/base.css").text
     assert 'height="600"' not in body
 
 

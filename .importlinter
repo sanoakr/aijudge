@@ -30,6 +30,7 @@ root_packages =
     aijudge_eval_network_test_runner
     aijudge_telemetry
     aijudge_audit
+    aijudge_webui
 include_external_packages = True
 
 [importlinter:contract:core-is-independent]
@@ -40,6 +41,7 @@ source_modules =
 forbidden_modules =
     aijudge_identity
     aijudge_authoring
+    aijudge_webui
     aijudge_submission
     aijudge_grading
     aijudge_skill

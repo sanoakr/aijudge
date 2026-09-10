@@ -1,0 +1,21 @@
+{# 配色の選択を、**最初の描画より前に**当てる（#181）。
+   `<head>` の中で読むこと ── `<body>` の下に置くと、昼で 1 枚描いてから
+   夜に切り替わるのが見える。
+
+   両アプリが同じものを読む（#184）。以前は同じ 14 行が 2 か所にあった。 #}
+<script>
+// 配色の選択を、**最初の描画より前に**当てる（#181）。ここを body の下に
+// 置くと、昼で 1 枚描いてから夜に切り替わるのが見える。
+//
+// `localStorage` は読むだけで例外を投げることがある（プライベートウィンドウ、
+// サイトデータを禁止した設定）。**読めなくても画面は成立しなければならない**
+// ので、握って OS 追従に落とす。
+(function(){
+  try{
+    var choice = localStorage.getItem("aijudge-theme");
+    if(choice === "light" || choice === "dark"){
+      document.documentElement.setAttribute("data-theme", choice);
+    }
+  }catch(e){}
+})();
+</script>
