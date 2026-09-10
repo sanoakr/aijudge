@@ -2836,16 +2836,20 @@ def register(templates) -> APIRouter:
 
         profile = load_profile(console.profiles_dir / f"{course.subject_profile}.yaml")
         namespaces = allowed_namespaces(profile)
-        existing = [
-            kc.key
-            for kc in list_for_namespaces(console.database, namespaces, include_deprecated=False)
-        ]
+        vocabulary = list_for_namespaces(console.database, namespaces, include_deprecated=False)
+        existing = [kc.key for kc in vocabulary]
+        # **単位の一覧を渡す。** 新しい候補はこの下にしか置けないので、
+        # 渡さないとモデルは存在しない単位を作り、教員は採用してから断られる。
+        units = tuple(kc.key for kc in vocabulary if len(kc.path) == 2)
         # 題名も渡す。「プログラミング及び実習 II」だけで分野が決まることは
         # ないが、本文が到達目標だけのときに科目の見当が付く。
         body = f"# {course.title}\n\n{course.description}"
         try:
             result = SyllabusReader().propose(
-                body, namespaces=namespaces, existing_keys=tuple(existing)
+                body,
+                namespaces=namespaces,
+                existing_keys=tuple(existing),
+                unit_keys=units,
             )
         except Exception as exc:  # 生成の失敗は運用の事象。理由を画面に返す。
             raise HTTPException(
@@ -2853,7 +2857,31 @@ def register(templates) -> APIRouter:
                 detail=f"候補を作れませんでした（S6 が止まっている可能性があります）: {exc}",
             ) from exc
 
-        return _kc_page(request, me, course, proposal=result.proposal, discarded=result.discarded)
+        # **新しい候補には近いものを添える。** 分野・単位をまたいで探すので、
+        # 「別の分野に同じ語がある」に採用の前に気づける ── 一覧を目で
+        # 追っても見つからない種類の重複である。
+        known = set(existing)
+        near = {
+            hint.key: suggest_similar(
+                console.database,
+                key=hint.key,
+                label=hint.label,
+                description=hint.description,
+                namespaces=namespaces,
+                existing=vocabulary,
+                limit=3,
+            )
+            for hint in result.proposal.knowledge_components
+            if hint.key not in known
+        }
+        return _kc_page(
+            request,
+            me,
+            course,
+            proposal=result.proposal,
+            discarded=result.discarded,
+            near=near,
+        )
 
     @router.post("/courses/{course_id}/kc/draft", response_class=HTMLResponse)
     async def draft_candidate(request: Request, course_id: str) -> Response:
@@ -4455,6 +4483,7 @@ def register(templates) -> APIRouter:
         draft_exists: bool = False,
         suggestions: tuple = (),
         pending=None,
+        near=None,
     ) -> Response:
         """知識要素のページ。**候補が出ているかどうかだけが違う。**
 
@@ -4504,6 +4533,8 @@ def register(templates) -> APIRouter:
                 # 近い既存 KC（分野・単位をまたいで探す）。**禁止ではなく提示** ──
                 # 一致を強制すると、教員は近いだけの枝に無理やり寄せる。
                 "suggestions": suggestions,
+                # 候補 1 件ごとの「近い既存 KC」（新しい候補にだけ付く）。
+                "near": near or {},
                 # 提示を出したときの、足そうとしていた内容。そのまま押し切れる
                 # ようにフォームへ戻す（打ち直させない）。
                 "pending": pending,

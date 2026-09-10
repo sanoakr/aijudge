@@ -2913,16 +2913,27 @@ def test_the_unit_page_offers_generation_only_with_components(world: World) -> N
 # --------------------------------------------------------------------------
 
 
-def _proposal(*keys: str):
-    """候補を返す `SyllabusReader` の代わり。生成そのものは測らない。"""
+def _proposal(*keys: str, discarded=()):
+    """候補を返す `SyllabusReader` の代わり。生成そのものは測らない。
+
+    **関門は通らない。** 採用できない候補を落とすのは `SyllabusReader.propose`
+    の中なので、代役に差し替えるとそこは走らない ── 落とす判断は
+    `apps/admin/tests/test_syllabus_prompt.py` の側で見て、ここでは
+    落とした結果が画面にどう出るかだけを見る。
+    """
     from aijudge_admin.syllabus import KcHint, ProposalResult, SyllabusProposal
 
     class _Reader:
+        last_units: tuple[str, ...] = ()
+
         def __init__(self) -> None:
             self.seen: list[str] = []
 
-        def propose(self, text, *, namespaces, existing_keys=()):
+        def propose(self, text, *, namespaces, existing_keys=(), unit_keys=()):
             self.seen.append(text)
+            # **画面が単位を渡していること**を、代役の側でも見ておく
+            # （渡さないとモデルは存在しない単位を作る）。
+            type(self).last_units = unit_keys
             return ProposalResult(
                 proposal=SyllabusProposal(
                     knowledge_components=tuple(
@@ -2931,6 +2942,7 @@ def _proposal(*keys: str):
                 ),
                 prompt_id="test",
                 model="test",
+                discarded=discarded,
             )
 
     return _Reader
@@ -2968,14 +2980,99 @@ def test_the_candidates_are_built_from_the_saved_description(monkeypatch, world:
     made = []
 
     class _Recording(_proposal("cs.loops.control.pointers")):
-        def propose(self, text, *, namespaces, existing_keys=()):
+        def propose(self, text, *, namespaces, existing_keys=(), unit_keys=()):
             made.append(text)
-            return super().propose(text, namespaces=namespaces, existing_keys=existing_keys)
+            return super().propose(
+                text,
+                namespaces=namespaces,
+                existing_keys=existing_keys,
+                unit_keys=unit_keys,
+            )
 
     monkeypatch.setattr("aijudge_reviewconsole.manage.SyllabusReader", _Recording)
     client.post(f"/manage/courses/{world.course.id}/kc/candidates")
     assert "ポインタと再帰を扱う" in made[0]
     assert "計算機科学入門" in made[0]
+
+
+def _with_basics(world: World, client) -> None:
+    """候補生成の材料（コースの基本情報）を入れる。"""
+    client.post(
+        f"/manage/courses/{world.course.id}/basics/apply",
+        data={"title": world.course.title, "description": "## 到達目標\n\n配列を扱える"},
+    )
+
+
+def test_the_generator_is_told_where_things_can_go(world: World, monkeypatch) -> None:
+    """**単位の一覧を渡す。** 渡さないとモデルは存在しない単位を作り、
+    教員は採用してから断られる（#157 の往復が構造について残る）。
+    """
+    _seed(world)
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    _with_basics(world, client)
+
+    reader = _proposal("cs.loops.control.arrays")
+    monkeypatch.setattr("aijudge_reviewconsole.manage.SyllabusReader", reader)
+    client.post(f"/manage/courses/{world.course.id}/kc/candidates")
+    assert "cs.loops.control" in reader.last_units
+
+
+def test_what_the_gate_dropped_is_shown_with_its_reason(world: World, monkeypatch) -> None:
+    """**黙って減らさない。理由も出す。**
+
+    「除きました」だけでは、教員は次に何をすればよいのか分からない。
+    落とす判断そのものは `SyllabusReader` の側にあり
+    （`apps/admin/tests/test_syllabus_prompt.py`）、ここで見るのは画面に
+    出ることだけである。
+    """
+    from aijudge_admin.syllabus import DiscardedCandidate
+
+    _seed(world)
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    _with_basics(world, client)
+
+    monkeypatch.setattr(
+        "aijudge_reviewconsole.manage.SyllabusReader",
+        _proposal(
+            "cs.loops.control.arrays",
+            discarded=(
+                DiscardedCandidate(
+                    key="cs.nosuch.unit_thing", reason="骨格に無い単位の下に置かれています"
+                ),
+                DiscardedCandidate(key="cs.loops", reason="分野そのものです（知識要素は 3 階層）"),
+            ),
+        ),
+    )
+    body = client.post(f"/manage/courses/{world.course.id}/kc/candidates").text
+
+    assert 'value="cs.loops.control.arrays"' in body
+    assert "採用できない候補を 2 件除きました" in body
+    assert "骨格に無い単位" in body
+    assert "分野そのもの" in body
+
+
+def test_a_new_candidate_carries_what_it_is_close_to(world: World, monkeypatch) -> None:
+    """**採用の前に近いものを見せる。** 分野・単位をまたいで探すので、
+    「別の分野に同じ語がある」に気づける。
+    """
+    _seed(world)
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    client.post(
+        f"/manage/courses/{world.course.id}/kc",
+        data={"key": "cs.loops.control.array", "label": "配列"},
+    )
+    _with_basics(world, client)
+
+    monkeypatch.setattr(
+        "aijudge_reviewconsole.manage.SyllabusReader", _proposal("cs.loops.control.arrays")
+    )
+    body = client.post(f"/manage/courses/{world.course.id}/kc/candidates").text
+
+    assert "近いもの:" in body
+    assert "cs.loops.control.array" in body
 
 
 def test_candidates_need_the_basics_to_be_filled_in(world: World) -> None:
