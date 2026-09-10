@@ -32,6 +32,7 @@ from aijudge_persistence import Database
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SKELETON = REPO_ROOT / "subjects" / "kc" / "cs.yaml"
 MATH_SKELETON = REPO_ROOT / "subjects" / "kc" / "math.yaml"
+PHYSICS_SKELETON = REPO_ROOT / "subjects" / "kc" / "physics.yaml"
 TEACHER = UserId("usr_" + "1" * 32)
 SPACES = ("cs",)
 
@@ -314,3 +315,79 @@ def test_math_and_cs_do_not_collide(database: Database) -> None:
     math_keys = {kc.key for kc in list_for_namespaces(database, ("math",))}
     assert cs_keys and math_keys
     assert not cs_keys & math_keys
+
+
+# --------------------------------------------------------------------------
+# 物理の骨格（#187）
+# --------------------------------------------------------------------------
+
+
+def test_the_physics_skeleton_in_the_repository_loads(database: Database) -> None:
+    skeleton = load_skeleton(PHYSICS_SKELETON)
+    assert skeleton.namespace == "physics"
+    assert skeleton.source
+    assert len(skeleton.areas) == 16
+    assert len(skeleton.units) > 70
+    assert len(skeleton.components) > 400
+    keys = {e.key for e in skeleton.entries}
+    # FCI Table I の 6 次元がそのまま単位になっている。
+    for unit in (
+        "kinematics",
+        "first_law",
+        "second_law",
+        "third_law",
+        "superposition",
+        "kinds_of_force",
+    ):
+        assert f"mechanics.{unit}" in keys
+
+
+def test_astronomy_stays_commented_out_but_present() -> None:
+    """**入れないと決めた分野の枝を、消さずに残す。**
+
+    参照基準は「物理学・天文学分野」として一体だが、高校では天体が「地学」
+    という別教科なので、この骨格は物理に閉じる。**その判断を消すと、次に
+    必要になったとき同じ調査からやり直すことになる** ── コメントのまま
+    置いておき、要るようになったら外して `kc seed` を走らせ直す。
+    """
+    areas = {e.key for e in load_skeleton(PHYSICS_SKELETON).areas}
+    assert "astronomy" not in areas
+    source = PHYSICS_SKELETON.read_text(encoding="utf-8")
+    assert "# - key: astronomy" in source
+    assert "#         - {key: stellar_evolution, label: 恒星の進化}" in source
+
+
+def test_physics_does_not_copy_the_mathematics_it_needs() -> None:
+    """物理数学は `math` 名前空間で足りる。
+
+    複製すると `math.calculus.…` と `physics.…` に同じ知識が二重に登録され、
+    習熟度がどちらにも半分ずつ溜まる。科目プロファイルが
+    `kc_namespaces: [physics, math]` と両方宣言すればよい（`profile.py`）。
+    """
+    areas = {e.key for e in load_skeleton(PHYSICS_SKELETON).areas}
+    assert not areas & {"mathematics", "math", "mathematical_physics", "calculus"}
+
+
+def test_all_three_skeletons_share_one_database(database: Database) -> None:
+    """cs・math・physics を同じ DB に入れても、キーは 1 つも衝突しない。
+
+    分野横断の科目 ── データサイエンスや計算物理 ── は名前空間を複数
+    宣言して使う。そのとき「近いもの」は**名前空間をまたいで**提示される。
+    """
+    spaces = ("cs", "math", "physics")
+    for path, ns in (
+        (SKELETON, "cs"),
+        (MATH_SKELETON, "math"),
+        (PHYSICS_SKELETON, "physics"),
+    ):
+        seed_kcs(database, load_skeleton(path), namespaces=(ns,))
+    keys = [kc.key for kc in list_for_namespaces(database, spaces)]
+    assert len(keys) == len(set(keys))
+
+    hits = suggest_similar(
+        database,
+        key="physics.experiment_observation.uncertainty.error",
+        label="誤差の伝播",
+        namespaces=spaces,
+    )
+    assert {h.key for h in hits} & {"math.numerical_analysis.floating_point.error_propagation"}

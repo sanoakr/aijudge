@@ -54,6 +54,7 @@ uv run aijudge-admin kc seed --namespace cs
 |---|---|---|
 | `cs` | CS2023（ACM/IEEE-CS/AAAI）Version Gamma | 分野 17 / 単位 153 / 知識要素 817 |
 | `math` | CUPM 2015（MAA）＋ 高等学校学習指導要領（平成30年告示） | 分野 20 / 単位 122 / 知識要素 797 |
+| `physics` | 日本学術会議 参照基準 物理学・天文学分野（2016）＋ FCI ＋ 高等学校学習指導要領（平成30年告示） | 分野 16 / 単位 75 / 知識要素 444 |
 
 第 1・2 階層は CS2023 の Knowledge Area / Knowledge Unit **そのまま**で、
 誰の判断も入っていない。第 3 階層は CS2023 の topic を割ったもので、
@@ -102,9 +103,59 @@ uv run aijudge-admin kc seed --namespace cs
 微分積分でつまずいた学生の弱点が `math.precalculus.trigonometric_function.
 addition_theorem` に落ちるとき、それは高校の課題と同じ KC である。
 
-物理など他分野の骨格は、その分野の科目が要るようになった時点で作る
-（[#187](https://github.com/sanoakr/aijudge/issues/187) に調査結果がある ──
-物理には Force Concept Inventory が使える）。
+### `physics` — 力学の 6 単位だけが原典そのまま
+
+**第 1 階層は[日本学術会議「参照基準 物理学・天文学分野」(2016)](https://www.scj.go.jp/ja/info/kohyo/pdf/kohyo-23-h161003.pdf)の
+「基本的内容」と「適宜選択」。** 数学の参照基準と違い、こちらは分野を列挙している
+（力学、熱力学・統計力学、電磁気学、特殊相対論、量子力学、実験・観測／素粒子、
+原子核、物性、光学、流体、弾性体、プラズマ、生物物理、天文・宇宙）。
+`waves`・`computational_physics`・`physics_history` は同報告の学修目標
+3) 14) 12) による追加。
+
+**第 2 階層は `mechanics` の最初の 6 単位だけが原典そのまま。** Force Concept
+Inventory（Hestenes, Wells & Swackhamer 1992）の Table I が力の概念を 6 次元に
+分解し、**下位項目まで表になっている**ので、そのまま単位と知識要素になる。
+ただし **FCI が覆うのは力の概念だけ**で、エネルギー・運動量・剛体・振動・
+万有引力は Table I に 1 行も無い。
+
+**電磁気と熱には、FCI Table I に相当する階層表が無い。** CSEM（Maloney et al.
+2001, 32 問）も TCE（Yeo & Zadnik 2001, 26 問）も検証済みの測定器だが、
+公表されているのは項目と概念の対応であって枝の構造ではない ── #187 の
+「その枝を書く前に確かめること」を確かめた結果がこれで、力学以外の単位は判断である。
+
+**天文学は入れていないが、枝はコメントアウトで残してある。** 参照基準は
+「物理学・天文学分野」として一体だが、高校では天体が「地学」という別教科なので
+この骨格は物理に閉じる。**判断を消すと次に必要になったとき同じ調査からやり直す**
+ので、コメントのまま置き、要るようになったら外して `kc seed` を走らせ直す
+（骨格は追記のみで増える）。テストがコメントの存在ごと固定している。
+
+**物理数学は複製していない。** 学修目標 13) が挙げる微分積分・線形代数・
+ベクトル解析・複素関数論・フーリエ解析は `math` にある。
+
+### 分野をまたぐ科目は、名前空間を複数宣言する
+
+新しい名前空間を作る前に、**既存の名前空間の組合せで足りないか**を見る。
+科目プロファイルは名前空間を複数宣言できる（`profile.py`）。
+
+| 科目 | 宣言 |
+|---|---|
+| データサイエンス | `kc_namespaces: [cs, math]` |
+| 計算物理・数値計算 | `kc_namespaces: [physics, math]` |
+
+たとえばデータサイエンスは、データ管理が `cs.dm`、機械学習が `cs.ai.ml`、
+統計の過程が `math.applied_statistics`（GAISE）、線形代数と最適化が
+`math.linear_algebra` と `math.operations_research` に載る。足りないのは
+因果推論・特徴量エンジニアリング・A/B テストといった**第 3 階層だけ**で、
+親の単位は既にあるから教員が足せる。
+
+`ds` を新設すると出典（MDASH モデルカリキュラムなど）は立つが、
+**`cs.ai.ml.supervised_learning` と `ds.ml.supervised_learning` が並ぶ** ──
+骨格が防ごうとしている分裂そのものである。名前空間をまたいだ「近いもの」の
+提示は効くので、`cs` に「データの前処理」を足そうとすると
+`math.applied_statistics.collect_data.data_preparation` が提示される。
+
+他分野の骨格は、その分野の科目が要るようになった時点で作る
+（[#187](https://github.com/sanoakr/aijudge/issues/187) に調査結果がある）。
 
 ## 手を入れるときの約束
 
