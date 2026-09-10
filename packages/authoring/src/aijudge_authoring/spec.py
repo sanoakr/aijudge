@@ -127,6 +127,13 @@ class TaskSpec(BaseModel):
     # 課題ごとに例外を持てるようにしてあるのは、同じコースでも「動かなければ
     # そこで終わり」の課題と、部分点を積む課題が混ざるため。
     aggregation: Aggregation | None = None
+    # 採点のプロファイル（#195）。**None ならコースの既定に従う。**
+    #
+    # 課題ごとに持てるようにしてあるのは、種類の違う課題が 1 つのコースに
+    # 同居するため ── レポートとプログラムが混在する科目は実在するのに、
+    # いままでは 2 コースに割るしかなかった。`aggregation` を課題ごとの
+    # 例外にしてあるのと同じ形で、**既定はコース、例外は課題**である。
+    subject_profile: str | None = None
     evaluator: str = DEFAULT_EVALUATOR
     reference_solution: str | None = None
     test_cases: tuple[TestCaseSpec, ...] = ()

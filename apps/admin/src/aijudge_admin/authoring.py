@@ -89,13 +89,17 @@ def save_task(
         spec.knowledge_components,
         course_keys=() if course is None else course.knowledge_components,
     )
+    # 採点のプロファイル（#195）。**課題が指定していればそれ、無ければ
+    # コースの既定。** 既存の課題は誰も指定していないので、これまでと同じ
+    # 値になる ── 移行は要らない。
+    profile = spec.subject_profile or subject_profile
     # **出所を落とさない。** `generated_by` を渡さないと `Provenance` は
     # 「教員が書いた」になり、版は承認待ちにならずそのまま出題可能になる
     # （`ReviewState`）。生成物が誰の検査も通らずに出る経路ができる（P5）。
     version = build_task_version(
         spec,
         course_id=course_id,
-        subject_profile=subject_profile,
+        subject_profile=profile,
         authored_by=authored_by,
         generated_by=generated_by,
         generation_prompt_version=generation_prompt_version,
@@ -114,7 +118,7 @@ def save_task(
             version = build_task_version(
                 spec,
                 course_id=course_id,
-                subject_profile=subject_profile,
+                subject_profile=profile,
                 authored_by=authored_by,
                 version=latest.version + 1,
                 # **出所を落とさない。** ここで渡し忘れると、訂正で生成した

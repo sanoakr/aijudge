@@ -1003,7 +1003,11 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
             fresh.submission,
             fresh.run,
             fresh.task_version,
-            subject_profile=fresh.course.subject_profile,
+            # **採点したときと同じプロファイルで投影する**（#195・ADR 0005）。
+            # ここがコース側を見ていると、課題ごとにプロファイルを変えた
+            # 瞬間に観測レコードの `subject_profile` が採点時のものとずれ、
+            # 測定の標本が黙って混ざる。
+            subject_profile=fresh.task_version.subject_profile,
             mark=fresh.mark,
             review=fresh.review,
         )
@@ -1266,7 +1270,11 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
             fresh.submission,
             fresh.run,
             fresh.task_version,
-            subject_profile=fresh.course.subject_profile,
+            # **採点したときと同じプロファイルで投影する**（#195・ADR 0005）。
+            # ここがコース側を見ていると、課題ごとにプロファイルを変えた
+            # 瞬間に観測レコードの `subject_profile` が採点時のものとずれ、
+            # 測定の標本が黙って混ざる。
+            subject_profile=fresh.task_version.subject_profile,
             mark=fresh.mark,
             review=fresh.review,
         )
