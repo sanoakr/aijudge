@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 from aijudge_authoring.importers import sharif_judge
-from aijudge_core import ArtifactKind, Course, Task
+from aijudge_core import ArtifactKind, Course, Role, Task
 from aijudge_core.ids import CourseId, KcId, TenantId, UserId
 from aijudge_core.knowledge import KnowledgeComponent
 from aijudge_eval_rubric_ai_judge import EvidenceSpan, RubricAiJudge, Verdict
@@ -98,11 +98,12 @@ class World:
                 )
             uow.commit()
 
-    def submit(self):
+    def submit(self, *, submitted_as: Role = Role.LEARNER):
         return self.service.accept(
             tenant_id=TENANT,
             task_version_id=self.task_version.id,
             learner_id=LEARNER,
+            submitted_as=submitted_as,
             subject_profile="cs_lang_c_intro",
             files=[
                 IncomingFile(
@@ -207,3 +208,33 @@ def test_a_task_without_knowledge_components_updates_nothing(tmp_path: Path) -> 
         assert made.states() == ()
     finally:
         made.database.dispose()
+
+
+@needs_c_compiler
+def test_a_trial_is_graded_but_does_not_move_mastery(world: World) -> None:
+    """動作確認の提出で習熟度を動かさない（#108・#197）。
+
+    **習熟度は KC 単位でコースと学期をまたいで積み上がる**（P6）。教員が
+    自分の課題を試した 1 件が、その KC の学習者の習熟度を動かしていた ──
+    判定（`is_trial`）は最初からあったのに、S7 が見ていなかった。
+
+    S7 は提出を引かない（`kc_outcomes` だけを見る設計）ので、**イベントが
+    答えを運ぶ**。ここが `GradingCompleted.is_trial` の唯一の用途である。
+    """
+    subscribe_skills(world.relay, world.database)
+    world.submit(submitted_as=Role.INSTRUCTOR)
+    world.worker.run_until_empty()
+    world.relay.drain()
+
+    assert not world.states(), "教員の動作確認が習熟度に積まれている"
+
+
+@needs_c_compiler
+def test_a_learner_submission_still_moves_it(world: World) -> None:
+    """裏返し。**「動かない」を「除外できている」と読み違えない。**"""
+    subscribe_skills(world.relay, world.database)
+    world.submit()
+    world.worker.run_until_empty()
+    world.relay.drain()
+
+    assert world.states(), "学習者の提出まで落ちている"

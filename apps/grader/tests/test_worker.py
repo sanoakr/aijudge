@@ -18,6 +18,7 @@ from aijudge_core import (
     Course,
     GradingCompleted,
     LatePenaltyStep,
+    Role,
     Routing,
     Task,
     aggregate,
@@ -27,6 +28,7 @@ from aijudge_core.events import SubmissionCreated
 from aijudge_core.ids import CourseId, TenantId, UserId
 from aijudge_eval_rubric_ai_judge import EvidenceSpan, RubricAiJudge, Verdict
 from aijudge_grader import EventRelay, GradingWorker
+from aijudge_grader.worker import latest_run_for
 from aijudge_grading import EvaluatorRegistry
 from aijudge_llm_gateway import LlmGateway, ScriptedProvider
 from aijudge_persistence import Database, ObservationFileStore
@@ -115,12 +117,13 @@ class World:
             uow.tasks.save_version(self.task_version)
             uow.commit()
 
-    def submit(self, source: bytes | None = None):
+    def submit(self, source: bytes | None = None, *, submitted_as: Role = Role.LEARNER):
         payload = source if source is not None else EXAMPLE_SOURCE.read_bytes()
         return self.service.accept(
             tenant_id=TENANT,
             task_version_id=self.task_version.id,
             learner_id=LEARNER,
+            submitted_as=submitted_as,
             subject_profile=PROFILE,
             files=[IncomingFile(filename="main.c", kind=ArtifactKind.CODE, payload=payload)],
         )
@@ -729,3 +732,37 @@ def _only_submission(uow):
 
     row = uow._session.execute(sa.text("select id from submissions limit 1")).one()
     return SubmissionId(row[0])
+
+
+@needs_c_compiler
+def test_a_trial_is_graded_but_leaves_no_observation(world: World) -> None:
+    """動作確認の提出を κ の標本に入れない（#108・#197・ADR 0005）。
+
+    **採点はする。** 採点されない確認は確認にならない ── `is_trial` の
+    docstring がそう言っている。数えないのは測定のほうである。
+
+    これは書き忘れていた側で、判定は最初からあった。**保存先に何が届いたか
+    で見る** ── 内部の呼び出しを見ると、呼び方を変えただけで通ってしまう。
+    """
+    accepted = world.submit(submitted_as=Role.INSTRUCTOR)
+    world.worker.run_until_empty()
+
+    run = latest_run_for(world.database, accepted.submission)
+    assert run is not None, "試行が採点されていない。確認にならない"
+
+    stored = world.observations.load(
+        PROFILE, str(world.task_version.task_id), str(accepted.submission.id)
+    )
+    assert stored == (), "教員の動作確認が一致度の標本に入っている"
+
+
+@needs_c_compiler
+def test_a_learner_submission_still_leaves_one(world: World) -> None:
+    """裏返し。**「どこにも無い」を「除外できている」と読み違えない。**"""
+    accepted = world.submit()
+    world.worker.run_until_empty()
+
+    stored = world.observations.load(
+        PROFILE, str(world.task_version.task_id), str(accepted.submission.id)
+    )
+    assert stored, "学習者の提出まで落ちている"

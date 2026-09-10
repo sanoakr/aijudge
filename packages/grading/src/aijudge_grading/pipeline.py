@@ -476,5 +476,6 @@ def grading_completed_event(
         confidence=run.confidence,
         routing=run.routing,
         provisional=run.is_provisional,
+        is_trial=submission.is_trial,
         kc_outcomes=run.kc_outcomes,
     )
