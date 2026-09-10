@@ -113,6 +113,38 @@ journalctl -t aijudge-web -t aijudge-worker-det -t aijudge-worker-ai1 -o cat \
 `aijudge_telemetry.bind` が値の型と長さを見て弾くので、うっかり本文を渡すと
 その場で例外になる。
 
+### 監査ログを読む
+
+`audit_events` は DB にある。**運用ログと違って消さない** ── 成績への異議
+申立ては学期が終わってから来る。DB ダンプに入るので restic の対象でもある。
+
+```fish
+# この提出に何が起きたか（新しい順）
+psql aijudge -c "select at, action, actor_kind, actor_user_id, summary
+                 from audit_events
+                 where target_type='submission' and target_id='SUB-ID'
+                 order by at desc"
+
+# ログイン失敗を新しい順に（総当たりを見る）
+psql aijudge -c "select at, target_id, source_ip, detail->>'reason'
+                 from audit_events where action='login.failed' order by at desc limit 50"
+```
+
+**`actor_kind` を必ず見ること。** 3 つある。
+
+- `user` … 認証済みの誰かがやった（`actor_user_id` がある）
+- `system` … 人間の操作者がいない。締切経過による自動確定、`aijudge-admin`
+  からの操作（CLI は認証された主体を持たない ── 誰が打ったかはサーバへの
+  到達権限の側の問題である）
+- `anonymous` … **認証されていない誰かが試みた。** ログイン失敗がこれで、
+  `target_id` の口座は分かるが、やったのが本人とは限らない
+
+`request_id` が入っているので、運用ログの同じ ID と突き合わせられる。
+
+**平文は入らない。** パスワード、再発行した平文、API トークン、提出物の本文は
+記録しない。`detail` は差分の前後の値のための欄で、上限（4000 文字）を超えると
+保存時に弾かれる。
+
 ## 実提出を通す前に
 
 **seatbelt 単体で実学生のコードを走らせてはならない。** プロセス数を

@@ -209,6 +209,7 @@ uv run aijudge-admin task import --course <id> --dir 課題のディレクトリ
 | `packages/skill` | 知識要素と習熟度の推定。 |
 | `packages/persistence` | PostgreSQL の保存実装。基盤であり、どのサブシステムも import しない。 |
 | `packages/telemetry` | 運用ログ。書式を 1 つに決め、相関 ID を通す。載せるのは識別子だけ。 |
+| `packages/audit` | 誰が成績に届く何を変えたか。追記専用で、操作と同じトランザクションに載る。 |
 | `apps/studentweb` | 学習者向けアプリ。 |
 | `apps/reviewconsole` | 教員コンソールと `/manage`。 |
 | `apps/grader` | 採点ワーカー。 |

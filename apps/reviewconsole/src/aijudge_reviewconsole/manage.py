@@ -37,6 +37,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections import Counter
 from dataclasses import dataclass
@@ -99,6 +100,7 @@ from aijudge_admin.tasks import clear_unit
 from aijudge_admin.tasks import delete as delete_task
 from aijudge_admin.tasks import withdraw as withdraw_task
 from aijudge_admin.test_cases import TestCaseWriter
+from aijudge_audit import AuditAction
 from aijudge_authoring import TaskChecks, TaskSpec, images, render_markdown, render_statement
 from aijudge_authoring.drafting import Blueprint, Difficulty
 from aijudge_authoring.spec import AI_EVALUATOR, TestCaseSpec
@@ -134,6 +136,7 @@ from aijudge_identity import AuthenticationFailed, AuthService, PermissionDenied
 from aijudge_identity.oidc import OidcSettings
 from aijudge_submission import SubmissionService
 
+from .audit_context import recorder_for
 from .overview import empty_unit, find_unit, load_units, unit_key
 from .urls import RedirectResponse
 
@@ -390,6 +393,49 @@ def _regradable(console, task, version) -> int:
     return sum(
         1 for _submission, run, _request in rows if run.context.task_version_id != version.id
     )
+
+
+def _plain(value):
+    """監査の `detail` に入れられる形へ均す。
+
+    日時は ISO 文字列にする ── JSON にそのまま入らないし、入れ方を
+    書き込み点ごとに決めると、後から同じ条件で引けなくなる。
+    """
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return value
+
+
+def _digest(text: str) -> str:
+    """プロファイル本文の指紋。
+
+    全文は記録しない ── 数十 KB あり、その大半は「なぜこの値なのか」を書いた
+    コメントである。**どの版だったかが後から言えれば足りる。**
+    """
+    return "sha256:" + hashlib.sha256(text.encode()).hexdigest()
+
+
+def _record_profile_change(console, request, me, *, action, name, summary, detail) -> None:
+    """科目プロファイルの変更を監査に残す（ADR 0016）。
+
+    **これは書き込みの後である。** プロファイルはファイルで、DB の
+    トランザクションには載らない ── 監査行が書けなくてもファイルは既に
+    変わっている。DB の中の操作（成績・権限）が持つ「記録できなければ操作も
+    成立しない」という保証は、ここには無い。
+
+    それでも記録する価値はある。プロファイルは採点の設定そのもので、
+    **1 つが複数のコースの採点を変える**（`subjects/README.md`）ので、
+    誰がいつ触ったかが分からないのは困る。
+    """
+    with console.database.unit_of_work() as uow:
+        recorder_for(uow, request, me).record(
+            action,
+            target_type="subject_profile",
+            target_id=name,
+            summary=summary,
+            detail=detail,
+        )
+        uow.commit()
 
 
 def _criteria_graded_by_tests(version, profile):
@@ -725,13 +771,32 @@ def _update_unit(
         ]
         if not tasks:
             raise HTTPException(status_code=404, detail="この問題セットには課題がありません")
+        before: dict[str, object] = {}
         for task in tasks:
             try:
                 updated = Task.model_validate(task.model_dump() | update)
             except ValidationError as exc:
                 # 日程の前後関係は模型が見ている（`Task._check_schedule`）。
                 raise HTTPException(status_code=400, detail=_first_error(exc)) from None
+            before |= {key: getattr(task, key, None) for key in update}
             uow.tasks.save_task(updated)
+        # **締切と自動確定の猶予はここを通る。** どちらも成績がいつ閉じるかを
+        # 決める値で（ADR 0013・ADR 0014）、後から「誰がいつ動かしたか」を
+        # 言えないと、締切を巡る問い合わせに答えられない。
+        recorder_for(uow, request, me).record(
+            AuditAction.TASK_UPDATED,
+            target_type="unit",
+            target_id=f"{course_id}/{key}",
+            summary=f"問題セットの設定を変えた（{saved}・課題 {len(tasks)} 件）",
+            detail={
+                "course_id": course_id,
+                "field": saved,
+                "changed": {
+                    name: {"before": _plain(before.get(name)), "after": _plain(value)}
+                    for name, value in update.items()
+                },
+            },
+        )
         uow.commit()
     return RedirectResponse(
         f"/manage/courses/{course_id}/units/{key}?saved={saved}#{saved}", status_code=303
@@ -1057,6 +1122,7 @@ def register(templates) -> APIRouter:
 
         with console.database.unit_of_work() as uow:
             auth = AuthService(uow.identity, audit=uow.audit)
+            audit = recorder_for(uow, request, me)
             # 作った本人も担当教員にする。でないと自分のコースが見えない
             # （テナント管理者が受講登録なしで全コースに届くようになるまでの
             # 措置。#128 が入ればここは指定した教員だけで足りる）。
@@ -1066,6 +1132,7 @@ def register(templates) -> APIRouter:
                 user_id=me.user_id,
                 role=Role.INSTRUCTOR,
             )
+            granted = [me.login]
             for login in logins:
                 user = uow.identity.find_user_by_login(me.tenant_id, login)
                 if user is not None and user.id != me.user_id:
@@ -1075,6 +1142,17 @@ def register(templates) -> APIRouter:
                         user_id=user.id,
                         role=Role.INSTRUCTOR,
                     )
+                    granted.append(login)
+            # 担当教員の付与はコースの全成績に届く権限である。**1 行にまとめる**
+            # ── ここは 1 回の操作なので、人ごとに散らすと後から画面での 1 操作を
+            # 復元できない。
+            audit.record(
+                AuditAction.ENROLLED,
+                target_type="course",
+                target_id=str(course.id),
+                summary=f"担当教員を {len(granted)} 名割り当てた",
+                detail={"role": Role.INSTRUCTOR.value, "logins": granted},
+            )
             uow.commit()
         return RedirectResponse(f"/courses/{course.id}", status_code=303)
 
@@ -1136,6 +1214,14 @@ def register(templates) -> APIRouter:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
             if tenant_admin:
                 auth.set_tenant_admin(principal.user_id, admin=True)
+            # **平文は記録しない**（画面に一度だけ出すもの・#144）。
+            recorder_for(uow, request, me).record(
+                AuditAction.USER_CREATED,
+                target_type="user",
+                target_id=str(principal.user_id),
+                summary=f"利用者を作成した（{login}）",
+                detail={"login": login, "tenant_admin": bool(tenant_admin)},
+            )
             uow.commit()
         return templates.TemplateResponse(
             request,
@@ -1255,6 +1341,19 @@ def register(templates) -> APIRouter:
             if user is None or user.tenant_id != me.tenant_id:
                 raise HTTPException(status_code=404, detail="利用者が見つかりません")
             AuthService(uow.identity, audit=uow.audit).set_tenant_admin(user.id, admin=bool(admin))
+            # 権限の変更は成績に届く（管理者はどのコースの成績にも触れる）。
+            # **前後の値を書く** ── 「変えた」だけでは、いま管理者なのが
+            # この操作の結果なのか元からなのか、後から読めない。
+            recorder_for(uow, request, me).record(
+                AuditAction.TENANT_ADMIN_CHANGED,
+                target_type="user",
+                target_id=str(user.id),
+                summary=("管理者権限を与えた" if admin else "管理者権限を外した"),
+                detail={
+                    "login": user.login,
+                    "is_tenant_admin": {"before": user.is_tenant_admin, "after": bool(admin)},
+                },
+            )
             uow.commit()
         saved = "tenant_admin_granted" if admin else "tenant_admin_revoked"
         return RedirectResponse(f"/manage/users/{user_id}?saved={saved}", status_code=303)
@@ -1295,6 +1394,17 @@ def register(templates) -> APIRouter:
                 user_id=user.id,
                 role=new_role,
             )
+            recorder_for(uow, request, me).record(
+                AuditAction.ENROLLED,
+                target_type="user",
+                target_id=str(user.id),
+                summary=f"コースでの役割を {new_role.value} に変えた",
+                detail={
+                    "course_id": str(course_id),
+                    "login": user.login,
+                    "role": {"before": existing.role.value, "after": new_role.value},
+                },
+            )
             uow.commit()
         return RedirectResponse(f"/manage/users/{user_id}?saved=role", status_code=303)
 
@@ -1317,6 +1427,13 @@ def register(templates) -> APIRouter:
             if user is None or user.tenant_id != me.tenant_id:
                 raise HTTPException(status_code=404, detail="利用者が見つかりません")
             AuthService(uow.identity, audit=uow.audit).disable(user.id)
+            recorder_for(uow, request, me).record(
+                AuditAction.USER_DISABLED,
+                target_type="user",
+                target_id=str(user.id),
+                summary="利用者を無効化した",
+                detail={"login": user.login},
+            )
             uow.commit()
         return RedirectResponse(f"/manage/users/{user_id}?saved=disabled", status_code=303)
 
@@ -1349,6 +1466,15 @@ def register(templates) -> APIRouter:
                 AuthService(uow.identity, audit=uow.audit).reissue_password(user.id, new=password)
             except AuthenticationFailed as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
+            # **平文は記録しない。** 画面に一度だけ出すためのもので、
+            # 消さない場所に写せば「一度だけ」が嘘になる（#144）。
+            recorder_for(uow, request, me).record(
+                AuditAction.PASSWORD_REISSUED,
+                target_type="user",
+                target_id=str(user.id),
+                summary="パスワードを再発行した",
+                detail={"login": user.login},
+            )
             uow.commit()
             login = user.login
         return templates.TemplateResponse(
@@ -1560,6 +1686,15 @@ def register(templates) -> APIRouter:
                 },
                 status_code=400,
             )
+        _record_profile_change(
+            console,
+            request,
+            me,
+            action=AuditAction.PROFILE_UPDATED,
+            name=name,
+            summary=f"科目プロファイル {name} を書き換えた",
+            detail={"sha256": _digest(text), "bytes": len(text.encode())},
+        )
         return RedirectResponse(f"/manage/subjects/{name}?saved=profile_saved", status_code=303)
 
     @router.post("/subjects/{name}/duplicate")
@@ -1585,6 +1720,15 @@ def register(templates) -> APIRouter:
             )
         except AdminError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from None
+        _record_profile_change(
+            console,
+            request,
+            me,
+            action=AuditAction.PROFILE_DUPLICATED,
+            name=new_name.strip(),
+            summary=f"科目プロファイル {name} を {new_name.strip()} に複製した",
+            detail={"source": name},
+        )
         return RedirectResponse(
             f"/manage/subjects/{new_name.strip()}?saved=profile_duplicated", status_code=303
         )
@@ -1607,6 +1751,15 @@ def register(templates) -> APIRouter:
             )
         except AdminError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from None
+        _record_profile_change(
+            console,
+            request,
+            me,
+            action=AuditAction.PROFILE_UPDATED,
+            name=new_name.strip(),
+            summary=f"科目プロファイル {name} を {new_name.strip()} に改名した",
+            detail={"renamed_from": name},
+        )
         return RedirectResponse(
             f"/manage/subjects/{new_name.strip()}?saved=profile_renamed", status_code=303
         )
@@ -2482,6 +2635,18 @@ def register(templates) -> APIRouter:
             uow.identity.save_course(
                 course.model_copy(update={"auto_finalize_after_minutes": minutes})
             )
+            recorder_for(uow, request, me).record(
+                AuditAction.COURSE_UPDATED,
+                target_type="course",
+                target_id=course_id,
+                summary="自動確定までの猶予を変えた",
+                detail={
+                    "auto_finalize_after_minutes": {
+                        "before": course.auto_finalize_after_minutes,
+                        "after": minutes,
+                    }
+                },
+            )
             uow.commit()
         return RedirectResponse(
             f"/manage/courses/{course_id}?saved=course_grace#course_grace", status_code=303
@@ -2851,6 +3016,13 @@ def register(templates) -> APIRouter:
                 user_id=me.user_id,
                 role=Role.INSTRUCTOR,
             )
+            recorder_for(uow, request, me).record(
+                AuditAction.COURSE_UPDATED,
+                target_type="course",
+                target_id=str(copied.course.id),
+                summary=f"コースを複製した（{course.code} → {copied.course.code}）",
+                detail={"source_course_id": str(course.id), "term": term},
+            )
             uow.commit()
 
         # 複製後にすることは日程の入力と設定の確認なので、その入口に落とす。
@@ -2888,6 +3060,22 @@ def register(templates) -> APIRouter:
                         "rubric_aggregation": aggregation,
                     }
                 )
+            )
+            # ルーブリックは採点の基準そのもの。**観点の中身は書かない**
+            # （長く、`detail` の上限に収まらない）── 何観点になったかと
+            # 集約の仕方だけ残し、中身は課題の版が持つ（P8）。
+            recorder_for(uow, request, me).record(
+                AuditAction.COURSE_UPDATED,
+                target_type="course",
+                target_id=course_id,
+                summary=f"共通ルーブリックを保存した（{len(criteria)} 観点）",
+                detail={
+                    "criteria": {"before": len(course.rubric), "after": len(criteria)},
+                    "aggregation": {
+                        "before": getattr(course.rubric_aggregation, "value", None),
+                        "after": aggregation.value,
+                    },
+                },
             )
             uow.commit()
         return RedirectResponse(f"/manage/courses/{course_id}?saved=rubric#rubric", status_code=303)

@@ -424,3 +424,46 @@ already had. That join is what was missing when #60 and #80 each spent a day
 looking like "grading is slow" from the screen while the failure sat in a
 worker log nobody could connect to the submission. See
 [ADR 0016](adr/0016-three-logs-operational-audit-and-grading-record.md).
+
+
+## The audit log fails the operation; the operational log does not
+
+`packages/audit` is the second of the three logs. It answers **who** changed
+something that reaches a grade, and it is the one that must not expire — a
+dispute over a mark arrives after the term ends.
+
+It lives on `uow.audit`, in the operation's own transaction. That is the whole
+difference from `packages/telemetry`: a rolled-back operation takes its audit
+row with it, so a `--dry-run` sweep records nothing, and a row that cannot be
+written fails the operation rather than being dropped. Two contracts keep the
+record type independent of both the store and the grading engine, so it has an
+in-memory implementation and a SQL one that pass the same tests, as every store
+here does.
+
+Three distinctions the record has to keep:
+
+- **An actor has three kinds.** `user`, `system` — nobody human did this,
+  which is the truth about a deadline sweep — and `anonymous`, an
+  unauthenticated attempt. A failed login is the third: whoever typed the wrong
+  password may not be the account holder, and the case where they are not is
+  exactly why the row exists. The account is the *target*; the actor stays
+  unnamed. The HTTP response still refuses to distinguish a missing account
+  from a bad password, but the record does, because a spray across many ids and
+  a brute force against one otherwise read identically afterwards.
+- **A failed login commits.** Since the row rides the operation's transaction,
+  an early return on the failure path would discard the very record that makes
+  an attack visible. There is no operation to roll back there.
+- **An audit row is not a `HumanReview`.** One instructor action writes both;
+  only the review is evidence for κ (ADR 0010).
+
+`AuthService` records authentication and nothing else — the outcomes it alone
+knows. Token issuance, enrolment and permission changes are recorded by the
+caller, because only the caller knows who is acting; recorded here, the
+operated-on user would be filed as the operator.
+
+What never enters the log: passwords, reissued plaintext, API tokens,
+submission text. `detail` is for the before and after of a change, and the
+model rejects anything past its size limit rather than letting the audit table
+become a second copy of learner data.
+
+See [ADR 0016](adr/0016-three-logs-operational-audit-and-grading-record.md).
