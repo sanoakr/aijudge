@@ -166,7 +166,7 @@ def test_nobody_is_enrolled_in_the_copy(world) -> None:
     """学期が変われば履修者は変わる。**受講登録は空にする。**"""
     database, course = world
     with database.unit_of_work() as uow:
-        auth = AuthService(uow.identity)
+        auth = AuthService(uow.identity, audit=uow.audit)
         learner = auth.register(
             tenant_id=TENANT, login="s2400001", display_name="学生", password="x" * 12
         )

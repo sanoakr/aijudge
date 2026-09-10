@@ -168,3 +168,21 @@ def test_websockets_pass_through() -> None:
 
 def teardown_module() -> None:
     logging.getLogger().handlers.clear()
+
+
+def test_the_client_address_comes_from_the_end_of_the_forwarded_chain() -> None:
+    """左端はクライアントが自由に書ける。右端を nginx が書く。
+
+    左端を採る実装は、監査ログに任意のアドレスを書かせる経路になる ──
+    記録が偽れるなら、その記録は証拠にならない。
+    """
+    from aijudge_telemetry import client_ip
+
+    # nginx の proxy_add_x_forwarded_for は、client が送った値の後ろに
+    # 自分から見た接続元を足す。
+    assert client_ip("10.0.0.1, 203.0.113.7", "127.0.0.1") == "203.0.113.7"
+    # 偽装された左端に引きずられない。
+    assert client_ip("evil-value, 203.0.113.7", "127.0.0.1") == "203.0.113.7"
+    # 逆プロキシが無い構成。
+    assert client_ip(None, "203.0.113.9") == "203.0.113.9"
+    assert client_ip("", None) is None

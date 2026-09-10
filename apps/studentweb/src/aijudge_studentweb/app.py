@@ -79,6 +79,7 @@ from aijudge_submission import (
 )
 from aijudge_telemetry import RequestContextMiddleware
 
+from .audit_context import request_id_of, source_ip_of
 from .progress import EMPTY, load_progress
 from .visibility import ResultView, build_result_view
 
@@ -256,7 +257,7 @@ def current_principal(request: Request) -> Principal | None:
     if not token:
         return None
     with _state(request).database.unit_of_work() as uow:
-        return AuthService(uow.identity).resolve(token)
+        return AuthService(uow.identity, audit=uow.audit).resolve(token)
 
 
 def require_principal(request: Request) -> Principal:
@@ -373,9 +374,12 @@ def create_app(app_state: StudentApp) -> FastAPI:
             except AuthenticationFailed as exc:
                 return failed(str(exc))
 
-            _, token = AuthService(uow.identity).login_with_google(
-                tenant_id=TenantId(DEFAULT_TENANT), identity=identity
-            )
+            _, token = AuthService(
+                uow.identity,
+                audit=uow.audit,
+                request_id=request_id_of(request),
+                source_ip=source_ip_of(request),
+            ).login_with_google(tenant_id=TenantId(DEFAULT_TENANT), identity=identity)
             uow.commit()
 
         response = RedirectResponse("/", status_code=303)
@@ -404,11 +408,21 @@ def create_app(app_state: StudentApp) -> FastAPI:
         tenant: Annotated[str, Form()] = "",
     ) -> Response:
         with app_state.database.unit_of_work() as uow:
-            service = AuthService(uow.identity)
+            service = AuthService(
+                uow.identity,
+                audit=uow.audit,
+                request_id=request_id_of(request),
+                source_ip=source_ip_of(request),
+            )
             try:
                 _, token = service.login(tenant_id=_tenant(tenant), login=login, password=password)
             except AuthenticationFailed as exc:
-                # 理由を分けない。有効な ID の一覧を作れてしまう。
+                # **失敗も commit する。** 監査行は操作と同じトランザクションに
+                # 載っているので、ここで巻き戻すと失敗の記録ごと消える ──
+                # そして失敗の記録こそ、総当たりに気づくための行である
+                # （ADR 0016）。巻き戻すべき「操作」はここには無い。
+                uow.commit()
+                # 画面では理由を分けない。有効な ID の一覧を作れてしまう。
                 return TEMPLATES.TemplateResponse(
                     request, "login_local.html", {"error": str(exc)}, status_code=401
                 )
@@ -430,7 +444,12 @@ def create_app(app_state: StudentApp) -> FastAPI:
         token = request.cookies.get(SESSION_COOKIE, "")
         if token:
             with app_state.database.unit_of_work() as uow:
-                AuthService(uow.identity).logout(token)
+                AuthService(
+                    uow.identity,
+                    audit=uow.audit,
+                    request_id=request_id_of(request),
+                    source_ip=source_ip_of(request),
+                ).logout(token)
                 uow.commit()
         response = RedirectResponse("/login", status_code=303)
         response.delete_cookie(SESSION_COOKIE, path="/")
@@ -444,7 +463,7 @@ def create_app(app_state: StudentApp) -> FastAPI:
         if principal is None:
             return RedirectResponse("/login", status_code=303)
         with app_state.database.unit_of_work() as uow:
-            auth = AuthService(uow.identity)
+            auth = AuthService(uow.identity, audit=uow.audit)
             courses = auth.courses_for(principal.tenant_id, principal.user_id)
             # コースごとの役割（#103）。**学習者として取っているコースと、
             # 採点するコースを、同じ一覧の中で見分けられるようにする。**
@@ -771,7 +790,7 @@ def create_app(app_state: StudentApp) -> FastAPI:
         焼き付く（`aijudge_authoring.images`）。
         """
         with app_state.database.unit_of_work() as uow:
-            auth = AuthService(uow.identity)
+            auth = AuthService(uow.identity, audit=uow.audit)
             try:
                 auth.require_membership(CourseId(course_id), me.user_id)
             except PermissionDenied:
@@ -1168,7 +1187,7 @@ def _course_and_tasks(
     app_state: StudentApp, me: Principal, course_id: CourseId
 ) -> tuple[Course, tuple]:
     with app_state.database.unit_of_work() as uow:
-        auth = AuthService(uow.identity)
+        auth = AuthService(uow.identity, audit=uow.audit)
         try:
             auth.require_membership(course_id, me.user_id)
         except PermissionDenied as exc:
@@ -1212,7 +1231,7 @@ def _task_and_course(
             # 一覧から外すだけでは、URL を知っていれば開ける（#48 と同じ理屈）。
             raise HTTPException(status_code=404, detail="課題が見つかりません")
         course_obj = uow.identity.get_course(task.course_id)
-        auth = AuthService(uow.identity)
+        auth = AuthService(uow.identity, audit=uow.audit)
         try:
             auth.require_membership(task.course_id, me.user_id)
         except PermissionDenied as exc:

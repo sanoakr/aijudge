@@ -14,7 +14,7 @@ aiJudge のログは 3 つあり、混ぜない（ADR 0016）。
 
 from __future__ import annotations
 
-from .asgi import RequestContextMiddleware
+from .asgi import RequestContextMiddleware, client_ip
 from .context import ContextValueRejected, bind, current_context
 from .logging_setup import (
     ENV_FORMAT,
@@ -35,6 +35,7 @@ __all__ = [
     "RequestContextMiddleware",
     "TextFormatter",
     "bind",
+    "client_ip",
     "configure_logging",
     "configured_service",
     "current_context",

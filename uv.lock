@@ -11,6 +11,7 @@ members = [
     "aijudge",
     "aijudge-admin",
     "aijudge-analytics",
+    "aijudge-audit",
     "aijudge-authoring",
     "aijudge-core",
     "aijudge-eval-code-test-runner",
@@ -43,6 +44,7 @@ source = { virtual = "." }
 dependencies = [
     { name = "aijudge-admin" },
     { name = "aijudge-analytics" },
+    { name = "aijudge-audit" },
     { name = "aijudge-authoring" },
     { name = "aijudge-core" },
     { name = "aijudge-eval-code-test-runner" },
@@ -87,6 +89,7 @@ dev = [
 requires-dist = [
     { name = "aijudge-admin", editable = "apps/admin" },
     { name = "aijudge-analytics", editable = "packages/analytics" },
+    { name = "aijudge-audit", editable = "packages/audit" },
     { name = "aijudge-authoring", editable = "packages/authoring" },
     { name = "aijudge-core", editable = "packages/core" },
     { name = "aijudge-eval-code-test-runner", editable = "evaluators/code_test_runner" },
@@ -129,6 +132,7 @@ name = "aijudge-admin"
 version = "0.0.1"
 source = { editable = "apps/admin" }
 dependencies = [
+    { name = "aijudge-audit" },
     { name = "aijudge-authoring" },
     { name = "aijudge-core" },
     { name = "aijudge-grading" },
@@ -142,6 +146,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aijudge-audit", editable = "packages/audit" },
     { name = "aijudge-authoring", editable = "packages/authoring" },
     { name = "aijudge-core", editable = "packages/core" },
     { name = "aijudge-grading", editable = "packages/grading" },
@@ -165,6 +170,21 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "aijudge-observation", editable = "packages/observation" },
+    { name = "pydantic", specifier = ">=2.8" },
+]
+
+[[package]]
+name = "aijudge-audit"
+version = "0.0.1"
+source = { editable = "packages/audit" }
+dependencies = [
+    { name = "aijudge-core" },
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aijudge-core", editable = "packages/core" },
     { name = "pydantic", specifier = ">=2.8" },
 ]
 
@@ -370,6 +390,7 @@ name = "aijudge-identity"
 version = "0.0.1"
 source = { editable = "packages/identity" }
 dependencies = [
+    { name = "aijudge-audit" },
     { name = "aijudge-core" },
     { name = "httpx" },
     { name = "joserfc" },
@@ -377,6 +398,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aijudge-audit", editable = "packages/audit" },
     { name = "aijudge-core", editable = "packages/core" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "joserfc", specifier = ">=1.0" },
@@ -426,6 +448,7 @@ name = "aijudge-persistence"
 version = "0.0.1"
 source = { editable = "packages/persistence" }
 dependencies = [
+    { name = "aijudge-audit" },
     { name = "aijudge-authoring" },
     { name = "aijudge-core" },
     { name = "aijudge-identity" },
@@ -446,6 +469,7 @@ s3 = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aijudge-audit", editable = "packages/audit" },
     { name = "aijudge-authoring", editable = "packages/authoring" },
     { name = "aijudge-core", editable = "packages/core" },
     { name = "aijudge-identity", editable = "packages/identity" },
@@ -465,6 +489,7 @@ version = "0.0.1"
 source = { editable = "apps/reviewconsole" }
 dependencies = [
     { name = "aijudge-admin" },
+    { name = "aijudge-audit" },
     { name = "aijudge-authoring" },
     { name = "aijudge-core" },
     { name = "aijudge-grading" },
@@ -482,6 +507,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "aijudge-admin", editable = "apps/admin" },
+    { name = "aijudge-audit", editable = "packages/audit" },
     { name = "aijudge-authoring", editable = "packages/authoring" },
     { name = "aijudge-core", editable = "packages/core" },
     { name = "aijudge-grading", editable = "packages/grading" },

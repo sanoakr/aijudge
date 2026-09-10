@@ -197,7 +197,7 @@ def cmd_token_issue(args: argparse.Namespace) -> int:
     database = _database(args)
     try:
         with database.unit_of_work() as uow:
-            auth = AuthService(uow.identity)
+            auth = AuthService(uow.identity, audit=uow.audit)
             user = uow.identity.find_user_by_login(_tenant(args), args.login)
             if user is None:
                 print(f"利用者が見つかりません: {args.login}", file=sys.stderr)
@@ -229,7 +229,7 @@ def cmd_token_list(args: argparse.Namespace) -> int:
     database = _database(args)
     try:
         with database.unit_of_work() as uow:
-            tokens = AuthService(uow.identity).list_tokens(_tenant(args))
+            tokens = AuthService(uow.identity, audit=uow.audit).list_tokens(_tenant(args))
             users = {t.user_id: uow.identity.get_user(t.user_id) for t in tokens}
     finally:
         database.dispose()
@@ -253,7 +253,7 @@ def cmd_token_revoke(args: argparse.Namespace) -> int:
     database = _database(args)
     try:
         with database.unit_of_work() as uow:
-            AuthService(uow.identity).revoke_token(ApiTokenId(args.id))
+            AuthService(uow.identity, audit=uow.audit).revoke_token(ApiTokenId(args.id))
             uow.commit()
     finally:
         database.dispose()

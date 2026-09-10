@@ -230,7 +230,7 @@ def test_the_roster_becomes_users_and_enrolments(database: Database, course) -> 
     assert report.total == 3
 
     with database.unit_of_work() as uow:
-        auth = AuthService(uow.identity)
+        auth = AuthService(uow.identity, audit=uow.audit)
         user = uow.identity.find_user_by_login(TENANT, "sano")
         assert user is not None
         assert auth.role_in(course.id, user.id) is Role.INSTRUCTOR
@@ -245,7 +245,7 @@ def test_the_generated_password_actually_works(database: Database, course) -> No
     )
     login, password = report.created[0]
     with database.unit_of_work() as uow:
-        principal, token = AuthService(uow.identity).login(
+        principal, token = AuthService(uow.identity, audit=uow.audit).login(
             tenant_id=TENANT, login=login, password=password
         )
     assert principal.login == login
@@ -284,7 +284,9 @@ def test_a_role_change_is_applied(database: Database, course) -> None:
     with database.unit_of_work() as uow:
         user = uow.identity.find_user_by_login(TENANT, "y239999")
         assert user is not None
-        assert AuthService(uow.identity).role_in(course.id, user.id) is Role.ASSISTANT
+        assert (
+            AuthService(uow.identity, audit=uow.audit).role_in(course.id, user.id) is Role.ASSISTANT
+        )
 
 
 def test_a_dry_run_changes_nothing(database: Database, course) -> None:
@@ -317,13 +319,15 @@ def test_reissuing_a_password_replaces_it_and_cuts_sessions(database: Database, 
     )
     _, old = report.created[0]
     with database.unit_of_work() as uow:
-        _, token = AuthService(uow.identity).login(tenant_id=TENANT, login="y239999", password=old)
+        _, token = AuthService(uow.identity, audit=uow.audit).login(
+            tenant_id=TENANT, login="y239999", password=old
+        )
         uow.commit()
 
     set_password(database, tenant_id=TENANT, login="y239999", password="a-brand-new-password")
 
     with database.unit_of_work() as uow:
-        auth = AuthService(uow.identity)
+        auth = AuthService(uow.identity, audit=uow.audit)
         assert auth.resolve(token) is None, "セッションが残っている"
         assert auth.login(tenant_id=TENANT, login="y239999", password="a-brand-new-password")
 

@@ -43,6 +43,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from aijudge_admin import allowed_namespaces, list_for_namespaces, pending_counts
+from aijudge_audit import AuditAction, AuditRecorder
 from aijudge_authoring import images, render_statement
 from aijudge_core import (
     DIVISIONS,
@@ -92,6 +93,7 @@ from aijudge_submission import (
 )
 from aijudge_telemetry import RequestContextMiddleware
 
+from .audit_context import request_id_of, source_ip_of
 from .manage import _role_counts
 from .overview import digests_for, load_units
 from .sampling import is_blind_sample
@@ -420,7 +422,7 @@ def current_principal(request: Request) -> Principal | None:
     if not token:
         return None
     with _state(request).database.unit_of_work() as uow:
-        return AuthService(uow.identity).resolve(token)
+        return AuthService(uow.identity, audit=uow.audit).resolve(token)
 
 
 def require_principal(request: Request) -> Principal:
@@ -548,9 +550,12 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
             except AuthenticationFailed as exc:
                 return failed(str(exc))
 
-            _, token = AuthService(uow.identity).login_with_google(
-                tenant_id=TenantId(DEFAULT_TENANT), identity=identity
-            )
+            _, token = AuthService(
+                uow.identity,
+                audit=uow.audit,
+                request_id=request_id_of(request),
+                source_ip=source_ip_of(request),
+            ).login_with_google(tenant_id=TenantId(DEFAULT_TENANT), identity=identity)
             uow.commit()
 
         response = RedirectResponse("/", status_code=303)
@@ -581,10 +586,18 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
     ) -> Response:
         with console.database.unit_of_work() as uow:
             try:
-                _, token = AuthService(uow.identity).login(
-                    tenant_id=TenantId(DEFAULT_TENANT), login=login, password=password
-                )
+                _, token = AuthService(
+                    uow.identity,
+                    audit=uow.audit,
+                    request_id=request_id_of(request),
+                    source_ip=source_ip_of(request),
+                ).login(tenant_id=TenantId(DEFAULT_TENANT), login=login, password=password)
             except AuthenticationFailed as exc:
+                # **失敗も commit する。** 監査行は操作と同じトランザクションに
+                # 載っているので、ここで巻き戻すと失敗の記録ごと消える ──
+                # そして失敗の記録こそ、総当たりに気づくための行である
+                # （ADR 0016）。巻き戻すべき「操作」はここには無い。
+                uow.commit()
                 return TEMPLATES.TemplateResponse(
                     request, "login_local.html", {"error": str(exc)}, status_code=401
                 )
@@ -602,7 +615,12 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
         token = request.cookies.get(SESSION_COOKIE, "")
         if token:
             with console.database.unit_of_work() as uow:
-                AuthService(uow.identity).logout(token)
+                AuthService(
+                    uow.identity,
+                    audit=uow.audit,
+                    request_id=request_id_of(request),
+                    source_ip=source_ip_of(request),
+                ).logout(token)
                 uow.commit()
         response = RedirectResponse("/login", status_code=303)
         response.delete_cookie(SESSION_COOKIE, path="/")
@@ -621,7 +639,7 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
         if principal is None:
             return RedirectResponse("/login", status_code=303)
         with console.database.unit_of_work() as uow:
-            auth = AuthService(uow.identity)
+            auth = AuthService(uow.identity, audit=uow.audit)
             courses = []
             attending = []
             # テナント管理者かはコースの受講に頼らず利用者自身の属性で決まる
@@ -970,7 +988,7 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
         （#102）でも要る。
         """
         with console.database.unit_of_work() as uow:
-            auth = AuthService(uow.identity)
+            auth = AuthService(uow.identity, audit=uow.audit)
             if not _can_grade(auth, CourseId(course_id), me):
                 # 採点できないコースの画像は「無い」と答える（提出物と同じ）。
                 raise HTTPException(status_code=404, detail="画像が見つかりません")
@@ -1098,6 +1116,10 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
 
         review_id = HumanReviewId(new_id("hrv"))
         now = datetime.now(UTC)
+        # 下の `request` は学習者からの再確認の依頼で、HTTP の要求ではない。
+        # 監査に載せる文脈は取り違えないよう先に取っておく。
+        audit_request_id = request_id_of(request)
+        audit_source_ip = source_ip_of(request)
         with console.database.unit_of_work() as uow:
             request = uow.reviews.find_request_for_run(context.run.id)
             try:
@@ -1135,6 +1157,62 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 # `HumanReview` の側に付き、学習者にはそちらが出る。
                 if request is not None:
                     uow.reviews.resolve_request(request.id, review_id)
+
+                # 監査記録（ADR 0016）。**`HumanReview` の代わりではない。**
+                # `HumanReview` は「教員がこの提出を読んだ」という採点側の
+                # 事実で、一致度の証拠になる唯一の記録である。監査行は
+                # 「その操作が行われた」という別の事実で、κ には使わない
+                # ── 2 つを畳んで一致度を壊した前例が ADR 0010 にある。
+                #
+                # 同じ UnitOfWork に載せてあるので、採点の保存が
+                # `ImmutabilityViolation` で落ちれば監査行も一緒に消える。
+                # 起きなかった確定を記録しない。
+                # 操作時点の役割を焼き込む。あとで役割が変わっても、そのときの
+                # 権限で読めるようにするため（監査行を後から解釈し直さない）。
+                # コース所属を持たないテナント管理者では None になり、
+                # **それが事実である**（役割ではなく管理権限で入っている）。
+                acting_role = AuthService(uow.identity, audit=uow.audit).role_in(
+                    context.course.id, me.user_id
+                )
+                audit = AuditRecorder.for_user(
+                    uow.audit,
+                    tenant_id=context.course.tenant_id,
+                    user_id=me.user_id,
+                    role=None if acting_role is None else acting_role.value,
+                    request_id=audit_request_id,
+                    source_ip=audit_source_ip,
+                    clock=lambda: now,
+                )
+                audit.record(
+                    AuditAction.REVIEW_RECORDED,
+                    target_type="submission",
+                    target_id=str(submission_id),
+                    summary=f"採点を確認した（変更 {len(adjusted)} 観点）",
+                    detail={
+                        "grading_run_id": str(context.run.id),
+                        "human_review_id": str(review_id),
+                        # 観点ごとの前後の値。**本文は入れない**（P7）。
+                        "adjusted_levels": {
+                            str(criterion_id): {
+                                "machine": machine.get(criterion_id),
+                                "instructor": level,
+                            }
+                            for criterion_id, level in adjusted.items()
+                        },
+                        "penalty_waived": waived,
+                    },
+                )
+                if context.finalization is None:
+                    audit.record(
+                        AuditAction.GRADE_FINALIZED,
+                        target_type="submission",
+                        target_id=str(submission_id),
+                        summary="成績を確定した（教員のレビュー）",
+                        detail={
+                            "grading_run_id": str(context.run.id),
+                            "source": FinalizationSource.INSTRUCTOR_REVIEW.value,
+                        },
+                    )
             except ImmutabilityViolation as exc:
                 # 二度確定できると成績が二つ存在する。やり直しは再採点から。
                 raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -1275,7 +1353,7 @@ def _load(console: Console, me: Principal, submission_id: SubmissionId) -> _Cont
         if course is None:
             raise HTTPException(status_code=404, detail="コースが見つかりません")
 
-        auth = AuthService(uow.identity)
+        auth = AuthService(uow.identity, audit=uow.audit)
         try:
             auth.require_grader(task.course_id, me.user_id)
         except PermissionDenied as exc:
@@ -1364,7 +1442,7 @@ def _queue_rows(
     console: Console, me: Principal, course_id: CourseId
 ) -> tuple[Course, tuple[dict, ...], int]:
     with console.database.unit_of_work() as uow:
-        auth = AuthService(uow.identity)
+        auth = AuthService(uow.identity, audit=uow.audit)
         try:
             auth.require_grader(course_id, me.user_id)
         except PermissionDenied as exc:
@@ -1412,7 +1490,7 @@ def _blind_rows(
     混ぜて並べると、教員はどちらの理由でその行が出ているのか分からない。
     """
     with console.database.unit_of_work() as uow:
-        auth = AuthService(uow.identity)
+        auth = AuthService(uow.identity, audit=uow.audit)
         try:
             auth.require_grader(course_id, me.user_id)
         except PermissionDenied as exc:

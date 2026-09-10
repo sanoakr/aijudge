@@ -21,6 +21,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
+from aijudge_audit import AuditAction, AuditLog, AuditRecorder
 from aijudge_core import (
     AUTOMATIC_JUSTIFICATION,
     Course,
@@ -98,6 +99,18 @@ def _gradable_rows(rows):
     return tuple(row for row in rows if not row[0].is_trial)
 
 
+def _tenant_of(uow, task: Task) -> TenantId:
+    """課題の属するテナント。
+
+    `Task` はコースまでしか知らない（テナントはコースが持つ）。監査行は
+    テナント単位で引くので、ここで解決する。
+    """
+    course = uow.identity.get_course(task.course_id)
+    if course is None:  # pragma: no cover - 課題があってコースが無い状態は作れない
+        raise AdminError(f"コース {task.course_id} がありません")
+    return course.tenant_id
+
+
 def finalize_task(
     database: Database,
     *,
@@ -121,6 +134,8 @@ def finalize_task(
         outcome = _apply(
             uow.reviews,
             task,
+            audit=uow.audit,
+            tenant_id=_tenant_of(uow, task),
             source=FinalizationSource.INSTRUCTOR_BULK,
             actor_id=actor_id,
             justification=justification,
@@ -170,6 +185,8 @@ def sweep_deadlines(
                     _apply(
                         uow.reviews,
                         task,
+                        audit=uow.audit,
+                        tenant_id=course.tenant_id,
                         source=FinalizationSource.AUTOMATIC,
                         actor_id=None,
                         justification=AUTOMATIC_JUSTIFICATION,
@@ -206,6 +223,8 @@ def finalize_tasks(
                 _apply(
                     uow.reviews,
                     task,
+                    audit=uow.audit,
+                    tenant_id=_tenant_of(uow, task),
                     source=FinalizationSource.INSTRUCTOR_BULK,
                     actor_id=actor_id,
                     justification=justification,
@@ -234,15 +253,32 @@ def _apply(
     reviews: ReviewRepository,
     task: Task,
     *,
+    audit: AuditLog,
+    tenant_id: TenantId,
     source: FinalizationSource,
     actor_id: UserId | None,
     justification: str,
     at: datetime,
     grace: int | None = None,
 ) -> TaskOutcome:
+    """1 課題ぶん確定する。
+
+    **監査記録は確定と同じ `UnitOfWork` に載る**（ADR 0016）。呼び出し側が
+    `dry_run` で commit しなければ、監査行も残らない ── 起きなかった確定を
+    記録しない。
+    """
     automatic = source is FinalizationSource.AUTOMATIC
     finalized = contested = needs_review = provisional = not_due = 0
     awaiting = 0
+
+    # **自動確定に操作者はいない。** 教員に帰属させると、教員が確定していない
+    # ものを確定したことになる ── ADR 0010 が `Finalization` と `HumanReview` を
+    # 分けて塞いだ区別が、監査の側で壊れる。
+    recorder = (
+        AuditRecorder.for_system(audit, tenant_id=tenant_id, clock=lambda: at)
+        if actor_id is None
+        else AuditRecorder.for_user(audit, tenant_id=tenant_id, user_id=actor_id, clock=lambda: at)
+    )
 
     for _submission, run, request in _gradable_rows(reviews.unfinalized_for_task(task.id)):
         if blocks_finalization(request):
@@ -279,6 +315,17 @@ def _apply(
                 justification=justification,
                 finalized_at=at,
             )
+        )
+        recorder.record(
+            AuditAction.GRADE_FINALIZED,
+            target_type="submission",
+            target_id=str(run.submission_id),
+            summary=f"成績を確定した（{source.value}）",
+            detail={
+                "grading_run_id": str(run.id),
+                "task_id": str(task.id),
+                "source": source.value,
+            },
         )
         finalized += 1
 

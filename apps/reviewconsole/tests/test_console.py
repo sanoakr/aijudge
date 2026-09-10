@@ -123,7 +123,7 @@ class World:
 
     def register(self, login: str, *, role: Role):
         with self.database.unit_of_work() as uow:
-            service = AuthService(uow.identity)
+            service = AuthService(uow.identity, audit=uow.audit)
             principal = service.register(
                 tenant_id=TENANT, login=login, display_name=login, password=PASSWORD
             )
@@ -1060,7 +1060,7 @@ def _make_admin(world: World, login: str) -> UserId:
     """テナント管理者を作る。ドメインは架空値のみ使う（#124）。"""
     principal = world.register(login, role=Role.ASSISTANT)
     with world.database.unit_of_work() as uow:
-        AuthService(uow.identity).set_tenant_admin(principal.user_id, admin=True)
+        AuthService(uow.identity, audit=uow.audit).set_tenant_admin(principal.user_id, admin=True)
         uow.commit()
     return principal.user_id
 
@@ -1228,7 +1228,9 @@ def test_a_successful_google_callback_creates_a_session(
     assert callback.status_code == 303
     assert SESSION_COOKIE in callback.cookies
     with world.database.unit_of_work() as uow:
-        principal = AuthService(uow.identity).resolve(callback.cookies[SESSION_COOKIE])
+        principal = AuthService(uow.identity, audit=uow.audit).resolve(
+            callback.cookies[SESSION_COOKIE]
+        )
     assert principal is not None
     assert principal.login == "taro@example.ac.jp"
 

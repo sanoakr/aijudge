@@ -105,7 +105,7 @@ class World:
 
     def register_and_login(self, login: str = "s2400001") -> None:
         with self.database.unit_of_work() as uow:
-            service = AuthService(uow.identity)
+            service = AuthService(uow.identity, audit=uow.audit)
             principal = service.register(
                 tenant_id=TENANT, login=login, display_name=login, password=PASSWORD
             )

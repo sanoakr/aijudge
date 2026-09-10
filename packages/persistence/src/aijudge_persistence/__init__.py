@@ -11,6 +11,7 @@ Phase 0 の既定は PostgreSQL + ファイルシステム。MinIO（S3 互換�
 
 from __future__ import annotations
 
+from .audit_repository import SqlAuditLog
 from .engine import (
     DEFAULT_DATABASE_URL,
     ENV_DATABASE_URL,
@@ -44,6 +45,7 @@ __all__ = [
     "Database",
     "ObjectArtifactStore",
     "ObservationFileStore",
+    "SqlAuditLog",
     "SqlGradingRunRepository",
     "SqlIdentityRepository",
     "SqlJobQueue",

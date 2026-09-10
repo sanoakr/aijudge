@@ -116,3 +116,23 @@ class RequestContextMiddleware:
                             "duration_ms": round((time.monotonic() - started) * 1000, 1),
                         },
                     )
+
+
+def client_ip(forwarded_for: str | None, peer: str | None) -> str | None:
+    """要求元のアドレス。**`X-Forwarded-For` の右端を採る。**
+
+    左端ではない。`deploy/nginx/aijudge.conf.template` は
+    `proxy_add_x_forwarded_for` を使っており、これは**クライアントが送って
+    きた値の後ろに nginx から見た接続元を足す**。つまり左端は client が
+    自由に書けるが、右端は nginx が書いた値である。
+
+    左端を採る実装は、監査ログに任意のアドレスを書かせる経路になる ──
+    記録が偽れるなら、その記録は証拠にならない。
+
+    逆プロキシを立てていない構成ではヘッダが無いので、接続元をそのまま使う。
+    """
+    if forwarded_for:
+        candidates = [part.strip() for part in forwarded_for.split(",") if part.strip()]
+        if candidates:
+            return candidates[-1]
+    return peer or None

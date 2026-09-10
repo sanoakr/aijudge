@@ -29,6 +29,7 @@ root_packages =
     aijudge_skill
     aijudge_eval_network_test_runner
     aijudge_telemetry
+    aijudge_audit
 include_external_packages = True
 
 [importlinter:contract:core-is-independent]
@@ -52,6 +53,7 @@ forbidden_modules =
     aijudge_feedback
     aijudge_toolchain
     aijudge_telemetry
+    aijudge_audit
 
 ; ゲートウェイは他サブシステムを知らない。採点の語彙にも依存しない
 ; （依存させると、採点以外から LLM を使うたびに採点が引きずられる）。
@@ -389,6 +391,35 @@ forbidden_modules =
     aijudge_analytics
     aijudge_observation
     aijudge_persistence
+    sqlalchemy
+    httpx
+    requests
+
+; 監査記録は保存先を知らない（ADR 0016）。実装はインメモリと persistence の
+; 2 つあり、同じテストが両方に通る ── ここで保存先を知らせた瞬間、その約束が
+; 崩れ、PostgreSQL が全テストの前提になる。
+;
+; 採点エンジンにも運用ログにも依存しない。監査は「誰が何をしたか」の記録で
+; あって、採点の一部ではない。**この向きが破れると、監査を消したときに採点が
+; 起動しなくなる**（`aijudge_observation` を分けた ADR 0007 と同じ実例）。
+; 運用ログを禁じているのは、監査が journald の都合に引きずられないため ──
+; 2 つを繋ぐ（`request_id` を渡す）のは合成ルートの仕事である。
+[importlinter:contract:audit-knows-no-store]
+name = 監査記録は保存先にも採点にも運用ログにも依存しない
+type = forbidden
+source_modules =
+    aijudge_audit
+forbidden_modules =
+    aijudge_persistence
+    aijudge_grading
+    aijudge_authoring
+    aijudge_submission
+    aijudge_identity
+    aijudge_llm_gateway
+    aijudge_sandbox
+    aijudge_analytics
+    aijudge_evalrunner
+    aijudge_telemetry
     sqlalchemy
     httpx
     requests

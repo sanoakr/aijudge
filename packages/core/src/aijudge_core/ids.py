@@ -54,6 +54,8 @@ PREFIXES: dict[str, str] = {
     "rrq": "ReviewRequest",
     "cred": "Credential",
     "evt": "DomainEvent",
+    # 監査記録（ADR 0016）。運用ログでも採点記録でもない 3 つめの記録。
+    "aud": "AuditEvent",
 }
 
 _ID_RE = re.compile(r"^(?P<prefix>[a-z]+)_(?P<body>[0-9a-f]{32})$")

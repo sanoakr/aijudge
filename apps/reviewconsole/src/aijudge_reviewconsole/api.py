@@ -68,7 +68,7 @@ def require_token(
     token = authorization[len(BEARER) :].strip()
     console = _console(request)
     with console.database.unit_of_work() as uow:
-        principal = AuthService(uow.identity).resolve_api_token(token)
+        principal = AuthService(uow.identity, audit=uow.audit).resolve_api_token(token)
         # 最終使用日時の記録は書き込みなので、確定させる。
         uow.commit()
     if principal is None:
@@ -101,7 +101,7 @@ def register() -> APIRouter:
         """
         console = _console(request)
         with console.database.unit_of_work() as uow:
-            auth = AuthService(uow.identity)
+            auth = AuthService(uow.identity, audit=uow.audit)
             out = []
             for course in auth.courses_for(me.tenant_id, me.user_id):
                 # `role_in` はテナント管理者に受講登録が無くても ADMIN を
@@ -183,7 +183,7 @@ def register() -> APIRouter:
 def _require_instructor(console, me: Principal, course_id: CourseId):
     """そのコースの教員であること。**TA には開けない**（画面と同じ規則）。"""
     with console.database.unit_of_work() as uow:
-        auth = AuthService(uow.identity)
+        auth = AuthService(uow.identity, audit=uow.audit)
         try:
             role = auth.require_membership(course_id, me.user_id)
         except PermissionDenied as exc:

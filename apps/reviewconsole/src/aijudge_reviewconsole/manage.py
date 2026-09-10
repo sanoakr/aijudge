@@ -235,7 +235,7 @@ def _require_reader(request: Request, me: Principal, course_id: CourseId) -> tup
     """
     console = _console(request)
     with console.database.unit_of_work() as uow:
-        auth = AuthService(uow.identity)
+        auth = AuthService(uow.identity, audit=uow.audit)
         try:
             role = auth.require_membership(course_id, me.user_id)
         except PermissionDenied as exc:
@@ -262,7 +262,7 @@ def _require_instructor(request: Request, me: Principal, course_id: CourseId) ->
     """
     console = _console(request)
     with console.database.unit_of_work() as uow:
-        auth = AuthService(uow.identity)
+        auth = AuthService(uow.identity, audit=uow.audit)
         try:
             role = auth.require_membership(course_id, me.user_id)
         except PermissionDenied as exc:
@@ -292,7 +292,7 @@ def _require_enrolment_manager(
     """
     console = _console(request)
     with console.database.unit_of_work() as uow:
-        auth = AuthService(uow.identity)
+        auth = AuthService(uow.identity, audit=uow.audit)
         try:
             role = auth.require_membership(course_id, me.user_id)
         except PermissionDenied:
@@ -1056,7 +1056,7 @@ def register(templates) -> APIRouter:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
         with console.database.unit_of_work() as uow:
-            auth = AuthService(uow.identity)
+            auth = AuthService(uow.identity, audit=uow.audit)
             # 作った本人も担当教員にする。でないと自分のコースが見えない
             # （テナント管理者が受講登録なしで全コースに届くようになるまでの
             # 措置。#128 が入ればここは指定した教員だけで足りる）。
@@ -1124,7 +1124,7 @@ def register(templates) -> APIRouter:
         login = login.strip()
         password = generate_password()
         with console.database.unit_of_work() as uow:
-            auth = AuthService(uow.identity)
+            auth = AuthService(uow.identity, audit=uow.audit)
             try:
                 principal = auth.register(
                     tenant_id=me.tenant_id,
@@ -1254,7 +1254,7 @@ def register(templates) -> APIRouter:
             user = uow.identity.get_user(UserId(user_id))
             if user is None or user.tenant_id != me.tenant_id:
                 raise HTTPException(status_code=404, detail="利用者が見つかりません")
-            AuthService(uow.identity).set_tenant_admin(user.id, admin=bool(admin))
+            AuthService(uow.identity, audit=uow.audit).set_tenant_admin(user.id, admin=bool(admin))
             uow.commit()
         saved = "tenant_admin_granted" if admin else "tenant_admin_revoked"
         return RedirectResponse(f"/manage/users/{user_id}?saved={saved}", status_code=303)
@@ -1289,7 +1289,7 @@ def register(templates) -> APIRouter:
                 # 受講していないコースの役割はここでは作らない（受講登録は
                 # コース側の画面の仕事）。
                 raise HTTPException(status_code=404, detail="このコースの受講登録がありません")
-            AuthService(uow.identity).enroll(
+            AuthService(uow.identity, audit=uow.audit).enroll(
                 tenant_id=me.tenant_id,
                 course_id=CourseId(course_id),
                 user_id=user.id,
@@ -1316,7 +1316,7 @@ def register(templates) -> APIRouter:
             user = uow.identity.get_user(UserId(user_id))
             if user is None or user.tenant_id != me.tenant_id:
                 raise HTTPException(status_code=404, detail="利用者が見つかりません")
-            AuthService(uow.identity).disable(user.id)
+            AuthService(uow.identity, audit=uow.audit).disable(user.id)
             uow.commit()
         return RedirectResponse(f"/manage/users/{user_id}?saved=disabled", status_code=303)
 
@@ -1346,7 +1346,7 @@ def register(templates) -> APIRouter:
                     detail="この利用者は大学アカウントでログインします（パスワードはありません）",
                 )
             try:
-                AuthService(uow.identity).reissue_password(user.id, new=password)
+                AuthService(uow.identity, audit=uow.audit).reissue_password(user.id, new=password)
             except AuthenticationFailed as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
             uow.commit()
@@ -1665,7 +1665,7 @@ def register(templates) -> APIRouter:
             return error("新しいパスワードが一致しません")
 
         with console.database.unit_of_work() as uow:
-            auth = AuthService(uow.identity)
+            auth = AuthService(uow.identity, audit=uow.audit)
             try:
                 auth.change_password(me.user_id, current=current_password, new=new_password)
             except AuthenticationFailed as exc:
@@ -2845,7 +2845,7 @@ def register(templates) -> APIRouter:
             # 複製した本人を担当教員にする。受講登録は引き継がないので、
             # ここで入れないと**自分が作ったコースが自分に見えない**
             # （作成の経路と同じ理由・#130）。
-            AuthService(uow.identity).enroll(
+            AuthService(uow.identity, audit=uow.audit).enroll(
                 tenant_id=me.tenant_id,
                 course_id=copied.course.id,
                 user_id=me.user_id,

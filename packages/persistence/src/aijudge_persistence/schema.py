@@ -14,6 +14,7 @@ SQL で集約の中身を検索するようになったときで、そのとき�
     grading_jobs       採点ジョブ。available_at と state に索引
     outbox_events      ドメインイベント。published_at が NULL なら未送信
     tasks / task_versions  課題。公開後は不変
+    audit_events       誰が成績に届く何を変えたか。**追記のみ**（ADR 0016）
 
 日時は必ず timezone 付きで扱う。素の TIMESTAMP に入れると、締切判定が
 サーバのローカル時刻に依存する。**ただしバックエンドによっては保証されない**
@@ -560,3 +561,55 @@ class TaskEmbeddingRow(Base):
     subject_profile: Mapped[str] = mapped_column(String(64), index=True)
     dimensions: Mapped[int] = mapped_column(Integer)
     vector: Mapped[list] = mapped_column(JsonType)
+
+
+class AuditEventRow(Base):
+    """監査記録。**誰が**成績に届く何を変えたか（ADR 0016）。
+
+    **運用ログとは別の場所に置く。** 運用ログは journald にあり 90 日で
+    消えるが、こちらは学期を跨いで残す ── 成績への異議申立てはその後に来る。
+    DB にあることで、`/srv/aijudge` の restic バックアップ（DB ダンプ）に
+    自動的に入る。
+
+    **追記のみ。** 更新も削除も経路を作らない。消せる記録は証拠にならない
+    （`grading_runs` が追記専用なのと同じ理由、P8）。
+
+    差分は `detail` に JSON で持つ。列にしないのは、行為ごとに意味が違う
+    ためで、**検索の条件になるもの（誰・いつ・何を・どの対象）は列にしてある**
+    ── そこを JSON に入れると 1 年後に引けない。
+    """
+
+    __tablename__ = "audit_events"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    at: Mapped[datetime] = mapped_column(Timestamp, index=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+
+    # `user` か `system`。**NULL で「不明」を表さない** ── 締切経過による
+    # 自動確定に操作者がいないのは欠落ではなく事実で、後から読む人がその 2 つを
+    # 区別できなければ監査にならない。
+    actor_kind: Mapped[str] = mapped_column(String(16))
+    actor_user_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    # 操作時点の役割を焼き込む。`enrollments` を引き直すと、いまの役割で
+    # 過去を読むことになる。
+    actor_role: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
+    action: Mapped[str] = mapped_column(String(64), index=True)
+    target_type: Mapped[str] = mapped_column(String(32))
+    target_id: Mapped[str] = mapped_column(String(64))
+
+    summary: Mapped[str] = mapped_column(String(500))
+    detail: Mapped[dict] = mapped_column(JsonType)
+
+    # 運用ログと突き合わせるための鍵（ADR 0016）。
+    request_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    # 個人情報。無くても記録として成立する。
+    source_ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    __table_args__ = (
+        # 「この提出に何が起きたか」を新しい順に引く経路。
+        Index("ix_audit_target", "target_type", "target_id", "at"),
+        # 「このテナントの最近の行為」「この行為の履歴」。
+        Index("ix_audit_tenant_at", "tenant_id", "at"),
+        Index("ix_audit_tenant_action_at", "tenant_id", "action", "at"),
+    )

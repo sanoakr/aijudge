@@ -214,3 +214,34 @@ def test_the_operational_log_declares_no_dependencies() -> None:
     with manifest.open("rb") as handle:
         dependencies = tomllib.load(handle)["project"]["dependencies"]
     assert dependencies == [], f"telemetry gained unexpected dependencies: {dependencies}"
+
+
+def test_the_audit_contract_is_declared() -> None:
+    """監査記録が保存先にも採点にも依存しない契約があること（ADR 0016）。
+
+    破れると 2 つ壊れる。実装を差し替えられなくなる（PostgreSQL が全テストの
+    前提になる）ことと、監査を消すと採点が起動しなくなること ──
+    後者は `aijudge_observation` を分ける前に実際に起きた（ADR 0007）。
+    """
+    config = _import_linter_config()
+    section = "importlinter:contract:audit-knows-no-store"
+    assert config.has_section(section), (
+        "監査記録の独立を保証する契約が .importlinter から消えている"
+    )
+    forbidden = set(config[section]["forbidden_modules"].split())
+    assert {"aijudge_persistence", "sqlalchemy", "aijudge_grading"} <= forbidden
+    # 運用ログにも依存しない。2 つを繋ぐのは合成ルートの仕事である。
+    assert "aijudge_telemetry" in forbidden
+
+
+def test_the_audit_record_declares_only_core_and_pydantic() -> None:
+    """監査記録の依存はここで止める。
+
+    増えるのは、監査が業務の実装を知り始めた兆候であり、そのとき監査は
+    「その実装を消すと壊れるもの」になっている。
+    """
+    manifest = REPO_ROOT / "packages" / "audit" / "pyproject.toml"
+    with manifest.open("rb") as handle:
+        dependencies = tomllib.load(handle)["project"]["dependencies"]
+    names = {item.split(">")[0].split("=")[0].split("[")[0].strip() for item in dependencies}
+    assert names == {"aijudge-core", "pydantic"}, f"audit gained unexpected dependencies: {names}"

@@ -47,7 +47,7 @@ class SqlBackedAuth:
 
     def do(self, action):
         with self._database.unit_of_work() as uow:
-            service = AuthService(uow.identity, clock=self._clock)
+            service = AuthService(uow.identity, audit=uow.audit, clock=self._clock)
             result = action(service)
             uow.commit()
         return result

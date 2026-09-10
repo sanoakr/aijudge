@@ -556,3 +556,38 @@ def test_the_cli_refuses_a_malformed_now(database: Database, tmp_path: Path) -> 
         ["--database-url", f"sqlite+pysqlite:///{tmp_path}/f.db", "--once", "--now", "昨日"]
     )
     assert code == 2
+
+
+def test_an_automatic_finalization_is_audited_without_an_actor(database: Database, course) -> None:
+    """自動確定は記録に残るが、**誰にも帰属しない**（ADR 0016）。
+
+    教員に帰属させると、教員が確定していないものを確定したことになる ──
+    ADR 0010 が `Finalization` と `HumanReview` を分けて塞いだ区別が、
+    監査の側で壊れる。
+    """
+    from aijudge_audit import ActorKind, AuditAction
+
+    ids = _world(database, course.id)
+    _with_grace(database, course, 24.0)
+    assert sweep_deadlines(database, now=AFTER).finalized == 1
+
+    with database.unit_of_work() as uow:
+        rows = uow.audit.list_for_target("submission", str(ids[0]))
+    assert [row.action for row in rows] == [AuditAction.GRADE_FINALIZED]
+    assert rows[0].actor_kind is ActorKind.SYSTEM
+    assert rows[0].actor_user_id is None
+    assert rows[0].detail["source"] == "deadline_elapsed"
+
+
+def test_a_dry_run_leaves_no_audit_row(database: Database, course) -> None:
+    """**起きなかった確定を記録しない。**
+
+    監査行は確定と同じトランザクションに載るので、commit しなければ残らない。
+    別の接続で書く実装だと、`--dry-run` が「確定した」という嘘を残す。
+    """
+    ids = _world(database, course.id)
+    _with_grace(database, course, 24.0)
+    sweep_deadlines(database, now=AFTER, dry_run=True)
+
+    with database.unit_of_work() as uow:
+        assert uow.audit.list_for_target("submission", str(ids[0])) == ()

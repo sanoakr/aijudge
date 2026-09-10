@@ -15,6 +15,7 @@ import pytest
 from joserfc import jwt
 from joserfc.jwk import RSAKey
 
+from aijudge_audit import InMemoryAuditLog
 from aijudge_core.ids import TenantId
 from aijudge_identity import AuthenticationFailed, AuthService, InMemoryIdentityRepository
 from aijudge_identity.oidc import GoogleOidcIdentity, GoogleOidcProvider, OidcSettings
@@ -178,7 +179,7 @@ def an_identity(*, sub: str = "sub-1", email: str = "taro@example.ac.jp") -> Goo
 
 def test_first_login_creates_a_user_by_jit_provisioning() -> None:
     """事前の名簿投入は要らない（#121 で決定済み）。"""
-    service = AuthService(InMemoryIdentityRepository())
+    service = AuthService(InMemoryIdentityRepository(), audit=InMemoryAuditLog())
 
     principal, token = service.login_with_google(tenant_id=TENANT, identity=an_identity())
 
@@ -187,7 +188,7 @@ def test_first_login_creates_a_user_by_jit_provisioning() -> None:
 
 
 def test_a_second_login_resolves_the_same_user() -> None:
-    service = AuthService(InMemoryIdentityRepository())
+    service = AuthService(InMemoryIdentityRepository(), audit=InMemoryAuditLog())
     identity = an_identity()
 
     principal1, _ = service.login_with_google(tenant_id=TENANT, identity=identity)
@@ -198,7 +199,7 @@ def test_a_second_login_resolves_the_same_user() -> None:
 
 def test_a_google_session_resolves_like_any_other_session() -> None:
     """下流のコース・役割判定に変更が要らないことの確認。"""
-    service = AuthService(InMemoryIdentityRepository())
+    service = AuthService(InMemoryIdentityRepository(), audit=InMemoryAuditLog())
     principal, token = service.login_with_google(tenant_id=TENANT, identity=an_identity())
 
     assert service.resolve(token) == principal
