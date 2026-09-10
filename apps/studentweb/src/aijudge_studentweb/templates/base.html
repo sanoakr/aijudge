@@ -4,263 +4,19 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}aiJudge{% endblock %}</title>
-<style>
-:root{
-  --paper:#eef1f5; --surface:#fff; --surface-2:#f6f8fa;
-  --ink:#141e2b; --ink-2:#3c4a5c; --muted:#697a8e;
-  --line:#d3dbe4; --line-soft:#e3e9ef;
-  --shu:#b03a29; --shu-soft:#f3e3e0;
-  --verd:#1c6d67; --verd-soft:#dfedeb;
-  /* 対応が要ることを表す色（琥珀）。**朱とは別に持つ** ── 朱は「確定した
-     否定的な事実」で、こちらは「人が押さないと先へ進まない」を意味する。 */
-  --kin:#8a5a00; --kin-soft:#f7ecd6;
-}
-/* 夜の配色。**同じ値を 2 か所から当てる**（#181）。
+{# 見た目は `packages/webui` が 1 か所で持つ（#184）。以前はここに
+   `<style>` として 239 行あり、その 95 規則が教員コンソール側と重複していた。
 
-   `prefers-color-scheme` だけだと、見る人が選べない ── 端末が昼設定の
-   学生は暗い講義室で読めず、端末が夜設定の教員はプロジェクタに出せない。
-   かといって OS 追従を捨てると、いま何も設定せずに夜で見えている人が
-   昼に戻ってしまう。だから **OS 追従を既定に残したまま、明示の選択が
-   両方向で勝つ**ようにする。
+   **`learner.css` は `base.css` の「あと」に読む** ── 学習者の画面にしか
+   出ない部品を足す側なので、順を変えると足したはずの規則が先に読まれる。
+   共有分と分けてあるのは配信量のためではなく、**当たる規則を切り出し前と
+   同じに保つため**（`base.css` 冒頭）。
 
-   - `@media` は「OS が夜」── ただし明示的に昼を選んでいたら当てない
-   - `[data-theme="dark"]` は「この人が夜を選んだ」
-
-   値を 1 か所にまとめられないのは CSS の制約で、変数を 2 度書くしかない。
-   **片方だけ直すと、選んだときと OS 追従のときで色が違う**という、
-   気づきにくい壊れ方をする。 */
-@media (prefers-color-scheme: dark){
-  :root:not([data-theme="light"]){
-    --paper:#0e141c; --surface:#151d27; --surface-2:#1b242f;
-    --ink:#dee6ef; --ink-2:#b6c2d0; --muted:#8395a8;
-    --line:#2a3542; --line-soft:#212c38;
-    --shu:#e4826f; --shu-soft:#2e1f1c;
-    --verd:#5eb2ab; --verd-soft:#152a29;
-    --kin:#e0ab52; --kin-soft:#2b2314;
-  }
-}
-:root[data-theme="dark"]{
-  --paper:#0e141c; --surface:#151d27; --surface-2:#1b242f;
-  --ink:#dee6ef; --ink-2:#b6c2d0; --muted:#8395a8;
-  --line:#2a3542; --line-soft:#212c38;
-  --shu:#e4826f; --shu-soft:#2e1f1c;
-  --verd:#5eb2ab; --verd-soft:#152a29;
-  --kin:#e0ab52; --kin-soft:#2b2314;
-}
-/* フォーム部品（チェックボックス・スクロールバー）にも配色を伝える。
-   伝えないと、夜の画面に白いチェックボックスだけが浮く。 */
-:root[data-theme="dark"]{color-scheme:dark}
-:root[data-theme="light"]{color-scheme:light}
-*{box-sizing:border-box}
-[hidden]{display:none!important}
-body{margin:0;background:var(--paper);color:var(--ink);
-  font-family:"Hiragino Sans","Noto Sans JP",system-ui,sans-serif;line-height:1.75}
-main{max-width:1100px;margin:0 auto;padding:32px 24px 80px}
-h1{font-size:1.5rem;margin:0 0 4px}
-h2{font-size:1.1rem;margin:32px 0 10px}
-a{color:var(--shu)}
-.crumb{font-size:.8rem;color:var(--muted);margin-bottom:24px}
-.card{background:var(--surface);border:1px solid var(--line-soft);border-radius:4px;padding:20px 22px;margin-bottom:20px}
-.note{border-left:3px solid var(--verd);background:var(--verd-soft);padding:12px 16px;
-  border-radius:0 3px 3px 0;font-size:.9rem;color:var(--ink-2);margin-bottom:20px}
-.note.warn{border-left-color:var(--shu);background:var(--shu-soft)}
-table{border-collapse:collapse;width:100%;font-size:.9rem;table-layout:auto}
-/* 「説明」のように長い列に残りを吸わせ、他の列を潰させない。 */
-td.fit,th.fit{width:1%;white-space:nowrap}
-td.grow,th.grow{width:auto}
-/* 最初の列（観点名など）に最小幅を与える。与えないと、隣の列に押されて
-   「変数名と構造の分かりやす／さ」のように 1 文字だけ折り返される。 */
-table td:first-child,table th:first-child{min-width:12em}
-@media (max-width:720px){table td:first-child,table th:first-child{min-width:0}}
-th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line-soft);vertical-align:top}
-/* 行のどこを押しても開く（JavaScript が付けたときだけ）。押せることが
-   見て分かるように、hover で背景を変える。 */
-tr.row-link[data-clickable]:hover{background:var(--surface-2)}
-thead th{font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);
-  font-weight:400;background:var(--surface-2)}
-code,pre,.mono{font-family:ui-monospace,"SFMono-Regular",monospace}
-pre.code{margin:0;overflow-x:auto;background:var(--surface-2);border:1px solid var(--line-soft);
-  border-radius:3px;padding:14px 0;font-size:.8rem;line-height:1.65}
-pre.code .ln{display:block;padding:0 16px;white-space:pre}
-pre.code .ln .n{display:inline-block;width:3em;color:var(--muted);user-select:none;text-align:right;margin-right:1em}
-pre.code .ln.hl{background:var(--shu-soft);border-left:3px solid var(--shu);padding-left:13px}
-/* 数式（サーバ側で MathML に変換済み・statement.py）。別行立ては中央、
-   長い式は横スクロールに逃がす ── 折り返せない要素なので、逃がさないと
-   ページ全体が横に伸びる。 */
-.statement .math.block{overflow-x:auto;margin:1em 0;text-align:center}
-.statement math{font-size:1.05em}
-.statement > *:first-child{margin-top:0}
-.statement > *:last-child{margin-bottom:0}
-.statement h2,.statement h3,.statement h4,.statement h5{font-size:1rem;margin:1.2em 0 .4em;color:var(--ink)}
-.statement pre{background:var(--surface);border:1px solid var(--line-soft);border-radius:3px;
-  padding:10px 12px;overflow-x:auto;font-size:.82rem}
-.statement code{font-size:.85em}
-.statement ul,.statement ol{padding-left:1.4em}
-.statement hr{border:0;border-top:1px solid var(--line-soft);margin:1.2em 0}
-/* 課題文に貼った画像（#64）。**幅は 1 行の `{width=...}` が決める**
-   （`images.DISPLAY_WIDTH`）。ここで縛るのは 2 つだけ:
-   `height:auto` で縦横比を保ち、狭い画面では本文の幅を超えさせない
-   （指定幅が画面より広い日は、幅の指定ではなく画面のほうが正しい）。 */
-.statement img{max-width:100%;height:auto;border-radius:2px}
-/* 課題文に内部スクロールを付けない。付けると全体を一度に読めず、
-   長い課題文ほど読みにくくなる。ページ全体のスクロールで読ませる。
-   横に溢れるのはコードブロックだけで、そちらは pre 側で処理する。 */
-.statement{font-size:.9rem;color:var(--ink-2);
-  border:1px solid var(--line-soft);border-radius:3px;
-  padding:14px 16px;background:var(--surface-2)}
-fieldset{border:1px solid var(--line-soft);border-radius:3px;padding:14px 18px;margin:0 0 16px}
-legend{font-weight:700;font-size:.95rem;padding:0 6px}
-.desc{font-size:.85rem;color:var(--muted);margin:0 0 12px}
-.levels{display:flex;flex-direction:column;gap:6px}
-.levels label{display:flex;gap:10px;align-items:baseline;font-size:.88rem;
-  padding:7px 10px;border:1px solid var(--line-soft);border-radius:3px;cursor:pointer}
-.levels label:hover{background:var(--surface-2)}
-.levels input:checked + .lv{font-weight:700;color:var(--shu)}
-.lv{min-width:5.5em}
-button{font:inherit;font-weight:700;background:var(--shu);color:#fff;border:0;
-  border-radius:3px;padding:10px 22px;cursor:pointer}
-button:hover{filter:brightness(1.08)}
-textarea{width:100%;font:inherit;font-size:.88rem;padding:10px 12px;border-radius:3px;
-  border:1px solid var(--line);background:var(--surface);color:var(--ink);resize:vertical}
-/* ピルは折り返さない。狭い列に入ると 1 文字ずつ縦に積まれる
-   （「採点できませんでした」で実際にそうなった）。nowrap にすると
-   表がその分の幅を確保する。 */
-.pill{display:inline-block;font-size:.72rem;padding:2px 9px;border-radius:99px;
-  border:1px solid var(--line);color:var(--muted);white-space:nowrap}
-/* **色は「気分」ではなく「人が何かする必要があるか」で決める。**
-
-     attn  人の操作を待っている。押さないと先へ進まない。いちばん目立たせる
-     ok    済んだこと
-     no    確定した否定的な事実。**操作は要らない**
-     既定  参考の数え上げ・注記
-
-   `no` に両方を背負わせていたときは、放っておいてよいものと、教員が開かない
-   限り成績が閉じないものが同じ赤で並んでいた。同じ見え方なら、どちらも目に
-   留まらない。
-
-   **どの語をどの種別にするかはテンプレート側に書く。** ここに例を並べると、
-   blind 採点の画面にまで判定の語が混ざる（この見出しは全ページに配られる）。
-
-   **色だけに頼らない。** `attn` には記号を添える（色覚の差でも、白黒の
-   印刷でも種別が読める必要がある）。 */
-.pill.ok{color:var(--verd);border-color:var(--verd);background:var(--verd-soft)}
-.pill.no{color:var(--shu);border-color:var(--shu);background:var(--shu-soft)}
-.pill.attn{color:var(--kin);border-color:var(--kin);background:var(--kin-soft);
-  font-weight:700;box-shadow:0 0 0 2px var(--kin-soft)}
-.pill.attn::before{content:"! ";font-weight:700}
-.progress{height:6px;background:var(--line-soft);border-radius:99px;overflow:hidden;margin:10px 0 6px}
-.progress > div{height:100%;background:var(--verd)}
-.grid2{display:grid;grid-template-columns:1fr 1fr;gap:20px}
-header.top{border-bottom:1px solid var(--line-soft);background:var(--surface)}
-header.top .inner{max-width:1100px;margin:0 auto;padding:12px 24px;display:flex;
-  align-items:baseline;gap:16px;font-size:.85rem}
-header.top .brand{font-weight:700;font-size:1rem;color:var(--ink);text-decoration:none}
-header.top .spacer{flex:1}
-header.top form{margin:0}
-header.top button{background:none;color:var(--muted);border:1px solid var(--line);
-  font-weight:400;padding:4px 12px;font-size:.8rem}
-.field{margin-bottom:14px}
-.field label{display:block;font-size:.85rem;color:var(--ink-2);margin-bottom:4px}
-.field input:not([type=checkbox]):not([type=radio]){width:100%;font:inherit;font-size:.9rem;padding:9px 12px;border-radius:3px;
-  border:1px solid var(--line);background:var(--surface);color:var(--ink)}
-.narrow{max-width:420px}
-/* 文脈バナー。どのコースの何回目のどの課題を見ているかを全ページに出す。 */
-.ctx{background:var(--surface-2);border-bottom:1px solid var(--line-soft)}
-.ctx .inner{max-width:1100px;margin:0 auto;padding:8px 24px;font-size:.8rem;color:var(--muted)}
-.ctx b{color:var(--ink-2);font-weight:600}
-.ctx a{color:var(--ink-2);text-decoration:none}
-.ctx a:hover{text-decoration:underline}
-/* パンくず。区切りは薄く、現在地だけ濃く。折り返しても経路が読めるように
-   区切りごと折り返させる。 */
-.trail{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 8px}
-.trail [aria-current]{color:var(--ink-2)}
-.sep{color:var(--muted);user-select:none}
-.crumb .sep{margin:0 2px}
-/* ボタンの置き場所。**原則は入力と同じ行の右端。** 目で追う順が
-   「何を入れるか → 押す」で閉じ、フォームの終わりが行の右端で分かる。
-   1 行に収まらない入力（textarea・項目が複数）だけ下に置き、そこでも
-   右端に寄せて同じ読み方にする。 */
-.inline-field{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:0}
-.inline-field .body{flex:1;min-width:12rem}
-.inline-field .body label{display:block;font-size:.85rem;color:var(--ink-2);margin-bottom:4px}
-.inline-field .body input,.inline-field .body select{width:100%;font:inherit;font-size:.9rem;
-  padding:9px 12px;border-radius:3px;border:1px solid var(--line);
-  background:var(--surface);color:var(--ink)}
-.inline-field > button{flex:none;margin-left:auto}
-.actions{display:flex;justify-content:flex-end;gap:10px;margin-top:12px}
-/* ログイン画面のように、カードの中身がボタン 1 つだけのとき用。
-   `.actions`（右端寄せ）は複数の入力の下に添える前提で、単体だと
-   カードの中で不釣り合いに小さく右に寄って見える。 */
-.cta{display:flex}
-.cta button{flex:1;padding:14px 22px;font-size:1rem}
-/* 問題セット。段階（提出できる／公開済／締切済）の見出しの下に並ぶ。 */
-.unit{margin-bottom:22px}
-/* 問題セットの開閉（#93）。**畳んだ見出しが押せることを示す。** 三角は
-   ブラウザ既定を消して自前で出す ── 既定の位置だと見出しの折り返しに
-   合わせて動き、日付の並びと重なる。 */
-details.unit > summary{cursor:pointer;list-style:none;padding:6px 0;border-radius:3px}
-details.unit > summary::-webkit-details-marker{display:none}
-details.unit > summary::before{content:"▸";color:var(--muted);margin-right:6px}
-details.unit[open] > summary::before{content:"▾"}
-details.unit > summary:hover{background:var(--surface-2)}
-details.unit > summary h3{display:inline-flex;vertical-align:middle}
-.unit h3{font-size:.98rem;margin:0 0 6px;display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px}
-.unit h3 .dates{font-weight:400;display:flex;flex-wrap:wrap;gap:2px 14px}
-.unit h3 .dates em{font-style:normal;opacity:.65}
-.score{font-size:2rem;font-weight:700;color:var(--ink)}
-.score .unit{font-size:1rem;color:var(--muted);font-weight:400}
-@media (max-width:860px){.grid2{grid-template-columns:1fr}}
-:focus-visible{outline:2px solid var(--shu);outline-offset:2px}
-/* PDF の埋め込み。**高さを幅から導く。** 固定のピクセル値だと、幅が伸びる
-   ほど比率が崩れ、A4 縦 1 ページが 1 画面に収まらない（#87）。
-
-   A4 縦は 210:297。ブラウザ内蔵のビューアは道具箱とページ一覧をその中に
-   描くので、紙のぶんが削られる。**その分を上に足す** ── 足りないより
-   余るほうがよい（余白は無害だが、切れた答案は読めない）。
-
-   `max-height` で画面の縦も見る。縦の狭い画面で紙の比率を優先すると、
-   埋め込みだけで画面を使い切って前後の文脈が消える。 */
-.pdf-embed{width:100%;aspect-ratio:210/297;max-height:85vh;min-height:520px;
-  border:1px solid var(--line);border-radius:3px}
-footer.app-footer{max-width:1100px;margin:24px auto 0;padding:12px 24px;text-align:right;
-  font-size:.72rem;color:var(--muted);border-top:1px solid var(--line-soft)}
-/* 配色の切り替え（#181）。**フッタに置く** ── ヘッダはログイン後にしか
-   出ないが、配色はログインの有無とは関係がない（ログイン画面でも眩しい）。
-   フッタは両アプリの全ページに必ずある唯一の場所である。
-
-   JavaScript が無ければ出さない。無いときは従来どおり OS 追従で、
-   押しても何も起きないボタンを見せない（この画面群の作法）。 */
-/* JavaScript が無ければ出さない。押しても何も起きないボタンを見せない。
-   隠し方はこの画面群の既存の作法に合わせる（`.js-only` を JS が外す）──
-   別の仕組みを 2 つ持つと、片方を直したときにもう片方が取り残される。 */
-.theme-switch{display:inline-flex;gap:0;align-items:center;margin-right:auto;
-  border:1px solid var(--line-soft);border-radius:3px;overflow:hidden}
-footer.app-footer .inner{max-width:none;display:flex;align-items:center;gap:12px}
-.theme-switch button{appearance:none;background:transparent;border:0;
-  padding:3px 9px;font:inherit;font-size:.72rem;color:var(--muted);cursor:pointer;line-height:1.9}
-.theme-switch button+button{border-left:1px solid var(--line-soft)}
-.theme-switch button:hover{background:var(--surface-2);color:var(--ink-2)}
-/* いま効いている選択。`aria-pressed` を見る ── 見た目のための class を
-   別に持つと、支援技術に伝わる状態と画面の状態がずれる。 */
-.theme-switch button[aria-pressed="true"]{background:var(--surface);color:var(--ink);
-  box-shadow:inset 0 0 0 1px var(--line-soft)}
-</style>
-<script>
-// 配色の選択を、**最初の描画より前に**当てる（#181）。ここを body の下に
-// 置くと、昼で 1 枚描いてから夜に切り替わるのが見える。
-//
-// `localStorage` は読むだけで例外を投げることがある（プライベートウィンドウ、
-// サイトデータを禁止した設定）。**読めなくても画面は成立しなければならない**
-// ので、握って OS 追従に落とす。
-(function(){
-  try{
-    var choice = localStorage.getItem("aijudge-theme");
-    if(choice === "light" || choice === "dark"){
-      document.documentElement.setAttribute("data-theme", choice);
-    }
-  }catch(e){}
-})();
-</script>
+   `?v=` は版でキャッシュを外すため ── 付けないと配置し直したのに前の CSS が
+   使われ、症状は「配置に失敗した」ように見える。 #}
+<link rel="stylesheet" href="{{ static_url('base.css') }}">
+<link rel="stylesheet" href="{{ static_url('learner.css') }}">
+{% include "_theme_boot.html" %}
 </head>
 <body>
 {% if me is defined and me %}
@@ -295,12 +51,7 @@ footer.app-footer .inner{max-width:none;display:flex;align-items:center;gap:12px
 {% endif %}
 <main>{% block body %}{% endblock %}</main>
 <footer class="app-footer"><div class="inner">
-  {# 配色の切り替え（#181）。JavaScript が無いときは CSS で隠れる。 #}
-  <div class="theme-switch js-only" role="group" aria-label="配色" hidden>
-    <button type="button" data-theme-choice="auto" aria-pressed="false">自動</button>
-    <button type="button" data-theme-choice="light" aria-pressed="false">昼</button>
-    <button type="button" data-theme-choice="dark" aria-pressed="false">夜</button>
-  </div>
+  {% include "_theme_switch.html" %}
   <span>aiJudge {{ app_version }}{% if copyright_notice %} · {{ copyright_notice }}{% endif %}</span>
 </div></footer>
 {# 採点待ちのあいだだけ状態を問い合わせ、終わったら 1 回だけ取り直す。
@@ -421,40 +172,6 @@ document.querySelectorAll(".js-only").forEach(function (el) { el.hidden = false;
       .catch(function () { /* 通信が切れただけ。次の機会に任せる。 */ });
   }
   window.setTimeout(tick, wait);
-})();
-</script>
-<script>
-// 配色の切り替え（#181）。**保存するのは選択であって、解決した配色ではない**
-// ── 「自動」を選んだ人は、そのあと OS の設定を変えたら追従してほしい。
-(function(){
-  var KEY = "aijudge-theme";
-  var root = document.documentElement;
-  var buttons = document.querySelectorAll("[data-theme-choice]");
-  if(!buttons.length){ return; }
-
-  function stored(){
-    try{ return localStorage.getItem(KEY) || "auto"; }catch(e){ return "auto"; }
-  }
-  function apply(choice){
-    if(choice === "auto"){ root.removeAttribute("data-theme"); }
-    else{ root.setAttribute("data-theme", choice); }
-    for(var i = 0; i < buttons.length; i++){
-      buttons[i].setAttribute(
-        "aria-pressed", buttons[i].dataset.themeChoice === choice ? "true" : "false"
-      );
-    }
-  }
-
-  apply(stored());
-  for(var i = 0; i < buttons.length; i++){
-    buttons[i].addEventListener("click", function(){
-      var choice = this.dataset.themeChoice;
-      // 保存できなくてもこの画面では効かせる。読み書きが禁じられている
-      // 環境で、押しても何も起きないのは壊れて見える。
-      try{ localStorage.setItem(KEY, choice); }catch(e){}
-      apply(choice);
-    });
-  }
 })();
 </script>
 </body>

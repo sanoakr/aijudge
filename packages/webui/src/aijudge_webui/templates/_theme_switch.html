@@ -1,0 +1,49 @@
+{# 配色の切り替え（#181）。**フッタに置く** ── ヘッダはログイン後にしか
+   出ないが、配色はログインの有無とは関係がない（ログイン画面でも眩しい）。
+   フッタは両アプリの全ページに必ずある唯一の場所である。
+
+   JavaScript が無ければ出さない。押しても何も起きないボタンを見せない
+   （この画面群の作法）。隠し方は既存に合わせる（`.js-only` を JS が外す）。
+
+   **部品と、それを動かす script を 1 つの断片にまとめる**（#184）── 以前は
+   markup がフッタ、script が body の末尾にあり、同じ組が 2 アプリに
+   4 か所へ散っていた。script は部品より後にあればよい。 #}
+<div class="theme-switch js-only" role="group" aria-label="配色" hidden>
+    <button type="button" data-theme-choice="auto" aria-pressed="false">自動</button>
+    <button type="button" data-theme-choice="light" aria-pressed="false">昼</button>
+    <button type="button" data-theme-choice="dark" aria-pressed="false">夜</button>
+  </div>
+<script>
+// 配色の切り替え（#181）。**保存するのは選択であって、解決した配色ではない**
+// ── 「自動」を選んだ人は、そのあと OS の設定を変えたら追従してほしい。
+(function(){
+  var KEY = "aijudge-theme";
+  var root = document.documentElement;
+  var buttons = document.querySelectorAll("[data-theme-choice]");
+  if(!buttons.length){ return; }
+
+  function stored(){
+    try{ return localStorage.getItem(KEY) || "auto"; }catch(e){ return "auto"; }
+  }
+  function apply(choice){
+    if(choice === "auto"){ root.removeAttribute("data-theme"); }
+    else{ root.setAttribute("data-theme", choice); }
+    for(var i = 0; i < buttons.length; i++){
+      buttons[i].setAttribute(
+        "aria-pressed", buttons[i].dataset.themeChoice === choice ? "true" : "false"
+      );
+    }
+  }
+
+  apply(stored());
+  for(var i = 0; i < buttons.length; i++){
+    buttons[i].addEventListener("click", function(){
+      var choice = this.dataset.themeChoice;
+      // 保存できなくてもこの画面では効かせる。読み書きが禁じられている
+      // 環境で、押しても何も起きないのは壊れて見える。
+      try{ localStorage.setItem(KEY, choice); }catch(e){}
+      apply(choice);
+    });
+  }
+})();
+</script>

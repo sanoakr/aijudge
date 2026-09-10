@@ -39,9 +39,11 @@ from typing import Annotated
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+import aijudge_webui as webui
 from aijudge_admin import allowed_namespaces, list_for_namespaces, pending_counts
 from aijudge_audit import AuditAction, AuditRecorder
 from aijudge_authoring import images, render_statement
@@ -156,9 +158,29 @@ def _read_copyright_notice() -> str:
     return ""
 
 
-TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
-TEMPLATES.env.globals["app_version"] = _read_app_version()
+APP_VERSION = _read_app_version()
+
+# 見た目は `packages/webui` が 1 か所で持つ（#184）。テンプレートの探索先に
+# 共有の断片（`_theme_boot.html` / `_theme_switch.html`）を足す ── 自分の
+# `templates/` を先に見るので、同名を置けばアプリ側で上書きできる。
+TEMPLATES = Jinja2Templates(
+    directory=[str(Path(__file__).parent / "templates"), str(webui.TEMPLATES_DIR)]
+)
+TEMPLATES.env.globals["app_version"] = APP_VERSION
 TEMPLATES.env.globals["copyright_notice"] = _read_copyright_notice()
+
+
+def _static_url(name: str) -> str:
+    """CSS への URL。
+
+    **接頭辞を呼び出しのたびに読む** ── `root_prefix()` は環境変数を見る
+    関数で、値をここで固定すると `/console` の下で 404 になる（#165 で同じ
+    忘れ方を出荷している）。版を付けるのはキャッシュを外すため。
+    """
+    return webui.asset_url(name, version=APP_VERSION, prefix=root_prefix())
+
+
+TEMPLATES.env.globals["static_url"] = _static_url
 # テンプレート側の絶対リンクに接頭辞を足すのに使う（`{{ root_prefix() }}/foo`）。
 # 関数そのものを渡す（呼び出し時に評価する） ── 値をここで固定してしまうと、
 # `RedirectResponse`（呼び出しごとに環境変数を読む）とずれる。
@@ -221,7 +243,8 @@ def _serve_video(
 ENV_ALLOWED_HOSTS = "AIJUDGE_ALLOWED_HOSTS"
 # アクセスログに残さない経路。課題文中の画像だけ ── 教員の操作は数が少なく、
 # **誰がどの提出を開いたかは残す方に価値がある**（盲検の抽出や再確認の経緯）。
-QUIET_PATHS = ("/images/",)
+# CSS も残さない ── 1 ページ 1 行増えるだけで、内容は毎回同じ。
+QUIET_PATHS = ("/images/", "/static/")
 
 SESSION_COOKIE = "aijudge_session"
 DEFAULT_TENANT = "ten_" + "0" * 32
@@ -438,6 +461,11 @@ Me = Annotated[Principal, Depends(require_principal)]
 def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
     app = FastAPI(title="aiJudge instructor console")
     app.state.aijudge = console
+
+    # 共有の CSS（#184）。**mount 先に接頭辞は付けない** ── 逆プロキシが
+    # 接頭辞を落として渡すので、アプリ自身は常にルート直下で受ける
+    # （リンク側だけが `root_prefix()` を足す・`urls.py` と同じ考え方）。
+    app.mount(webui.STATIC_MOUNT, StaticFiles(directory=webui.ASSETS_DIR), name="static")
 
     # **`Host` を 1 か所で検査する**（#116）。`Host` も `X-Forwarded-*` も
     # クライアントが決められるので、通してしまうと、それを読む全ての処理が

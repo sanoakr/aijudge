@@ -3157,7 +3157,10 @@ def test_the_reading_indicator_starts_hidden(world: World) -> None:
     world.register("teacher", Role.INSTRUCTOR)
     body = world.client("teacher").get(f"/manage/courses/{world.course.id}/basics").text
     assert 'class="working flash reading" hidden' in body
-    assert "[hidden]{display:none!important}" in body
+    # CSS は 1 か所（`packages/webui`）にある（#184）。**配信されたものを見る**
+    # ── ファイルを直接読むと、mount の設定が壊れていても通ってしまう。
+    stylesheet = world.client("teacher").get("/static/base.css").text
+    assert "[hidden]{display:none!important}" in stylesheet
 
 
 def test_the_long_running_forms_say_that_the_model_is_working(world: World) -> None:
@@ -3213,7 +3216,9 @@ def test_a_badge_that_needs_someone_is_not_the_same_as_a_bad_one(world: World) -
     assert '<span class="pill no">引退</span>' in page
 
     # **色だけに頼らない。** 記号を添える（色覚の差でも白黒でも読める）。
-    assert ".pill.attn::before" in page
+    # CSS は 1 か所（`packages/webui`）にある（#184）。**配信されたものを見る**
+    # ── ファイルを直接読むと、mount の設定が壊れていても通ってしまう。
+    assert ".pill.attn::before" in client.get("/static/base.css").text
 
 
 # --------------------------------------------------------------------------

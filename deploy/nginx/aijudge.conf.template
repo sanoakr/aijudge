@@ -15,6 +15,13 @@
 # `AIJUDGE_CONSOLE_ROOT_PREFIX` で `/console` を足すので、ブラウザから見た
 # 経路と一致する。
 #
+# **CSS はこの 2 つの location にそのまま乗る**（#184）。両アプリが
+# `/static/` で自分の CSS を配るので、学生 UI は `/static/base.css`、
+# コンソールは `/console/static/base.css` ── 後者は上の末尾スラッシュの対に
+# よって `/static/base.css` としてバックエンドへ渡る。**ここに追加の
+# location は要らない。** URL には版（`?v=`）が付くので、増やすなら
+# キャッシュの設定だけでよい。
+#
 # コンソールを学内限定にしたい場合は、この location に `allow`/`deny` や
 # 別の認証を足すこと（ここでは掛けない＝学外にも開く既定）。
 #

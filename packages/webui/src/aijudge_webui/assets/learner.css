@@ -1,0 +1,34 @@
+/* 学習者の画面にしか出ない部品（#184）。`base.css` の**あと**に読む。
+
+   問題セットの開閉（`details.unit`）、課題の日付の並び、課題見出しの下の
+   一行（`.crumb`）。教員コンソールに同じ画面は無い ── コンソールは同じ
+   役割を `.subtitle` という別の名前で持っている（#165）。
+
+   **`.inline-field .body input` がここに居る理由。** コンソール側は同じ
+   セレクタを `:not([type=checkbox])` 付きで持っている。共有分にまとめて
+   両方へ配ると、除外していないこちらの規則がコンソールのチェックボックスに
+   `width:100%` を効かせてしまう。**分けるのは配信量のためではない。**
+
+   **`base.css` と同じセレクタは持たない**（切り出した時点で 0 件）。
+   同じセレクタをここに書くと、共有分より後に読まれるぶんだけ黙って勝つ ──
+   共有分を直したのに効かない、という追いにくい壊れ方になる。 */
+
+.crumb{font-size:.8rem;color:var(--muted);margin-bottom:24px}
+.crumb .sep{margin:0 2px}
+.inline-field .body input,.inline-field .body select{width:100%;font:inherit;font-size:.9rem;
+  padding:9px 12px;border-radius:3px;border:1px solid var(--line);
+  background:var(--surface);color:var(--ink)}
+/* 問題セット。段階（提出できる／公開済／締切済）の見出しの下に並ぶ。 */
+.unit{margin-bottom:22px}
+/* 問題セットの開閉（#93）。**畳んだ見出しが押せることを示す。** 三角は
+   ブラウザ既定を消して自前で出す ── 既定の位置だと見出しの折り返しに
+   合わせて動き、日付の並びと重なる。 */
+details.unit > summary{cursor:pointer;list-style:none;padding:6px 0;border-radius:3px}
+details.unit > summary::-webkit-details-marker{display:none}
+details.unit > summary::before{content:"▸";color:var(--muted);margin-right:6px}
+details.unit[open] > summary::before{content:"▾"}
+details.unit > summary:hover{background:var(--surface-2)}
+details.unit > summary h3{display:inline-flex;vertical-align:middle}
+.unit h3{font-size:.98rem;margin:0 0 6px;display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px}
+.unit h3 .dates{font-weight:400;display:flex;flex-wrap:wrap;gap:2px 14px}
+.unit h3 .dates em{font-style:normal;opacity:.65}

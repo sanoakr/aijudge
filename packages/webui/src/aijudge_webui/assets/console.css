@@ -1,0 +1,196 @@
+/* 教員コンソールにしか出ない部品（#184）。`base.css` の**あと**に読む。
+
+   一覧のメニュー行、問題セットの行、ルーブリック編集、受講者の役割表、
+   得点分布。学習者の画面に同じものは無い。
+
+   **`base.css` と同じセレクタは持たない**（切り出した時点で 0 件）。
+   同じセレクタをここに書くと、共有分より後に読まれるぶんだけ黙って勝つ ──
+   共有分を直したのに効かない、という追いにくい壊れ方になる。 */
+
+/* 見出しの直下に置く 1 行の説明。**パンくずではない** ── 以前は `.crumb` と
+   いう名前で、現在地を示す `.trail` と同じ語で呼ばれていた。管理画面にも
+   パンくずを出すにあたって名前を分けた（#165）。同じ画面に「パンくず」が
+   2 つ出る形にしないため。 */
+.subtitle{font-size:.8rem;color:var(--muted);margin-bottom:24px}
+.subtitle .sep{margin:0 2px}
+/* コースのメニュー。1 行 1 分岐で、右端に「いま何件待っているか」を出す。 */
+.menu{display:flex;flex-direction:column;border:1px solid var(--line-soft);
+  border-radius:4px;overflow:hidden;background:var(--surface)}
+.menu .row{display:flex;align-items:center;gap:16px;padding:14px 18px;
+  border-bottom:1px solid var(--line-soft);color:var(--ink);text-decoration:none}
+.menu .row:last-child{border-bottom:0}
+.menu .row:hover{background:var(--surface-2)}
+.menu .what{flex:1;display:flex;flex-direction:column;gap:2px}
+/* 問題セットの一覧。**列を揃える。** 揃っていないと、締切や未確定の数を
+   縦に読み比べられない。狭い画面では 1 列に落として折り返す。 */
+.menu.sets .row{display:grid;align-items:baseline;padding:9px 18px;gap:2px 14px;
+  grid-template-columns:6rem 5rem 4rem repeat(3, 11rem) 1fr}
+.menu.sets .c-open{text-align:right}
+.menu.sets em{font-style:normal;opacity:.65}
+@media (max-width:900px){
+  .menu.sets .row{grid-template-columns:6rem 5rem 4rem 1fr}
+  .menu.sets .c-open{grid-column:1 / -1;text-align:left}
+}
+.menu .what b{font-size:.95rem}
+.menu .meta{text-align:right;font-size:.85rem;white-space:nowrap}
+/* 固定された接頭辞つきの入力。前半が動かないことが見て分かる形にする。 */
+.keyline{display:flex;align-items:stretch;max-width:22rem}
+.keyline .fixed{display:flex;align-items:center;padding:0 10px;font-size:.9rem;
+  color:var(--muted);background:var(--surface-2);
+  border:1px solid var(--line);border-right:0;border-radius:3px 0 0 3px}
+.keyline input{border-radius:0 3px 3px 0}
+/* 拡張子の選択。1 行に流して折り返す。 */
+.checks{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:.9rem}
+/* チェックと拡張子の間で折り返させない。`.jpg / .jpeg` のように空白を
+   含む表記があり、折り返すと箱と名前が離れて対応が読めなくなる。 */
+.checks label{display:inline-flex;align-items:center;gap:5px;cursor:pointer;white-space:nowrap}
+.checks label .mono{white-space:nowrap}
+/* ファイル形式の 2 行とボタンを 1 かたまりにする。行が 2 つしかないので、
+   下にボタンを置くより縦が詰まる。 */
+.formats{display:flex;align-items:flex-start;gap:16px}
+.formats .rows{flex:1;min-width:0}
+/* 性質ごとに 1 行。行の頭に何の並びかを書き、拡張子はその右に並べる。
+   **チェックと拡張子は 1 つの塊**として扱い、間で折り返させない。 */
+.checkrow{display:flex;flex-wrap:wrap;align-items:center;gap:2px 14px;margin-bottom:6px}
+.checkrow .rowlabel{flex:0 0 8.5em}
+/* 評価器の説明。チェックの下に並べる（名前だけでは何をするか分からない）。 */
+.evaluators{margin:6px 0 0;padding-left:1.2em}
+.evaluators li{margin:2px 0}
+h3{font-size:.95rem;margin:20px 0 8px;color:var(--ink)}
+/* 入力欄の見出し。**ラベルを見出しの中に置く** ── 押せば欄に飛び、
+   読み上げでも欄との対応が切れない。字は見出しのまま。 */
+h3 > label{font:inherit;color:inherit;margin:0;display:inline}
+tr.hidden-from-learners > td{opacity:.55}
+/* セットの行そのものが学習者に出ていない場合（#83 の追補）。 */
+a.row.hidden-from-learners{opacity:.55}
+a.row.hidden-from-learners:hover{opacity:1}
+tr.hidden-from-learners:hover > td{opacity:1}
+.subsection{margin-top:24px;padding-top:18px;border-top:1px solid var(--line-soft)}
+.subsection > h3:first-child{margin-top:0}
+/* 小項目の中の説明と入力の間隔を揃える。 */
+.subsection > select,.subsection > input{margin-bottom:8px}
+/* ルーブリックの編集。**観点ごとに畳む** ── 開いていないものは触れないので、
+   直すつもりのない観点を誤って書き換えない。開いたときは縦に伸ばして、
+   段階の説明まで読める幅と高さを取る（成績の配分そのものなので）。 */
+details.criterion{border:1px solid var(--line-soft);border-radius:4px;margin-bottom:10px;
+  background:var(--surface)}
+details.criterion > summary{padding:10px 14px;cursor:pointer;display:flex;flex-wrap:wrap;
+  align-items:baseline;gap:4px 14px;font-size:.9rem}
+details.criterion > summary::-webkit-details-marker{display:none}
+details.criterion > summary::before{content:"▸";color:var(--muted);margin-right:2px}
+details.criterion[open] > summary::before{content:"▾"}
+details.criterion[open] > summary{border-bottom:1px solid var(--line-soft);background:var(--surface-2)}
+details.criterion .open-hint{margin-left:auto}
+details.criterion.add > summary{color:var(--shu)}
+.criterion-fields{padding:14px}
+.criterion-fields label{display:block;font-size:.82rem;color:var(--ink-2);margin:10px 0 4px}
+.criterion-fields > label:first-child{margin-top:0}
+.criterion-fields input,.criterion-fields select,.criterion-fields textarea{width:100%;
+  font:inherit;font-size:.9rem;padding:8px 10px;border-radius:3px;border:1px solid var(--line);
+  background:var(--surface);color:var(--ink);box-sizing:border-box}
+.criterion-fields textarea.mono{font-family:ui-monospace,"SFMono-Regular",monospace;font-size:.85rem}
+.criterion-fields .pair{display:flex;gap:12px;align-items:flex-end}
+.criterion-fields .pair > span{flex:1}
+.criterion-fields .pair > span.narrow{flex:0 0 7rem}
+.criterion-fields .pair label{margin-top:0}
+/* 根拠の下書き。**理由そのものは作らせない** ── 整えるのは書き方だけで、
+   判断の中身は教員のものである（ADR 0009 §4）。 */
+.polish{margin-top:12px;padding-top:12px;border-top:1px dashed var(--line-soft)}
+.polish label{display:block;font-size:.82rem;color:var(--ink-2);margin-bottom:4px}
+.polish input{width:100%;font:inherit;font-size:.9rem;padding:8px 10px;border-radius:3px;
+  border:1px solid var(--line);background:var(--surface);color:var(--ink);box-sizing:border-box}
+/* 役割ごとにできること。**差分で書く** ── 4 つを列挙すると同じ項目が
+   4 回並び、どこが違うのかを読み手が引き算することになる。 */
+table.roles{margin:10px 0 0;font-size:.85rem}
+table.roles td,table.roles th{padding:5px 10px}
+/* 役割ごとの人数。**0 名も並べる** ── 総数だけでは、TA を登録し忘れて
+   いるのか 0 名が正しいのかが読み取れない。 */
+ul.rolecounts{list-style:none;margin:0 0 10px;padding:0;display:flex;flex-wrap:wrap;gap:6px 18px}
+ul.rolecounts li{font-size:.85rem;color:var(--ink-2)}
+ul.rolecounts b{color:var(--ink);font-size:.95rem}
+/* シラバスの本文。**畳んで置く** ── 開いたままだと、下にある自動確定・
+   提出形式・採点設定にたどり着くのに毎回スクロールすることになる。 */
+details.syllabus > summary{cursor:pointer;font-size:.9rem;color:var(--ink-2);
+  display:flex;align-items:baseline;gap:4px 14px;margin-bottom:10px}
+details.syllabus > summary::-webkit-details-marker{display:none}
+details.syllabus > summary::before{content:"▸";color:var(--muted);margin-right:2px}
+details.syllabus[open] > summary::before{content:"▾"}
+details.syllabus .open-hint{margin-left:auto}
+/* 描画した Markdown。見出しが本文より小さくならない程度に抑える
+   （シラバスは節が多く、既定の h1/h2 では画面が見出しで埋まる）。 */
+.markdown{font-size:.9rem;line-height:1.75;border-left:2px solid var(--line-soft);
+  padding-left:14px;margin-bottom:10px}
+.markdown h1,.markdown h2,.markdown h3,.markdown h4{font-size:.95rem;margin:16px 0 6px}
+.markdown h1:first-child,.markdown h2:first-child{margin-top:0}
+.markdown p,.markdown ul,.markdown ol,.markdown table{margin:0 0 10px}
+.markdown ul,.markdown ol{padding-left:1.4em}
+.markdown code{font-family:ui-monospace,"SFMono-Regular",monospace;font-size:.85em}
+.markdown pre{overflow-x:auto;background:var(--surface-2);padding:10px 12px;border-radius:3px}
+.markdown table{border-collapse:collapse}
+.markdown th,.markdown td{border:1px solid var(--line-soft);padding:4px 10px;text-align:left}
+/* 課題ごとの編集。**畳んでおく** ── 開かなければ触れないので、直すつもりの
+   ない課題を誤って書き換えない。 */
+details.task-edit > summary{cursor:pointer;display:flex;flex-wrap:wrap;align-items:baseline;
+  gap:4px 14px;font-size:.95rem}
+details.task-edit > summary::-webkit-details-marker{display:none}
+details.task-edit > summary::before{content:"▸";color:var(--muted);margin-right:2px}
+details.task-edit[open] > summary::before{content:"▾"}
+/* 並び替え。数字を打たせず前後だけを動かす。 */
+td.move button{background:none;color:var(--ink-2);border:1px solid var(--line);
+  padding:2px 8px;font-weight:400;line-height:1.2}
+td.move button:disabled{opacity:.35;cursor:default}
+td.move button:hover:not(:disabled){background:var(--surface-2);filter:none}
+h3:first-child{margin-top:0}
+.checkrow .checks{flex:1;gap:4px 18px}
+.checks input[type=checkbox]{width:auto;margin:0;flex:none}
+/* 一覧の直下に置く 1 行の追加フォーム。見出しを立てるほどの操作ではない。 */
+.addline{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;
+  gap:10px;margin:10px 0 24px;font-size:.85rem}
+.addline label{margin:0}
+.addline input{font:inherit;font-size:.9rem;padding:7px 10px;border-radius:3px;
+  border:1px solid var(--line);background:var(--surface);color:var(--ink)}
+.addline button{padding:7px 16px}
+/* 担当コースのダイジェスト。**他の一覧と同じ 1 行の形**にして、
+   ページ幅いっぱいに使う。段組みにすると、コースごとの数字を横に
+   読み比べられない。 */
+.menu.courses .row .what{flex-direction:row;flex-wrap:wrap;align-items:baseline;gap:2px 12px}
+.stats{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:2px 16px;
+  font-size:.85rem;color:var(--muted)}
+.stats b{color:var(--ink);font-weight:700}
+.stats .attn{color:var(--shu)}
+.stats .attn b{color:var(--shu)}
+.inline-field .body input:not([type=checkbox]),.inline-field .body select{width:100%;font:inherit;font-size:.9rem;
+  padding:9px 12px;border-radius:3px;border:1px solid var(--line);
+  background:var(--surface);color:var(--ink)}
+/* 複数の入力が 1 行に収まるフォーム。ボタンはその行の右端。 */
+.row-form{display:flex;flex-wrap:wrap;align-items:flex-end;gap:16px}
+.row-form > button{margin-left:auto}
+.row-form label{display:block;font-size:.85rem;color:var(--ink-2);margin-bottom:4px}
+/* 保存できたことの合図。**押したボタンの隣に出す** ── 同じ画面に戻る操作は
+   見た目が変わらないので、押せていないのか効いていないのか区別できない。
+   離れた場所に出すと、どの操作の結果なのかが分からない。 */
+h2[id]{scroll-margin-top:16px}
+/* 得点の分布。**画像も外部スクリプトも使わない** ── 課題文の数式と同じ
+   理由で、この配置では外向きの通信に依存させない。棒の高さだけで足りる。 */
+.hist{display:flex;align-items:flex-end;gap:6px;height:150px}
+.hist .bar{flex:1;display:flex;flex-direction:column;justify-content:flex-end;
+  align-items:center;height:100%;gap:3px;font-size:.72rem;color:var(--muted)}
+.hist .fill{width:100%;background:var(--verd);border-radius:2px 2px 0 0;min-height:2px}
+.hist .n{line-height:1}
+.hist .x{color:var(--muted)}
+/* 1 行に並ぶ入力は**高さを揃える**。select と input で既定の余白が違い、
+   並べると段差になる。 */
+.row-form input:not([type=checkbox]):not([type=radio]),.row-form select{
+  font:inherit;font-size:.9rem;padding:8px 10px;border-radius:3px;
+  border:1px solid var(--line);background:var(--surface);color:var(--ink);
+  box-sizing:border-box;line-height:1.4;height:2.45rem}
+.check{display:inline-flex;align-items:center;gap:6px;font-size:.9rem;padding:8px 0}
+.flash{display:inline-flex;align-items:center;gap:6px;font-size:.82rem;color:var(--verd);
+  background:var(--verd-soft);border:1px solid var(--verd);border-radius:99px;padding:4px 12px}
+.flash::before{content:"✓"}
+.actions .flash{margin-right:auto}
+/* 読み取り中の表示。PDF の抽出とモデルの応答で十数秒かかることがあり、
+   何も出ないと押せていないのかどうか分からない。 */
+.flash.reading{color:var(--muted);border-color:var(--line);background:var(--surface-2)}
+.flash.reading::before{content:"⋯"}
+form[data-working] button[disabled]{opacity:.55;cursor:progress}
