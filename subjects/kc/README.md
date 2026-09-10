@@ -53,6 +53,7 @@ uv run aijudge-admin kc seed --namespace cs
 | 名前空間 | 骨格 | 規模 |
 |---|---|---|
 | `cs` | CS2023（ACM/IEEE-CS/AAAI）Version Gamma | 分野 17 / 単位 153 / 知識要素 817 |
+| `math` | CUPM 2015（MAA）＋ 高等学校学習指導要領（平成30年告示） | 分野 20 / 単位 122 / 知識要素 797 |
 
 第 1・2 階層は CS2023 の Knowledge Area / Knowledge Unit **そのまま**で、
 誰の判断も入っていない。第 3 階層は CS2023 の topic を割ったもので、
@@ -70,10 +71,40 @@ uv run aijudge-admin kc seed --namespace cs
 1120 topic）に手つかずで置いてある。** 「CS2023 は何と言っていたか」を
 いつでも突き合わせられる。`reference/` は読むためのもので、投入しない。
 
-数学・物理など他分野の骨格は、その分野の科目が要るようになった時点で作る
+### `math` — 高校と大学を 1 つの名前空間に入れてある
+
+**第 1 階層は CUPM 2015（MAA）の Course Area Study Group 19 分野そのまま**で、
+`precalculus` だけが追加（CUPM は主専攻課程の科目群なので、二次関数・三角比を
+吊るす枝が無い。根拠は Precalculus Concept Assessment, Carlson et al. 2010）。
+
+**第 2 階層は 20 分野のうち 2 つしか原典に遡れない** ── `linear_algebra` の
+6 単位は CUPM Linear Algebra 報告の "Core topics" そのまま、
+`applied_statistics` の 5 単位は GAISE の statistical investigation process。
+**残り 18 分野の単位は判断である。** CS2023 の Knowledge Unit に当たるものが
+大学数学には存在しない（MSC 2020 は研究分野の分類、Calculus Concept Inventory は
+5 概念で粗すぎる、QAA の MSOR benchmark は学位課程の話で内容一覧を持たない）。
+`cs.yaml` が「第 1・2 階層に判断は入っていない」と言えるのに対し、
+`math.yaml` は第 2 階層についてそれを言えない ── ファイル冒頭にそう書いてある。
+
+**科目名（数学Ⅰ・数学Ｃ…）を第 1 階層にしていない。** 高校数学は告示のたびに
+内容が科目間を移動する ── 行列は「代数・幾何」→「数学Ｃ」→ 削除 →「数学Ｃ」、
+複素数平面は「数学Ｂ」→「数学Ⅲ」→「数学Ｃ」。科目を階層にすると
+**KC の同一性が告示の版に張り付き**、`math.math_c.matrix.rank` は次の改訂で
+行き場を失う（しかし ID は追記のみなので消せない）。分野を数学の内容で切れば、
+行列は告示が動いても `math.linear_algebra.…` のままで、学習指導要領は
+「その枝に高校で何を吊るすか」の出典として効く。高校範囲の第 3 階層には
+`# 数学Ⅰ(1)ア(ア)` の注記が付いており、原典は
+`reference/kokuji_h30_math.yaml` に**学習指導要領コード付き**で置いてある
+（学習指導要領 LOD・CC BY 4.0 から生成）。**告示が改訂されたら注記を直し、
+キーは動かさない。**
+
+高校と大学が同じ語彙を見ることには、それ自体の利がある ── 大学 1 年の
+微分積分でつまずいた学生の弱点が `math.precalculus.trigonometric_function.
+addition_theorem` に落ちるとき、それは高校の課題と同じ KC である。
+
+物理など他分野の骨格は、その分野の科目が要るようになった時点で作る
 （[#187](https://github.com/sanoakr/aijudge/issues/187) に調査結果がある ──
-物理には Force Concept Inventory が使えるが、大学数学と数値計算には
-CS2023 に相当する標準が存在しない）。
+物理には Force Concept Inventory が使える）。
 
 ## 手を入れるときの約束
 

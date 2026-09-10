@@ -31,6 +31,7 @@ from aijudge_persistence import Database
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SKELETON = REPO_ROOT / "subjects" / "kc" / "cs.yaml"
+MATH_SKELETON = REPO_ROOT / "subjects" / "kc" / "math.yaml"
 TEACHER = UserId("usr_" + "1" * 32)
 SPACES = ("cs",)
 
@@ -258,3 +259,58 @@ def test_areas_and_units_are_never_suggested(seeded: Database) -> None:
         seeded, key="cs.sdf.fundamentals.fundamental", label="基本", namespaces=SPACES
     )
     assert all(len(h.kc.path) == 3 for h in hits)
+
+
+# --------------------------------------------------------------------------
+# 数学の骨格（#187）
+# --------------------------------------------------------------------------
+
+
+def test_the_math_skeleton_in_the_repository_loads(database: Database) -> None:
+    """cs.yaml と同じく**実物を読む。**"""
+    skeleton = load_skeleton(MATH_SKELETON)
+    assert skeleton.namespace == "math"
+    assert skeleton.source
+    # CUPM 2015 の Course Area Study Group 19 分野 + precalculus。
+    assert len(skeleton.areas) == 20
+    assert len(skeleton.units) > 100
+    assert len(skeleton.components) > 500
+    keys = {e.key for e in skeleton.entries}
+    assert "linear_algebra" in keys
+    assert "linear_algebra.eigenvalues" in keys
+    assert "linear_algebra.eigenvalues.diagonalization" in keys
+
+
+def test_the_math_skeleton_does_not_branch_on_school_subjects() -> None:
+    """**第 1 階層に「数学Ⅰ」「数学Ｃ」を作らない。**
+
+    作ると KC の同一性が告示の版に張り付く ── 行列は「代数・幾何」→
+    「数学Ｃ」→ 削除 →「数学Ｃ」と動き、複素数平面は「数学Ｂ」→「数学Ⅲ」→
+    「数学Ｃ」と動いた。`math.math_c.matrix.rank` は次の改訂で行き場を失うが、
+    ID は追記のみ（P8）なので消せない。分野は数学の内容で切る。
+    """
+    areas = {e.key for e in load_skeleton(MATH_SKELETON).areas}
+    forbidden = {f"math_{s}" for s in ("i", "ii", "iii", "a", "b", "c", "1", "2", "3")}
+    assert not areas & forbidden
+
+
+def test_high_school_and_university_share_one_namespace(database: Database) -> None:
+    """高校の三角関数と大学の微分積分が**同じ語彙に載る。**
+
+    分けると、大学 1 年でつまずいた学生の弱点が高校の課題と同じ KC に
+    落ちなくなる（名前空間をまたいだ親子関係は持たない ── P6）。
+    """
+    seed_kcs(database, load_skeleton(MATH_SKELETON), namespaces=("math",))
+    keys = {kc.key for kc in list_for_namespaces(database, ("math",))}
+    assert "math.precalculus.trigonometric_function.addition_theorem" in keys
+    assert "math.calculus.differentiation.chain_rule" in keys
+
+
+def test_math_and_cs_do_not_collide(database: Database) -> None:
+    """同じ DB に両方入れても混ざらない ── 名前空間で分かれている。"""
+    seed_kcs(database, load_skeleton(SKELETON), namespaces=SPACES)
+    seed_kcs(database, load_skeleton(MATH_SKELETON), namespaces=("math",))
+    cs_keys = {kc.key for kc in list_for_namespaces(database, SPACES)}
+    math_keys = {kc.key for kc in list_for_namespaces(database, ("math",))}
+    assert cs_keys and math_keys
+    assert not cs_keys & math_keys

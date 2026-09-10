@@ -1,0 +1,1495 @@
+# 知識要素（KC）の骨格 — 名前空間 `math`
+#
+# 高校数学（学習指導要領）と大学の数理科学（CUPM）を、**1 つの名前空間**に
+# 入れてある。
+#
+# 階層は 3 段。`名前空間.分野.単位.知識要素`
+#
+#     math . linear_algebra . eigenvalues . diagonalization   対角化
+#     math . precalculus . trigonometric_ratio . law_of_sines 正弦定理
+#     math . calculus . integral . ftc                        微分積分学の基本定理
+#
+# なぜ高校と大学を分けないか
+# --------------------------
+# 分けるなら第 1 階層は科目名（数学Ⅰ・数学Ⅱ・…）になる。**それをすると
+# KC の同一性が告示の版に張り付く。** 行列は昭和 53 年告示の「代数・幾何」から
+# 平成 11 年告示の「数学Ｃ」を経て一度消え、平成 30 年告示で「数学Ｃ」の(3)に
+# 戻った。複素数平面は「数学Ｂ」→「数学Ⅲ」→「数学Ｃ」と動いている。
+# `math.math_c.matrix.rank` は次の改訂で行き場を失い、しかし ID は追記のみ
+# （P8）なので消せない ── 引退させた枝と現役の枝が並ぶことになる。
+#
+# **分野を数学の内容で切れば、行列は告示が動いても
+# `math.linear_algebra.matrices_linear_systems.matrix_operations` のまま**で、
+# 学習指導要領は「その枝に高校で何を吊るすか」の出典として効く。
+#
+# 高校と大学が同じ語彙を見ることには、それ自体の利がある ── 大学 1 年の
+# 微分積分でつまずいた学生の弱点が `math.precalculus.trigonometric_function.
+# addition_theorem` に落ちるとき、それは高校の課題と同じ KC である。
+# 名前空間を分けるとこの接続が切れる（名前空間をまたいだ親子関係は
+# `KnowledgeComponent` が持たない ── 設計原則 P6 が意図的に先送りしている）。
+#
+# 第 1 階層はどこから来たか
+# ------------------------
+# **19 分野は CUPM 2015 の Course Area Study Group そのまま。** MAA の
+# Committee on the Undergraduate Program in Mathematics が、学部数学の
+# 「科目領域」として立てた区分で、ここには誰の判断も入っていない。
+# 原典に当たれば確かめられる（`reference/` に一覧を置いた）。
+#
+# **20 番目の `precalculus` だけは足したもの。** CUPM は主専攻課程の科目群
+# なので、二次関数・三角比・指数対数を吊るす枝が無い ── しかし高校数学の
+# 相当部分はそこに入る。足した根拠は Precalculus Concept Assessment
+# （Carlson, Oehrtman & Engelke, *Cognition and Instruction* 28(2), 2010）で、
+# これは precalculus の概念 taxonomy にもとづいて構成された検証済みの
+# concept inventory である。**範囲が precalculus に限られるので第 1 階層
+# 全体の出所にはならないが、この 1 分野の出所にはなる。**
+#
+# 第 2 階層はどこから来たか ── ここは正直に言う
+# ---------------------------------------------
+# **`linear_algebra` の 6 単位だけが原典そのまま。** CUPM の Linear Algebra
+# 報告は "Core topics" として Matrices and linear systems / Determinants /
+# Vector spaces / Linear transformations / Eigenvalues and eigenvectors /
+# Inner products の 6 つを挙げており、そのまま単位になる。
+# `applied_statistics` の 5 単位は GAISE の statistical investigation process
+# （問いを立てる→データを集める→分析する→解釈する→伝える）に沿わせた。
+#
+# **残り 18 分野の単位は判断である。** CUPM の他の報告は教育方法の議論が
+# 中心で、topic の一覧を持たない（Calculus 報告は 1 つも挙げていない）。
+# CS2023 の Knowledge Unit に当たるものが**大学数学には存在しない** ──
+# MSC 2020 は研究分野の分類であって学習成果ではなく、Calculus Concept
+# Inventory は 5 概念で KC を吊るすには粗すぎる（#187 の調査）。
+# だからここは標準的なカリキュラム構成から起こしてある。
+# **cs.yaml が「第 1・2 階層に判断は入っていない」と言えるのに対し、
+# このファイルは第 2 階層についてそれを言えない。** 持っていない権威を
+# 持っているように見せないために、ここに書いておく。
+#
+# 第 3 階層（知識要素）は推奨候補
+# ------------------------------
+# 高校範囲は学習指導要領（平成30年告示）の指導事項を「何ができれば
+# 身に付いたと言えるか」の粒度に割ったもので、原典は
+# `reference/kokuji_h30_math.yaml` にコード付きで置いてある。
+# 行末の `# 数学Ⅰ(1)ア(ア)` のような注記が対応で、告示が動いたら
+# **注記を直す。キーは動かさない。**
+# 大学範囲は各分野の標準的な内容から起こした。
+#
+# 手を入れるときの約束
+# --------------------
+# - **キーを変えない。** KC の ID はキーから導かれ、Q-matrix は追記のみ（P8）。
+#   誤りは `deprecated` にして `superseded_by` で後継を指す
+# - ラベルと説明は直してよい（ID に効かない）
+# - **科目ごとに足さない。** 骨格はコースをまたいで共有される語彙である
+# - 告示の改訂で高校の扱いが変わったら、**注記を直して枝はそのまま**にする
+#
+# 投入:
+#     uv run aijudge-admin kc seed --namespace math
+# 何度走らせても増えない（`register` は既にあるものをそのまま返す）。
+
+namespace: math
+source: >-
+  2015 CUPM Curriculum Guide to Majors in the Mathematical Sciences,
+  Mathematical Association of America ── 第 1 階層は原典の Course Area Study
+  Group 19 分野。`precalculus` のみ高校範囲を吊るすために追加した
+  （Precalculus Concept Assessment, Carlson et al. 2010）。第 2 階層は
+  `linear_algebra` が原典の Core topics、`applied_statistics` が GAISE の
+  investigation process、**残りは標準的なカリキュラム構成からの判断**。
+  高校範囲の第 3 階層は高等学校学習指導要領（平成30年告示）数学の指導事項による。
+reference: reference/kokuji_h30_math.yaml
+
+areas:
+  # ------------------------------------------------------------------
+  # CUPM に無い分野。高校の初等関数・初等代数を吊るすために足した。
+  # 出所は Precalculus Concept Assessment（Carlson et al. 2010）。
+  # ------------------------------------------------------------------
+  - key: precalculus
+    label: 初等関数と方程式・不等式
+    en: Precalculus
+    units:
+      - key: numbers
+        label: 数と式の基礎
+        en: Numbers and Expressions
+        components:
+          - {key: number_systems, label: 数の体系の広がり}
+          - {key: real_number, label: 実数への拡張}            # 数学Ⅰ(1)ア(ア)
+          - {key: decimal_expansion, label: 有限小数と循環小数}  # 数学Ⅰ 内容の取扱い(2)
+          - {key: irrational_arithmetic, label: 無理数の四則計算}  # 数学Ⅰ(1)ア(ア)
+          - {key: radical, label: 根号を含む式の計算}
+          - {key: rationalization, label: 分母の有理化}
+          - {key: absolute_value, label: 絶対値}
+          - {key: number_line, label: 数直線と大小関係}
+      - key: polynomial
+        label: 整式と分数式
+        en: Polynomials and Rational Expressions
+        components:
+          - {key: monomial_polynomial, label: 単項式と多項式}
+          - {key: expansion, label: 式の展開}                   # 数学Ⅰ(1)ア(ウ) / 数学Ⅱ(1)ア(ア)
+          - {key: factorization, label: 因数分解}               # 数学Ⅰ(1)ア(ウ) / 数学Ⅱ(1)ア(ア)
+          - {key: cubic_formula, label: 三次の乗法公式と因数分解の公式}  # 数学Ⅱ(1)ア(ア)
+          - {key: binomial_theorem, label: 二項定理}            # 数学Ⅱ(1)［用語・記号］
+          - {key: polynomial_division, label: 多項式の除法}      # 数学Ⅱ(1)ア(イ)
+          - {key: rational_expression, label: 分数式の四則計算}  # 数学Ⅱ(1)ア(イ)
+          - {key: identity, label: 恒等式と係数比較}
+          - {key: expression_reformulation, label: 式を多面的に捉えて変形すること}  # 数学Ⅰ(1)イ(イ)／数学Ⅱ(1)イ(ア)
+      - key: equations
+        label: 方程式
+        en: Equations
+        components:
+          - {key: linear_equation, label: 一次方程式}
+          - {key: quadratic_equation, label: 二次方程式}
+          - {key: discriminant, label: 解の種類の判別}          # 数学Ⅱ(1)ア(エ)
+          - {key: root_coefficient, label: 解と係数の関係}      # 数学Ⅱ(1)ア(エ)
+          - {key: factor_theorem, label: 因数定理と剰余の定理}  # 数学Ⅱ(1)ア(オ)
+          - {key: higher_degree_equation, label: 高次方程式}    # 数学Ⅱ(1)ア(オ)
+          - {key: simultaneous_equation, label: 連立方程式}
+          - {key: fractional_irrational_equation, label: 分数方程式と無理方程式}
+          - {key: equation_modeling, label: 事象を方程式で捉えて解決すること}  # 数学Ⅱ(1)イ(ウ)
+      - key: inequalities
+        label: 不等式
+        en: Inequalities
+        components:
+          - {key: inequality_property, label: 不等式の性質}     # 数学Ⅰ(1)ア(エ)
+          - {key: linear_inequality, label: 一次不等式}  # 数学Ⅰ(1)ア(エ)／数学Ⅰ(1)イ(ウ)
+          - {key: quadratic_inequality, label: 二次不等式}      # 数学Ⅰ(3)ア(ウ)
+          - {key: absolute_value_inequality, label: 絶対値を含む不等式}
+          - {key: inequality_proof, label: 等式・不等式の証明}  # 数学Ⅱ(1)イ(イ)
+          - {key: am_gm, label: 相加平均と相乗平均の関係}
+          - {key: inequality_modeling, label: 事象を不等式で捉えて解決すること}  # 数学Ⅰ(1)イ(エ)
+      - key: function_basics
+        label: 関数の考え
+        en: Foundations of Functions
+        components:
+          - {key: function_concept, label: 関数という考え方}
+          - {key: function_notation, label: 関数の記法とその読み取り}
+          - {key: domain_range, label: 定義域と値域}
+          - {key: covariation, label: 二つの変量の共変関係}
+          - {key: rate_of_change, label: 変化率のとらえ方}
+          - {key: multiple_representation, label: 表・式・グラフの関連付け}
+          - {key: graph_transformation, label: グラフの平行移動と対称移動}
+          - {key: composite_function, label: 合成関数}          # 数学Ⅲ(1)ア(エ)
+          - {key: inverse_function, label: 逆関数}              # 数学Ⅲ(1)ア(エ)
+          - {key: rational_function, label: 分数関数}           # 数学Ⅲ(1)ア(ウ)
+          - {key: irrational_function, label: 無理関数}  # 数学Ⅲ(1)ア(ウ)／数学Ⅲ(1)イ(イ)
+          - {key: piecewise_function, label: 区分的に定義された関数}
+      - key: quadratic_function
+        label: 二次関数
+        en: Quadratic Functions
+        components:
+          - {key: completing_square, label: 平方完成と頂点}
+          - {key: graph_shape, label: 二次関数の値の変化とグラフ}  # 数学Ⅰ(3)ア(ア)
+          - {key: max_min, label: 二次関数の最大値と最小値}      # 数学Ⅰ(3)ア(イ)
+          - {key: graph_and_roots, label: 二次方程式の解とグラフの関係}  # 数学Ⅰ(3)ア(ウ)
+          - {key: graph_and_inequality, label: 二次不等式の解とグラフの関係}  # 数学Ⅰ(3)ア(ウ)
+          - {key: parameter_effect, label: 係数がグラフに与える影響}  # 数学Ⅰ(3)イ(ア)
+          - {key: quadratic_modeling, label: 二つの数量の関係を二次関数で捉えること}  # 数学Ⅰ(3)イ(イ)
+      - key: trigonometric_ratio
+        label: 三角比
+        en: Trigonometric Ratios
+        components:
+          - {key: acute_ratio, label: 鋭角の三角比}             # 数学Ⅰ(2)ア(ア)
+          - {key: mutual_relation, label: 三角比の相互関係}      # 数学Ⅰ(2)ア(ア)
+          - {key: obtuse_extension, label: 鈍角への拡張}        # 数学Ⅰ(2)ア(イ)
+          - {key: special_angle, label: 0°・90°・180°の三角比}   # 数学Ⅰ 内容の取扱い(3)
+          - {key: law_of_sines, label: 正弦定理}  # 数学Ⅰ(2)ア(ウ)／数学Ⅰ(2)イ(ア)
+          - {key: law_of_cosines, label: 余弦定理}              # 数学Ⅰ(2)ア(ウ)
+          - {key: triangle_solution, label: 三角形の辺と角を求めること}  # 数学Ⅰ(2)ア(ウ)
+          - {key: triangle_area, label: 三角形の面積}
+          - {key: measurement_application, label: 測量など事象への応用}  # 数学Ⅰ(2)イ(イ)
+      - key: trigonometric_function
+        label: 三角関数
+        en: Trigonometric Functions
+        components:
+          - {key: general_angle, label: 一般角}                 # 数学Ⅱ(4)ア(ア)
+          - {key: radian, label: 弧度法}                        # 数学Ⅱ(4)ア(ア)
+          - {key: unit_circle, label: 単位円による定義}
+          - {key: graph_periodicity, label: 三角関数のグラフと周期性}  # 数学Ⅱ(4)ア(イ)／数学Ⅱ(4)イ(イ)
+          - {key: function_relation, label: 三角関数の相互関係}  # 数学Ⅱ(4)ア(ウ)
+          - {key: addition_theorem, label: 加法定理}            # 数学Ⅱ(4)ア(エ)
+          - {key: double_half_angle, label: 2 倍角と半角の公式}  # 数学Ⅱ(4)ア(エ)／数学Ⅱ(4)イ(ア)
+          - {key: synthesis, label: 三角関数の合成}             # 数学Ⅱ(4)ア(エ)
+          - {key: trig_equation, label: 三角方程式と三角不等式}
+          - {key: periodic_modeling, label: 周期的な現象の記述}  # 数学Ⅱ(4)イ(ウ)
+      - key: exponential_logarithm
+        label: 指数関数と対数関数
+        en: Exponential and Logarithmic Functions
+        components:
+          - {key: integer_exponent, label: 整数の指数}
+          - {key: rational_exponent, label: 有理数への指数の拡張}  # 数学Ⅱ(3)ア(ア)
+          - {key: radical_root, label: 累乗根}                  # 数学Ⅱ(3)［用語・記号］
+          - {key: exponent_law, label: 指数法則}                # 数学Ⅱ(3)ア(ア)
+          - {key: exponential_graph, label: 指数関数のグラフ}    # 数学Ⅱ(3)ア(イ)
+          - {key: logarithm_definition, label: 対数の意味}       # 数学Ⅱ(3)ア(ウ)
+          - {key: logarithm_law, label: 対数の性質と計算}        # 数学Ⅱ(3)ア(ウ)
+          - {key: logarithm_graph, label: 対数関数のグラフ}  # 数学Ⅱ(3)ア(エ)／数学Ⅱ(3)イ(イ)
+          - {key: change_of_base, label: 底の変換}
+          - {key: common_logarithm, label: 常用対数}            # 数学Ⅱ(3)［用語・記号］
+          - {key: exp_log_equation, label: 指数・対数方程式と不等式}
+          - {key: exp_log_relation, label: 指数と対数の相互の関連付け}  # 数学Ⅱ(3)イ(ア)
+          - {key: exp_log_modeling, label: 事象を指数・対数で捉えて解決すること}  # 数学Ⅱ(3)イ(ウ)
+
+  - key: calculus
+    label: 微分積分
+    en: The Calculus Sequence
+    units:
+      - key: limits
+        label: 極限
+        en: Limits
+        components:
+          - {key: sequence_limit, label: 数列の極限}            # 数学Ⅲ(1)ア(ア)
+          - {key: geometric_sequence_limit, label: "数列 {r^n} の極限"}  # 数学Ⅲ(1)ア(ア)
+          - {key: infinite_series, label: 無限級数の収束と発散}  # 数学Ⅲ(1)ア(イ)
+          - {key: geometric_series, label: 無限等比級数}        # 数学Ⅲ(1)ア(イ)
+          - {key: function_limit, label: 関数の値の極限}  # 数学Ⅲ(1)ア(オ)／数学Ⅲ(1)イ(ウ)
+          - {key: one_sided_limit, label: 片側からの極限}
+          - {key: limit_at_infinity, label: 無限遠での極限}     # 数学Ⅲ(1)［用語・記号］
+          - {key: indeterminate_form, label: 不定形の扱い}      # 数学Ⅲ(1)イ(ア)
+          - {key: squeeze_theorem, label: はさみうちの原理}
+          - {key: continuity, label: 関数の連続性}
+          - {key: intermediate_value, label: 中間値の定理}
+      - key: derivative
+        label: 微分係数と導関数
+        en: The Derivative
+        components:
+          - {key: average_rate, label: 平均変化率}
+          - {key: instantaneous_rate, label: 瞬間の変化率}      # 数学Ⅱ(5)ア(ア)
+          - {key: derivative_definition, label: 導関数の定義}  # 数学Ⅱ(5)ア(ア)／数学Ⅲ(2)イ(ア)
+          - {key: differentiability, label: 微分可能性}         # 数学Ⅲ(2)ア(ア)
+          - {key: continuity_and_differentiability, label: 連続性と微分可能性の関係}  # 数学Ⅲ(2)イ(イ)
+          - {key: tangent_line, label: 接線の方程式}            # 数学Ⅲ(2)ア(エ)
+          - {key: derivative_as_function, label: 導関数を関数として捉えること}  # 数学Ⅱ(5)イ(ア)
+          - {key: higher_derivative, label: 第二次導関数}       # 数学Ⅲ(2)イ(イ)
+          - {key: sensitivity, label: 感度としての微分}
+      - key: differentiation
+        label: 微分の計算
+        en: Differentiation Techniques
+        components:
+          - {key: power_rule, label: 冪関数の導関数}
+          - {key: linearity, label: 定数倍・和・差の導関数}      # 数学Ⅱ(5)ア(ア)
+          - {key: product_rule, label: 積の導関数}              # 数学Ⅲ(2)ア(ア)
+          - {key: quotient_rule, label: 商の導関数}             # 数学Ⅲ(2)ア(ア)
+          - {key: chain_rule, label: 合成関数の導関数}          # 数学Ⅲ(2)ア(イ)
+          - {key: trig_derivative, label: 三角関数の導関数}     # 数学Ⅲ(2)ア(ウ)
+          - {key: exp_log_derivative, label: 指数関数・対数関数の導関数}  # 数学Ⅲ(2)ア(ウ)
+          - {key: natural_log_base, label: 自然対数の底 e}      # 数学Ⅲ(2)［用語・記号］
+          - {key: implicit_differentiation, label: 陰関数の微分}
+          - {key: parametric_differentiation, label: 媒介変数表示された関数の微分}
+          - {key: logarithmic_differentiation, label: 対数微分法}
+          - {key: inverse_derivative, label: 逆関数の導関数}
+      - key: derivative_applications
+        label: 微分の応用
+        en: Applications of the Derivative
+        components:
+          - {key: monotonicity, label: 関数の値の増減}          # 数学Ⅱ(5)ア(イ)
+          - {key: extremum, label: 極大と極小}                  # 数学Ⅱ(5)ア(イ)
+          - {key: concavity, label: グラフの凹凸と変曲点}       # 数学Ⅲ(2)ア(エ)／［用語・記号］
+          - {key: curve_sketching, label: グラフの概形をかくこと}  # 数学Ⅲ(2)ア(エ)
+          - {key: max_min_problem, label: 最大最小問題}
+          - {key: mean_value_theorem, label: 平均値の定理}
+          - {key: linear_approximation, label: 一次近似}
+          - {key: velocity_acceleration, label: 速度と加速度}    # 数学Ⅲ 内容の取扱い(1)
+          - {key: related_rates, label: 関連し合う変化率}
+          - {key: optimization_modeling, label: 事象を微分で捉えて解決すること}  # 数学Ⅱ(5)イ(イ)／数学Ⅲ(2)イ(ウ)
+      - key: integral
+        label: 積分の考え
+        en: The Integral
+        components:
+          - {key: antiderivative, label: 不定積分}              # 数学Ⅱ(5)ア(ウ)
+          - {key: basic_antiderivative, label: 基本的な関数の不定積分}
+          - {key: definite_integral, label: 定積分}             # 数学Ⅱ(5)ア(ウ)
+          - {key: integral_property, label: 定積分の性質}       # 数学Ⅲ(3)ア(ア)
+          - {key: riemann_sum, label: 区分求積とリーマン和}
+          - {key: accumulation, label: 累積としての積分}
+          - {key: ftc, label: 微分積分学の基本定理}  # 数学Ⅱ(5)イ(ウ)／数学Ⅲ(3)イ(ウ)
+      - key: integration_techniques
+        label: 積分の計算
+        en: Integration Techniques
+        components:
+          - {key: substitution, label: 置換積分法}              # 数学Ⅲ(3)ア(イ)
+          - {key: by_parts, label: 部分積分法}                  # 数学Ⅲ(3)ア(イ)
+          - {key: partial_fraction, label: 部分分数分解による積分}
+          - {key: trig_integral, label: 三角関数の積分}
+          - {key: improper_integral, label: 広義積分}
+          - {key: integral_strategy, label: 式を変形して積分の方法を選ぶこと}  # 数学Ⅲ(3)イ(ア)
+      - key: integral_applications
+        label: 積分の応用
+        en: Applications of the Integral
+        components:
+          - {key: area, label: 図形の面積}                      # 数学Ⅱ(5)イ(ウ)／数学Ⅲ(3)ア(ウ)
+          - {key: volume, label: 立体の体積}                    # 数学Ⅲ(3)ア(ウ)
+          - {key: solid_of_revolution, label: 回転体の体積}
+          - {key: arc_length, label: 曲線の長さ}  # 数学Ⅲ(3)ア(ウ)／数学Ⅲ(3)イ(イ)
+          - {key: average_value, label: 関数の平均値}
+          - {key: physical_quantity, label: 物理量の累積}
+      - key: series
+        label: 数列と級数
+        en: Sequences and Series
+        components:
+          - {key: convergence_test, label: 級数の収束判定}
+          - {key: power_series, label: 整級数}
+          - {key: radius_of_convergence, label: 収束半径}
+          - {key: taylor_series, label: テイラー展開}
+          - {key: maclaurin_series, label: マクローリン展開}
+          - {key: series_approximation, label: 級数による近似}
+      - key: multivariable
+        label: 多変数の微分積分
+        en: Multivariable Calculus
+        components:
+          - {key: function_of_several_variables, label: 多変数関数}
+          - {key: partial_derivative, label: 偏導関数}
+          - {key: total_differential, label: 全微分}
+          - {key: chain_rule_multivariable, label: 多変数の合成関数の微分}
+          - {key: gradient, label: 勾配と方向微分}
+          - {key: extremum_multivariable, label: 多変数関数の極値}
+          - {key: lagrange_multiplier, label: ラグランジュの未定乗数法}
+          - {key: iterated_integral, label: 累次積分}
+          - {key: double_triple_integral, label: 重積分}
+          - {key: change_of_variables, label: 変数変換とヤコビアン}
+      - key: vector_calculus
+        label: ベクトル解析
+        en: Vector Calculus
+        components:
+          - {key: vector_field, label: ベクトル場}
+          - {key: line_integral, label: 線積分}
+          - {key: surface_integral, label: 面積分}
+          - {key: divergence, label: 発散}
+          - {key: curl, label: 回転}
+          - {key: greens_theorem, label: グリーンの定理}
+          - {key: stokes_theorem, label: ストークスの定理}
+          - {key: divergence_theorem, label: ガウスの発散定理}
+
+  - key: real_analysis
+    label: 解析学（実解析・詳説微積分）
+    en: Real Analysis and Advanced Calculus
+    units:
+      - key: real_number_system
+        label: 実数の構成
+        en: The Real Number System
+        components:
+          - {key: field_order_axiom, label: 順序体としての実数}
+          - {key: completeness, label: 完備性（連続性公理）}
+          - {key: supremum_infimum, label: 上限と下限}
+          - {key: archimedean_property, label: アルキメデスの性質}
+          - {key: density, label: 有理数の稠密性}
+          - {key: countability, label: 可算性と非可算性}
+      - key: sequences_rigorous
+        label: 数列の厳密な扱い
+        en: Sequences
+        components:
+          - {key: epsilon_n, label: ε-N 論法}
+          - {key: monotone_convergence, label: 単調収束定理}
+          - {key: bolzano_weierstrass, label: ボルツァーノ・ワイエルシュトラスの定理}
+          - {key: cauchy_sequence, label: コーシー列}
+          - {key: subsequence, label: 部分列}
+          - {key: limsup_liminf, label: 上極限と下極限}
+      - key: limits_continuity
+        label: 極限と連続の理論
+        en: Limits and Continuity
+        components:
+          - {key: epsilon_delta, label: ε-δ 論法}
+          - {key: continuity_definition, label: 連続性の定義}
+          - {key: uniform_continuity, label: 一様連続性}
+          - {key: extreme_value_theorem, label: 最大値・最小値の定理}
+          - {key: intermediate_value_proof, label: 中間値の定理の証明}
+          - {key: discontinuity_type, label: 不連続点の分類}
+      - key: differentiation_theory
+        label: 微分の理論
+        en: Theory of Differentiation
+        components:
+          - {key: derivative_rigorous, label: 導関数の厳密な定義}
+          - {key: mean_value_theorem_proof, label: 平均値の定理の証明}
+          - {key: taylor_theorem, label: テイラーの定理と剰余項}
+          - {key: lhopital, label: ロピタルの定理}
+          - {key: monotonicity_theorem, label: 導関数と単調性の関係}
+      - key: integration_theory
+        label: 積分の理論
+        en: Theory of Integration
+        components:
+          - {key: riemann_integral, label: リーマン積分の定義}
+          - {key: darboux_sum, label: 上限和と下限和}
+          - {key: integrability_criterion, label: 可積分条件}
+          - {key: ftc_proof, label: 微分積分学の基本定理の証明}
+          - {key: improper_convergence, label: 広義積分の収束}
+          - {key: measure_zero, label: 測度零の集合}
+          - {key: lebesgue_intro, label: ルベーグ積分への導入}
+      - key: series_theory
+        label: 級数の理論
+        en: Theory of Series
+        components:
+          - {key: absolute_convergence, label: 絶対収束}
+          - {key: conditional_convergence, label: 条件収束}
+          - {key: comparison_test, label: 比較判定法}
+          - {key: ratio_root_test, label: 比判定法と根判定法}
+          - {key: rearrangement, label: 項の並べ替え}
+          - {key: power_series_convergence, label: 整級数の収束}
+      - key: function_sequences
+        label: 関数列と一様収束
+        en: Sequences of Functions
+        components:
+          - {key: pointwise_convergence, label: 各点収束}
+          - {key: uniform_convergence, label: 一様収束}
+          - {key: weierstrass_m_test, label: ワイエルシュトラスの M 判定法}
+          - {key: term_by_term, label: 項別微分と項別積分}
+          - {key: uniform_limit_continuity, label: 一様収束と連続性の保存}
+
+  # ------------------------------------------------------------------
+  # ここの 6 単位は CUPM Linear Algebra 報告の "Core topics" **そのまま**。
+  # 第 2 階層に判断が入っていないのは、20 分野のうちこの分野だけである。
+  # ------------------------------------------------------------------
+  - key: linear_algebra
+    label: 線形代数
+    en: Linear Algebra
+    units:
+      - key: matrices_linear_systems
+        label: 行列と線形方程式系
+        en: Matrices and Linear Systems
+        components:
+          - {key: matrix_operations, label: 行列の演算}         # 数学Ｃ(3)ア(イ)
+          - {key: special_matrices, label: 特別な行列}
+          - {key: linear_system, label: 連立一次方程式}
+          - {key: echelon_form, label: 階段形}
+          - {key: gaussian_elimination, label: 掃き出し法}
+          - {key: matrix_transformation, label: 行列による変換}
+          - {key: matrix_inverse, label: 逆行列}
+          - {key: vectors_in_rn, label: R^n のベクトルの性質}
+          - {key: lu_decomposition, label: LU 分解}
+          - {key: vector_operation, label: ベクトルの和・差・実数倍}  # 数学Ｃ(1)ア(ア)
+          - {key: component_representation, label: ベクトルの成分表示}  # 数学Ｃ(1)ア(ア)
+          - {key: position_vector, label: 位置ベクトル}         # 数学Ｃ(1)ア(ア)
+          - {key: spatial_extension, label: 空間への拡張}       # 数学Ｃ(1)ア(ウ)
+          - {key: vector_algebra_law, label: ベクトルの演算法則}  # 数学Ｃ(1)イ(ア)
+          - {key: vector_application, label: 事象をベクトルで捉えて解決すること}  # 数学Ｃ(1)イ(ウ)
+      - key: determinants
+        label: 行列式
+        en: Determinants
+        components:
+          - {key: determinant_definition, label: 行列式の定義}
+          - {key: cofactor_expansion, label: 余因子展開}
+          - {key: determinant_property, label: 行列式の性質}
+          - {key: product_inverse_transpose, label: 積・逆行列・転置との関係}
+          - {key: geometric_meaning, label: 面積・体積としての意味}
+          - {key: cramers_rule, label: クラメルの公式}
+      - key: vector_spaces
+        label: ベクトル空間
+        en: Vector Spaces
+        components:
+          - {key: vector_space_axiom, label: ベクトル空間の公理}
+          - {key: subspace, label: 部分空間}
+          - {key: linear_combination, label: 線形結合と生成}
+          - {key: linear_independence, label: 一次独立と一次従属}
+          - {key: basis, label: 基底}
+          - {key: dimension, label: 次元}
+          - {key: row_column_space, label: 行空間と列空間}
+          - {key: rank, label: 階数}
+          - {key: rank_nullity, label: 次元定理}
+          - {key: coordinate_vector, label: 基底に関する座標}
+      - key: linear_transformations
+        label: 線形写像
+        en: Linear Transformations
+        components:
+          - {key: linear_map_definition, label: 線形写像の定義}
+          - {key: matrix_representation, label: 表現行列}
+          - {key: change_of_basis, label: 基底の取り替え}
+          - {key: kernel, label: 核}
+          - {key: image, label: 像}
+          - {key: injective_surjective, label: 単射性と全射性}
+          - {key: composition_inverse, label: 合成と逆写像}
+          - {key: isomorphism, label: 同型}
+      - key: eigenvalues
+        label: 固有値と固有ベクトル
+        en: Eigenvalues and Eigenvectors
+        components:
+          - {key: eigenvalue_definition, label: 固有値と固有ベクトルの定義}
+          - {key: characteristic_polynomial, label: 固有多項式}
+          - {key: eigenvalue_computation, label: 固有値の計算}
+          - {key: eigenspace, label: 固有空間}
+          - {key: diagonalization, label: 対角化}
+          - {key: similarity, label: 相似}
+          - {key: symmetric_diagonalization, label: 対称行列の直交対角化}
+          - {key: canonical_form, label: 行列の標準形}
+          - {key: dynamics_application, label: 漸化式・力学系への応用}
+      - key: inner_products
+        label: 内積
+        en: Inner Products
+        components:
+          - {key: dot_product, label: ベクトルの内積}           # 数学Ｃ(1)ア(イ)
+          - {key: norm, label: ノルム}
+          - {key: orthogonality, label: 直交性}
+          - {key: angle_projection, label: なす角と正射影}
+          - {key: inner_product_geometry, label: 内積による図形の考察}  # 数学Ｃ(1)イ(イ)
+          - {key: orthogonal_basis, label: 正規直交基底}
+          - {key: gram_schmidt, label: グラム・シュミットの直交化}
+          - {key: orthogonal_complement, label: 直交補空間}
+          - {key: least_squares, label: 最小二乗法}
+          - {key: spectral_theorem, label: スペクトル定理}
+          - {key: svd, label: 特異値分解}
+
+  - key: complex_analysis
+    label: 複素解析
+    en: Complex Analysis
+    units:
+      - key: complex_numbers
+        label: 複素数
+        en: Complex Numbers
+        components:
+          - {key: imaginary_unit, label: 虚数単位}              # 数学Ⅱ(1)［用語・記号］
+          - {key: complex_arithmetic, label: 複素数の四則計算}   # 数学Ⅱ(1)ア(ウ)
+          - {key: conjugate, label: 共役複素数}
+          - {key: complex_absolute_value, label: 複素数の絶対値}
+          - {key: complex_roots_of_quadratic, label: 二次方程式の虚数解}  # 数学Ⅱ(1)ア(エ)
+      - key: complex_plane
+        label: 複素数平面
+        en: The Complex Plane
+        components:
+          - {key: point_correspondence, label: 点と複素数の対応}  # 数学Ｃ(2)ア(エ)
+          - {key: polar_form, label: 極形式}                    # 数学Ｃ(2)ア(エ)
+          - {key: product_geometry, label: 積の図形的な意味}     # 数学Ｃ(2)ア(エ)
+          - {key: quotient_geometry, label: 商の図形的な意味}    # 数学Ｃ(2)ア(エ)
+          - {key: de_moivre, label: ド・モアブルの定理}          # 数学Ｃ(2)ア(オ)
+          - {key: nth_root, label: 複素数の累乗根}              # 数学Ｃ(2)イ(イ)
+          - {key: rotation_scaling, label: 回転と拡大の表現}
+          - {key: locus_in_complex_plane, label: 複素数平面上の図形}
+      - key: complex_functions
+        label: 複素関数
+        en: Functions of a Complex Variable
+        components:
+          - {key: complex_function_concept, label: 複素関数という考え方}
+          - {key: complex_exponential, label: 複素指数関数}
+          - {key: complex_logarithm, label: 複素対数関数と多価性}
+          - {key: complex_trigonometric, label: 複素三角関数と双曲線関数}
+          - {key: branch_cut, label: 分岐と主値}
+      - key: holomorphic
+        label: 正則関数
+        en: Holomorphic Functions
+        components:
+          - {key: complex_differentiability, label: 複素微分可能性}
+          - {key: cauchy_riemann, label: コーシー・リーマンの関係式}
+          - {key: harmonic_function, label: 調和関数}
+          - {key: conformal_map, label: 等角写像}
+      - key: complex_integration
+        label: 複素積分
+        en: Complex Integration
+        components:
+          - {key: contour_integral, label: 複素線積分}
+          - {key: cauchy_theorem, label: コーシーの積分定理}
+          - {key: cauchy_formula, label: コーシーの積分公式}
+          - {key: liouville_theorem, label: リウヴィルの定理}
+          - {key: fundamental_theorem_of_algebra, label: 代数学の基本定理}
+      - key: series_residue
+        label: 級数展開と留数
+        en: Series and Residues
+        components:
+          - {key: taylor_complex, label: 正則関数のテイラー展開}
+          - {key: laurent_series, label: ローラン展開}
+          - {key: singularity, label: 特異点の分類}
+          - {key: residue, label: 留数}
+          - {key: residue_theorem, label: 留数定理}
+          - {key: real_integral_by_residue, label: 実積分への応用}
+
+  - key: abstract_algebra
+    label: 代数学
+    en: Abstract Algebra
+    units:
+      - key: groups
+        label: 群
+        en: Groups
+        components:
+          - {key: binary_operation, label: 二項演算}
+          - {key: group_axiom, label: 群の公理}
+          - {key: order_of_element, label: 元の位数}
+          - {key: subgroup, label: 部分群}
+          - {key: cyclic_group, label: 巡回群}
+          - {key: permutation_group, label: 置換群}
+          - {key: coset, label: 剰余類}
+          - {key: lagrange_theorem, label: ラグランジュの定理}
+          - {key: normal_subgroup, label: 正規部分群}
+          - {key: quotient_group, label: 商群}
+          - {key: group_homomorphism, label: 群の準同型}
+          - {key: isomorphism_theorem, label: 準同型定理}
+          - {key: group_action, label: 群作用}
+          - {key: symmetry, label: 対称性の抽象化}
+      - key: rings
+        label: 環
+        en: Rings
+        components:
+          - {key: ring_axiom, label: 環の公理}
+          - {key: integral_domain, label: 整域}
+          - {key: ideal, label: イデアル}
+          - {key: quotient_ring, label: 剰余環}
+          - {key: ring_homomorphism, label: 環の準同型}
+          - {key: polynomial_ring, label: 多項式環}
+          - {key: euclidean_domain, label: ユークリッド整域}
+          - {key: pid, label: 単項イデアル整域}
+          - {key: ufd, label: 一意分解整域}
+      - key: fields
+        label: 体
+        en: Fields
+        components:
+          - {key: field_axiom, label: 体の公理}
+          - {key: field_extension, label: 拡大体}
+          - {key: algebraic_element, label: 代数的元と超越元}
+          - {key: minimal_polynomial, label: 最小多項式}
+          - {key: splitting_field, label: 最小分解体}
+          - {key: finite_field, label: 有限体}
+          - {key: galois_correspondence, label: ガロア対応}
+          - {key: constructibility, label: 作図可能性}
+      - key: representation
+        label: 表現論
+        en: Representation Theory
+        components:
+          - {key: linear_representation, label: 線形表現}
+          - {key: irreducible_representation, label: 既約表現}
+          - {key: character, label: 指標}
+          - {key: schur_lemma, label: シューアの補題}
+      - key: algebraic_structure_view
+        label: 代数構造という見方
+        en: Structural Perspective
+        components:
+          - {key: axiomatic_abstraction, label: 演算の性質による抽象化}
+          - {key: commutativity_associativity, label: 可換性と結合法則の働き}
+          - {key: structure_preserving_map, label: 構造を保つ写像}
+          - {key: classification_problem, label: 分類という問題設定}
+
+  - key: number_theory
+    label: 整数論
+    en: Number Theory
+    units:
+      - key: divisibility
+        label: 整除
+        en: Divisibility
+        components:
+          - {key: divisor_multiple, label: 約数と倍数}          # 数学Ａ 内容の取扱い(4)
+          - {key: division_algorithm, label: 除法の原理}
+          - {key: prime_factorization, label: 素因数分解}
+          - {key: gcd_lcm, label: 最大公約数と最小公倍数}
+          - {key: euclidean_algorithm, label: ユークリッドの互除法}  # 数学Ａ 内容の取扱い(4)
+          - {key: bezout, label: 一次不定方程式}
+      - key: congruence
+        label: 合同式
+        en: Congruences
+        components:
+          - {key: modular_arithmetic, label: 合同式の計算}
+          - {key: linear_congruence, label: 一次合同式}
+          - {key: chinese_remainder, label: 中国剰余定理}
+          - {key: fermat_little, label: フェルマーの小定理}
+          - {key: euler_theorem, label: オイラーの定理}
+          - {key: primitive_root, label: 原始根}
+          - {key: quadratic_residue, label: 平方剰余}
+      - key: number_representation
+        label: 数の表現
+        en: Representation of Numbers
+        components:
+          - {key: positional_notation, label: 位取り記数法}
+          - {key: binary, label: 二進法}                        # 数学Ａ 内容の取扱い(4)
+          - {key: base_conversion, label: 基数の変換}
+          - {key: fraction_expansion, label: 分数の小数展開}
+      - key: prime_distribution
+        label: 素数の分布
+        en: Distribution of Primes
+        components:
+          - {key: infinitude_of_primes, label: 素数の無限性}
+          - {key: sieve, label: 篩による素数の列挙}
+          - {key: prime_counting, label: 素数定理の主張}
+          - {key: special_primes, label: メルセンヌ素数とフェルマー素数}
+      - key: diophantine
+        label: 不定方程式
+        en: Diophantine Equations
+        components:
+          - {key: pythagorean_triple, label: ピタゴラス数}
+          - {key: pell_equation, label: ペル方程式}
+          - {key: continued_fraction, label: 連分数}
+          - {key: rational_approximation, label: 有理数近似}
+
+  - key: discrete_structures
+    label: 離散数学
+    en: Discrete Structures
+    units:
+      - key: counting
+        label: 場合の数
+        en: Counting
+        components:
+          - {key: set_cardinality, label: 集合の要素の個数}      # 数学Ａ(2)ア(ア)
+          - {key: addition_multiplication_rule, label: 和の法則と積の法則}  # 数学Ａ(2)ア(ア)
+          - {key: permutation, label: 順列}                     # 数学Ａ(2)ア(イ)／［用語・記号］
+          - {key: combination, label: 組合せ}                   # 数学Ａ(2)ア(イ)／［用語・記号］
+          - {key: factorial, label: 階乗}                       # 数学Ａ(2)［用語・記号］
+          - {key: circular_permutation, label: 円順列}
+          - {key: repetition, label: 重複順列と重複組合せ}
+          - {key: binomial_coefficient, label: 二項係数の性質}
+          - {key: pigeonhole, label: 鳩の巣原理}
+          - {key: inclusion_exclusion, label: 包除原理}
+          - {key: counting_strategy, label: 数え上げの方法を多面的に考えること}  # 数学Ａ(2)イ(ア)
+      - key: sequences_recurrence
+        label: 数列と漸化式
+        en: Sequences and Recurrence
+        components:
+          - {key: arithmetic_sequence, label: 等差数列}         # 数学Ｂ(1)ア(ア)
+          - {key: geometric_sequence, label: 等比数列}          # 数学Ｂ(1)ア(ア)
+          - {key: sum_notation, label: 総和の記号 Σ}            # 数学Ｂ(1)［用語・記号］
+          - {key: sum_of_sequences, label: いろいろな数列の和}   # 数学Ｂ(1)ア(イ)
+          - {key: general_term, label: 一般項を求めること}  # 数学Ｂ(1)ア(イ)／数学Ｂ(1)イ(ア)
+          - {key: recurrence, label: 漸化式}                    # 数学Ｂ(1)ア(ウ)
+          - {key: solving_recurrence, label: 漸化式から一般項を求めること}  # 数学Ｂ(1)ア(ウ)
+          - {key: recursive_modeling, label: 再帰的な関係で事象を捉えること}  # 数学Ｂ(1)イ(イ)
+          - {key: difference_equation, label: 差分方程式}
+          - {key: generating_function, label: 母関数}
+      - key: graphs
+        label: グラフ
+        en: Graphs
+        components:
+          - {key: graph_representation, label: 離散グラフによる表現}  # 数学Ｃ(3)ア(イ)／数学Ｃ(3)イ(ア)
+          - {key: adjacency_matrix, label: 隣接行列}            # 数学Ｃ(3)ア(イ)
+          - {key: path_connectivity, label: 道と連結性}
+          - {key: tree, label: 木}
+          - {key: euler_hamilton, label: オイラー路とハミルトン路}
+          - {key: graph_coloring, label: 彩色}
+          - {key: planarity, label: 平面性}
+          - {key: shortest_path, label: 最短経路}
+      - key: relations_orders
+        label: 関係と順序
+        en: Relations and Orders
+        components:
+          - {key: relation_definition, label: 関係}
+          - {key: equivalence_relation, label: 同値関係}
+          - {key: partition, label: 類別}
+          - {key: partial_order, label: 半順序}
+          - {key: lattice, label: 束}
+      - key: logic_boolean
+        label: 論理演算とブール代数
+        en: Boolean Algebra
+        components:
+          - {key: boolean_algebra, label: ブール代数}
+          - {key: truth_table, label: 真理値表}
+          - {key: normal_form, label: 論理式の標準形}
+          - {key: boolean_simplification, label: 論理式の簡単化}
+      - key: recursion_counting
+        label: 再帰と数え上げの方法
+        en: Recursion and Enumeration
+        components:
+          - {key: recursive_definition, label: 再帰的な定義}
+          - {key: bijective_proof, label: 全単射による数え上げ}
+          - {key: double_counting, label: 二重数え上げ}
+
+  - key: geometry
+    label: 幾何学
+    en: Geometry
+    units:
+      - key: euclidean_plane
+        label: 平面図形の性質
+        en: Euclidean Plane Geometry
+        components:
+          - {key: triangle_property, label: 三角形の基本的な性質}  # 数学Ａ(1)ア(ア)
+          - {key: angle_bisector, label: 角の二等分線と比}
+          - {key: triangle_centers, label: 三角形の五心}
+          - {key: menelaus_ceva, label: メネラウスとチェバの定理}
+          - {key: circle_property, label: 円の基本的な性質}      # 数学Ａ(1)ア(イ)
+          - {key: inscribed_angle, label: 円周角の定理}
+          - {key: tangent_and_circle, label: 円の接線}
+          - {key: power_of_point, label: 方べきの定理}
+          - {key: two_circles, label: 2 円の位置関係}
+          - {key: construction, label: 作図}                    # 数学Ａ(1)イ(イ)
+          - {key: discovering_property, label: 図形の新たな性質を見いだすこと}  # 数学Ａ(1)イ(ア)
+      - key: solid_geometry
+        label: 空間図形
+        en: Solid Geometry
+        components:
+          - {key: line_plane_relation, label: 直線と平面の位置関係}  # 数学Ａ(1)ア(ウ)
+          - {key: polyhedron, label: 多面体}
+          - {key: euler_polyhedron_formula, label: オイラーの多面体定理}
+          - {key: cross_section, label: 立体の切断}
+          - {key: solid_measurement, label: 体積と表面積}
+      - key: coordinate_geometry
+        label: 座標幾何
+        en: Coordinate Geometry
+        components:
+          - {key: internal_external_division, label: 内分点と外分点}  # 数学Ⅱ(2)ア(ア)
+          - {key: distance_formula, label: 2 点間の距離}         # 数学Ⅱ(2)ア(ア)
+          - {key: line_equation, label: 直線の方程式}           # 数学Ⅱ(2)ア(イ)
+          - {key: parallel_perpendicular, label: 平行と垂直の条件}
+          - {key: point_line_distance, label: 点と直線の距離}
+          - {key: circle_equation, label: 円の方程式}           # 数学Ⅱ(2)ア(イ)
+          - {key: line_circle_intersection, label: 直線と円の位置関係}
+          - {key: locus, label: 軌跡}                           # 数学Ⅱ(2)ア(ウ)
+          - {key: figure_by_equation, label: 図形を方程式で表して性質を調べること}  # 数学Ⅱ(2)イ(ア)
+          - {key: region_by_inequality, label: 不等式の表す領域}  # 数学Ⅱ(2)ア(エ)／数学Ⅱ(2)イ(イ)
+          - {key: spatial_coordinates, label: 空間座標}         # 数学Ａ 内容の取扱い(4)
+      - key: conics
+        label: 二次曲線
+        en: Conic Sections
+        components:
+          - {key: parabola, label: 放物線}                      # 数学Ｃ(2)ア(ア)
+          - {key: ellipse, label: 楕円}                         # 数学Ｃ(2)ア(ア)
+          - {key: hyperbola, label: 双曲線}                     # 数学Ｃ(2)ア(ア)
+          - {key: focus_directrix, label: 焦点と準線}           # 数学Ｃ(2)［用語・記号］
+          - {key: eccentricity, label: 離心率}
+          - {key: conic_classification, label: 二次曲線の分類}    # 数学Ｃ(2)イ(ア)
+          - {key: tangent_to_conic, label: 二次曲線の接線}
+      - key: parametric_polar
+        label: 媒介変数表示と極座標
+        en: Parametric and Polar Representations
+        components:
+          - {key: parametric_curve, label: 曲線の媒介変数表示}    # 数学Ｃ(2)ア(イ)
+          - {key: polar_coordinates, label: 極座標}             # 数学Ｃ(2)ア(ウ)
+          - {key: polar_equation, label: 極方程式}              # 数学Ｃ(2)ア(ウ)
+          - {key: coordinate_conversion, label: 直交座標と極座標の変換}
+          - {key: famous_curves, label: サイクロイドなどの曲線}  # 数学Ｃ(2)イ(ウ)
+      - key: transformations
+        label: 変換の幾何
+        en: Transformation Geometry
+        components:
+          - {key: isometry, label: 合同変換}
+          - {key: similarity_transformation, label: 相似変換}
+          - {key: affine_transformation, label: アフィン変換}
+          - {key: linear_transformation_geometry, label: 行列による一次変換}
+          - {key: symmetry_group, label: 対称性と群}
+      - key: non_euclidean
+        label: 非ユークリッド幾何
+        en: Non-Euclidean Geometry
+        components:
+          - {key: parallel_postulate, label: 平行線公準}
+          - {key: hyperbolic_geometry, label: 双曲幾何}
+          - {key: spherical_geometry, label: 球面幾何}
+          - {key: axiomatic_system, label: 公理系という考え方}
+      - key: differential_geometry
+        label: 微分幾何入門
+        en: Introduction to Differential Geometry
+        components:
+          - {key: curve_parametrization, label: 曲線の径数表示}
+          - {key: curvature, label: 曲率}
+          - {key: torsion, label: 捩率}
+          - {key: surface, label: 曲面}
+          - {key: gaussian_curvature, label: ガウス曲率}
+
+  - key: topology
+    label: 位相空間論
+    en: Topology
+    units:
+      - key: metric_spaces
+        label: 距離空間
+        en: Metric Spaces
+        components:
+          - {key: metric_axiom, label: 距離の公理}
+          - {key: open_ball, label: 開球と近傍}
+          - {key: convergence_in_metric, label: 距離空間の収束}
+          - {key: completeness_metric, label: 完備距離空間}
+          - {key: contraction_mapping, label: 縮小写像の原理}
+      - key: topological_spaces
+        label: 位相空間
+        en: Topological Spaces
+        components:
+          - {key: topology_definition, label: 開集合系による位相}
+          - {key: closed_set, label: 閉集合}
+          - {key: neighborhood, label: 近傍系}
+          - {key: interior_closure_boundary, label: 内部・閉包・境界}
+          - {key: basis_subbasis, label: 基底と準基底}
+          - {key: subspace_topology, label: 部分空間の位相}
+          - {key: product_topology, label: 積位相}
+          - {key: quotient_topology, label: 商位相}
+      - key: continuous_maps
+        label: 連続写像
+        en: Continuous Maps
+        components:
+          - {key: continuous_map_definition, label: 位相による連続性の定義}
+          - {key: homeomorphism, label: 同相写像}
+          - {key: topological_invariant, label: 位相不変量}
+      - key: compactness
+        label: コンパクト性
+        en: Compactness
+        components:
+          - {key: open_cover, label: 開被覆}
+          - {key: compactness_definition, label: コンパクト性の定義}
+          - {key: heine_borel, label: ハイネ・ボレルの定理}
+          - {key: compactness_consequence, label: コンパクト性の帰結}
+      - key: connectedness
+        label: 連結性
+        en: Connectedness
+        components:
+          - {key: connected_space, label: 連結空間}
+          - {key: path_connected, label: 弧状連結}
+          - {key: connected_component, label: 連結成分}
+          - {key: intermediate_value_topological, label: 連結性による中間値の定理}
+      - key: separation
+        label: 分離公理
+        en: Separation Axioms
+        components:
+          - {key: hausdorff, label: ハウスドルフ空間}
+          - {key: regular_normal, label: 正則空間と正規空間}
+          - {key: countability_axiom, label: 可算公理}
+      - key: algebraic_topology_intro
+        label: 代数的位相への入口
+        en: Introduction to Algebraic Topology
+        components:
+          - {key: homotopy, label: ホモトピー}
+          - {key: fundamental_group, label: 基本群}
+          - {key: covering_space, label: 被覆空間}
+          - {key: euler_characteristic, label: オイラー標数}
+          - {key: surface_classification, label: 曲面の分類}
+
+  - key: probability
+    label: 確率と確率過程
+    en: Probability and Stochastic Processes
+    units:
+      - key: probability_basics
+        label: 確率の基礎
+        en: Foundations of Probability
+        components:
+          - {key: sample_space, label: 標本空間}
+          - {key: event, label: 事象}
+          - {key: probability_axiom, label: 確率の公理}
+          - {key: equally_likely, label: 同様に確からしいこと}
+          - {key: addition_rule, label: 確率の加法定理}
+          - {key: mutually_exclusive, label: 排反}                # 数学Ａ(2)［用語・記号］
+          - {key: complementary_event, label: 余事象}
+          - {key: logical_probability, label: 論理的な確率}       # 数学Ａ 内容の取扱い(2)
+          - {key: frequency_probability, label: 頻度確率}         # 数学Ａ 内容の取扱い(2)
+          - {key: probability_reasoning, label: 確率を求める方法を多面的に考えること}  # 数学Ａ(2)イ(イ)
+      - key: conditional_independence
+        label: 条件付き確率と独立性
+        en: Conditional Probability and Independence
+        components:
+          - {key: conditional_probability, label: 条件付き確率}    # 数学Ａ(2)ア(オ)
+          - {key: multiplication_rule, label: 確率の乗法定理}
+          - {key: independent_trial, label: 独立な試行}           # 数学Ａ(2)ア(エ)
+          - {key: independence_of_events, label: 事象の独立性}
+          - {key: total_probability, label: 全確率の公式}
+          - {key: bayes_theorem, label: ベイズの定理}
+      - key: random_variables
+        label: 確率変数
+        en: Random Variables
+        components:
+          - {key: random_variable, label: 確率変数}              # 数学Ｂ(2)ア(イ)
+          - {key: probability_distribution, label: 確率分布}      # 数学Ｂ(2)ア(イ)
+          - {key: expectation, label: 期待値}                    # 数学Ａ(2)ア(ウ)
+          - {key: variance_sd, label: 確率変数の分散と標準偏差}            # 数学Ｂ(2)イ(ア)
+          - {key: linear_transformation_rv, label: 確率変数の変換}
+          - {key: joint_distribution, label: 同時分布}
+          - {key: covariance, label: 共分散}
+          - {key: independence_of_rv, label: 確率変数の独立性}
+          - {key: expectation_decision, label: 期待値による意思決定}  # 数学Ａ(2)イ(ウ)
+      - key: distributions
+        label: 代表的な分布
+        en: Common Distributions
+        components:
+          - {key: bernoulli, label: ベルヌーイ分布}
+          - {key: binomial_distribution, label: 二項分布}         # 数学Ｂ(2)ア(ウ)
+          - {key: geometric_distribution, label: 幾何分布}
+          - {key: poisson_distribution, label: ポアソン分布}
+          - {key: uniform_distribution, label: 一様分布}
+          - {key: normal_distribution, label: 正規分布}          # 数学Ｂ(2)ア(ウ)
+          - {key: normal_approximation, label: 二項分布の正規近似}  # 数学Ｂ(2)ア(ウ)
+          - {key: exponential_distribution, label: 指数分布}
+          - {key: sampling_distributions, label: χ二乗分布・t 分布・F 分布}
+      - key: limit_theorems
+        label: 極限定理
+        en: Limit Theorems
+        components:
+          - {key: chebyshev_inequality, label: チェビシェフの不等式}
+          - {key: law_of_large_numbers, label: 大数の法則}
+          - {key: central_limit_theorem, label: 中心極限定理}
+          - {key: moment_generating_function, label: モーメント母関数}
+      - key: stochastic_processes
+        label: 確率過程
+        en: Stochastic Processes
+        components:
+          - {key: markov_chain, label: マルコフ連鎖}
+          - {key: transition_matrix, label: 推移行列}
+          - {key: stationary_distribution, label: 定常分布}
+          - {key: random_walk, label: ランダムウォーク}
+          - {key: poisson_process, label: ポアソン過程}
+          - {key: brownian_motion, label: ブラウン運動}
+
+  # ------------------------------------------------------------------
+  # 5 単位は GAISE（Guidelines for Assessment and Instruction in
+  # Statistics Education, ASA）の statistical investigation process に
+  # 沿わせた。CUPM の Applied Statistics 報告がこの枠組みに依拠している。
+  # **統計は手順の学問なので、内容ではなく過程で単位を切る。**
+  # ------------------------------------------------------------------
+  - key: applied_statistics
+    label: 統計とデータ解析
+    en: Applied Statistics and Data Analysis
+    units:
+      - key: formulate_question
+        label: 問いを立てる
+        en: Formulate Questions
+        components:
+          - {key: research_question, label: 問いの明確化}
+          - {key: population_sample, label: 母集団と標本}        # 数学Ｂ(2)ア(ア)
+          - {key: variable_type, label: 変数の種類}
+          - {key: measurement_scale, label: 測定と尺度}
+          - {key: statistical_question, label: 統計的に答えられる問いかどうか}
+      - key: collect_data
+        label: データを集める
+        en: Collect Data
+        components:
+          - {key: survey_design, label: 標本調査の設計}         # 数学Ｂ(2)イ(イ)
+          - {key: random_sampling, label: 無作為抽出}
+          - {key: experimental_design, label: 実験計画}
+          - {key: observational_study, label: 観察研究と実験の違い}
+          - {key: bias_source, label: 偏りの生じ方}
+          - {key: data_preparation, label: データの前処理}
+      - key: analyze_data
+        label: データを分析する
+        en: Analyze Data
+        components:
+          - {key: frequency_distribution, label: 度数分布}
+          - {key: central_tendency, label: 代表値}
+          - {key: quartile_boxplot, label: 四分位数と箱ひげ図}
+          - {key: dispersion, label: データの分散と標準偏差}            # 数学Ⅰ(4)ア(ア)
+          - {key: outlier, label: 外れ値}                       # 数学Ⅰ(4)［用語・記号］
+          - {key: scatter_plot, label: 散布図}                  # 数学Ⅰ(4)ア(ア)
+          - {key: correlation_coefficient, label: 相関係数}      # 数学Ⅰ(4)ア(ア)
+          - {key: regression_line, label: 回帰直線}             # 数学Ｂ 内容の取扱い(3)
+          - {key: variable_transformation, label: 変量の変換}
+          - {key: time_series, label: 時系列データ}
+          - {key: multivariate_data, label: 多変量データ}
+          - {key: computational_tool, label: 情報機器を用いた処理}  # 数学Ⅰ(4)ア(イ)
+          - {key: quantifying_spread, label: 散らばりを数値化する方法を考えること}  # 数学Ⅰ(4)イ(ア)
+      - key: interpret_results
+        label: 結果を解釈する
+        en: Interpret Results
+        components:
+          - {key: point_estimation, label: 点推定}
+          - {key: interval_estimation, label: 区間推定}         # 数学Ｂ(2)ア(エ)
+          - {key: confidence_interval, label: 信頼区間}         # 数学Ｂ(2)［用語・記号］
+          - {key: hypothesis_testing, label: 仮説検定の考え方}    # 数学Ⅰ(4)ア(ウ)／数学Ｂ(2)ア(エ)
+          - {key: significance_level, label: 有意水準}          # 数学Ｂ(2)［用語・記号］
+          - {key: p_value, label: p 値}
+          - {key: error_types, label: 第一種の誤りと第二種の誤り}
+          - {key: test_selection, label: 手法の選択}            # 数学Ⅰ(4)イ(イ)
+          - {key: correlation_causation, label: 相関と因果の区別}
+          - {key: critical_examination, label: 結論の妥当性を批判的に考えること}  # 数学Ⅰ(4)イ(ウ)／数学Ｂ(2)イ(イ)
+          - {key: reproducibility, label: 再現性と多重比較}
+      - key: communicate
+        label: 結果を伝える
+        en: Communicate Results
+        components:
+          - {key: table_graph_design, label: 図・表・統計グラフによる表現}  # 数学Ｃ(3)ア(ア)／数学Ｃ(3)イ(ア)
+          - {key: misleading_representation, label: 誤解を招く表現}
+          - {key: statistical_report, label: 分析結果の報告}
+          - {key: audience_awareness, label: 読み手に応じた説明}
+
+  - key: ordinary_differential_equations
+    label: 常微分方程式
+    en: Ordinary Differential Equations
+    units:
+      - key: first_order
+        label: 1 階の常微分方程式
+        en: First-Order Equations
+        components:
+          - {key: ode_modeling, label: 現象を微分方程式で表すこと}
+          - {key: separable, label: 変数分離形}
+          - {key: linear_first_order, label: 1 階線形微分方程式}
+          - {key: exact_equation, label: 完全微分方程式}
+          - {key: integrating_factor, label: 積分因子}
+          - {key: substitution_method, label: 変数変換による解法}
+      - key: second_order_linear
+        label: 2 階線形微分方程式
+        en: Second-Order Linear Equations
+        components:
+          - {key: homogeneous_constant_coefficient, label: 定数係数斉次方程式}
+          - {key: characteristic_equation, label: 特性方程式}
+          - {key: nonhomogeneous, label: 非斉次方程式}
+          - {key: undetermined_coefficients, label: 未定係数法}
+          - {key: variation_of_parameters, label: 定数変化法}
+          - {key: oscillation_application, label: 振動現象への応用}
+      - key: systems
+        label: 連立微分方程式
+        en: Systems of Equations
+        components:
+          - {key: system_matrix_form, label: 行列による表示}
+          - {key: eigenvalue_solution, label: 固有値による解法}
+          - {key: phase_plane, label: 相平面}
+          - {key: stability, label: 安定性}
+          - {key: linearization, label: 線形化}
+      - key: series_transform
+        label: 級数解と変換による解法
+        en: Series and Transform Methods
+        components:
+          - {key: power_series_solution, label: 級数解}
+          - {key: laplace_transform, label: ラプラス変換}
+          - {key: inverse_laplace, label: 逆ラプラス変換}
+          - {key: transform_application, label: 変換による初期値問題の解法}
+      - key: qualitative
+        label: 定性的な扱い
+        en: Qualitative Theory
+        components:
+          - {key: direction_field, label: 方向場}
+          - {key: existence_uniqueness, label: 解の存在と一意性}
+          - {key: equilibrium, label: 平衡点}
+          - {key: autonomous_system, label: 自励系}
+
+  - key: partial_differential_equations
+    label: 偏微分方程式
+    en: Partial Differential Equations
+    units:
+      - key: classification
+        label: 分類と基本概念
+        en: Classification
+        components:
+          - {key: order_and_linearity, label: 階数と線形性}
+          - {key: type_classification, label: 楕円型・放物型・双曲型}
+          - {key: boundary_initial_condition, label: 境界条件と初期条件}
+          - {key: well_posedness, label: 適切性}
+      - key: separation_of_variables
+        label: 変数分離法
+        en: Separation of Variables
+        components:
+          - {key: separation_method, label: 変数分離}
+          - {key: eigenvalue_problem, label: 固有値問題}
+          - {key: sturm_liouville, label: スツルム・リウヴィル理論}
+      - key: fourier
+        label: フーリエ解析
+        en: Fourier Analysis
+        components:
+          - {key: fourier_series, label: フーリエ級数}
+          - {key: fourier_coefficient, label: フーリエ係数}
+          - {key: fourier_convergence, label: フーリエ級数の収束}
+          - {key: fourier_transform, label: フーリエ変換}
+          - {key: parseval, label: パーセバルの等式}
+      - key: classical_equations
+        label: 古典的な方程式
+        en: Classical Equations
+        components:
+          - {key: heat_equation, label: 熱伝導方程式}
+          - {key: wave_equation, label: 波動方程式}
+          - {key: laplace_equation, label: ラプラス方程式}
+          - {key: poisson_equation, label: ポアソン方程式}
+          - {key: dalembert_solution, label: ダランベールの解}
+      - key: pde_methods
+        label: 解法と応用
+        en: Methods and Applications
+        components:
+          - {key: greens_function, label: グリーン関数}
+          - {key: method_of_characteristics, label: 特性曲線法}
+          - {key: maximum_principle, label: 最大値原理}
+          - {key: numerical_pde, label: 差分法による数値解法}
+
+  - key: numerical_analysis
+    label: 数値解析
+    en: Numerical Analysis and Numerical Methods
+    units:
+      - key: floating_point
+        label: 数の表現と誤差
+        en: Numbers and Error
+        components:
+          - {key: floating_point_representation, label: 浮動小数点数}
+          - {key: machine_epsilon, label: 計算機イプシロン}
+          - {key: rounding_error, label: 丸め誤差}
+          - {key: truncation_error, label: 打切り誤差}
+          - {key: cancellation, label: 桁落ち}
+          - {key: error_propagation, label: 誤差の伝播}
+          - {key: condition_number, label: 条件数}
+          - {key: numerical_stability, label: アルゴリズムの数値的安定性}
+      - key: nonlinear_equations
+        label: 非線形方程式
+        en: Nonlinear Equations
+        components:
+          - {key: bisection, label: 二分法}
+          - {key: newton_method, label: ニュートン法}
+          - {key: secant_method, label: 割線法}
+          - {key: fixed_point_iteration, label: 不動点反復}
+          - {key: convergence_order, label: 収束の次数}
+      - key: linear_systems_numeric
+        label: 連立一次方程式の数値解法
+        en: Numerical Linear Systems
+        components:
+          - {key: pivoting, label: ピボット選択}
+          - {key: lu_factorization_numeric, label: LU 分解による解法}
+          - {key: iterative_method, label: 反復法（ヤコビ法・ガウス・ザイデル法）}
+          - {key: convergence_criterion, label: 反復法の収束条件}
+          - {key: sparse_matrix, label: 疎行列の扱い}
+          - {key: least_squares_numeric, label: 最小二乗問題の数値解法}
+      - key: eigenvalue_numeric
+        label: 固有値の数値計算
+        en: Numerical Eigenvalue Problems
+        components:
+          - {key: power_method, label: べき乗法}
+          - {key: qr_algorithm, label: QR 法}
+          - {key: svd_numeric, label: 特異値分解の計算}
+      - key: interpolation_approximation
+        label: 補間と近似
+        en: Interpolation and Approximation
+        components:
+          - {key: lagrange_interpolation, label: ラグランジュ補間}
+          - {key: divided_difference, label: ニュートンの差分商}
+          - {key: spline, label: スプライン補間}
+          - {key: runge_phenomenon, label: ルンゲ現象}
+          - {key: least_squares_fitting, label: 最小二乗近似}
+          - {key: chebyshev_approximation, label: チェビシェフ近似}
+      - key: numerical_calculus
+        label: 数値微分と数値積分
+        en: Numerical Differentiation and Integration
+        components:
+          - {key: finite_difference, label: 差分近似}
+          - {key: trapezoid_simpson, label: 台形則とシンプソン則}
+          - {key: gaussian_quadrature, label: ガウス求積}
+          - {key: adaptive_quadrature, label: 適応的求積}
+          - {key: richardson_extrapolation, label: リチャードソン外挿}
+      - key: ode_numeric
+        label: 常微分方程式の数値解法
+        en: Numerical Solution of ODEs
+        components:
+          - {key: euler_method, label: オイラー法}
+          - {key: runge_kutta, label: ルンゲ・クッタ法}
+          - {key: step_size_control, label: 刻み幅の制御}
+          - {key: multistep_method, label: 多段階法}
+          - {key: stiff_equation, label: 硬い方程式}
+
+  - key: operations_research
+    label: オペレーションズ・リサーチ
+    en: Operations Research
+    units:
+      - key: linear_programming
+        label: 線形計画
+        en: Linear Programming
+        components:
+          - {key: lp_formulation, label: 線形計画問題の定式化}
+          - {key: graphical_solution, label: 図解法}
+          - {key: simplex_method, label: 単体法}
+          - {key: duality, label: 双対性}
+          - {key: sensitivity_analysis, label: 感度分析}
+      - key: integer_network
+        label: 整数計画とネットワーク
+        en: Integer Programming and Networks
+        components:
+          - {key: integer_programming, label: 整数計画}
+          - {key: branch_and_bound, label: 分枝限定法}
+          - {key: transportation_problem, label: 輸送問題}
+          - {key: assignment_problem, label: 割当問題}
+          - {key: network_flow, label: ネットワークフロー}
+          - {key: project_scheduling, label: 日程計画（PERT/CPM）}
+      - key: nonlinear_optimization
+        label: 非線形最適化
+        en: Nonlinear Optimization
+        components:
+          - {key: convexity, label: 凸性}
+          - {key: unconstrained_optimization, label: 制約なし最適化}
+          - {key: gradient_method, label: 勾配法}
+          - {key: kkt_condition, label: KKT 条件}
+          - {key: lagrange_duality, label: ラグランジュ双対}
+      - key: stochastic_models
+        label: 確率的モデル
+        en: Stochastic Models
+        components:
+          - {key: queueing_theory, label: 待ち行列理論}
+          - {key: markov_decision_process, label: マルコフ決定過程}
+          - {key: inventory_model, label: 在庫モデル}
+          - {key: discrete_event_simulation, label: 離散事象シミュレーション}
+          - {key: reliability, label: 信頼性}
+      - key: decision_game
+        label: 意思決定とゲーム理論
+        en: Decision Analysis and Game Theory
+        components:
+          - {key: decision_under_uncertainty, label: 不確実性下の意思決定}
+          - {key: utility, label: 効用}
+          - {key: zero_sum_game, label: ゼロ和ゲーム}
+          - {key: nash_equilibrium, label: ナッシュ均衡}
+          - {key: multi_criteria, label: 多基準の意思決定}
+
+  - key: mathematical_modeling
+    label: 数理モデル
+    en: Mathematical Modeling
+    units:
+      - key: modeling_process
+        label: モデル化の過程
+        en: The Modeling Process
+        components:
+          - {key: problem_identification, label: 問題の把握}
+          - {key: idealization, label: 理想化と単純化}          # 数学Ｂ(3)イ(ア)
+          - {key: mathematization, label: 数学化}               # 数学Ｂ(3)ア(イ)
+          - {key: assumption_statement, label: 仮定を明示すること}
+          - {key: model_solution, label: 数学化した問題の解決}    # 数学Ｂ(3)イ(イ)
+          - {key: validation, label: 結果の妥当性の検証}         # 数学Ｂ(3)イ(ウ)
+          - {key: critical_review, label: 過程と結果の批判的な考察}  # 数学Ｂ(3)イ(ウ)
+          - {key: generalization, label: 方法の一般化と転用}      # 数学Ｂ(3)イ(エ)
+          - {key: significance_of_modeling, label: 数学を活用して解決することの意義}  # 数学Ｂ(3)ア(ア)
+      - key: deterministic_models
+        label: 決定論的モデル
+        en: Deterministic Models
+        components:
+          - {key: proportional_model, label: 比例・線形のモデル}
+          - {key: exponential_growth_decay, label: 指数的な増加と減衰}
+          - {key: logistic_model, label: ロジスティックモデル}
+          - {key: compartment_model, label: コンパートメントモデル}
+          - {key: optimization_model, label: 最適化としての定式化}
+          - {key: dynamical_system, label: 力学系としての記述}
+      - key: discrete_models
+        label: 離散モデル
+        en: Discrete Models
+        components:
+          - {key: difference_equation_model, label: 差分方程式によるモデル}
+          - {key: matrix_population_model, label: 行列による個体群モデル}
+          - {key: network_model, label: ネットワークモデル}
+          - {key: cellular_automaton, label: セルオートマトン}
+          - {key: agent_based_model, label: エージェントベースモデル}
+      - key: stochastic_modeling
+        label: 確率モデル
+        en: Stochastic Modeling
+        components:
+          - {key: monte_carlo, label: モンテカルロ法}
+          - {key: random_number, label: 乱数}
+          - {key: stochastic_simulation, label: 確率的シミュレーション}
+          - {key: risk_model, label: リスクの評価}
+      - key: data_driven_models
+        label: データに基づくモデル
+        en: Data-Driven Models
+        components:
+          - {key: curve_fitting, label: 当てはめ}               # 数学Ｂ 内容の取扱い(3)
+          - {key: parameter_estimation, label: パラメータの推定}
+          - {key: model_selection, label: モデルの選択}
+          - {key: sensitivity_of_model, label: モデルの感度}
+          - {key: dimensional_analysis, label: 次元解析}
+          - {key: scaling, label: スケーリング}
+
+  - key: transitions_to_proof
+    label: 論理と証明
+    en: Transitions to Proof
+    units:
+      - key: logic
+        label: 論理
+        en: Logic
+        components:
+          - {key: proposition, label: 命題}                     # 数学Ⅰ(1)ア(イ)
+          - {key: condition_and_truth_set, label: 条件と真理集合}
+          - {key: logical_connective, label: かつ・または}
+          - {key: negation, label: 否定}
+          - {key: converse_inverse_contrapositive, label: 逆・裏・対偶}
+          - {key: necessary_sufficient, label: 必要条件と十分条件}
+          - {key: quantifier, label: 全称と存在}
+          - {key: logical_equivalence, label: 同値であること}
+      - key: sets
+        label: 集合
+        en: Sets
+        components:
+          - {key: set_notation, label: 集合の表し方}            # 数学Ⅰ(1)ア(イ)
+          - {key: subset, label: 部分集合}
+          - {key: union_intersection, label: 和集合と共通部分}
+          - {key: complement, label: 補集合}
+          - {key: de_morgan, label: ド・モルガンの法則}
+          - {key: power_set, label: べき集合}
+          - {key: cartesian_product, label: 直積}
+          - {key: infinite_cardinality, label: 無限集合と濃度}
+      - key: proof_methods
+        label: 証明の方法
+        en: Methods of Proof
+        components:
+          - {key: direct_proof, label: 直接証明}
+          - {key: contrapositive_proof, label: 対偶による証明}
+          - {key: contradiction, label: 背理法}
+          - {key: mathematical_induction, label: 数学的帰納法}    # 数学Ｂ(1)ア(エ)
+          - {key: strong_induction, label: 強い帰納法}
+          - {key: counterexample, label: 反例}
+          - {key: case_analysis, label: 場合分け}
+          - {key: existence_proof, label: 存在の証明}
+          - {key: uniqueness_proof, label: 一意性の証明}
+          - {key: constructive_proof, label: 構成的な証明}
+          - {key: proof_comparison, label: 複数の証明方法の比較}  # 数学Ｂ(1)イ(ウ)
+          - {key: simple_proposition_proof, label: 集合の考えを用いた命題の証明}  # 数学Ⅰ(1)イ(ア)
+      - key: functions_relations
+        label: 写像と関係
+        en: Functions and Relations
+        components:
+          - {key: map_definition, label: 写像}
+          - {key: injection_surjection, label: 単射と全射}
+          - {key: bijection, label: 全単射}
+          - {key: image_preimage, label: 像と逆像}
+          - {key: map_composition, label: 写像の合成}
+          - {key: inverse_map, label: 逆写像}
+          - {key: well_definedness, label: well-defined 性}
+      - key: mathematical_writing
+        label: 数学の読み書き
+        en: Mathematical Writing
+        components:
+          - {key: reading_definition, label: 定義を読むこと}
+          - {key: theorem_statement, label: 定理を言明すること}
+          - {key: reading_proof, label: 証明を読むこと}
+          - {key: notation_use, label: 記号の使い方}
+          - {key: logical_gap, label: 論証の飛躍を見つけること}
+          - {key: proof_review, label: 証明を相互に検討すること}
+
+  - key: history_of_mathematics
+    label: 数学史
+    en: History of Mathematics
+    units:
+      - key: ancient
+        label: 古代の数学
+        en: Ancient Mathematics
+        components:
+          - {key: babylonian_egyptian, label: バビロニアとエジプトの数学}
+          - {key: greek_geometry, label: ギリシャ幾何学}
+          - {key: euclid_elements, label: ユークリッド原論}
+          - {key: archimedes, label: アルキメデスの方法}
+          - {key: chinese_indian, label: 中国とインドの数学}
+      - key: medieval_early_modern
+        label: 中世から近世
+        en: Medieval and Early Modern
+        components:
+          - {key: islamic_algebra, label: イスラム世界の代数}
+          - {key: wasan, label: 和算}
+          - {key: symbolic_algebra, label: 記号代数の成立}
+          - {key: analytic_geometry_history, label: 解析幾何の誕生}
+          - {key: calculus_invention, label: 微分積分の成立}
+      - key: modern
+        label: 近代
+        en: Modern Period
+        components:
+          - {key: rigorization, label: 解析の厳密化}
+          - {key: non_euclidean_discovery, label: 非ユークリッド幾何の発見}
+          - {key: set_theory_history, label: 集合論の成立}
+          - {key: abstract_algebra_history, label: 抽象代数の成立}
+          - {key: foundational_crisis, label: 数学基礎論と危機}
+      - key: contemporary
+        label: 現代
+        en: Contemporary Period
+        components:
+          - {key: computer_and_mathematics, label: 計算機と数学}
+          - {key: famous_problems, label: 未解決問題とその解決}
+          - {key: applied_turn, label: 応用数理の展開}
+      - key: culture_and_activity
+        label: 数学と人間の活動
+        en: Mathematics and Human Activity
+        components:
+          - {key: concept_and_activity, label: 数量や図形の概念と人間の活動}  # 数学Ａ(3)ア(ア)
+          - {key: mathematics_and_culture, label: 数学と文化との関わり}      # 数学Ａ(3)ア(イ)
+          - {key: games_and_puzzles, label: 数理的なゲームとパズル}  # 数学Ａ(3)ア(イ)／数学Ａ(3)イ(イ)
+          - {key: developing_concept, label: 概念を関心に基づいて発展させること}  # 数学Ａ(3)イ(ア)
+          - {key: notation_history, label: 記数法と記号の歴史}
+
+  - key: capstone
+    label: 総合と課題研究
+    en: Capstone Courses
+    units:
+      - key: project_work
+        label: 課題研究
+        en: Project Work
+        components:
+          - {key: topic_selection, label: 課題の設定}
+          - {key: literature_search, label: 文献の調査}
+          - {key: plan_and_progress, label: 計画と進行の管理}
+          - {key: independent_investigation, label: 主体的な探究}   # 〔課題学習〕
+      - key: synthesis
+        label: 分野をまたぐ総合
+        en: Synthesis
+        components:
+          - {key: connection_across_areas, label: 内容を相互に関連付けること}  # 〔課題学習〕
+          - {key: integrative_development, label: 統合的・発展的な考察}
+          - {key: reformulation, label: 問題の再定式化}
+      - key: communication
+        label: 伝えること
+        en: Communication
+        components:
+          - {key: written_report, label: 報告書を書くこと}
+          - {key: oral_presentation, label: 口頭で発表すること}
+          - {key: audience_adaptation, label: 相手に応じた説明}
+          - {key: result_visualization, label: 結果の可視化}
+      - key: tools
+        label: 道具の利用
+        en: Tools
+        components:
+          - {key: cas_use, label: 数式処理システムの利用}
+          - {key: programming_for_mathematics, label: プログラミングによる探究}
+          - {key: information_device, label: 情報機器の利用}
+          - {key: reproducible_work, label: 再現可能な作業手順}
+      - key: responsible_use
+        label: 数学の使われ方
+        en: Responsible Use of Mathematics
+        components:
+          - {key: model_responsibility, label: 数理モデルの責任ある利用}
+          - {key: data_ethics, label: データの扱いと倫理}
+          - {key: limits_of_model, label: モデルの限界を述べること}
