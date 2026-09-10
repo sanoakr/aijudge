@@ -18,15 +18,38 @@
    値を 1 か所にまとめられないのは CSS の制約で、変数を 2 度書くしかない
    （#181）。 */
 
+/* 書体。**見出しもゴシック**（#185）。明朝は端末に依存し、Windows は
+   游明朝、無い環境では既定の `serif` に落ちるので、見出しの顔が機械ごとに
+   変わる。本文との差は太さと字間で作る。 */
 :root{
-  --paper:#eef1f5; --surface:#fff; --surface-2:#f6f8fa;
-  --ink:#141e2b; --ink-2:#3c4a5c; --muted:#697a8e;
-  --line:#d3dbe4; --line-soft:#e3e9ef;
+  --font-body:"Hiragino Sans","Noto Sans JP",system-ui,sans-serif;
+  --font-display:"Hiragino Sans","Noto Sans JP",system-ui,sans-serif;
+}
+:root{
+  --paper:#eef1f7; --surface:#fff; --surface-2:#f5f7fb;
+  --ink:#151a26; --ink-2:#3b4356; --muted:#69718a;
+  --line:#cfd4e1; --line-soft:#e2e5ee;
   --shu:#b03a29; --shu-soft:#f3e3e0;
   --verd:#1c6d67; --verd-soft:#dfedeb;
   /* 対応が要ることを表す色（琥珀）。**朱とは別に持つ** ── 朱は「確定した
      否定的な事実」で、こちらは「人が押さないと先へ進まない」を意味する。 */
   --kin:#8a5a00; --kin-soft:#f7ecd6;
+  /* 藍（#185）。**移動と現在地にだけ使う。**
+
+     以前はリンクも朱だったので、「押して移る」と「確定した否定的な事実」が
+     同じ色で並んでいた。移動を藍に移すと、朱は判定の意味だけを担える ──
+     判定の三色（朱・琥珀・緑青）に藍を混ぜないこと。 */
+  --ai:#1b4f8f; --ai-2:#2f6ab5; --ai-soft:#e3ecf8;
+  /* 頁の頭（#185）。**昼夜を通して濃い。**
+
+     貼り付いているので、長い一覧を送っても「いまどこで何を見ているか」が
+     画面の上端に残る。濃い面の上では文字も罫もまとめて反転させること ──
+     背景だけ濃くすると、墨色の見出しが読めなくなる。
+
+     `--head-shu` は帯の中で使う朱。**意味は変えず明るさだけ合わせる** ──
+     `--shu`（#b03a29）は濃紺の上では沈んで読めない。 */
+  --head-bg:#123256; --head-ink:#eaf1fa; --head-muted:#9db6d4;
+  --head-line:#1d4674; --head-shu:#f0a18e;
 }
 /* 夜の配色。**同じ値を 2 か所から当てる**（#181）。
 
@@ -44,34 +67,52 @@
    気づきにくい壊れ方をする。 */
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]){
-    --paper:#0e141c; --surface:#151d27; --surface-2:#1b242f;
-    --ink:#dee6ef; --ink-2:#b6c2d0; --muted:#8395a8;
-    --line:#2a3542; --line-soft:#212c38;
+    --paper:#0d1119; --surface:#151a25; --surface-2:#1b212d;
+    --ink:#dee3ef; --ink-2:#b4bccd; --muted:#828ca6;
+    --line:#2a3140; --line-soft:#212836;
     --shu:#e4826f; --shu-soft:#2e1f1c;
     --verd:#5eb2ab; --verd-soft:#152a29;
     --kin:#e0ab52; --kin-soft:#2b2314;
+    --ai:#8fb0dd; --ai-2:#a9c4ea; --ai-soft:#182234;
+    --head-bg:#0b1c30; --head-ink:#d8e6f5; --head-muted:#7e9ab8;
+    --head-line:#153252; --head-shu:#f0a18e;
   }
 }
 :root[data-theme="dark"]{
-  --paper:#0e141c; --surface:#151d27; --surface-2:#1b242f;
-  --ink:#dee6ef; --ink-2:#b6c2d0; --muted:#8395a8;
-  --line:#2a3542; --line-soft:#212c38;
+  --paper:#0d1119; --surface:#151a25; --surface-2:#1b212d;
+  --ink:#dee3ef; --ink-2:#b4bccd; --muted:#828ca6;
+  --line:#2a3140; --line-soft:#212836;
   --shu:#e4826f; --shu-soft:#2e1f1c;
   --verd:#5eb2ab; --verd-soft:#152a29;
   --kin:#e0ab52; --kin-soft:#2b2314;
+  --ai:#8fb0dd; --ai-2:#a9c4ea; --ai-soft:#182234;
+  --head-bg:#0b1c30; --head-ink:#d8e6f5; --head-muted:#7e9ab8;
+  --head-line:#153252; --head-shu:#f0a18e;
 }
-/* フォーム部品（チェックボックス・スクロールバー）にも配色を伝える。
-   伝えないと、夜の画面に白いチェックボックスだけが浮く。 */
+/* フォーム部品（チェックボックス・スクロールバー・素の select）にも配色を
+   伝える。伝えないと、夜の画面に白いチェックボックスだけが浮く。
+
+   **`@media` の側にも要る。** ここは明示の選択の分しか無かったので、
+   OS が夜で切り替えを触っていない人 ── つまり既定のままの人 ── だけ、
+   暗い画面に明るいフォーム部品が出ていた（#181 の実装が半分だった）。
+   配色の値と同じで、**2 か所に書くしかない**。 */
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){color-scheme:dark}
+}
 :root[data-theme="dark"]{color-scheme:dark}
 :root[data-theme="light"]{color-scheme:light}
 *{box-sizing:border-box}
 [hidden]{display:none!important}
 body{margin:0;background:var(--paper);color:var(--ink);
-  font-family:"Hiragino Sans","Noto Sans JP",system-ui,sans-serif;line-height:1.75}
+  font-family:var(--font-body);line-height:1.75}
 main{max-width:1100px;margin:0 auto;padding:32px 24px 80px}
-h1{font-size:1.5rem;margin:0 0 4px}
-h2{font-size:1.1rem;margin:32px 0 10px}
-a{color:var(--shu)}
+/* 見出しはゴシック太。字間を締めて本文との差を作る（#185）。 */
+h1,h2,h3{font-family:var(--font-display);font-weight:700;letter-spacing:.01em;line-height:1.4}
+h1{font-size:1.45rem;margin:0 0 4px}
+h2{font-size:1.05rem;margin:32px 0 10px}
+/* **移動は藍**（#185）。判定の一次操作（確定）だけが朱のまま ── 人が
+   判定を下す行為だからで、リンクは移動でしかない。 */
+a{color:var(--ai)}
 .card{background:var(--surface);border:1px solid var(--line-soft);border-radius:4px;padding:20px 22px;margin-bottom:20px}
 .note{border-left:3px solid var(--verd);background:var(--verd-soft);padding:12px 16px;
   border-radius:0 3px 3px 0;font-size:.9rem;color:var(--ink-2);margin-bottom:20px}
@@ -164,33 +205,63 @@ textarea{width:100%;font:inherit;font-size:.88rem;padding:10px 12px;border-radiu
 .pill.attn{color:var(--kin);border-color:var(--kin);background:var(--kin-soft);
   font-weight:700;box-shadow:0 0 0 2px var(--kin-soft)}
 .pill.attn::before{content:"! ";font-weight:700}
+/* 誰が判定したか（#185・P4）。**色ではなく記号で区別する** ── 白黒で
+   印刷しても、色覚に差があっても読める必要がある。◇ が AI の判定、
+   ▣ がテスト実行（決定的評価）。 */
+.pill.ai,.pill.det{border-color:var(--line);background:var(--surface-2);color:var(--ink-2)}
+.pill.ai::before{content:"◇ "}
+.pill.det::before{content:"▣ "}
+/* 朱の字。**インラインで色を書かない**（#185）── 反転した面（濃い頁の頭）
+   では上書きできず、`#b03a29` が沈んで読めなくなる。 */
+.late{color:var(--shu)}
+/* 提出物の埋め込み（画像・動画）。同じ指定が 6 か所にインラインで
+   書かれていたのをまとめたもの。 */
+.embed{max-width:100%;border:1px solid var(--line);border-radius:3px}
 .progress{height:6px;background:var(--line-soft);border-radius:99px;overflow:hidden;margin:10px 0 6px}
 .progress > div{height:100%;background:var(--verd)}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:20px}
-header.top{border-bottom:1px solid var(--line-soft);background:var(--surface)}
-header.top .inner{max-width:1100px;margin:0 auto;padding:12px 24px;display:flex;
+/* 頁の頭（#185）。**濃い面を上に置き、貼り付ける。**
+
+   以前は「銘と利用者の帯」と「パンくずの帯」が別々の薄い面で、どちらも
+   スクロールで消えていた。長い一覧（88 名 × 7 問）を送ると、いま何の
+   一覧を見ているのか分からなくなる ── 帯を 1 つにまとめ、濃い面にして
+   上端に残す。
+
+   **中の文字と罫をまとめて反転させる。** 背景だけ濃くすると、墨色の
+   見出しとリンクが読めない。 */
+.topbar{position:sticky;top:0;z-index:20;background:var(--head-bg);
+  border-bottom:1px solid var(--head-line);color:var(--head-ink)}
+.topbar a{color:#cfe0f2}
+.topbar :focus-visible{outline-color:#cfe0f2}
+/* 帯の中の朱（遅延など）。**意味は変えず明るさだけ合わせる。** */
+.topbar .late{color:var(--head-shu)}
+header.top .inner{max-width:1100px;margin:0 auto;padding:10px 24px;display:flex;
   align-items:baseline;gap:16px;font-size:.85rem}
-header.top .brand{font-weight:700;font-size:1rem;color:var(--ink);text-decoration:none}
+header.top .brand{font-weight:700;font-size:1rem;color:var(--head-ink);
+  text-decoration:none;letter-spacing:.03em}
 header.top .spacer{flex:1}
 header.top form{margin:0}
-header.top button{background:none;color:var(--muted);border:1px solid var(--line);
-  font-weight:400;padding:4px 12px;font-size:.8rem}
+header.top button{background:rgba(255,255,255,.08);color:var(--head-ink);
+  border:1px solid var(--head-line);font-weight:400;padding:4px 12px;font-size:.8rem}
+header.top button:hover{background:rgba(255,255,255,.16);filter:none}
 .field{margin-bottom:14px}
 .field label{display:block;font-size:.85rem;color:var(--ink-2);margin-bottom:4px}
 .field input:not([type=checkbox]):not([type=radio]){width:100%;font:inherit;font-size:.9rem;padding:9px 12px;border-radius:3px;
   border:1px solid var(--line);background:var(--surface);color:var(--ink)}
 .narrow{max-width:420px}
-/* 文脈バナー。どのコースの何回目のどの課題を見ているかを全ページに出す。 */
-.ctx{background:var(--surface-2);border-bottom:1px solid var(--line-soft)}
-.ctx .inner{max-width:1100px;margin:0 auto;padding:8px 24px;font-size:.8rem;color:var(--muted)}
-.ctx b{color:var(--ink-2);font-weight:600}
-.ctx a{color:var(--ink-2);text-decoration:none}
+/* 文脈バナー。どのコースの何回目のどの課題を見ているかを全ページに出す。
+   `.topbar` の中に入ったので、面の色は帯が持つ（ここでは持たない）。 */
+.ctx{border-top:1px solid var(--head-line)}
+.ctx .inner{max-width:1100px;margin:0 auto;padding:7px 24px;font-size:.8rem;
+  color:var(--head-muted)}
+.ctx b{color:var(--head-ink);font-weight:600}
+.ctx a{text-decoration:none}
 .ctx a:hover{text-decoration:underline}
 /* パンくず。区切りは薄く、現在地だけ濃く。折り返しても経路が読めるように
    区切りごと折り返させる。 */
 .trail{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 8px}
-.trail [aria-current]{color:var(--ink-2)}
-.sep{color:var(--muted);user-select:none}
+.trail [aria-current]{color:var(--head-ink)}
+.sep{color:var(--head-muted);user-select:none;opacity:.7}
 /* ボタンの置き場所。**原則は入力と同じ行の右端。** 目で追う順が
    「何を入れるか → 押す」で閉じ、フォームの終わりが行の右端で分かる。
    1 行に収まらない入力（textarea・項目が複数）だけ下に置き、そこでも
@@ -208,7 +279,7 @@ header.top button{background:none;color:var(--muted);border:1px solid var(--line
 .score{font-size:2rem;font-weight:700;color:var(--ink)}
 .score .unit{font-size:1rem;color:var(--muted);font-weight:400}
 @media (max-width:860px){.grid2{grid-template-columns:1fr}}
-:focus-visible{outline:2px solid var(--shu);outline-offset:2px}
+:focus-visible{outline:2px solid var(--ai);outline-offset:2px}
 /* PDF の埋め込み。**高さを幅から導く。** 固定のピクセル値だと、幅が伸びる
    ほど比率が崩れ、A4 縦 1 ページが 1 画面に収まらない（#87）。
 

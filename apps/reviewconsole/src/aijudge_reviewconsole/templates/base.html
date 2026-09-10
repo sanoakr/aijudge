@@ -15,7 +15,14 @@
 {% include "_theme_boot.html" %}
 </head>
 <body>
+{# 濃い頁の頭（#185）。**銘とパンくずを 1 つの帯にまとめ、貼り付ける。**
+   以前は薄い面が 2 段に分かれていて、どちらもスクロールで消えていた ──
+   88 名 × 7 問の一覧を送ると、いま何を見ているのか分からなくなる。
+
+   帯そのものは署名の入っている人にしか出ない（ログイン画面には出す
+   ものが無い）。中の文脈バナーは、コースの下にいるときだけ足される。 #}
 {% if me is defined and me %}
+<div class="topbar">
 <header class="top"><div class="inner">
   <a class="brand" href="{{ root_prefix() }}/">aiJudge</a>
   <span class="spacer"></span>
@@ -29,7 +36,6 @@
   {% endif %}
   <form method="post" action="{{ root_prefix() }}/logout"><button type="submit">ログアウト</button></form>
 </div></header>
-{% endif %}
 {% set trail = trail if trail is defined and trail else () %}
 {% if (course is defined and course) or trail %}
 <div class="ctx"><div class="inner">
@@ -83,6 +89,8 @@
     {% endfor %}
   </nav>
 </div></div>
+{% endif %}
+</div>{# .topbar #}
 {% endif %}
 <main>{% block body %}{% endblock %}</main>
 <footer class="app-footer"><div class="inner">

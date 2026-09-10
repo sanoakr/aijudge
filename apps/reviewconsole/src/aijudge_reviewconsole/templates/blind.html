@@ -26,7 +26,7 @@
   {% if file.is_image %}
   <a href="{{ root_prefix() }}/review/{{ submission.id }}/artifacts/{{ file.id }}">
     <img src="{{ root_prefix() }}/review/{{ submission.id }}/artifacts/{{ file.id }}" alt="{{ file.filename }}"
-         style="max-width:100%;border:1px solid var(--line);border-radius:3px"></a>
+         class="embed"></a>
   {% elif file.is_pdf %}
   <object class="pdf-embed" data="{{ root_prefix() }}/review/{{ submission.id }}/artifacts/{{ file.id }}"
           type="application/pdf">
@@ -35,7 +35,7 @@
   {% elif file.is_video %}
   <video controls preload="metadata"
          src="{{ root_prefix() }}/review/{{ submission.id }}/artifacts/{{ file.id }}"
-         style="max-width:100%;border:1px solid var(--line);border-radius:3px">
+         class="embed">
     <a href="{{ root_prefix() }}/review/{{ submission.id }}/artifacts/{{ file.id }}">動画を開く</a>
   </video>
   {% else %}
