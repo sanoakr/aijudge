@@ -166,6 +166,7 @@ class SubmissionService:
         idempotency_key: str | None = None,
         grading_starts_at: datetime | None = None,
         submitted_as: Role = Role.LEARNER,
+        is_demo: bool = False,
     ) -> AcceptResult:
         """提出を受け付ける。
 
@@ -220,6 +221,7 @@ class SubmissionService:
                 task_version_id=task_version_id,
                 learner_id=learner_id,
                 submitted_as=submitted_as,
+                is_demo=is_demo,
                 state=SubmissionState.DRAFT,
                 attempt=attempt,
                 artifacts=artifacts,
@@ -274,6 +276,7 @@ class SubmissionService:
         idempotency_key: str | None = None,
         grading_starts_at: datetime | None = None,
         submitted_as: Role = Role.LEARNER,
+        is_demo: bool = False,
     ) -> AcceptResult:
         """動画のような大きな添付を **メモリに載せず** 受け付ける。
 
@@ -325,6 +328,7 @@ class SubmissionService:
                 idempotency_key=idempotency_key,
                 grading_starts_at=grading_starts_at,
                 submitted_as=submitted_as,
+                is_demo=is_demo,
             )
         except BaseException:
             self._stream_store.delete(key)
@@ -347,6 +351,7 @@ class SubmissionService:
         idempotency_key: str | None = None,
         grading_starts_at: datetime | None = None,
         submitted_as: Role = Role.LEARNER,
+        is_demo: bool = False,
     ) -> AcceptResult:
         """既にストアへ書かれた blob から提出・ジョブ・イベントを作る。
 
@@ -387,6 +392,7 @@ class SubmissionService:
                 task_version_id=task_version_id,
                 learner_id=learner_id,
                 submitted_as=submitted_as,
+                is_demo=is_demo,
                 state=SubmissionState.DRAFT,
                 attempt=attempt,
                 artifacts=(artifact,),

@@ -66,6 +66,7 @@ from aijudge_identity import (
     GoogleOidcProvider,
     PermissionDenied,
     Principal,
+    demo_course_from_env,
     session_cookie_kwargs,
 )
 from aijudge_persistence import Database
@@ -664,6 +665,7 @@ def create_app(app_state: StudentApp) -> FastAPI:
                 # 測定時に現在の受講から引くと、学生が TA になった瞬間に
                 # 過去の提出が測定から消える（ADR 0013 と同じ罠）。
                 submitted_as=_role_in(app_state, course_obj.id, me.user_id),
+                is_demo=_is_demo_course(course_obj.id),
             )
         except SubmissionRejected as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -791,6 +793,7 @@ def create_app(app_state: StudentApp) -> FastAPI:
                 idempotency_key=idem,
                 grading_starts_at=_task.grading_starts_at,
                 submitted_as=_role_in(app_state, course_obj.id, me.user_id),
+                is_demo=_is_demo_course(course_obj.id),
             )
         except SubmissionRejected as exc:
             app_state.video_store.delete(storage_key)
@@ -1193,6 +1196,17 @@ def counterpart_url(request: Request, *, configured: str, port: int) -> str:
         if not _HOSTNAME.match(host):
             host = "localhost"
     return f"{scheme}://{host}:{port}"
+
+
+def _is_demo_course(course_id: CourseId) -> bool:
+    """このコースはデモか（#194）。
+
+    **提出のたびに環境から読む。** 値を起動時に固定すると、指名を変えた
+    あとも再起動まで古い判定が残る ── 環境変数は配置の都合で変わりうる
+    ので、読むのは安いほうに合わせる（`root_prefix()` と同じ考え方）。
+    """
+    demo = demo_course_from_env()
+    return demo is not None and demo.course_id == course_id
 
 
 def _role_in(app_state: StudentApp, course_id: CourseId, user_id: UserId) -> Role:

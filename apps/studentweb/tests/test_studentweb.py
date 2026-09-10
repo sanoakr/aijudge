@@ -30,6 +30,7 @@ from aijudge_core.ids import (
     CourseId,
     FinalizationId,
     HumanReviewId,
+    SubmissionId,
     TaskVersionId,
     TenantId,
     UserId,
@@ -1931,3 +1932,69 @@ def test_the_grading_job_takes_the_profile_from_the_task(world: World) -> None:
     assert job.subject_profile == "report_ja", (
         "コースの既定で採点されている。1 コースに種類の違う課題を置けない"
     )
+
+
+# デモコースの提出は数えない（#194）
+# --------------------------------------------------------------------------
+
+
+def test_a_submission_to_the_demo_course_is_marked_as_a_trial(world: World, monkeypatch) -> None:
+    """**受け取る時点で印を付ける。**
+
+    ここが起点で、あとは `is_trial` を訊いている経路すべてが自動的に従う
+    ── 観測レコード・習熟度・成績分布・難易度推定・κ（#197 で塞いだ 2 つを
+    含む）。**述語を増やさないので、経路ごとに直して回る必要が無い。**
+    """
+    monkeypatch.setenv("AIJUDGE_DEMO_COURSE", str(COURSE))
+    world.register("s2400001")
+    world.login("s2400001")
+
+    location = world.submit().headers["location"]
+    submission_id = location.rsplit("/", 1)[-1]
+    with world.database.unit_of_work() as uow:
+        submission = uow.submissions.get(SubmissionId(submission_id))
+
+    assert submission is not None
+    assert submission.is_demo, "デモの印が付いていない"
+    assert submission.is_trial, "数えない扱いになっていない"
+    # **役割は偽らない。** デモでも学習者は学習者である。
+    assert submission.submitted_as is Role.LEARNER
+
+
+def test_a_submission_to_a_real_course_is_not(world: World, monkeypatch) -> None:
+    """裏返し。**「常に trial」を「デモだから trial」と読み違えない。**"""
+    monkeypatch.delenv("AIJUDGE_DEMO_COURSE", raising=False)
+    world.register("s2400002")
+    world.login("s2400002")
+
+    location = world.submit().headers["location"]
+    submission_id = location.rsplit("/", 1)[-1]
+    with world.database.unit_of_work() as uow:
+        submission = uow.submissions.get(SubmissionId(submission_id))
+
+    assert submission is not None
+    assert not submission.is_demo
+    assert not submission.is_trial
+
+
+def test_the_demo_course_leaves_the_score_distribution_alone(world: World, monkeypatch) -> None:
+    """成績分布に現れないこと（受け入れ条件の 1 つ）。
+
+    分布は `is_trial` を見て弾いている（`submissions.py`）ので、印が付けば
+    自動的に従う ── **それを確かめるのがこのテストである。**
+    """
+    from aijudge_reviewconsole.submissions import summarize
+
+    monkeypatch.setenv("AIJUDGE_DEMO_COURSE", str(COURSE))
+    world.register("s2400003")
+    world.login("s2400003")
+    world.submit()
+    world.worker.run_until_empty()
+
+    with world.database.unit_of_work() as uow:
+        from aijudge_reviewconsole.submissions import load_rows
+
+        course = uow.identity.get_course(COURSE)
+        summary = summarize(load_rows(uow, course))
+
+    assert summary["total"] == 0, "デモの提出が分布に入っている"

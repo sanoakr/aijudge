@@ -199,6 +199,16 @@ class Submission(BaseModel):
     # 同じ罠で（ADR 0013）、結論も同じ ── 実行時の事実として記録に残し、
     # 表示時に計算し直さない。
     submitted_as: Role = Role.LEARNER
+    # デモコースへの提出か（#194）。**そのときの事実として焼き付ける。**
+    #
+    # 理由は `submitted_as` と同じ ── 測定時にコースの設定を引き直すと、
+    # デモコースの指名を変えた瞬間に**過去の提出の意味が変わる**。指名は
+    # 環境変数なので、配置のたびに変わりうる。
+    #
+    # **役割ではなく、場所の性質である。** デモコースでは学習者も教員も
+    # 同じように記録に残らないので、`submitted_as` を偽って教員扱いに
+    # するのではなく、別の事実として持つ。
+    is_demo: bool = False
     state: SubmissionState = SubmissionState.DRAFT
     attempt: int = Field(default=1, ge=1)
     artifacts: tuple[Artifact, ...] = ()
@@ -230,12 +240,17 @@ class Submission(BaseModel):
 
     @property
     def is_trial(self) -> bool:
-        """成績にも測定にも数えない提出か（#108）。
+        """成績にも測定にも数えない提出か（#108・#194）。
 
         **採点はする。** 動作確認の提出が採点されないなら確認にならない。
         数えないのは成績・分布・難易度・一致度のほうである。
+
+        理由は 2 つある ── 教員・TA 自身の提出（動作確認）と、デモコース
+        への提出（誰でも入れる場所）。**述語は 1 つのままにする。** 「数えるか
+        どうか」を訊く道を 2 つ作ると、片方だけ直る日が来る（実際、観測
+        レコードと習熟度がこの判定を見ていなかった・#197）。
         """
-        return self.submitted_as is not Role.LEARNER
+        return self.submitted_as is not Role.LEARNER or self.is_demo
 
     @property
     def gradable_artifacts(self) -> tuple[Artifact, ...]:
