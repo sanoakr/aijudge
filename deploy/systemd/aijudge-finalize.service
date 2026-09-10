@@ -11,6 +11,8 @@ Group=aijudge
 WorkingDirectory=/opt/aijudge
 EnvironmentFile=/srv/aijudge/config/aijudge.env
 ExecStart=/opt/aijudge/.venv/bin/aijudge-finalize --once
+# journald でこのサービスの行を引くための名札（ADR 0016）。
+SyslogIdentifier=aijudge-finalize
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes

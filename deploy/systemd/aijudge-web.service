@@ -16,6 +16,8 @@ EnvironmentFile=/srv/aijudge/config/aijudge.env
 # EnvironmentFile を通す）。`.venv/bin` を直接呼ぶ ── `uv run` は再起動の
 # たびに解決をやり直すので、常駐サービスでは直接パスの方が速く確実。
 ExecStart=/opt/aijudge/.venv/bin/aijudge-web --host 127.0.0.1 --port 8080 --workers 4
+# journald でこのサービスの行を引くための名札（ADR 0016）。
+SyslogIdentifier=aijudge-web
 Restart=on-failure
 RestartSec=5
 LimitNOFILE=65536

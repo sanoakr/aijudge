@@ -27,6 +27,7 @@ import uvicorn
 
 from aijudge_persistence import ENV_DATABASE_URL, Database
 from aijudge_submission import FilesystemArtifactStore
+from aijudge_telemetry import configure_logging, uvicorn_log_config
 
 from .app import StudentApp, create_app
 
@@ -52,6 +53,9 @@ DEFAULT_AI_WORKERS = 1
 
 
 def build_app(args: argparse.Namespace):
+    # 子プロセス（`--workers > 1`）でもここを通るので、ログの設定はここで行う。
+    # main だけで呼ぶと、fork した子は素の root ロガーのまま動く。
+    configure_logging("learner-web")
     database = Database.connect(args.database_url, create=args.create_schema)
     video_store = FilesystemArtifactStore(args.video_dir) if args.video_dir else None
     return create_app(
@@ -200,10 +204,15 @@ def main(argv: list[str] | None = None) -> int:
             port=args.port,
             workers=args.workers,
             factory=True,
-            log_level="warning",
+            log_config=uvicorn_log_config("learner-web"),
         )
     else:
-        uvicorn.run(build_app(args), host=args.host, port=args.port, log_level="warning")
+        uvicorn.run(
+            build_app(args),
+            host=args.host,
+            port=args.port,
+            log_config=uvicorn_log_config("learner-web"),
+        )
     return 0
 
 

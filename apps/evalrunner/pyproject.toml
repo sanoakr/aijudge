@@ -9,6 +9,7 @@ requires-python = ">=3.12"
 dependencies = [
     "aijudge-analytics",
     "aijudge-observation",
+    "aijudge-telemetry",
     "pyyaml>=6.0",
 ]
 

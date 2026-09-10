@@ -16,7 +16,6 @@
 from __future__ import annotations
 
 import argparse
-import logging
 import os
 import signal
 import sys
@@ -27,6 +26,7 @@ from aijudge_admin.justification import JustificationWriter
 from aijudge_core import GradingPhase
 from aijudge_persistence import ENV_DATABASE_URL, Database, ObservationFileStore
 from aijudge_submission import FilesystemArtifactStore
+from aijudge_telemetry import configure_logging
 
 from .feedback import build_feedback_generator
 from .worker import GradingWorker
@@ -112,7 +112,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+    configure_logging(f"worker-{args.name}")
     phase = None if args.phase is None else GradingPhase(args.phase)
     worker, database = build_worker(args)
 

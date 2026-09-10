@@ -254,6 +254,7 @@ are enforced by `import-linter` and fail the build, not the review.
 | `packages/analytics` | Agreement metrics. Delete it and grading still runs. |
 | `packages/skill` | Knowledge components and mastery estimation. |
 | `packages/persistence` | PostgreSQL storage. Infrastructure — no subsystem imports it. |
+| `packages/telemetry` | Operational logging: one shape, correlation ids, identifiers only. |
 | `apps/studentweb` | The learner app. |
 | `apps/reviewconsole` | The instructor console and `/manage`. |
 | `apps/grader` | The grading worker. |

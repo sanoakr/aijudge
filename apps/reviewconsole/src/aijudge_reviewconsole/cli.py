@@ -19,6 +19,7 @@ import uvicorn
 
 from aijudge_persistence import ENV_DATABASE_URL, Database, ObservationFileStore
 from aijudge_submission import FilesystemArtifactStore
+from aijudge_telemetry import configure_logging, uvicorn_log_config
 
 from .app import Console, create_app
 
@@ -97,10 +98,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--create-schema", action="store_true", help="開発用")
     args = parser.parse_args(argv)
 
+    configure_logging("review-console")
     console = build_console(args)
     print(f"→ http://{args.host}:{args.port}/")
     print("採点は aijudge-worker が行います（このコンソールは採点しません）")
-    uvicorn.run(create_app(console), host=args.host, port=args.port, log_level="warning")
+    uvicorn.run(
+        create_app(console),
+        host=args.host,
+        port=args.port,
+        log_config=uvicorn_log_config("review-console"),
+    )
     return 0
 
 

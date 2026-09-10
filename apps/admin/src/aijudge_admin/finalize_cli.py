@@ -29,8 +29,11 @@ from datetime import UTC, datetime
 
 from aijudge_core.ids import CourseId
 from aijudge_persistence import ENV_DATABASE_URL, Database
+from aijudge_telemetry import configure_logging
 
 from .finalization import FinalizeReport, sweep_deadlines
+
+logger = logging.getLogger(__name__)
 
 # 常駐時の既定の間隔。締切の猶予は時間単位なので、分単位で回す意味がない。
 DEFAULT_INTERVAL_SECONDS = 900.0
@@ -52,7 +55,7 @@ def _report(report: FinalizeReport, *, dry_run: bool) -> None:
     """
     prefix = "確定する予定" if dry_run else "確定しました"
     if not report.touched:
-        logging.info("対象はありませんでした")
+        logger.info("対象はありませんでした")
         return
     for outcome in report.touched:
         parts = [f"{prefix}: {outcome.finalized} 件"]
@@ -64,8 +67,8 @@ def _report(report: FinalizeReport, *, dry_run: bool) -> None:
             parts.append(f"未採点の観点あり: {outcome.provisional} 件")
         if outcome.awaiting_human:
             parts.append(f"人が採点する観点あり: {outcome.awaiting_human} 件")
-        logging.info("%s [%s] %s", outcome.task.unit_label, outcome.task.title, " / ".join(parts))
-    logging.info("合計 %d 件確定、%d 件見送り", report.finalized, report.skipped)
+        logger.info("%s [%s] %s", outcome.task.unit_label, outcome.task.title, " / ".join(parts))
+    logger.info("合計 %d 件確定、%d 件見送り", report.finalized, report.skipped)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -98,7 +101,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+    configure_logging("finalize")
 
     now: datetime | None = None
     if args.now is not None:
@@ -128,7 +131,7 @@ def main(argv: list[str] | None = None) -> int:
 
         signal.signal(signal.SIGINT, _stop)
         signal.signal(signal.SIGTERM, _stop)
-        logging.info("自動確定を開始しました（%.0f 秒ごと、Ctrl-C で停止）", args.interval_seconds)
+        logger.info("自動確定を開始しました（%.0f 秒ごと、Ctrl-C で停止）", args.interval_seconds)
         while not _stopping:
             _report(
                 sweep_deadlines(database, course_id=course_id, dry_run=args.dry_run),
@@ -139,7 +142,7 @@ def main(argv: list[str] | None = None) -> int:
             while waited < args.interval_seconds and not _stopping:
                 time.sleep(min(1.0, args.interval_seconds - waited))
                 waited += 1.0
-        logging.info("停止しました")
+        logger.info("停止しました")
         return 0
     finally:
         database.dispose()

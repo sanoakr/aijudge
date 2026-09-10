@@ -21,6 +21,7 @@
 | `aijudge.env.example` | `EnvironmentFile` の雛形。値を埋めて `/srv/aijudge/config/aijudge.env` に置く |
 | `aijudge-restic-backup.sh` | `/srv/aijudge` を restic でバックアップするスクリプト（`/usr/local/sbin/` に置く） |
 | `aijudge-restic.env.example` | restic 専用の `EnvironmentFile` の雛形。パスワードを本体の env から隔離する |
+| `journald/aijudge.conf` | 運用ログの保存期間とディスク上限（`/etc/systemd/journald.conf.d/` に置く） |
 
 ## 前提（`docs/RUNNING.md` と共通）
 
@@ -68,6 +69,35 @@ sudo systemctl enable --now aijudge-autodeploy.timer
 
 # 監視
 journalctl -u aijudge-autodeploy -f
+```
+
+### ログを読む（ADR 0016）
+
+運用では `AIJUDGE_LOG_FORMAT=json` を設定する（1 行 1 イベント）。
+unit には `SyslogIdentifier` が付いているので、サービス単位で引ける。
+
+```fish
+# 採点ワーカーの失敗だけ
+journalctl -u aijudge-worker-ai@1 -o cat | jq 'select(.level == "ERROR")'
+
+# **1 つの提出について、web とワーカーの両方の行を集める。**
+# 突き合わせの鍵は submission_id ── これが無かったので、#60 / #80 では
+# 画面から「採点が遅い」としか見えなかった（docs/RUNNING.md）。
+journalctl -t aijudge-web -t aijudge-worker-det -t aijudge-worker-ai1 -o cat \
+  | jq 'select(.submission_id == "SUB-ID")'
+
+# 1 リクエストの中で起きたこと（学生の問い合わせに付いてくる X-Request-ID から）
+journalctl -t aijudge-web -o cat | jq 'select(.request_id == "REQ-ID")'
+```
+
+保存期間は 90 日（`journald/aijudge.conf`）。**成績に関わる「誰が何を変えたか」は
+ここには無い** ── それは DB の監査ログに残り、DB ダンプごと restic で守られる。
+運用ログは消えてよい層である。
+
+```fish
+sudo install -m 0644 /opt/aijudge/deploy/journald/aijudge.conf \
+    /etc/systemd/journald.conf.d/aijudge.conf
+sudo systemctl restart systemd-journald
 ```
 
 設計の背景（なぜ pull 型 timer で GitHub Actions からの push 型にしないか等）は
