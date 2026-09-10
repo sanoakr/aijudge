@@ -468,6 +468,14 @@ class GradingWorker:
                 task_version = uow.tasks.get_version(job.task_version_id)
             if submission is None or task_version is None:  # pragma: no cover - 直前に読めている
                 return
+            if submission.is_trial:
+                # 動作確認の提出は κ の標本に入れない（#108・#197・ADR 0005）。
+                # **採点はする** ── 採点されない確認は確認にならない。
+                # 数えないのは測定のほうである。
+                #
+                # ここは提出を手元に持っているので、イベントを介さず直接
+                # 訊いてよい（S7 との違いはそこ）。
+                return
             self._observations.save(
                 project_observations(
                     run,

@@ -34,6 +34,15 @@ class SkillSubscriber:
     def __call__(self, event: DomainEvent) -> None:
         if not isinstance(event, GradingCompleted):
             return
+        if event.is_trial:
+            # 動作確認の提出（#108・#197）。**採点はされているが、習熟度には
+            # 積まない。**
+            #
+            # 習熟度は KC 単位でコースと学期をまたいで積み上がる（P6）ので、
+            # 教員が自分の課題を試した 1 件が、その KC の**学習者の**習熟度を
+            # 動かす。ここを通していたのは判定を忘れていたからで、意図では
+            # ない。
+            return
         if not event.kc_outcomes:
             # Q-matrix が空の課題。習熟度は付かないが、それは劣化であって
             # 失敗ではない（KC を宣言していない課題では正常な状態）。
