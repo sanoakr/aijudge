@@ -15,8 +15,22 @@
      否定的な事実」で、こちらは「人が押さないと先へ進まない」を意味する。 */
   --kin:#8a5a00; --kin-soft:#f7ecd6;
 }
+/* 夜の配色。**同じ値を 2 か所から当てる**（#181）。
+
+   `prefers-color-scheme` だけだと、見る人が選べない ── 端末が昼設定の
+   学生は暗い講義室で読めず、端末が夜設定の教員はプロジェクタに出せない。
+   かといって OS 追従を捨てると、いま何も設定せずに夜で見えている人が
+   昼に戻ってしまう。だから **OS 追従を既定に残したまま、明示の選択が
+   両方向で勝つ**ようにする。
+
+   - `@media` は「OS が夜」── ただし明示的に昼を選んでいたら当てない
+   - `[data-theme="dark"]` は「この人が夜を選んだ」
+
+   値を 1 か所にまとめられないのは CSS の制約で、変数を 2 度書くしかない。
+   **片方だけ直すと、選んだときと OS 追従のときで色が違う**という、
+   気づきにくい壊れ方をする。 */
 @media (prefers-color-scheme: dark){
-  :root{
+  :root:not([data-theme="light"]){
     --paper:#0e141c; --surface:#151d27; --surface-2:#1b242f;
     --ink:#dee6ef; --ink-2:#b6c2d0; --muted:#8395a8;
     --line:#2a3542; --line-soft:#212c38;
@@ -25,6 +39,18 @@
     --kin:#e0ab52; --kin-soft:#2b2314;
   }
 }
+:root[data-theme="dark"]{
+  --paper:#0e141c; --surface:#151d27; --surface-2:#1b242f;
+  --ink:#dee6ef; --ink-2:#b6c2d0; --muted:#8395a8;
+  --line:#2a3542; --line-soft:#212c38;
+  --shu:#e4826f; --shu-soft:#2e1f1c;
+  --verd:#5eb2ab; --verd-soft:#152a29;
+  --kin:#e0ab52; --kin-soft:#2b2314;
+}
+/* フォーム部品（チェックボックス・スクロールバー）にも配色を伝える。
+   伝えないと、夜の画面に白いチェックボックスだけが浮く。 */
+:root[data-theme="dark"]{color-scheme:dark}
+:root[data-theme="light"]{color-scheme:light}
 *{box-sizing:border-box}
 [hidden]{display:none!important}
 body{margin:0;background:var(--paper);color:var(--ink);
@@ -198,7 +224,43 @@ details.unit > summary h3{display:inline-flex;vertical-align:middle}
   border:1px solid var(--line);border-radius:3px}
 footer.app-footer{max-width:1100px;margin:24px auto 0;padding:12px 24px;text-align:right;
   font-size:.72rem;color:var(--muted);border-top:1px solid var(--line-soft)}
+/* 配色の切り替え（#181）。**フッタに置く** ── ヘッダはログイン後にしか
+   出ないが、配色はログインの有無とは関係がない（ログイン画面でも眩しい）。
+   フッタは両アプリの全ページに必ずある唯一の場所である。
+
+   JavaScript が無ければ出さない。無いときは従来どおり OS 追従で、
+   押しても何も起きないボタンを見せない（この画面群の作法）。 */
+/* JavaScript が無ければ出さない。押しても何も起きないボタンを見せない。
+   隠し方はこの画面群の既存の作法に合わせる（`.js-only` を JS が外す）──
+   別の仕組みを 2 つ持つと、片方を直したときにもう片方が取り残される。 */
+.theme-switch{display:inline-flex;gap:0;align-items:center;margin-right:auto;
+  border:1px solid var(--line-soft);border-radius:3px;overflow:hidden}
+footer.app-footer .inner{max-width:none;display:flex;align-items:center;gap:12px}
+.theme-switch button{appearance:none;background:transparent;border:0;
+  padding:3px 9px;font:inherit;font-size:.72rem;color:var(--muted);cursor:pointer;line-height:1.9}
+.theme-switch button+button{border-left:1px solid var(--line-soft)}
+.theme-switch button:hover{background:var(--surface-2);color:var(--ink-2)}
+/* いま効いている選択。`aria-pressed` を見る ── 見た目のための class を
+   別に持つと、支援技術に伝わる状態と画面の状態がずれる。 */
+.theme-switch button[aria-pressed="true"]{background:var(--surface);color:var(--ink);
+  box-shadow:inset 0 0 0 1px var(--line-soft)}
 </style>
+<script>
+// 配色の選択を、**最初の描画より前に**当てる（#181）。ここを body の下に
+// 置くと、昼で 1 枚描いてから夜に切り替わるのが見える。
+//
+// `localStorage` は読むだけで例外を投げることがある（プライベートウィンドウ、
+// サイトデータを禁止した設定）。**読めなくても画面は成立しなければならない**
+// ので、握って OS 追従に落とす。
+(function(){
+  try{
+    var choice = localStorage.getItem("aijudge-theme");
+    if(choice === "light" || choice === "dark"){
+      document.documentElement.setAttribute("data-theme", choice);
+    }
+  }catch(e){}
+})();
+</script>
 </head>
 <body>
 {% if me is defined and me %}
@@ -232,7 +294,15 @@ footer.app-footer{max-width:1100px;margin:24px auto 0;padding:12px 24px;text-ali
 </div></div>
 {% endif %}
 <main>{% block body %}{% endblock %}</main>
-<footer class="app-footer">aiJudge {{ app_version }}{% if copyright_notice %} · {{ copyright_notice }}{% endif %}</footer>
+<footer class="app-footer"><div class="inner">
+  {# 配色の切り替え（#181）。JavaScript が無いときは CSS で隠れる。 #}
+  <div class="theme-switch js-only" role="group" aria-label="配色" hidden>
+    <button type="button" data-theme-choice="auto" aria-pressed="false">自動</button>
+    <button type="button" data-theme-choice="light" aria-pressed="false">昼</button>
+    <button type="button" data-theme-choice="dark" aria-pressed="false">夜</button>
+  </div>
+  <span>aiJudge {{ app_version }}{% if copyright_notice %} · {{ copyright_notice }}{% endif %}</span>
+</div></footer>
 {# 採点待ちのあいだだけ状態を問い合わせ、終わったら 1 回だけ取り直す。
    **JavaScript 無しでも困らない** ── 無ければ `<noscript>` の案内が出て、
    従来どおり手で再読み込みできる（この画面群の作法・`manage.py` 冒頭）。
@@ -351,6 +421,40 @@ document.querySelectorAll(".js-only").forEach(function (el) { el.hidden = false;
       .catch(function () { /* 通信が切れただけ。次の機会に任せる。 */ });
   }
   window.setTimeout(tick, wait);
+})();
+</script>
+<script>
+// 配色の切り替え（#181）。**保存するのは選択であって、解決した配色ではない**
+// ── 「自動」を選んだ人は、そのあと OS の設定を変えたら追従してほしい。
+(function(){
+  var KEY = "aijudge-theme";
+  var root = document.documentElement;
+  var buttons = document.querySelectorAll("[data-theme-choice]");
+  if(!buttons.length){ return; }
+
+  function stored(){
+    try{ return localStorage.getItem(KEY) || "auto"; }catch(e){ return "auto"; }
+  }
+  function apply(choice){
+    if(choice === "auto"){ root.removeAttribute("data-theme"); }
+    else{ root.setAttribute("data-theme", choice); }
+    for(var i = 0; i < buttons.length; i++){
+      buttons[i].setAttribute(
+        "aria-pressed", buttons[i].dataset.themeChoice === choice ? "true" : "false"
+      );
+    }
+  }
+
+  apply(stored());
+  for(var i = 0; i < buttons.length; i++){
+    buttons[i].addEventListener("click", function(){
+      var choice = this.dataset.themeChoice;
+      // 保存できなくてもこの画面では効かせる。読み書きが禁じられている
+      // 環境で、押しても何も起きないのは壊れて見える。
+      try{ localStorage.setItem(KEY, choice); }catch(e){}
+      apply(choice);
+    });
+  }
 })();
 </script>
 </body>
