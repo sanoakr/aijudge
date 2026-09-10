@@ -31,6 +31,7 @@ from aijudge_core import (
     GradingRun,
     Provenance,
     ReviewRequest,
+    Role,
     Routing,
     RubricCriterion,
     RubricLevel,
@@ -167,10 +168,13 @@ def _world(
     routings: tuple[Routing, ...] = (Routing.AUTO,),
     unscored_at: int | None = None,
     contested_at: int | None = None,
+    trial_at: int | None = None,
 ) -> tuple[SubmissionId, ...]:
     """課題 1 件と、指定した振り分けの提出をその数だけ作る。
 
-    `unscored_at` / `contested_at` は「何番目の提出をそうするか」。
+    `unscored_at` / `contested_at` / `trial_at` は「何番目の提出をそうするか」。
+    `trial_at` は教員自身の動作確認の提出（#108）── 採点はされるが成績には
+    数えない。
     """
     with database.unit_of_work() as uow:
         uow.tasks.save_task(
@@ -186,6 +190,7 @@ def _world(
             tenant_id=TENANT,
             task_version_id=TASK_VERSION,
             learner_id=UserId(new_id("usr")),
+            submitted_as=Role.INSTRUCTOR if index == trial_at else Role.LEARNER,
             subject_profile="cs_lang_c_intro",
             files=[
                 IncomingFile(
@@ -591,3 +596,55 @@ def test_a_dry_run_leaves_no_audit_row(database: Database, course) -> None:
 
     with database.unit_of_work() as uow:
         assert uow.audit.list_for_target("submission", str(ids[0])) == ()
+
+
+# --------------------------------------------------------------------------
+# 左の帯が出す件数（#189）
+# --------------------------------------------------------------------------
+
+
+def test_the_rail_count_is_the_same_number_as_the_finalisation_page(
+    database: Database, course
+) -> None:
+    """帯の数字と、開いた先の件数が一致すること。
+
+    **違うと、帯は数字を出す意味を失う。** どちらが本当か分からないなら、
+    確かめに開くことになり、開かずに判断するために置いたものが用を成さない。
+
+    帯は 1 文で数えるが、一括確定の画面は課題ごとに引く（41 問なら 42
+    クエリ）。**別の経路で数えているので、同じ数になることを固定する。**
+    """
+    _world(database, course.id, routings=(Routing.AUTO,) * 3)
+
+    with database.unit_of_work() as uow:
+        counts = uow.reviews.attention_counts_for_course(course.id)
+
+    assert counts.unfinalized == sum(pending_counts(database, course.id).values()) == 3
+
+
+def test_the_rail_does_not_count_the_instructors_own_trial(database: Database, course) -> None:
+    """教員自身の動作確認は数えない（#108）。
+
+    数えると、閉じられない件数が帯に残り続ける ── 試行は確定させないので
+    減らない。**一括確定の画面と同じ除外**でなければ、片方だけが 0 に
+    ならない。
+    """
+    _world(database, course.id, routings=(Routing.AUTO,) * 3, trial_at=0)
+
+    with database.unit_of_work() as uow:
+        counts = uow.reviews.attention_counts_for_course(course.id)
+
+    assert counts.unfinalized == 2, "教員の試行が混ざっている"
+    assert counts.unfinalized == sum(pending_counts(database, course.id).values())
+
+
+def test_the_rail_counts_an_unanswered_request_as_waiting_on_a_person(
+    database: Database, course
+) -> None:
+    """学習者が再確認を依頼したものは、答えるまで人待ちである。"""
+    _world(database, course.id, routings=(Routing.AUTO,) * 3, contested_at=1)
+
+    with database.unit_of_work() as uow:
+        counts = uow.reviews.attention_counts_for_course(course.id)
+
+    assert counts.contested == 1
