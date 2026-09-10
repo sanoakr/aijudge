@@ -142,7 +142,7 @@ def test_the_course_row_and_its_enrolments_are_gone(world) -> None:
     with database.unit_of_work() as uow:
         from aijudge_identity import AuthService
 
-        AuthService(uow.identity).enroll(
+        AuthService(uow.identity, audit=uow.audit).enroll(
             tenant_id=TENANT, course_id=course.id, user_id=LEARNER, role=Role.LEARNER
         )
         uow.commit()

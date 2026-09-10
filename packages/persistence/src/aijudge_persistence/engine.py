@@ -19,6 +19,7 @@ from contextlib import contextmanager
 from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from .audit_repository import SqlAuditLog
 from .identity_repository import SqlIdentityRepository
 from .repositories import (
     SqlGradingRunRepository,
@@ -103,6 +104,10 @@ class SqlUnitOfWork:
         self.reviews = SqlReviewRepository(self._session)
         self.identity = SqlIdentityRepository(self._session)
         self.skills = SqlSkillRepository(self._session)
+        # 監査記録（ADR 0016）。**同じ UnitOfWork に載せるのが要点** ──
+        # 操作が巻き戻れば監査行も巻き戻り、監査行が書けなければ操作も
+        # 成立しない。成績の変更が記録なしで成立してはいけない。
+        self.audit = SqlAuditLog(self._session)
         return self
 
     def __exit__(self, *exc: object) -> None:

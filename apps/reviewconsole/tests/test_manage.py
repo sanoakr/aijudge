@@ -63,7 +63,7 @@ class World:
         tenant_admin: bool = False,
     ):
         with self.database.unit_of_work() as uow:
-            service = AuthService(uow.identity)
+            service = AuthService(uow.identity, audit=uow.audit)
             principal = service.register(
                 tenant_id=TENANT, login=login, display_name=login, password=PASSWORD
             )
@@ -515,7 +515,7 @@ def _google_user(world: World, login: str, sub: str):
     from aijudge_identity import GoogleOidcIdentity
 
     with world.database.unit_of_work() as uow:
-        principal, _ = AuthService(uow.identity).login_with_google(
+        principal, _ = AuthService(uow.identity, audit=uow.audit).login_with_google(
             tenant_id=TENANT,
             identity=GoogleOidcIdentity(sub=sub, email=login, hd="example.ac.jp"),
         )
@@ -672,7 +672,7 @@ def _google_client(world: World, login: str, sub: str) -> TestClient:
     from aijudge_identity import GoogleOidcIdentity
 
     with world.database.unit_of_work() as uow:
-        _, token = AuthService(uow.identity).login_with_google(
+        _, token = AuthService(uow.identity, audit=uow.audit).login_with_google(
             tenant_id=TENANT,
             identity=GoogleOidcIdentity(sub=sub, email=login, hd="example.ac.jp"),
         )
@@ -742,7 +742,9 @@ def test_changing_password_requires_the_current_one(world: World) -> None:
     assert "現在のパスワードが違います" in response.text
     with world.database.unit_of_work() as uow:
         # 変わっていないことを、旧パスワードでログインできることで確かめる。
-        AuthService(uow.identity).login(tenant_id=TENANT, login="teacher", password=PASSWORD)
+        AuthService(uow.identity, audit=uow.audit).login(
+            tenant_id=TENANT, login="teacher", password=PASSWORD
+        )
 
 
 def test_new_password_must_be_long_enough(world: World) -> None:
@@ -794,7 +796,7 @@ def test_changing_password_succeeds_and_revokes_every_session(world: World) -> N
     assert client.get("/manage/account/password").status_code == 401
 
     with world.database.unit_of_work() as uow:
-        service = AuthService(uow.identity)
+        service = AuthService(uow.identity, audit=uow.audit)
         # 旧パスワードはもう効かない。
         with pytest.raises(AuthenticationFailed):
             service.login(tenant_id=TENANT, login="teacher", password=PASSWORD)
@@ -965,7 +967,7 @@ def test_the_form_and_the_api_produce_the_same_task(world: World) -> None:
 
     principal = world.register("teacher", Role.INSTRUCTOR)
     with world.database.unit_of_work() as uow:
-        _record, token = AuthService(uow.identity).issue_token(
+        _record, token = AuthService(uow.identity, audit=uow.audit).issue_token(
             tenant_id=TENANT, user_id=principal.user_id, note="比較用"
         )
         uow.commit()
@@ -1071,7 +1073,10 @@ def test_an_existing_user_can_be_enrolled(world: World) -> None:
     with world.database.unit_of_work() as uow:
         user = uow.identity.find_user_by_login(TENANT, "y239999")
         assert user is not None
-        assert AuthService(uow.identity).role_in(world.course.id, user.id) is Role.LEARNER
+        assert (
+            AuthService(uow.identity, audit=uow.audit).role_in(world.course.id, user.id)
+            is Role.LEARNER
+        )
 
 
 def test_an_unknown_user_is_refused_with_a_pointer_to_the_cli(world: World) -> None:
@@ -1107,7 +1112,10 @@ def test_an_enrolment_can_be_removed_without_deleting_the_user(world: World) -> 
     assert response.status_code == 303
 
     with world.database.unit_of_work() as uow:
-        assert AuthService(uow.identity).role_in(world.course.id, student.user_id) is None
+        assert (
+            AuthService(uow.identity, audit=uow.audit).role_in(world.course.id, student.user_id)
+            is None
+        )
         assert uow.identity.get_user(student.user_id) is not None
 
 
@@ -3777,7 +3785,10 @@ def test_a_role_can_be_changed_afterwards(world: World) -> None:
     )
     assert response.status_code == 303
     with world.database.unit_of_work() as uow:
-        assert AuthService(uow.identity).role_in(world.course.id, student.user_id) is Role.ASSISTANT
+        assert (
+            AuthService(uow.identity, audit=uow.audit).role_in(world.course.id, student.user_id)
+            is Role.ASSISTANT
+        )
 
 
 def test_an_instructor_cannot_change_their_own_role(world: World) -> None:

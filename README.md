@@ -255,6 +255,7 @@ are enforced by `import-linter` and fail the build, not the review.
 | `packages/skill` | Knowledge components and mastery estimation. |
 | `packages/persistence` | PostgreSQL storage. Infrastructure — no subsystem imports it. |
 | `packages/telemetry` | Operational logging: one shape, correlation ids, identifiers only. |
+| `packages/audit` | Who changed something that reaches a grade. Append-only, in the operation's transaction. |
 | `apps/studentweb` | The learner app. |
 | `apps/reviewconsole` | The instructor console and `/manage`. |
 | `apps/grader` | The grading worker. |

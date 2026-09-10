@@ -10,6 +10,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from aijudge_audit import InMemoryAuditLog
 from aijudge_core import Course, Role
 from aijudge_core.ids import CourseId, TenantId, UserId
 from aijudge_identity import (
@@ -45,7 +46,7 @@ class Clock:
 def auth() -> tuple[AuthService, InMemoryIdentityRepository, Clock]:
     repository = InMemoryIdentityRepository()
     clock = Clock()
-    return AuthService(repository, clock=clock), repository, clock
+    return AuthService(repository, audit=InMemoryAuditLog(), clock=clock), repository, clock
 
 
 def register(service: AuthService, login: str = "s2400001") -> object:
@@ -376,7 +377,7 @@ def test_a_plain_user_is_unaffected_by_the_tenant_admin_flag(auth) -> None:
 def _service_with_user(login: str = "sano"):
     from aijudge_identity import AuthService, InMemoryIdentityRepository
 
-    service = AuthService(InMemoryIdentityRepository())
+    service = AuthService(InMemoryIdentityRepository(), audit=InMemoryAuditLog())
     principal = service.register(
         tenant_id=TENANT, login=login, display_name=login, password="correct horse battery"
     )
@@ -429,7 +430,9 @@ def test_an_expired_token_stops_working() -> None:
 
     now = datetime(2026, 8, 28, 9, 0, tzinfo=UTC)
     clock = {"t": now}
-    service = AuthService(InMemoryIdentityRepository(), clock=lambda: clock["t"])
+    service = AuthService(
+        InMemoryIdentityRepository(), audit=InMemoryAuditLog(), clock=lambda: clock["t"]
+    )
     principal = service.register(
         tenant_id=TENANT, login="sano", display_name="sano", password="correct horse battery"
     )

@@ -93,7 +93,7 @@ class World:
     def register_dual_role(self, login: str):
         """1 人の人が、片方では教員・もう片方では学習者。"""
         with self.database.unit_of_work() as uow:
-            service = AuthService(uow.identity)
+            service = AuthService(uow.identity, audit=uow.audit)
             principal = service.register(
                 tenant_id=TENANT, login=login, display_name=login, password=PASSWORD
             )

@@ -123,7 +123,7 @@ class World:
 
     def register(self, login: str, *, role: Role):
         with self.database.unit_of_work() as uow:
-            service = AuthService(uow.identity)
+            service = AuthService(uow.identity, audit=uow.audit)
             principal = service.register(
                 tenant_id=TENANT, login=login, display_name=login, password=PASSWORD
             )
@@ -1060,7 +1060,7 @@ def _make_admin(world: World, login: str) -> UserId:
     """テナント管理者を作る。ドメインは架空値のみ使う（#124）。"""
     principal = world.register(login, role=Role.ASSISTANT)
     with world.database.unit_of_work() as uow:
-        AuthService(uow.identity).set_tenant_admin(principal.user_id, admin=True)
+        AuthService(uow.identity, audit=uow.audit).set_tenant_admin(principal.user_id, admin=True)
         uow.commit()
     return principal.user_id
 
@@ -1228,7 +1228,9 @@ def test_a_successful_google_callback_creates_a_session(
     assert callback.status_code == 303
     assert SESSION_COOKIE in callback.cookies
     with world.database.unit_of_work() as uow:
-        principal = AuthService(uow.identity).resolve(callback.cookies[SESSION_COOKIE])
+        principal = AuthService(uow.identity, audit=uow.audit).resolve(
+            callback.cookies[SESSION_COOKIE]
+        )
     assert principal is not None
     assert principal.login == "taro@example.ac.jp"
 
@@ -1267,3 +1269,47 @@ def test_the_hidden_local_route_still_logs_in_local_accounts(world: World) -> No
 
     assert response.status_code == 303
     assert SESSION_COOKIE in response.cookies
+
+
+@needs_c_compiler
+def test_finalising_a_grade_writes_two_records_that_are_not_the_same_thing(
+    world: World,
+) -> None:
+    """教員が 1 件確定すると、**別々の 3 つ**が残る（ADR 0010・ADR 0016）。
+
+    - `HumanReview` … 教員がこの提出を読んだ。κ が使える唯一の記録
+    - `Finalization` … 成績が閉じた。一括確定・自動確定でも起きる事実
+    - 監査行 … その操作が行われた。**κ には使わない**
+
+    畳むと一致度が嘘になる（ADR 0010 の実例）。ここでは、監査行が増えても
+    採点側の 2 つの意味が変わっていないことを見る。
+    """
+    from aijudge_audit import ActorKind, AuditAction
+
+    instructor, accepted = _instructor_and_submission(world)
+    world.worker.run_until_empty()
+    with world.database.unit_of_work() as uow:
+        run = uow.runs.latest_for(accepted.submission.id)
+    assert run is not None
+    machine = {score.criterion_id: score.level for score in run.criterion_scores}
+
+    response = world.client.post(
+        f"/review/{accepted.submission.id}/finalize", data=_agree_form(world, machine)
+    )
+    assert response.status_code in (200, 303), response.text
+
+    with world.database.unit_of_work() as uow:
+        rows = uow.audit.list_for_target("submission", str(accepted.submission.id))
+        review = uow.reviews.find_review_for_run(run.id)
+
+    # 採点側の記録はそのまま。監査が増えても意味は動かさない。
+    assert review is not None
+
+    actions = [row.action for row in rows]
+    assert AuditAction.REVIEW_RECORDED in actions
+    assert AuditAction.GRADE_FINALIZED in actions
+    for row in rows:
+        # **教員の操作なので、教員に帰属する**（自動確定は system になる）。
+        assert row.actor_kind is ActorKind.USER
+        assert row.actor_user_id == instructor.user_id
+        assert row.request_id is not None

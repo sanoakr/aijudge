@@ -93,7 +93,7 @@ def world(tmp_path: Path):
         profiles_dir=PROFILES,
     )
     with database.unit_of_work() as uow:
-        auth = AuthService(uow.identity)
+        auth = AuthService(uow.identity, audit=uow.audit)
         teacher = auth.register(
             tenant_id=TENANT, login="sano", display_name="佐野", password=PASSWORD
         )

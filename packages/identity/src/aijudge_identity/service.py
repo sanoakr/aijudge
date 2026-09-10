@@ -19,6 +19,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
+from aijudge_audit import AuditAction, AuditLog, AuditRecorder
 from aijudge_core import Course, Enrollment, Role
 from aijudge_core.ids import ApiTokenId, CourseId, SessionId, TenantId, UserId, new_id
 
@@ -51,16 +52,76 @@ _DUMMY_HASH = hash_password("dummy-password-for-constant-time-comparison")
 
 
 class AuthService:
+    """認証・利用者・受講。
+
+    **監査ログ（ADR 0016）はここが書く分と、呼び出し側が書く分に分かれる。**
+    境目は「誰がやったかを誰が知っているか」である。
+
+    - ここが書くのは**認証の結果だけ**（ログイン成否・ログアウト）。操作者は
+      本人（失敗なら不明）で、この層だけで完結する。
+    - トークンの発行・失効、受講の付与、権限の変更、無効化、パスワードの
+      再発行は**呼び出し側が書く**。操作しているのは対象の利用者ではなく
+      教員や管理者であり、それを知っているのは呼び出し側だけである。
+      ここで書くと、**操作された人が操作した人として記録される。**
+
+    `audit` に既定値を置かないのは、書き込み点を足したときに黙って記録が
+    落ちないようにするため。
+    """
+
     def __init__(
         self,
         repository: IdentityRepository,
         *,
+        audit: AuditLog,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
         session_hours: int = DEFAULT_SESSION_HOURS,
+        request_id: str | None = None,
+        source_ip: str | None = None,
     ) -> None:
         self._repository = repository
+        self._audit = audit
         self._clock = clock
         self._session_hours = session_hours
+        self._request_id = request_id
+        self._source_ip = source_ip
+
+    def _record_login_failure(
+        self, tenant_id: TenantId, *, login: str, user_id: UserId | None, reason: str
+    ) -> None:
+        """**口座の持ち主に帰属させない。**
+
+        パスワードを間違えたのが本人とは限らず、むしろ本人でない場合こそ
+        記録が要る。対象は口座（分かっていれば）、操作者は不明と書く。
+        """
+        AuditRecorder.for_anonymous(
+            self._audit,
+            tenant_id=tenant_id,
+            request_id=self._request_id,
+            source_ip=self._source_ip,
+            clock=self._clock,
+        ).record(
+            AuditAction.LOGIN_FAILED,
+            target_type="user",
+            target_id=str(user_id) if user_id is not None else "unknown",
+            summary=f"ログインに失敗した（{reason}）",
+            detail={"login": login, "reason": reason},
+        )
+
+    def _record_login_success(self, user: User, *, method: str) -> None:
+        AuditRecorder.for_user(
+            self._audit,
+            tenant_id=user.tenant_id,
+            user_id=user.id,
+            request_id=self._request_id,
+            source_ip=self._source_ip,
+            clock=self._clock,
+        ).record(
+            AuditAction.LOGIN_SUCCEEDED,
+            target_type="user",
+            target_id=str(user.id),
+            summary=f"ログインした（{method}）",
+            detail={"method": method},
+        )
 
     # -- 利用者 ------------------------------------------------------------
 
@@ -136,10 +197,18 @@ class AuthService:
         if user is None:
             # 存在しない ID でも同じだけ時間を使う。
             verify_password(password, _DUMMY_HASH)
+            # **記録には差を書く。** 応答は同じにするが（列挙を防ぐ）、
+            # 監査で「存在しない ID への総当たり」と「特定の口座への総当たり」を
+            # 区別できないと、後から攻撃の形が読めない。
+            self._record_login_failure(tenant_id, login=login, user_id=None, reason="no such user")
             raise AuthenticationFailed("ID またはパスワードが違います")
         if not verify_password(password, user.password_hash):
+            self._record_login_failure(
+                tenant_id, login=login, user_id=user.id, reason="bad password"
+            )
             raise AuthenticationFailed("ID またはパスワードが違います")
         if not user.is_active:
+            self._record_login_failure(tenant_id, login=login, user_id=user.id, reason="disabled")
             raise AuthenticationFailed("この利用者は無効化されています")
 
         if needs_rehash(user.password_hash):
@@ -147,6 +216,7 @@ class AuthService:
             user = user.model_copy(update={"password_hash": hash_password(password)})
             self._repository.save_user(user)
 
+        self._record_login_success(user, method="password")
         return self._start_session(user)
 
     def login_with_google(
@@ -174,8 +244,12 @@ class AuthService:
             )
             self._repository.save_user(user)
         if not user.is_active:
+            self._record_login_failure(
+                tenant_id, login=identity.email, user_id=user.id, reason="disabled"
+            )
             raise AuthenticationFailed("この利用者は無効化されています")
 
+        self._record_login_success(user, method="google")
         return self._start_session(user)
 
     def _start_session(self, user: User) -> tuple[Principal, str]:
@@ -272,8 +346,24 @@ class AuthService:
 
     def logout(self, token: str) -> None:
         session = self._repository.find_session_by_token_hash(_token_hash(token))
-        if session is not None:
-            self._repository.revoke_session(session.id, self._clock())
+        if session is None:
+            # 既に切れているセッションでのログアウトは、起きなかったことなので
+            # 記録しない。書くと「誰かがログアウトした」行が実体なく積もる。
+            return
+        self._repository.revoke_session(session.id, self._clock())
+        AuditRecorder.for_user(
+            self._audit,
+            tenant_id=session.tenant_id,
+            user_id=session.user_id,
+            request_id=self._request_id,
+            source_ip=self._source_ip,
+            clock=self._clock,
+        ).record(
+            AuditAction.LOGGED_OUT,
+            target_type="user",
+            target_id=str(session.user_id),
+            summary="ログアウトした",
+        )
 
     # -- コースと受講 ------------------------------------------------------
 

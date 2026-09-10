@@ -65,7 +65,7 @@ class World:
 
     def user(self, login: str, role: Role | None, course_id: CourseId | None = None):
         with self.database.unit_of_work() as uow:
-            service = AuthService(uow.identity)
+            service = AuthService(uow.identity, audit=uow.audit)
             principal = service.register(
                 tenant_id=TENANT, login=login, display_name=login, password=PASSWORD
             )
@@ -82,7 +82,7 @@ class World:
     def token(self, login: str, role: Role | None = Role.INSTRUCTOR) -> str:
         principal = self.user(login, role)
         with self.database.unit_of_work() as uow:
-            _record, token = AuthService(uow.identity).issue_token(
+            _record, token = AuthService(uow.identity, audit=uow.audit).issue_token(
                 tenant_id=TENANT, user_id=principal.user_id, note="テスト用の流し込み"
             )
             uow.commit()
@@ -139,14 +139,14 @@ def test_a_session_cookie_does_not_open_the_api(world: World) -> None:
 def test_a_revoked_token_stops_working(world: World) -> None:
     principal = world.user("teacher", Role.INSTRUCTOR)
     with world.database.unit_of_work() as uow:
-        record, token = AuthService(uow.identity).issue_token(
+        record, token = AuthService(uow.identity, audit=uow.audit).issue_token(
             tenant_id=TENANT, user_id=principal.user_id, note="テスト用の流し込み"
         )
         uow.commit()
     assert world.client.get("/api/whoami", headers=world.auth(token)).status_code == 200
 
     with world.database.unit_of_work() as uow:
-        AuthService(uow.identity).revoke_token(record.id)
+        AuthService(uow.identity, audit=uow.audit).revoke_token(record.id)
         uow.commit()
 
     assert world.client.get("/api/whoami", headers=world.auth(token)).status_code == 401

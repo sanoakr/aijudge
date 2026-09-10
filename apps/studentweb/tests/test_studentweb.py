@@ -114,7 +114,7 @@ class World:
 
     def register(self, login: str, *, role: Role = Role.LEARNER, enrol: bool = True):
         with self.database.unit_of_work() as uow:
-            service = AuthService(uow.identity)
+            service = AuthService(uow.identity, audit=uow.audit)
             principal = service.register(
                 tenant_id=TENANT, login=login, display_name=login, password=PASSWORD
             )
@@ -360,7 +360,7 @@ def test_a_tenant_admin_sees_their_role_and_a_console_link_in_the_course_list(
     """
     principal = world.register("admin1", enrol=False)
     with world.database.unit_of_work() as uow:
-        AuthService(uow.identity).set_tenant_admin(principal.user_id, admin=True)
+        AuthService(uow.identity, audit=uow.audit).set_tenant_admin(principal.user_id, admin=True)
         uow.commit()
     world.login("admin1")
 
@@ -391,7 +391,7 @@ def test_someone_grading_any_course_gets_a_console_entry_link(world: World) -> N
 def test_a_tenant_admin_gets_a_console_entry_link_too(world: World) -> None:
     principal = world.register("admin2", enrol=False)
     with world.database.unit_of_work() as uow:
-        AuthService(uow.identity).set_tenant_admin(principal.user_id, admin=True)
+        AuthService(uow.identity, audit=uow.audit).set_tenant_admin(principal.user_id, admin=True)
         uow.commit()
     world.login("admin2")
 
@@ -1830,7 +1830,9 @@ def test_a_successful_google_callback_creates_a_session(
     assert callback.status_code == 303
     assert SESSION_COOKIE in callback.cookies
     with world.database.unit_of_work() as uow:
-        principal = AuthService(uow.identity).resolve(callback.cookies[SESSION_COOKIE])
+        principal = AuthService(uow.identity, audit=uow.audit).resolve(
+            callback.cookies[SESSION_COOKIE]
+        )
     assert principal is not None
     assert principal.login == "taro@example.ac.jp"
 

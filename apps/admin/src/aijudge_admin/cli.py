@@ -21,6 +21,7 @@ import os
 import sys
 from pathlib import Path
 
+from aijudge_audit import AuditAction, AuditRecorder
 from aijudge_core import DIVISIONS, Role
 from aijudge_core.ids import CourseId, TenantId
 from aijudge_identity import DEFAULT_TOKEN_DAYS, AuthenticationFailed, AuthService
@@ -59,6 +60,18 @@ def _tenant(args: argparse.Namespace) -> TenantId:
 # --------------------------------------------------------------------------
 # コース
 # --------------------------------------------------------------------------
+
+
+def _cli_audit(uow, tenant_id: TenantId) -> AuditRecorder:
+    """CLI からの操作の監査記録（ADR 0016）。
+
+    **操作者は `system` にする。** `aijudge-admin` は認証された主体を持たない
+    ── サーバに入れる人が `sudo -u aijudge` で走らせるもので、誰が打ったかを
+    ここで知る手立ては無い。分かっているふりをして誰かの id を書くくらいなら、
+    「人間の操作者は特定できていない」と正直に残す方がよい（誰が打ったかは
+    シェルへの到達権限と journald の側の問題である）。
+    """
+    return AuditRecorder.for_system(uow.audit, tenant_id=tenant_id)
 
 
 def cmd_course_create(args: argparse.Namespace) -> int:
@@ -197,7 +210,7 @@ def cmd_token_issue(args: argparse.Namespace) -> int:
     database = _database(args)
     try:
         with database.unit_of_work() as uow:
-            auth = AuthService(uow.identity)
+            auth = AuthService(uow.identity, audit=uow.audit)
             user = uow.identity.find_user_by_login(_tenant(args), args.login)
             if user is None:
                 print(f"利用者が見つかりません: {args.login}", file=sys.stderr)
@@ -207,6 +220,22 @@ def cmd_token_issue(args: argparse.Namespace) -> int:
                 user_id=user.id,
                 note=args.note,
                 days=None if args.days == 0 else args.days,
+            )
+            # **平文は記録しない。** ここでしか出さない値を、消さない場所へ
+            # 写しては意味が無い。残すのは「誰に・何のために・いつまで」。
+            _cli_audit(uow, _tenant(args)).record(
+                AuditAction.TOKEN_ISSUED,
+                target_type="api_token",
+                target_id=str(record.id),
+                summary=f"API トークンを発行した（{args.login} / {record.note}）",
+                detail={
+                    "user_id": str(user.id),
+                    "login": args.login,
+                    "note": record.note,
+                    "expires_at": None
+                    if record.expires_at is None
+                    else record.expires_at.isoformat(),
+                },
             )
             uow.commit()
     except (ValueError, AuthenticationFailed) as exc:
@@ -229,7 +258,7 @@ def cmd_token_list(args: argparse.Namespace) -> int:
     database = _database(args)
     try:
         with database.unit_of_work() as uow:
-            tokens = AuthService(uow.identity).list_tokens(_tenant(args))
+            tokens = AuthService(uow.identity, audit=uow.audit).list_tokens(_tenant(args))
             users = {t.user_id: uow.identity.get_user(t.user_id) for t in tokens}
     finally:
         database.dispose()
@@ -253,7 +282,13 @@ def cmd_token_revoke(args: argparse.Namespace) -> int:
     database = _database(args)
     try:
         with database.unit_of_work() as uow:
-            AuthService(uow.identity).revoke_token(ApiTokenId(args.id))
+            AuthService(uow.identity, audit=uow.audit).revoke_token(ApiTokenId(args.id))
+            _cli_audit(uow, _tenant(args)).record(
+                AuditAction.TOKEN_REVOKED,
+                target_type="api_token",
+                target_id=str(args.id),
+                summary="API トークンを失効させた",
+            )
             uow.commit()
     finally:
         database.dispose()

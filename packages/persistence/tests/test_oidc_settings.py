@@ -91,13 +91,13 @@ def test_google_login_creates_and_then_resolves_the_same_user_across_transaction
     identity = GoogleOidcIdentity(sub="sub-1", email="taro@example.ac.jp", hd="example.ac.jp")
 
     with database.unit_of_work() as uow:
-        principal1, _ = AuthService(uow.identity).login_with_google(
+        principal1, _ = AuthService(uow.identity, audit=uow.audit).login_with_google(
             tenant_id=TENANT, identity=identity
         )
         uow.commit()
 
     with database.unit_of_work() as uow:
-        principal2, token = AuthService(uow.identity).login_with_google(
+        principal2, token = AuthService(uow.identity, audit=uow.audit).login_with_google(
             tenant_id=TENANT, identity=identity
         )
         uow.commit()
@@ -105,4 +105,4 @@ def test_google_login_creates_and_then_resolves_the_same_user_across_transaction
     assert principal1.user_id == principal2.user_id
 
     with database.unit_of_work() as uow:
-        assert AuthService(uow.identity).resolve(token) == principal2
+        assert AuthService(uow.identity, audit=uow.audit).resolve(token) == principal2

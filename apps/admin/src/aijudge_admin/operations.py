@@ -177,7 +177,7 @@ def enrol_roster(
         if uow.identity.get_course(course_id) is None:
             raise AdminError(f"コース {course_id} がありません。先に course create してください")
 
-        auth = AuthService(uow.identity)
+        auth = AuthService(uow.identity, audit=uow.audit)
         for entry in entries:
             user = uow.identity.find_user_by_login(tenant_id, entry.login)
             if user is None:
@@ -258,7 +258,7 @@ def create_staff(
     検査もここに置く。
     """
     with database.unit_of_work() as uow:
-        auth = AuthService(uow.identity)
+        auth = AuthService(uow.identity, audit=uow.audit)
         # **コースの実在を先に確かめる**（#175）。確かめないと、受講登録の
         # INSERT が外部キー違反で落ち、教員には SQLAlchemy の生の
         # トレースバックが出る ── 実際に起きた（`--course` にコースの

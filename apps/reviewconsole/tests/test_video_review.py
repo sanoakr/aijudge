@@ -95,7 +95,7 @@ def world(tmp_path: Path):
 
     def register(login: str, role: Role) -> UserId:
         with database.unit_of_work() as uow:
-            svc = AuthService(uow.identity)
+            svc = AuthService(uow.identity, audit=uow.audit)
             p = svc.register(tenant_id=TENANT, login=login, display_name=login, password=PASSWORD)
             svc.enroll(tenant_id=TENANT, course_id=COURSE, user_id=p.user_id, role=role)
             uow.commit()

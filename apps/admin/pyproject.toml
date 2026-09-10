@@ -5,6 +5,7 @@ description = "Operator CLI: courses, enrolment, and task import. What a term ne
 requires-python = ">=3.12"
 dependencies = [
     "aijudge-core",
+    "aijudge-audit",
     "aijudge-identity",
     "aijudge-authoring",
     "aijudge-grading",
