@@ -221,7 +221,12 @@ PROMPT = PromptTemplate(
     #    禁止は「挙げるな」ではなく「同じ概念に新しいキーを作るな」になり、
     #    モデルが黙る理由が無くなる。教員の側も、このコースが使う範囲
     #    （`Course.knowledge_components`）を決める材料をここで得る（#41）。
-    version="4",
+    # 5: 骨格を入れた（分野と単位は `subjects/kc/*.yaml` で固定）。
+    #    **単位の一覧を渡し、新しい候補は必ずそのどれかの下に置かせる。**
+    #    渡さないと、モデルは分野そのものや存在しない単位を作る ── それは
+    #    登録できないので、教員が採用しようとして初めて断られる（#157 で
+    #    字面について直したのと同じ形の往復が、構造について残っていた）。
+    version="5",
     system=(
         "あなたは大学の理工系コースのシラバスを読み、"
         "そのコースの素性と、そこで扱う知識要素を取り出す助手です。"
@@ -231,6 +236,11 @@ PROMPT = PromptTemplate(
     ),
     template=(
         "## 使える名前空間\n{namespaces}\n\n"
+        "## 単位の一覧（この下にしか置けません）\n"
+        "{units}\n"
+        "**新しい知識要素のキーは、必ずこの一覧のどれかの下に置いてください**"
+        "（`単位のキー` + `.` + 短い英語の名前）。"
+        "一覧に無い単位や、新しい分野を作らないでください ── 登録できません。\n\n"
         "## 既にある知識要素\n"
         "{existing}\n"
         "**この一覧は「挙げてはいけないもの」ではありません。**"
@@ -245,8 +255,10 @@ PROMPT = PromptTemplate(
         "既にあるものの下に子を足すのが普通の形です。"
         "シラバスが知識要素を 1 つも扱っていないときだけ、空で返してください。\n\n"
         "## シラバス本文\n{text}\n\n"
-        "知識要素のキーは `名前空間.親.子` の形にし、英小文字・数字・下線だけを使います。\n"
-        "**親が既にあるものを優先し**、無い場合は親から順に挙げてください。\n"
+        "知識要素のキーは `分野.単位.名前` の 3 階層で、英小文字・数字・下線だけを使います"
+        "（名前空間を先頭に付けます: `{first_namespace}.分野.単位.名前`）。\n"
+        "**既にあるものをそのまま挙げるのが第一で**、"
+        "どうしても足りないときだけ新しい名前を単位の下に足してください。\n"
         "候補は多くても 20 件までにします。\n"
     ),
 )
@@ -259,10 +271,10 @@ class ProposalResult:
     proposal: SyllabusProposal
     prompt_id: str
     model: str
-    # 形が正準キーになっていないので落とした候補のキー（#157）。
+    # 採用できないので落とした候補と、その理由（#157）。
     # **黙って減らさない。** 20 件出したはずが 14 件しか並んでいないとき、
     # 何が起きたのか画面から分からないのは、間違った候補が並ぶのと同じくらい悪い。
-    discarded: tuple[str, ...] = ()
+    discarded: tuple[DiscardedCandidate, ...] = ()
 
 
 class SyllabusReader:
@@ -301,8 +313,14 @@ class SyllabusReader:
         *,
         namespaces: tuple[str, ...],
         existing_keys: tuple[str, ...] = (),
+        unit_keys: tuple[str, ...] = (),
     ) -> ProposalResult:
-        """貼り付けられたシラバス本文から候補を作る。"""
+        """貼り付けられたシラバス本文から候補を作る。
+
+        `unit_keys` は骨格の単位（第 2 階層）。**新しい候補はこの下にしか
+        置けない**ので、プロンプトで渡し、返ってきたものも同じ規則で濾す
+        ── 頼みは強制ではない（`_screen` の docstring）。
+        """
         result = self._gateway.complete_structured(
             PROMPT,
             SyllabusProposal,
@@ -311,36 +329,92 @@ class SyllabusReader:
             data_class=DataClass.NON_PERSONAL,
             max_tokens=self._max_tokens,
             namespaces="\n".join(f"- {n}" for n in namespaces) or "（なし）",
+            first_namespace=namespaces[0] if namespaces else "cs",
+            units="\n".join(f"- {k}" for k in unit_keys) or "（まだありません）",
             existing="\n".join(f"- {k}" for k in existing_keys) or "（まだありません）",
             text=text[:20000],
         )
+        kept, discarded = _screen(result.value, unit_keys=unit_keys, existing_keys=existing_keys)
         return ProposalResult(
-            proposal=_only_valid_keys(result.value),
+            proposal=kept,
             prompt_id=PROMPT.id,
             model=self._model,
-            discarded=tuple(
-                hint.key
-                for hint in result.value.knowledge_components
-                if not is_valid_kc_key(hint.key)
-            ),
+            discarded=discarded,
         )
 
 
-def _only_valid_keys(proposal: SyllabusProposal) -> SyllabusProposal:
-    """正準キーの形をしていない候補を落とす。**ここが唯一の関門**（#157）。
+@dataclass(frozen=True)
+class DiscardedCandidate:
+    """採用できないので落とした候補と、その理由。
 
-    プロンプトは「英小文字・数字・下線だけ」と頼んでいるが、頼みは強制では
-    ない ── 日本語のシラバスを読ませると、モデルは日本語のキーを返す。
-    落とさないと、そのキーは一覧 → 採用 → 追加フォームまで素通りし、最後の
-    登録で初めて弾かれる。**教員は往復し終えてから断られることになる。**
+    **黙って減らさない。** 20 件出したはずが 14 件しか並んでいないとき、
+    何が起きたのか画面から分からないのは、間違った候補が並ぶのと同じくらい悪い。
+    """
+
+    key: str
+    reason: str
+
+
+def _screen(
+    proposal: SyllabusProposal,
+    *,
+    unit_keys: tuple[str, ...],
+    existing_keys: tuple[str, ...],
+) -> tuple[SyllabusProposal, tuple[DiscardedCandidate, ...]]:
+    """採用できない候補を落とす。**ここが唯一の関門**（#157）。
+
+    プロンプトは形も置き場所も頼んでいるが、頼みは強制ではない ── 日本語の
+    シラバスを読ませればモデルは日本語のキーを返すし、単位の一覧を渡しても
+    存在しない単位を作る。落とさないと、そのキーは一覧 → 採用 → 追加フォームまで
+    素通りし、最後の登録で初めて弾かれる。**教員は往復し終えてから断られる。**
+
+    見るのは 3 つ。
+
+    1. **形** — 正準キーか（#157 でここだけ入れた）
+    2. **深さ** — 分野・単位・知識要素の 3 階層か。分野や単位そのものを
+       候補に出されても、教員はそれを登録できない
+    3. **置き場所** — その単位が骨格にあるか。既にある知識要素は素通しする
+       （骨格の外にある教員追加のものが落ちてしまう）
 
     候補の生成はすべてここを通る（画面は `SyllabusReader.propose` しか
     呼ばない）ので、関門を 1 つに保てる。
     """
-    kept = tuple(hint for hint in proposal.knowledge_components if is_valid_kc_key(hint.key))
+    units = set(unit_keys)
+    known = set(existing_keys)
+    kept: list[KcHint] = []
+    dropped: list[DiscardedCandidate] = []
+
+    for hint in proposal.knowledge_components:
+        key = hint.key.strip()
+        if not is_valid_kc_key(key):
+            dropped.append(DiscardedCandidate(key=hint.key, reason="キーの形が正しくありません"))
+            continue
+        if key in known:
+            # 既にあるものはそのまま通す。**骨格の外にある教員追加の知識要素も
+            # ここを通る** ── 単位で濾すと、それが落ちる。
+            kept.append(hint)
+            continue
+        depth = key.count(".")
+        if depth != 3:
+            dropped.append(
+                DiscardedCandidate(
+                    key=key,
+                    reason=(
+                        "分野そのものです（知識要素は 3 階層）"
+                        if depth < 3
+                        else "階層が深すぎます（知識要素は 3 階層まで）"
+                    ),
+                )
+            )
+            continue
+        if units and key.rsplit(".", 1)[0] not in units:
+            dropped.append(DiscardedCandidate(key=key, reason="骨格に無い単位の下に置かれています"))
+            continue
+        kept.append(hint)
+
     if len(kept) == len(proposal.knowledge_components):
-        return proposal
-    return proposal.model_copy(update={"knowledge_components": kept})
+        return proposal, ()
+    return proposal.model_copy(update={"knowledge_components": tuple(kept)}), tuple(dropped)
 
 
 __all__ = [
@@ -350,6 +424,7 @@ __all__ = [
     "SYLLABUS_URL_TEMPLATE",
     "CourseBasics",
     "CourseHint",
+    "DiscardedCandidate",
     "KcHint",
     "ProposalResult",
     "SyllabusError",

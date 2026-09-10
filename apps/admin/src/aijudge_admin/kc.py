@@ -466,6 +466,7 @@ def suggest_similar(
     namespaces: tuple[str, ...],
     threshold: float = SUGGESTION_THRESHOLD,
     limit: int = MAX_SUGGESTIONS,
+    existing: tuple[KnowledgeComponent, ...] | None = None,
 ) -> tuple[KcSuggestion, ...]:
     """足そうとしている KC に近い既存 KC を、近い順に返す。
 
@@ -489,8 +490,15 @@ def suggest_similar(
         path = ()
     unit_key = ".".join(key.split(".")[:-1]) if len(path) >= 2 else None
 
+    # 候補を 20 件まとめて調べるときに 20 回引き直さないよう、読み込み済みの
+    # 一覧を渡せるようにしてある。
+    pool = (
+        tuple(kc for kc in existing if not kc.deprecated)
+        if existing is not None
+        else list_for_namespaces(database, namespaces, include_deprecated=False)
+    )
     scored: list[KcSuggestion] = []
-    for kc in list_for_namespaces(database, namespaces, include_deprecated=False):
+    for kc in pool:
         if kc.key == key:
             continue
         # 分野と単位そのものは提案しない。足せるのは知識要素だけなので、
