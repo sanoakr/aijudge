@@ -538,30 +538,6 @@ CAS 同値、物理の単位検査など）。`code_test_runner` は 1 つの評
 選び、`rubric_ai_judge` は言語を知らないので、**コースを増やすたびに評価器を
 作ることにはならない。**
 
-### 知識要素の骨格を入れる
-
-**学期の前に 1 度。** 入れないと教員は知識要素を 1 件も足せない ──
-分野と単位は骨格でしか作れず、木が空だと「既存の子としてのみ足せる」という
-規則が教員を締め出す。
-
-```fish
-uv run aijudge-admin kc seed --namespace cs
-```
-
-何度走らせても増えない。骨格ファイル（`$AIJUDGE_PROFILES_DIR/kc/cs.yaml`）を
-直して足したら、もう一度走らせれば差分だけが入る。
-
-**運用では科目プロファイルと同じ場所に置く。** リポジトリの `subjects/kc/` は
-サンプルで、デプロイ（`git checkout <tag>`）のたびに入れ替わる。
-
-```fish
-sudo -u aijudge mkdir -p /srv/aijudge/subjects/kc
-sudo -u aijudge cp /opt/aijudge/subjects/kc/*.yaml /srv/aijudge/subjects/kc/
-```
-
-画面から足せるのは**知識要素（第 3 階層）まで**で、分野と単位は骨格が決める。
-足すときは近い既存 KC が分野・単位をまたいで提示される（`subjects/kc/README.md`）。
-
 ### 既存の DB に入れるとき
 
 マイグレーション機構はまだ無い（`--create-schema` が

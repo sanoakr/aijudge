@@ -235,15 +235,12 @@ def test_the_knowledge_components_survive_the_copy(world) -> None:
     習熟度が積まれないものになる。
     """
     database, course = world
-    # 分野と単位は骨格が決めるので `seeding` で入れる。教員が足せるのは
-    # 知識要素（第 3 階層）だけ。
-    for key, label in (("cs.loops", "繰り返し"), ("cs.loops.control", "制御")):
-        register_kc(database, key=key, label=label, namespaces=("cs",), seeding=True)
-    register_kc(database, key="cs.loops.control.termination", label="停止条件", namespaces=("cs",))
+    register_kc(database, key="cs.loops", label="繰り返し", namespaces=("cs",), allow_root=True)
+    register_kc(database, key="cs.loops.termination", label="停止条件", namespaces=("cs",))
     save_task(
         database,
         course_id=course.id,
-        spec=_spec(knowledge_components=("cs.loops.control.termination",)),
+        spec=_spec(knowledge_components=("cs.loops.termination",)),
         subject_profile=course.subject_profile,
         authored_by=TEACHER,
     )
@@ -255,7 +252,7 @@ def test_the_knowledge_components_survive_the_copy(world) -> None:
         version = uow.tasks.latest_published_version(task.id)
         kc = uow.skills.get_kc(version.q_matrix[0].kc_id)
     assert kc is not None
-    assert kc.key == "cs.loops.control.termination"
+    assert kc.key == "cs.loops.termination"
 
 
 def test_the_statement_images_follow_the_copy(world) -> None:

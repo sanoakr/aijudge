@@ -169,8 +169,7 @@
       <strong>出てくるのは、このコースが扱う知識要素です。</strong>
       既にあるものも並びます（このコースが使う範囲を決める材料になります）。
       ここからは登録しません ── 1 件ずつ「知識要素を追加する」に取り込み、確かめてから登録します。
-      既にある {{ existing | length }} 件に寄せるよう指示し、
-      **骨格の単位の下にしか置かせません**（重複と、登録できない候補を作らないため）。
+      既にある {{ existing | length }} 件に寄せるよう指示します（重複を作らないため）。
     </span>
     <span class="working flash reading" hidden></span>
     <button type="submit">候補を生成</button>
@@ -190,21 +189,11 @@
 {# **落とした分を黙らせない。** 20 件出したはずが 14 件しか並んでいないとき、
    何が起きたのか画面から分からないのは、間違った候補が並ぶのと同じくらい悪い。 #}
 <div class="note">
-  <strong>採用できない候補を {{ discarded | length }} 件除きました。</strong>
-  <table style="margin-top:8px">
-    <thead><tr><th class="grow">候補のキー</th><th class="fit">理由</th></tr></thead>
-    <tbody>
-    {% for d in discarded %}
-      <tr><td class="grow mono">{{ d.key }}</td><td class="fit">{{ d.reason }}</td></tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  <p class="desc" style="margin-bottom:0">
-    キーは <span class="mono">分野.単位.名前</span> の 3 階層で、半角英小文字・数字・下線と
-    <span class="mono">.</span> だけで書きます ── 日本語は名前・説明のほうに入ります。
-    単位は骨格が決めており、そこに無い単位の下には置けません。
-    同じ概念が要るときは、下の「知識要素を追加する」から手で足してください。
-  </p>
+  キーの形が正しくない候補を {{ discarded | length }} 件除きました
+  （<span class="mono">{{ discarded | join('、') }}</span>）。
+  キーは半角英小文字・数字・下線と <span class="mono">.</span> だけで書きます
+  ── 日本語は名前・説明のほうに入ります。同じ概念が要るときは、下の
+  「知識要素を追加する」から手で足してください。
 </div>
 {% endif %}
 {% if proposal.knowledge_components %}
@@ -233,16 +222,6 @@
         <td class="grow">{{ k.label }}
           {% if k.description %}<br><span class="desc">{{ k.description }}</span>{% endif %}
           {% if k.source %}<br><span class="desc">出典: {{ k.source }}</span>{% endif %}
-          {# **採用の前に近いものを見せる。** 分野・単位をまたいで探すので、
-             「別の分野に同じ語がある」に気づける ── 一覧を目で追っても
-             見つからない種類の重複である。 #}
-          {% if near.get(k.key) %}
-          <br><span class="desc">近いもの:
-            {% for hit in near[k.key] %}
-              <span class="mono">{{ hit.key }}</span>（{{ hit.kc.label }}{% if not hit.same_unit %}・<strong>別の枝</strong>{% endif %}）{% if not loop.last %} / {% endif %}
-            {% endfor %}
-          </span>
-          {% endif %}
         </td>
         <td class="fit">
           {% if known %}<span class="pill ok">このコースで使用中</span>
@@ -263,8 +242,7 @@
     キー・名前・説明を確かめて（必要なら直して）から登録してください。<br>
     <strong>「体系にあり」は、他のコースが既に作ったものです。</strong>
     取り込んで登録すると<strong>このコースで使う範囲に入るだけ</strong>で、名前と説明は変わりません。<br>
-    <strong>置けるのは骨格の単位の下だけです。</strong>
-    分野と単位は骨格ファイルで決まっており、そこに無い場所を指す候補は上で除かれています。
+    <strong>親が実在している必要があります。</strong>親から順に足してください。
     第 1 階層（分野の根）を作るには管理者の操作が要ります。
   </p>
 </form>
@@ -282,41 +260,9 @@
 {% endif %}
 {% endif %}
 
-{% set ns = namespaces[0] if namespaces else 'cs' %}
 <h2 id="add">知識要素を追加する</h2>
-{# 新しい KC は**既存の単位の子**としてのみ足せる（`aijudge_admin.kc`）。
-   分野と単位は骨格が決めるので、ここで足せるのは第 3 階層だけ。 #}
-{% if suggestions %}
-{# **止めるだけで、拒まない。** 一致を強制すると、教員は近いだけの枝に
-   無理やり寄せる ── それは体系が整ったように見えて、実際には嘘の
-   対応づけが 1 件増えただけである。 #}
-<div class="note warn">
-  <strong>近い知識要素が既にあります。</strong>
-  同じ概念に別のキーを作ると、Q-matrix が同じものを 2 つに割ります。
-  下の候補で足りるならそちらを使い、違うものなら「このまま追加する」を押してください。
-  <table style="margin-top:10px">
-    <thead><tr><th>キー</th><th>名前</th><th class="fit">場所</th><th class="fit">近さ</th></tr></thead>
-    <tbody>
-    {% for hit in suggestions %}
-      <tr>
-        <td><code>{{ hit.key }}</code></td>
-        <td>{{ hit.kc.label }}</td>
-        <td class="fit">{% if hit.same_unit %}同じ単位{% else %}<strong>別の枝</strong>{% endif %}</td>
-        <td class="fit mono">{{ '%.2f'|format(hit.score) }}</td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  {# **どう測ったかを言う**（`duplicates.py` と同じ約束）。字面だけでは
-     言い換えた重複は見つからないので、「近いものは無かった」を安全の
-     証拠にさせない。 #}
-  <p class="desc" style="margin-bottom:0">
-    近さは<strong>字面で測っています</strong> ──
-    言い換え（「反復処理」と「くりかえし」など）は見つかりません。
-    一覧で確かめてください。
-  </p>
-</div>
-{% endif %}
+{# 新しい KC は**既存 KC の子**としてのみ足せる（`aijudge_admin.kc`）。
+   孤立キーの山ではなく木を保つため。 #}
 {% if draft %}
 <div class="note">
   <strong>候補「{{ draft.key }}」を取り込みました。</strong>まだ登録されていません。
@@ -334,42 +280,35 @@
   <div class="inline-field">
     <span class="body">
       <label for="key">キー（<code>{{ namespaces[0] if namespaces else '名前空間' }}.親.子</code>）</label>
-      <input id="key" name="key" required value="{{ pending.key if pending else (draft.key if draft else '') }}"
+      <input id="key" name="key" required value="{{ draft.key if draft else '' }}"
              placeholder="{{ namespaces[0] if namespaces else 'cs' }}.loops.termination">
     </span>
     {% if saved_key and saved_key.startswith('kc_') %}<span class="flash">{{ saved }}</span>{% endif %}
   </div>
   <div class="field">
     <label for="label">名前（人が読む短い名前）</label>
-    <input id="label" name="label" value="{{ pending.label if pending else (draft.label if draft else '') }}"
+    <input id="label" name="label" value="{{ draft.label if draft else '' }}"
            placeholder="ループの停止条件">
   </div>
   <div class="field">
     <label for="description">説明（任意）</label>
     <input id="description" name="description"
-           value="{{ pending.description if pending else (draft.description if draft else '') }}"
+           value="{{ draft.description if draft else '' }}"
            placeholder="何ができれば身に付いたと言えるか">
   </div>
   <p class="desc">
-    {# **名前空間は階層に数えない**ことを先に言う。`cs.sdf` は点で 2 つに
+    {# **名前空間は階層に数えない**ことを先に言う。`cs.c_language` は点で 2 つに
        分かれて見えるので、これを「第 1 階層」とだけ言うと読めない。 #}
-    <strong>名前空間（<code>{{ ns }}</code>）は階層に数えません。</strong>
-    <code>{{ ns }}.sdf</code> が分野、<code>{{ ns }}.sdf.fundamentals</code> が単位、
-    <code>{{ ns }}.sdf.fundamentals.branching</code> が知識要素です。<br>
-    <strong>足せるのは知識要素（第 3 階層）だけです。</strong>
-    分野と単位は骨格ファイル（<code>subjects/kc/{{ ns }}.yaml</code> ── CS2023 の
-    Knowledge Area / Knowledge Unit）で決まっており、この画面からは足せません。
-    増やすには骨格ファイルの変更が要ります。<br>
+    <strong>名前空間（<code>{{ namespaces[0] if namespaces else 'cs' }}</code>）は階層に数えません。</strong>
+    <code>{{ namespaces[0] if namespaces else 'cs' }}.loops</code> が第 1 階層（分野の根）、
+    <code>{{ namespaces[0] if namespaces else 'cs' }}.loops.termination</code> が第 2 階層です。<br>
+    <strong>親が実在している必要があります。</strong>
+    <code>{{ namespaces[0] if namespaces else 'cs' }}.loops.termination</code> を足すには
+    <code>{{ namespaces[0] if namespaces else 'cs' }}.loops</code> が先に要ります。
+    {% if not is_admin %}<strong>第 1 階層（分野の根）を作るには管理者の操作が必要です。</strong>{% endif %}
     <strong>改名はできません</strong> — ID がキーから決まり、過去の採点がそれを指しているためです。
     誤って作ったものは引退させてください。
   </p>
-  <div class="actions">
-    {% if suggestions %}
-      {# 押し切れるようにする。**止めるのは 1 回だけ。** #}
-      <button type="submit" name="confirm" value="1">このまま追加する</button>
-    {% else %}
-      <button type="submit">追加</button>
-    {% endif %}
-  </div>
+  <div class="actions"><button type="submit">追加</button></div>
 </form>
 {% endblock %}

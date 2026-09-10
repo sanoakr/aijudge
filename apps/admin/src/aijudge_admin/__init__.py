@@ -29,29 +29,17 @@ from .grading_settings import TrialResult, template_of, try_settings
 from .grading_settings import save as save_grading_settings
 from .grading_settings import validate as validate_grading_settings
 from .kc import (
-    MAX_SUGGESTIONS,
-    SUGGESTION_THRESHOLD,
-    KcSuggestion,
     KcUsage,
-    SeedReport,
     allowed_namespaces,
     assert_registered,
     list_for_namespaces,
-    suggest_similar,
 )
 from .kc import delete as delete_kc
 from .kc import edit as edit_kc
 from .kc import register as register_kc
 from .kc import restore as restore_kc
 from .kc import retire as retire_kc
-from .kc import seed as seed_kcs
 from .kc import usage as kc_usage
-from .kc_skeleton import (
-    MAX_KC_DEPTH,
-    Skeleton,
-    load_skeleton,
-    skeleton_dir,
-)
 from .operations import (
     AdminError,
     EnrolReport,
@@ -99,9 +87,6 @@ from .task_verifier import DEFAULT_MUTATION_LIMIT, TaskVerifier
 __all__ = [
     "APPROVAL_RATE_GATE",
     "DEFAULT_MUTATION_LIMIT",
-    "MAX_KC_DEPTH",
-    "MAX_SUGGESTIONS",
-    "SUGGESTION_THRESHOLD",
     "AdminError",
     "ApprovalRate",
     "BundledTask",
@@ -112,7 +97,6 @@ __all__ = [
     "FinalizeReport",
     "ImportReport",
     "ImportedTask",
-    "KcSuggestion",
     "KcUsage",
     "PlannedChange",
     "PlannedTask",
@@ -121,8 +105,6 @@ __all__ = [
     "RosterEntry",
     "RosterError",
     "SavedTask",
-    "SeedReport",
-    "Skeleton",
     "SolvabilityChecker",
     "TaskOutcome",
     "TaskVerifier",
@@ -152,7 +134,6 @@ __all__ = [
     "list_profiles",
     "list_tasks",
     "load_roster",
-    "load_skeleton",
     "parse_roster",
     "pending_counts",
     "pending_reviews",
@@ -168,10 +149,7 @@ __all__ = [
     "save_grading_settings",
     "save_profile_text",
     "save_task",
-    "seed_kcs",
     "set_password",
-    "skeleton_dir",
-    "suggest_similar",
     "sweep_deadlines",
     "template_bundle",
     "template_of",
