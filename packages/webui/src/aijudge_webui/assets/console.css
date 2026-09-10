@@ -194,3 +194,51 @@ h2[id]{scroll-margin-top:16px}
 .flash.reading{color:var(--muted);border-color:var(--line);background:var(--surface-2)}
 .flash.reading::before{content:"⋯"}
 form[data-working] button[disabled]{opacity:.55;cursor:progress}
+
+/* ==========================================================================
+   採点の 2 面（#185）。**左に見るもの、右に決めるもの。**
+
+   判定の画面は 1 本の縦に「突き合わせ → 答案 → 問題文 → 段階の選択」と
+   並んでいたので、コードを見ながら段階を選ぶには画面を往復することになる。
+   blind 採点の画面は**以前から 2 面**だったので、同じ作業の画面が経路に
+   よって 2 種類あった。両方をこの組で揃える。
+
+   右の面は貼り付けて、左を送っても判定欄が消えないようにする。
+   ========================================================================== */
+.desk{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);
+  gap:28px;align-items:start}
+.desk > .left{min-width:0}
+.desk > .right{min-width:0;position:sticky;top:92px;
+  max-height:calc(100vh - 112px);overflow-y:auto}
+/* 狭い画面では 1 本に戻す。**貼り付けもやめる** ── 高さが足りない画面で
+   固定すると、判定欄の中だけが縦にスクロールして操作しにくくなる。 */
+@media (max-width:1080px){
+  .desk{grid-template-columns:1fr;gap:0}
+  .desk > .right{position:static;max-height:none;
+    margin-top:24px;padding-top:24px;border-top:1px solid var(--line)}
+}
+/* 判定欄の底に操作を貼る。**押す場所を探させない。** */
+.deskbar{position:sticky;bottom:0;background:var(--surface);
+  border-top:1px solid var(--line);padding:12px 0;margin-top:16px;
+  display:flex;gap:12px;align-items:center;justify-content:flex-end}
+.deskbar .spacer{margin-right:auto;font-size:.8rem;color:var(--muted)}
+
+/* 観点の突き合わせ（積み上げ形・#185）。**狭い段に 5 列の表を置かない** ──
+   2 面にすると、いちばん読ませたい「AI の根拠」の列が枠の外に出る。
+   1 観点 1 ブロックにすれば列が無いので幅に依らない。 */
+.critlist{border:1px solid var(--line-soft);border-radius:4px;
+  background:var(--surface);overflow:hidden}
+.critlist > .c{padding:11px 14px;border-bottom:1px solid var(--line-soft)}
+.critlist > .c:last-child{border-bottom:0}
+/* 人が見るべき観点に縦罫を引く。**不一致と入力待ちを別の色にする**（#46）──
+   放っておいてよいものと、押さないと閉じないものを同じ色で並べない。 */
+.critlist > .c.differs{box-shadow:inset 3px 0 0 var(--shu)}
+.critlist > .c.needs{box-shadow:inset 3px 0 0 var(--kin)}
+.critlist .h{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;
+  margin-bottom:2px}
+.critlist .h b{font-size:.92rem;flex:1;min-width:9em}
+.critlist .h .w{font-size:.72rem;color:var(--muted);
+  font-family:ui-monospace,"SFMono-Regular",monospace}
+.critlist .lv{font-size:.78rem;font-family:ui-monospace,"SFMono-Regular",monospace;
+  color:var(--ink-2)}
+.critlist .ev{font-size:.82rem;color:var(--ink-2);margin:0}

@@ -34,7 +34,11 @@ TEMPLATES = {
 
 # 夜の配色を代表する値。ここが変わったらテストの方も直す（値そのものを
 # 固定したいのではなく、2 か所が一致していることを見たい）。
-NIGHT_PAPER = "--paper:#0e141c"
+#
+# 地の色と、**濃い頁の頭**の 2 つを見る（#185）。頭の帯は昼夜を通して濃い
+# ので「夜だから見えている」わけではなく、片方の block にしか書かなくても
+# 昼の画面では気づけない ── いちばん静かに壊れる場所である。
+NIGHT_TOKENS = ("--paper:#0d1119", "--head-bg:#0b1c30")
 
 
 def test_the_night_palette_is_defined_for_both_ways_of_asking() -> None:
@@ -45,12 +49,28 @@ def test_the_night_palette_is_defined_for_both_ways_of_asking() -> None:
     OS が夜の人とで、別の色を見ることになる。
     """
     css = BASE_CSS.read_text(encoding="utf-8")
-    assert css.count(NIGHT_PAPER) == 2, (
-        '夜の配色は OS 追従（@media）と明示の選択（[data-theme="dark"]）の '
-        "2 か所に要る。1 か所しかないなら、どちらかの経路で昼のまま出ている"
-    )
+    for token in NIGHT_TOKENS:
+        assert css.count(token) == 2, (
+            f'{token} は OS 追従（@media）と明示の選択（[data-theme="dark"]）の '
+            "2 か所に要る。1 か所しかないなら、どちらかの経路で昼のまま出ている"
+        )
     assert "@media (prefers-color-scheme: dark)" in css
     assert ':root[data-theme="dark"]' in css
+
+
+def test_form_controls_follow_the_night_palette_on_both_paths() -> None:
+    """`color-scheme` も 2 か所に要る。
+
+    ここが明示の選択の分しか無かったので、**OS が夜で切り替えを触って
+    いない人だけ**、暗い画面に明るいチェックボックスと素の `select` が
+    出ていた（#181 の実装が半分だった）。配色の値と同じ壊れ方で、
+    自分の端末で切り替えを触ってしまうと再現しなくなる。
+    """
+    css = BASE_CSS.read_text(encoding="utf-8")
+    assert css.count("color-scheme:dark") == 2, (
+        "color-scheme は OS 追従（@media）と明示の選択の 2 か所に要る。"
+        "1 か所だと、既定のままの人のフォーム部品だけが昼のまま出る"
+    )
 
 
 def test_an_explicit_daytime_choice_beats_the_os() -> None:

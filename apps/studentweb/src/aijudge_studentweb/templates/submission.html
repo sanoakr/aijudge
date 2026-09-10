@@ -115,8 +115,8 @@
       </td>
       <td class="fit">
         {% if row.pending %}<span class="desc">—</span>
-        {% elif row.by_ai %}<span class="pill">AI</span>
-        {% else %}<span class="pill">テスト実行</span>{% endif %}
+        {% elif row.by_ai %}<span class="pill ai">AI</span>
+        {% else %}<span class="pill det">テスト実行</span>{% endif %}
       </td>
       <td class="grow">
         {% if row.rationale %}{{ row.rationale }}
@@ -175,7 +175,7 @@
   <a href="/submissions/{{ submission.id }}/artifacts/{{ file.id }}">
     <img src="/submissions/{{ submission.id }}/artifacts/{{ file.id }}"
          alt="{{ file.filename }}"
-         style="max-width:100%;border:1px solid var(--line);border-radius:3px">
+         class="embed">
   </a>
   {% elif file.is_pdf %}
   <p class="desc" style="margin:0 0 6px">{{ file.filename }}</p>
@@ -190,7 +190,7 @@
   {# preload="metadata" だけにする ── 一覧から開いた瞬間に本体を落とさない。 #}
   <video controls preload="metadata"
          src="/submissions/{{ submission.id }}/artifacts/{{ file.id }}"
-         style="max-width:100%;border:1px solid var(--line);border-radius:3px">
+         class="embed">
     <a href="/submissions/{{ submission.id }}/artifacts/{{ file.id }}">動画を開く</a>
   </video>
   {% else %}
