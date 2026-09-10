@@ -1880,3 +1880,54 @@ def test_the_hidden_local_route_still_logs_in_local_accounts(world: World) -> No
 
     assert response.status_code == 303
     assert SESSION_COOKIE in response.cookies
+
+
+# --------------------------------------------------------------------------
+# 採点のプロファイルは課題が決める（#195）
+# --------------------------------------------------------------------------
+
+
+def test_the_grading_job_takes_the_profile_from_the_task(world: World) -> None:
+    """**提出はその課題のプロファイルで採点される。**
+
+    以前はコースの値を渡していたので、1 つのコースに種類の違う課題を置け
+    なかった ── 器（`TaskVersion.subject_profile`）は最初からあったのに、
+    常にコースの写しが入り、誰にも読まれていなかった。
+
+    ここで見るのは**ジョブに何が載ったか**である。ワーカーは
+    `job.subject_profile` を見るので、そこが正しければ先は自動的に追従する。
+    """
+    from aijudge_core import GradingPhase
+
+    # このコースの既定とは違うプロファイルの課題を 1 件足す。
+    version = world.task_version.model_copy(
+        update={
+            "id": TaskVersionId("tsv_" + "9" * 32),
+            "version": world.task_version.version + 1,
+            "subject_profile": "report_ja",
+        }
+    )
+    with world.database.unit_of_work() as uow:
+        uow.tasks.save_version(version)
+        uow.commit()
+
+    world.register("s2400001")
+    world.login("s2400001")
+    response = world.client.post(
+        f"/tasks/{version.id}/submit",
+        files={"upload": ("main.c", b"int main(void){return 0;}", "text/plain")},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303, response.text
+
+    with world.database.unit_of_work() as uow:
+        job = uow.jobs.reserve(
+            datetime.now(UTC),
+            worker="test",
+            lease_seconds=60,
+            phase=GradingPhase.DETERMINISTIC,
+        )
+    assert job is not None, "採点ジョブが積まれていない"
+    assert job.subject_profile == "report_ja", (
+        "コースの既定で採点されている。1 コースに種類の違う課題を置けない"
+    )

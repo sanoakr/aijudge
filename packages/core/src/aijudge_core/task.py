@@ -206,6 +206,15 @@ class TaskVersion(BaseModel):
     id: TaskVersionId
     task_id: TaskId
     version: int = Field(ge=1)
+    # **この課題を採点するプロファイル**（#195）。どの評価器がどの順で走るか。
+    #
+    # 以前は常にコースの値の写しが入り、誰にも読まれていなかった。その結果、
+    # 1 つのコースに種類の違う課題を置けなかった ── レポートとプログラムが
+    # 混在する科目は実在するのに、2 コースに割るしかなかった。
+    #
+    # **コースのプロファイルは残る。役割が違う**（ADR 0018）。コースは語彙
+    # （`kc_namespaces`）と新しい課題の既定を決め、課題は採点を決める。
+    # 評価器の指名は「何を採点するか」で決まるのだから、課題に付く。
     subject_profile: str = Field(min_length=1)
     statement: str = Field(min_length=1)
     reference_solution: str | None = None

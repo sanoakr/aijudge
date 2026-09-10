@@ -653,7 +653,7 @@ def create_app(app_state: StudentApp) -> FastAPI:
                 tenant_id=me.tenant_id,
                 task_version_id=version.id,
                 learner_id=me.user_id,
-                subject_profile=course_obj.subject_profile,
+                subject_profile=version.subject_profile,
                 files=[IncomingFile(filename=filename, kind=kind, payload=payload)],
                 # 試験の問題セットでは、採点はここでは走らせない（#67）。
                 # テスト実行の結果は「どのケースで落ちたか」を含むので、
@@ -729,7 +729,7 @@ def create_app(app_state: StudentApp) -> FastAPI:
             hit = app_state.submissions.peek_idempotent(
                 tenant_id=me.tenant_id,
                 idempotency_key=idem,
-                subject_profile=course_obj.subject_profile,
+                subject_profile=version.subject_profile,
                 grading_starts_at=_task.grading_starts_at,
             )
             if hit is not None:
@@ -780,7 +780,7 @@ def create_app(app_state: StudentApp) -> FastAPI:
                 tenant_id=me.tenant_id,
                 task_version_id=version.id,
                 learner_id=me.user_id,
-                subject_profile=course_obj.subject_profile,
+                subject_profile=version.subject_profile,
                 filename=name,
                 kind=kind,
                 submission_id=submission_id,
