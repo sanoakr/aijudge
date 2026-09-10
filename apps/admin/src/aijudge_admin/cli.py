@@ -317,6 +317,53 @@ def cmd_password(args: argparse.Namespace) -> int:
 # --------------------------------------------------------------------------
 
 
+def cmd_kc_seed(args: argparse.Namespace) -> int:
+    """骨格を投入する（`subjects/kc/<名前空間>.yaml`）。
+
+    **何度走らせても増えない。** 骨格ファイルを直して足したときは、
+    もう一度これを走らせれば差分だけが入る。
+    """
+    from .kc import seed as seed_kcs
+    from .kc_skeleton import load_skeleton, skeleton_dir
+
+    path = args.file or (skeleton_dir(args.profiles) / f"{args.namespace}.yaml")
+    if not path.exists():
+        print(f"骨格ファイルがありません: {path}", file=sys.stderr)
+        return 1
+
+    database = _database(args)
+    try:
+        skeleton = load_skeleton(path)
+        report = seed_kcs(database, skeleton, namespaces=(skeleton.namespace,))
+        with database.unit_of_work() as uow:
+            _cli_audit(uow, _tenant(args)).record(
+                AuditAction.PROFILE_UPDATED,
+                target_type="kc_namespace",
+                target_id=skeleton.namespace,
+                summary=(
+                    f"知識要素の骨格を投入した（新規 {len(report.added)} / "
+                    f"既存 {len(report.existing)}）"
+                ),
+                detail={"source": skeleton.source, "file": str(path)},
+            )
+            uow.commit()
+    except AdminError as exc:
+        print(f"エラー: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        database.dispose()
+
+    print(report.summary())
+    if report.added:
+        print()
+        print("新しく入ったもの:")
+        for key in report.added[:20]:
+            print(f"  {key}")
+        if len(report.added) > 20:
+            print(f"  … ほか {len(report.added) - 20} 件")
+    return 0
+
+
 def cmd_task_import(args: argparse.Namespace) -> int:
     database = _database(args)
     try:
@@ -494,6 +541,17 @@ def build_parser() -> argparse.ArgumentParser:
     trevoke = token.add_parser("revoke", help="失効させる")
     trevoke.add_argument("--id", required=True, help="トークン ID（token list で確認）")
     trevoke.set_defaults(func=cmd_token_revoke)
+
+    kc = sub.add_parser("kc", help="知識要素").add_subparsers(dest="kc_command", required=True)
+    seed_p = kc.add_parser("seed", help="骨格を投入する（分野と単位はここからしか作れない）")
+    seed_p.add_argument("--namespace", required=True, help="名前空間（例 cs）")
+    seed_p.add_argument(
+        "--file",
+        type=Path,
+        default=None,
+        help="骨格ファイル（既定は <profiles>/kc/<名前空間>.yaml）",
+    )
+    seed_p.set_defaults(func=cmd_kc_seed)
 
     task = sub.add_parser("task", help="課題").add_subparsers(dest="task_command", required=True)
     imp = task.add_parser("import", help="Sharif Judge の課題ディレクトリを取り込む")

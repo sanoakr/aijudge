@@ -129,6 +129,22 @@ def lexical(left: str, right: str) -> float:
     return len(a & b) / len(a | b)
 
 
+def overlap(left: str, right: str) -> float:
+    """文字 3-gram の Overlap 係数（共通部分 ÷ 短い方）。
+
+    **短い語が長い語に含まれる場合を拾う。** Jaccard だと和集合が大きくなって
+    値が伸びず、「くりかえし」と「回数の決まったくりかえし」を見落とす。
+
+    逆に、長い文どうしの比較には向かない ── 一方が他方を含んでいても、
+    残りが全く別のことを言っている場合に 1.0 になる。**どちらを使うかは
+    用途で決める**（短いラベルの照合には包含、課題文の重複検査には Jaccard）。
+    """
+    a, b = _shingles(left), _shingles(right)
+    if not a or not b:
+        return 0.0
+    return len(a & b) / min(len(a), len(b))
+
+
 def rank(
     candidates: dict[str, tuple[str, float]],
     *,
@@ -160,5 +176,6 @@ __all__ = [
     "SimilarityMethod",
     "cosine",
     "lexical",
+    "overlap",
     "rank",
 ]

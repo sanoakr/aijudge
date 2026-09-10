@@ -34,7 +34,7 @@ from aijudge_llm_gateway import LlmGateway, ScriptedProvider
 _PAYLOAD = {
     "course": {},
     "knowledge_components": [
-        {"key": "cs.c_language.formatted_io", "label": "書式付き入出力"},
+        {"key": "cs.sdf.fundamentals.formatted_io", "label": "書式付き入出力"},
     ],
 }
 
@@ -84,7 +84,7 @@ def test_the_version_moved_with_the_wording() -> None:
     """文面を変えたら版を上げる（P8）。版が同じで文面が違うと、過去に出した
     候補が何から出たのか追えなくなる。
     """
-    assert PROMPT.id == "syllabus_to_candidates_ja@4"
+    assert PROMPT.id == "syllabus_to_candidates_ja@5"
 
 
 def test_the_existing_keys_reach_the_prompt() -> None:
@@ -125,16 +125,16 @@ def test_a_japanese_key_never_leaves_the_reader() -> None:
     payload = {
         "course": {},
         "knowledge_components": [
-            {"key": "cs.配列の走査", "label": "配列の走査"},
-            {"key": "cs.loops", "label": "繰り返し"},
-            {"key": "情報.pointers", "label": "ポインタ"},
+            {"key": "cs.sdf.基礎.配列の走査", "label": "配列の走査"},
+            {"key": "cs.sdf.fundamentals.loops", "label": "繰り返し"},
+            {"key": "情報.sdf.fundamentals.pointers", "label": "ポインタ"},
         ],
     }
     provider = ScriptedProvider([json.dumps(payload)])
     reader = SyllabusReader(LlmGateway(provider), model="test")
-    result = reader.propose("シラバス本文", namespaces=("cs",))
+    result = reader.propose("シラバス本文", namespaces=("cs",), unit_keys=("cs.sdf.fundamentals",))
 
-    assert [k.key for k in result.proposal.knowledge_components] == ["cs.loops"]
+    assert [k.key for k in result.proposal.knowledge_components] == ["cs.sdf.fundamentals.loops"]
 
 
 def test_what_was_dropped_is_reported_rather_than_silently_removed() -> None:
@@ -150,7 +150,66 @@ def test_what_was_dropped_is_reported_rather_than_silently_removed() -> None:
     result = reader.propose("シラバス本文", namespaces=("cs",))
 
     assert result.proposal.knowledge_components == ()
-    assert result.discarded == ("cs.配列",)
+    # **理由も返す。** 「6 件除きました」だけでは、教員は次に何をすれば
+    # よいのか分からない。
+    assert [d.key for d in result.discarded] == ["cs.配列"]
+    assert "キーの形" in result.discarded[0].reason
+
+
+def test_a_candidate_outside_the_skeleton_is_dropped_with_its_reason() -> None:
+    """**単位の一覧を渡しても、モデルは無い単位を作る。** 頼みは強制ではない。
+
+    落とさないと、教員は採用してから「骨格にありません」と断られる ──
+    #157 で字面について直した往復が、構造について残ることになる。
+    """
+    payload = {
+        "course": {},
+        "knowledge_components": [
+            {"key": "cs.sdf.fundamentals.loops", "label": "繰り返し"},
+            {"key": "cs.sdf.nosuchunit.thing", "label": "無い単位の下"},
+            {"key": "cs.sdf", "label": "分野そのもの"},
+            {"key": "cs.sdf.fundamentals.loops.nested", "label": "深すぎる"},
+        ],
+    }
+    provider = ScriptedProvider([json.dumps(payload)])
+    reader = SyllabusReader(LlmGateway(provider), model="test")
+    result = reader.propose("シラバス本文", namespaces=("cs",), unit_keys=("cs.sdf.fundamentals",))
+
+    assert [k.key for k in result.proposal.knowledge_components] == ["cs.sdf.fundamentals.loops"]
+    reasons = {d.key: d.reason for d in result.discarded}
+    assert "骨格に無い単位" in reasons["cs.sdf.nosuchunit.thing"]
+    assert "3 階層" in reasons["cs.sdf"]
+    assert "深すぎ" in reasons["cs.sdf.fundamentals.loops.nested"]
+
+
+def test_an_existing_component_outside_the_skeleton_still_passes() -> None:
+    """教員が足した知識要素は骨格の外にある。**単位で濾すとそれが落ちる。**"""
+    payload = {
+        "course": {},
+        "knowledge_components": [{"key": "cs.sdf.teacheradded.thing", "label": "教員が足した"}],
+    }
+    provider = ScriptedProvider([json.dumps(payload)])
+    reader = SyllabusReader(LlmGateway(provider), model="test")
+    result = reader.propose(
+        "シラバス本文",
+        namespaces=("cs",),
+        unit_keys=("cs.sdf.fundamentals",),
+        existing_keys=("cs.sdf.teacheradded.thing",),
+    )
+
+    assert [k.key for k in result.proposal.knowledge_components] == ["cs.sdf.teacheradded.thing"]
+    assert result.discarded == ()
+
+
+def test_the_units_are_sent_so_the_model_knows_where_things_go() -> None:
+    """渡さないと、モデルは存在しない単位を作る。"""
+    provider = ScriptedProvider([json.dumps(_PAYLOAD)])
+    reader = SyllabusReader(LlmGateway(provider), model="test")
+    reader.propose("シラバス本文", namespaces=("cs",), unit_keys=("cs.sdf.fundamentals",))
+
+    sent = "\n".join(message.content for message in provider.calls[0].messages)
+    assert "cs.sdf.fundamentals" in sent
+    assert "この下にしか置けません" in sent
 
 
 def test_a_clean_proposal_is_passed_through_unchanged() -> None:
@@ -158,5 +217,7 @@ def test_a_clean_proposal_is_passed_through_unchanged() -> None:
     reader = SyllabusReader(LlmGateway(provider), model="test")
     result = reader.propose("シラバス本文", namespaces=("cs",))
 
-    assert [k.key for k in result.proposal.knowledge_components] == ["cs.c_language.formatted_io"]
+    assert [k.key for k in result.proposal.knowledge_components] == [
+        "cs.sdf.fundamentals.formatted_io"
+    ]
     assert result.discarded == ()

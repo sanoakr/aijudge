@@ -6,16 +6,26 @@
 禁止ではなく**追加を明示的な行為にする**。禁止すると教員は既存の近いキーに
 無理やり寄せ、構造としてはより悪くなる。
 
-規則は 4 つ（`aijudge_core.knowledge` の docstring と対）。
+規則は 5 つ（`aijudge_core.knowledge` の docstring と対）。
 
   1. namespace は科目プロファイルが宣言したものだけ（`kc_namespaces`）。
      ブラウザから namespace を作れるようにした瞬間に `cs` と `csci` の
      分裂が起きる。プロファイルはコードと同じレビューを通る（ADR 0002）
-  2. 新しい KC は**既存 KC の子**としてのみ足せる。孤立キーの山ではなく
-     木を保つ。第 1 階層を作るのは稀で意図的な操作として区別する
-  3. **改名しない。** ID はキーから導かれ Q-matrix は追記のみ（P8）。
+  2. **分野（第 1 階層）と単位（第 2 階層）は骨格が決める。**
+     `subjects/kc/*.yaml` にあるものだけで、画面からは足せない ── CS2023 の
+     Knowledge Area / Knowledge Unit をそのまま使っており、ここを開けると
+     `cs.loops` と `cs.iteration` が並ぶ。増やすのは骨格ファイルの変更、
+     つまりコードと同じレビューを通る決定である
+  3. **知識要素（第 3 階層）は教員が足せる。深さはそこまで。**
+     骨格に入っているのは推奨候補であって正解の一覧ではない。足すときは
+     **近いものが提示される**（禁止ではなく提示 ── 禁止すると教員は近い
+     キーに無理やり寄せ、構造としてはより悪くなる）。第 4 階層は作れない:
+     細かくしすぎると 1 つの KC に課題が 1 件しか対応せず、習熟度が
+     推定できない（Q-matrix が薄くなる）
+  4. **改名しない。** ID はキーから導かれ Q-matrix は追記のみ（P8）。
      誤りは `deprecated` にして `superseded_by` で後継を指す
-  4. AI には KC を作らせない。生成は登録済みからの選択だけ
+  5. AI が新しい知識要素を**推薦**することはできる。ただし作るのは人で、
+     推薦は必ず既存の単位の下に付き、近いものが併記される
 
 **KC はコースをまたいで共有される。** 同じ namespace を使うコースは同じ
 語彙を見る（それが設計原則 P6 の狙いで、習熟度が学期をまたいで積み上がる
@@ -28,11 +38,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+from aijudge_authoring.similarity import lexical, overlap
 from aijudge_core import KnowledgeComponent, kc_id_for, parse_kc_key
 from aijudge_core.ids import KcId, UserId
 from aijudge_persistence import Database
 
 from .finalization import _courses as _all_course_rows
+from .kc_skeleton import MAX_KC_DEPTH
 from .operations import AdminError
 
 
@@ -134,14 +146,19 @@ def register(
     description: str | None = None,
     namespaces: tuple[str, ...],
     actor_id: UserId | None = None,
-    allow_root: bool = False,
+    seeding: bool = False,
     now: datetime | None = None,
 ) -> KnowledgeComponent:
     """KC を 1 つ足す。既にあればそれを返す（何度押しても増えない）。
 
     `namespaces` は足してよい名前空間（科目プロファイルの宣言）。
-    `allow_root` は第 1 階層を作る許可で、既定では出さない ── 新しい分野の
-    根を作るのは管理者の操作である。
+
+    **`seeding` は骨格の投入だけが立てる。** 分野（第 1 階層）と単位
+    （第 2 階層）を作れるのはこの経路だけで、画面からは知識要素
+    （第 3 階層）しか足せない ── 管理者であっても同じである。管理者に
+    開けても構わないように見えるが、**分野を増やすのは「その場の判断」に
+    してはいけない決定**で、骨格ファイルを直してレビューを通す方に寄せる
+    （`kc_skeleton.py` 冒頭）。
     """
     try:
         namespace, path = parse_kc_key(key)
@@ -170,26 +187,54 @@ def register(
             return existing
 
         parent_id: KcId | None = None
+        if len(path) > MAX_KC_DEPTH and not seeding:
+            # **深さは 3 で止める。** 細かくしすぎると 1 つの KC に課題が
+            # 1 件しか対応せず、習熟度が推定できない（Q-matrix が薄くなる）。
+            raise AdminError(
+                f"{key!r} は第 {len(path)} 階層です。知識要素は"
+                f"「分野.単位.知識要素」の第 {MAX_KC_DEPTH} 階層までにしてください"
+                f"（例 `cs.sdf.fundamentals.branching`）。"
+            )
         if len(path) > 1:
             parent_key = ".".join((namespace, *path[:-1]))
             parent = uow.skills.get_kc(kc_id_for(parent_key))
             if parent is None:
                 # **孤立キーを作らせない。** 親から作らせることで、体系が
                 # 平らなキーの山ではなく木のまま保たれる。
+                if not seeding:
+                    # **「先に追加してください」と言わない。** 分野も単位も
+                    # 画面からは足せないので、そう案内すると教員は足せない
+                    # ものを足そうとして二度断られる。
+                    raise AdminError(
+                        f"{'分野' if len(path) == 2 else '単位'} {parent_key!r} が"
+                        "骨格にありません。分野と単位は `subjects/kc/` の骨格ファイル"
+                        "（CS2023 の Knowledge Area / Knowledge Unit）で決まっており、"
+                        "画面からは足せません。既にある単位の下に足してください。"
+                    )
                 raise AdminError(
                     f"親の知識要素 {parent_key!r} がまだありません。先にそちらを追加してください。"
                 )
             parent_id = parent.id
-        elif not allow_root:
+            if len(path) == 2 and not seeding:
+                # **単位（第 2 階層）は骨格が決める。** ここを開けると
+                # `cs.sdf.loops` と `cs.sdf.iteration` が並ぶ。
+                raise AdminError(
+                    f"{key!r} は単位（第 2 階層）です。"
+                    "分野と単位は `subjects/kc/` の骨格ファイル（CS2023 の Knowledge Area / "
+                    "Knowledge Unit）で決まっており、画面からは足せません。"
+                    f"この下に知識要素を足す形（{key}.… ）なら追加できます。"
+                )
+        elif not seeding:
             # **名前空間は階層に数えない、と明示する。** `cs.c_language` は
             # 点が 2 つに分かれて見えるので、これを「第 1 階層」とだけ言うと
             # 何を指しているのか読めない（実際に読めなかった）。どこまでが
             # 名前空間で、どう書けば子になるのかを、そのキーで示す。
             raise AdminError(
-                f"{key!r} は名前空間 {namespace!r} の第 1 階層（分野の根）です。"
+                f"{key!r} は分野（第 1 階層）です。"
                 f"**名前空間 {namespace!r} は階層に数えません。** "
-                f"この下に子を足す形（{key}.… ）なら第 2 階層で、教員が追加できます。"
-                "新しい分野の根を作るには管理者の操作が要ります。"
+                "分野と単位は `subjects/kc/` の骨格ファイル（CS2023 の Knowledge Area / "
+                "Knowledge Unit）で決まっており、画面からは足せません。"
+                f"知識要素を足すなら `{key}.単位.名前` の形になります。"
             )
 
         kc = KnowledgeComponent(
@@ -380,3 +425,202 @@ __all__ = [
     "retire",
     "usage",
 ]
+
+
+# -- 近いものを見せる ------------------------------------------------------
+#
+# **禁止ではなく提示。** 同じ概念に別のキーを作らせないための仕掛けだが、
+# 一致を強制すると、教員は近いだけの枝に無理やり寄せる ── それは体系が
+# 整ったように見えて、実際には嘘の対応づけが 1 件増えただけである。
+#
+# **分野と単位をまたいで探す。** 「配列」は `cs.sdf.data_structures` にも
+# `cs.al.foundational` にもあり、教員が今いる単位の外に正解があることは
+# 普通に起きる。同じ単位の中だけ見ると、いちばん見つけたい重複を見逃す。
+
+# これを下回る類似は出さない。字面の 3-gram Jaccard で 0.4 は「かなり似ている」。
+SUGGESTION_THRESHOLD = 0.4
+MAX_SUGGESTIONS = 5
+
+
+@dataclass(frozen=True)
+class KcSuggestion:
+    """近い既存 KC 1 件。"""
+
+    kc: KnowledgeComponent
+    score: float
+    # 教員がいま足そうとしている単位と同じ枝か。**違う枝のほうが重要**
+    # ── 同じ枝の重複は目で見つかるが、別の分野にある同義語は見つからない。
+    same_unit: bool
+
+    @property
+    def key(self) -> str:
+        return self.kc.key
+
+
+def suggest_similar(
+    database: Database,
+    *,
+    key: str,
+    label: str,
+    description: str | None = None,
+    namespaces: tuple[str, ...],
+    threshold: float = SUGGESTION_THRESHOLD,
+    limit: int = MAX_SUGGESTIONS,
+    existing: tuple[KnowledgeComponent, ...] | None = None,
+) -> tuple[KcSuggestion, ...]:
+    """足そうとしている KC に近い既存 KC を、近い順に返す。
+
+    **字面で測る。** 埋め込みを使えば言い換えも拾えるが、S6 が止まっていても
+    追加は通らなければならない ── 提示は補助であって関門ではないので、
+    ここで LLM に依存させない（`duplicates.py` が「どちらで測ったか」を
+    必ず言うのと同じ理由で、字面だけであることは画面に書く）。
+    """
+    # **ラベルとキーを混ぜて測らない。** 混ぜると、日本語のラベルと英語の
+    # キーが同じ文字列の中に入り、`repetition` と `notion` が 3-gram を
+    # 共有するだけで「近い」になる（実際になった）。言語の違う 2 つの軸は
+    # 別々に測って、大きい方を採る。
+    text = " ".join(part for part in (label, description or "") if part).strip()
+    segment = key.split(".")[-1]
+    if not text and not segment:
+        return ()
+
+    try:
+        _, path = parse_kc_key(key)
+    except ValueError:
+        path = ()
+    unit_key = ".".join(key.split(".")[:-1]) if len(path) >= 2 else None
+
+    # 候補を 20 件まとめて調べるときに 20 回引き直さないよう、読み込み済みの
+    # 一覧を渡せるようにしてある。
+    pool = (
+        tuple(kc for kc in existing if not kc.deprecated)
+        if existing is not None
+        else list_for_namespaces(database, namespaces, include_deprecated=False)
+    )
+    scored: list[KcSuggestion] = []
+    for kc in pool:
+        if kc.key == key:
+            continue
+        # 分野と単位そのものは提案しない。足せるのは知識要素だけなので、
+        # 「これに寄せては」と言われても寄せようがない。
+        if len(kc.path) < MAX_KC_DEPTH:
+            continue
+        other = " ".join(part for part in (kc.label, kc.description or "") if part).strip()
+        score = max(
+            # ラベルは短い日本語。片方がもう片方を含む形（「くりかえし」と
+            # 「回数の決まったくりかえし」）は同じ概念なので、包含を採る。
+            _closeness(text, other, containment=True),
+            # キーは英語の識別子。短い語が偶然 3-gram を共有するので、
+            # 包含は採らない（`loop` が `event_loop` に一致してしまう）。
+            _closeness(segment, kc.path[-1], containment=False),
+        )
+        if score >= threshold:
+            scored.append(
+                KcSuggestion(
+                    kc=kc,
+                    score=score,
+                    same_unit=unit_key is not None and kc.key.rsplit(".", 1)[0] == unit_key,
+                )
+            )
+    scored.sort(key=lambda s: (-s.score, s.key))
+    return tuple(scored[:limit])
+
+
+# -- 骨格の投入 ------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class SeedReport:
+    """投入の結果。**足した数と、既にあった数を分けて返す。**
+
+    「17 件投入しました」だけだと、2 度目に走らせた運用者は何が起きたのか
+    分からない（何度走らせても増えないのが正しい振る舞いである）。
+    """
+
+    namespace: str
+    source: str
+    added: tuple[str, ...] = ()
+    existing: tuple[str, ...] = ()
+
+    @property
+    def total(self) -> int:
+        return len(self.added) + len(self.existing)
+
+    def summary(self) -> str:
+        lines = [
+            f"名前空間 {self.namespace}: {self.total} 件（新規 {len(self.added)} / "
+            f"既存 {len(self.existing)}）"
+        ]
+        if self.source:
+            lines.append(f"  出典: {self.source}")
+        return "\n".join(lines)
+
+
+def seed(
+    database: Database,
+    skeleton,
+    *,
+    namespaces: tuple[str, ...],
+    now: datetime | None = None,
+) -> SeedReport:
+    """骨格を投入する。**何度走らせても増えない。**
+
+    `created_by` は付けない ── 骨格は誰か個人が足したものではなく、
+    ファイルをレビューして決めたものである。誰が投入したかは監査ログに残る
+    （ADR 0016）。
+
+    **親から順に投入する。** `register` が親の不在で落ちるので、
+    分野 → 単位 → 知識要素の順でなければ通らない。骨格ファイルの並び順に
+    依存させず、深さで並べ替えてから入れる。
+    """
+    if skeleton.namespace not in namespaces:
+        raise AdminError(
+            f"名前空間 {skeleton.namespace!r} はこの科目では使えません"
+            f"（使えるのは {', '.join(namespaces) or 'なし'}）。"
+            "科目プロファイルの `kc_namespaces` を確認してください。"
+        )
+
+    added: list[str] = []
+    existing: list[str] = []
+    for entry in sorted(skeleton.entries, key=lambda e: (e.depth, e.key)):
+        key = f"{skeleton.namespace}.{entry.key}"
+        before = None
+        with database.unit_of_work() as uow:
+            before = uow.skills.get_kc(kc_id_for(key))
+        register(
+            database,
+            key=key,
+            label=entry.label,
+            namespaces=namespaces,
+            actor_id=None,
+            seeding=True,
+            now=now,
+        )
+        (existing if before is not None else added).append(key)
+    return SeedReport(
+        namespace=skeleton.namespace,
+        source=skeleton.source,
+        added=tuple(added),
+        existing=tuple(existing),
+    )
+
+
+def _closeness(left: str, right: str, *, containment: bool) -> float:
+    """近さ。`containment` を立てると、包含（Overlap 係数）も見る。
+
+    Jaccard だけだと、短い語が長い語に含まれる場合を見落とす ──
+    「くりかえし」と「回数の決まったくりかえし」は、共通部分が短い側を
+    覆い尽くしているのに、和集合が大きいので値が伸びない。実際に見落とした。
+
+    **ただし包含はどこでも正しいわけではない。** 英語の識別子どうしでは
+    短い語が偶然 3-gram を共有し、`loop` が `event_loop` にも
+    `game_loop` にも 1.0 で一致して、肝心の候補を押し出す。だから
+    日本語のラベルにだけ許し、キーには許さない。
+
+    課題の重複検査（`duplicates.py`）が包含を使わないのも同じ話で、
+    **測り方は用途で変わる。**
+    """
+    if not left or not right:
+        return 0.0
+    score = lexical(left, right)
+    return max(score, overlap(left, right)) if containment else score

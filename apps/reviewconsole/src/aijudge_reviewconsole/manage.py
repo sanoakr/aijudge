@@ -79,6 +79,7 @@ from aijudge_admin import (
     save_grading_settings,
     save_profile_text,
     save_task,
+    suggest_similar,
     template_bundle,
     template_of,
     try_settings,
@@ -2835,16 +2836,20 @@ def register(templates) -> APIRouter:
 
         profile = load_profile(console.profiles_dir / f"{course.subject_profile}.yaml")
         namespaces = allowed_namespaces(profile)
-        existing = [
-            kc.key
-            for kc in list_for_namespaces(console.database, namespaces, include_deprecated=False)
-        ]
+        vocabulary = list_for_namespaces(console.database, namespaces, include_deprecated=False)
+        existing = [kc.key for kc in vocabulary]
+        # **単位の一覧を渡す。** 新しい候補はこの下にしか置けないので、
+        # 渡さないとモデルは存在しない単位を作り、教員は採用してから断られる。
+        units = tuple(kc.key for kc in vocabulary if len(kc.path) == 2)
         # 題名も渡す。「プログラミング及び実習 II」だけで分野が決まることは
         # ないが、本文が到達目標だけのときに科目の見当が付く。
         body = f"# {course.title}\n\n{course.description}"
         try:
             result = SyllabusReader().propose(
-                body, namespaces=namespaces, existing_keys=tuple(existing)
+                body,
+                namespaces=namespaces,
+                existing_keys=tuple(existing),
+                unit_keys=units,
             )
         except Exception as exc:  # 生成の失敗は運用の事象。理由を画面に返す。
             raise HTTPException(
@@ -2852,7 +2857,31 @@ def register(templates) -> APIRouter:
                 detail=f"候補を作れませんでした（S6 が止まっている可能性があります）: {exc}",
             ) from exc
 
-        return _kc_page(request, me, course, proposal=result.proposal, discarded=result.discarded)
+        # **新しい候補には近いものを添える。** 分野・単位をまたいで探すので、
+        # 「別の分野に同じ語がある」に採用の前に気づける ── 一覧を目で
+        # 追っても見つからない種類の重複である。
+        known = set(existing)
+        near = {
+            hint.key: suggest_similar(
+                console.database,
+                key=hint.key,
+                label=hint.label,
+                description=hint.description,
+                namespaces=namespaces,
+                existing=vocabulary,
+                limit=3,
+            )
+            for hint in result.proposal.knowledge_components
+            if hint.key not in known
+        }
+        return _kc_page(
+            request,
+            me,
+            course,
+            proposal=result.proposal,
+            discarded=result.discarded,
+            near=near,
+        )
 
     @router.post("/courses/{course_id}/kc/draft", response_class=HTMLResponse)
     async def draft_candidate(request: Request, course_id: str) -> Response:
@@ -4452,6 +4481,9 @@ def register(templates) -> APIRouter:
         discarded: tuple[str, ...] = (),
         draft=None,
         draft_exists: bool = False,
+        suggestions: tuple = (),
+        pending=None,
+        near=None,
     ) -> Response:
         """知識要素のページ。**候補が出ているかどうかだけが違う。**
 
@@ -4498,6 +4530,14 @@ def register(templates) -> APIRouter:
                 # 候補から取り込んだ 1 件。追加フォームの初期値になる。
                 "draft": draft,
                 "draft_exists": draft_exists,
+                # 近い既存 KC（分野・単位をまたいで探す）。**禁止ではなく提示** ──
+                # 一致を強制すると、教員は近いだけの枝に無理やり寄せる。
+                "suggestions": suggestions,
+                # 候補 1 件ごとの「近い既存 KC」（新しい候補にだけ付く）。
+                "near": near or {},
+                # 提示を出したときの、足そうとしていた内容。そのまま押し切れる
+                # ようにフォームへ戻す（打ち直させない）。
+                "pending": pending,
                 # **体系にあるか**と、**このコースから見えているか**は別。
                 # 候補には既にあるものも出る（#41）ので、3 つ目の状態
                 # 「体系にはあるが、このコースでは未使用」が現れる。
@@ -4513,12 +4553,20 @@ def register(templates) -> APIRouter:
         key: Annotated[str, Form()],
         label: Annotated[str, Form()] = "",
         description: Annotated[str, Form()] = "",
+        confirm: Annotated[str, Form()] = "",
     ) -> Response:
         """KC を 1 つ足す。規則の強制は `aijudge_admin.kc` にある。
 
         **追加は明示的な行為にする**（禁止はしない）。科目の専門家は教員
         しかおらず、禁止すれば既存の近いキーに無理やり寄せられるだけで、
         構造としてはより悪くなる。
+
+        足せるのは知識要素（第 3 階層）まで。分野と単位は骨格が決めており、
+        **管理者であっても画面からは足せない**（`aijudge_admin.kc` の規則 2）。
+
+        **近いものがあれば一度止める。** 止めるだけで、押し切れる ── `confirm`
+        が来たらそのまま登録する。止めずに登録すると同義語が静かに増え、
+        止めて拒むと近いだけの枝に無理やり寄せられる。その間を取る。
         """
         from .app import require_principal
 
@@ -4527,16 +4575,36 @@ def register(templates) -> APIRouter:
         console = _console(request)
 
         profile = load_profile(console.profiles_dir / f"{course.subject_profile}.yaml")
+        namespaces = allowed_namespaces(profile)
+        wanted = key.strip()
+        if not confirm:
+            close = suggest_similar(
+                console.database,
+                key=wanted,
+                label=label.strip(),
+                description=description,
+                namespaces=namespaces,
+            )
+            if close:
+                return _kc_page(
+                    request,
+                    me,
+                    course,
+                    suggestions=close,
+                    pending={
+                        "key": wanted,
+                        "label": label.strip(),
+                        "description": description,
+                    },
+                )
         try:
             register_kc(
                 console.database,
-                key=key.strip(),
-                label=label.strip() or key.strip(),
+                key=wanted,
+                label=label.strip() or wanted,
                 description=description,
-                namespaces=allowed_namespaces(profile),
+                namespaces=namespaces,
                 actor_id=me.user_id,
-                # 第 1 階層（分野の根）を作れるのは管理者だけ。
-                allow_root=_is_admin(request, me),
             )
         except AdminError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
