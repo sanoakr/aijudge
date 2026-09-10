@@ -43,6 +43,7 @@ from .memory import (
 )
 from .protocols import (
     ArtifactStore,
+    AttentionCounts,
     GradingRunRepository,
     ImmutabilityViolation,
     JobQueue,
@@ -63,6 +64,7 @@ __all__ = [
     "DEFAULT_MAX_ATTEMPTS",
     "AcceptResult",
     "ArtifactStore",
+    "AttentionCounts",
     "FilesystemArtifactStore",
     "GradingJob",
     "GradingPhase",

@@ -22,6 +22,7 @@ from aijudge_core import (
     GradingContext,
     GradingRun,
     Provenance,
+    Role,
     Routing,
     RubricCriterion,
     RubricLevel,
@@ -658,3 +659,49 @@ def test_concurrent_workers_never_take_the_same_job() -> None:
         assert len(set(taken)) == job_count, "同じジョブが二度配られた"
     finally:
         database.dispose()
+
+
+# --------------------------------------------------------------------------
+# 左の帯が出す件数（#189）— **方言差が出る場所なのでここに置く**
+# --------------------------------------------------------------------------
+
+
+def test_the_attention_count_excludes_the_instructors_own_trial(database: Database) -> None:
+    """教員自身の試行を数えないこと（#108）。
+
+    **このテストがここに居る理由。** 除外の条件は `Submission.is_trial` で、
+    これは `submitted_as` から導かれる派生プロパティなので列が無く、JSON の
+    中にある。数だけを引くために SQL で JSON を読むので、**SQLite の
+    `json_extract` と PostgreSQL の `->>` の両方で同じ答えになる必要がある**
+    ── この fixture が両方を回す理由そのもの（冒頭の docstring）。
+
+    片方でしか確かめないと、帯の数字が本番だけずれる。しかも「多めに出る」
+    方向にずれるので、教員は減らない件数を見続けることになる。
+    """
+    version = a_task_version()
+    with database.unit_of_work() as uow:
+        uow.tasks.save_task(Task(id=TASK_ID, course_id=COURSE, title="ex03 p1", session=3))
+        uow.tasks.save_version(version)
+        uow.commit()
+
+    service = a_service(database)
+    submissions = []
+    for index, role in enumerate((Role.LEARNER, Role.LEARNER, Role.INSTRUCTOR)):
+        result = service.accept(
+            tenant_id=TENANT,
+            task_version_id=version.id,
+            learner_id=UserId(f"usr_{index:032d}"),
+            submitted_as=role,
+            subject_profile="cs_lang_c_intro",
+            files=code(f"int main(void){{return {index};}}"),
+        )
+        submissions.append(result.submission.id)
+        with database.unit_of_work() as uow:
+            uow.runs.save(a_run(f"run_{index:032d}", result.submission.id))
+            uow.commit()
+
+    with database.unit_of_work() as uow:
+        counts = uow.reviews.attention_counts_for_course(COURSE)
+
+    assert counts.unfinalized == 2, "教員の試行が未確定に混ざっている"
+    assert counts.contested == 0
