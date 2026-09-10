@@ -316,3 +316,69 @@ footer.app-footer .inner{max-width:none;display:flex;align-items:center;gap:12px
    別に持つと、支援技術に伝わる状態と画面の状態がずれる。 */
 .theme-switch button[aria-pressed="true"]{background:var(--surface);color:var(--ink);
   box-shadow:inset 0 0 0 1px var(--line-soft)}
+
+/* ==========================================================================
+   左の常設の帯（#189・ADR 0017）
+   ========================================================================== */
+.app{display:grid;grid-template-columns:248px minmax(0,1fr);min-height:100vh}
+.app > .col{min-width:0;display:flex;flex-direction:column}
+.rail{background:var(--surface);border-right:1px solid var(--line);
+  display:flex;flex-direction:column;position:sticky;top:0;height:100vh;
+  overflow-y:auto}
+.rail .brand{display:block;padding:14px 16px 12px;text-decoration:none;
+  color:var(--ink);border-bottom:1px solid var(--line-soft)}
+.rail .brand b{font-size:1rem;font-weight:700;display:block;line-height:1.35}
+.rail .brand .side{font-size:.72rem;color:var(--muted)}
+.rail .switch{padding:10px 16px;border-bottom:1px solid var(--line-soft);margin:0}
+.rail .switch label{display:block;font-size:.68rem;letter-spacing:.08em;
+  color:var(--muted);margin-bottom:3px}
+.rail .switch select{width:100%;font-size:.82rem;padding:5px 7px}
+.rail nav{flex:1;padding:6px 0}
+.railnote{font-size:.72rem;color:var(--muted);padding:0 16px 12px;margin:0}
+
+/* **階層はここで作る。** 大項目は全幅の帯で、小項目より字を小さくしない。
+   小項目は帯より内側に字下げして従属を見せ、件数は同じ右端で揃える
+   （揃っていないと縦に読み比べられない）。 */
+.railgrp + .railgrp{margin-top:6px}
+.railgrp .gh{font-size:.82rem;font-weight:700;letter-spacing:.06em;
+  color:var(--ink);background:var(--ai-soft);padding:5px 16px;
+  display:flex;align-items:center;gap:8px}
+.railgrp .gh .n{font-family:var(--font-mono);font-size:.7rem;font-weight:400;
+  color:var(--muted);margin-left:auto}
+.railgrp .gi{padding:4px 8px 6px}
+.rail a.nav{display:flex;align-items:center;gap:8px;
+  padding:5px 10px 5px 16px;border-radius:3px;
+  color:var(--ink-2);text-decoration:none;font-size:.86rem}
+.rail a.nav:hover{background:var(--surface-2);color:var(--ink)}
+.rail a.nav .t{flex:1;min-width:0}
+.rail a.nav .c{font-family:var(--font-mono);font-size:.75rem;color:var(--muted);
+  min-width:2.6em;text-align:right;flex:none}
+/* 人が押さないと進まない件数だけ琥珀。数え上げは薄いまま。 */
+.rail a.nav .c.attn{color:var(--kin);font-weight:700;background:var(--kin-soft);
+  border-radius:99px;padding:0 7px;min-width:0}
+/* いま居る場所。**藍の縦罫**（移動の色・#185）。 */
+.rail a.nav[aria-current]{background:var(--ai-soft);color:var(--ink);
+  font-weight:700;box-shadow:inset 3px 0 0 var(--ai)}
+
+/* 狭い画面。**帯を上に畳んで横に流す。** 縦に積むと帯だけで画面の 3 分の 1 を
+   占め、本題が下に落ちる。**畳んだ時点で「左の帯」ではなくなるので、
+   文言は位置を指してはいけない**（モックで一度書いて直した）。 */
+@media (max-width:860px){
+  .app{grid-template-columns:1fr}
+  .rail{position:static;height:auto;border-right:0;
+    border-bottom:1px solid var(--line);
+    flex-direction:row;flex-wrap:wrap;align-items:center;gap:12px;padding:8px 16px}
+  .rail .brand,.rail .switch{border:0;padding:0}
+  .rail .brand{flex:none}
+  .rail .switch{flex:1;min-width:11rem}
+  .rail nav{order:3;width:100%;display:flex;flex-wrap:nowrap;overflow-x:auto;
+    padding:0 0 2px;gap:8px;align-items:center;scrollbar-width:thin}
+  .railgrp{display:flex;align-items:center;gap:4px;flex:none}
+  .railgrp + .railgrp{margin-top:0;border-left:1px solid var(--line);padding-left:8px}
+  .railgrp .gh{background:none;padding:0 4px;font-size:.74rem;flex:none}
+  .railgrp .gh .n{display:none}
+  .railgrp .gi{display:flex;padding:0;gap:4px}
+  .rail a.nav{white-space:nowrap;flex:none;padding:3px 8px}
+  .rail a.nav .c{min-width:0}
+  .railnote{order:4;padding:0}
+}

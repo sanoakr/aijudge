@@ -21,6 +21,14 @@
 
    帯そのものは署名の入っている人にしか出ない（ログイン画面には出す
    ものが無い）。中の文脈バナーは、コースの下にいるときだけ足される。 #}
+{# 左の常設の帯（#189）。`rail` は context processor が全ページに配る
+   （`rail_context.py`）── ハンドラは何も渡さない。集計に失敗した回は
+   `rail` が来ないので、帯の無い 1 段の画面になる（それでも読める）。 #}
+{% if rail is defined and rail %}
+<div class="app">
+{% include "_rail.html" %}
+<div class="col">
+{% endif %}
 {% if me is defined and me %}
 <div class="topbar">
 <header class="top"><div class="inner">
@@ -98,6 +106,10 @@
   {% include "_theme_switch.html" %}
   <span>aiJudge {{ app_version }}{% if copyright_notice %} · {{ copyright_notice }}{% endif %}</span>
 </div></footer>
+{% if rail is defined and rail %}
+</div>{# .col #}
+</div>{# .app #}
+{% endif %}
 {# **モデルが動いているあいだ、動いていることを出す。** 生成は十数秒から
    数十秒かかり、何も出ないと押せていないのか固まったのか分からない。
 
