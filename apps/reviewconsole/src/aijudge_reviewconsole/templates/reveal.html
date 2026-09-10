@@ -1,96 +1,68 @@
 {% extends "base.html" %}
 {% block title %}AI の判定 — aiJudge レビュー{% endblock %}
+{% block main_class %}wide{% endblock %}
 {% block body %}
 <h1>AI の判定 — <span class="mono">{{ submission.id[:12] }}…</span></h1>
 
-{% if was_blind %}
-<div class="note">
-  あなたの blind 採点は保存済みです。ここで段階を変えても
-  <strong>測定に残るのは blind 側</strong>で、一致度の測定は影響を受けません。
-  変更は最終成績にのみ反映されます。
-</div>
-{% endif %}
-
-{% if awaiting_ai %}
-<div class="note warn">
-  <strong>AI 評価がまだ届いていません。</strong>
-  テスト実行の結果は出ていますが、AI が担当する観点はこれから採点されます
-  （決定的評価と AI 評価は別のキューで走ります）。届いてから確定してください。
-  この画面を再読み込みして確認できます。
-</div>
-{% endif %}
-
-{% if review_request %}
-<div class="note warn">
-  <strong>学習者からの再確認の依頼</strong>
-  （{{ review_request.requested_at.strftime('%Y-%m-%d %H:%M') }}）<br>
-  {{ review_request.reason }}
-</div>
-{% endif %}
+{# **左に見るもの、右に決めるもの**（#185）。以前は 1 本の縦に
+   「突き合わせ → 答案 → 問題文 → 段階の選択」と並んでいたので、コードを
+   見ながら段階を選ぶには画面を往復することになった。blind 採点の画面は
+   以前から 2 面だったので、同じ作業の画面が経路によって 2 種類あった。 #}
+<div class="desk">
+<div class="left">
 
 <h2>観点ごとの突き合わせ</h2>
-<table>
-  <thead><tr>
-    <th>観点</th>
-    <th class="fit">{{ 'あなた（blind）' if was_blind else 'あなた' }}</th>
-    <th class="fit">AI</th>
-    <th class="fit">一致</th>
-    <th class="grow">AI の根拠</th>
-  </tr></thead>
-  <tbody>
-  {% for row in rows %}
-    <tr>
-      <td><strong>{{ row.criterion.title }}</strong><br>
-          <span class="desc">重み {{ '%.2f' | format(row.criterion.weight) }}</span></td>
-      <td class="fit">{{ row.human_level if row.human_level is not none else '—' }}</td>
-      <td class="fit">{{ row.ai_level if row.ai_level is not none else '—' }}</td>
-      <td class="fit">
-        {# **打ち切りは確定した事実、あとの 2 つは人の入力待ち。** 同じ赤で
-           並べると、放っておいてよいものと、開かないと閉じないものが
-           見分けられない（#46）。 #}
-        {% if row.gated %}<span class="pill no">打ち切り 0%</span>
-        {% elif row.awaiting_human %}<span class="pill attn">人が採点</span>
-        {% elif row.unscored %}<span class="pill attn">採点できず</span>
-        {% elif row.agrees is none %}<span class="desc">—</span>
-        {% elif row.agrees %}<span class="pill ok">一致</span>
-        {% else %}<span class="pill no">不一致</span>{% endif %}
-      </td>
-      <td class="grow">
-        {% if row.score %}
-          {{ row.score.rationale }}
-          {% if row.score.evidence %}
-            <br><span class="desc">
-            根拠:
-            {%- for e in row.score.evidence %}
-              {%- if e.span.kind == 'line' %} L{{ e.span.start_line }}–{{ e.span.end_line }}{% endif -%}
-            {%- endfor %}
-            / 確信度 {{ '%.2f' | format(row.score.confidence) }}
-            </span>
-          {% endif %}
-        {% elif row.gated %}
-          <span class="desc">上位の観点が 0% だったため、この観点は評価していません（0%）。</span>
-        {% elif row.awaiting_human %}
-          <span class="desc">この観点は評価器を割り当てていません。段階を選んでください。</span>
-        {% else %}
-          <span class="desc">この観点は採点されませんでした。</span>
-        {% endif %}
-      </td>
-    </tr>
-  {% endfor %}
-  </tbody>
-</table>
+{# **1 観点 1 ブロックで積む**（#185）。2 面にすると 5 列の表は狭い段に
+   入らず、いちばん読ませたい「AI の根拠」が枠の外に出る。列を持たない
+   形にすれば幅に依らない。
 
-{% if run.unscored_criteria %}
-<div class="note warn">
-  採点できなかった観点があるため、この点数は暫定です。人手で確定させてください。
+   縦罫は **不一致（朱）と入力待ち（琥珀）を別の色**にする（#46）── 放って
+   おいてよいものと、押さないと閉じないものを同じ色で並べない。 #}
+<div class="critlist">
+{% for row in rows %}
+  {% if row.awaiting_human or row.unscored %}{% set tone = 'needs' %}
+  {% elif row.agrees is defined and row.agrees is not none and not row.agrees %}{% set tone = 'differs' %}
+  {% else %}{% set tone = '' %}{% endif %}
+  <div class="c {{ tone }}">
+    <div class="h">
+      <b>{{ row.criterion.title }}</b>
+      <span class="w">重み {{ '%.2f' | format(row.criterion.weight) }}</span>
+      <span class="lv">
+        {{ 'blind' if was_blind else 'あなた' }}
+        <b>{{ row.human_level if row.human_level is not none else '—' }}</b>
+        / AI <b>{{ row.ai_level if row.ai_level is not none else '—' }}</b>
+      </span>
+      {% if row.gated %}<span class="pill no">打ち切り 0%</span>
+      {% elif row.awaiting_human %}<span class="pill attn">人が採点</span>
+      {% elif row.unscored %}<span class="pill attn">採点できず</span>
+      {% elif row.agrees is none %}<span class="desc">—</span>
+      {% elif row.agrees %}<span class="pill ok">一致</span>
+      {% else %}<span class="pill no">不一致</span>{% endif %}
+    </div>
+    <p class="ev">
+      {% if row.score %}
+        {{ row.score.rationale }}
+        {% if row.score.evidence %}
+          <br><span class="desc">
+          根拠:
+          {%- for e in row.score.evidence %}
+            {%- if e.span.kind == 'line' %} L{{ e.span.start_line }}–{{ e.span.end_line }}{% endif -%}
+          {%- endfor %}
+          / 確信度 {{ '%.2f' | format(row.score.confidence) }}
+          </span>
+        {% endif %}
+      {% elif row.gated %}
+        <span class="desc">上位の観点が 0% だったため、この観点は評価していません（0%）。</span>
+      {% elif row.awaiting_human %}
+        <span class="desc">この観点は評価器を割り当てていません。段階を選んでください。</span>
+      {% else %}
+        <span class="desc">この観点は採点されませんでした。</span>
+      {% endif %}
+    </p>
+  </div>
+{% endfor %}
 </div>
-{% endif %}
-{% if run.awaiting_human %}
-<div class="note warn">
-  <strong>人が採点する観点があります。</strong>段階を選ばないと確定できません
-  （一括確定の対象にもなりません）。
-</div>
-{% endif %}
+
 
 <h2>提出されたものと根拠</h2>
 {# **種別で出し分ける**（#75）。以前は何でもテキストとして出していたので、
@@ -129,6 +101,44 @@
   <summary><b>この課題の問題文</b><span class="desc">学習者に出ているものと同じ表示です</span></summary>
   <div class="statement" style="margin-top:12px">{{ statement_html | safe }}</div>
 </details>
+
+</div>{# .left #}
+<div class="right">
+{% if run.awaiting_human %}
+<div class="note warn">
+  <strong>人が採点する観点があります。</strong>段階を選ばないと確定できません
+  （一括確定の対象にもなりません）。
+</div>
+{% endif %}
+{% if run.unscored_criteria %}
+<div class="note warn">
+  採点できなかった観点があるため、この点数は暫定です。人手で確定させてください。
+</div>
+{% endif %}
+{% if was_blind %}
+<div class="note">
+  あなたの blind 採点は保存済みです。ここで段階を変えても
+  <strong>測定に残るのは blind 側</strong>で、一致度の測定は影響を受けません。
+  変更は最終成績にのみ反映されます。
+</div>
+{% endif %}
+
+{% if awaiting_ai %}
+<div class="note warn">
+  <strong>AI 評価がまだ届いていません。</strong>
+  テスト実行の結果は出ていますが、AI が担当する観点はこれから採点されます
+  （決定的評価と AI 評価は別のキューで走ります）。届いてから確定してください。
+  この画面を再読み込みして確認できます。
+</div>
+{% endif %}
+
+{% if review_request %}
+<div class="note warn">
+  <strong>学習者からの再確認の依頼</strong>
+  （{{ review_request.requested_at.strftime('%Y-%m-%d %H:%M') }}）<br>
+  {{ review_request.reason }}
+</div>
+{% endif %}
 
 <h2>最終確定</h2>
 {% if review %}
@@ -223,8 +233,14 @@
     {% endif %}
 
   </fieldset>
-  <div class="actions"><button type="submit">成績を確定</button></div>
+  {# **押す場所を探させない**（#185）。段階を選び終えた位置がそのまま
+     押す位置になるよう、判定欄の底に貼る。 #}
+  <div class="deskbar">
+    <span class="spacer">確定すると学習者に根拠が表示されます</span>
+    <button type="submit">成績を確定</button>
+  </div>
 </form>
-
 {% endif %}
+</div>{# .right #}
+</div>{# .desk #}
 {% endblock %}

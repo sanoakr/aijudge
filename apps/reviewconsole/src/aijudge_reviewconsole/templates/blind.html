@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}採点 — aiJudge レビュー{% endblock %}
+{% block main_class %}wide{% endblock %}
 {% block body %}
 {#
   この画面は AI の判定を一切含まない。CSS で隠すのではなく、
@@ -12,8 +13,10 @@
   先に見ると採点がそれに引きずられ、一致度の測定に使えなくなります。
 </div>
 
-<div class="grid2">
-  <div>
+{# 判定の画面と**同じ組**を使う（#185）。以前はこちらだけ `.grid2` で、
+   同じ「答案を見て段階を選ぶ」作業なのに画面の作りが 2 種類あった。 #}
+<div class="desk">
+  <div class="left">
     <h2>問題</h2>
     <div class="statement">{{ statement_html | safe }}</div>
 
@@ -47,7 +50,7 @@
 {% endif %}
   </div>
 
-  <div>
+  <div class="right">
     <h2>あなたの採点</h2>
     <form method="post" action="{{ root_prefix() }}/review/{{ submission.id }}/blind">
       {% for criterion in criteria %}
@@ -73,7 +76,9 @@
         <textarea name="notes" rows="3" placeholder="判断の根拠など"></textarea>
       </fieldset>
 
-      <div class="actions"><button type="submit">採点を確定して AI の判定を表示</button></div>
+      <div class="deskbar">
+        <button type="submit">採点を確定して AI の判定を表示</button>
+      </div>
     </form>
   </div>
 </div>
