@@ -23,12 +23,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from aijudge_core import Course
-from aijudge_core.ids import TenantId
+from aijudge_core.ids import TenantId, UserId
 from aijudge_identity import DemoCourse
 from aijudge_persistence import Database
 
 from .courses import delete_course
-from .operations import AdminError, ensure_course
+from .demo_seed import seed_demo_course
+from .operations import AdminError
 
 __all__ = ["DemoReset", "reset_demo_course"]
 
@@ -45,6 +46,8 @@ class DemoReset:
     submissions: int
     tasks: int
     enrolments: int
+    #: 定義から入れ直した課題の数。
+    seeded_tasks: int
     recreated: bool
 
 
@@ -54,6 +57,7 @@ def reset_demo_course(
     *,
     tenant_id: TenantId,
     profiles_dir: Path,
+    authored_by: UserId,
     artifact_store: object | None = None,
 ) -> DemoReset:
     """デモコースを消して、同じ素性で作り直す。
@@ -76,18 +80,19 @@ def reset_demo_course(
 
     deleted = delete_course(database, course_id=demo.course_id, artifact_store=artifact_store)
 
-    # **同じ素性で作り直す。** ID はテナント・コード・学期から導かれるので、
-    # 同じ値を渡せば同じ ID になる（`course_id_for`）── 学生が開いていた
-    # URL は生き続ける。
-    recreated, created = ensure_course(
+    # **定義から作り直す。** 当初の問題セットも戻る（#194）── リセットが
+    # 「学期の初めの状態」を意味するなら、空のコースでは足りない。
+    #
+    # ID はテナント・コード・学期から導かれるので、定義が同じ値を書いている
+    # 限り同じ ID になる（`course_id_for`）── 学生が開いていた URL は
+    # 生き続ける。下でそれを確かめる。
+    seeded = seed_demo_course(
         database,
         tenant_id=tenant_id,
-        code=course.code,
-        title=course.title,
-        term=course.term,
-        subject_profile=course.subject_profile,
         profiles_dir=profiles_dir,
+        authored_by=authored_by,
     )
+    recreated, created = seeded.course, seeded.created
     if recreated.id != course.id:  # pragma: no cover - 導出が変わったときだけ
         raise AdminError(
             "作り直したコースの ID が変わりました。学生が開いている URL が死ぬので、中断します"
@@ -97,5 +102,6 @@ def reset_demo_course(
         submissions=deleted.trial_submissions,
         tasks=deleted.tasks,
         enrolments=deleted.enrolments,
+        seeded_tasks=seeded.tasks,
         recreated=created,
     )

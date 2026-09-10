@@ -1,0 +1,174 @@
+# デモコースの定義（#194）
+#
+# **リセットが戻すのはこのファイルの中身である。** `aijudge-admin demo reset`
+# はコースを消して作り直し、ここから問題セットを入れ直す ── だから「当初の
+# 状態」がコードではなくファイルに書いてある必要がある。
+#
+# **3 種類を 1 コースに置く。** これができるのは #195 で採点のプロファイルを
+# 課題側から取るようにしたためで、それ以前は 2 つ（3 つ）のコースに割るしか
+# なかった。デモの要件がその変更を必要とした。
+#
+# | 課題 | プロファイル | 見せたいこと |
+# |---|---|---|
+# | 画像 | `demo_image` | 機械が採点しない観点 → **総合点が保留になる** |
+# | C 言語 | `cs_lang_c_intro` | テスト実行で即座に判定が出る |
+# | レポート | `report_ja` | AI が根拠を添えて判定する |
+#
+# KC は `demo` 名前空間（`subjects/kc/demo.yaml`）。**`cs` を使わない** ──
+# 除外が漏れたときに本物の習熟度へ効かないようにするため。
+
+course:
+  code: demo
+  title: お試しコース
+  term: 2026-前期
+  # コースのプロファイルは**語彙と既定**を決める（ADR 0018）。採点は課題側。
+  subject_profile: demo_image
+  description: >-
+    aiJudge を触って試すためのコースです。ログインすれば誰でも入れます。
+    **ここでの提出は、成績にも学習履歴にも残りません。**
+    画像・プログラム・レポートの 3 種類を置いてあり、それぞれ採点のされ方が
+    違います ── 機械が判定するもの、AI が根拠を添えて判定するもの、
+    人が見るまで点が付かないもの。
+
+tasks:
+  - key: d1-image
+    unit: demo01
+    position: 1
+    title: 手書きのメモを撮って出す
+    subject_profile: demo_image
+    knowledge_components: [demo.trial.image.legibility, demo.trial.image.completeness]
+    statement: |
+      ## [必須] 手書きのメモを撮って出す ##
+
+      紙に何か書いて、写真を撮って提出してください。内容は何でも構いません
+      （落書きでも、講義のノートでも）。
+
+      ### 見てほしいこと
+
+      この課題には**機械の評価器がありません**。観点はどちらも人が見て決めます。
+
+      提出すると、**総合点は出ません。** 「担当教員が確認します」と出るはずです
+      ── 採点できなかった観点が残っているとき、残りだけを比例配分した点は
+      出さない、という設計だからです。その状態を見てもらうための課題です。
+    criteria:
+      - code: legibility
+        title: 読み取れる形で撮れているか
+        description: ピント・明るさ・傾き。人が読める状態か。
+        weight: 0.5
+        evaluator: __human__
+        levels:
+          - {level: 0, label: 読めない, descriptor: 文字が判別できない, score_ratio: 0.0}
+          - {level: 1, label: 一部, descriptor: 一部が読み取れる, score_ratio: 0.5}
+          - {level: 2, label: 読める, descriptor: 全体が問題なく読める, score_ratio: 1.0}
+      - code: completeness
+        title: 必要なものが写っているか
+        description: 紙の全体が入っているか。切れていないか。
+        weight: 0.5
+        evaluator: __human__
+        levels:
+          - {level: 0, label: 不足, descriptor: 大きく切れている, score_ratio: 0.0}
+          - {level: 1, label: 一部, descriptor: 端が切れている, score_ratio: 0.5}
+          - {level: 2, label: 十分, descriptor: 全体が入っている, score_ratio: 1.0}
+
+  - key: d2-code
+    unit: demo01
+    position: 2
+    title: 最大値を求める
+    subject_profile: cs_lang_c_intro
+    readability_weight: 0.3
+    knowledge_components:
+      - demo.trial.code.read_input
+      - demo.trial.code.loop
+      - demo.trial.code.compare
+      - demo.trial.code.boundary
+    statement: |
+      ## [必須] 最大値を求める ##
+
+      整数の並びを読み込み、その**最大値**を出力してください。
+
+      ### 入力
+
+      1 行目に要素数 `n`、2 行目に `n` 個の整数が空白区切りで与えられます。
+
+      ### 出力
+
+      最大値を 1 行で出力してください。
+
+      ```
+      入力
+      5
+      3 -1 12 8 12
+
+      出力
+      12
+      ```
+
+      ### 条件
+
+      - `n` は 1 以上 128 以下です
+      - 標準ライブラリの最大値関数は使わないこと
+
+      ### 見てほしいこと
+
+      提出すると**すぐに**テスト実行の結果が出ます。そのあと数十秒して、
+      AI が「読みやすさ」の判定を根拠付きで返します ── 決定的な判定と
+      AI の判定が別の速さで届くのが分かるはずです。
+    test_cases:
+      - {name: example, input: "5\n3 -1 12 8 12\n", expected: "12\n"}
+      - {name: single, input: "1\n7\n", expected: "7\n"}
+      - {name: negative, input: "3\n-5 -2 -9\n", expected: "-2\n"}
+
+  - key: d3-report
+    unit: demo01
+    position: 3
+    title: 使ってみた感想を書く
+    subject_profile: report_ja
+    knowledge_components:
+      - demo.trial.writing.structure
+      - demo.trial.writing.evidence
+      - demo.trial.writing.conciseness
+    statement: |
+      ## [必須] 使ってみた感想を書く ##
+
+      このお試しコースを触ってみて気づいたことを、**400 字程度**で書いて
+      提出してください。
+
+      ### 書いてほしいこと
+
+      - 何を試したか
+      - 何が分かりやすかったか、分かりにくかったか
+      - そう思った理由（具体的に）
+
+      ### 見てほしいこと
+
+      AI が**根拠を添えて**判定します。「読みやすい」ではなく「どこがどう
+      だから、この段階」という形で返ります ── 点だけを返さない、という
+      設計の実物です。
+    criteria:
+      - code: structure
+        title: 構成
+        description: 何を書くかが順序立っているか。
+        weight: 0.4
+        levels:
+          - {level: 0, label: 未達, descriptor: 順序が追えない, score_ratio: 0.0}
+          - {level: 1, label: 不足, descriptor: 一部が飛ぶ, score_ratio: 0.4}
+          - {level: 2, label: 一部, descriptor: おおむね追える, score_ratio: 0.7}
+          - {level: 3, label: 十分, descriptor: 順序立っている, score_ratio: 1.0}
+      - code: evidence
+        title: 根拠
+        description: 「そう思った」の理由が具体的か。
+        weight: 0.4
+        levels:
+          - {level: 0, label: 未達, descriptor: 理由が無い, score_ratio: 0.0}
+          - {level: 1, label: 不足, descriptor: 抽象的な理由のみ, score_ratio: 0.4}
+          - {level: 2, label: 一部, descriptor: 一部に具体例, score_ratio: 0.7}
+          - {level: 3, label: 十分, descriptor: 具体的に書かれている, score_ratio: 1.0}
+      - code: conciseness
+        title: 簡潔さ
+        description: 字数に収まり、繰り返しが無いか。
+        weight: 0.2
+        levels:
+          - {level: 0, label: 未達, descriptor: 大きく外れている, score_ratio: 0.0}
+          - {level: 1, label: 不足, descriptor: 繰り返しが多い, score_ratio: 0.4}
+          - {level: 2, label: 一部, descriptor: おおむね簡潔, score_ratio: 0.7}
+          - {level: 3, label: 十分, descriptor: 簡潔にまとまっている, score_ratio: 1.0}

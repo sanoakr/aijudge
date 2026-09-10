@@ -36,7 +36,9 @@ from aijudge_telemetry import configure_logging
 
 from . import authoring_cli
 from .demo_reset import reset_demo_course
+from .demo_seed import seed_demo_course
 from .operations import (
+    _IMPORTER,
     AdminError,
     create_staff,
     enrol_roster,
@@ -176,6 +178,9 @@ def cmd_demo_reset(args: argparse.Namespace) -> int:
             demo,
             tenant_id=_tenant(args),
             profiles_dir=args.profiles,
+            # 課題の作成者。**人ではない**ので、取り込み用の利用者を使う
+            # （名簿の取り込みと同じ・`operations._IMPORTER`）。
+            authored_by=_IMPORTER,
             artifact_store=_artifact_store(args),
         )
     except AdminError as exc:
@@ -186,9 +191,38 @@ def cmd_demo_reset(args: argparse.Namespace) -> int:
 
     print(
         f"作り直しました: 提出 {result.submissions} 件 / 課題 {result.tasks} 件 / "
-        f"受講登録 {result.enrolments} 件を消しました"
+        f"受講登録 {result.enrolments} 件を消し、課題 {result.seeded_tasks} 件を戻しました"
     )
-    print("**問題セットは入っていません。** 取り込み直してください。")
+    return 0
+
+
+def cmd_demo_seed(args: argparse.Namespace) -> int:
+    """デモコースを定義から作る（`subjects/demo/course.yaml`）。
+
+    **何度走らせても増えない。** 定義を直して足したときは、もう一度
+    これを走らせれば差分だけが入る（`kc seed` と同じ作法）。
+    """
+    database = _database(args)
+    try:
+        result = seed_demo_course(
+            database,
+            tenant_id=_tenant(args),
+            profiles_dir=args.profiles,
+            authored_by=_IMPORTER,
+        )
+    except AdminError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    finally:
+        database.dispose()
+
+    print(f"デモコース: {result.course.title}（{result.course.id}）")
+    print(f"  課題 {result.tasks} 件")
+    print()
+    print("使うには、この ID を環境変数に置いてください:")
+    print(f"    set -gx AIJUDGE_DEMO_COURSE {result.course.id}")
+    print("知識要素の骨格もまだなら:")
+    print("    uv run aijudge-admin kc seed --namespace demo")
     return 0
 
 
@@ -589,6 +623,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--yes", action="store_true", help="確認を省く（**cron には載せないこと**）"
     )
     demo_reset.set_defaults(func=cmd_demo_reset)
+    demo.add_parser("seed", help="定義から作る（冪等。subjects/demo/course.yaml）").set_defaults(
+        func=cmd_demo_seed
+    )
 
     enrol = sub.add_parser("enrol", help="名簿からまとめて受講登録")
     enrol.add_argument("--course", required=True)

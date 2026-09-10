@@ -14,11 +14,9 @@ from pathlib import Path
 
 import pytest
 
-from aijudge_admin import ensure_course
-from aijudge_admin.authoring import save_task
 from aijudge_admin.demo_reset import reset_demo_course
+from aijudge_admin.demo_seed import seed_demo_course
 from aijudge_admin.operations import AdminError
-from aijudge_authoring import TaskSpec
 from aijudge_core import (
     Artifact,
     ArtifactKind,
@@ -50,35 +48,27 @@ def database(tmp_path: Path):
 
 @pytest.fixture
 def course(database: Database):
-    obj, _ = ensure_course(
-        database,
-        tenant_id=TENANT,
-        code="demo",
-        title="お試しコース",
-        term="2026-前期",
-        subject_profile="cs_lang_c_intro",
-        profiles_dir=PROFILES,
-    )
-    return obj
+    """**定義から作る。** リセットが戻すのと同じ素性でないと、比べる意味が無い
+    （`subjects/demo/course.yaml`）。"""
+    return seed_demo_course(
+        database, tenant_id=TENANT, profiles_dir=PROFILES, authored_by=TEACHER
+    ).course
 
 
 def _populate(database: Database, course) -> None:
-    """デモらしい状態を作る ── 課題・受講登録・提出。"""
-    saved = save_task(
-        database,
-        course_id=course.id,
-        spec=TaskSpec(key="p1", statement="## [必須] p1 ##\n\n本文", readability_weight=0.3),
-        subject_profile=course.subject_profile,
-        authored_by=TEACHER,
-    )
+    """使われた状態にする ── 受講登録と提出を足す。
+
+    課題は定義が既に 3 件入れている（`seed_demo_course`）。
+    """
     with database.unit_of_work() as uow:
+        version = uow.tasks.latest_version(uow.tasks.list_for_course(course.id)[0].id)
         uow.identity.save_enrollment(
             Enrollment(tenant_id=TENANT, course_id=course.id, user_id=LEARNER, role=Role.LEARNER)
         )
         uow.submissions.save(
             Submission(
                 id=SubmissionId("sub_" + "1" * 32),
-                task_version_id=saved.version.id,
+                task_version_id=version.id,
                 learner_id=LEARNER,
                 # **デモの提出は trial**（#194 の B）。ここが偽だと、消す前に
                 # `delete_course` が拒む。
@@ -110,6 +100,7 @@ def _reset(database: Database, course, tenant_id: TenantId = TENANT):
         DemoCourse(course_id=course.id),
         tenant_id=tenant_id,
         profiles_dir=PROFILES,
+        authored_by=TEACHER,
     )
 
 
@@ -137,11 +128,15 @@ def test_submissions_tasks_and_enrolments_all_go(database: Database, course) -> 
     _populate(database, course)
     result = _reset(database, course)
 
-    assert (result.submissions, result.tasks, result.enrolments) == (1, 1, 1)
+    assert (result.submissions, result.enrolments) == (1, 1)
+    assert result.tasks == 3, "定義の課題が消えていない"
+    # **課題は戻る**（#194）── リセットは「学期の初めの状態」であって、
+    # 空のコースではない。
+    assert result.seeded_tasks == 3
     with database.unit_of_work() as uow:
         assert uow.submissions.list_for_course(course.id) == ()
-        assert uow.tasks.list_for_course(course.id) == ()
         assert uow.identity.list_enrollments(course.id) == ()
+        assert len(uow.tasks.list_for_course(course.id)) == 3
 
 
 def test_logging_in_again_puts_the_learner_back(database: Database, course, monkeypatch) -> None:
@@ -187,4 +182,5 @@ def test_it_refuses_a_course_that_is_not_there(database: Database) -> None:
             DemoCourse(course_id=CourseId("crs_" + "0" * 32)),
             tenant_id=TENANT,
             profiles_dir=PROFILES,
+            authored_by=TEACHER,
         )
