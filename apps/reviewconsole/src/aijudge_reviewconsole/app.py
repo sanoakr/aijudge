@@ -44,7 +44,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 import aijudge_webui as webui
-from aijudge_admin import allowed_namespaces, list_for_namespaces, pending_counts
+from aijudge_admin import pending_counts
 from aijudge_audit import AuditAction, AuditRecorder
 from aijudge_authoring import images, render_statement
 from aijudge_core import (
@@ -96,8 +96,8 @@ from aijudge_submission import (
 from aijudge_telemetry import RequestContextMiddleware
 
 from .audit_context import request_id_of, source_ip_of
-from .manage import _role_counts
 from .overview import digests_for, load_units
+from .rail_context import RAIL_COURSE_ID, rail_context
 from .sampling import is_blind_sample
 from .submissions import (
     STATE_LABELS,
@@ -105,7 +105,6 @@ from .submissions import (
     distribution_of,
     load_rows,
     newest_first,
-    summarize,
 )
 from .urls import RedirectResponse, prefixed, root_prefix
 
@@ -164,7 +163,10 @@ APP_VERSION = _read_app_version()
 # 共有の断片（`_theme_boot.html` / `_theme_switch.html`）を足す ── 自分の
 # `templates/` を先に見るので、同名を置けばアプリ側で上書きできる。
 TEMPLATES = Jinja2Templates(
-    directory=[str(Path(__file__).parent / "templates"), str(webui.TEMPLATES_DIR)]
+    directory=[str(Path(__file__).parent / "templates"), str(webui.TEMPLATES_DIR)],
+    # 左の帯を全ページに配る（#189・ADR 0017 §2）。**ハンドラには渡させない**
+    # ── 34 経路あるので、引数にすると渡し忘れる場所が 34 できる。
+    context_processors=[rail_context],
 )
 TEMPLATES.env.globals["app_version"] = APP_VERSION
 TEMPLATES.env.globals["copyright_notice"] = _read_copyright_notice()
@@ -440,12 +442,30 @@ def _state(request: Request) -> Console:
     return request.app.state.aijudge  # type: ignore[no-any-return]
 
 
+#: `request.state.principal` が「まだ引いていない」ことを表す番兵。
+#: **`None` と区別する** ── 署名の無い要求で毎回引き直すのを避ける。
+_UNRESOLVED: object = object()
+
+
 def current_principal(request: Request) -> Principal | None:
+    """署名から主体を引く。**1 要求につき 1 回だけ。**
+
+    結果を `request.state` に持たせるのは、帯（#189）が context processor
+    から同じ値を要るため ── そこは依存を通れないので、自分で引くと
+    1 ページあたりセッションの解決が 2 回になる。`resolve` は副作用の
+    無い読み取りなので、要求の中で使い回してよい。
+    """
+    cached = getattr(request.state, "principal", _UNRESOLVED)
+    if cached is not _UNRESOLVED:
+        return cached  # type: ignore[return-value]
+
     token = request.cookies.get(SESSION_COOKIE, "")
-    if not token:
-        return None
-    with _state(request).database.unit_of_work() as uow:
-        return AuthService(uow.identity, audit=uow.audit).resolve(token)
+    principal: Principal | None = None
+    if token:
+        with _state(request).database.unit_of_work() as uow:
+            principal = AuthService(uow.identity, audit=uow.audit).resolve(token)
+    request.state.principal = principal
+    return principal
 
 
 def require_principal(request: Request) -> Principal:
@@ -718,22 +738,27 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
         「第 3 回の締切を直す」ために縦に長い画面を目で探すことになる。
         コース全体の設定と、問題セットごとの設定と、再確認の依頼を、同じ階層に並べる。
         """
-        course, rows, _marked = _queue_rows(console, me, CourseId(course_id))
-        pending = pending_counts(console.database, course.id)
-        _course, blind, blind_marked = _blind_rows(console, me, CourseId(course_id))
-        unfinalized = sum(pending.values())
+        # **この画面はコースの状態だけを持つ**（#189・ADR 0017）。行き先が
+        # 左の帯へ移ったので、その行に添えていた数え上げ ── 提出の総数・
+        # 異議の件数・blind の待ち・未承認の課題・受講者数・知識要素の数 ──
+        # はここでは要らなくなった。**引かない分は払わない。**
+        pending = pending_counts(console.database, CourseId(course_id))
         with console.database.unit_of_work() as uow:
-            submitted = summarize(load_rows(uow, course))
-        with console.database.unit_of_work() as uow:
+            # **採点を担当していない人には開かせない。** 以前はこの検査が
+            # `_queue_rows`（異議の件数を数えるついで）に載っていたので、
+            # 数え上げを外した拍子に一緒に消えかけた ── 認可は数え上げの
+            # 副産物にしない。**存在しないふりをする**（403 ではなく 404）
+            # ── 担当していないコースについては、あることも知らせない。
+            auth = AuthService(uow.identity, audit=uow.audit)
+            try:
+                auth.require_grader(CourseId(course_id), me.user_id)
+            except PermissionDenied as exc:
+                raise HTTPException(status_code=404, detail="コースが見つかりません") from exc
+            course = uow.identity.get_course(CourseId(course_id))
+            if course is None:
+                raise HTTPException(status_code=404, detail="コースが見つかりません")
             units = load_units(uow, course, pending=pending)
-            task_ids = {task.id for task in uow.tasks.list_for_course(course.id)}
-            drafts = sum(
-                1 for version in uow.tasks.list_versions_in_review() if version.task_id in task_ids
-            )
             enrollment = uow.identity.find_enrollment(course.id, me.user_id)
-            enrollments = uow.identity.list_enrollments(course.id)
-        profile = load_profile(console.profiles_dir / f"{course.subject_profile}.yaml")
-        kcs = list_for_namespaces(console.database, allowed_namespaces(profile))
         return TEMPLATES.TemplateResponse(
             request,
             "course_menu.html",
@@ -741,14 +766,6 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 "me": me,
                 "course": course,
                 "units": units,
-                "contested": len(rows),
-                "unfinalized": unfinalized,
-                "submitted": submitted,
-                "blind_pending": len(blind),
-                "blind_marked": blind_marked,
-                "min_sample_size": min_sample_size,
-                "drafts": drafts,
-                "kc_count": len(kcs),
                 # 直前に片付けた問題セットの内訳（#59・#82）。**件数の合計では
                 # 足りない** ── 1 回の操作で課題ごとに削除と取り下げに
                 # 分かれるので、何がどちらになったのかが言えなくなる。
@@ -758,11 +775,6 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                     if console.last_clear is not None and console.last_clear[0] == str(course.id)
                     else None
                 ),
-                # 受講者はここに出す。**「コース全体の設定」の中ではない** ──
-                # 知識要素・未承認の課題と同じく自分のページを持つものなので
-                # 同じ並びに置く。設定の中に埋めると、開くまで人数が見えない。
-                "people_count": len(enrollments),
-                "role_counts": _role_counts(enrollments),
                 # TA にはコースの設定を開かせない（`manage.py` の権限と揃える）。
                 # **テナント管理者は受講登録が無くても管理できる**（#128）。
                 "can_manage": me.is_tenant_admin
@@ -932,7 +944,7 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
 
     @app.get("/review/{submission_id}/blind", response_class=HTMLResponse)
     def blind(request: Request, submission_id: str, me: Me) -> Response:
-        context = _load(console, me, SubmissionId(submission_id))
+        context = _load(console, me, SubmissionId(submission_id), request)
         if not context.needs_blind:
             return RedirectResponse(f"/review/{submission_id}/reveal", status_code=303)
         return TEMPLATES.TemplateResponse(
@@ -966,7 +978,7 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
         （`level_<code>`）、宣言された引数では受け取れない。
         """
         form = await request.form()
-        context = _load(console, me, SubmissionId(submission_id))
+        context = _load(console, me, SubmissionId(submission_id), request)
         parsed = _parse_levels(context.task_version.criteria, form)
         notes = str(form.get("notes", ""))
 
@@ -986,7 +998,7 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 raise HTTPException(status_code=409, detail=str(exc)) from exc
             uow.commit()
 
-        fresh = _load(console, me, SubmissionId(submission_id))
+        fresh = _load(console, me, SubmissionId(submission_id), request)
         console.refresh_observations(
             fresh.submission,
             fresh.run,
@@ -1041,7 +1053,7 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
         `application/octet-stream` にする ── 学習者が出したファイルを返す
         経路なので、ブラウザに解釈させる余地を作らない。
         """
-        context = _load(console, me, SubmissionId(submission_id))
+        context = _load(console, me, SubmissionId(submission_id), request)
         artifact = next((a for a in context.submission.artifacts if str(a.id) == artifact_id), None)
         if artifact is None:
             raise HTTPException(status_code=404, detail="提出物が見つかりません")
@@ -1066,7 +1078,7 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
 
     @app.get("/review/{submission_id}/reveal", response_class=HTMLResponse)
     def reveal(request: Request, submission_id: str, me: Me) -> Response:
-        context = _load(console, me, SubmissionId(submission_id))
+        context = _load(console, me, SubmissionId(submission_id), request)
         if context.needs_blind:
             return RedirectResponse(f"/review/{submission_id}/blind", status_code=303)
 
@@ -1107,7 +1119,7 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
     @app.post("/review/{submission_id}/finalize")
     async def finalize(request: Request, submission_id: str, me: Me) -> Response:
         form = await request.form()
-        context = _load(console, me, SubmissionId(submission_id))
+        context = _load(console, me, SubmissionId(submission_id), request)
         if context.awaiting_ai:
             # **AI 評価の到着前に確定させない。** 確定すると、直後に届く
             # AI 段階の採点が確定済みの成績を追い越すことになる。
@@ -1149,7 +1161,10 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
         audit_request_id = request_id_of(request)
         audit_source_ip = source_ip_of(request)
         with console.database.unit_of_work() as uow:
-            request = uow.reviews.find_request_for_run(context.run.id)
+            # **`request` という名前にしない** ── ハンドラの引数（HTTP の
+            # 要求）を潰す。潰したまま下で `request` を使うと、
+            # ReviewRequest が HTTP の要求のふりをして渡っていく。
+            review_request = uow.reviews.find_request_for_run(context.run.id)
             try:
                 # 2 つの記録を書く。**別物である**（ADR 0010）。
                 # HumanReview は「教員がこの 1 件を読んだ」── 一致度の測定が
@@ -1163,7 +1178,7 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                         adjusted_levels=adjusted,
                         penalty_waived=waived,
                         comment=text,
-                        request_id=None if request is None else request.id,
+                        request_id=None if review_request is None else review_request.id,
                         reviewed_at=now,
                     )
                 )
@@ -1183,8 +1198,8 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 # 異議を申し立て、教員が読む経路。** 確定の記録は最初の
                 # ものを残す（追記のみ、P8）。教員が読んだ事実は
                 # `HumanReview` の側に付き、学習者にはそちらが出る。
-                if request is not None:
-                    uow.reviews.resolve_request(request.id, review_id)
+                if review_request is not None:
+                    uow.reviews.resolve_request(review_request.id, review_id)
 
                 # 監査記録（ADR 0016）。**`HumanReview` の代わりではない。**
                 # `HumanReview` は「教員がこの提出を読んだ」という採点側の
@@ -1246,7 +1261,7 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 raise HTTPException(status_code=409, detail=str(exc)) from exc
             uow.commit()
 
-        fresh = _load(console, me, SubmissionId(submission_id))
+        fresh = _load(console, me, SubmissionId(submission_id), request)
         console.refresh_observations(
             fresh.submission,
             fresh.run,
@@ -1368,7 +1383,19 @@ def _can_grade(auth: AuthService, course_id: CourseId, me: Principal) -> bool:
     return True
 
 
-def _load(console: Console, me: Principal, submission_id: SubmissionId) -> _Context:
+def _load(
+    console: Console, me: Principal, submission_id: SubmissionId, request: Request
+) -> _Context:
+    """提出とその課題・コースをまとめて引く。
+
+    **帯にコースを教えるのはここ**（#189・ADR 0017 §2）。`/review/…` の経路は
+    パスに `course_id` を持たないが、この関数がコースを引いている ── 帯の
+    ために `submission → task_version → task → course` を引き直すのは、手元に
+    ある値を捨ててもう一度買うことになる。
+
+    ハンドラごとに書かず**この 1 か所に置く**ので、`/review/…` に経路を
+    足す人は何も覚えなくてよい。
+    """
     with console.database.unit_of_work() as uow:
         submission = uow.submissions.get(submission_id)
         if submission is None:
@@ -1380,6 +1407,7 @@ def _load(console: Console, me: Principal, submission_id: SubmissionId) -> _Cont
         course = uow.identity.get_course(task.course_id)
         if course is None:
             raise HTTPException(status_code=404, detail="コースが見つかりません")
+        setattr(request.state, RAIL_COURSE_ID, course.id)
 
         auth = AuthService(uow.identity, audit=uow.audit)
         try:

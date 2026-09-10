@@ -29,6 +29,7 @@ def test_the_assets_are_shipped_with_the_package() -> None:
     }
     assert webui.TEMPLATES_DIR.is_dir()
     assert {p.name for p in webui.TEMPLATES_DIR.iterdir()} == {
+        "_rail.html",
         "_theme_boot.html",
         "_theme_switch.html",
     }

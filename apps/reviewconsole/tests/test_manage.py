@@ -114,6 +114,16 @@ def _zip(root: Path, arcprefix: str = "ex9") -> bytes:
 # --------------------------------------------------------------------------
 
 
+def _main(html: str) -> str:
+    """`<main>` の中だけ。**帯は本文ではない**（#189）。
+
+    左の帯は全ページに同じ行き先を出すので、本文への主張（「この画面には
+    これが出ない」）を文書全体に当てると帯に当たる。見たいのは画面が自分で
+    出しているものである。
+    """
+    return html[html.index("<main") : html.index("</main>")]
+
+
 def test_an_instructor_sees_their_course(world: World) -> None:
     world.register("teacher", Role.INSTRUCTOR)
     body = world.client("teacher").get("/manage").text
@@ -1456,16 +1466,28 @@ def test_the_management_index_is_folded_into_the_course_list(world: World) -> No
     assert response.headers["location"] == "/"
 
 
-def test_the_course_page_is_a_menu(world: World) -> None:
-    """科目ページは分岐だけを持つ。設定を 1 枚に積むと目で探すことになる。"""
+def test_the_course_page_shows_the_state_and_the_rail_holds_the_destinations(
+    world: World,
+) -> None:
+    """**行き先は帯に移した**（#189・ADR 0017）。
+
+    以前この画面は分岐だけを持つメニューだった。同じ行き先が左の帯に常設
+    された時点で二重になったので、ここに残すのは「コースの状態」── 問題
+    セットと日程と、確定がどこまで進んだか ── だけにした。
+    同じものが 2 か所にあると、片方だけ直したときにもう片方が古いまま残る。
+    """
     world.register("teacher", Role.INSTRUCTOR)
     _import_example(world)
 
-    body = world.client("teacher").get(f"/courses/{world.course.id}").text
-    assert "コース全体の設定" in body
-    assert f"/manage/courses/{world.course.id}" in body
-    assert f"/courses/{world.course.id}/queue" in body
-    assert "再確認の依頼" in body
+    page = world.client("teacher").get(f"/courses/{world.course.id}").text
+    body = _main(page)
+    assert "問題セット" in body, "コースの状態が出ていない"
+    # 分岐は本文に二重に置かない。
+    assert "コース全体の設定" not in body
+    assert f"/courses/{world.course.id}/queue" not in body
+    # 帯からは行ける。
+    assert f"/courses/{world.course.id}/queue" in page
+    assert f"/manage/courses/{world.course.id}" in page
     # 課題そのものの操作（締切の入力欄）はここには無い。
     assert 'name="due_at"' not in body
 
@@ -1615,13 +1637,15 @@ def test_the_course_menu_shows_each_role_what_it_can_use(world: World) -> None:
     """**押すと 403 になるリンクを出さない。** 作問は以前 TA にも見えていた。"""
     _world_with_every_role(world)
 
+    # 行き先は帯にある（#189）。**押すと 403 になるものを並べない**という
+    # 主張はそのままで、見る場所が変わった。
     ta_page = world.client("ta").get(f"/courses/{world.course.id}").text
     assert "問題セット" in ta_page, "TA に問題セットが出ていない"
-    assert "AI 作問" not in ta_page, "TA に作問が出ている"
-    assert "受講者" not in ta_page or "/enrolments" not in ta_page
+    assert "未承認の課題" not in ta_page, "TA に作問が出ている"
+    assert "/enrolments" not in ta_page
 
     teacher_page = world.client("teacher").get(f"/courses/{world.course.id}").text
-    assert "AI 作問" in teacher_page
+    assert "未承認の課題" in teacher_page
     assert "/enrolments" in teacher_page
 
 
@@ -1631,10 +1655,13 @@ def test_the_course_menu_puts_ai_authoring_below_grading(world: World) -> None:
     """
     _world_with_every_role(world)
 
+    # 帯の大項目の順（#189）。**採点が日常で、出題はその合間**という順は
+    # メニューから帯へ移っても変わらない。
     page = world.client("teacher").get(f"/courses/{world.course.id}").text
+    rail = page[page.index('<aside class="rail"') : page.index("</aside>")]
 
-    assert page.index("<h2>問題セット</h2>") < page.index("<h2>採点</h2>")
-    assert page.index("<h2>採点</h2>") < page.index("<h2>AI 作問</h2>")
+    assert rail.index(">採点<") < rail.index(">出題<")
+    assert rail.index(">出題<") < rail.index(">設定<")
 
 
 def test_an_admin_gets_everything_an_instructor_gets(world: World) -> None:
@@ -1719,10 +1746,11 @@ def test_an_assistant_reads_a_unit_page_without_the_forms(world: World) -> None:
     assert page.status_code == 200
     assert "読むだけの画面です" in page.text
     # **成績に効く操作は無い。** 隠されているのではなく、出ていない。
+    body = _main(page.text)
     for gone in ("/schedule", "/finalize", "/clear", "/tasks/new"):
-        assert gone not in page.text, f"TA の画面に {gone} が出ている"
+        assert gone not in body, f"TA の画面に {gone} が出ている"
     # ログアウト以外に送り先の無い画面である（`/manage/...` を叩く欄が無い）。
-    assert 'action="/manage/' not in page.text, "TA の画面に設定を送る欄がある"
+    assert 'action="/manage/' not in body, "TA の画面に設定を送る欄がある"
 
 
 def test_setting_the_schedule_returns_to_the_problem_set(world: World) -> None:
@@ -1871,8 +1899,10 @@ def test_the_course_menu_puts_the_units_first(world: World) -> None:
     world.register("teacher", Role.INSTRUCTOR)
     _import_example(world)
 
-    body = world.client("teacher").get(f"/courses/{world.course.id}").text
-    assert body.index("問題セット") < body.index("コース全体の設定")
+    # 本文は問題セット（コースの状態）で始まる。設定は帯にあり、本文には無い。
+    page = world.client("teacher").get(f"/courses/{world.course.id}").text
+    assert "問題セット" in _main(page)
+    assert "コース全体" not in _main(page)
 
 
 # --------------------------------------------------------------------------
@@ -3732,13 +3762,13 @@ def test_the_enrolment_pages_break_the_headcount_down_by_role(world: World) -> N
     assert ">0</b>" in rows  # assistant / admin は 0 名でも並ぶ
     assert "assistant" in rows
 
-    # コースの入口: 行の高さを保つため 0 名は出さない（内訳の確認は上のページ）。
+    # **コースの入口には人数を出さない**（#189・ADR 0017 §4）。行き先が帯へ
+    # 移り、帯が載せるのは「人が動かないと進まない件数」だけになった ──
+    # 受講者数はどこに用があるかを教えないので、全ページがクエリを払う
+    # 理由にならない。内訳の確認は上の受講者のページが担う。
     menu = client.get(f"/courses/{world.course.id}").text
-    assert "3 名" in menu  # 教員 1 + 学習者 2
-    assert "learner 2" in menu
-    assert "instructor 1" in menu
-    # 0 名の役割はここには出さない（確認は受講者のページ）。
-    assert "assistant 0" not in menu
+    assert "learner 2" not in menu
+    assert f"/manage/courses/{world.course.id}/enrolments" in menu, "帯から行けない"
 
 
 def test_the_enrolment_form_explains_the_roles_as_differences(world: World) -> None:
@@ -3949,10 +3979,10 @@ def test_the_course_settings_page_no_longer_holds_the_enrolments(world: World) -
     """
     world.register("teacher", Role.INSTRUCTOR)
     client = world.client("teacher")
-    settings = client.get(f"/manage/courses/{world.course.id}").text
+    settings = _main(client.get(f"/manage/courses/{world.course.id}").text)
     assert '<ul class="rolecounts">' not in settings
     assert f"/manage/courses/{world.course.id}/enrolments" not in settings
-    # 入口からは行ける。
+    # 帯からは行ける（#189 で入口が本文から帯へ移った）。
     menu = client.get(f"/courses/{world.course.id}").text
     assert f"/manage/courses/{world.course.id}/enrolments" in menu
 

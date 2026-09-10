@@ -1,0 +1,52 @@
+{# 左の常設の帯（#189・ADR 0017）。**描き方だけを持つ。**
+
+   何を載せるかは各アプリが組み立てて `rail` として渡す
+   （`aijudge_reviewconsole.rail`）── このファイルは行き先の名前も件数の
+   出どころも知らない。知らせると、`packages/webui` が業務の語彙を持ち
+   始める（依存を持たないパッケージである理由・`__init__.py`）。
+
+   **階層はマークアップで作る**（#189 の主眼）。以前は「採点」「出題」
+   「設定」が小さな字のラベルとして行き先と同じ列に並んでいたので、
+   見出しなのか押せるのか、どこまでがその下なのかが読めなかった。
+
+     1. 大項目は全幅の帯で、小項目より字を小さくしない
+     2. 小項目は帯より内側に字下げする（従属が見て分かる）
+     3. 件数はすべて同じ右端で揃える（縦に読み比べられる）
+#}
+<aside class="rail" aria-label="このコースの行き先">
+  <a class="brand" href="{{ rail.href }}">
+    <b>{{ rail.title }}</b>
+    {% if rail.subtitle %}<span class="side">{{ rail.subtitle }}</span>{% endif %}
+  </a>
+
+  <nav>
+    {% for group in rail.groups %}
+    <div class="railgrp">
+      <div class="gh">{{ group.title }}{% if group.meta %}<span class="n">{{ group.meta }}</span>{% endif %}</div>
+      <div class="gi">
+        {% for item in group.items %}
+        {# 現在地は藍の縦罫で示す（`base.css`）。**`aria-current` を付ける**
+           ── 見た目の class を別に持つと、支援技術に伝わる状態と画面の
+           状態がずれる。 #}
+        <a class="nav" href="{{ item.href }}"
+           {% if item.current %}aria-current="page"{% endif %}>
+          <span class="t">{{ item.label }}</span>
+          {# 数字は「人が動かないと進まない件数」だけ（ADR 0017 §4）。
+             **数えられなかったときは出さない** ── 0 と書けば「見たが
+             無かった」の意味になり、それは嘘である。 #}
+          {% if item.count is not none %}
+          <span class="c{{ ' attn' if item.attention }}">{{ item.count }}</span>
+          {% else %}<span class="c"></span>{% endif %}
+        </a>
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+  </nav>
+
+  {% if rail.counts_unavailable %}
+  {# **数えられなかったことを言う**（ADR 0017 §3）。黙って数字を消すと、
+     0 件なのか壊れているのか区別できない。 #}
+  <p class="railnote">件数を取得できませんでした。行き先は開けます。</p>
+  {% endif %}
+</aside>
