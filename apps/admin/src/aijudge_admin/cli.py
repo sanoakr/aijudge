@@ -24,11 +24,18 @@ from pathlib import Path
 from aijudge_audit import AuditAction, AuditRecorder
 from aijudge_core import DIVISIONS, Role
 from aijudge_core.ids import CourseId, TenantId
-from aijudge_identity import DEFAULT_TOKEN_DAYS, AuthenticationFailed, AuthService
+from aijudge_identity import (
+    DEFAULT_TOKEN_DAYS,
+    ENV_DEMO_COURSE,
+    AuthenticationFailed,
+    AuthService,
+    demo_course_from_env,
+)
 from aijudge_persistence import ENV_DATABASE_URL, Database
 from aijudge_telemetry import configure_logging
 
 from . import authoring_cli
+from .demo_reset import reset_demo_course
 from .operations import (
     AdminError,
     create_staff,
@@ -51,6 +58,21 @@ ENV_PROFILES_DIR = "AIJUDGE_PROFILES_DIR"
 
 def _database(args: argparse.Namespace) -> Database:
     return Database.connect(args.database_url, create=args.create_schema)
+
+
+def _artifact_store(args: argparse.Namespace):
+    """提出物の置き場所。**消せるストアを渡すため**（#194）。
+
+    `delete_course` は `StreamingArtifactStore` でないと消さない ── 最小の
+    `ArtifactStore` には削除が無い。ここで渡さないと DB の行だけ消えて
+    ファイルが残り、**消したつもりでディスクが減らない**。
+
+    環境変数の名前は学習者アプリと同じ（`AIJUDGE_ARTIFACT_DIR`）。別の名前に
+    すると、同じ置き場所を 2 通りに指すことになる。
+    """
+    from aijudge_submission import FilesystemArtifactStore
+
+    return FilesystemArtifactStore(args.artifacts)
 
 
 def _tenant(args: argparse.Namespace) -> TenantId:
@@ -108,6 +130,65 @@ def cmd_course_list(args: argparse.Namespace) -> int:
             f"{course.id:38s} {course.code:12s} {course.term:12s} "
             f"{course.subject_profile:16s} {course.title}"
         )
+    return 0
+
+
+def cmd_demo_reset(args: argparse.Namespace) -> int:
+    """デモコースを消して作り直す（#194）。
+
+    **消す操作なので、既定では確認を挟む。** 何件消えるのかを先に出して
+    から訊く ── 「本当によいですか」だけでは、規模が分からないまま押す
+    ことになる。
+
+    `--yes` は自動化のための逃げ道だが、**cron には載せない**（#194 の
+    判断）。膨れ上がりはコンソールのコース一覧から見えるので、人が見て
+    叩けば足りる。
+    """
+    demo = demo_course_from_env()
+    if demo is None:
+        print(f"{ENV_DEMO_COURSE} が設定されていません", file=sys.stderr)
+        return 2
+
+    database = _database(args)
+    try:
+        with database.unit_of_work() as uow:
+            course = uow.identity.get_course(demo.course_id)
+            if course is None:
+                print(f"デモコース {demo.course_id} がありません", file=sys.stderr)
+                return 2
+            submissions = uow.submissions.list_for_course(demo.course_id)
+            tasks = uow.tasks.list_for_course(demo.course_id)
+            enrolments = uow.identity.list_enrollments(demo.course_id)
+
+        # **規模を先に出す。** 空振りと 90 件の削除が同じ顔で終わらないように。
+        print(f"デモコース: {course.title}（{course.code} / {course.term}）")
+        print(f"  提出       {len(submissions):4d} 件（アーティファクトも消えます）")
+        print(f"  課題       {len(tasks):4d} 件")
+        print(f"  受講登録   {len(enrolments):4d} 件（次のログインで戻ります）")
+        if not getattr(args, "yes", False):
+            answer = input("消して作り直します。よろしいですか [y/N]: ").strip().lower()
+            if answer not in ("y", "yes"):
+                print("中止しました")
+                return 1
+
+        result = reset_demo_course(
+            database,
+            demo,
+            tenant_id=_tenant(args),
+            profiles_dir=args.profiles,
+            artifact_store=_artifact_store(args),
+        )
+    except AdminError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    finally:
+        database.dispose()
+
+    print(
+        f"作り直しました: 提出 {result.submissions} 件 / 課題 {result.tasks} 件 / "
+        f"受講登録 {result.enrolments} 件を消しました"
+    )
+    print("**問題セットは入っていません。** 取り込み直してください。")
     return 0
 
 
@@ -468,6 +549,14 @@ def build_parser() -> argparse.ArgumentParser:
         default=Path(os.environ.get(ENV_PROFILES_DIR, REPO_ROOT / "subjects")).expanduser(),
         help="科目プロファイルの置き場所（既定はリポジトリの subjects/ ── これはサンプル）",
     )
+    parser.add_argument(
+        "--artifacts",
+        type=Path,
+        default=Path(
+            os.environ.get("AIJUDGE_ARTIFACT_DIR", Path.home() / ".aijudge" / "artifacts")
+        ).expanduser(),
+        help="提出物の置き場所（デモコースのリセットで消すのに要る）",
+    )
     parser.add_argument("--create-schema", action="store_true", help="開発用")
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -487,6 +576,19 @@ def build_parser() -> argparse.ArgumentParser:
     create.add_argument("--profile", required=True, help="科目プロファイル名")
     create.set_defaults(func=cmd_course_create)
     course.add_parser("list", help="一覧").set_defaults(func=cmd_course_list)
+
+    # デモコースのリセット（#194）。**`course` の下に置かない** ── 対象は
+    # 環境変数が指す 1 つに固定されており、コースを選べる操作ではない。
+    demo = sub.add_parser("demo", help="デモコース").add_subparsers(
+        dest="demo_command", required=True
+    )
+    demo_reset = demo.add_parser(
+        "reset", help="消して作り直す（提出・受講登録が消える。問題セットは入れ直す）"
+    )
+    demo_reset.add_argument(
+        "--yes", action="store_true", help="確認を省く（**cron には載せないこと**）"
+    )
+    demo_reset.set_defaults(func=cmd_demo_reset)
 
     enrol = sub.add_parser("enrol", help="名簿からまとめて受講登録")
     enrol.add_argument("--course", required=True)
