@@ -260,9 +260,41 @@
 {% endif %}
 {% endif %}
 
+{% set ns = namespaces[0] if namespaces else 'cs' %}
 <h2 id="add">知識要素を追加する</h2>
-{# 新しい KC は**既存 KC の子**としてのみ足せる（`aijudge_admin.kc`）。
-   孤立キーの山ではなく木を保つため。 #}
+{# 新しい KC は**既存の単位の子**としてのみ足せる（`aijudge_admin.kc`）。
+   分野と単位は骨格が決めるので、ここで足せるのは第 3 階層だけ。 #}
+{% if suggestions %}
+{# **止めるだけで、拒まない。** 一致を強制すると、教員は近いだけの枝に
+   無理やり寄せる ── それは体系が整ったように見えて、実際には嘘の
+   対応づけが 1 件増えただけである。 #}
+<div class="note warn">
+  <strong>近い知識要素が既にあります。</strong>
+  同じ概念に別のキーを作ると、Q-matrix が同じものを 2 つに割ります。
+  下の候補で足りるならそちらを使い、違うものなら「このまま追加する」を押してください。
+  <table style="margin-top:10px">
+    <thead><tr><th>キー</th><th>名前</th><th class="fit">場所</th><th class="fit">近さ</th></tr></thead>
+    <tbody>
+    {% for hit in suggestions %}
+      <tr>
+        <td><code>{{ hit.key }}</code></td>
+        <td>{{ hit.kc.label }}</td>
+        <td class="fit">{% if hit.same_unit %}同じ単位{% else %}<strong>別の枝</strong>{% endif %}</td>
+        <td class="fit mono">{{ '%.2f'|format(hit.score) }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {# **どう測ったかを言う**（`duplicates.py` と同じ約束）。字面だけでは
+     言い換えた重複は見つからないので、「近いものは無かった」を安全の
+     証拠にさせない。 #}
+  <p class="desc" style="margin-bottom:0">
+    近さは<strong>字面で測っています</strong> ──
+    言い換え（「反復処理」と「くりかえし」など）は見つかりません。
+    一覧で確かめてください。
+  </p>
+</div>
+{% endif %}
 {% if draft %}
 <div class="note">
   <strong>候補「{{ draft.key }}」を取り込みました。</strong>まだ登録されていません。
@@ -280,35 +312,42 @@
   <div class="inline-field">
     <span class="body">
       <label for="key">キー（<code>{{ namespaces[0] if namespaces else '名前空間' }}.親.子</code>）</label>
-      <input id="key" name="key" required value="{{ draft.key if draft else '' }}"
+      <input id="key" name="key" required value="{{ pending.key if pending else (draft.key if draft else '') }}"
              placeholder="{{ namespaces[0] if namespaces else 'cs' }}.loops.termination">
     </span>
     {% if saved_key and saved_key.startswith('kc_') %}<span class="flash">{{ saved }}</span>{% endif %}
   </div>
   <div class="field">
     <label for="label">名前（人が読む短い名前）</label>
-    <input id="label" name="label" value="{{ draft.label if draft else '' }}"
+    <input id="label" name="label" value="{{ pending.label if pending else (draft.label if draft else '') }}"
            placeholder="ループの停止条件">
   </div>
   <div class="field">
     <label for="description">説明（任意）</label>
     <input id="description" name="description"
-           value="{{ draft.description if draft else '' }}"
+           value="{{ pending.description if pending else (draft.description if draft else '') }}"
            placeholder="何ができれば身に付いたと言えるか">
   </div>
   <p class="desc">
-    {# **名前空間は階層に数えない**ことを先に言う。`cs.c_language` は点で 2 つに
+    {# **名前空間は階層に数えない**ことを先に言う。`cs.sdf` は点で 2 つに
        分かれて見えるので、これを「第 1 階層」とだけ言うと読めない。 #}
-    <strong>名前空間（<code>{{ namespaces[0] if namespaces else 'cs' }}</code>）は階層に数えません。</strong>
-    <code>{{ namespaces[0] if namespaces else 'cs' }}.loops</code> が第 1 階層（分野の根）、
-    <code>{{ namespaces[0] if namespaces else 'cs' }}.loops.termination</code> が第 2 階層です。<br>
-    <strong>親が実在している必要があります。</strong>
-    <code>{{ namespaces[0] if namespaces else 'cs' }}.loops.termination</code> を足すには
-    <code>{{ namespaces[0] if namespaces else 'cs' }}.loops</code> が先に要ります。
-    {% if not is_admin %}<strong>第 1 階層（分野の根）を作るには管理者の操作が必要です。</strong>{% endif %}
+    <strong>名前空間（<code>{{ ns }}</code>）は階層に数えません。</strong>
+    <code>{{ ns }}.sdf</code> が分野、<code>{{ ns }}.sdf.fundamentals</code> が単位、
+    <code>{{ ns }}.sdf.fundamentals.branching</code> が知識要素です。<br>
+    <strong>足せるのは知識要素（第 3 階層）だけです。</strong>
+    分野と単位は骨格ファイル（<code>subjects/kc/{{ ns }}.yaml</code> ── CS2023 の
+    Knowledge Area / Knowledge Unit）で決まっており、この画面からは足せません。
+    増やすには骨格ファイルの変更が要ります。<br>
     <strong>改名はできません</strong> — ID がキーから決まり、過去の採点がそれを指しているためです。
     誤って作ったものは引退させてください。
   </p>
-  <div class="actions"><button type="submit">追加</button></div>
+  <div class="actions">
+    {% if suggestions %}
+      {# 押し切れるようにする。**止めるのは 1 回だけ。** #}
+      <button type="submit" name="confirm" value="1">このまま追加する</button>
+    {% else %}
+      <button type="submit">追加</button>
+    {% endif %}
+  </div>
 </form>
 {% endblock %}
