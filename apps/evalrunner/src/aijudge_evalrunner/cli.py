@@ -23,6 +23,7 @@ from pathlib import Path
 import yaml
 
 from aijudge_analytics import Gates, Verdict
+from aijudge_telemetry import configure_logging
 
 from .observations import (
     ENV_GOLDEN_DIR,
@@ -156,6 +157,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", type=Path, default=None, help="Markdown レポートの出力先")
     parser.add_argument("--json", type=Path, default=None, help="JSON の出力先")
     args = parser.parse_args(argv)
+
+    configure_logging("eval")
 
     root = args.golden or golden_root()
     try:

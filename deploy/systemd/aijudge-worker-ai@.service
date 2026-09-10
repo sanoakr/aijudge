@@ -14,6 +14,8 @@ Group=aijudge
 WorkingDirectory=/opt/aijudge
 EnvironmentFile=/srv/aijudge/config/aijudge.env
 ExecStart=/opt/aijudge/.venv/bin/aijudge-worker --phase ai --name ai%i
+# journald でこのサービスの行を引くための名札（ADR 0016）。
+SyslogIdentifier=aijudge-worker-ai%i
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=yes

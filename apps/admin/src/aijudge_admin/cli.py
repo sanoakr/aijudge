@@ -25,6 +25,7 @@ from aijudge_core import DIVISIONS, Role
 from aijudge_core.ids import CourseId, TenantId
 from aijudge_identity import DEFAULT_TOKEN_DAYS, AuthenticationFailed, AuthService
 from aijudge_persistence import ENV_DATABASE_URL, Database
+from aijudge_telemetry import configure_logging
 
 from . import authoring_cli
 from .operations import (
@@ -504,6 +505,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    # 一括操作は成績に届く。何をしたかが journald に残るようにしておく
+    # （**誰が何を変えたか**の記録は監査ログ側の仕事 ── ADR 0016）。
+    configure_logging("admin")
     try:
         return int(args.func(args))
     except AdminError as exc:

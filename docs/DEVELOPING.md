@@ -386,3 +386,41 @@ seeing the AI's output are excluded: they are anchored by it and are not ground
 truth, and the report lists every observation it excluded and why. See
 [ADR 0005](adr/0005-accuracy-measurement.md) for why the harness is built to
 refuse to flatter itself.
+
+## There are three logs, and mixing them loses one
+
+Calling all of it "logging" hides three records with different lifetimes.
+
+| | What it records | Where | May it expire? | If the write fails |
+|---|---|---|---|---|
+| Operational | What happened inside a process | journald | yes, after 90 days | nothing happens |
+| Audit | **Who** changed something that reaches a grade | DB, append-only | no | the operation fails |
+| Grading record | Which rubric, prompt and model produced a score | `GradingRun` | no | the run is not saved |
+
+Collapse them and one of two things goes wrong: a record that must survive ends
+up somewhere that rotates, or a logging outage stops grading.
+
+`packages/telemetry` is the operational half. Only the composition roots
+(`apps/*`) configure it — `.importlinter` fails the build if a subsystem
+imports it, because a library that decides its own handlers makes the same code
+behave differently depending on who imported it. That was the actual state:
+`basicConfig` existed in the worker and in `finalize` and nowhere else, so in
+the web app and the console every `logger.warning` fell through to the root
+`lastResort` handler and INFO was discarded.
+
+**Only identifiers go in.** No submission text, no names, no prompts, no model
+output — journald is neither backed up nor encrypted, and copying learner data
+there routes around the guarantee the gateway exists to make (ADR 0004).
+`aijudge_telemetry.bind` rejects values by type and length rather than trusting
+the convention, and libraries that log whole URLs at INFO (`httpx` and friends)
+are turned down to WARNING at setup, because the OIDC token exchange would
+otherwise put an authorization code in the journal without anyone writing a
+line of logging code.
+
+A request carries a `request_id` from the middleware through to the response
+header; the worker binds `job_id`, `submission_id` and `phase`. The join
+between the web app and the worker is `submission_id`, a value both sides
+already had. That join is what was missing when #60 and #80 each spent a day
+looking like "grading is slow" from the screen while the failure sat in a
+worker log nobody could connect to the submission. See
+[ADR 0016](adr/0016-three-logs-operational-audit-and-grading-record.md).

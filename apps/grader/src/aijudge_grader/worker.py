@@ -21,6 +21,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -62,6 +63,7 @@ from aijudge_submission import (
     gradable_contents,
     job_idempotency_key,
 )
+from aijudge_telemetry import bind
 
 logger = logging.getLogger(__name__)
 
@@ -150,15 +152,34 @@ class GradingWorker:
                 return None
             uow.commit()
 
-        try:
-            run = self._grade(job)
-        except PermanentGradingError as exc:
-            return self._record_failure(job, str(exc), permanent=True)
-        except Exception as exc:  # 一時的な失敗として扱い、上限までリトライする
-            logger.exception("grading failed for job %s", job.id)
-            return self._record_failure(job, f"{type(exc).__name__}: {exc}")
+        # ここから先のログには提出の識別子が載る。**web 側のログとの結び目は
+        # `submission_id`** ── #60 / #80 では、画面から見えるのは「採点が遅い」
+        # だけで、失敗はワーカーのログにしか出ず、両者を突き合わせる鍵が
+        # 無かった（`docs/RUNNING.md`、ADR 0016）。
+        with bind(
+            job_id=str(job.id),
+            submission_id=str(job.submission_id),
+            subject_profile=job.subject_profile,
+            phase=job.phase.value,
+            attempt=job.attempts,
+        ):
+            started = time.monotonic()
+            logger.info("grading started")
+            try:
+                run = self._grade(job)
+            except PermanentGradingError as exc:
+                logger.warning("grading rejected the submission: %s", exc)
+                return self._record_failure(job, str(exc), permanent=True)
+            except Exception as exc:  # 一時的な失敗として扱い、上限までリトライする
+                logger.exception("grading failed")
+                return self._record_failure(job, f"{type(exc).__name__}: {exc}")
 
-        return WorkResult(job=self._record_success(job, run), run=run)
+            result = WorkResult(job=self._record_success(job, run), run=run)
+            logger.info(
+                "grading finished",
+                extra={"duration_ms": round((time.monotonic() - started) * 1000, 1)},
+            )
+            return result
 
     def run_until_empty(
         self,

@@ -32,6 +32,7 @@ members = [
     "aijudge-skill",
     "aijudge-studentweb",
     "aijudge-submission",
+    "aijudge-telemetry",
     "aijudge-toolchain",
 ]
 
@@ -63,6 +64,7 @@ dependencies = [
     { name = "aijudge-skill" },
     { name = "aijudge-studentweb" },
     { name = "aijudge-submission" },
+    { name = "aijudge-telemetry" },
     { name = "aijudge-toolchain" },
 ]
 
@@ -106,6 +108,7 @@ requires-dist = [
     { name = "aijudge-skill", editable = "packages/skill" },
     { name = "aijudge-studentweb", editable = "apps/studentweb" },
     { name = "aijudge-submission", editable = "packages/submission" },
+    { name = "aijudge-telemetry", editable = "packages/telemetry" },
     { name = "aijudge-toolchain", editable = "packages/toolchain" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.27" },
     { name = "import-linter", marker = "extra == 'dev'", specifier = ">=2.0" },
@@ -134,6 +137,7 @@ dependencies = [
     { name = "aijudge-norm-document-text" },
     { name = "aijudge-persistence" },
     { name = "aijudge-submission" },
+    { name = "aijudge-telemetry" },
 ]
 
 [package.metadata]
@@ -146,6 +150,7 @@ requires-dist = [
     { name = "aijudge-norm-document-text", editable = "normalizers/document_text" },
     { name = "aijudge-persistence", editable = "packages/persistence" },
     { name = "aijudge-submission", editable = "packages/submission" },
+    { name = "aijudge-telemetry", editable = "packages/telemetry" },
 ]
 
 [[package]]
@@ -285,6 +290,7 @@ source = { editable = "apps/evalrunner" }
 dependencies = [
     { name = "aijudge-analytics" },
     { name = "aijudge-observation" },
+    { name = "aijudge-telemetry" },
     { name = "pyyaml" },
 ]
 
@@ -292,6 +298,7 @@ dependencies = [
 requires-dist = [
     { name = "aijudge-analytics", editable = "packages/analytics" },
     { name = "aijudge-observation", editable = "packages/observation" },
+    { name = "aijudge-telemetry", editable = "packages/telemetry" },
     { name = "pyyaml", specifier = ">=6.0" },
 ]
 
@@ -323,6 +330,7 @@ dependencies = [
     { name = "aijudge-persistence" },
     { name = "aijudge-skill" },
     { name = "aijudge-submission" },
+    { name = "aijudge-telemetry" },
 ]
 
 [package.metadata]
@@ -335,6 +343,7 @@ requires-dist = [
     { name = "aijudge-persistence", editable = "packages/persistence" },
     { name = "aijudge-skill", editable = "packages/skill" },
     { name = "aijudge-submission", editable = "packages/submission" },
+    { name = "aijudge-telemetry", editable = "packages/telemetry" },
 ]
 
 [[package]]
@@ -462,6 +471,7 @@ dependencies = [
     { name = "aijudge-identity" },
     { name = "aijudge-persistence" },
     { name = "aijudge-submission" },
+    { name = "aijudge-telemetry" },
     { name = "fastapi" },
     { name = "jinja2" },
     { name = "python-multipart" },
@@ -478,6 +488,7 @@ requires-dist = [
     { name = "aijudge-identity", editable = "packages/identity" },
     { name = "aijudge-persistence", editable = "packages/persistence" },
     { name = "aijudge-submission", editable = "packages/submission" },
+    { name = "aijudge-telemetry", editable = "packages/telemetry" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "jinja2", specifier = ">=3.1" },
     { name = "python-multipart", specifier = ">=0.0.9" },
@@ -517,6 +528,7 @@ dependencies = [
     { name = "aijudge-identity" },
     { name = "aijudge-persistence" },
     { name = "aijudge-submission" },
+    { name = "aijudge-telemetry" },
     { name = "fastapi" },
     { name = "jinja2" },
     { name = "python-multipart" },
@@ -530,6 +542,7 @@ requires-dist = [
     { name = "aijudge-identity", editable = "packages/identity" },
     { name = "aijudge-persistence", editable = "packages/persistence" },
     { name = "aijudge-submission", editable = "packages/submission" },
+    { name = "aijudge-telemetry", editable = "packages/telemetry" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "jinja2", specifier = ">=3.1" },
     { name = "python-multipart", specifier = ">=0.0.9" },
@@ -546,6 +559,11 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [{ name = "aijudge-core", editable = "packages/core" }]
+
+[[package]]
+name = "aijudge-telemetry"
+version = "0.0.1"
+source = { editable = "packages/telemetry" }
 
 [[package]]
 name = "aijudge-toolchain"

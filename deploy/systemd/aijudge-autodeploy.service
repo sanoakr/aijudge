@@ -11,3 +11,5 @@ Group=aijudge
 WorkingDirectory=/opt/aijudge
 EnvironmentFile=/srv/aijudge/config/aijudge.env
 ExecStart=/opt/aijudge/deploy/aijudge-autodeploy.sh
+# journald でこのサービスの行を引くための名札（ADR 0016）。
+SyslogIdentifier=aijudge-autodeploy

@@ -12,6 +12,8 @@ Group=aijudge
 WorkingDirectory=/opt/aijudge
 EnvironmentFile=/srv/aijudge/config/aijudge.env
 ExecStart=/opt/aijudge/.venv/bin/aijudge-review --host 127.0.0.1 --port 8765
+# journald でこのサービスの行を引くための名札（ADR 0016）。
+SyslogIdentifier=aijudge-review
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=yes

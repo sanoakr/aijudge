@@ -11,5 +11,7 @@ User=aijudge
 Group=aijudge
 EnvironmentFile=/srv/aijudge/config/aijudge-restic.env
 ExecStart=/usr/local/sbin/aijudge-restic-backup.sh
+# journald でこのサービスの行を引くための名札（ADR 0016）。
+SyslogIdentifier=aijudge-restic-backup
 Nice=10
 IOSchedulingClass=idle

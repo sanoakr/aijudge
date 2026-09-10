@@ -80,6 +80,39 @@ uv run alembic stamp head
 SQLite でも動くが**行ロックが無い**ので、ワーカーは 1 プロセスだけにする
 （`Database.supports_row_locking` が偽になり、CLI が警告する）。
 
+## ログを読む（ADR 0016）
+
+ログは 3 つあり、置き場も寿命も違う。**新しい記録を足すときは、まずどれかを決める。**
+
+| | 何の記録か | 置き場 | 寿命 |
+|---|---|---|---|
+| 運用ログ | プロセスに何が起きたか | journald（開発機は stderr） | 90 日 |
+| 監査ログ | **誰が**成績に関わる何をしたか | DB `audit_events` | 消さない |
+| 採点記録 | どの版・どのモデルで採点したか | `GradingRun`（ADR 0003） | 消さない |
+
+開発機の既定は人が読む形。運用は `AIJUDGE_LOG_FORMAT=json` にする。
+
+```fish
+AIJUDGE_LOG_FORMAT=json AIJUDGE_LOG_LEVEL=DEBUG uv run aijudge-worker --once
+```
+
+**1 つの提出について、web とワーカーの両方の行を集める。** 突き合わせの鍵は
+`submission_id` ── これが上の #60 / #80 で欠けていたものである。
+
+```fish
+journalctl -t aijudge-web -t aijudge-worker-det -t aijudge-worker-ai1 -o cat \
+  | jq 'select(.submission_id == "SUB-ID")'
+```
+
+1 リクエストの中で起きたことは `request_id` で引く。応答の `X-Request-ID`
+ヘッダに同じ値が入るので、学生から報告された 1 件をそのまま辿れる。
+
+**ログに載るのは識別子だけ。** 提出物の本文・氏名・LLM のプロンプトと出力は
+載せない（P7）。journald はバックアップも暗号化も掛かっていない場所で、
+そこへ学習者データを複製した時点でゲートウェイ側の保証（ADR 0004）が迂回される。
+`aijudge_telemetry.bind` が値の型と長さを見て弾くので、うっかり本文を渡すと
+その場で例外になる。
+
 ## 実提出を通す前に
 
 **seatbelt 単体で実学生のコードを走らせてはならない。** プロセス数を
@@ -235,6 +268,8 @@ JavaScript を切っていると切り替えは出ず、端末の設定に従う
 | `AIJUDGE_LLM_BASE_URL` / `AIJUDGE_LLM_MODEL` | ローカル LLM | — |
 | `AIJUDGE_FEEDBACK_MODEL` | フィードバック生成のモデル。未設定なら要約に落ちる | — |
 | `AIJUDGE_OIDC_SECRET_KEY` | Google OIDC 設定の `client_secret` を暗号化する鍵（#124）。`Fernet.generate_key()` の値。**Google ログインを使うなら必須**（未設定だと `/manage/oidc-settings` での保存が失敗する） | — |
+| `AIJUDGE_LOG_FORMAT` | 運用ログの形（`json` / `text`）。**運用では `json`** ── 1 行 1 イベントで `jq` で絞れる | `text` |
+| `AIJUDGE_LOG_LEVEL` | 運用ログの段（`DEBUG` / `INFO` / `WARNING` …） | `INFO` |
 | `AIJUDGE_PROFILES_DIR` | 科目プロファイル（`*.yaml`）の置き場所。**運用では git のチェックアウトの外を指す** ── リポジトリの `subjects/` はサンプルで、デプロイのたびに入れ替わる（`subjects/README.md`）。**web・review・worker・admin のすべてが同じ場所を指すこと** | リポジトリの `subjects/` |
 
 ## 締切集中に備える

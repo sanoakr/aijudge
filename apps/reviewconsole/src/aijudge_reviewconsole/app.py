@@ -90,6 +90,7 @@ from aijudge_submission import (
     iter_file,
     parse_range,
 )
+from aijudge_telemetry import RequestContextMiddleware
 
 from .manage import _role_counts
 from .overview import digests_for, load_units
@@ -216,6 +217,9 @@ def _serve_video(
 # （古い名前の Cookie は誰も読まない）。セッション自体は残っている。
 # 受け付ける `Host`（#116）。コンマ区切り。既定は素通し（`*`）。
 ENV_ALLOWED_HOSTS = "AIJUDGE_ALLOWED_HOSTS"
+# アクセスログに残さない経路。課題文中の画像だけ ── 教員の操作は数が少なく、
+# **誰がどの提出を開いたかは残す方に価値がある**（盲検の抽出や再確認の経緯）。
+QUIET_PATHS = ("/images/",)
 
 SESSION_COOKIE = "aijudge_session"
 DEFAULT_TENANT = "ten_" + "0" * 32
@@ -443,6 +447,14 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
     allowed = [h.strip() for h in os.environ.get(ENV_ALLOWED_HOSTS, "*").split(",") if h.strip()]
     if allowed and allowed != ["*"]:
         app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed)
+
+    # アクセスログと相関 ID（ADR 0016）。**一番外側に置く** ── `add_middleware`
+    # は後から足した方が外になるので、Host 検査より後に書く。弾かれた要求も
+    # 記録に残す必要がある。
+    #
+    # これが無かったので、web の提出とワーカーの失敗を突き合わせられなかった
+    # （#60 / #80、`docs/RUNNING.md`）。
+    app.add_middleware(RequestContextMiddleware, quiet_paths=QUIET_PATHS)
 
     # 管理画面（コース・課題・受講）。再確認の依頼とは別の関心事だが、
     # 教員に 2 つの Web アプリを使わせないため同じアプリに載せる。

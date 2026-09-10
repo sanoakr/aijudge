@@ -28,6 +28,7 @@ root_packages =
     aijudge_toolchain
     aijudge_skill
     aijudge_eval_network_test_runner
+    aijudge_telemetry
 include_external_packages = True
 
 [importlinter:contract:core-is-independent]
@@ -50,6 +51,7 @@ forbidden_modules =
     aijudge_persistence
     aijudge_feedback
     aijudge_toolchain
+    aijudge_telemetry
 
 ; ゲートウェイは他サブシステムを知らない。採点の語彙にも依存しない
 ; （依存させると、採点以外から LLM を使うたびに採点が引きずられる）。
@@ -334,3 +336,59 @@ forbidden_modules =
     aijudge_persistence
     aijudge_analytics
     sqlalchemy
+
+; 運用ログの設定は合成ルート（apps/*）だけの責務（ADR 0016）。
+; 各パッケージは標準の `logging.getLogger(__name__)` を使うだけでよく、
+; ハンドラと書式を決めるのはプロセスを組み立てる側である。ライブラリ側が
+; 決め始めると、同じコードが取り込まれ方によって違う出方をする。
+; **実際にそうなっていた** ── `basicConfig` はワーカーと finalize にしか無く、
+; web とコンソールでは同じ `logger.warning` が root の lastResort に落ちて
+; INFO は捨てられていた。
+;
+; ここを片方向に保つ副作用として、運用ログは採点の依存にならない。
+; ログ基盤の不調で採点が止まってはいけない（P2 の degraded mode）。
+[importlinter:contract:only-apps-configure-logging]
+name = ログの設定を触るのは合成ルートだけ
+type = forbidden
+source_modules =
+    aijudge_core
+    aijudge_grading
+    aijudge_authoring
+    aijudge_submission
+    aijudge_identity
+    aijudge_llm_gateway
+    aijudge_sandbox
+    aijudge_analytics
+    aijudge_observation
+    aijudge_skill
+    aijudge_feedback
+    aijudge_toolchain
+    aijudge_persistence
+    aijudge_eval_code_test_runner
+    aijudge_eval_rubric_ai_judge
+    aijudge_eval_network_test_runner
+forbidden_modules =
+    aijudge_telemetry
+
+; 運用ログは何も知らない。標準 logging の設定だけを持つ層で、採点の語彙も
+; 保存先も科目も知らない。知らせた瞬間、「ログを外しても採点は動く」が
+; 成立しなくなる（観測レコードを独立させたのと同じ理由、ADR 0007）。
+[importlinter:contract:telemetry-knows-nothing]
+name = 運用ログは他のどのサブシステムにも依存しない
+type = forbidden
+source_modules =
+    aijudge_telemetry
+forbidden_modules =
+    aijudge_core
+    aijudge_grading
+    aijudge_authoring
+    aijudge_submission
+    aijudge_identity
+    aijudge_llm_gateway
+    aijudge_sandbox
+    aijudge_analytics
+    aijudge_observation
+    aijudge_persistence
+    sqlalchemy
+    httpx
+    requests

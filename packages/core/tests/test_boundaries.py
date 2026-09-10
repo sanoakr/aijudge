@@ -174,3 +174,43 @@ def test_core_declares_no_io_dependencies() -> None:
         dependencies = tomllib.load(handle)["project"]["dependencies"]
     names = {item.split(">")[0].split("=")[0].split("[")[0].strip() for item in dependencies}
     assert names == {"pydantic"}, f"core gained unexpected dependencies: {names}"
+
+
+def test_the_logging_contracts_are_declared() -> None:
+    """ログの層分けが `.importlinter` に残っていること（ADR 0016）。
+
+    契約ごと消せば依存を足せてしまうので、契約の存在そのものを固定する
+    （測定の独立を固定しているのと同じ理由）。
+
+    - 運用ログの設定を触ってよいのは合成ルート（apps/*）だけ
+    - 運用ログは他のどのサブシステムも知らない
+
+    後者が破れると「ログを外しても採点は動く」が成立しなくなる。
+    """
+    config = _import_linter_config()
+
+    only_apps = "importlinter:contract:only-apps-configure-logging"
+    assert config.has_section(only_apps), "ログ設定の責務を縛る契約が .importlinter から消えている"
+    sources = set(config[only_apps]["source_modules"].split())
+    assert {"aijudge_core", "aijudge_grading", "aijudge_persistence"} <= sources
+    assert set(config[only_apps]["forbidden_modules"].split()) == {"aijudge_telemetry"}
+
+    standalone = "importlinter:contract:telemetry-knows-nothing"
+    assert config.has_section(standalone), (
+        "運用ログの独立を保証する契約が .importlinter から消えている"
+    )
+    forbidden = set(config[standalone]["forbidden_modules"].split())
+    assert {"aijudge_core", "aijudge_grading", "aijudge_persistence"} <= forbidden
+
+
+def test_the_operational_log_declares_no_dependencies() -> None:
+    """運用ログは標準 logging だけで書く。
+
+    ここに依存が増えるのは、運用ログが業務の語彙を持ち始めた兆候であり、
+    そのときログは「消えてよい層」ではなくなっている。消えては困る記録は
+    監査ログ（DB）か採点記録（`GradingRun`）に置くこと。
+    """
+    manifest = REPO_ROOT / "packages" / "telemetry" / "pyproject.toml"
+    with manifest.open("rb") as handle:
+        dependencies = tomllib.load(handle)["project"]["dependencies"]
+    assert dependencies == [], f"telemetry gained unexpected dependencies: {dependencies}"
