@@ -35,6 +35,7 @@ from aijudge_core import (
     HumanReview,
     ReviewRequest,
     ReviewState,
+    Role,
     Submission,
     Task,
     TaskVersion,
@@ -54,6 +55,7 @@ from aijudge_core.ids import (
 )
 from aijudge_submission import GradingJob, GradingPhase, JobState
 from aijudge_submission.protocols import (
+    AttentionCounts,
     ImmutabilityViolation,
     RunDecision,
     SubmissionStoreError,
@@ -556,6 +558,68 @@ class SqlReviewRepository:
             )
             for run_id in reviews.keys() | requests.keys() | finalizations.keys()
         }
+
+    def attention_counts_for_course(self, course_id: CourseId) -> AttentionCounts:
+        """このコースの「人待ち」の件数（#189）。
+
+        **2 文で済ませる。** 課題ごとに引く `pending_counts` は 41 問の
+        コースで 42 クエリになり、それを全ページに出る帯に置くことはできない。
+
+        **試行を数えないのを SQL でやる。** `Submission.is_trial` は
+        `submitted_as` から導かれる派生プロパティなので、列は無く JSON の
+        中にある。行を持ってきて Python で弾くと、数えるためだけに提出の
+        文書を数百件転送することになる ── ここは数しか要らない。
+
+        `submitted_as` が無い古い文書は学習者の提出として数える（この欄が
+        入る前の提出は、そもそも教員の試行という概念が無かった・#108）。
+        """
+        learner_submitted = or_(
+            SubmissionRow.document["submitted_as"].as_string() == Role.LEARNER.value,
+            SubmissionRow.document["submitted_as"].as_string().is_(None),
+        )
+
+        contested = (
+            select(func.count())
+            .select_from(ReviewRequestRow)
+            .join(GradingRunRow, GradingRunRow.id == ReviewRequestRow.grading_run_id)
+            .join(SubmissionRow, SubmissionRow.id == GradingRunRow.submission_id)
+            .join(TaskVersionRow, TaskVersionRow.id == SubmissionRow.task_version_id)
+            .join(TaskRow, TaskRow.id == TaskVersionRow.task_id)
+            .where(TaskRow.course_id == str(course_id))
+            .where(ReviewRequestRow.resolved_by.is_(None))
+        )
+
+        # 最新の採点 1 件につき 1 行。**再採点された提出で古い採点まで
+        # 数えると、1 提出が複数件として出る。**
+        latest = (
+            select(
+                GradingRunRow.submission_id.label("submission_id"),
+                func.max(GradingRunRow.created_at).label("created_at"),
+            )
+            .group_by(GradingRunRow.submission_id)
+            .subquery()
+        )
+        finalised = select(FinalizationRow.grading_run_id)
+        unfinalized = (
+            select(func.count())
+            .select_from(SubmissionRow)
+            .join(TaskVersionRow, TaskVersionRow.id == SubmissionRow.task_version_id)
+            .join(TaskRow, TaskRow.id == TaskVersionRow.task_id)
+            .join(GradingRunRow, GradingRunRow.submission_id == SubmissionRow.id)
+            .join(
+                latest,
+                (latest.c.submission_id == GradingRunRow.submission_id)
+                & (latest.c.created_at == GradingRunRow.created_at),
+            )
+            .where(TaskRow.course_id == str(course_id))
+            .where(GradingRunRow.id.not_in(finalised))
+            .where(learner_submitted)
+        )
+
+        return AttentionCounts(
+            contested=self._session.execute(contested).scalar_one(),
+            unfinalized=self._session.execute(unfinalized).scalar_one(),
+        )
 
     def unfinalized_for_task(
         self, task_id: TaskId, *, limit: int = 500
