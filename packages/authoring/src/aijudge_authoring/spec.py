@@ -121,6 +121,11 @@ class TaskSpec(BaseModel):
     opens_at: datetime | None = None
     due_at: datetime | None = None
     max_score: float = Field(default=100.0, gt=0.0)
+    # 受け付ける拡張子（#234）。**空ならコースの既定、それも空なら組み込みの
+    # 既定（コードとテキスト）。** 写真や PDF を出させる課題は、ここで明示
+    # しないと提出できない ── 既定はコード課題に合わせてあるので、画像課題は
+    # 定義の側で言う必要がある。
+    accepted_suffixes: tuple[str, ...] = ()
     # AI が担当する「読みやすさ」の重み。0 なら観点を作らない。
     readability_weight: float = Field(default=0.0, ge=0.0, lt=1.0)
     # 観点の畳み方（AND / OR）。**None ならコースの設定に従う。**

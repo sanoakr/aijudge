@@ -37,6 +37,9 @@ tasks:
     title: 手書きのメモを撮って出す
     subject_profile: demo_image
     knowledge_components: [demo.trial.image.legibility, demo.trial.image.completeness]
+    # **写真と PDF を受ける**（#234）。指定しないと組み込みの既定（コードと
+    # テキスト）に落ち、「撮って出す」課題に写真を出せない。
+    accepted_suffixes: [.jpg, .jpeg, .png, .pdf]
     statement: |
       ## [必須] 手書きのメモを撮って出す ##
 
