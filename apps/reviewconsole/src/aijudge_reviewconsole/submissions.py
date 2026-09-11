@@ -43,6 +43,19 @@ BUCKETS = 11
 
 
 @dataclass(frozen=True)
+class Listing:
+    """一覧に出す行と、**それが全部かどうか**（#233）。
+
+    上限に当たったことを持ち回るのは、画面がそれを言う必要があるから
+    ── 数の話ではなく、読み手が「これで全部」と思ってよいかの話である。
+    """
+
+    rows: list[Row]
+    truncated: bool
+    limit: int
+
+
+@dataclass(frozen=True)
 class Row:
     """一覧の 1 行。"""
 
@@ -182,14 +195,28 @@ def distribution_of(rows: list[Row]) -> Distribution:
     return result
 
 
-def load_rows(uow: object, course: Course) -> list[Row]:
-    """このコースの全提出を、採点と人間側の記録まで揃えて読む。
+#: 一覧が一度に読む上限（#233）。数千件を一度に描かないための仕組みで、
+#: **判断には使わない**（`count_for_course` / `list_for_versions`）。
+LISTING_LIMIT = 5000
+
+
+def load_rows(uow: object, course: Course) -> Listing:
+    """このコースの提出を、採点と人間側の記録まで揃えて読む。
 
     **1 件ずつ引かない。** 受講 91 名 × 課題十数件 × 再提出で数千件になり、
     提出ごとに 4 回問い合わせると一覧を開くたびにそれを踏む
     （`latest_for_many` / `decisions_for_runs` はそのためにある）。
+
+    **上限に当たったかどうかを返す**（#233）。黙って切ると、教員は「最近の
+    提出が無い」のか「切られた」のかを区別できない ── 同じ行から作る得点
+    分布も、切られた母数で描いたことが読み手に伝わらない。
     """
-    submissions = uow.submissions.list_for_course(course.id)  # type: ignore[attr-defined]
+    # 1 件多く読んで、上限に当たったかを知る。
+    submissions = uow.submissions.list_for_course(  # type: ignore[attr-defined]
+        course.id, limit=LISTING_LIMIT + 1
+    )
+    truncated = len(submissions) > LISTING_LIMIT
+    submissions = submissions[:LISTING_LIMIT]
     runs = uow.runs.latest_for_many([s.id for s in submissions])  # type: ignore[attr-defined]
     decisions = uow.reviews.decisions_for_runs([r.id for r in runs.values()])  # type: ignore[attr-defined]
 
@@ -245,7 +272,7 @@ def load_rows(uow: object, course: Course) -> list[Row]:
                 contested=request is not None and not request.resolved,
             )
         )
-    return _mark_adopted(rows)
+    return Listing(rows=_mark_adopted(rows), truncated=truncated, limit=LISTING_LIMIT)
 
 
 def _actor_login(

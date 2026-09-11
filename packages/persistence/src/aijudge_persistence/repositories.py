@@ -172,7 +172,7 @@ class SqlSubmissionRepository:
         )
 
     def list_for_course(self, course_id: CourseId, *, limit: int = 5000) -> tuple[Submission, ...]:
-        """このコースの全提出。古い順。教員の一覧が読む。
+        """このコースの提出。**新しい順。** 教員の一覧が読む。
 
         提出は課題版を指しており、コースを直接持たない（持たせると課題の
         移動で片方だけ古くなる）ので、課題 → コースの経路で絞る。
@@ -182,7 +182,9 @@ class SqlSubmissionRepository:
             .join(TaskVersionRow, TaskVersionRow.id == SubmissionRow.task_version_id)
             .join(TaskRow, TaskRow.id == TaskVersionRow.task_id)
             .where(TaskRow.course_id == str(course_id))
-            .order_by(SubmissionRow.created_at, SubmissionRow.id)
+            # **新しい順**（#233）。上限に当たったとき落ちるのを古い側に
+            # する ── 一覧が見たいのは最近の提出である。
+            .order_by(SubmissionRow.created_at.desc(), SubmissionRow.id.desc())
             .limit(limit)
         )
         return tuple(

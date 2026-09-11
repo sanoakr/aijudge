@@ -112,10 +112,10 @@ class InMemorySubmissionRepository:
         # インメモリ実装は課題を持たないので、コースでは絞れない。
         # 使うのは教員 UI（SQL 実装）だけなので、ここでは全件を返す。
         #
-        # **保存順で返す。** 以前は存在しない `self._order` を引いていて、
-        # 呼べば `AttributeError` になっていた（誰も呼んでいなかったので
-        # 気づかれていない）。`dict` は挿入順を保つので、それで足りる。
-        return tuple(self._items.values())[:limit]
+        # **新しい順で返す**（#233）。`dict` は挿入順を保つので、逆から
+        # 取れば新しい順になる ── 上限に当たったとき落ちるのが古い側で
+        # あることが、保存実装と揃っている必要がある。
+        return tuple(reversed(self._items.values()))[:limit]
 
     def list_for_versions(self, version_ids: Sequence[TaskVersionId]) -> tuple[Submission, ...]:
         wanted = {str(version_id) for version_id in version_ids}

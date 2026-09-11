@@ -103,6 +103,9 @@
   <p class="desc" style="margin:10px 0 0">
     採点済み {{ chart.scored }} 件／表示 {{ chart.total }} 件・平均
     <strong>{{ '%.1f' | format(chart.mean) }}%</strong>
+    {# **母数が全部でないなら、図の側で言う**（#233）。切られた分布を
+       コース全体の分布として読まれるのが一番まずい。 #}
+    {% if truncated %}<br><strong>この図は直近 {{ listing_limit }} 件だけの形です。</strong>{% endif %}
   </p>
   {% else %}
   <p class="desc" style="margin:0">採点済みの提出がありません。</p>
@@ -110,6 +113,16 @@
 </div>
 
 <h2>提出</h2>
+{# **黙って切らない**（#233）。上限に達したときだけ言う ── 「最近の提出が
+   無い」のか「読み込んでいない」のかは、出さなければ区別できない。
+   新しい順に読むので、落ちるのは古い側である。 #}
+{% if truncated %}
+<div class="note act">
+  <strong>新しい順に {{ listing_limit }} 件まで読み込んでいます。</strong>
+  これより古い提出はこの一覧に出ていません（上の分布も同じ範囲です）。
+  絞り込みを使うと、その範囲の中で探せます。
+</div>
+{% endif %}
 <table>
   <thead><tr>
     <th class="fit">提出日時</th><th class="fit">学習者</th><th class="grow">課題</th>

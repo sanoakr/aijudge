@@ -851,3 +851,40 @@ def test_listing_by_version_is_not_capped(database: Database) -> None:
     # あって「全部」ではない ── ここを取り違えると、問題セットが空のときに
     # コース全体を採点に回す。
     assert empty == ()
+
+
+def test_the_listing_keeps_the_newest_when_it_has_to_choose(database: Database) -> None:
+    """**上限に当たったら古い側を落とす**（#233）。
+
+    以前は古い順に切っていたので、落ちるのは最近の提出だった ── 一覧は
+    「実際に何が出ているか」を見る場所なので、それは目的と逆である。
+    保存実装とインメモリで同じ順序でなければ、画面が backend によって
+    別の提出を見せることになる。
+    """
+    from aijudge_core import Task
+
+    with database.unit_of_work() as uow:
+        uow.tasks.save_task(Task(id=TASK_ID, course_id=COURSE, title="例題"))
+        uow.tasks.save_version(a_task_version())
+        uow.commit()
+
+    # **時刻をずらす。** 同じ時刻だと並びは id（内容から導く値）で決まり、
+    # どれが「新しい」かが偶然で変わる。
+    made = []
+    for index in range(3):
+        at = NOW + timedelta(minutes=index)
+        stamped = SubmissionService(database.unit_of_work, _store(database), clock=lambda at=at: at)
+        result = stamped.accept(
+            tenant_id=TENANT,
+            task_version_id=TaskVersionId(f"tsv_{1:032d}"),
+            learner_id=LEARNER,
+            subject_profile="cs_lang_c_intro",
+            files=code(f"int main(void){{return {index};}}"),
+        )
+        made.append(result.submission.id)
+
+    with database.unit_of_work() as uow:
+        newest = uow.submissions.list_for_course(COURSE, limit=1)
+
+    assert len(newest) == 1
+    assert newest[0].id == made[-1], "いちばん新しい提出が残っていない"
