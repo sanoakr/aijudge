@@ -787,7 +787,13 @@ def _update_unit(
         recorder_for(uow, request, me).record(
             AuditAction.TASK_UPDATED,
             target_type="unit",
-            target_id=f"{course_id}/{key}",
+            # **記録が名指すのは問題セットそのもので、URL での姿ではない。**
+            # `key` は経路に載せるために percent-encode してあり、日本語の
+            # 名前だと 1 文字が 9 字に膨らむ ── 「第3回 配列とポインタ入門」で
+            # 103 字になり、コースの id と合わせて列（128 字）を超える。
+            # 復号すれば `tasks.unit` の幅（64 字）に収まり、記録としても
+            # 読める（符号化された鍵は人にも機械にも引きにくい）。
+            target_id=f"{course_id}/{unquote(key)}",
             summary=f"問題セットの設定を変えた（{saved}・課題 {len(tasks)} 件）",
             detail={
                 "course_id": course_id,

@@ -16,6 +16,7 @@ import re
 import zipfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from urllib.parse import quote
 
 import pytest
 from fastapi.testclient import TestClient
@@ -841,6 +842,44 @@ def _unit_of(world: World) -> str:
     with world.database.unit_of_work() as uow:
         task = uow.tasks.list_for_course(world.course.id)[0]
     return task.unit or "_"
+
+
+def test_a_japanese_unit_name_does_not_break_the_audit_record(world: World) -> None:
+    """**記録が名指すのは問題セットそのもので、URL での姿ではない。**
+
+    経路に載せる鍵は percent-encode してあり、日本語の名前は 1 文字が 9 字に
+    膨らむ ── そのまま `target_id` に書くと列（128 字）を超え、記録の挿入が
+    失敗して**同じ unit_of_work にいる締切の保存ごと巻き戻る**。受講登録の
+    対で同じことが起き、ログインが 500 になった（`audit_events.target_id`）。
+    """
+    from aijudge_core import Task
+
+    world.register("teacher", Role.INSTRUCTOR)
+    _import_example(world)
+
+    name = "第3回 配列とポインタ入門"
+    assert len(quote(name, safe="")) > 100, "符号化で膨らむ名前でなければ意味が無い"
+    with world.database.unit_of_work() as uow:
+        task = uow.tasks.list_for_course(world.course.id)[0]
+        uow.tasks.save_task(Task.model_validate(task.model_dump() | {"unit": name}))
+        uow.commit()
+
+    response = world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/units/{quote(name, safe='')}/schedule",
+        data={"opens_at": "2025-10-01T09:00", "due_at": "2025-10-08T23:59"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+
+    target = f"{world.course.id}/{name}"
+    assert len(target) <= 128
+    with world.database.unit_of_work() as uow:
+        rows = uow.audit.list_for_target("unit", target)
+    # **締切が保存されていること**まで見る ── 記録だけ入って値が戻っていたら
+    # 直したことにならない。
+    assert rows, "問題セットの変更が記録されていない"
+    with world.database.unit_of_work() as uow:
+        assert uow.tasks.list_for_course(world.course.id)[0].due_at is not None
 
 
 def test_the_schedule_is_set_for_the_whole_problem_set(world: World) -> None:

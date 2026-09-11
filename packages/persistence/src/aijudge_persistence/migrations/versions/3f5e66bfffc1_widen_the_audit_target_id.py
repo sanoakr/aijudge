@@ -40,8 +40,11 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # **戻すと 64 字を超える行が入らなくなる。** 既にある長い target_id は
-    # 切り捨てられるので、戻す前に無いことを確かめること。
+    # **戻すと 64 字を超える行を持つ表では失敗する。** PostgreSQL は変換
+    # できない行があれば ALTER ごと中断し、SQLite は長さを見ない（batch の
+    # 作り直しで値はそのまま残る）。**どちらも黙って切り捨てはしない** ──
+    # 以前ここに「切り捨てられる」と書いていたが誤りで、それに従うと
+    # 追記専用（P8）の表から行を消す作業をすることになる。
     with op.batch_alter_table("audit_events") as batch_op:
         batch_op.alter_column(
             "target_id",

@@ -187,3 +187,18 @@ def test_a_failed_login_is_not_attributed_to_the_account_holder() -> None:
     # 口座は分かっている。**やった人が分からない**ことと区別して書く。
     assert event.target_id == str(INSTRUCTOR)
     assert event.source_ip == "203.0.113.7"
+
+
+def test_a_target_too_long_for_the_column_is_refused_here() -> None:
+    """**列の幅は模型の側でも持つ。**
+
+    持たないと、桁あふれは保存の瞬間の `DataError` になり、同じ
+    unit_of_work にいる呼び出し側の書き込みごと巻き戻る ── 受講登録の対が
+    64 字の列に入らず、ログインが丸ごと 500 になったのがそれ。ここで
+    弾けば、保存先を持たないこのテストでも同じ失敗が見える。
+    """
+    with pytest.raises(ValidationError):
+        _event(target_id="x" * 129)
+
+    # 境界そのものは通る（列も 128）。
+    assert _event(target_id="x" * 128).target_id == "x" * 128
