@@ -88,6 +88,18 @@ def test_the_migrations_also_build_the_postgres_shape() -> None:
     JSONB は PostgreSQL でしか現れないので、SQLite だけでは確かめられない。
     """
     url = os.environ["AIJUDGE_TEST_DATABASE_URL"]
+    engine = sa.create_engine(url)
+    try:
+        # **空から積み上げる。** 同じデータベースを他のテストと共有するので
+        # （`test_repositories.py` は `create_all` で表を作る）、残っている
+        # 表の上に移行を当てると `DuplicateTable` で落ちる ── 確かめたいのは
+        # 「移行だけで作った形」なので、その前提を自分で用意する（#243）。
+        with engine.begin() as connection:
+            connection.execute(sa.text("DROP SCHEMA public CASCADE"))
+            connection.execute(sa.text("CREATE SCHEMA public"))
+    finally:
+        engine.dispose()
+
     command.upgrade(_config(url), "head")
     engine = sa.create_engine(url)
     try:

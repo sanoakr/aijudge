@@ -17,6 +17,20 @@ uv run mypy packages/core/src
 uv run lint-imports    # module boundary contracts
 ```
 
+The persistence tests run the **same tests against SQLite and PostgreSQL**.
+Locally only SQLite runs unless you point at a database — most work needs no
+database — but **CI runs both** (#243):
+
+```fish
+docker compose up -d
+AIJUDGE_TEST_DATABASE_URL=postgresql+psycopg://aijudge:aijudge@localhost:5432/aijudge \
+    uv run pytest packages/persistence
+```
+
+**Anything only PostgreSQL can catch belongs in a `[postgres]` test**: row
+locking (SQLite has none), column widths (SQLite ignores the `n` in
+`VARCHAR(n)`), and JSONB behaviour.
+
 ## Module boundaries are enforced, not suggested
 
 `packages/core` depends on nothing and performs no I/O. Subsystems never import

@@ -18,8 +18,10 @@ services:
       POSTGRES_USER: aijudge
       POSTGRES_PASSWORD: aijudge
       POSTGRES_DB: aijudge
-      # 締切前のバーストで接続が枯れないように。
-      POSTGRES_MAX_CONNECTIONS: "200"
+    # 締切前のバーストで接続が枯れないように。**`POSTGRES_MAX_CONNECTIONS`
+    # という環境変数は公式イメージに無い** ── 渡しても既定の 100 のままで、
+    # 設定したつもりで効いていなかった（#243 の作業中に実測）。
+    command: ["postgres", "-c", "max_connections=200"]
     ports:
       - "5432:5432"
     volumes:

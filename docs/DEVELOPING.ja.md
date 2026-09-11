@@ -17,6 +17,19 @@ uv run mypy packages/core/src
 uv run lint-imports    # モジュール境界の契約
 ```
 
+保存実装のテストは **SQLite と PostgreSQL の両方**に同じものを当てる。手元では
+既定で SQLite だけが走る（多くの作業に DB は要らない）。PostgreSQL 側も見るには
+接続先を渡す ── **CI は両方を走らせている**（#243）。
+
+```fish
+docker compose up -d
+AIJUDGE_TEST_DATABASE_URL=postgresql+psycopg://aijudge:aijudge@localhost:5432/aijudge \
+    uv run pytest packages/persistence
+```
+
+**PostgreSQL でしか捕まらないものは `[postgres]` のテストに置く** ── 行ロック
+（SQLite に無い）、列の長さ（SQLite は `VARCHAR(n)` の n を見ない）、JSONB。
+
 ## モジュール境界は「推奨」ではなく強制
 
 `packages/core` は何にも依存せず、I/O を持たない。サブシステムどうしは互いを

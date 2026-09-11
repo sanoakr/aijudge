@@ -618,7 +618,12 @@ def test_concurrent_workers_never_take_the_same_job() -> None:
         Base.metadata.create_all(database.engine)
 
         store = InMemoryArtifactStore()
-        service = SubmissionService(database.unit_of_work, store)
+        # **凍らせた時計で積む。** 実時計で積むと `available_at` が現在時刻に
+        # なり、`reserve(NOW, ...)` からは「まだ取れない」ジョブに見える ──
+        # NOW を過ぎた日に走らせると 1 件も取れず、取り漏らしとして落ちる。
+        # この経路は CI で走っていなかったので、実際に落ちたまま残っていた
+        # （#243）。他のテストは `a_service` が同じ時計を渡している。
+        service = SubmissionService(database.unit_of_work, store, clock=lambda: NOW)
         job_count = 24
         for index in range(job_count):
             service.accept(
