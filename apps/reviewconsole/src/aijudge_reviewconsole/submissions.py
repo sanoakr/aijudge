@@ -200,20 +200,33 @@ def distribution_of(rows: list[Row]) -> Distribution:
 LISTING_LIMIT = 5000
 
 
-def load_rows(uow: object, course: Course) -> Listing:
+def load_rows(uow: object, course: Course, filters: Filters | None = None) -> Listing:
     """このコースの提出を、採点と人間側の記録まで揃えて読む。
 
     **1 件ずつ引かない。** 受講 91 名 × 課題十数件 × 再提出で数千件になり、
     提出ごとに 4 回問い合わせると一覧を開くたびにそれを踏む
     （`latest_for_many` / `decisions_for_runs` はそのためにある）。
 
+    **絞り込める条件は読む前に効かせる**（#247）。以前は上限まで読んでから
+    すべて Python で絞っていたので、「第 3 回だけ」を見ても読み込み量は
+    コース全体のままだった ── しかも上限に当たると、絞り込みは**切り落と
+    された後ろ**を探すことになる（教員には「その回の古い提出が無い」と
+    見える）。課題版と学習者は行が持っているので、そこは問い合わせに載る。
+
+    載らない条件（`state`・`adopted`・`role`）は読んだ後で絞る形が残るが、
+    母数が桁で小さくなるので上限にはまず当たらない。
+
     **上限に当たったかどうかを返す**（#233）。黙って切ると、教員は「最近の
     提出が無い」のか「切られた」のかを区別できない ── 同じ行から作る得点
     分布も、切られた母数で描いたことが読み手に伝わらない。
     """
+    filters = filters or Filters()
     # 1 件多く読んで、上限に当たったかを知る。
     submissions = uow.submissions.list_for_course(  # type: ignore[attr-defined]
-        course.id, limit=LISTING_LIMIT + 1
+        course.id,
+        limit=LISTING_LIMIT + 1,
+        task_ids=_task_ids(uow, course, filters),
+        learner_ids=_learner_ids(uow, course, filters),
     )
     truncated = len(submissions) > LISTING_LIMIT
     submissions = submissions[:LISTING_LIMIT]
@@ -273,6 +286,43 @@ def load_rows(uow: object, course: Course) -> Listing:
             )
         )
     return Listing(rows=_mark_adopted(rows), truncated=truncated, limit=LISTING_LIMIT)
+
+
+def _task_ids(uow: object, course: Course, filters: Filters) -> list[object] | None:
+    """`unit` / `task` を課題の並びに直す（#247）。
+
+    絞っていなければ `None`（＝絞らない）。**空の列は返しうる**が、それは
+    「条件に当たる課題が無い」であって「絞らない」ではない ── 保存層は
+    その区別を守る。
+
+    **課題で返す。課題版ではない。** 提出は出したときの版を指すので、
+    最新版だけで絞ると、課題を直す前に出した提出が一覧から消える。
+    """
+    if not filters.unit and not filters.task:
+        return None
+    return [
+        task.id
+        for task in uow.tasks.list_for_course(course.id)  # type: ignore[attr-defined]
+        if not (filters.task and str(task.id) != filters.task)
+        and not (filters.unit and unit_key(task) != filters.unit)
+    ]
+
+
+def _learner_ids(uow: object, course: Course, filters: Filters) -> list[object] | None:
+    """学習者の前方一致を利用者の並びに直す（#247）。
+
+    一覧が絞るのは **login の前方一致**で、login は提出ではなく利用者の側に
+    ある。テナントの利用者を 1 回読んで突き合わせる ── 受講から引くと、
+    学生が TA になった後に過去の提出が消える（#108 と同じ轍）。
+    """
+    prefix = filters.learner.strip().lower()
+    if not prefix:
+        return None
+    return [
+        user.id
+        for user in uow.identity.list_all_users(course.tenant_id)  # type: ignore[attr-defined]
+        if (user.login or "").lower().startswith(prefix)
+    ]
 
 
 def _actor_login(

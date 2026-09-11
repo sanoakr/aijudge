@@ -33,6 +33,7 @@ from aijudge_core.ids import (
     HumanReviewId,
     ReviewRequestId,
     SubmissionId,
+    TaskId,
     TaskVersionId,
     TenantId,
     UserId,
@@ -108,14 +109,31 @@ class InMemorySubmissionRepository:
             )
         )
 
-    def list_for_course(self, course_id: CourseId, *, limit: int = 5000) -> tuple[Submission, ...]:
+    def list_for_course(
+        self,
+        course_id: CourseId,
+        *,
+        limit: int = 5000,
+        task_ids: Sequence[TaskId] | None = None,
+        learner_ids: Sequence[UserId] | None = None,
+    ) -> tuple[Submission, ...]:
         # インメモリ実装は課題を持たないので、コースでは絞れない。
         # 使うのは教員 UI（SQL 実装）だけなので、ここでは全件を返す。
         #
         # **新しい順で返す**（#233）。`dict` は挿入順を保つので、逆から
         # 取れば新しい順になる ── 上限に当たったとき落ちるのが古い側で
         # あることが、保存実装と揃っている必要がある。
-        return tuple(reversed(self._items.values()))[:limit]
+        #
+        # 学習者は提出そのものが持っているので、**そこは SQL 実装と同じ規則で
+        # 絞る**（#247）。`task_ids` はコースと同じ理由で絞れない（課題を
+        # 持たない）ので受け取って無視する ── **絞り込みの正しさはここに
+        # 依っていない。** 保存層の絞り込みは読む量を減らすためのもので、
+        # 何を出すかは呼び手が `Filters.matches` で決める（`submissions.py`）。
+        items = list(reversed(self._items.values()))
+        if learner_ids is not None:
+            people = {str(learner_id) for learner_id in learner_ids}
+            items = [item for item in items if str(item.learner_id) in people]
+        return tuple(items[:limit])
 
     def list_for_versions(self, version_ids: Sequence[TaskVersionId]) -> tuple[Submission, ...]:
         wanted = {str(version_id) for version_id in version_ids}
