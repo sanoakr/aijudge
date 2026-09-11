@@ -479,6 +479,19 @@ def _test_evaluator_of(profile) -> str:
     return CODE_TEST_RUNNER
 
 
+def _kc_keys_of(uow, version) -> tuple[str, ...]:
+    """この課題版が問う知識要素のキー。**Q-matrix が正**（#267）。
+
+    画面には ID ではなくキーを出す ── `kc_7d9d…` は人には読めない。
+    引けなかったものは ID のまま出す（黙って落とすと、件数が合わない）。
+    """
+    keys: list[str] = []
+    for entry in version.q_matrix:
+        component = uow.skills.get_kc(entry.kc_id)
+        keys.append(getattr(component, "key", None) or str(entry.kc_id))
+    return tuple(keys)
+
+
 def _record_gates(console, profile, version) -> None:
     """門 1・門 2 を通して結果を残す。**残さないと教員に何も示せない。**
 
@@ -3533,6 +3546,13 @@ def register(templates) -> APIRouter:
         except AdminError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
+        # **門を通して記録する**（ADR 0008・#267）。手で足した課題と
+        # テストの生成では記録していたのに、**作問だけ記録していなかった** ──
+        # 未承認の一覧が確認するためにある対象そのものが、検査記録の無い
+        # 状態で並んでいた（画面は「検査の記録がありません」と正しく言うが、
+        # 教員には判断材料が無い）。
+        _record_gates(console, profile, saved.version)
+
         # 日程と提出形式は問題セットから引き継ぐ（手で足した課題と同じ）。
         if head is not None:
             with console.database.unit_of_work() as uow:
@@ -4837,6 +4857,15 @@ def register(templates) -> APIRouter:
                         "version": version,
                         "task": tasks[version.task_id],
                         "checks": checks,
+                        # **知識要素は課題版から出す**（#267）。検査の記録から
+                        # 出していたので、記録が無いだけで「登録なし（習熟度が
+                        # 付きません）」と出ていた ── 実際には Q-matrix に
+                        # 入っており、習熟度は付く。教員が承認を判断する瞬間に
+                        # 事実でないことを伝えていた（P5）。
+                        #
+                        # 検査が失敗した下書き・古い下書きでも同じことが起きる
+                        # ので、記録の有無とは別に扱う。
+                        "kc_keys": _kc_keys_of(uow, version),
                         # 検査していない課題も並べる。**隠さない** ── 見えない
                         # ものは承認も却下もされず、待ち行列に溜まり続ける。
                         "clean": bool(checks and checks.verification.usable),

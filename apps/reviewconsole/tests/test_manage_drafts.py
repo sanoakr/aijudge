@@ -16,10 +16,12 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import text
 
 from aijudge_authoring.verification import GateOutcome, TaskChecks, VerificationReport
 from aijudge_core import (
     Course,
+    KnowledgeComponent,
     Provenance,
     QMatrixEntry,
     ReviewState,
@@ -71,6 +73,18 @@ class World:
                         subject_profile="cs_lang_c_intro",
                     )
                 )
+            # **知識要素そのものを登録する。** 画面は Q-matrix から引いて
+            # キーを出すので（#267）、登録が無いと ID のまま出る。検査記録の
+            # `declared_kcs` は「門が何を宣言として見たか」の記録であって、
+            # この課題が何を問うかの出どころではない。
+            uow.skills.save_kc(
+                KnowledgeComponent(
+                    id=KC,
+                    namespace="cs",
+                    path=("loops", "termination"),
+                    label="ループの停止条件",
+                )
+            )
             uow.tasks.save_task(
                 Task(id=TaskId("tsk_" + "3" * 32), course_id=COURSE, title="生成課題")
             )
@@ -175,6 +189,32 @@ def test_the_queue_always_shows_the_knowledge_components(world: World) -> None:
     assert "機械はここを検証していません" in body
 
 
+def test_the_components_are_shown_even_without_a_checks_record(world: World) -> None:
+    """**検査記録の有無と、問う知識要素があるかは別の事実**（#267）。
+
+    以前は検査記録（`TaskChecks.declared_kcs`）から出していたので、記録が
+    無いだけで「登録なし（この課題では習熟度が付きません）」と出た ──
+    Q-matrix には入っており、習熟度は付く。**教員が承認を判断する瞬間に
+    事実でないことを伝えていた**（P5）。
+
+    本番で踏んだ。AI 作問は門の検査を記録していなかったので、**この画面が
+    確認するためにある対象そのもの**が、常にこの嘘を出していた。
+    """
+    # 記録を消す（検査が失敗した下書き・古い下書きで実際に起きる状態）。
+    with world.database.unit_of_work() as uow:
+        uow._session.execute(  # type: ignore[attr-defined]
+            text("delete from task_checks where task_version_id = :v"), {"v": str(VERSION)}
+        )
+        uow.commit()
+
+    world.register("teacher", Role.INSTRUCTOR)
+    world.login("teacher")
+    body = world.client.get(_url()).text
+
+    assert "cs.loops.termination" in body, "検査記録が無いと知識要素が消える"
+    assert "登録なし（この課題では習熟度が付きません）" not in body
+
+
 def test_the_queue_says_approval_is_what_publishes(world: World) -> None:
     world.register("teacher", Role.INSTRUCTOR)
     world.login("teacher")
@@ -265,9 +305,10 @@ def test_the_queue_can_generate_without_choosing_a_set(world: World) -> None:
     # 出題先は承認のときに選ぶ。
     assert "出題する問題セット" in page
     assert 'name="unit"' in page
-    # このコースには知識要素が無いので、生成そのものは断られる ── **作問の
-    # 入口があることと、生成できることは別**（`aijudge_admin.kc` の規則 4）。
-    assert "知識要素が登録されていないので生成できません" in page
+    # 問う知識要素は作問の時点で選ぶ（出題先とは別）。**知識要素が無ければ
+    # 生成そのものを断る**という規則は `test_manage.py` が覆っており、この
+    # コースには登録があるので、ここでは選ぶ欄が出ることを見る。
+    assert "問う知識要素" in page
 
 
 def test_approval_places_the_task_in_the_chosen_set(world: World) -> None:

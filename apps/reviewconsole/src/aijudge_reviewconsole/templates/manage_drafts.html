@@ -26,9 +26,12 @@
      機械が検証していない。見せなければ誰も気づかないまま Q-matrix に残り、
      学習者には問われていない KC の習熟度が付く。 #}
   <h3>知識要素</h3>
-  {% if row.checks and row.checks.declared_kcs %}
+  {# **出どころは課題版の Q-matrix**（#267）。検査の記録から出していたので、
+     記録が無いだけで「登録なし」と出て、習熟度が付かない課題に見えていた。
+     記録の有無と、問う知識要素があるかどうかは別の事実である。 #}
+  {% if row.kc_keys %}
   <ul>
-    {% for kc in row.checks.declared_kcs %}<li><code>{{ kc }}</code></li>{% endfor %}
+    {% for kc in row.kc_keys %}<li><code>{{ kc }}</code></li>{% endfor %}
   </ul>
   <p class="desc" style="margin:0 0 12px">
     <strong>課題文がこれを問うているか確認してください。</strong>

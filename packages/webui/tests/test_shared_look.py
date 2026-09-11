@@ -81,3 +81,20 @@ def test_both_apps_serve_it_from_the_same_path() -> None:
     任せているので、名前が同じであることが前提になっている。
     """
     assert webui.STATIC_MOUNT == "/static"
+
+
+def test_a_draft_statement_wraps_but_code_does_not() -> None:
+    """**問題文は折り返す。コードは折り返さない**（#266）。
+
+    承認待ちの課題は `<pre class="statement">` で、生成されたままの文面を
+    出す（整形すると、モデルが何を書いたのかが分からなくなる）。既定の
+    `white-space: pre` のままだと、AI が書いた長い 1 行がそのまま伸びる ──
+    390px の画面で 2092px はみ出していた。
+
+    コードは事情が違う。折り返すと意味が変わるので、横スクロールに逃がす。
+    **両方を 1 つの試験で見る** ── 片方だけ直して、もう片方を巻き添えに
+    するのがこの手の修正の失敗の形である。
+    """
+    css = (webui.ASSETS_DIR / "base.css").read_text(encoding="utf-8")
+    assert "pre.statement{white-space:pre-wrap" in css, "問題文が折り返さない"
+    assert "pre.code{margin:0;overflow-x:auto" in css, "コードが横スクロールでなくなった"
