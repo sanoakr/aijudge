@@ -689,3 +689,53 @@ def test_the_rail_does_not_count_a_demo_submission(database: Database, course) -
     with database.unit_of_work() as uow:
         counts = uow.reviews.attention_counts_for_course(course.id)
     assert counts.unfinalized == 0
+
+
+def test_the_rail_counts_a_trial_contest_because_a_person_asked(database: Database, course) -> None:
+    """**異議は試行も数える。** `unfinalized` と揃えないのは意図である（#194）。
+
+    確定は成績の話で、デモの提出に閉じるべき成績は無い ── だから
+    `test_the_rail_does_not_count_a_demo_submission` の側では数えない。
+    異議は**人が書いて送った問い**で、成績に残らなくてもその事実は残る。
+
+    絞り込みの入れ忘れに見える形なので、意図であることをここで固定する。
+    """
+    from aijudge_submission import InMemoryArtifactStore, SubmissionService
+
+    with database.unit_of_work() as uow:
+        uow.tasks.save_task(Task(id=TASK_ID, course_id=course.id, title="ex03 p1", session=3))
+        uow.tasks.save_version(_task_version())
+        uow.commit()
+
+    service = SubmissionService(database.unit_of_work, InMemoryArtifactStore())
+    result = service.accept(
+        tenant_id=TENANT,
+        task_version_id=TASK_VERSION,
+        learner_id=UserId(new_id("usr")),
+        submitted_as=Role.LEARNER,
+        is_demo=True,
+        subject_profile="cs_lang_c_intro",
+        files=[IncomingFile(filename="main.c", kind=ArtifactKind.CODE, payload=b"int main(){}")],
+    )
+    assert result.submission.is_trial
+
+    run = _run(result.submission.id, routing=Routing.AUTO)
+    with database.unit_of_work() as uow:
+        uow.runs.save(run)
+        uow.reviews.save_request(
+            ReviewRequest(
+                id=ReviewRequestId(new_id("rrq")),
+                submission_id=result.submission.id,
+                grading_run_id=run.id,
+                learner_id=result.submission.learner_id,
+                reason="デモでも疑問は書ける。これは人が送った問いである。",
+                requested_at=DUE,
+            )
+        )
+        uow.commit()
+
+    with database.unit_of_work() as uow:
+        counts = uow.reviews.attention_counts_for_course(course.id)
+
+    assert counts.contested == 1, "人が送った問いを数えていない"
+    assert counts.unfinalized == 0, "デモの提出を確定待ちとして数えている"

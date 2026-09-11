@@ -152,7 +152,17 @@
       placeholder="例: 出力の正しさが「一部」ですが、入力例 3 の想定出力は仕様では 2 行のはずです。"></textarea>
   </div>
   <p class="desc">
-    担当教員が内容を確認し、根拠を添えて回答します。
+    {# **守れない約束を出さない。** デモコースには担当者が居ない ── ログイン
+       した教職員が全員 instructor になる作りなので（`_role_for`）、依頼は
+       全員の帯に出るが、誰の仕事にもならない。依頼そのものは試せるように
+       残す（流れを見せるのがデモの目的）。 #}
+    {% if ctx_course is defined and ctx_course and is_demo_course(ctx_course.id) %}
+      このコースはお試しです。依頼はログインした教員から見えますが、
+      <strong>回答されるとは限りません。</strong>
+      書き方を試す場として使ってください。
+    {% else %}
+      担当教員が内容を確認し、根拠を添えて回答します。
+    {% endif %}
     何が違うと考えるかを具体的に書いてください。
     {% if view.settles_at %}
       <strong>{{ view.settles_at.strftime('%m/%d %H:%M') }} を過ぎるとこの欄からは依頼できなくなります。</strong>
