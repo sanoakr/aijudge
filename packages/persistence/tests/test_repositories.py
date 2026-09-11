@@ -867,7 +867,6 @@ def test_the_final_ratio_column_matches_the_domain_function(database: Database) 
     from sqlalchemy import select
 
     from aijudge_core import LatePenalty, final_score
-
     from aijudge_persistence.schema import GradingRunRow
 
     # 採点が指している版そのものを保存する ── 別の版を置いても列は埋まらない
@@ -903,6 +902,59 @@ def test_the_final_ratio_column_matches_the_domain_function(database: Database) 
     # 前提が崩れていないことも言う ── 減点が効いていなければこの試験は
     # 何も確かめていない。
     assert expected != run.score_ratio, "遅延減点が効いていない（前提が崩れている）"
+
+
+def test_the_scored_read_carries_the_same_number_as_the_listing(database: Database) -> None:
+    """**図と一覧は同じ点を見る**（#253）。
+
+    細い読み出しは `final_ratio` を返し、一覧は `final_score` から出す。
+    遅延減点のある採点で両者が一致することを言う ── `score_ratio` を返す
+    実装はここで落ちる。
+
+    絞り込みも一覧と同じものが効く。
+    """
+    from aijudge_core import LatePenalty, final_score
+
+    version = a_task_version().model_copy(update={"id": TASK_VERSION})
+    with database.unit_of_work() as uow:
+        uow.tasks.save_task(Task(id=TASK_ID, course_id=COURSE, title="例題"))
+        uow.tasks.save_version(version)
+        uow.commit()
+
+    service = SubmissionService(database.unit_of_work, _store(database))
+    submission = service.accept(
+        tenant_id=TENANT,
+        task_version_id=TASK_VERSION,
+        learner_id=LEARNER,
+        subject_profile="cs_lang_c_intro",
+        files=code("int main(void){return 0;}"),
+    ).submission
+    run = a_run("grn_" + "a" * 32, submission.id).model_copy(
+        update={
+            "penalty": LatePenalty(
+                ratio=0.2,
+                reason="1 日遅れ",
+                hours_late=24.0,
+                due_at=NOW,
+                submitted_at=NOW + timedelta(days=1),
+            )
+        }
+    )
+    with database.unit_of_work() as uow:
+        uow.runs.save(run)
+        uow.commit()
+
+    with database.unit_of_work() as uow:
+        scored = uow.submissions.scored_for_course(COURSE)
+        nobody = uow.submissions.scored_for_course(COURSE, task_ids=[])
+
+    assert len(scored) == 1
+    assert scored[0].final_ratio == final_score(run, version, None).final
+    assert scored[0].final_ratio != run.score_ratio, "遅延減点が効いていない（前提が崩れている）"
+    assert scored[0].graded is True
+    assert scored[0].is_trial is False
+    # 空の列は「該当なし」（`list_for_course` と同じ約束）。
+    assert nobody == ()
 
 
 def test_the_listing_filters_before_it_reads(database: Database) -> None:

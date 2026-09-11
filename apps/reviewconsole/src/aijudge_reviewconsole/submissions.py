@@ -34,6 +34,7 @@ from aijudge_core import (
     final_score,
     score_withheld,
 )
+from aijudge_submission.protocols import ScoredRow
 
 from .overview import unit_key
 
@@ -133,6 +134,34 @@ class Filters:
             return False
         return not (self.adopted and not row.adopted)
 
+    def matches_scored(self, row: ScoredRow, *, adopted: bool) -> bool:
+        """細い行（#253）に同じ絞り込みを効かせる。
+
+        **規則を書き写さない。** 問題セット・問題・学習者は SQL で既に
+        絞られている（`scored_for_course` へ同じ引数を渡す）ので、ここに
+        残るのは状態・役割・採用提出の 3 つだけである。
+
+        **役割は数える前に決着する。** 図は試行を数えない（#108）ので、
+        母数は `is_trial` が偽の提出だけになる。`is_trial` は「学習者以外が
+        出した、または デモ」なので、**学習者以外の役割で絞れば母数は必ず
+        空**であり、学習者で絞ることは母数を変えない。近似ではなく、
+        `Submission.is_trial` の定義からそうなる。
+        """
+        if self.role and self.role != Role.LEARNER.value:
+            return False
+        if self.state and _scored_state(row) != self.state:
+            return False
+        return not (self.adopted and not adopted)
+
+
+def _scored_state(row: ScoredRow) -> str:
+    """細い行の状態。**`_state_key` と同じ順で判定する。**"""
+    if not row.graded:
+        return "grading"
+    if row.reviewed or row.finalized:
+        return "finalized"
+    return "contested" if row.contested else "open"
+
 
 STATE_LABELS: dict[str, str] = {
     "grading": "採点中",
@@ -190,6 +219,65 @@ def distribution_of(rows: list[Row]) -> Distribution:
             continue
         result.scored += 1
         percent = max(0.0, min(1.0, row.score)) * 100
+        index = BUCKETS - 1 if percent >= 100 else int(percent // 10)
+        result.counts[index] += 1
+    return result
+
+
+def load_scored(uow: object, course: Course, filters: Filters) -> tuple[ScoredRow, ...]:
+    """図のための細い読み出し（#253）。**一覧とは別の経路。**
+
+    絞り込みは一覧とまったく同じものを渡す ── 図と一覧が違う範囲を描けば、
+    読み手はその図を一覧の範囲だと読む。SQL に載らない条件は
+    `Filters.matches_scored` が後で絞る。
+    """
+    return uow.submissions.scored_for_course(  # type: ignore[attr-defined]
+        course.id,
+        task_ids=_task_ids(uow, course, filters),
+        learner_ids=_learner_ids(uow, course, filters),
+    )
+
+
+def distribution_for(rows: tuple[ScoredRow, ...], filters: Filters) -> Distribution:
+    """得点の分布を、一覧とは別の読み出しから作る（#253）。
+
+    **一覧に上限が要るのは描くからで、図に上限は要らない**（数えるだけなので
+    件数に依らない）。同じ行から作っている限り、描画側の制約がそのまま図の
+    母数になる ── 切られた分布がコース全体の分布として読まれ、一覧を頁送りに
+    すれば 1 頁ぶんの分布になる（#233・#255）。
+
+    **教員・TA 自身の試行は数えない**（#108）。動作確認で通した入力は到達度
+    ではない ── 混ぜると「この課題は正答率が低い」が、実は教員が壊れた入力を
+    試した結果、という形で現れる。
+
+    **採用は同点で後の提出を採る**（#256）が、図には効かない ── 同点なら
+    どちらを数えても棒の高さは同じである。ここで要るのは「学習者・課題ごとの
+    最高点」だけで、その値に曖昧さは無い。
+    """
+    counted = [row for row in rows if not row.is_trial]
+
+    best: dict[tuple[str, str], float] = {}
+    for row in counted:
+        if row.final_ratio is None:
+            continue
+        key = (str(row.learner_id), str(row.task_id))
+        current = best.get(key)
+        if current is None or row.final_ratio > current:
+            best[key] = row.final_ratio
+
+    def is_adopted(row: ScoredRow) -> bool:
+        if row.final_ratio is None:
+            return False
+        return best.get((str(row.learner_id), str(row.task_id))) == row.final_ratio
+
+    counted = [row for row in counted if filters.matches_scored(row, adopted=is_adopted(row))]
+
+    result = Distribution(total=len(counted))
+    for row in counted:
+        if row.final_ratio is None:
+            continue
+        result.scored += 1
+        percent = max(0.0, min(1.0, row.final_ratio)) * 100
         index = BUCKETS - 1 if percent >= 100 else int(percent // 10)
         result.counts[index] += 1
     return result
@@ -425,8 +513,11 @@ __all__ = [
     "Distribution",
     "Filters",
     "Row",
+    "ScoredRow",
+    "distribution_for",
     "distribution_of",
     "load_rows",
+    "load_scored",
     "newest_first",
     "summarize",
 ]

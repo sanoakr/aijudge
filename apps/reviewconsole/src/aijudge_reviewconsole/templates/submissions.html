@@ -101,11 +101,11 @@
     {% endfor %}
   </div>
   <p class="desc" style="margin:10px 0 0">
-    採点済み {{ chart.scored }} 件／表示 {{ chart.total }} 件・平均
+    採点済み {{ chart.scored }} 件／該当 {{ chart.total }} 件・平均
     <strong>{{ '%.1f' | format(chart.mean) }}%</strong>
-    {# **母数が全部でないなら、図の側で言う**（#233）。切られた分布を
-       コース全体の分布として読まれるのが一番まずい。 #}
-    {% if truncated %}<br><strong>この図は直近 {{ listing_limit }} 件だけの形です。</strong>{% endif %}
+    {# **「表示」ではなく「該当」**（#253）。図は一覧とは別に読むように
+       なったので、一覧の上限に縛られない ── 絞り込みに合う提出を全部
+       数えている。一覧が切られていても、この図は切られていない。 #}
   </p>
   {% else %}
   <p class="desc" style="margin:0">採点済みの提出がありません。</p>
@@ -119,8 +119,9 @@
 {% if truncated %}
 <div class="note act">
   <strong>新しい順に {{ listing_limit }} 件まで読み込んでいます。</strong>
-  これより古い提出はこの一覧に出ていません（上の分布も同じ範囲です）。
-  絞り込みを使うと、その範囲の中で探せます。
+  これより古い提出はこの一覧に出ていません。
+  <strong>上の分布は切られていません</strong>（該当する提出を全部数えています）。
+  絞り込みを使うと、一覧の側でも探せます。
 </div>
 {% endif %}
 {# 携帯では行を積む（`table.stack`）。課題の題は見出し無しで出す ──
