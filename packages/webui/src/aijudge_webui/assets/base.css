@@ -481,7 +481,13 @@ body:has(.gate) .gate{flex:1;min-height:0}
 .gate-mark{text-align:center;max-width:30rem}
 .gate-mark h1{color:var(--head-ink);border:0;margin:0 0 10px;
   font-size:2.4rem;letter-spacing:.04em}
-.gate-lead{color:var(--head-muted);font-size:.92rem;line-height:1.8;margin:0}
+/* **端数の行を作らない。** 案内文は入口に 1 つだけ置く短い文で、折り返すと
+   「ます。」のように数文字だけが 2 行目に落ちる ── 1 行に収まらないこと
+   自体より、その落ち方が読みにくい。`balance` は行の長さを揃えるので、
+   折り返すときも同じくらいの 2 行になる。
+   対応していない環境では通常の折り返しに戻るだけで、何も壊れない。 */
+.gate-lead{color:var(--head-muted);font-size:.92rem;line-height:1.8;margin:0;
+  text-wrap:balance}
 /* 面は白。**押す場所を 1 つに絞る** ── 藍の上に藍の札を置くと、どこが
    操作なのか読み取りに一拍かかる。 */
 .gate-card{background:var(--surface);color:var(--ink);border-radius:6px;
@@ -494,7 +500,7 @@ body:has(.gate) .gate{flex:1;min-height:0}
 .gate-go{width:100%;background:var(--go-bg);color:var(--go-ink);
   padding:12px 22px;font-size:.95rem;line-height:1.4}
 .gate-note{color:var(--muted);font-size:.8rem;line-height:1.7;
-  margin:14px 0 0;text-align:center}
+  margin:14px 0 0;text-align:center;text-wrap:balance}
 .gate .note{margin-bottom:14px}
 @media (max-width:480px){
   .gate{padding:32px 16px}
