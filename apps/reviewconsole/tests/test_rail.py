@@ -223,3 +223,27 @@ def test_a_real_course_shows_no_demo_banner(world: World, monkeypatch) -> None:
     world.register("teacher", Role.INSTRUCTOR)
     body = world.client("teacher").get(f"/courses/{world.course.id}").text
     assert "これはお試しのコースです" not in body
+
+
+def test_the_fold_out_button_says_move_and_sits_at_the_right_edge(world: World) -> None:
+    """畳んだ帯を開くボタン。**「Menu」と書き、右端に置く。**
+
+    右端に置くのは、左に詰めると銘のすぐ隣に来て**押す場所がコース名の長さで
+    動く**から ── コース名は機関が決めるので、こちらでは決められない。
+    右端ならどのコースでも同じ位置にある。
+
+    `.switch` が無い画面では伸びる要素が無いので、`margin-left:auto` が
+    要る（本番で測ったとき、右端まで 179px 空いていた）。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    rail = _rail(client.get(f"/courses/{world.course.id}").text)
+
+    assert "Menu</label>" in rail, "開くボタンの文言が違う"
+    assert 'class="railopen"' in rail
+
+    css = (REPO_ROOT / "packages/webui/src/aijudge_webui/assets/base.css").read_text(
+        encoding="utf-8"
+    )
+    placement = css[css.index(".rail .railopen{") : css.index(".rail .railopen:hover")]
+    assert "margin-left:auto" in placement, "右端に寄せる指定が落ちている"

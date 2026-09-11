@@ -53,6 +53,11 @@
    **チェックと拡張子は 1 つの塊**として扱い、間で折り返させない。 */
 .checkrow{display:flex;flex-wrap:wrap;align-items:center;gap:2px 14px;margin-bottom:6px}
 .checkrow .rowlabel{flex:0 0 8.5em}
+/* 群ごとの一括切り替え。**群名そのものを押せるようにする** ── 小さな欄だけを
+   狙わせない。欄と字の間は他のチェックと同じ間隔にして、行の中で浮かないように
+   する。 */
+.checkrow .grouptoggle{display:inline-flex;align-items:center;gap:5px;cursor:pointer}
+.checkrow .grouptoggle input{width:auto;margin:0;flex:none}
 /* 評価器の説明。チェックの下に並べる（名前だけでは何をするか分からない）。 */
 .evaluators{margin:6px 0 0;padding-left:1.2em}
 .evaluators li{margin:2px 0}
@@ -294,6 +299,15 @@ form[data-working] button[disabled]{opacity:.55;cursor:progress}
   .criterion-fields .pair{flex-wrap:wrap}
   .criterion-fields .pair > span{flex:1 1 8rem}
   .formats{flex-wrap:wrap}
+  /* **群ごとに形が変わらないようにする。** 狭い画面では、群名の右に選択肢を
+     並べる余地が無い。`.checks` は中の札を折り返さない（`white-space:nowrap`）
+     ので、長い選択肢を持つ群だけが塊ごと次の行へ落ちる ── 実測（390px・
+     コース設定）で「PDF・画像」だけが群名の下に回り込み、**3 群が 3 通りの
+     形**になっていた（`.jpg / .jpeg` が長いため）。
+     群名を上に出して、選択肢に幅を全部渡す。どの群も同じ形になる。 */
+  .checkrow{display:block}
+  .checkrow .rowlabel{display:block;flex:none;margin:0 0 4px}
+  .checkrow .checks{display:flex}
   .keyline{flex-wrap:wrap}
 }
 

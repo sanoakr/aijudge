@@ -151,6 +151,41 @@
 </dialog>
 <script>
 document.querySelectorAll(".js-only").forEach(function (el) { el.hidden = false; });
+document.querySelectorAll(".checkrow .nojs").forEach(function (el) { el.remove(); });
+
+{# 提出できるファイル形式の、**群ごとの一括切り替え**。
+
+   送信には出ない（`name` が無い）── 値は個々の選択だけである。
+
+   **3 つ目の状態を持つ。** 一部だけ選んでいる群を「入」でも「切」でも
+   なく `indeterminate` で示す ── どちらかに倒して出すと、押していない
+   のに全部入る・全部消えるのどちらかが起きる。 #}
+(function () {
+  var rows = document.querySelectorAll(".checkrow");
+  if (!rows.length) return;
+  rows.forEach(function (row) {
+    var all = row.querySelector(".groupall");
+    if (!all) return;
+    var boxes = row.querySelectorAll('.checks input[type=checkbox]');
+    if (!boxes.length) return;
+
+    function reflect() {
+      var on = 0;
+      boxes.forEach(function (b) { if (b.checked) on += 1; });
+      all.checked = on === boxes.length;
+      all.indeterminate = on > 0 && on < boxes.length;
+    }
+    all.addEventListener("change", function () {
+      // `indeterminate` から押したときは「全部入れる」に倒す ── 中途半端な
+      // 状態から押す人は、揃えたいのであって消したいのではない。
+      var turnOn = all.checked;
+      boxes.forEach(function (b) { b.checked = turnOn; });
+      reflect();
+    });
+    boxes.forEach(function (b) { b.addEventListener("change", reflect); });
+    reflect();
+  });
+})();
 
 {# 行のどこを押しても開く。**リンクは消さない** ── これは JavaScript でしか
    作れないので、無ければ「開く」を辿ることになる。

@@ -103,12 +103,32 @@
   <p class="desc" style="margin:10px 0 0">
     採点済み {{ chart.scored }} 件／該当 {{ chart.total }} 件・平均
     <strong>{{ '%.1f' | format(chart.mean) }}%</strong>
+    {# **何から作った図かを言う**（#273）。デモコースでは試行も数えている ──
+       黙って混ぜると、他のコースと同じ規則で描いた図に見える。 #}
+    {% if is_demo_course(course.id) and not filters.role %}
+    <br>お試しコースなので、<strong>教員・TA の試行も数えています</strong>
+    （他のコースでは数えません）。
+    {% endif %}
     {# **「表示」ではなく「該当」**（#253）。図は一覧とは別に読むように
        なったので、一覧の上限に縛られない ── 絞り込みに合う提出を全部
        数えている。一覧が切られていても、この図は切られていない。 #}
   </p>
   {% else %}
-  <p class="desc" style="margin:0">採点済みの提出がありません。</p>
+  {# **「無い」と「数えない」を区別する**（#273）。以前はどちらも
+     「採点済みの提出がありません」と出ていたので、採点が止まっていると
+     読めた ── 試行だけのコース（デモはいつもそう）では、採点は動いて
+     いるのに数えないだけである。待てば変わるのかどうかが、文言で
+     分からなければならない。 #}
+  <p class="desc" style="margin:0">
+    {% if chart.trials and not chart.total %}
+      この条件に合うのは<strong>教員・TA の試行だけ</strong>です（{{ chart.trials }} 件）。
+      試行は到達度ではないので、分布には数えません。
+    {% elif not chart.total %}
+      この条件に合う提出がありません。
+    {% else %}
+      採点済みの提出がありません（{{ chart.total }} 件が採点待ちです）。
+    {% endif %}
+  </p>
   {% endif %}
 </div>
 

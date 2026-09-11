@@ -197,6 +197,11 @@ class Filters:
         出した、または デモ」なので、**学習者以外の役割で絞れば母数は必ず
         空**であり、学習者で絞ることは母数を変えない。近似ではなく、
         `Submission.is_trial` の定義からそうなる。
+
+        **この理屈はデモコースでは成り立たない**（#273）。あちらでは試行も
+        数えるので、`is_trial` が偽であることを前提にできない ── そして
+        `ScoredRow` は `submitted_as` を持たないので、役割では絞れない。
+        だから役割で絞っているあいだは試行を数えない（呼び手が決める）。
         """
         if self.role and self.role != Role.LEARNER.value:
             return False
@@ -242,6 +247,10 @@ class Distribution:
     counts: list[int] = field(default_factory=lambda: [0] * BUCKETS)
     scored: int = 0
     total: int = 0
+    #: 試行として落とした件数（#108・#273）。**落とした数を持ち回る。**
+    #: 持たないと、画面は「提出が無い」「採点待ち」「全部試行」を同じ
+    #: 文言で出すことになる ── 前の 2 つは待てば変わり、最後は変わらない。
+    trials: int = 0
 
     @property
     def peak(self) -> int:
@@ -289,7 +298,9 @@ def load_scored(uow: object, course: Course, filters: Filters) -> tuple[ScoredRo
     )
 
 
-def distribution_for(rows: tuple[ScoredRow, ...], filters: Filters) -> Distribution:
+def distribution_for(
+    rows: tuple[ScoredRow, ...], filters: Filters, *, count_trials: bool = False
+) -> Distribution:
     """得点の分布を、一覧とは別の読み出しから作る（#253）。
 
     **一覧に上限が要るのは描くからで、図に上限は要らない**（数えるだけなので
@@ -301,11 +312,21 @@ def distribution_for(rows: tuple[ScoredRow, ...], filters: Filters) -> Distribut
     ではない ── 混ぜると「この課題は正答率が低い」が、実は教員が壊れた入力を
     試した結果、という形で現れる。
 
+    **デモコースだけは数える**（`count_trials`・#273）。`is_trial` は性質の
+    違う 2 つを同じ印にしている ── 実コースでの教員の試行（**除外は必須**）と、
+    デモコースへの提出（`is_demo`）である。後者には**守るべき到達度が無い**：
+    そこは試すための場所で、分布もまた試す対象である。除外すると「試すための
+    画面で、試した結果が見られない」という、目的と逆の形になる。
+
+    **ここは画面のためだけの判断である。** 測定（`packages/observation`）にも
+    成績にも影響しない ── あちらは `is_trial` をそのまま見る。
+
     **採用は同点で後の提出を採る**（#256）が、図には効かない ── 同点なら
     どちらを数えても棒の高さは同じである。ここで要るのは「学習者・課題ごとの
     最高点」だけで、その値に曖昧さは無い。
     """
-    counted = [row for row in rows if not row.is_trial]
+    counted = list(rows) if count_trials else [row for row in rows if not row.is_trial]
+    trials = len(rows) - len(counted)
 
     best: dict[tuple[str, str], float] = {}
     for row in counted:
@@ -323,7 +344,7 @@ def distribution_for(rows: tuple[ScoredRow, ...], filters: Filters) -> Distribut
 
     counted = [row for row in counted if filters.matches_scored(row, adopted=is_adopted(row))]
 
-    result = Distribution(total=len(counted))
+    result = Distribution(total=len(counted), trials=trials)
     for row in counted:
         if row.final_ratio is None:
             continue

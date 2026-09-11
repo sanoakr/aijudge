@@ -98,3 +98,20 @@ def test_a_draft_statement_wraps_but_code_does_not() -> None:
     css = (webui.ASSETS_DIR / "base.css").read_text(encoding="utf-8")
     assert "pre.statement{white-space:pre-wrap" in css, "問題文が折り返さない"
     assert "pre.code{margin:0;overflow-x:auto" in css, "コードが横スクロールでなくなった"
+
+
+def test_the_format_groups_take_the_same_shape_on_a_phone() -> None:
+    """**群ごとに形が変わらない**（提出できるファイル形式）。
+
+    狭い画面では群名の右に選択肢を並べる余地が無い。`.checks` は中の札を
+    折り返さないので、長い選択肢を持つ群だけが塊ごと次の行へ落ちる ──
+    実測（390px・コース設定）で「PDF・画像」だけが群名の下に回り込み、
+    **3 群が 3 通りの形**になっていた（`.jpg / .jpeg` が長いため）。
+
+    群名を上に出して選択肢に幅を全部渡せば、どの群も同じ形になる。
+    行の高さは選択肢の数で変わるが、それは中身の量の差なので揃えない。
+    """
+    css = (webui.ASSETS_DIR / "console.css").read_text(encoding="utf-8")
+    narrow = css[css.index("@media (max-width:560px)") :]
+    assert ".checkrow{display:block}" in narrow, "群ごとに形が変わる"
+    assert ".checkrow .rowlabel{display:block" in narrow

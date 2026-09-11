@@ -173,7 +173,17 @@
   <div class="actions"><button type="submit">再確認の依頼</button></div>
 </form>
 {% else %}
+{# **欄を消さずに、押せない形で残す**（#272）。消すと「そんな仕組みは無い」
+   ように見え、出せないのか、出す場所が別にあるのかが分からない。理由を
+   添えて、押せないことが見て分かる形にする。 #}
 <div class="note">{{ view.request_reason }}</div>
+<div class="card">
+  <div class="field">
+    <label for="reason">どの観点のどこが違うと考えますか</label>
+    <textarea id="reason" rows="3" disabled></textarea>
+  </div>
+  <div class="actions"><button type="submit" disabled>再確認の依頼</button></div>
+</div>
 {% endif %}
 
 {% endif %}

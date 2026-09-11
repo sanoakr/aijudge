@@ -143,7 +143,7 @@
 <h2>最終確定</h2>
 {% if review %}
 <div class="note warn">
-  この採点はすでに確定しています（{{ review.reviewed_at.strftime('%Y-%m-%d %H:%M') }}）。
+  この採点はすでに確定しています（{{ review.reviewed_at.strftime('%Y-%m-%d %H:%M') }}{% if finalized_by_login %}・{{ finalized_by_login }}{% endif %}）。
   やり直すには再採点してください。
 </div>
 {% endif %}
@@ -154,6 +154,18 @@
 {% if awaiting_ai %}
 <p class="desc">AI 評価の到着後に確定できます。</p>
 {% else %}
+{# **採点の基準をこの場にまとめる。** 観点ごとの重みと段階の得点は下の
+   各欄に出すが、**観点どうしの関係**はそこには出ない ── AND では 1 つでも
+   0% になった時点で以降が 0% になるので、段階を下げる意味がまるで違う。 #}
+<p class="desc">
+  観点の畳み方: <strong>{{ aggregation.value | upper }}</strong>
+  {% if aggregation.value == 'and' %}
+  ── 評価順に見て、<strong>どれか 1 つでも 0% になったらそこで止まり</strong>、
+  以降の観点も 0% として重みどおり数えます。
+  {% else %}
+  ── 観点は互いに影響せず、重み付きの和で畳みます。
+  {% endif %}
+</p>
 <form method="post" action="{{ root_prefix() }}/review/{{ submission.id }}/finalize">
   {#
     ラジオの name は**観点ごとに変える**。共有すると、ブラウザは全観点を
@@ -163,7 +175,12 @@
   #}
   {% for row in rows %}
   <fieldset>
-    <legend>{{ row.criterion.title }}</legend>
+    {# **採点の基準をこの場に出す。** 段階を選ぶ画面に、重みと段階の得点が
+       無かった ── 段階を動かすと点がどう動くのかが分からないまま確定して
+       いた。基準を別の画面に見に行かせると、確定の判断が記憶に頼る。 #}
+    <legend>{{ row.criterion.title }}
+      <span class="desc">（配点の {{ '%.0f' | format(row.criterion.weight * 100) }}%）</span>
+    </legend>
     <p class="desc">{{ row.criterion.description }}</p>
     <div class="levels">
       {% for level in row.criterion.levels %}
@@ -173,6 +190,9 @@
                {% if (row.human_level if row.human_level is not none else row.ai_level) == level.level %}checked{% endif %}>
         <span class="lv">{{ level.level }}: {{ level.label }}</span>
         <span>{{ level.descriptor }}</span>
+        {# **この段階が何点か。** 段階の名前だけでは、動かしたときに点が
+           どう動くか分からない（観点の配点に対する比率）。 #}
+        <span class="desc">{{ '%.0f' | format(level.score_ratio * 100) }}%</span>
         {#
           どれがシステムの判定かを常に見せる。段階を動かしたあとでも
           「AI は何と言っていたか」が分からなくなると、確定の判断が
@@ -236,8 +256,15 @@
   {# **押す場所を探させない**（#185）。段階を選び終えた位置がそのまま
      押す位置になるよう、判定欄の底に貼る。 #}
   <div class="deskbar">
-    <span class="spacer">確定すると学習者に根拠が表示されます</span>
-    <button type="submit">成績を確定</button>
+    {# **確定済みなら押せなくする。** 押せてしまうと 409 が返るだけで、
+       画面は「押したのに何も起きない」ようにしか見えない ── 断るより、
+       断る操作を見せない方がよい。経路の側でも拒む（`app.py`）ので、
+       これは見た目の都合ではなく、二重の守りの手前側である。 #}
+    <span class="spacer">
+      {% if review %}確定済みです（やり直すには再採点してください）
+      {% else %}確定すると学習者に根拠が表示されます{% endif %}
+    </span>
+    <button type="submit" {{ 'disabled' if review }}>成績を確定</button>
   </div>
 </form>
 {% endif %}
