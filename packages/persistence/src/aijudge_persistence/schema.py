@@ -340,6 +340,9 @@ class OidcSettingsRow(Base):
     # 1 機関が複数ドメインを許すこともあるので単一値にしない。
     allowed_domains: Mapped[list] = mapped_column(JsonType)
     issuer: Mapped[str] = mapped_column(String(256))
+    # ログイン画面のボタンの文言（#209）。**機関ごとの呼び名が入る欄なので、
+    # 既定値はモデル側（`aijudge_identity`）が持ち、ここには書かない。**
+    login_label: Mapped[str] = mapped_column(String(64), nullable=False, server_default="")
     created_at: Mapped[datetime] = mapped_column(Timestamp)
     updated_at: Mapped[datetime] = mapped_column(Timestamp)
 

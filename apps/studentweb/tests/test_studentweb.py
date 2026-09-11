@@ -1807,6 +1807,36 @@ def test_the_login_screen_shows_the_google_button_once_configured(
     assert "大学アカウントでログイン" in body
 
 
+def test_the_login_button_says_what_the_tenant_calls_its_accounts(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """**機関ごとに呼び名が違う**（#209）。設定した文言がそのまま出る。"""
+    monkeypatch.setenv(ENV_OIDC_SECRET_KEY, Fernet.generate_key().decode("ascii"))
+    with world.database.unit_of_work() as uow:
+        uow.identity.save_oidc_settings(
+            _a_google_settings().model_copy(update={"login_label": "全学認証アカウントでログイン"})
+        )
+        uow.commit()
+
+    body = world.client.get("/login").text
+
+    assert "全学認証アカウントでログイン" in body
+    # 既定の文言は残らない ── 2 つ出ると、どちらを押すのか分からない。
+    assert "大学アカウントでログイン" not in body
+
+
+def test_an_unset_label_falls_back_to_the_generic_default(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """**既定に機関名を入れない。** このリポジトリは公開物である（#209）。"""
+    monkeypatch.setenv(ENV_OIDC_SECRET_KEY, Fernet.generate_key().decode("ascii"))
+    with world.database.unit_of_work() as uow:
+        uow.identity.save_oidc_settings(_a_google_settings())
+        uow.commit()
+
+    assert "大学アカウントでログイン" in world.client.get("/login").text
+
+
 def test_the_login_screen_never_links_to_the_hidden_local_route(world: World) -> None:
     """#121: ローカルログインはトップのログイン画面からリンクしない。"""
     body = world.client.get("/login").text
