@@ -647,6 +647,15 @@ class SqlReviewRepository:
         """
         learner_submitted = SubmissionRow.is_trial.is_(False)
 
+        # **異議は試行も数える。** 上の `unfinalized` と揃えないのは意図で
+        # ある ── 確定は成績の話で、デモの提出に閉じるべき成績は無い。
+        # 異議は**人が書いて送った問い**で、成績に残らなくてもその事実は
+        # 残る。絞り込みの入れ忘れに見えるので、ここに書いておく。
+        #
+        # ただしデモコースには担当者が居ない（ログインした教職員が全員
+        # instructor になる）。**答えが来るとは限らない**ことは学習者側の
+        # 画面が言う（`submission.html`）── 帯から消して見えなくするより、
+        # 見えるが約束はしない方を採った。
         contested = (
             select(func.count())
             .select_from(ReviewRequestRow)

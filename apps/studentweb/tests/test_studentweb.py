@@ -2063,3 +2063,26 @@ def test_a_real_course_says_nothing_of_the_sort(world: World, monkeypatch) -> No
 
     assert "これはお試しのコースです" not in world.client.get(f"/courses/{COURSE}").text
     assert "お試し" not in world.client.get("/").text
+
+
+@needs_c_compiler
+def test_the_demo_course_does_not_promise_an_answer(world: World, monkeypatch) -> None:
+    """**守れない約束を出さない。**
+
+    デモコースには担当者が居ない ── ログインした教職員が全員 instructor に
+    なる作りなので（`_role_for`）、依頼は全員の帯に出るが誰の仕事にもならない。
+    それでも「担当教員が内容を確認し、根拠を添えて回答します」と出していた。
+
+    依頼そのものは残す。流れを試せること自体がデモの目的である。
+    """
+    monkeypatch.setenv("AIJUDGE_DEMO_COURSE", str(COURSE))
+    world.register("s2400012")
+    world.login("s2400012")
+    location = world.submit().headers["location"]
+    # 依頼の欄は採点が付いてから出る。
+    world.worker.run_until_empty()
+
+    body = world.client.get(location).text
+
+    assert "回答されるとは限りません" in body
+    assert "根拠を添えて回答します" not in body
