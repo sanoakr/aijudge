@@ -355,6 +355,8 @@ footer.app-footer .inner{max-width:none;display:flex;align-items:center;gap:12px
    `main` ごと視野の外へ伸びる（#231・実測で 734px）。中で送る枠
    （表・コード・知識要素の一覧）はそれぞれ自分で持っている。 */
 .app > .col > main{min-width:0;width:100%}
+/* 開閉の部品は狭い画面だけのもの（#231）。広い画面では常設の帯に戻る。 */
+.railtoggle,.rail .railopen{display:none}
 .rail{background:var(--surface);border-right:1px solid var(--line);
   display:flex;flex-direction:column;position:sticky;top:0;height:100vh;
   overflow-y:auto}
@@ -408,16 +410,30 @@ footer.app-footer .inner{max-width:none;display:flex;align-items:center;gap:12px
   .rail .brand,.rail .switch{border:0;padding:0}
   .rail .brand{flex:none}
   .rail .switch{flex:1;min-width:11rem}
-  .rail nav{order:3;width:100%;display:flex;flex-wrap:nowrap;overflow-x:auto;
-    padding:0 0 2px;gap:8px;align-items:center;scrollbar-width:thin}
-  .railgrp{display:flex;align-items:center;gap:4px;flex:none}
-  .railgrp + .railgrp{margin-top:0;border-left:1px solid var(--line);padding-left:8px}
-  .railgrp .gh{background:none;padding:0 4px;font-size:.74rem;flex:none}
-  .railgrp .gh .n{display:none}
-  .railgrp .gi{display:flex;padding:0;gap:4px}
-  .rail a.nav{white-space:nowrap;flex:none;padding:3px 8px}
-  .rail a.nav .c{min-width:0}
-  .railnote{order:4;padding:0}
+  /* **横に送らせない**（#231）。以前は行き先を 1 本の帯に流して
+     `overflow-x:auto` にしていたので、奥の行き先は横にスライドしないと
+     見えなかった ── 移動のための部品が、移動を要求していた。
+
+     畳んで、開いたら**縦に全部**出す。開閉は checkbox と label（素の
+     HTML）で、script が無くても動く。 */
+  .rail .railopen{order:3;display:inline-flex;align-items:center;gap:6px;
+    font-size:.85rem;font-weight:700;color:var(--ink);cursor:pointer;
+    padding:6px 10px;border:1px solid var(--line);border-radius:3px}
+  .rail .railopen:hover{background:var(--surface-2)}
+  .railtoggle:focus-visible + .railopen{outline:2px solid var(--ai);outline-offset:2px}
+  .railtoggle:checked + .railopen{background:var(--surface-2)}
+
+  /* **行を分ける。** `width:100%` だけだと、折り返しの計算は
+     `flex-basis` を見るので銘の右の細い列に入る（実測でそうなった）。 */
+  .rail nav{order:4;flex:0 0 100%;display:none;padding:6px 0 2px}
+  .railtoggle:checked ~ nav{display:block}
+  /* 縦に積む ── 広い画面と同じ読み方（大項目の帯 + 字下げした小項目）。 */
+  .railgrp{display:block;margin:0 0 6px}
+  .railgrp + .railgrp{margin-top:0;border-left:0;padding-left:0}
+  .railgrp .gh{font-size:.74rem}
+  .railgrp .gi{display:block}
+  .rail a.nav{padding:7px 10px 7px 18px}
+  .railnote{order:5;padding:0}
 }
 
 /* デモコースの帯（#194）。**本文の頭に出す** ── 見出しより前に置くと
@@ -507,12 +523,15 @@ body:has(.gate) .gate{flex:1;min-height:0}
      出口（ログアウト）は幅が変わらないので、先に位置を決める。 */
   header.top .inner{flex-wrap:wrap;align-items:center;gap:6px 10px;padding:10px 16px}
   header.top .brand{order:1}
-  header.top .spacer{order:2}
-  header.top form{order:3}
+  /* 出口は 1 行目の右端へ。**間隔用の span では押せない** ── 折り返しの
+     計算は `flex-basis` を見るので、基準 0 の要素は行を埋めない。 */
+  header.top form{order:2;margin-left:auto}
+  /* ここで行を分ける。身元とパスワード変更が 2 行目に並ぶ（以前は
+     それぞれが 1 行を取り、帯が 115px あった）。 */
+  header.top .spacer{order:3;flex:0 0 100%;height:0;margin:0}
   /* 身元だけを 2 行目へ。**`.spacer` を巻き込まない** ── あれも `span` で、
      一緒に落とすと押し釦を右へ押す役が居なくなる（実際に銘の真横に並んだ）。 */
-  header.top .inner > span:not(.spacer){order:4;width:100%;
-    font-size:.8rem;color:var(--head-muted)}
+  header.top .inner > span:not(.spacer){order:4;font-size:.8rem;color:var(--head-muted)}
   header.top button{padding:7px 12px;font-size:.8rem}
   .ctx .inner{padding:7px 16px}
 
