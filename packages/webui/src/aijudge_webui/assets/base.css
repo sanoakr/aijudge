@@ -164,6 +164,11 @@ tr.row-link[data-clickable]:hover{background:var(--surface-2)}
 thead th{font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);
   font-weight:400;background:var(--surface-2)}
 code,pre,.mono{font-family:var(--font-mono)}
+/* 承認待ちの課題は、**生成されたままの文面**を出す（整形すると、モデルが
+   何を書いたのかが分からなくなる）。ただし**折り返す** ── 問題文は散文で、
+   折り返しても意味は変わらない。下の `pre.code` が折り返さないのは、
+   コードは折り返すと意味が変わるからで、事情が違う（#266）。 */
+pre.statement{white-space:pre-wrap;overflow-wrap:anywhere}
 pre.code{margin:0;overflow-x:auto;background:var(--surface-2);border:1px solid var(--line-soft);
   border-radius:3px;padding:14px 0;font-size:.8rem;line-height:1.65}
 pre.code .ln{display:block;padding:0 16px;white-space:pre}
