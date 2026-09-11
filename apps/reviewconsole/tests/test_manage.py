@@ -1997,6 +1997,77 @@ def test_a_task_can_declare_its_own_upload_formats(world: World) -> None:
 # --------------------------------------------------------------------------
 
 
+def test_revising_a_task_keeps_its_tests_and_reference_solution(world: World) -> None:
+    """**問題文を直しただけでテストが消えてはいけない**（#262）。
+
+    観点は引き継いでいたのに、テストケースと参照解答は引き継いでいなかった。
+    結果は観点より悪い ── 観点が消えれば採点されない観点が出るだけだが、
+    テストが消えると決定的評価が何も採点できず、**総合点が永久に保留**に
+    なる。しかも画面には何も出ないので、教員は自分が壊したことを知らない。
+
+    本番で踏んだ（デモコースの C 言語課題を 1 回直して、3 件あった
+    テストが 0 件になった）。
+    """
+    from aijudge_core import TestCase
+    from aijudge_core.ids import TaskVersionId
+
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    client.post(
+        f"/manage/courses/{world.course.id}/tasks",
+        data={
+            "key_suffix": "p9",
+            "unit": "ex09",
+            "statement": "## [必須] 最大値 ##\n\n最大値を出力してください。",
+            "position": "1",
+            "readability_weight": "0.3",
+        },
+    )
+    with world.database.unit_of_work() as uow:
+        (task,) = uow.tasks.list_for_course(world.course.id)
+        first = uow.tasks.latest_version(task.id)
+        # 出題の経路ではテストを付けないので、テスト入りの**次の版**を置く
+        # （版は不変なので上書きできない・P8）。
+        uow.tasks.save_version(
+            first.model_copy(
+                update={
+                    "id": TaskVersionId("tsv_" + "e" * 32),
+                    "version": first.version + 1,
+                    "test_cases": (
+                        TestCase(
+                            name="t1",
+                            evaluator_id="c_tests",
+                            payload={"input": "1 2 3", "expected": "3"},
+                        ),
+                    ),
+                    "reference_solution": "int main(void){return 0;}",
+                }
+            )
+        )
+        uow.commit()
+    with world.database.unit_of_work() as uow:
+        seeded = uow.tasks.latest_version(task.id)
+    assert len(seeded.test_cases) == 1, "前提が崩れている（テストを置けていない）"
+
+    response = client.post(
+        f"/manage/courses/{world.course.id}/tasks/{task.id}/revise",
+        data={
+            "statement": "## [必須] 最大値 ##\n\n誤字を直しました。",
+            "readability_weight": "0.3",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303, response.text
+
+    with world.database.unit_of_work() as uow:
+        latest = uow.tasks.latest_version(task.id)
+    assert latest.version == seeded.version + 1
+    assert "誤字を直しました" in latest.statement
+    assert len(latest.test_cases) == 1, "問題文を直しただけでテストが消えた"
+    assert latest.test_cases[0].payload["expected"] == "3"
+    assert latest.reference_solution == "int main(void){return 0;}"
+
+
 def test_revising_a_task_creates_a_new_version(world: World) -> None:
     """出題済みの版は書き換えない。過去の採点がどの基準で付いたか辿れなくなる。"""
     world.register("teacher", Role.INSTRUCTOR)
