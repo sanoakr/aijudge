@@ -4156,6 +4156,30 @@ def register(templates) -> APIRouter:
             aggregation=aggregation,
             position=int(position) if position.strip() else task.position,
             accepted=_chosen_suffixes(suffix, formats, course),
+            # **テストと参照解答も引き継ぐ**（#262）。観点と同じ理由で、
+            # 結果はもっと悪い ── 観点が消えれば採点されない観点が出るだけ
+            # だが、テストが消えると決定的評価が何も採点できず、総合点が
+            # 永久に保留になる。しかも画面には何も出ない。
+            #
+            # この経路に来るのは「問題文の誤字を直す」のような操作で、
+            # テストを捨てる意図は無い。捨てたいときは、テストを作り直す
+            # 経路（`/test-cases`）がある。
+            reference_solution=version.reference_solution,
+            # **版が持つのはドメインの `TestCase`**（`payload` の中に入力と
+            # 期待出力がある）で、生成経路が渡す `TestCaseSpec` とは形が違う。
+            # キー名は評価器が読むものと一致していなければならない
+            # （`spec.build_task_version` の注記）── 違う名前で書くと既定値の
+            # 空文字と比較され、**全ケースが黙って不合格になる**。
+            test_cases=tuple(
+                TestCaseSpec(
+                    name=case.name,
+                    input=str(case.payload.get("input", "")),
+                    expected=str(case.payload.get("expected", "")),
+                    hidden=case.hidden,
+                    weight=case.weight,
+                )
+                for case in version.test_cases
+            ),
         )
         return RedirectResponse(
             f"/manage/courses/{course_id}/tasks/{task_id}/edit?saved=task", status_code=303
