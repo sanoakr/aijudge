@@ -19,6 +19,15 @@
     {% if rail.subtitle %}<span class="side">{{ rail.subtitle }}</span>{% endif %}
   </a>
 
+  {# 狭い画面では畳む（#231）。**JavaScript を使わない** ── 行き先は
+     この系の背骨で、script が落ちた端末で開けなくなってはいけない
+     （配色の切り替えとは事情が違う。あちらは無ければ OS 追従で足りる）。
+
+     checkbox と label の組は素の HTML で開閉でき、キーボードでも押せる。
+     広い画面では両方とも出さない（`base.css`）── 常設の帯に戻る。 #}
+  <input type="checkbox" id="railtoggle" class="railtoggle">
+  <label class="railopen" for="railtoggle"><span aria-hidden="true">☰</span> 行き先</label>
+
   <nav>
     {% for group in rail.groups %}
     <div class="railgrp">

@@ -25,16 +25,18 @@
 
 {% if saved %}<div class="note saved">{{ saved }}</div>{% endif %}
 
-<table>
+{# 携帯では行を積む（`table.stack`）。**見出しはセルに添える** ── 列の
+   位置から推測させない。 #}
+<table class="stack">
   <thead><tr>
     <th class="fit">学籍番号</th><th class="grow">氏名</th><th class="fit">役割</th><th class="fit"></th>
   </tr></thead>
   <tbody>
   {% for row in people %}
     <tr>
-      <td class="fit mono">{{ row.login }}</td>
-      <td class="grow">{{ row.user.display_name if row.user else '—' }}</td>
-      <td class="fit">
+      <td class="fit mono" data-label="学籍番号">{{ row.login }}</td>
+      <td class="grow" data-label="氏名">{{ row.user.display_name if row.user else '—' }}</td>
+      <td class="fit" data-label="役割">
         {% if row.enrollment.user_id == me.user_id %}
           {# **自分の役割は変えられない。** 学習者に落とすとコースが見えなくなり、
              戻す手段が無い（受講の取り消しと同じ理由）。 #}

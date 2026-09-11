@@ -10,7 +10,8 @@
   確認を要します。依頼が無い提出は課題から辿って確定できます。
 </div>
 
-<table>
+{# 携帯では行を積む（`table.stack`）。 #}
+<table class="stack">
   <thead><tr>
     <th class="fit">依頼</th><th class="fit">学習者</th><th class="fit">課題</th>
     <th class="fit">回</th><th class="fit">AI の総合</th>
@@ -19,16 +20,16 @@
   <tbody>
   {% for row in rows %}
     <tr class="row-link" data-href="{{ root_prefix() }}/review/{{ row.submission.id }}/reveal">
-      <td class="fit">{{ row.request.requested_at.strftime('%m-%d %H:%M') }}</td>
-      <td class="fit mono">{{ row.learner.login if row.learner else '—' }}</td>
-      <td class="fit">
+      <td class="fit" data-label="依頼">{{ row.request.requested_at.strftime('%m-%d %H:%M') }}</td>
+      <td class="fit mono" data-label="学習者">{{ row.learner.login if row.learner else '—' }}</td>
+      <td class="fit" data-label="課題">
         {% if row.task %}{{ row.task.unit_label }}<br>
           <span class="desc">{{ row.task.title }}</span>
         {% else %}—{% endif %}
       </td>
-      <td class="fit">{{ row.submission.attempt }} 回目</td>
-      <td class="fit">{{ '%.0f' | format(row.run.score_ratio * 100) }}%</td>
-      <td class="grow">{{ row.request.reason }}</td>
+      <td class="fit" data-label="回">{{ row.submission.attempt }} 回目</td>
+      <td class="fit" data-label="AI の総合">{{ '%.0f' | format(row.run.score_ratio * 100) }}%</td>
+      <td class="grow" data-label="依頼の理由">{{ row.request.reason }}</td>
       <td class="fit">
         <a href="{{ root_prefix() }}/review/{{ row.submission.id }}/reveal">確認して確定する</a>
         {# 抽出された提出は、AI を見る前に自分で段階を付ける段が挟まる

@@ -166,6 +166,44 @@ sandbox setup — **including the container escape suite you must run before rea
 submissions go through the system.** A skipped test there means "unverified",
 not "safe".
 
+### Something to try it on
+
+Two things ship as samples, so a fresh install has somewhere to start.
+
+**A demo course.** One course, three tasks, each showing a different way of
+being marked — a photograph judged only by a person, a C program judged by
+running tests, a short report judged by a model. **Submissions there count for
+nothing**: not the grade, not the score distribution, not the mastery estimate,
+not the accuracy measurement. The screens say so, and the rule is one property
+on the submission rather than a check in each of those places.
+
+```fish
+uv run aijudge-admin kc seed --namespace demo   # the vocabulary it refers to
+uv run aijudge-admin demo seed                  # the course itself
+uv run aijudge-admin demo reset                 # back to the start of term
+```
+
+It is defined in `subjects/demo/course.yaml`, and **reset rebuilds it from that
+file** — so the starting state is written down rather than remembered.
+
+**Knowledge-component skeletons.** A vocabulary of what a course can claim to
+teach, taken from published curricula rather than invented here:
+
+| Namespace | Source | Components |
+|---|---|---|
+| `cs` | CS2023 (ACM/IEEE-CS/AAAI) | 987 |
+| `math` | CUPM 2015 (MAA) and the Japanese upper-secondary curriculum (2018) | 939 |
+| `physics` | Science Council of Japan reference standards (2016), FCI, and the national curriculum | 535 |
+| `demo` | for the demo course only | 13 |
+
+```fish
+uv run aijudge-admin kc seed --namespace cs     # idempotent; edit and re-run
+```
+
+**The vocabulary is shared across tenants and the mastery is not.** Two
+institutions naming `math.calculus.integral.ftc` mean the same thing, while what
+each learner knows stays inside their own institution.
+
 Existing Sharif Judge course material imports as-is:
 
 ```fish
@@ -371,6 +409,31 @@ that table.
   Multi-tenancy is PoC-5 (`packages/core/src/aijudge_core/tenancy.py`); a
   single-institution deployment has one tenant, and this is the shape it grows
   into.
+
+---
+
+## Built on
+
+Python 3.12 or newer, one **uv workspace**: every `packages/*`, `apps/*`,
+`evaluators/*` and `normalizers/*` is its own distribution, which is what lets
+`import-linter` fail the build on a boundary crossing rather than leaving it to
+review.
+
+| | |
+|---|---|
+| **Pydantic** | the domain model itself, not a serialisation layer — the invariants live in the types, so a grade with no reason cannot be constructed |
+| **FastAPI** / **Uvicorn** / **Jinja2** | both apps, **server-rendered**. JavaScript helps (auto-refresh while grading, row links, the theme switch) and nothing needs it |
+| **SQLAlchemy 2** / **Alembic** | PostgreSQL in operation, SQLite for development — the same repository tests run against both, because only one of them has row locking |
+| **httpx** / **joserfc** | the OIDC authorisation-code flow; signature checking is the library's job, not ours |
+| **ollama** (or any OpenAI-compatible endpoint) | the local model. The default must never send learner work off the machine |
+| **Docker** / **gVisor** | where submitted code runs. `sandbox-exec` alone does not contain a fork bomb, so macOS is for development |
+| **markdown-it-py** / **latex2mathml** | task statements and mathematical notation |
+| **pytest** / **ruff** / **mypy** / **import-linter** | the five checks CI runs; `mypy` is strict on `packages/core` |
+
+**No client-side framework, no ORM in the domain, no message broker.** Work
+queues are rows in PostgreSQL, taken under a row lock. One machine, one deploy
+unit, one database — the multi-tenancy is in the data rather than in the
+topology.
 
 ---
 
