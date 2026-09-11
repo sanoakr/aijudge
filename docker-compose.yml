@@ -4,6 +4,12 @@
 #   AIJUDGE_DATABASE_URL=postgresql+psycopg://aijudge:aijudge@localhost:5432/aijudge \
 #     uv run aijudge-web --create-schema
 #
+# **提出物はファイルシステムに置く**（`AIJUDGE_ARTIFACT_DIR`）。ここに
+# オブジェクトストレージは無い ── 以前 MinIO を置いていたが、それを話す
+# 実装が無く、立ち上げても一度も使われていなかった（#248）。要るのは
+# **機械を分けたとき**であって、動画や画像を扱うからではない
+# （`ArtifactStore` の注記）。
+#
 # **本番の構成ではない。** 認証情報がここに書いてあるのがその証拠で、
 # 学内に出すなら Secret 管理と TLS 終端を前に置くこと。
 #
@@ -32,24 +38,5 @@ services:
       timeout: 3s
       retries: 10
 
-  # 提出物のオブジェクトストレージ。個人情報を含むので学内に閉じる。
-  minio:
-    image: minio/minio:latest
-    command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: aijudge
-      MINIO_ROOT_PASSWORD: aijudge-dev-secret
-    ports:
-      - "9000:9000"
-      - "9001:9001"
-    volumes:
-      - minio-data:/data
-    healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-
 volumes:
   postgres-data:
-  minio-data:
