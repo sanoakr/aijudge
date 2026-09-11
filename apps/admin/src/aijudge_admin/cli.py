@@ -35,6 +35,7 @@ from aijudge_persistence import ENV_DATABASE_URL, Database
 from aijudge_telemetry import configure_logging
 
 from . import authoring_cli
+from .courses import delete_course
 from .demo_reset import reset_demo_course
 from .demo_seed import seed_demo_course
 from .operations import (
@@ -132,6 +133,63 @@ def cmd_course_list(args: argparse.Namespace) -> int:
             f"{course.id:38s} {course.code:12s} {course.term:12s} "
             f"{course.subject_profile:16s} {course.title}"
         )
+    return 0
+
+
+def cmd_course_delete(args: argparse.Namespace) -> int:
+    """コースを消す（#156）。
+
+    **規則は `aijudge_admin.courses` にある。** ここで「提出があれば消さない」
+    を書き直さない ── 画面（`/manage`）と CLI の両方から使うので、どちらが
+    正しいかを問わずに済むよう 1 か所に置いてある。
+
+    **消す前に規模を出して確認を挟む**（`demo reset` と同じ理由）。「本当に
+    よいですか」だけでは、何件消えるのか分からないまま押すことになる。
+
+    CLI に入口があるのは、**ブラウザに入れない立場から消せる必要がある**
+    ためである ── 画面の削除はテナント管理者の権限で守られているが、サーバ
+    に入れる人はそもそもその権限の外側にいる。
+    """
+    database = _database(args)
+    try:
+        with database.unit_of_work() as uow:
+            course = uow.identity.get_course(CourseId(args.course))
+            if course is None:
+                print(f"コース {args.course} がありません", file=sys.stderr)
+                return 2
+            if course.tenant_id != _tenant(args):
+                # **テナントをまたいで消さない。** 打ち間違いが他機関のコース
+                # に届く経路にしない（`reset_demo_course` と同じ判断）。
+                print("このテナントのコースではありません", file=sys.stderr)
+                return 2
+            submissions = uow.submissions.list_for_course(course.id)
+            tasks = uow.tasks.list_for_course(course.id)
+            enrolments = uow.identity.list_enrollments(course.id)
+
+        learner = [item for item in submissions if not item.is_trial]
+        trials = [item for item in submissions if item.is_trial]
+        print(f"コース: {course.title}（{course.code} / {course.term}）")
+        print(f"  学習者の提出 {len(learner):4d} 件（1 件でもあれば消せません）")
+        print(f"  動作確認の提出 {len(trials):4d} 件（アーティファクトも消えます）")
+        print(f"  課題         {len(tasks):4d} 件")
+        print(f"  受講登録     {len(enrolments):4d} 件")
+        if not args.yes:
+            answer = input("消します。よろしいですか [y/N]: ").strip().lower()
+            if answer not in ("y", "yes"):
+                print("中止しました")
+                return 1
+
+        result = delete_course(database, course_id=course.id, artifact_store=_artifact_store(args))
+    except AdminError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    finally:
+        database.dispose()
+
+    print(
+        f"消しました: {result.course.code} / 課題 {result.tasks} 件 / "
+        f"動作確認の提出 {result.trial_submissions} 件 / 受講登録 {result.enrolments} 件"
+    )
     return 0
 
 
@@ -610,6 +668,14 @@ def build_parser() -> argparse.ArgumentParser:
     create.add_argument("--profile", required=True, help="科目プロファイル名")
     create.set_defaults(func=cmd_course_create)
     course.add_parser("list", help="一覧").set_defaults(func=cmd_course_list)
+    # 削除は**課題があっても消えるが、学習者の提出があれば消えない**
+    # （`aijudge_admin.courses`）。画面にも同じ操作がある（#156）。
+    course_delete = course.add_parser(
+        "delete", help="消す（学習者の提出が 1 件でもあれば消さない）"
+    )
+    course_delete.add_argument("--course", required=True, help="コース ID")
+    course_delete.add_argument("--yes", action="store_true", help="確認を省く")
+    course_delete.set_defaults(func=cmd_course_delete)
 
     # デモコースのリセット（#194）。**`course` の下に置かない** ── 対象は
     # 環境変数が指す 1 つに固定されており、コースを選べる操作ではない。
