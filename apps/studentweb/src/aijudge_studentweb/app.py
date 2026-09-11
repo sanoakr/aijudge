@@ -66,6 +66,7 @@ from aijudge_identity import (
     GoogleOidcProvider,
     PermissionDenied,
     Principal,
+    demo_course_from_env,
     session_cookie_kwargs,
 )
 from aijudge_persistence import Database
@@ -136,14 +137,32 @@ def _read_copyright_notice() -> str:
 
 APP_VERSION = _read_app_version()
 
+
 # 見た目は `packages/webui` が 1 か所で持つ（#184）。テンプレートの探索先に
 # 共有の断片（`_theme_boot.html` / `_theme_switch.html`）を足す ── 自分の
 # `templates/` を先に見るので、同名を置けばアプリ側で上書きできる。
+def _is_demo_course(course_id: object) -> bool:
+    """このコースはデモか（#194）。
+
+    **提出のたびに、描画のたびに環境から読む。** 値を起動時に固定すると、
+    指名を変えたあとも再起動まで古い判定が残る ── 環境変数は配置の都合で
+    変わりうるので、読むのは安いほうに合わせる。
+
+    テンプレートからも呼ぶ（デモの帯を出すため）。環境変数を読むだけで
+    DB は引かないので、`root_prefix()` と同じ扱いでよい ── ADR 0017 で
+    「描画中に DB を引かない」と決めた線の内側である。
+    """
+    demo = demo_course_from_env()
+    return demo is not None and str(demo.course_id) == str(course_id)
+
+
 TEMPLATES = Jinja2Templates(
     directory=[str(Path(__file__).parent / "templates"), str(webui.TEMPLATES_DIR)]
 )
 TEMPLATES.env.globals["app_version"] = APP_VERSION
 TEMPLATES.env.globals["copyright_notice"] = _read_copyright_notice()
+# デモコースの帯を出すのに使う（#194）。環境変数を読むだけの純関数。
+TEMPLATES.env.globals["is_demo_course"] = _is_demo_course
 
 
 def _static_url(name: str) -> str:
@@ -664,6 +683,7 @@ def create_app(app_state: StudentApp) -> FastAPI:
                 # 測定時に現在の受講から引くと、学生が TA になった瞬間に
                 # 過去の提出が測定から消える（ADR 0013 と同じ罠）。
                 submitted_as=_role_in(app_state, course_obj.id, me.user_id),
+                is_demo=_is_demo_course(course_obj.id),
             )
         except SubmissionRejected as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -791,6 +811,7 @@ def create_app(app_state: StudentApp) -> FastAPI:
                 idempotency_key=idem,
                 grading_starts_at=_task.grading_starts_at,
                 submitted_as=_role_in(app_state, course_obj.id, me.user_id),
+                is_demo=_is_demo_course(course_obj.id),
             )
         except SubmissionRejected as exc:
             app_state.video_store.delete(storage_key)

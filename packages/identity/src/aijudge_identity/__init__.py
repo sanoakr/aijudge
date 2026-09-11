@@ -11,6 +11,13 @@ Phase 8 で、**この層のアダプタとして足す**。外向きの型（`P
 from __future__ import annotations
 
 from .cookies import ENV_SECURE_COOKIES, secure_cookies, session_cookie_kwargs
+from .demo import (
+    ENV_DEMO_COURSE,
+    ENV_DEMO_INSTRUCTOR_PREFIX,
+    DemoCourse,
+    demo_course_from_env,
+    enrol_into_demo_course,
+)
 from .errors import AuthenticationFailed, PermissionDenied
 from .models import ApiToken, Principal, Session, User, UserState
 from .oidc import GoogleOidcIdentity, GoogleOidcProvider, OidcSettings
@@ -32,12 +39,15 @@ from .service import (
 __all__ = [
     "DEFAULT_SESSION_HOURS",
     "DEFAULT_TOKEN_DAYS",
+    "ENV_DEMO_COURSE",
+    "ENV_DEMO_INSTRUCTOR_PREFIX",
     "ENV_SECURE_COOKIES",
     "MIN_PASSWORD_LENGTH",
     "TOKEN_PREFIX",
     "ApiToken",
     "AuthService",
     "AuthenticationFailed",
+    "DemoCourse",
     "GoogleOidcIdentity",
     "GoogleOidcProvider",
     "IdentityRepository",
@@ -49,6 +59,8 @@ __all__ = [
     "User",
     "UserState",
     "WeakPassword",
+    "demo_course_from_env",
+    "enrol_into_demo_course",
     "hash_password",
     "needs_rehash",
     "secure_cookies",

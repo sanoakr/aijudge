@@ -197,3 +197,29 @@ def test_the_rail_does_not_let_a_learner_see_a_course_they_do_not_grade(world: W
     # 知らせない（403 は「ある」と言っている）。
     assert response.status_code == 404
     assert world.course.title not in response.text, "帯にコース名が漏れている"
+
+
+def test_the_demo_course_says_so_to_the_instructor_too(world: World, monkeypatch) -> None:
+    """**教員にも出す**（#194）。
+
+    成績を探しに来た人が「ここには無い」と分かる必要がある。文言は学習者と
+    同じものを使う ── 違うことを言われると、どちらが本当か確かめることに
+    なる。事実は 1 つで、「ここでの提出は残らない」である。
+    """
+    monkeypatch.setenv("AIJUDGE_DEMO_COURSE", str(world.course.id))
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+
+    body = client.get(f"/courses/{world.course.id}").text
+    assert "これはお試しのコースです" in body
+    assert "成績にも学習履歴にも残りません" in body
+    # 一覧にも印が出る。
+    assert "お試し" in client.get("/").text
+
+
+def test_a_real_course_shows_no_demo_banner(world: World, monkeypatch) -> None:
+    """裏返し。**出っぱなしでは意味が無い。**"""
+    monkeypatch.delenv("AIJUDGE_DEMO_COURSE", raising=False)
+    world.register("teacher", Role.INSTRUCTOR)
+    body = world.client("teacher").get(f"/courses/{world.course.id}").text
+    assert "これはお試しのコースです" not in body

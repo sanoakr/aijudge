@@ -1,0 +1,64 @@
+# 知識要素（KC）の骨格 — 名前空間 `demo`
+#
+# **デモコース専用**（#194）。ログインすれば誰でも入れる、触って試すための
+# コースが使う語彙である。
+#
+# **なぜ `cs` を使わないか。** 防御の深さである。
+#
+# デモの提出は数えない ── 観測レコードにも習熟度にも成績分布にも入らない
+# （`Submission.is_trial`・#197）。だが**その除外がどこか 1 か所でも漏れた
+# 瞬間**、デモの提出が本物の習熟度に効く。習熟度は KC 単位でコースと学期を
+# またいで積み上がるので（設計原則 P6）、`cs.sdf.fundamentals.branching` を
+# 共有していれば、誰かの本物の「分岐」の習熟度が動く。
+#
+# `demo` 名前空間なら、漏れても積み上がるのは `demo.*` の習熟度だけで、
+# **それを読む運用コースは存在しない** ── 失敗しても無害な形にしておく。
+#
+# 同じ理由で、ここのキーは `cs` と対応させない。似た名前にすると、あとから
+# 「同じものだから統合しよう」という圧力がかかる。
+#
+# 階層とキーの規約は `cs.yaml` と同じ（3 段・追記のみ・キーは変えない）。
+# 詳しくは README を読むこと。
+#
+# 投入:
+#     uv run aijudge-admin kc seed --namespace demo
+
+namespace: demo
+source: >-
+  デモコース（#194）のためだけの語彙。原典は無く、サンプルの問題セットが
+  問う対象をそのまま並べたもの。**運用コースはこの名前空間を使わない。**
+
+areas:
+  - key: trial
+    label: お試し
+    en: Demo
+    units:
+      - key: code
+        label: プログラムを書く
+        en: Writing a program
+        components:
+          # C 言語のサンプル課題（`cs_lang_c_intro`）が問うもの。
+          - {key: read_input, label: 入力を読む}
+          - {key: loop, label: くりかえし}
+          - {key: compare, label: 大小を比べる}
+          - {key: boundary, label: 境界の場合を考える}
+
+      - key: writing
+        label: 文章で説明する
+        en: Explaining in writing
+        components:
+          # 日本語レポートのサンプル課題（`report_ja`）が問うもの。
+          - {key: structure, label: 構成を立てる}
+          - {key: evidence, label: 根拠を示す}
+          - {key: conciseness, label: 簡潔に書く}
+
+      - key: image
+        label: 図や写真で示す
+        en: Showing with an image
+        components:
+          # 画像提出のサンプル課題。**機械の評価器が無い**ので、観点は
+          # すべて人が採点する（`HUMAN_SCORED`）── その結果、総合点は
+          # 保留（withheld）になる。**その状態がデモで見えること自体が
+          # 説明になる**（人が読むまで点が付かない、という設計の実物）。
+          - {key: legibility, label: 読み取れる形で撮る}
+          - {key: completeness, label: 必要なものが写っている}

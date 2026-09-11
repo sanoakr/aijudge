@@ -14,6 +14,7 @@ Phase 8 で、**この層のアダプタとして足す**。だから外向き�
 from __future__ import annotations
 
 import hashlib
+import logging
 import secrets
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -23,6 +24,7 @@ from aijudge_audit import AuditAction, AuditLog, AuditRecorder
 from aijudge_core import Course, Enrollment, Role
 from aijudge_core.ids import ApiTokenId, CourseId, SessionId, TenantId, UserId, new_id
 
+from .demo import demo_course_from_env, enrol_into_demo_course
 from .errors import AuthenticationFailed, PermissionDenied
 from .models import ApiToken, Principal, Session, User, UserState
 from .passwords import hash_password, needs_rehash, verify_password
@@ -49,6 +51,9 @@ TOKEN_PREFIX = "aij_"
 # 存在しない login に対しても検証を走らせるためのダミー。
 # 応答時間の差で「その ID は存在する」と分かってしまうのを防ぐ。
 _DUMMY_HASH = hash_password("dummy-password-for-constant-time-comparison")
+
+
+logger = logging.getLogger(__name__)
 
 
 class AuthService:
@@ -253,6 +258,12 @@ class AuthService:
         return self._start_session(user)
 
     def _start_session(self, user: User) -> tuple[Principal, str]:
+        """セッションを作る。**ログインの両経路がここで合流する。**
+
+        デモコースへの自動受講登録もここに置く（#194）── パスワードと
+        Google の 2 経路 × 2 アプリで 4 か所あり、呼び出し側に書くと
+        忘れる場所が 4 つできる。合流点は 1 つしかない。
+        """
         now = self._clock()
         token = secrets.token_urlsafe(TOKEN_BYTES)
         self._repository.save_session(
@@ -265,7 +276,26 @@ class AuthService:
                 expires_at=now + timedelta(hours=self._session_hours),
             )
         )
-        return _principal(user), token
+        principal = _principal(user)
+        self._enrol_into_demo_course(principal)
+        return principal, token
+
+    def _enrol_into_demo_course(self, principal: Principal) -> None:
+        """デモコースがあれば入れる（#194）。**無ければ何もしない。**
+
+        **ログインを落とさない。** 誰でも試せる場所を用意する仕掛けが、
+        入れなくなる理由になってはいけない ── 設定の取り違えも、コースの
+        消し忘れも、運用では普通に起きる。
+        """
+        demo = demo_course_from_env()
+        if demo is None:
+            return
+        try:
+            enrol_into_demo_course(
+                self._repository, principal, demo, audit=self._audit, request_id=self._request_id
+            )
+        except Exception:
+            logger.warning("could not enrol into the demo course", exc_info=True)
 
     # -- API トークン（非対話の呼び出し元）--------------------------------
 

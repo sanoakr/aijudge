@@ -10,6 +10,8 @@
   <a class="row" href="{{ root_prefix() }}/courses/{{ d.course.id }}">
     <span class="what">
       <b>{{ d.course.title }}</b>
+      {# 成績を探しに来た人が「ここには無い」と分かるように（#194）。 #}
+      {% if is_demo_course(d.course.id) %}<span class="pill attn">お試し</span>{% endif %}
       <span class="mono desc">{{ d.course.code }}</span>
       <span class="desc">{{ d.course.term }}</span>
       <span class="desc">
@@ -47,6 +49,7 @@
   <a class="row" href="{{ learner_url }}/courses/{{ row.course.id }}">
     <span class="what">
       <b>{{ row.course.title }}</b>
+      {% if is_demo_course(row.course.id) %}<span class="pill attn">お試し</span>{% endif %}
       <span class="mono desc">{{ row.course.code }}</span>
       <span class="desc">{{ row.course.term }}</span>
     </span>
@@ -56,6 +59,7 @@
   <div class="row">
     <span class="what">
       <b>{{ row.course.title }}</b>
+      {% if is_demo_course(row.course.id) %}<span class="pill attn">お試し</span>{% endif %}
       <span class="mono desc">{{ row.course.code }}</span>
       <span class="desc">{{ row.course.term }}</span>
     </span>

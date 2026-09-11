@@ -30,6 +30,7 @@ from aijudge_core.ids import (
     CourseId,
     FinalizationId,
     HumanReviewId,
+    SubmissionId,
     TaskVersionId,
     TenantId,
     UserId,
@@ -1883,6 +1884,72 @@ def test_the_hidden_local_route_still_logs_in_local_accounts(world: World) -> No
 
 
 # --------------------------------------------------------------------------
+# デモコースの提出は数えない（#194）
+# --------------------------------------------------------------------------
+
+
+def test_a_submission_to_the_demo_course_is_marked_as_a_trial(world: World, monkeypatch) -> None:
+    """**受け取る時点で印を付ける。**
+
+    ここが起点で、あとは `is_trial` を訊いている経路すべてが自動的に従う
+    ── 観測レコード・習熟度・成績分布・難易度推定・κ（#197 で塞いだ 2 つを
+    含む）。**述語を増やさないので、経路ごとに直して回る必要が無い。**
+    """
+    monkeypatch.setenv("AIJUDGE_DEMO_COURSE", str(COURSE))
+    world.register("s2400001")
+    world.login("s2400001")
+
+    location = world.submit().headers["location"]
+    submission_id = location.rsplit("/", 1)[-1]
+    with world.database.unit_of_work() as uow:
+        submission = uow.submissions.get(SubmissionId(submission_id))
+
+    assert submission is not None
+    assert submission.is_demo, "デモの印が付いていない"
+    assert submission.is_trial, "数えない扱いになっていない"
+    # **役割は偽らない。** デモでも学習者は学習者である。
+    assert submission.submitted_as is Role.LEARNER
+
+
+def test_a_submission_to_a_real_course_is_not(world: World, monkeypatch) -> None:
+    """裏返し。**「常に trial」を「デモだから trial」と読み違えない。**"""
+    monkeypatch.delenv("AIJUDGE_DEMO_COURSE", raising=False)
+    world.register("s2400002")
+    world.login("s2400002")
+
+    location = world.submit().headers["location"]
+    submission_id = location.rsplit("/", 1)[-1]
+    with world.database.unit_of_work() as uow:
+        submission = uow.submissions.get(SubmissionId(submission_id))
+
+    assert submission is not None
+    assert not submission.is_demo
+    assert not submission.is_trial
+
+
+def test_the_demo_course_leaves_the_score_distribution_alone(world: World, monkeypatch) -> None:
+    """成績分布に現れないこと（受け入れ条件の 1 つ）。
+
+    分布は `is_trial` を見て弾いている（`submissions.py`）ので、印が付けば
+    自動的に従う ── **それを確かめるのがこのテストである。**
+    """
+    from aijudge_reviewconsole.submissions import summarize
+
+    monkeypatch.setenv("AIJUDGE_DEMO_COURSE", str(COURSE))
+    world.register("s2400003")
+    world.login("s2400003")
+    world.submit()
+    world.worker.run_until_empty()
+
+    with world.database.unit_of_work() as uow:
+        from aijudge_reviewconsole.submissions import load_rows
+
+        course = uow.identity.get_course(COURSE)
+        summary = summarize(load_rows(uow, course))
+
+    assert summary["total"] == 0, "デモの提出が分布に入っている"
+
+
 # 採点のプロファイルは課題が決める（#195）
 # --------------------------------------------------------------------------
 
@@ -1931,3 +1998,38 @@ def test_the_grading_job_takes_the_profile_from_the_task(world: World) -> None:
     assert job.subject_profile == "report_ja", (
         "コースの既定で採点されている。1 コースに種類の違う課題を置けない"
     )
+
+
+def test_the_demo_course_says_so_on_every_page_under_it(world: World, monkeypatch) -> None:
+    """**自動登録された学生には、そこが本物の課題に見える**（#194）。
+
+    ログインしただけで入っているので、自分で選んだ覚えが無い ──
+    「提出したのに成績に出ない」を不具合として報告されるより先に、画面が
+    言うべきである。
+
+    コースの下の全ページに出す。課題の画面でも結果の画面でも、**操作する
+    前に**目に入る必要がある。
+    """
+    monkeypatch.setenv("AIJUDGE_DEMO_COURSE", str(COURSE))
+    world.register("s2400010")
+    world.login("s2400010")
+
+    for path in (f"/courses/{COURSE}", f"/tasks/{world.task_version.id}"):
+        body = world.client.get(path).text
+        assert "これはお試しのコースです" in body, f"{path} に出ていない"
+        assert "成績にも学習履歴にも残りません" in body
+        # **採点は動くことも言う。** そこを黙ると試す気にならない。
+        assert "採点は本物と同じに動きます" in body
+
+    # 一覧にも印を出す ── **入る前に分かる必要がある。**
+    assert "お試し" in world.client.get("/").text
+
+
+def test_a_real_course_says_nothing_of_the_sort(world: World, monkeypatch) -> None:
+    """裏返し。**帯が出っぱなしでは意味が無い。**"""
+    monkeypatch.delenv("AIJUDGE_DEMO_COURSE", raising=False)
+    world.register("s2400011")
+    world.login("s2400011")
+
+    assert "これはお試しのコースです" not in world.client.get(f"/courses/{COURSE}").text
+    assert "お試し" not in world.client.get("/").text
