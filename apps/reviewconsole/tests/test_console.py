@@ -1344,3 +1344,34 @@ def test_finalising_a_grade_writes_two_records_that_are_not_the_same_thing(
         assert row.actor_kind is ActorKind.USER
         assert row.actor_user_id == instructor.user_id
         assert row.request_id is not None
+
+
+def test_the_listing_says_when_it_stopped_reading(world: World, monkeypatch) -> None:
+    """**黙って切らない**（#233）。
+
+    一覧は数千件を一度に描かないために上限を持つ。それ自体は妥当だが、
+    上限に達したことを出さないと、教員は「最近の提出が無い」のか「読み
+    込んでいない」のかを区別できない ── 同じ行から作る得点分布も、
+    切られた母数で描いたことが伝わらない。
+
+    5000 件を積むのは現実的でないので、**上限そのものを 1 に下げて**
+    同じ状態を作る。
+    """
+    import aijudge_reviewconsole.submissions as submissions_module
+
+    _instructor_and_submission(world)
+    monkeypatch.setattr(submissions_module, "LISTING_LIMIT", 0)
+
+    body = world.client.get(f"/courses/{COURSE}/submissions").text
+
+    assert "まで読み込んでいます" in body
+    assert "この図は直近" in body or "採点済みの提出がありません" in body
+
+
+def test_a_listing_that_fits_says_nothing(world: World) -> None:
+    """裏返し。**断りが出っぱなしでは意味が無い。**"""
+    _instructor_and_submission(world)
+
+    body = world.client.get(f"/courses/{COURSE}/submissions").text
+
+    assert "まで読み込んでいます" not in body

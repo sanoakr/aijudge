@@ -1975,7 +1975,7 @@ def test_the_demo_course_leaves_the_score_distribution_alone(world: World, monke
         from aijudge_reviewconsole.submissions import load_rows
 
         course = uow.identity.get_course(COURSE)
-        summary = summarize(load_rows(uow, course))
+        summary = summarize(load_rows(uow, course).rows)
 
     assert summary["total"] == 0, "デモの提出が分布に入っている"
 

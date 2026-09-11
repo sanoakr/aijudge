@@ -870,7 +870,8 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
         """
         course, _rows, _marked = _queue_rows(console, me, CourseId(course_id))
         with console.database.unit_of_work() as uow:
-            rows = load_rows(uow, course)
+            listing = load_rows(uow, course)
+            rows = listing.rows
             units = load_units(uow, course)
         # **問題セットを選んだら、問題の選択肢もそのセットに絞る。** 全課題を
         # 並べたままにすると、選んだセットに無い問題を選べてしまい、結果が
@@ -907,6 +908,10 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 "roles": [role.value for role in Role],
                 "states": STATE_LABELS,
                 "chart": distribution_of(shown),
+                # **切れたことを画面が言う**（#233）。分布も同じ行から
+                # 作るので、母数が全部でないことは図の側にも要る。
+                "truncated": listing.truncated,
+                "listing_limit": listing.limit,
             },
         )
 
