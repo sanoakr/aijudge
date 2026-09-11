@@ -8,6 +8,33 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+
+    # **PostgreSQL でも走らせる**（#243）。保存実装のテストは SQLite と
+    # PostgreSQL の両方に同じものを当てる作りだが、`AIJUDGE_TEST_DATABASE_URL`
+    # が無いと後者は 1 件も走らない ── SQLite には行ロックが無く、
+    # `VARCHAR(n)` の n も強制しないので、**そこだけが守る検査が素通りする**。
+    #
+    # 実際に通り抜けた: 監査記録の `target_id` が 64 字で、受講登録の対
+    # （73 字）が入らず本番のログインが 500 になった（#213）。CI は緑だった。
+    #
+    # 接続数は既定（100）のまま。同時実行のテストは 4 スレッドで 24 件を
+    # 取り合うだけなので足りる ── `services` に `command` は渡せないため、
+    # 増やすなら別の手が要る。
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: aijudge
+          POSTGRES_PASSWORD: aijudge
+          POSTGRES_DB: aijudge
+        options: >-
+          --health-cmd "pg_isready -U aijudge"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+        ports:
+          - 5432:5432
+
     steps:
       - uses: actions/checkout@v7
 
@@ -43,6 +70,9 @@ jobs:
       - name: Test
         env:
           AIJUDGE_SANDBOX: docker
+          # 保存実装のテストを PostgreSQL にも当てる（#243）。設定が無いと
+          # SQLite の側だけが走る。
+          AIJUDGE_TEST_DATABASE_URL: postgresql+psycopg://aijudge:aijudge@localhost:5432/aijudge
         run: uv run pytest
 
   # 採点精度の測定。教員採点データはリポジトリに置けない（個人情報）ので、
