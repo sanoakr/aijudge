@@ -26,6 +26,10 @@ Submit, and the result comes back without waiting for a marking session.
   which it is, and the learner can ask for a second look with a stated reason.
 - **Lateness is shown separately from the work.** A low mark reads as either
   "the work" or "it was late", never a single unexplained number.
+- **The same is true on a phone.** At narrow widths each table folds into one
+  card per row, every cell carrying its own heading — sending columns off the
+  side of a screen loses the heading, and a value without one is not
+  information.
 
 ### For instructors
 
@@ -37,7 +41,10 @@ The console is for reading what arrived and deciding — it never grades.
 - **Course management in the browser**: deadlines, grace periods, late-penalty
   ladders, enrolment, rubrics, problem sets.
 - **Blind marking for measurement**, sampled by the system — never by choice —
-  so agreement between人 and machine can be measured honestly.
+  so agreement between a person and the machine can be measured honestly.
+- **Built from the same parts as the learner's side.** The rail of
+  destinations folds at narrow widths and opens as the same vertical list.
+  Whichever screen someone learns the shape on, it holds on the other.
 
 ### What can be marked
 
@@ -64,7 +71,7 @@ flowchart TB
     F["aijudge-finalize<br/>closes grades past the deadline"]
 
     DB[("PostgreSQL<br/>submissions · grades · queue")]
-    S[("Object store<br/>submitted files")]
+    S[("Filesystem<br/>submitted files")]
 
     DW["Fast worker<br/>--phase deterministic"]
     AW["Slow worker<br/>--phase ai"]
@@ -83,6 +90,10 @@ flowchart TB
     DW --> SB
     AW --> LLM
 ```
+
+Submitted files go straight onto disk. There is a seam for an S3-compatible
+store (`ObjectArtifactStore`), but nothing is wired to it — that becomes a real
+question when submissions get large enough to need it, such as video.
 
 Every arrow into PostgreSQL is also an arrow out of it: the workers take jobs
 from the queue there and write the grades back to it, and the console reads what
@@ -148,7 +159,7 @@ Requires [uv](https://docs.astral.sh/uv/) and a container runtime
 (Docker, or colima on macOS).
 
 ```fish
-docker compose up -d                        # PostgreSQL + object store
+docker compose up -d                        # PostgreSQL
 uv sync --extra dev
 uv run alembic upgrade head                 # create or update the schema
 
