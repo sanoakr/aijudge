@@ -49,7 +49,8 @@
    消えない（他のコースの Q-matrix は壊れない）。**説明は冒頭の注意書きに
    まとめてある** ── 同じ話を 2 か所に書くと、片方だけが古くなる。 #}
 <form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/kc/scope">
-<table>
+{# 携帯では行を積む（`table.stack`）。キーは塊の先頭に立つので見出し無し。 #}
+<table class="stack">
   <thead><tr>
     <th class="fit">使う</th>
     <th class="grow">キー</th><th class="fit">名前</th>
@@ -59,7 +60,7 @@
   <tbody>
   {% for row in rows %}
     <tr>
-      <td class="fit">
+      <td class="fit" data-label="使う">
         <input type="checkbox" name="kc" value="{{ row.kc.key }}"
                {{ 'checked' if row.in_course }}>
         {# **外しても、このコースの課題が使っていれば残す。** 消すと、その
@@ -69,7 +70,7 @@
       <td class="grow mono">{{ row.kc.key }}
         {% if row.kc.deprecated %}<span class="pill no">引退</span>{% endif %}
       </td>
-      <td class="fit">{{ row.kc.label }}
+      <td class="fit" data-label="名前">{{ row.kc.label }}
         {% if row.kc.description %}<br><span class="desc">{{ row.kc.description }}</span>{% endif %}
         {# **名前と説明は直せる。キーは直せない。** 規則 3 が守っているのは
            キー（ID の素材）であって表示名ではない。打ち間違えた名前を直す
@@ -97,9 +98,9 @@
       </td>
       {# **利用状況を出す。** 引退させてよいかの判断材料で、自分のコースで
          使っていなくても他のコースが使っていれば影響がある。 #}
-      <td class="fit">{{ row.tasks }}</td>
-      <td class="fit">{{ row.courses }}</td>
-      <td class="fit desc">{{ row.kc.created_at.strftime('%Y-%m-%d') if row.kc.created_at else '—' }}</td>
+      <td class="fit" data-label="課題">{{ row.tasks }}</td>
+      <td class="fit" data-label="コース">{{ row.courses }}</td>
+      <td class="fit desc" data-label="追加">{{ row.kc.created_at.strftime('%Y-%m-%d') if row.kc.created_at else '—' }}</td>
       {% if is_admin %}
       <td class="fit">
         <details>
@@ -191,11 +192,11 @@
    何が起きたのか画面から分からないのは、間違った候補が並ぶのと同じくらい悪い。 #}
 <div class="note">
   <strong>採用できない候補を {{ discarded | length }} 件除きました。</strong>
-  <table style="margin-top:8px">
+  <table class="stack" style="margin-top:8px">
     <thead><tr><th class="grow">候補のキー</th><th class="fit">理由</th></tr></thead>
     <tbody>
     {% for d in discarded %}
-      <tr><td class="grow mono">{{ d.key }}</td><td class="fit">{{ d.reason }}</td></tr>
+      <tr><td class="grow mono">{{ d.key }}</td><td class="fit" data-label="理由">{{ d.reason }}</td></tr>
     {% endfor %}
     </tbody>
   </table>

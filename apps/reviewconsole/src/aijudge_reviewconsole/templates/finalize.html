@@ -43,13 +43,14 @@
   </form>
 
   <h3>問題ごとに確定する</h3>
-  <table>
+  {# 携帯では行を積む（`table.stack`）。課題の題は見出し無しで出す。 #}
+  <table class="stack">
     <thead><tr><th class="grow">課題</th><th class="fit">未確定</th><th class="fit"></th></tr></thead>
     <tbody>
     {% for task, version in unit.tasks %}
       <tr>
         <td class="grow">{{ task.title }}</td>
-        <td class="fit">{{ pending.get(task.id, 0) }} 件</td>
+        <td class="fit" data-label="未確定">{{ pending.get(task.id, 0) }} 件</td>
         <td class="fit">
           {% if pending.get(task.id, 0) %}
           <details>
@@ -77,7 +78,8 @@
 {% endif %}
 
 <h2>提出ごとに確定する（未確定 {{ rows | length }} 件）</h2>
-<table>
+{# 携帯では行を積む（`table.stack`）。 #}
+<table class="stack">
   <thead><tr>
     <th class="fit">提出</th><th class="fit">学習者</th><th class="grow">課題</th>
     <th class="fit">回</th><th class="fit">AI の総合</th><th class="fit"></th>
@@ -85,14 +87,14 @@
   <tbody>
   {% for row in rows %}
     <tr class="row-link" data-href="{{ root_prefix() }}/review/{{ row.submission.id }}/reveal">
-      <td class="fit">{{ row.submission.submitted_at.strftime('%m-%d %H:%M') if row.submission.submitted_at else '—' }}</td>
-      <td class="fit mono">{{ row.learner.login if row.learner else '—' }}</td>
+      <td class="fit" data-label="提出">{{ row.submission.submitted_at.strftime('%m-%d %H:%M') if row.submission.submitted_at else '—' }}</td>
+      <td class="fit mono" data-label="学習者">{{ row.learner.login if row.learner else '—' }}</td>
       <td class="grow">
         {% if row.task %}<span class="mono desc">{{ row.task.unit or row.task.unit_label }}</span>
           {{ row.task.title }}{% else %}—{% endif %}
       </td>
-      <td class="fit">{{ row.submission.attempt }} 回目</td>
-      <td class="fit">{{ '%.0f' | format(row.run.score_ratio * 100) }}%</td>
+      <td class="fit" data-label="回">{{ row.submission.attempt }} 回目</td>
+      <td class="fit" data-label="AI の総合">{{ '%.0f' | format(row.run.score_ratio * 100) }}%</td>
       <td class="fit">
         <a href="{{ root_prefix() }}/review/{{ row.submission.id }}/reveal">確認して確定する</a>
         {% if row.contested %}<br><span class="desc">再確認の依頼あり</span>{% endif %}
