@@ -59,17 +59,16 @@ def delete_course(
         # **打ち切られた一覧で決めない**（#219）。`list_for_course` の上限は
         # 画面のためのもので、古い側だけを見て「学習者の提出は無い」と結論
         # すると、実際にはある提出を成果物ごと消す。
+        #
+        # `is_trial` が列になったので、判断は数える 1 文で済む。中身が要る
+        # のは**消すと決まってから**で、そこで初めて試行を読む。
+        learner_submissions = uow.submissions.count_for_course(course_id).learner
         trial_ids: list[SubmissionId] = []
         keys: list[str] = []
-        learner_submissions = 0
-        for submission in uow.submissions.iter_for_course(course_id):
-            if not submission.is_trial:
-                # **1 件見つけたら十分。** 全部数えるために最後まで読む理由は
-                # 無く、大きなコースほど読み切る意味が薄い。
-                learner_submissions += 1
-                break
-            trial_ids.append(submission.id)
-            keys.extend(artifact.storage_key for artifact in submission.artifacts)
+        if not learner_submissions:
+            for submission in uow.submissions.iter_for_course(course_id):
+                trial_ids.append(submission.id)
+                keys.extend(artifact.storage_key for artifact in submission.artifacts)
         tasks = uow.tasks.list_for_course(course_id)
         enrolments = uow.identity.list_enrollments(course_id)
 

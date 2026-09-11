@@ -745,3 +745,66 @@ def test_iterating_a_course_is_not_capped_by_the_listing_limit(database: Databas
     assert len(everything) == 3
     # **区切りをまたいでも重複しない・落ちない。**
     assert len({item.id for item in everything}) == 3
+
+
+def test_the_trial_column_says_what_the_model_says(database: Database) -> None:
+    """**列は `Submission.is_trial` の写しであって、定義ではない**（#219）。
+
+    ずれた瞬間に、数える側と数えない側で答えが割れる ── 実際に割れていた
+    （JSON を手写しした述語が `is_demo` を落としていて、デモコースへの提出が
+    人待ちとして数えられていた）。だからここで**両方が同じことを言う**ことを
+    固定する。教員の試行とデモの提出は**別々の経路**で trial になるので、
+    どちらも確かめる。
+    """
+    from sqlalchemy import select
+
+    from aijudge_persistence.schema import SubmissionRow
+
+    service = a_service(database)
+    cases = {
+        "学習者": {"submitted_as": Role.LEARNER, "is_demo": False},
+        "教員の試行": {"submitted_as": Role.INSTRUCTOR, "is_demo": False},
+        "デモへの提出": {"submitted_as": Role.LEARNER, "is_demo": True},
+    }
+    for index, (name, kwargs) in enumerate(cases.items()):
+        result = service.accept(
+            tenant_id=TENANT,
+            task_version_id=TASK_VERSION,
+            learner_id=LEARNER,
+            subject_profile="cs_lang_c_intro",
+            files=code(f"int main(void){{return {index};}}"),
+            **kwargs,
+        )
+        with database.unit_of_work() as uow:
+            row = uow._session.execute(  # type: ignore[attr-defined]
+                select(SubmissionRow.is_trial).where(SubmissionRow.id == str(result.submission.id))
+            ).scalar_one()
+        assert bool(row) is result.submission.is_trial, name
+
+
+def test_counting_a_course_does_not_depend_on_the_listing_limit(database: Database) -> None:
+    """数える経路は上限を持たない（#219）。"""
+    from aijudge_core import Task
+
+    service = a_service(database)
+    with database.unit_of_work() as uow:
+        uow.tasks.save_task(Task(id=TASK_ID, course_id=COURSE, title="例題"))
+        uow.tasks.save_version(a_task_version())
+        uow.commit()
+
+    for index in range(3):
+        service.accept(
+            tenant_id=TENANT,
+            task_version_id=TaskVersionId(f"tsv_{1:032d}"),
+            learner_id=LEARNER,
+            submitted_as=Role.INSTRUCTOR if index == 0 else Role.LEARNER,
+            subject_profile="cs_lang_c_intro",
+            files=code(f"int main(void){{return {index};}}"),
+        )
+
+    with database.unit_of_work() as uow:
+        counts = uow.submissions.count_for_course(COURSE)
+        capped = uow.submissions.list_for_course(COURSE, limit=1)
+
+    assert len(capped) == 1, "上限が効いていない（前提が崩れている）"
+    assert (counts.learner, counts.trial) == (2, 1)

@@ -122,6 +122,20 @@ class StreamingArtifactStore(Protocol):
     def delete(self, key: str) -> None: ...
 
 
+@dataclass(frozen=True)
+class SubmissionCounts:
+    """コースの提出の内訳（#219）。
+
+    **数だけを返す。** 消してよいかの判断も画面の件数も数しか要らず、
+    提出の文書を数千件持ってくる理由が無い。
+    """
+
+    #: 成績にも測定にも数える提出。**1 件でもあればコースは消せない。**
+    learner: int
+    #: 動作確認とデモ（`Submission.is_trial`）。
+    trial: int
+
+
 @runtime_checkable
 class SubmissionRepository(Protocol):
     """提出のメタデータ。"""
@@ -147,6 +161,14 @@ class SubmissionRepository(Protocol):
 
         提出は課題版を指しており、コースを直接持たない（持たせると課題の
         移動で片方だけ古くなる）ので、課題 → コースの経路で絞る。
+        """
+        ...
+
+    def count_for_course(self, course_id: CourseId) -> SubmissionCounts:
+        """このコースの提出の内訳を数える（#219）。
+
+        **判断はここで訊く。** `list_for_course` の上限は画面のためのもので、
+        それを数に使うと古い側だけを見て決めることになる。
         """
         ...
 
