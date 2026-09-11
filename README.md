@@ -237,6 +237,24 @@ The two "not yet" rows are stated rather than omitted on purpose: this codebase
 reports `NOT_MEASURED` wherever it cannot justify a number, and treats that as
 distinct from a pass.
 
+### What 1.0.0 means
+
+**That it is ready to be run for a term. Not that its accuracy is established.**
+
+The loop works end to end, the sandbox isolation is verified, and submit →
+grade → review → finalise has been exercised against the production
+configuration. Nothing needed to teach a term is known to be missing.
+
+**Accuracy still cannot be measured.** Measuring it needs a term's worth of
+submissions and the record of instructors actually reading them
+(`HumanReview`) — neither of which exists until the system is in use. Nothing
+is reported that cannot be justified, so the accuracy gate keeps returning
+`NOT_MEASURED` after the term starts too. A number appears once the evidence
+does.
+
+So 1.0.0 marks the point where **real data starts being collected**, not the
+point where accuracy was demonstrated.
+
 ---
 
 ## What is planned
