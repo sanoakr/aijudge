@@ -104,7 +104,12 @@ class AuditEvent(BaseModel):
     # 何に対して。`("submission", "sub_...")` のような組。型を持たせるのは、
     # id だけでは何のことか後から分からないため。
     target_type: str = Field(min_length=1)
-    target_id: str = Field(min_length=1)
+    # **列と同じ上限を模型にも持たせる**（`summary` と同じ理由）。持たせないと
+    # 桁あふれは COMMIT のときの `DataError` になり、**同じ unit_of_work に
+    # いる呼び出し側の書き込みごと巻き戻る** ── 受講登録の対が 64 字の列に
+    # 入らず、ログインが丸ごと 500 になったのが実例である。ここで弾けば、
+    # メモリ実装のテストでも同じ失敗が見える。
+    target_id: str = Field(min_length=1, max_length=128)
 
     # 人が読む 1 行。画面に出す前提で書く。
     summary: str = Field(min_length=1, max_length=500)
