@@ -23,7 +23,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from aijudge_core import Course
-from aijudge_core.ids import CourseId
+from aijudge_core.ids import CourseId, SubmissionId
 from aijudge_persistence import Database
 from aijudge_submission import StreamingArtifactStore
 
@@ -56,24 +56,33 @@ def delete_course(
         course = uow.identity.get_course(course_id)
         if course is None:
             raise AdminError(f"コース {course_id!r} がありません")
-        submissions = uow.submissions.list_for_course(course_id)
-        learner_submissions = [item for item in submissions if not item.is_trial]
-        trials = [item for item in submissions if item.is_trial]
+        # **打ち切られた一覧で決めない**（#219）。`list_for_course` の上限は
+        # 画面のためのもので、古い側だけを見て「学習者の提出は無い」と結論
+        # すると、実際にはある提出を成果物ごと消す。
+        trial_ids: list[SubmissionId] = []
+        keys: list[str] = []
+        learner_submissions = 0
+        for submission in uow.submissions.iter_for_course(course_id):
+            if not submission.is_trial:
+                # **1 件見つけたら十分。** 全部数えるために最後まで読む理由は
+                # 無く、大きなコースほど読み切る意味が薄い。
+                learner_submissions += 1
+                break
+            trial_ids.append(submission.id)
+            keys.extend(artifact.storage_key for artifact in submission.artifacts)
         tasks = uow.tasks.list_for_course(course_id)
         enrolments = uow.identity.list_enrollments(course_id)
 
     if learner_submissions:
         raise AdminError(
-            f"このコースには学習者の提出が {len(learner_submissions)} 件あります。"
+            "このコースには学習者の提出があります。"
             "消すと、その提出に付いた成績が何のコースの点なのか辿れなくなります。"
         )
-
-    keys = [artifact.storage_key for submission in trials for artifact in submission.artifacts]
 
     with database.unit_of_work() as uow:
         # 提出 → 課題 → コースの順に消す。**逆にすると、消したコースを指す
         # 課題が残っている瞬間ができる**（途中で落ちたときに残る形が変わる）。
-        uow.submissions.delete([submission.id for submission in trials])
+        uow.submissions.delete(trial_ids)
         for task in tasks:
             uow.tasks.delete_task(task.id)
         uow.identity.delete_course(course_id)
@@ -83,7 +92,7 @@ def delete_course(
     return DeletedCourse(
         course=course,
         tasks=len(tasks),
-        trial_submissions=len(trials),
+        trial_submissions=len(trial_ids),
         enrolments=len(enrolments),
     )
 

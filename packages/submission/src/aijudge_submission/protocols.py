@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import IO, Protocol, runtime_checkable
@@ -147,6 +147,19 @@ class SubmissionRepository(Protocol):
 
         提出は課題版を指しており、コースを直接持たない（持たせると課題の
         移動で片方だけ古くなる）ので、課題 → コースの経路で絞る。
+        """
+        ...
+
+    def iter_for_course(self, course_id: CourseId, *, chunk: int = 1000) -> Iterator[Submission]:
+        """このコースの全提出を、古い順に流す。**打ち切らない。**
+
+        `list_for_course` の上限は画面のためのもので、**判断に使ってはいけない**
+        （#219）。コースを消してよいかは「学習者の提出が 1 件でもあるか」で
+        決まるのに、切り詰めた一覧を数えると、古い側 5000 件がすべて動作確認
+        だったコースで学習者の提出を見落とし、**成績ごと消える**。
+
+        一度に全部持たずに区切って読む ── 判断する側は最初の 1 件で止められる
+        ので、大きなコースでも読み切らずに済む。
         """
         ...
 

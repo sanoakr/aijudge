@@ -14,7 +14,7 @@ PostgreSQL 実装で落ちる、あるいはその逆が起きる。
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from datetime import datetime
 
 from aijudge_core import (
@@ -111,6 +111,11 @@ class InMemorySubmissionRepository:
         # 呼べば `AttributeError` になっていた（誰も呼んでいなかったので
         # 気づかれていない）。`dict` は挿入順を保つので、それで足りる。
         return tuple(self._items.values())[:limit]
+
+    def iter_for_course(self, course_id: CourseId, *, chunk: int = 1000) -> Iterator[Submission]:
+        # `list_for_course` と同じ理由でコースでは絞れない（課題を持たない）。
+        # **こちらは上限を持たない**のが要点で、そこは SQL 実装と揃っている。
+        yield from tuple(self._items.values())
 
     def next_attempt(
         self, tenant_id: TenantId, learner_id: UserId, task_version_id: TaskVersionId

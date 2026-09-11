@@ -177,18 +177,25 @@ def cmd_course_delete(args: argparse.Namespace) -> int:
                 # に届く経路にしない（`reset_demo_course` と同じ判断）。
                 print("このテナントのコースではありません", file=sys.stderr)
                 return 2
-            submissions = uow.submissions.list_for_course(course.id)
+            # **数える側も打ち切られた一覧を使わない**（#219）。件数を先に
+            # 出すのは「空振りと本物の削除を同じ顔で終わらせない」ためなので、
+            # 5000 で頭打ちになる数を出すのはその目的を外す。
+            learner_count = 0
+            trial_count = 0
+            for submission in uow.submissions.iter_for_course(course.id):
+                if submission.is_trial:
+                    trial_count += 1
+                else:
+                    learner_count += 1
             tasks = uow.tasks.list_for_course(course.id)
             enrolments = uow.identity.list_enrollments(course.id)
 
-        learner = [item for item in submissions if not item.is_trial]
-        trials = [item for item in submissions if item.is_trial]
         print(f"コース: {course.title}（{course.code} / {course.term}）")
-        print(f"  学習者の提出 {len(learner):4d} 件（1 件でもあれば消せません）")
-        print(f"  動作確認の提出 {len(trials):4d} 件（アーティファクトも消えます）")
+        print(f"  学習者の提出 {learner_count:4d} 件（1 件でもあれば消せません）")
+        print(f"  動作確認の提出 {trial_count:4d} 件（アーティファクトも消えます）")
         print(f"  課題         {len(tasks):4d} 件")
         print(f"  受講登録     {len(enrolments):4d} 件")
-        if learner:
+        if learner_count:
             # **必ず失敗する削除に「よろしいですか」と訊かない**（規則は
             # `delete_course` にあり、ここで結果は分かっている）。訊けば
             # 「消えるかもしれない」と読ませてから 2 で終わることになる。
