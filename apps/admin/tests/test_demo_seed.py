@@ -116,3 +116,24 @@ def test_a_missing_definition_says_so(database: Database, tmp_path: Path) -> Non
     """定義が無ければ、そう言って止まる。**空のコースを作らない。**"""
     with pytest.raises(AdminError, match="定義がありません"):
         seed_demo_course(database, tenant_id=TENANT, profiles_dir=tmp_path, authored_by=AUTHOR)
+
+
+def test_the_image_task_accepts_photographs(database: Database) -> None:
+    """**「撮って出す」課題に写真を出せること**（#234）。
+
+    拡張子を指定しないと組み込みの既定（コードとテキスト）に落ちる。
+    既定をそう決めてあるのは、設定漏れを「提出不能」として学習者側に
+    見せないためで（`allowed_suffixes`）、判断としては妥当だが、画像課題に
+    とっては誤った既定になる ── 本番のE2E検証で、デモの看板課題に写真が
+    出せないことが分かった。
+    """
+    seeded = _seed(database)
+
+    with database.unit_of_work() as uow:
+        tasks = uow.tasks.list_for_course(seeded.course.id)
+    image = next(task for task in tasks if "撮って" in task.title)
+
+    assert ".jpg" in image.accepted_suffixes
+    assert ".pdf" in image.accepted_suffixes
+    # コードの拡張子は要らない ── 受けるものを絞ることが、この課題の説明になる。
+    assert ".c" not in image.accepted_suffixes

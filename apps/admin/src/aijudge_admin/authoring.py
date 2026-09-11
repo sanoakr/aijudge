@@ -16,7 +16,7 @@ from dataclasses import dataclass
 
 from aijudge_authoring import TaskSpec, build_task_version
 from aijudge_authoring.repository import TaskStoreError, substantive
-from aijudge_core import ReviewState, Task, TaskVersion
+from aijudge_core import ReviewState, Task, TaskVersion, normalize_suffixes
 from aijudge_core.ids import CourseId, UserId
 from aijudge_persistence import Database
 
@@ -142,6 +142,10 @@ def save_task(
             # 再実行が黙って消すと成績の期限が飛ぶ。明示された場合だけ上書きする。
             opens_at=spec.opens_at or (existing.opens_at if existing else None),
             due_at=spec.due_at or (existing.due_at if existing else None),
+            # 締切と同じ理由で、**明示された場合だけ上書きする**（#234）。
+            # 教員が画面で広げた拡張子を、定義の流し込みが黙って狭めない。
+            accepted_suffixes=normalize_suffixes(spec.accepted_suffixes)
+            or (existing.accepted_suffixes if existing else ()),
         )
         uow.tasks.save_task(task)
         try:
