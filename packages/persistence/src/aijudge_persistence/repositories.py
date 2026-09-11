@@ -15,7 +15,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from datetime import datetime
 
 from sqlalchemy import and_, case, delete, func, or_, select, update
@@ -185,6 +185,37 @@ class SqlSubmissionRepository:
             Submission.model_validate(row.document)
             for row in self._session.execute(statement).scalars()
         )
+
+    def iter_for_course(self, course_id: CourseId, *, chunk: int = 1000) -> Iterator[Submission]:
+        """このコースの全提出を、古い順に区切って流す（#219）。
+
+        **打ち切らない。** `list_for_course` の上限は画面のためのもので、
+        消してよいかの判断に使うと、古い側だけを見て決めることになる。
+
+        `is_trial` は行の列ではなく `document` の中にあるので、SQL 側で
+        「学習者の提出だけ」を数えられない ── **数えるために全部を一度に
+        持つのではなく、区切って読んで呼び手に止めさせる。** 列にするのが
+        本筋だが、それは表の形を変える話なので別に扱う。
+        """
+        offset = 0
+        while True:
+            statement = (
+                select(SubmissionRow)
+                .join(TaskVersionRow, TaskVersionRow.id == SubmissionRow.task_version_id)
+                .join(TaskRow, TaskRow.id == TaskVersionRow.task_id)
+                .where(TaskRow.course_id == str(course_id))
+                .order_by(SubmissionRow.created_at, SubmissionRow.id)
+                .offset(offset)
+                .limit(chunk)
+            )
+            rows = list(self._session.execute(statement).scalars())
+            if not rows:
+                return
+            for row in rows:
+                yield Submission.model_validate(row.document)
+            if len(rows) < chunk:
+                return
+            offset += chunk
 
     def next_attempt(
         self, tenant_id: TenantId, learner_id: UserId, task_version_id: TaskVersionId

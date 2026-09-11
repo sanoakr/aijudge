@@ -705,3 +705,43 @@ def test_the_attention_count_excludes_the_instructors_own_trial(database: Databa
 
     assert counts.unfinalized == 2, "教員の試行が未確定に混ざっている"
     assert counts.contested == 0
+
+
+def test_iterating_a_course_is_not_capped_by_the_listing_limit(database: Database) -> None:
+    """**判断に使う経路は打ち切らない**（#219）。
+
+    `list_for_course` の上限は教員の画面のためのもので、古い順に切る。
+    コースを消してよいかはそこでは決められない ── 窓の外に学習者の提出が
+    あっても「無い」と読めてしまい、提出を成果物ごと消す。
+
+    保存実装とインメモリ実装の両方が同じ Protocol を満たす必要があるので、
+    ここは両方に当たる（`database` は SQLite と PostgreSQL を回る）。
+    """
+    from aijudge_core import Task
+
+    service = a_service(database)
+    with database.unit_of_work() as uow:
+        uow.tasks.save_task(Task(id=TASK_ID, course_id=COURSE, title="例題"))
+        uow.tasks.save_version(a_task_version())
+        uow.commit()
+
+    # **中身を変える。** 同じ内容の提出は冪等キーで 1 件にまとめられるので
+    # （`test_the_same_submission_twice_is_one_submission`）、同じ payload を
+    # 3 回出しても 1 件にしかならない。
+    for n in range(3):
+        service.accept(
+            tenant_id=TENANT,
+            task_version_id=TaskVersionId(f"tsv_{1:032d}"),
+            learner_id=LEARNER,
+            subject_profile="cs_lang_c_intro",
+            files=code(f"int main(void){{return {n};}}"),
+        )
+
+    with database.unit_of_work() as uow:
+        capped = uow.submissions.list_for_course(COURSE, limit=2)
+        everything = tuple(uow.submissions.iter_for_course(COURSE, chunk=2))
+
+    assert len(capped) == 2, "上限が効いていない（前提が崩れている）"
+    assert len(everything) == 3
+    # **区切りをまたいでも重複しない・落ちない。**
+    assert len({item.id for item in everything}) == 3

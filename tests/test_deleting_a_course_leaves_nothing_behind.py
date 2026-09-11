@@ -171,3 +171,35 @@ def test_deleting_a_course_that_does_not_exist_is_refused(world) -> None:
     database, _, _ = world
     with pytest.raises(AdminError, match="ありません"):
         delete_course(database, course_id=CourseId("crs_" + "9" * 32))
+
+
+def test_the_decision_never_consults_the_truncating_listing(world, monkeypatch) -> None:
+    """**打ち切られた一覧で決めない**（#219）。
+
+    `list_for_course` の上限は画面のためのもので、古い順に切り詰める。
+    古い側がすべて動作確認（trial・#108）だったコースでは、その窓の中に
+    学習者の提出が 1 件も現れない ── そこで数えると「無い」と結論し、
+    **実際にはある提出を成果物ごと消す**。提出を消す経路はここだけなので、
+    取り返しがつかない。
+
+    件数を 5000 件積んで再現するのは現実的でないので、**その API を呼んだら
+    落ちるようにして**、判断が別の経路（`iter_for_course`）で行われている
+    ことを固定する。
+    """
+    from aijudge_persistence.repositories import SqlSubmissionRepository
+
+    database, store, course = world
+    version = _task_version(database, course.id)
+    _submit(database, store, version, TEACHER, trial=True)
+    _submit(database, store, version, LEARNER, trial=False)
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("打ち切られる一覧で消してよいかを決めてはいけない")
+
+    monkeypatch.setattr(SqlSubmissionRepository, "list_for_course", forbidden)
+
+    with pytest.raises(AdminError, match="学習者の提出"):
+        delete_course(database, course_id=course.id, artifact_store=store)
+
+    with database.unit_of_work() as uow:
+        assert uow.identity.get_course(course.id) is not None
