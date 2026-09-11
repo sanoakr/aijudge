@@ -597,17 +597,27 @@ class SqlReviewRepository:
         コースで 42 クエリになり、それを全ページに出る帯に置くことはできない。
 
         **試行を数えないのを SQL でやる。** `Submission.is_trial` は
-        `submitted_as` から導かれる派生プロパティなので、列は無く JSON の
-        中にある。行を持ってきて Python で弾くと、数えるためだけに提出の
-        文書を数百件転送することになる ── ここは数しか要らない。
+        `submitted_as` と `is_demo` から導かれる派生プロパティなので、列は
+        無く JSON の中にある。行を持ってきて Python で弾くと、数えるためだけ
+        に提出の文書を数百件転送することになる ── ここは数しか要らない。
 
-        `submitted_as` が無い古い文書は学習者の提出として数える（この欄が
-        入る前の提出は、そもそも教員の試行という概念が無かった・#108）。
+        **`is_demo` を落とさない。** `is_trial` は「教員の試行**または**デモ
+        コースへの提出」で、片方だけ写すとデモの提出が人待ちとして数えられる
+        （#194・#197 の「述語が 2 つあると片方だけ直る」がここで 3 度目に
+        起きていた）。ここは写しであり、定義は `Submission.is_trial` にある。
+
+        欄が無い古い文書は学習者の提出として数える ── どちらの欄も、入る前の
+        提出には概念そのものが無かった（#108・#194）。
         """
-        learner_submitted = or_(
+        learner_role = or_(
             SubmissionRow.document["submitted_as"].as_string() == Role.LEARNER.value,
             SubmissionRow.document["submitted_as"].as_string().is_(None),
         )
+        not_demo = or_(
+            SubmissionRow.document["is_demo"].as_boolean().is_(None),
+            SubmissionRow.document["is_demo"].as_boolean().is_(False),
+        )
+        learner_submitted = and_(learner_role, not_demo)
 
         contested = (
             select(func.count())
