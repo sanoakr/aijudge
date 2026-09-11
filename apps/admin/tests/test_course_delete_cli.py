@@ -101,6 +101,14 @@ def test_the_cli_does_not_delete_another_tenants_course(
         == 2
     )
     assert "このテナントのコースではありません" in capsys.readouterr().err
+    # **消えていないことまで見る。** 出力だけを見ていると、先に消してから
+    # 警告を出す形に書き換えても、このテストは通ってしまう。
+    database = Database.connect(db_url)
+    try:
+        with database.unit_of_work() as uow:
+            assert uow.identity.get_course(course.id) is not None
+    finally:
+        database.dispose()
 
 
 def test_an_unknown_course_is_reported_not_crashed(db_url: str, tmp_path: Path, course, capsys):
@@ -116,6 +124,34 @@ def test_without_yes_the_cli_asks_first(
     assert _cli(db_url, tmp_path, "course", "delete", "--course", str(course.id)) == 1
     assert "中止しました" in capsys.readouterr().out
 
+    database = Database.connect(db_url)
+    try:
+        with database.unit_of_work() as uow:
+            assert uow.identity.get_course(course.id) is not None
+    finally:
+        database.dispose()
+
+
+def test_no_terminal_means_no_deletion(db_url: str, tmp_path: Path, course, capsys) -> None:
+    """**答えが得られなければ消さない。**
+
+    `input()` は端末が無いと `EOFError` を投げる。`main()` が捕まえるのは
+    `AdminError` だけなので、以前はここで未処理の例外として抜けていた ──
+    `aijudge-admin course delete < /dev/null` を systemd や CI から呼ぶと、
+    運用側には「消えたのか分からない」失敗に見える。
+    """
+    import builtins
+
+    def no_terminal(_prompt: str) -> str:
+        raise EOFError
+
+    original, builtins.input = builtins.input, no_terminal
+    try:
+        assert _cli(db_url, tmp_path, "course", "delete", "--course", str(course.id)) == 1
+    finally:
+        builtins.input = original
+
+    assert "中止しました" in capsys.readouterr().out
     database = Database.connect(db_url)
     try:
         with database.unit_of_work() as uow:

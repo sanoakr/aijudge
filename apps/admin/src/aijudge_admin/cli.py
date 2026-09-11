@@ -136,6 +136,21 @@ def cmd_course_list(args: argparse.Namespace) -> int:
     return 0
 
 
+def _confirmed(question: str) -> bool:
+    """消してよいか訊く。**答えが得られなければ「いいえ」。**
+
+    `input()` は端末が無いと `EOFError` を投げる ── `main()` が捕まえるのは
+    `AdminError` だけなので、`< /dev/null` や systemd・CI から呼ぶと未処理の
+    例外として抜け、運用側からは「消えたのか分からない」失敗になる。
+    **黙って進めるのではなく、中止**として扱う（`--yes` が自動化の口である）。
+    """
+    try:
+        return input(question).strip().lower() in ("y", "yes")
+    except EOFError:
+        print("\n入力がありません（中止しました）", file=sys.stderr)
+        return False
+
+
 def cmd_course_delete(args: argparse.Namespace) -> int:
     """コースを消す（#156）。
 
@@ -173,11 +188,15 @@ def cmd_course_delete(args: argparse.Namespace) -> int:
         print(f"  動作確認の提出 {len(trials):4d} 件（アーティファクトも消えます）")
         print(f"  課題         {len(tasks):4d} 件")
         print(f"  受講登録     {len(enrolments):4d} 件")
-        if not args.yes:
-            answer = input("消します。よろしいですか [y/N]: ").strip().lower()
-            if answer not in ("y", "yes"):
-                print("中止しました")
-                return 1
+        if learner:
+            # **必ず失敗する削除に「よろしいですか」と訊かない**（規則は
+            # `delete_course` にあり、ここで結果は分かっている）。訊けば
+            # 「消えるかもしれない」と読ませてから 2 で終わることになる。
+            print("学習者の提出があるコースは消せません", file=sys.stderr)
+            return 2
+        if not args.yes and not _confirmed("消します。よろしいですか [y/N]: "):
+            print("中止しました")
+            return 1
 
         result = delete_course(database, course_id=course.id, artifact_store=_artifact_store(args))
     except AdminError as exc:
@@ -225,11 +244,11 @@ def cmd_demo_reset(args: argparse.Namespace) -> int:
         print(f"  提出       {len(submissions):4d} 件（アーティファクトも消えます）")
         print(f"  課題       {len(tasks):4d} 件")
         print(f"  受講登録   {len(enrolments):4d} 件（次のログインで戻ります）")
-        if not getattr(args, "yes", False):
-            answer = input("消して作り直します。よろしいですか [y/N]: ").strip().lower()
-            if answer not in ("y", "yes"):
-                print("中止しました")
-                return 1
+        if not getattr(args, "yes", False) and not _confirmed(
+            "消して作り直します。よろしいですか [y/N]: "
+        ):
+            print("中止しました")
+            return 1
 
         result = reset_demo_course(
             database,
