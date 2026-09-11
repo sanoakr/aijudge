@@ -71,6 +71,46 @@ sudo systemctl enable --now aijudge-autodeploy.timer
 journalctl -u aijudge-autodeploy -f
 ```
 
+### リリースのとき ── `pyproject` と `uv.lock` を必ず揃える
+
+タグを切るコミットでは、**版を 2 か所とも上げる**。
+
+```fish
+# pyproject.toml の version を上げ、ロックファイルを追随させる
+uv lock
+git add pyproject.toml uv.lock
+git commit -m "chore: release 0.44.0"
+git tag v0.44.0 && git push origin main --tags
+```
+
+**片方だけ上げると CD が黙って止まる。** `deploy.sh` の `uv sync --frozen` は
+ロックを書き換えないが、その前にサーバで一度でも `uv sync` が走っていると
+`uv.lock` の自分自身の版だけが書き換わり、作業ツリーが dirty になる。次からは
+
+```
+error: Your local changes to the following files would be overwritten by checkout:
+        uv.lock
+```
+
+で `git checkout` が中断し、**`deploy.sh` はそこで終わる** ── アプリは動き続け、
+学生にも教員にも何も起きないので、気づかない。実際に v0.35.1 でこれが起き、
+**8 リリース分（v0.36.0 〜 v0.43.0）がデプロイされないまま 2 日走っていた**。
+
+気づく側の手当てはこれ。CD は失敗を journal にしか残さないので、たまに見る。
+
+```fish
+systemctl is-failed aijudge-autodeploy.service        # failed なら止まっている
+sudo -u aijudge git -C /opt/aijudge describe --tags   # 実際に動いている版
+git ls-remote --tags --refs origin 'v*' | sed 's#.*/##' | sort -V | tail -1
+```
+
+詰まったときは、生成物である `uv.lock` を捨ててからデプロイし直す。
+
+```fish
+sudo -u aijudge git -C /opt/aijudge checkout -- uv.lock
+sudo -u aijudge /opt/aijudge/deploy/deploy.sh v0.44.0
+```
+
 ### ログを読む（ADR 0016）
 
 運用では `AIJUDGE_LOG_FORMAT=json` を設定する（1 行 1 イベント）。

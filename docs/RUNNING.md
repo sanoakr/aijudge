@@ -544,13 +544,6 @@ CAS 同値、物理の単位検査など）。`code_test_runner` は 1 つの評
 分野と単位は骨格でしか作れず、木が空だと「既存の子としてのみ足せる」という
 規則が教員を締め出す。
 
-```fish
-uv run aijudge-admin kc seed --namespace cs
-```
-
-何度走らせても増えない。骨格ファイル（`$AIJUDGE_PROFILES_DIR/kc/cs.yaml`）を
-直して足したら、もう一度走らせれば差分だけが入る。
-
 **運用では科目プロファイルと同じ場所に置く。** リポジトリの `subjects/kc/` は
 サンプルで、デプロイ（`git checkout <tag>`）のたびに入れ替わる。
 
@@ -559,15 +552,61 @@ sudo -u aijudge mkdir -p /srv/aijudge/subjects/kc
 sudo -u aijudge cp /opt/aijudge/subjects/kc/*.yaml /srv/aijudge/subjects/kc/
 ```
 
+`reference/` は写さない ── 原典を読むためのもので、投入しない。
+
+同梱しているのは 3 つ。**要るものだけ入れればよい**（入れていない名前空間を
+プロファイルが宣言すると、そのコースで知識要素を扱えない）。
+
+| 名前空間 | 中身 | 規模 |
+|---|---|---|
+| `cs` | CS2023（ACM/IEEE-CS/AAAI） | 987 件 |
+| `math` | CUPM 2015（MAA）＋ 高等学校学習指導要領（平成30年告示）数学 | 939 件 |
+| `physics` | 参照基準 物理学・天文学分野（2016）＋ FCI ＋ 同 物理基礎・物理 | 535 件 |
+
+```fish
+uv run aijudge-admin kc seed --namespace cs
+uv run aijudge-admin kc seed --namespace math
+uv run aijudge-admin kc seed --namespace physics
+```
+
+何度走らせても増えない。骨格ファイル（`$AIJUDGE_PROFILES_DIR/kc/<名前空間>.yaml`）を
+直して足したら、もう一度走らせれば差分だけが入る。投入は監査に残る
+（`profile.updated` / 対象 `kc_namespace` / 出典つき）。
+
+**知識要素はテナントをまたいで共有される。** `knowledge_components` に
+`tenant_id` は無く、語彙はデプロイに 1 つである ── 投入は機関ごとの操作では
+なく、サーバの運用者が 1 度行う操作になる。**混ざるのは語彙だけで、習熟度は
+混ざらない**（`skill_states` の主キーは `(tenant_id, learner_id, kc_id)`）。
+2 つのテナントが同じ `math.calculus.integral.ftc` を参照するのは正常である。
+そのため利用件数（課題数・コース数）も**テナントをまたいで**数える ──
+自分のところだけ数えると、「ここでは誰も使っていない」が他機関の依存している
+知識要素を引退させる理由になってしまう。詳しくは README の
+「モジュールとテナント」。
+
 画面から足せるのは**知識要素（第 3 階層）まで**で、分野と単位は骨格が決める。
 足すときは近い既存 KC が分野・単位をまたいで提示される（`subjects/kc/README.md`）。
 
 ### 既存の DB に入れるとき
 
-マイグレーション機構はまだ無い（`--create-schema` が
-`Base.metadata.create_all` を呼ぶだけ）。`create_all` は**新しい表は作るが、
-既存の表に列を足さない**。ADR 0010 で `courses` に列が 1 つ増えているので、
-既にデータのある DB では手で足す。
+**スキーマの更新は Alembic が持つ**（v0.10.0 から）。運用の DB では
+`--create-schema` を使わない ── `Base.metadata.create_all` は**新しい表は作るが、
+既存の表に列を足さない**ので、黙って半分だけ新しい DB ができる。
+
+```fish
+uv run alembic upgrade head
+```
+
+`deploy.sh` がタグの checkout の直後にこれを実行するので、**タグでデプロイする
+限り手で走らせる必要はない**。手で上げるのは、デプロイ経路の外にある DB
+（開発機・検証環境）を引き上げるときだけ。
+
+#### Alembic より前の DB を引き上げる
+
+以下は **v0.10.0 より前の DB を Alembic の管理下に入れるときだけ**必要な手順で、
+いまの運用の手順ではない。`alembic upgrade head` が通る DB でこれを手で流すと、
+Alembic の見ている状態と食い違う。
+
+ADR 0010 で `courses` に列が 1 つ増えているので、既にデータのある DB では手で足す。
 
 ```sql
 ALTER TABLE courses ADD COLUMN auto_finalize_after_hours DOUBLE PRECISION;
