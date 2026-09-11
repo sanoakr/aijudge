@@ -191,3 +191,26 @@ def test_the_recorder_works_against_either_implementation(database: Database) ->
                 summary="採点を修正した",
             )
             assert log.find(event.id) is not None
+
+
+def test_an_enrolment_target_fits(database: Database) -> None:
+    """**対象が対の記録も保存できること。**
+
+    受講登録には固有の id が無く、「どのコースの誰か」の対でしか名指せない
+    （`crs_…:usr_…` で 73 字）。列が 64 字だったころ、デモコースの自動登録が
+    最初のログインで 500 を返した ── 記録が入らないので、ログインの
+    トランザクションごと巻き戻っていた。
+    """
+    target = f"crs_{'1' * 32}:usr_{'2' * 32}"
+    assert len(target) == 73
+
+    for log in _both(database):
+        log.record(
+            an_event(
+                action=AuditAction.ENROLLED,
+                target_type="enrolment",
+                target_id=target,
+                summary="デモコースに自動登録した（learner）",
+            )
+        )
+        assert [event.target_id for event in log.list_for_target("enrolment", target)] == [target]
