@@ -45,6 +45,7 @@ def an_id_token(
     email: str = "taro@example.ac.jp",
     hd: str | None = "example.ac.jp",
     aud: str = CLIENT_ID,
+    email_verified: object = True,
 ) -> str:
     header = {"alg": "RS256", "kid": KID}
     payload: dict[str, object] = {
@@ -52,12 +53,16 @@ def an_id_token(
         "aud": aud,
         "sub": sub,
         "email": email,
+        "email_verified": email_verified,
         "nonce": nonce,
         "iat": int(time.time()),
         "exp": int(time.time()) + 3600,
     }
     if hd is not None:
         payload["hd"] = hd
+    if email_verified is None:
+        # 「欄ごと無い」を作れるようにする ── 偽と欠落は別の状態である。
+        del payload["email_verified"]
     return jwt.encode(header, payload, _KEY)
 
 
@@ -263,3 +268,31 @@ def test_the_hint_does_not_replace_the_domain_check() -> None:
             actual_state="s",
             expected_nonce="n",
         )
+
+
+def test_an_unverified_email_cannot_log_in() -> None:
+    """**確認済みでないメールは通さない**（#220）。
+
+    `hd` が無い経路はメールの後ろでドメインを見るので、確認していない
+    アドレスを受け入れると「その機関のドメインを名乗るだけ」で境界を
+    越えられる。#208 の「`hd` はヒントで、境界は突合後の検査」という判断は、
+    この検査が効いていることを前提にしている。
+    """
+    provider = a_provider(
+        id_token=an_id_token(nonce="n", hd=None, email_verified=False),
+    )
+    with pytest.raises(AuthenticationFailed):
+        exchange(provider, nonce="n")
+
+
+def test_a_missing_email_verified_claim_is_not_treated_as_verified() -> None:
+    """欠落は「確認済み」ではない。**既定で通す側に倒さない。**"""
+    provider = a_provider(id_token=an_id_token(nonce="n", hd=None, email_verified=None))
+    with pytest.raises(AuthenticationFailed):
+        exchange(provider, nonce="n")
+
+
+def test_a_verified_email_still_logs_in() -> None:
+    """検査を足しても、正しい利用者は通ること。"""
+    identity = exchange(a_provider(id_token=an_id_token(nonce="n")), nonce="n")
+    assert identity.email == "taro@example.ac.jp"
