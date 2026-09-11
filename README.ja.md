@@ -230,6 +230,95 @@ uv run lint-imports
 
 ---
 
+## モジュールとテナント
+
+このコードベースには境界が 2 つ通っていて、**それは同じ境界ではありません**。
+モジュール境界は「何が何を import してよいか」を決めます。ビルド時に
+`import-linter` が検査し、レビューではなく**ビルドを落とします**。
+テナント境界は「どの行がどの機関のものか」を決めます。こちらは実行時のデータの中に
+あります。1 つのモジュールが 2 つ目の境界の両側に状態を持つのが普通で、
+`packages/skill` は**デプロイ全体で共有する**知識要素の語彙と、**共有しない**
+習熟度の推定値の両方を持ちます。
+
+### モジュール境界 ── 何が何を import してよいか
+
+```mermaid
+flowchart TB
+    APPS["apps/* — 合成の中心<br/>studentweb · reviewconsole · grader · admin · evalrunner<br/>サブシステムを束ねてよい唯一の層"]
+    SUBS["packages/* — サブシステム<br/>authoring · grading · submission · identity · skill · analytics · llm_gateway<br/>互いに独立。連携は aijudge_core.events を通す"]
+    CORE["packages/core — ドメイン模型とイベント契約<br/>何にも依存せず、I/O もしない"]
+    INFRA["packages/persistence — 基盤<br/>Protocol の実装。どのサブシステムも import しない"]
+    PLUG["evaluators/* · normalizers/*<br/>core・採点プロトコル・llm_gateway・sandbox だけ"]
+
+    APPS --> SUBS
+    APPS --> INFRA
+    APPS --> PLUG
+    SUBS --> CORE
+    PLUG --> CORE
+    INFRA --> SUBS
+```
+
+矢印は import が通ってよい向きで、逆は通りません。`.importlinter` の 19 の契約が
+これを保っており、**いくつかは逆向きが実際に起きたから存在します** ──
+観測レコードが `analytics` にあったために、測定を消すと採点が止まりました
+（ADR 0005・ADR 0007）。
+
+### テナント境界 ── どの行が誰のものか
+
+```mermaid
+flowchart TB
+    subgraph DEP["1 つのデプロイ ── DB 1 つ、プロセス一式"]
+        subgraph SHARED["全テナントで共有"]
+            KC["knowledge_components<br/>KC の語彙: cs · math · physics"]
+            FILES["subjects/*.yaml · 評価器 · KC の骨格<br/>行ではなくファイル"]
+        end
+        subgraph TEN_A["テナント A"]
+            CA["users · courses · tasks<br/>submissions · grading_runs"]
+            SA["skill_states<br/>(A, 学習者, kc)"]
+        end
+        subgraph TEN_B["テナント B"]
+            CB["users · courses · tasks<br/>submissions · grading_runs"]
+            SB["skill_states<br/>(B, 学習者, kc)"]
+        end
+    end
+
+    CA -- "課題が KC を名指す" --> KC
+    CB -- "課題が KC を名指す" --> KC
+    SA -- "習熟度はテナント別" --> KC
+    SB -- "習熟度はテナント別" --> KC
+    CA -. 読む .-> FILES
+    CB -. 読む .-> FILES
+```
+
+**2 つのテナントが同じ `math.calculus.integral.ftc` を参照するのは正常**で、
+習熟度は混ざりません（`skill_states` の主キーが
+`(tenant_id, learner_id, kc_id)` だからです）。テナントごとに語彙を複製すると、
+同じ CS2023 の概念に機関ごとの別 ID が付き、骨格の更新がテナントの数だけ必要になり、
+機関をまたいだ測定の比較ができなくなります。
+
+### `tenant_id` が無いことには 2 つの意味がある
+
+| 表 | `tenant_id` | テナントの決まり方 |
+|---|---|---|
+| `users`・`courses`・`submissions`・`skill_states`・`audit_events` | あり | 列そのもの |
+| `tasks`・`task_versions`・`grading_runs`・`human_reviews`・`finalizations` | 無し | **親から決まる。** 列を複製すると、コースを移したときに片方だけ古くなる余地が生まれる |
+| `knowledge_components` | 無し | **持ち主がいない。** 語彙はデプロイに 1 つ |
+
+「`tenant_id` が無い＝みんなのもの」と読んでよいのは、この表の**1 行だけ**です。
+
+### いま何が成り立っているか
+
+- 教員が足した知識要素は、同じ名前空間を宣言したコースであれば**どのテナントからも見えます**
+- 利用件数（課題数・コース数）は**テナントをまたいで**数えます。自分のところだけ数えると、
+  「ここでは誰も使っていない」が、他機関が依存している知識要素を引退させる理由になってしまいます
+- **名前は越えません。** 画面に出るのは件数と日付だけで、他テナントのコース名も、
+  誰が足したかも出しません
+- **できないことが 1 つ** ── テナントに閉じた名前空間は持てません。マルチテナントの実装は
+  PoC-5（`packages/core/src/aijudge_core/tenancy.py`）で、単独機関の運用ではテナントは 1 件、
+  そこから育つ形がこれです
+
+---
+
 ## ライセンス
 
 [Apache License 2.0](LICENSE)。特許条項が入っているのが要点で、各サブシステムは他の機関が単独で採用できる大きさに保つことを意図しています。特許条項の無いライセンスでは、その採用が技術ではなく法務の問題になります。

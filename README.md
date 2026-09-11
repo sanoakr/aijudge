@@ -278,6 +278,100 @@ uv run lint-imports
 
 ---
 
+## Modules and tenants
+
+Two boundaries run through this codebase, and they are **not the same boundary**.
+The module boundary decides what may import what; it is checked at build time by
+`import-linter` and breaks the build, not the review. The tenant boundary decides
+which rows belong to which institution; it lives in the data at run time. One
+module usually holds state on both sides of the second boundary —
+`packages/skill` owns the knowledge-component vocabulary, which the whole
+deployment shares, and the mastery estimates, which it does not.
+
+### The module boundary — who may import whom
+
+```mermaid
+flowchart TB
+    APPS["apps/* — composition roots<br/>studentweb · reviewconsole · grader · admin · evalrunner<br/>the only layer allowed to combine subsystems"]
+    SUBS["packages/* — subsystems<br/>authoring · grading · submission · identity · skill · analytics · llm_gateway<br/>independent of one another; they meet through aijudge_core.events"]
+    CORE["packages/core — domain model and event contracts<br/>depends on nothing, performs no I/O"]
+    INFRA["packages/persistence — infrastructure<br/>implements the Protocols; no subsystem may import it"]
+    PLUG["evaluators/* · normalizers/*<br/>core, the grading protocol, llm_gateway and sandbox — nothing else"]
+
+    APPS --> SUBS
+    APPS --> INFRA
+    APPS --> PLUG
+    SUBS --> CORE
+    PLUG --> CORE
+    INFRA --> SUBS
+```
+
+Arrows point the only way an import may go. Nineteen contracts in `.importlinter`
+hold them, and several exist because the reverse direction had already happened:
+the observation record lived in `analytics`, so deleting measurement stopped
+grading (ADR 0005, ADR 0007).
+
+### The tenant boundary — who owns which rows
+
+```mermaid
+flowchart TB
+    subgraph DEP["One deployment — one database, one set of processes"]
+        subgraph SHARED["Shared by every tenant"]
+            KC["knowledge_components<br/>the KC vocabulary: cs · math · physics"]
+            FILES["subjects/*.yaml · evaluators · KC skeletons<br/>files on disk, not rows"]
+        end
+        subgraph TEN_A["Tenant A"]
+            CA["users · courses · tasks<br/>submissions · grading_runs"]
+            SA["skill_states<br/>(A, learner, kc)"]
+        end
+        subgraph TEN_B["Tenant B"]
+            CB["users · courses · tasks<br/>submissions · grading_runs"]
+            SB["skill_states<br/>(B, learner, kc)"]
+        end
+    end
+
+    CA -- "a task names a KC" --> KC
+    CB -- "a task names a KC" --> KC
+    SA -- "mastery is per tenant" --> KC
+    SB -- "mastery is per tenant" --> KC
+    CA -. reads .-> FILES
+    CB -. reads .-> FILES
+```
+
+Two tenants referring to the same `math.calculus.integral.ftc` is normal, and
+their mastery does not mix: `skill_states` is keyed by
+`(tenant_id, learner_id, kc_id)`. Copying the vocabulary per tenant would give
+each institution its own id for the same CS2023 concept — the skeleton would
+have to be updated once per tenant, and no measurement could be compared across
+them.
+
+### A missing `tenant_id` means two different things
+
+| Tables | `tenant_id` | How the tenant is decided |
+|---|---|---|
+| `users`, `courses`, `submissions`, `skill_states`, `audit_events` | yes | the column |
+| `tasks`, `task_versions`, `grading_runs`, `human_reviews`, `finalizations` | no | **derived from the parent.** Duplicating the column would let the copy go stale when a course moves |
+| `knowledge_components` | no | **there is no owner.** One vocabulary per deployment |
+
+Reading "no `tenant_id`" as "shared by everyone" is correct on exactly one row of
+that table.
+
+### What follows from it today
+
+- A knowledge component an instructor adds is visible to every course that
+  declares the same namespace, in any tenant.
+- Usage counts (how many tasks, how many courses) are counted **across** tenants
+  on purpose. Counting only your own would make "nobody here uses it" an
+  argument for retiring a component another institution depends on.
+- Names do not cross. The screen shows a count and a date — never another
+  tenant's course, and never who added the component.
+- What is not possible yet is a namespace scoped to a single tenant.
+  Multi-tenancy is PoC-5 (`packages/core/src/aijudge_core/tenancy.py`); a
+  single-institution deployment has one tenant, and this is the shape it grows
+  into.
+
+---
+
 ## License
 
 [Apache License 2.0](LICENSE). The patent grant is deliberate: each subsystem is
