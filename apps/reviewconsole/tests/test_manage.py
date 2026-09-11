@@ -1997,6 +1997,61 @@ def test_a_task_can_declare_its_own_upload_formats(world: World) -> None:
 # --------------------------------------------------------------------------
 
 
+def test_revising_a_task_keeps_its_own_subject_profile(world: World) -> None:
+    """**採点のプロファイルは課題が決める**（#195・#264）。
+
+    コースの値は**新しい課題の既定**であって、既にある課題の決定ではない。
+    渡し間違えると、問題文を直しただけで**採点のされ方が変わる**。
+
+    本番で踏んだ ── 画像・C 言語・レポートが混在するデモコースで、C の課題を
+    1 回直したら `cs_lang_c_intro` が `demo_image` になり、テスト実行も
+    読みやすさの AI 判定も走らなくなって、総合点が永久に保留になった。
+
+    **混在コースでしか出ない。** 1 コース 1 種類なら両者の値が一致している。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    client.post(
+        f"/manage/courses/{world.course.id}/tasks",
+        data={
+            "key_suffix": "mix",
+            "unit": "ex10",
+            "statement": "## [必須] 混在 ##\n\n本文",
+            "position": "1",
+            "readability_weight": "0.3",
+        },
+    )
+    # コースとは違う科目を課題に宣言させる（#195 が可能にしたこと）。
+    with world.database.unit_of_work() as uow:
+        (task,) = uow.tasks.list_for_course(world.course.id)
+        first = uow.tasks.latest_version(task.id)
+        uow.tasks.save_version(
+            first.model_copy(
+                update={
+                    "id": TaskVersionId("tsv_" + "c" * 32),
+                    "version": first.version + 1,
+                    "subject_profile": "report_ja",
+                }
+            )
+        )
+        uow.commit()
+    with world.database.unit_of_work() as uow:
+        course = uow.identity.get_course(world.course.id)
+        seeded = uow.tasks.latest_version(task.id)
+    assert seeded.subject_profile != course.subject_profile, "前提が崩れている（混在していない）"
+
+    response = client.post(
+        f"/manage/courses/{world.course.id}/tasks/{task.id}/revise",
+        data={"statement": "## [必須] 混在 ##\n\n直した本文", "readability_weight": "0.3"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303, response.text
+
+    with world.database.unit_of_work() as uow:
+        latest = uow.tasks.latest_version(task.id)
+    assert latest.subject_profile == "report_ja", "編集で採点のプロファイルが変わった"
+
+
 def test_revising_a_task_keeps_its_tests_and_reference_solution(world: World) -> None:
     """**問題文を直しただけでテストが消えてはいけない**（#262）。
 
@@ -2859,6 +2914,10 @@ def test_a_report_subject_is_not_warned_about_missing_tests(world: World) -> Non
     """**宣言していない科目では、テストが無いのが正常。**
 
     落ちたわけでないものを同じ顔で警告すると、警告が読まれなくなる。
+
+    **科目を決めるのは課題**（#195・#264）。以前はここでコースの側だけを
+    report_ja にしていたが、それは「コースの値で判断する」という実装に
+    合わせた設定で、規則の方ではなかった。
     """
     world.register("teacher", Role.INSTRUCTOR)
     client = world.client("teacher")
@@ -2873,6 +2932,7 @@ def test_a_report_subject_is_not_warned_about_missing_tests(world: World) -> Non
                 update={
                     "id": TaskVersionId("tsv_" + "d" * 32),
                     "version": version.version + 1,
+                    "subject_profile": "report_ja",
                     "test_cases": (),
                 }
             )

@@ -335,13 +335,19 @@ def _merged(outcomes) -> _Merged:
     )
 
 
-def _wants_tests(request: Request, course) -> bool:
-    """この科目はテスト実行で正しさを確定させるか。
+def _wants_tests(request: Request, course, version=None) -> bool:
+    """この課題はテスト実行で正しさを確定させるか。
 
     宣言していない科目（レポートなど）では、テストケースが無いのが正常で
     あって落ちたわけではない。両者を同じ顔で警告すると、警告が読まれなくなる。
+
+    **課題のプロファイルで見る**（#195・#264）。混在コース（レポートと
+    プログラム）では、コースの値で見ると課題ごとに答えが変わらず、
+    「テストが無い」の警告が出るべき課題に出ず、出ない課題に出る。
+    版が無い場面（新しい課題を作る前）だけコースの既定に落ちる。
     """
-    profile = load_profile(_console(request).profiles_dir / f"{course.subject_profile}.yaml")
+    name = version.subject_profile if version is not None else course.subject_profile
+    profile = load_profile(_console(request).profiles_dir / f"{name}.yaml")
     return CODE_TEST_RUNNER in profile.deterministic
 
 
@@ -3603,7 +3609,13 @@ def register(templates) -> APIRouter:
                 console.database,
                 course_id=course.id,
                 spec=spec,
-                subject_profile=course.subject_profile,
+                # **課題が自分のプロファイルを持つ**（#195・#264）。ここは
+                # 既にある課題を直す経路なので、コースの値を渡すと採点の
+                # され方が黙って変わる ── 混在コース（レポートとプログラム）
+                # では、問題文を直しただけで C の課題が画像採点になった。
+                # コースの値は**新しい課題の既定**であって、既存の課題の
+                # 決定ではない。
+                subject_profile=version.subject_profile,
                 authored_by=me.user_id,
                 revise=True,
                 course_rubric=course.rubric,
@@ -3708,7 +3720,7 @@ def register(templates) -> APIRouter:
                 "other_units": others,
                 # テストで確定できる科目か。宣言していない科目（レポートなど）
                 # には出さない ── 選べない選択肢を見せない。
-                "wants_tests": _wants_tests(request, course),
+                "wants_tests": _wants_tests(request, course, version),
                 # **既にある課題にも出す。** #15 より前に画面から作った課題は
                 # テストケースを持てず、正しさが AI 判定のまま残っている。
                 # 課題を開いたときに分からなければ、直す機会が無い。
@@ -3716,7 +3728,7 @@ def register(templates) -> APIRouter:
                     task is not None
                     and version is not None
                     and not version.test_cases
-                    and _wants_tests(request, course)
+                    and _wants_tests(request, course, version)
                 ),
                 # 訂正した版で採点し直せる件数（確定済みは数えない）。
                 "regradable": _regradable(_console(request), task, published),
@@ -3770,11 +3782,14 @@ def register(templates) -> APIRouter:
         if version.test_cases:
             raise HTTPException(status_code=409, detail="この課題には既にテストケースがあります")
 
-        profile = load_profile(console.profiles_dir / f"{course.subject_profile}.yaml")
+        # **課題のプロファイルで判断する**（#195・#264）。コースの値で見ると、
+        # 混在コースでは「この科目はテスト実行を使いません」と、対象と関係
+        # のない科目名で断られる（実際に C の課題が demo_image で断られた）。
+        profile = load_profile(console.profiles_dir / f"{version.subject_profile}.yaml")
         if CODE_TEST_RUNNER not in profile.deterministic:
             raise HTTPException(
                 status_code=409,
-                detail=f"この科目（{course.subject_profile}）はテスト実行を使いません",
+                detail=f"この課題（{version.subject_profile}）はテスト実行を使いません",
             )
 
         try:
@@ -3870,7 +3885,11 @@ def register(templates) -> APIRouter:
             service.request_regrade(
                 tenant_id=course.tenant_id,
                 submission_id=submission.id,
-                subject_profile=course.subject_profile,
+                # **再採点は、回す先の版の規則で走らせる**（#195・#264）。
+                # コースの値を渡すと、混在コースで別の科目の規則で採点し直す
+                # ことになる ── 再採点は「同じ課題を新しい版で見直す」操作で
+                # あって、課題の種類を変える操作ではない。
+                subject_profile=version.subject_profile,
                 task_version_id=version.id,
             )
             queued += 1
