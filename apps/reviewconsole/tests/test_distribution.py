@@ -6,8 +6,12 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 from aijudge_core import Role
 from aijudge_core.ids import SubmissionId, TaskId, UserId
+
+NOW = datetime(2026, 4, 1, 9, 0, tzinfo=UTC)
 
 TASK = TaskId("tsk_" + "2" * 32)
 
@@ -29,6 +33,8 @@ def test_the_distribution_counts_past_the_listing_limit() -> None:
             task_id=TASK,
             final_ratio=1.0,
             is_trial=False,
+            submitted_at=NOW + timedelta(minutes=index),
+            attempt=1,
             graded=True,
         )
         for index in range(LISTING_LIMIT + 10)
@@ -51,6 +57,8 @@ def test_the_distribution_never_counts_a_trial() -> None:
             task_id=TASK,
             final_ratio=1.0,
             is_trial=trial,
+            submitted_at=NOW + timedelta(minutes=index),
+            attempt=1,
             graded=True,
         )
 
@@ -76,6 +84,8 @@ def test_a_role_other_than_learner_leaves_the_distribution_empty() -> None:
             task_id=TASK,
             final_ratio=1.0,
             is_trial=False,
+            submitted_at=NOW,
+            attempt=1,
             graded=True,
         ),
     )

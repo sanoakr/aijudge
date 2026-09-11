@@ -32,10 +32,11 @@ from __future__ import annotations
 import os
 import re
 import tomllib
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
+from urllib.parse import urlencode
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, StreamingResponse
@@ -107,7 +108,6 @@ from .submissions import (
     distribution_for,
     load_rows,
     load_scored,
-    newest_first,
 )
 from .urls import RedirectResponse, prefixed, root_prefix
 
@@ -509,6 +509,29 @@ def require_principal(request: Request) -> Principal:
 Me = Annotated[Principal, Depends(require_principal)]
 
 
+def _page_href(base: str, filters: Filters) -> Callable[[int], str]:
+    """頁の行き先を作る（#255）。**いまの絞り込みをそのまま載せる。**
+
+    絞り込みは URL に載っている（`submissions.py`）ので、頁を送るときも
+    落とさずに運ぶ ── 落とすと、2 頁目でコース全体に戻る。
+    """
+    carried = {
+        "unit": filters.unit,
+        "task": filters.task,
+        "learner": filters.learner,
+        "role": filters.role,
+        "state": filters.state,
+        "adopted": "1" if filters.adopted else "",
+    }
+
+    def href(number: int) -> str:
+        query = {key: value for key, value in carried.items() if value}
+        query["page"] = str(number)
+        return f"{base}?{urlencode(query)}"
+
+    return href
+
+
 def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
     app = FastAPI(title="aiJudge instructor console")
     app.state.aijudge = console
@@ -862,6 +885,7 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
         role: str = "",
         state: str = "",
         adopted: int = 0,
+        page: int = 1,
     ) -> HTMLResponse:
         """提出の一覧。**実際に何が出ているかを見る場所**（`submissions.py`）。
 
@@ -896,7 +920,6 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
         # 決めるのはこの 1 行**で、保存層の絞り込みは読む量を減らすだけである
         # （模型の実装は課題で絞れないが、それでも結果は変わらない）。
         with console.database.unit_of_work() as uow:
-            listing = load_rows(uow, course, filters)
             # **全件は数えて訊く**（#219）。読んだ行から数えると、絞り込んだ
             # 表示では「全 N 件」が絞り込み後の数に化ける。
             counts = uow.submissions.count_for_course(course.id)
@@ -904,8 +927,13 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
             # で、図に上限は要らない ── 同じ行から作っている限り、切られた
             # 分布がコース全体の分布として読まれる（#233）。
             scored = load_scored(uow, course, filters)
-        rows = listing.rows
-        shown = newest_first([row for row in rows if filters.matches(row)])
+            # **図の読み出しを一覧にも渡す。** 採用提出はコース全体で決まる
+            # ので、頁の中だけ見て決めると「この頁でいちばん高い提出」に
+            # なる（#255・#256）。同じものを二度読まない。
+            listing = load_rows(uow, course, filters, scored=scored, page=page)
+        # SQL で頁を切れたときは既に絞れている（`load_rows`）。切れなかった
+        # ときも `load_rows` の中で絞って頁にしてある。
+        shown = listing.rows
         return TEMPLATES.TemplateResponse(
             request,
             "submissions.html",
@@ -914,6 +942,12 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 "course": course,
                 "section": {"label": "提出", "href": f"/courses/{course.id}/submissions"},
                 "rows": shown,
+                "page": listing.page,
+                # **頁の行き先は絞り込みを持ち歩く**（#255）。条件を落として
+                # 送ると、2 頁目を開いた瞬間に絞り込みが消える。
+                "page_href": _page_href(
+                    f"{root_prefix()}/courses/{course.id}/submissions", filters
+                ),
                 "total": counts.learner + counts.trial,
                 "filters": filters,
                 # 問題セットの選択肢は全部、問題の選択肢は選んだセットの中だけ。

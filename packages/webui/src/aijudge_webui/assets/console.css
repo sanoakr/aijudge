@@ -296,3 +296,15 @@ form[data-working] button[disabled]{opacity:.55;cursor:progress}
   .formats{flex-wrap:wrap}
   .keyline{flex-wrap:wrap}
 }
+
+/* 頁送り（#255）。**表の下に置く。**
+
+   端は「新しい／古い」と書く ── 一覧は新しい順なので、「次へ」では
+   どちらへ動くのかが読めない（提出の新旧と頁の前後が逆向きになる）。
+
+   行き止まりの側もリンクと同じ幅で置く。消すと、押す位置が頁によって
+   動いて手が迷う。 */
+.pager{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;
+  gap:6px 18px;margin:18px 0 4px;font-size:.85rem}
+.pager .at{color:var(--muted);font-variant-numeric:tabular-nums}
+.pager .off{color:var(--muted);opacity:.45}
