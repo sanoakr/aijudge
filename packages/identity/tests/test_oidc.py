@@ -9,6 +9,7 @@ Google のトークン・JWKS エンドポイントは `httpx.MockTransport` で
 from __future__ import annotations
 
 import time
+from urllib.parse import parse_qsl, urlparse
 
 import httpx
 import pytest
@@ -214,3 +215,51 @@ def test_oidc_settings_round_trip() -> None:
     repository.save_oidc_settings(settings)
 
     assert repository.get_oidc_settings(TENANT) == settings
+
+
+# --------------------------------------------------------------------------
+# 認可リクエストの組み立て（#208）
+# --------------------------------------------------------------------------
+
+
+def _authorization_params(settings: OidcSettings) -> dict[str, str]:
+    url, _state, _nonce = GoogleOidcProvider().authorization_url(
+        settings, redirect_uri=REDIRECT_URI
+    )
+    return dict(parse_qsl(urlparse(url).query))
+
+
+def test_the_authorization_request_always_asks_which_account() -> None:
+    """**口座を選ばせる。** 付けないと Google はブラウザに残っている
+    セッションを黙って再利用し、私物の口座で弾かれる（#208）。"""
+    assert _authorization_params(a_settings())["prompt"] == "select_account"
+
+
+def test_a_single_allowed_domain_becomes_a_hint() -> None:
+    """候補を絞る助けとして `hd` を添える。**検査ではない。**"""
+    assert _authorization_params(a_settings())["hd"] == "example.ac.jp"
+
+
+def test_two_allowed_domains_produce_no_hint() -> None:
+    """`hd` は 1 つしか取れない ── 片方を選ぶと、もう片方の在学者が
+    選択画面で自分の口座を見失う。"""
+    settings = a_settings(allowed_domains=("example.ac.jp", "grad.example.ac.jp"))
+    assert "hd" not in _authorization_params(settings)
+
+
+def test_the_hint_does_not_replace_the_domain_check() -> None:
+    """**`hd` は URL の書き換えで外せる。** 境界は突合後の検査の側にあり、
+    そちらは `hd` を付けたテナントでも変わらず効く（#208）。"""
+    settings = a_settings()
+    assert _authorization_params(settings)["hd"] == "example.ac.jp"
+
+    provider = a_provider(id_token=an_id_token(nonce="n", email="taro@gmail.com", hd=None))
+    with pytest.raises(AuthenticationFailed):
+        provider.exchange_code(
+            settings,
+            code="c",
+            redirect_uri=REDIRECT_URI,
+            expected_state="s",
+            actual_state="s",
+            expected_nonce="n",
+        )
