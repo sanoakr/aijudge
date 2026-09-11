@@ -184,9 +184,17 @@ class GoogleOidcProvider:
         if claims.get("email_verified") is not True:
             raise AuthenticationFailed("このアカウントではログインできません")
 
+        # **`hd` を要求する**（#220）。以前はこれが無いときメールの後ろを
+        # 見ていたが、それは「その機関のドメインを名乗る」ことと区別が
+        # つかない ── `hd` は Google が組織の所属として発行する主張で、
+        # 利用者が決められる文字列ではない。
+        #
+        # **代償は承知の上である。** Workspace を使っていない機関のメール
+        # ドメインは、これで受け付けられなくなる（`docs/RUNNING.md`）。
         hd = claims.get("hd")
-        domain = hd or email.rsplit("@", 1)[-1]
-        if domain not in settings.allowed_domains:
+        if not hd:
+            raise AuthenticationFailed("このドメインのアカウントではログインできません")
+        if hd not in settings.allowed_domains:
             raise AuthenticationFailed("このドメインのアカウントではログインできません")
 
         return GoogleOidcIdentity(sub=sub, email=email, hd=hd)
