@@ -145,7 +145,8 @@
     {% endif %}
   </span>
 </h2>
-<table>
+{# 携帯では行を積む（`table.stack`）。 #}
+<table class="stack">
   <thead><tr>
     <th class="fit">回</th><th class="fit">提出日時</th><th class="fit">得点</th>
     <th class="grow">状態</th><th class="fit"></th>
@@ -153,9 +154,9 @@
   <tbody>
   {% for item in attempts %}
     <tr>
-      <td class="fit">{{ item.submission.attempt }}</td>
-      <td class="fit">{{ item.submission.submitted_at.strftime('%Y-%m-%d %H:%M') if item.submission.submitted_at else '—' }}</td>
-      <td class="fit">
+      <td class="fit" data-label="回">{{ item.submission.attempt }}</td>
+      <td class="fit" data-label="提出日時">{{ item.submission.submitted_at.strftime('%Y-%m-%d %H:%M') if item.submission.submitted_at else '—' }}</td>
+      <td class="fit" data-label="得点">
         {% if item.score_ratio is not none %}
           <strong>{{ '%.0f' | format(item.score_ratio * 100) }}%</strong>
           {# 最高得点が採用される。どの提出が採られているかを示さないと、
@@ -163,7 +164,7 @@
           {% if item.adopted %}<span class="pill ok">採用</span>{% endif %}
         {% else %}<span class="desc">—</span>{% endif %}
       </td>
-      <td class="grow">
+      <td class="grow" data-label="状態">
         {# 確定の出所まで区別する。「確認済み」でまとめると、誰も読んでいない
            自動確定が「教員が確認しました」として並ぶ（ADR 0010）。 #}
         <span class="pill {{ item.status_tone }}">{{ item.status_label }}</span>

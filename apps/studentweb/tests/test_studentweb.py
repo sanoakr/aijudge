@@ -2086,3 +2086,28 @@ def test_the_demo_course_does_not_promise_an_answer(world: World, monkeypatch) -
 
     assert "回答されるとは限りません" in body
     assert "根拠を添えて回答します" not in body
+
+
+def test_the_tables_carry_their_headings_into_the_stacked_form(world: World) -> None:
+    """**携帯では表を積む。列の見出しはセルが持つ**（`table.stack`）。
+
+    横に送らせると、見出しが画面の外にあるあいだ「どの値が何なのか」が
+    分からない ── 表の意味が失われる。積んだときは各セルが自分の見出しを
+    言う必要があり、それはテンプレートの `data-label` から来る。
+
+    **列を足したときに落ちる。** 見出しの無いセルは、携帯では値だけが
+    宙に浮く。
+    """
+    import re
+
+    world.register("s2400020")
+    world.login("s2400020")
+
+    body = world.client.get("/").text
+    table = re.search(r'<table class="stack">.*?</table>', body, re.DOTALL)
+    assert table is not None, "コース一覧が積む表になっていない"
+
+    cells = re.findall(r"<td\b[^>]*>", table.group(0))
+    assert cells, "行が無い（前提が崩れている）"
+    unlabelled = [cell for cell in cells if "data-label=" not in cell]
+    assert not unlabelled, f"見出しの無いセルがある: {unlabelled}"

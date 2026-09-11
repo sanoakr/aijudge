@@ -46,7 +46,9 @@
   </span>
 </h3>
 </summary>
-<table>
+{# 携帯では行を積む（`table.stack`）。課題の題は見出し無しで出す ──
+   1 枚の塊の中で、それが何かは題そのものが言う。 #}
+<table class="stack">
   <thead><tr>
     <th class="fit">問</th><th class="grow">課題</th>
     {# 提出回数と採用される点。**一覧に出す。** 出さないと、学習者は自分の
@@ -60,12 +62,12 @@
        JavaScript でしか作れず（素の HTML に行リンクは無い）、キーボード
        操作とスクリーンリーダーはリンクを辿るため。 #}
     <tr class="row-link" data-href="/tasks/{{ version.id }}">
-      <td class="fit mono">{{ 'p%d' | format(task.position) if task.position else '—' }}</td>
-      <td class="grow">{{ task.title }}</td>
-      <td class="fit">
+      <td class="fit mono" data-label="問">{{ 'p%d' | format(task.position) if task.position else '—' }}</td>
+      <td class="grow"><strong>{{ task.title }}</strong></td>
+      <td class="fit" data-label="提出">
         {% if p.count %}{{ p.count }} 回{% else %}<span class="desc">未提出</span>{% endif %}
       </td>
-      <td class="fit">
+      <td class="fit" data-label="得点">
         {% if p.best_ratio is not none %}
           {# 最高得点が採用される（progress.py）。確定前ならそう添える ──
              確定した点と AI の暫定値を同じ顔で並べると、学習者は暫定値を
