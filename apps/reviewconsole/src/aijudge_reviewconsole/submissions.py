@@ -363,16 +363,30 @@ def _finalized_by(
 def _mark_adopted(rows: list[Row]) -> list[Row]:
     """学習者・課題ごとに最高点の提出へ印を付ける。
 
-    同点なら後の提出を採る（`aijudge_studentweb.progress` と同じ規則 ──
-    学習者に見えている採用と教員が見る採用がずれてはいけない）。
+    同点なら**後に出した提出**を採る ── `aijudge_studentweb.progress` と
+    同じ規則で、学習者に見えている採用と教員が見る採用がずれてはいけない。
+
+    **並び順に依存させない。** 以前はここが「先に見つけた方を後で上書き
+    する」書き方で、入力が古い順であることに暗黙に頼っていた。#233 で一覧を
+    新しい順に変えたとき、同点の採用が**学習者と逆**になった ── 3 回とも
+    満点なら、学習者には 3 回目が、教員には 1 回目が採用として見えていた。
+    規則を並びから切り離せば、呼び手が順序を変えても壊れない。
+
+    比べるのは (点, 提出時刻, 回数)。時刻だけでは、同じ時刻に入った提出が
+    偶然で決まる。
     """
+
+    def rank(row: Row) -> tuple[float, datetime, int]:
+        at = row.submission.submitted_at or row.submission.created_at
+        return (row.score or 0.0, at, row.submission.attempt)
+
     best: dict[tuple[str, str], int] = {}
     for index, row in enumerate(rows):
         if row.score is None:
             continue
         key = (str(row.submission.learner_id), str(row.task.id))
         current = best.get(key)
-        if current is None or row.score >= (rows[current].score or -1.0):
+        if current is None or rank(row) > rank(rows[current]):
             best[key] = index
     for index in best.values():
         row = rows[index]
@@ -388,6 +402,7 @@ def _mark_adopted(rows: list[Row]) -> list[Row]:
             finalized_by_login=row.finalized_by_login,
             contested=row.contested,
             adopted=True,
+            withheld=row.withheld,
         )
     return rows
 
