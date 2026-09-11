@@ -42,6 +42,7 @@ from .operations import (
     _IMPORTER,
     AdminError,
     create_staff,
+    disable_user,
     enrol_roster,
     ensure_course,
     import_tasks,
@@ -495,6 +496,26 @@ def cmd_token_revoke(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_user_disable(args: argparse.Namespace) -> int:
+    """利用者を無効化する（#237）。**消すのではない。**
+
+    規則は `aijudge_admin.operations.disable_user` にあり、画面の
+    `/manage/users` と同じ `AuthService.disable` を通す ── CLI 側に
+    書き直さない（#210 と同じ作法）。
+    """
+    database = _database(args)
+    try:
+        name = disable_user(database, tenant_id=_tenant(args), login=args.login)
+    except AdminError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    finally:
+        database.dispose()
+    print(f"無効化しました: {args.login}（{name}）")
+    print("  記録は残ります。セッションも切りました。")
+    return 0
+
+
 def cmd_password(args: argparse.Namespace) -> int:
     from .roster import generate_password
 
@@ -748,6 +769,14 @@ def build_parser() -> argparse.ArgumentParser:
         choices=[role.value for role in Role],
     )
     staff.set_defaults(func=cmd_staff)
+
+    # 作るのは CLI だけなので、**止めるのも CLI からできる必要がある**
+    # （#237）。画面の側はテナント管理者専用で、サーバに入れる人はその
+    # 権限の外側にいる。
+    user = sub.add_parser("user", help="利用者").add_subparsers(dest="user_command", required=True)
+    user_disable = user.add_parser("disable", help="無効化する（削除ではない。記録は残る）")
+    user_disable.add_argument("--login", required=True)
+    user_disable.set_defaults(func=cmd_user_disable)
 
     password = sub.add_parser("password", help="パスワードを再発行する")
     password.add_argument("--login", required=True)
