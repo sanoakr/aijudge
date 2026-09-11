@@ -243,12 +243,13 @@ uv run lint-imports
 ### モジュール境界 ── 何が何を import してよいか
 
 ```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 460}} }%%
 flowchart TB
-    APPS["apps/* — 合成の中心<br/>studentweb · reviewconsole · grader · admin · evalrunner<br/>サブシステムを束ねてよい唯一の層"]
-    SUBS["packages/* — サブシステム<br/>authoring · grading · submission · identity · skill · analytics · llm_gateway<br/>互いに独立。連携は aijudge_core.events を通す"]
+    APPS["apps/* — 合成の中心<br/>studentweb · reviewconsole · grader<br/>admin · evalrunner<br/>サブシステムを束ねてよい唯一の層"]
+    INFRA["packages/persistence — 基盤<br/>Protocol の実装<br/>どのサブシステムも import しない"]
+    PLUG["evaluators/* · normalizers/* — プラグイン<br/>import してよいのは core・採点プロトコル・<br/>llm_gateway・sandbox だけ"]
+    SUBS["packages/* — サブシステム<br/>authoring · grading · submission · identity<br/>skill · analytics · llm_gateway<br/>互いに独立<br/>連携は aijudge_core.events を通す"]
     CORE["packages/core — ドメイン模型とイベント契約<br/>何にも依存せず、I/O もしない"]
-    INFRA["packages/persistence — 基盤<br/>Protocol の実装。どのサブシステムも import しない"]
-    PLUG["evaluators/* · normalizers/*<br/>core・採点プロトコル・llm_gateway・sandbox だけ"]
 
     APPS --> SUBS
     APPS --> INFRA
@@ -266,28 +267,29 @@ flowchart TB
 ### テナント境界 ── どの行が誰のものか
 
 ```mermaid
-flowchart TB
+%%{init: {"flowchart": {"wrappingWidth": 460}} }%%
+flowchart LR
     subgraph DEP["1 つのデプロイ ── DB 1 つ、プロセス一式"]
-        subgraph SHARED["全テナントで共有"]
-            KC["knowledge_components<br/>KC の語彙: cs · math · physics"]
-            FILES["subjects/*.yaml · 評価器 · KC の骨格<br/>行ではなくファイル"]
-        end
         subgraph TEN_A["テナント A"]
             CA["users · courses · tasks<br/>submissions · grading_runs"]
-            SA["skill_states<br/>(A, 学習者, kc)"]
+            SA["skill_states<br/>主キーは (A, 学習者, kc)"]
         end
         subgraph TEN_B["テナント B"]
             CB["users · courses · tasks<br/>submissions · grading_runs"]
-            SB["skill_states<br/>(B, 学習者, kc)"]
+            SB["skill_states<br/>主キーは (B, 学習者, kc)"]
+        end
+        subgraph SHARED["全テナントで共有 ── 持ち主はいない"]
+            KC["knowledge_components<br/>語彙はデプロイに 1 つ<br/>cs · math · physics"]
+            FILES["subjects/*.yaml · 評価器 · KC の骨格<br/>行ではなくファイル。どのテナントも同じものを読む"]
         end
     end
 
+    CA ~~~ SA
+    CB ~~~ SB
     CA -- "課題が KC を名指す" --> KC
-    CB -- "課題が KC を名指す" --> KC
     SA -- "習熟度はテナント別" --> KC
+    CB -- "課題が KC を名指す" --> KC
     SB -- "習熟度はテナント別" --> KC
-    CA -. 読む .-> FILES
-    CB -. 読む .-> FILES
 ```
 
 **2 つのテナントが同じ `math.calculus.integral.ftc` を参照するのは正常**で、

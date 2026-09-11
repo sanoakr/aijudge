@@ -291,12 +291,13 @@ deployment shares, and the mastery estimates, which it does not.
 ### The module boundary — who may import whom
 
 ```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 460}} }%%
 flowchart TB
-    APPS["apps/* — composition roots<br/>studentweb · reviewconsole · grader · admin · evalrunner<br/>the only layer allowed to combine subsystems"]
-    SUBS["packages/* — subsystems<br/>authoring · grading · submission · identity · skill · analytics · llm_gateway<br/>independent of one another; they meet through aijudge_core.events"]
-    CORE["packages/core — domain model and event contracts<br/>depends on nothing, performs no I/O"]
-    INFRA["packages/persistence — infrastructure<br/>implements the Protocols; no subsystem may import it"]
-    PLUG["evaluators/* · normalizers/*<br/>core, the grading protocol, llm_gateway and sandbox — nothing else"]
+    APPS["apps/* — composition roots<br/>studentweb · reviewconsole · grader<br/>admin · evalrunner<br/>the only layer that may combine subsystems"]
+    INFRA["packages/persistence — infrastructure<br/>implements the Protocols<br/>no subsystem may import it"]
+    PLUG["evaluators/* · normalizers/* — plug-ins<br/>may import core, the grading protocol,<br/>llm_gateway and sandbox — nothing else"]
+    SUBS["packages/* — subsystems<br/>authoring · grading · submission · identity<br/>skill · analytics · llm_gateway<br/>independent of one another —<br/>they meet through aijudge_core.events"]
+    CORE["packages/core — domain model, event contracts<br/>depends on nothing, performs no I/O"]
 
     APPS --> SUBS
     APPS --> INFRA
@@ -314,28 +315,29 @@ grading (ADR 0005, ADR 0007).
 ### The tenant boundary — who owns which rows
 
 ```mermaid
-flowchart TB
+%%{init: {"flowchart": {"wrappingWidth": 460}} }%%
+flowchart LR
     subgraph DEP["One deployment — one database, one set of processes"]
-        subgraph SHARED["Shared by every tenant"]
-            KC["knowledge_components<br/>the KC vocabulary: cs · math · physics"]
-            FILES["subjects/*.yaml · evaluators · KC skeletons<br/>files on disk, not rows"]
-        end
         subgraph TEN_A["Tenant A"]
             CA["users · courses · tasks<br/>submissions · grading_runs"]
-            SA["skill_states<br/>(A, learner, kc)"]
+            SA["skill_states<br/>keyed (A, learner, kc)"]
         end
         subgraph TEN_B["Tenant B"]
             CB["users · courses · tasks<br/>submissions · grading_runs"]
-            SB["skill_states<br/>(B, learner, kc)"]
+            SB["skill_states<br/>keyed (B, learner, kc)"]
+        end
+        subgraph SHARED["Shared by every tenant — owned by none"]
+            KC["knowledge_components<br/>one vocabulary per deployment<br/>cs · math · physics"]
+            FILES["subjects/*.yaml · evaluators · KC skeletons<br/>files on disk, not rows — every tenant reads the same ones"]
         end
     end
 
+    CA ~~~ SA
+    CB ~~~ SB
     CA -- "a task names a KC" --> KC
+    SA -- "mastery stays in the tenant" --> KC
     CB -- "a task names a KC" --> KC
-    SA -- "mastery is per tenant" --> KC
-    SB -- "mastery is per tenant" --> KC
-    CA -. reads .-> FILES
-    CB -. reads .-> FILES
+    SB -- "mastery stays in the tenant" --> KC
 ```
 
 Two tenants referring to the same `math.calculus.integral.ftc` is normal, and
