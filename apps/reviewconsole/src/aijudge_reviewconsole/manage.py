@@ -134,7 +134,7 @@ from aijudge_grading import (
 )
 from aijudge_grading.overrides import diff
 from aijudge_identity import AuthenticationFailed, AuthService, PermissionDenied, Principal
-from aijudge_identity.oidc import OidcSettings
+from aijudge_identity.oidc import DEFAULT_LOGIN_LABEL, OidcSettings
 from aijudge_submission import SubmissionService
 
 from .audit_context import recorder_for
@@ -1516,6 +1516,7 @@ def register(templates) -> APIRouter:
                 "me": me,
                 "settings": settings,
                 "saved": bool(saved),
+                "default_login_label": DEFAULT_LOGIN_LABEL,
                 "trail": _trail(("Google ログイン設定", None)),
             },
         )
@@ -1527,6 +1528,7 @@ def register(templates) -> APIRouter:
         client_secret: Annotated[str, Form()] = "",
         allowed_domains: Annotated[str, Form()] = "",
         issuer: Annotated[str, Form()] = "",
+        login_label: Annotated[str, Form()] = "",
     ) -> Response:
         """保存する。
 
@@ -1558,6 +1560,7 @@ def register(templates) -> APIRouter:
                         "me": me,
                         "settings": existing,
                         "error": message,
+                        "default_login_label": DEFAULT_LOGIN_LABEL,
                         "trail": _trail(("Google ログイン設定", None)),
                     },
                 )
@@ -1575,6 +1578,9 @@ def register(templates) -> APIRouter:
                     client_secret=secret,
                     allowed_domains=domains,
                     issuer=issuer.strip() or "https://accounts.google.com",
+                    # **空欄は既定に戻す。** 機関の語彙を入れる欄なので、
+                    # 消したときに前の機関名が残り続けてはいけない（#209）。
+                    login_label=login_label.strip() or DEFAULT_LOGIN_LABEL,
                 )
             )
             uow.commit()

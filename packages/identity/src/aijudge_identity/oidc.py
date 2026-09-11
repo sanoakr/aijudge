@@ -32,6 +32,9 @@ AUTHORIZATION_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token"
 JWKS_ENDPOINT = "https://www.googleapis.com/oauth2/v3/certs"
 
+#: ログインボタンの既定の文言（#209）。**機関名を入れない。**
+DEFAULT_LOGIN_LABEL = "大学アカウントでログイン"
+
 
 class OidcSettings(BaseModel):
     """テナント単位の OIDC 設定。
@@ -49,6 +52,13 @@ class OidcSettings(BaseModel):
     # 1 機関が複数ドメインを許すこともあるので単一値にしない。
     allowed_domains: tuple[str, ...] = Field(min_length=1)
     issuer: str = "https://accounts.google.com"
+    #: ログイン画面のボタンに出す文言（#209）。
+    #:
+    #: **機関ごとに呼び名が違う**（「全学認証アカウント」「統合認証」…）。
+    #: `AIJUDGE_DEMO_INSTRUCTOR_PREFIX` と同じ理由で、機関の語彙をコードに
+    #: 焼き込まない ── **既定は機関に依らない一般的な文言**にしてあり、
+    #: リポジトリが公開物である以上ここに機関名は入らない。
+    login_label: str = Field(default=DEFAULT_LOGIN_LABEL, min_length=1, max_length=64)
 
 
 @dataclass(frozen=True)

@@ -1,17 +1,31 @@
 {% extends "base.html" %}
 {% block title %}ログイン — aiJudge{% endblock %}
 {% block body %}
-<div class="narrow">
-  <h1>aiJudge</h1>
-  {% if error %}<div class="note warn">{{ error }}</div>{% endif %}
-  {% if google_configured %}
-  <form method="get" action="/auth/login" class="card">
-    <div class="cta"><button type="submit">大学アカウントでログイン</button></div>
-  </form>
-  {% else %}
-  <div class="note warn">
-    大学アカウントでのログインはまだ設定されていません。管理者にお問い合わせください。
+{# 入口の面（#209）。**ログイン後の画面と同じ言語で作る。**
+
+   `base.html` の濃い帯（topbar）は署名の入っている人にしか出ない ── ここで
+   同じ帯を流用すると、出すものが無い帯だけが浮く。代わりに**入口そのものを
+   藍の面にし**、その上に銘とログインの導線を 1 つの構図で置く。 #}
+<div class="gate">
+  <div class="gate-mark">
+    <h1>aiJudge</h1>
+    <p class="gate-lead">提出した課題の採点結果と、その根拠を見るための画面です。</p>
   </div>
-  {% endif %}
+
+  <div class="gate-card">
+    {% if error %}<div class="note warn">{{ error }}</div>{% endif %}
+    {% if google_configured %}
+    <form method="get" action="/auth/login">
+      <button type="submit" class="gate-go">{{ login_label }}</button>
+    </form>
+    <p class="gate-note">
+      ログインすると、受講しているコースの課題と結果が並びます。
+    </p>
+    {% else %}
+    <div class="note warn">
+      ログインはまだ設定されていません。担当の教員か管理者にお問い合わせください。
+    </div>
+    {% endif %}
+  </div>
 </div>
 {% endblock %}

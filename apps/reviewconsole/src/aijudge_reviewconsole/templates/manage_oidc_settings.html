@@ -41,6 +41,16 @@
     </p>
   </div>
   <div class="field">
+    <label for="login_label">ログインボタンの文言</label>
+    <input id="login_label" name="login_label" maxlength="64"
+           placeholder="{{ default_login_label }}"
+           value="{{ settings.login_label if settings else '' }}">
+    <p class="desc">
+      ログイン画面のボタンに出る文字です。機関ごとの呼び名（「全学認証アカウント」など）に
+      合わせてください。空欄なら「{{ default_login_label }}」と出ます。
+    </p>
+  </div>
+  <div class="field">
     <label for="issuer">Issuer（既定は Google。通常は変更不要）</label>
     <input id="issuer" name="issuer"
            value="{{ settings.issuer if settings else 'https://accounts.google.com' }}">

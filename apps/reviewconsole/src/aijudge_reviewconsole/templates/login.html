@@ -1,19 +1,31 @@
 {% extends "base.html" %}
-{% block title %}ログイン — aiJudge{% endblock %}
+{% block title %}ログイン — aiJudge レビュー{% endblock %}
 {% block body %}
-<div class="narrow">
-  <h1>aiJudge レビュー</h1>
-  <p class="subtitle">教員・TA 用の画面です。</p>
-  {% if error %}<div class="note warn">{{ error }}</div>{% endif %}
-  {% if changed %}<div class="note">パスワードを変更しました。新しいパスワードでログインしてください。</div>{% endif %}
-  {% if google_configured %}
-  <form method="get" action="{{ root_prefix() }}/auth/login" class="card">
-    <div class="cta"><button type="submit">大学アカウントでログイン</button></div>
-  </form>
-  {% else %}
-  <div class="note warn">
-    大学アカウントでのログインはまだ設定されていません。管理者にお問い合わせください。
+{# 入口の面（#209）。学習者側と同じ構図で、銘だけが違う。
+
+   **2 つのアプリで別の入口に見せない。** 同じ機関の同じシステムなので、
+   教員が学習者の画面を開いたときに別のサービスに見えてはいけない。 #}
+<div class="gate">
+  <div class="gate-mark">
+    <h1>aiJudge</h1>
+    <p class="gate-lead">教員・TA のための確認と確定の画面です。</p>
   </div>
-  {% endif %}
+
+  <div class="gate-card">
+    {% if error %}<div class="note warn">{{ error }}</div>{% endif %}
+    {% if changed %}<div class="note">パスワードを変更しました。新しいパスワードでログインしてください。</div>{% endif %}
+    {% if google_configured %}
+    <form method="get" action="{{ root_prefix() }}/auth/login">
+      <button type="submit" class="gate-go">{{ login_label }}</button>
+    </form>
+    <p class="gate-note">
+      確認の待ち行列と、コース・課題の管理はログインの先にあります。
+    </p>
+    {% else %}
+    <div class="note warn">
+      ログインはまだ設定されていません。管理者にお問い合わせください。
+    </div>
+    {% endif %}
+  </div>
 </div>
 {% endblock %}

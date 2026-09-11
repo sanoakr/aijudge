@@ -26,7 +26,7 @@ from aijudge_core import (
 )
 from aijudge_core.ids import ApiTokenId, CourseId, SessionId, TenantId, UserId
 from aijudge_identity.models import ApiToken, Session, User, UserState
-from aijudge_identity.oidc import OidcSettings
+from aijudge_identity.oidc import DEFAULT_LOGIN_LABEL, OidcSettings
 
 from .schema import ApiTokenRow, CourseRow, EnrollmentRow, OidcSettingsRow, SessionRow, UserRow
 
@@ -125,6 +125,7 @@ class SqlIdentityRepository:
                     client_secret_encrypted=encrypted_secret,
                     allowed_domains=list(settings.allowed_domains),
                     issuer=settings.issuer,
+                    login_label=settings.login_label,
                     created_at=now,
                     updated_at=now,
                 )
@@ -134,6 +135,7 @@ class SqlIdentityRepository:
             row.client_secret_encrypted = encrypted_secret
             row.allowed_domains = list(settings.allowed_domains)
             row.issuer = settings.issuer
+            row.login_label = settings.login_label
             row.updated_at = now
         self._session.flush()
 
@@ -160,6 +162,10 @@ class SqlIdentityRepository:
             client_secret=client_secret,
             allowed_domains=tuple(row.allowed_domains),
             issuer=row.issuer,
+            # **空欄はモデルの既定に戻す。** 移行で入った行（#209 より前に
+            # 保存されたもの）は空文字を持つので、そのまま渡すと min_length に
+            # 引っかかる ── 設定していないテナントは既定の文言で出す。
+            login_label=row.login_label or DEFAULT_LOGIN_LABEL,
         )
 
     # -- セッション --------------------------------------------------------

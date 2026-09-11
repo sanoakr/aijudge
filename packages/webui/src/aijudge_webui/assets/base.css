@@ -392,3 +392,46 @@ footer.app-footer .inner{max-width:none;display:flex;align-items:center;gap:12px
    コース名より先に注意書きを読ませることになり、毎ページ邪魔になる。
    見出しの直後で、最初に操作する前には必ず目に入る位置。 */
 .demo-banner{margin-bottom:var(--s5)}
+
+/* 入口の面（#209）。**ログイン画面だけが体系の外に残っていた。**
+
+   濃い帯（`.topbar`）は署名の入っている人にしか出ない ── 出すものが無い
+   帯をログイン画面に流用すると、空の帯だけが浮く。代わりに**入口そのものを
+   藍にする**。冠（濃い面を頁の頭に置く）と同じ判断を、面の全体に当てたもの。
+
+   学習者とコンソールで同じ構図を使う。**同じ機関の同じシステムなので、
+   教員が学習者の画面を開いたときに別のサービスに見えてはいけない。**
+
+   間隔は px で書く ── この CSS に間隔の変数は無い（`--s5` を使っている
+   規則が 1 つあるが、どこにも定義が無く当たっていない）。 */
+.gate{min-height:100vh;display:flex;flex-direction:column;justify-content:center;
+  align-items:center;gap:28px;background:var(--head-bg);color:var(--head-ink);
+  padding:48px 20px;
+  /* `main` の余白と幅の制限を打ち消して、面を頁いっぱいに広げる
+     （`main` は max-width:1100px・padding:32/24/80）。**入口に本文の段組みは
+     要らず、藍が縁で切れていると帯の残骸に見える。** 左右は `main` の
+     中央寄せごと外に出す必要があるので、負の余白ではなく視野幅で戻す。 */
+  width:100vw;margin:-32px calc(50% - 50vw) -80px}
+.gate-mark{text-align:center;max-width:30rem}
+.gate-mark h1{color:var(--head-ink);border:0;margin:0 0 10px;
+  font-size:2.4rem;letter-spacing:.04em}
+.gate-lead{color:var(--head-muted);font-size:.92rem;line-height:1.8;margin:0}
+/* 面は白。**押す場所を 1 つに絞る** ── 藍の上に藍の札を置くと、どこが
+   操作なのか読み取りに一拍かかる。 */
+.gate-card{background:var(--surface);color:var(--ink);border-radius:6px;
+  padding:24px;width:min(26rem,100%);box-shadow:0 2px 18px rgba(0,0,0,.22)}
+.gate-card form{margin:0}
+/* ログインは**移動**であって判定ではない ── 朱ではなく藍（`--ai` の注記と
+   同じ判断）。既定の `button` が朱なのでここで上書きする。 */
+.gate-go{width:100%;background:var(--ai);padding:12px 22px;font-size:.95rem}
+.gate-note{color:var(--muted);font-size:.8rem;line-height:1.7;
+  margin:14px 0 0;text-align:center}
+.gate .note{margin-bottom:14px}
+@media (max-width:480px){
+  .gate{padding:32px 16px}
+  .gate-mark h1{font-size:2rem}
+  /* 機関の呼び名は長い（「龍大全学認証アカウントでログイン」で 16 字）。
+     **札の中で折り返させず、字の方を詰める** ── 2 行になった押し釦は
+     押す場所に見えなくなる。 */
+  .gate-go{font-size:.82rem;padding:12px 8px}
+}

@@ -61,6 +61,7 @@ from aijudge_core.ids import (
     new_id,
 )
 from aijudge_identity import (
+    DEFAULT_LOGIN_LABEL,
     AuthenticationFailed,
     AuthService,
     GoogleOidcProvider,
@@ -186,6 +187,17 @@ SESSION_COOKIE = "aijudge_session"
 # state・nonce の突き合わせにセッションを使わない ── まだ利用者が
 # 誰かも決まっていない段階だから。
 OIDC_STATE_COOKIE = "aijudge_oidc_state"
+
+
+def _login_label(state) -> str:
+    """ログインボタンの文言を引く（#209）。
+
+    **失敗の画面でも同じ文言を出す。** ここで既定に落とすと、認証に失敗した
+    ときだけボタンの名前が変わり、利用者には「別のログイン」に見える。
+    """
+    with state.database.unit_of_work() as uow:
+        settings = uow.identity.get_oidc_settings(TenantId(DEFAULT_TENANT))
+    return settings.login_label if settings else DEFAULT_LOGIN_LABEL
 
 
 def _external_url(request: Request, path: str) -> str:
@@ -354,7 +366,12 @@ def create_app(app_state: StudentApp) -> FastAPI:
         return TEMPLATES.TemplateResponse(
             request,
             "login.html",
-            {"error": error or None, "google_configured": settings is not None},
+            {
+                "error": error or None,
+                "google_configured": settings is not None,
+                # 機関ごとの呼び名（#209）。未設定なら既定が出る。
+                "login_label": settings.login_label if settings else DEFAULT_LOGIN_LABEL,
+            },
         )
 
     @app.get("/auth/login")
@@ -386,7 +403,11 @@ def create_app(app_state: StudentApp) -> FastAPI:
             response = TEMPLATES.TemplateResponse(
                 request,
                 "login.html",
-                {"error": message, "google_configured": True},
+                {
+                    "error": message,
+                    "google_configured": True,
+                    "login_label": _login_label(app_state),
+                },
                 status_code=401,
             )
             response.delete_cookie(OIDC_STATE_COOKIE, path="/")

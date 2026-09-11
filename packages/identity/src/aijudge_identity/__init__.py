@@ -20,7 +20,12 @@ from .demo import (
 )
 from .errors import AuthenticationFailed, PermissionDenied
 from .models import ApiToken, Principal, Session, User, UserState
-from .oidc import GoogleOidcIdentity, GoogleOidcProvider, OidcSettings
+from .oidc import (
+    DEFAULT_LOGIN_LABEL,
+    GoogleOidcIdentity,
+    GoogleOidcProvider,
+    OidcSettings,
+)
 from .passwords import (
     MIN_PASSWORD_LENGTH,
     WeakPassword,
@@ -37,6 +42,7 @@ from .service import (
 )
 
 __all__ = [
+    "DEFAULT_LOGIN_LABEL",
     "DEFAULT_SESSION_HOURS",
     "DEFAULT_TOKEN_DAYS",
     "ENV_DEMO_COURSE",
