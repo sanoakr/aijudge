@@ -1,0 +1,1003 @@
+# 知識要素（KC）の骨格 — 名前空間 `physics`
+#
+# 高校物理（物理基礎・物理）と大学の物理学を、**1 つの名前空間**に入れてある。
+# 理由は `math.yaml` と同じ ── 科目名を第 1 階層にすると KC の同一性が告示の
+# 版に張り付く。物理も原子分野の扱いは課程によって出入りしてきた。
+#
+# 階層は 3 段。`名前空間.分野.単位.知識要素`
+#
+#     physics . mechanics . third_law . action_reaction_continuous
+#     physics . electromagnetism . induction . faraday_law
+#     physics . experiment_observation . uncertainty . error_propagation
+#
+# 第 1 階層はどこから来たか
+# ------------------------
+# **日本学術会議「大学教育の分野別質保証のための教育課程編成上の参照基準
+# 物理学・天文学分野」（2016 年 10 月 3 日）の「基本的内容」。** 数学の参照基準と
+# 違い、こちらは分野を**列挙している**:
+#
+#     基本的内容: 力学、熱力学・統計力学、電磁気学、特殊相対論、量子力学、実験・観測
+#     適宜選択:   素粒子、原子核、物性、光学、流体、弾性体、プラズマ、生物物理、天文・宇宙
+#
+# ここに 2 つだけ判断が入っている。
+#
+# - **`waves`（波動）を独立させた。** 上の列挙には無いが、同じ参照基準の
+#   学修目標 3) が「波の性質を理解し、…基本法則から波動方程式を導出し」と
+#   独立に立てており、高校では「波」が大項目である。力学の下に押し込むと
+#   音と光の干渉が別々の枝に散る
+# - **`computational_physics`（計算物理）と `physics_history`（概念形成の歴史）を
+#   足した。** それぞれ学修目標 14) と 12) が明示している（前者は第 3 章でも
+#   「計算物理学」を分野として挙げている）
+#
+# **天文学は入れていない。** 参照基準は「物理学・天文学分野」として一体だが、
+# 高校では天体は「地学」という別教科であり、この骨格は物理に閉じる。
+# ただし**引いた線は消さずに残す** ── ファイル末尾に分野の枝を
+# コメントアウトして置いてあるので、天文学の科目が要るようになったら
+# コメントを外して `kc seed` を走らせ直せばよい（骨格は追記のみで増える）。
+#
+# **物理数学は分野にしていない。** 学修目標 13) が挙げる微分積分・微分方程式・
+# ベクトル解析・線形代数・複素関数論・フーリエ解析は `math` 名前空間にある。
+# 科目プロファイルで `kc_namespaces: [physics, math]` と両方宣言すればよく、
+# ここに複製すると `math.calculus.…` と `physics.math.…` が並ぶ ── 骨格が
+# 防ごうとしている分裂そのものである。
+#
+# 第 2 階層はどこから来たか ── ここも正直に言う
+# ---------------------------------------------
+# **`mechanics` の最初の 6 単位だけが原典そのまま。** Force Concept Inventory
+# （Hestenes, Wells & Swackhamer, *The Physics Teacher* 30(3), 1992）の Table I が
+# 力の概念を 6 次元 ── Kinematics / First Law / Second Law / Third Law /
+# Superposition Principle / Kinds of Force ── に分解しており、**下位項目まで
+# 表になっている**（5S 固体接触・5F 流体接触・5G 重力…）。切り方が「何が
+# できれば身に付いたと言えるか」なので、そのまま単位と知識要素になる。
+#
+# **ただし FCI が覆うのは力の概念だけ。** エネルギー・運動量・剛体・振動・
+# 万有引力は Table I に 1 行も無い。力学の残り 5 単位は判断である。
+#
+# **電磁気と熱には、FCI Table I に相当する階層表が無い。** CSEM
+# （Maloney et al. 2001、32 問）も TCE（Yeo & Zadnik 2001、26 問）も検証済みの
+# 測定器だが、公表されているのは項目と概念の対応であって枝の構造ではない。
+# #187 は「その枝を書く前に確かめること」と書いていた ── 確かめた結果が
+# これで、`electromagnetism` と `thermodynamics` の単位は判断である。
+# 残りの分野も同じ。**持っていない権威を持っているように見せないために
+# 書いておく。**
+#
+# 第 3 階層（知識要素）は推奨候補
+# ------------------------------
+# 高校範囲は学習指導要領（平成30年告示）物理基礎・物理の指導事項から起こした。
+# 原典は `reference/kokuji_h30_physics.yaml` にコード付きで置いてある。
+# 行末の `# 物理基礎(1)(イ)㋐` のような注記が対応で、**告示が動いたら注記を
+# 直す。キーは動かさない。**
+#
+# 理科の指導事項は数学より KC の粒度に近い（末端に見出しが付いている）が、
+# そのままではない ── 「㋐ 様々な力」の 1 行は重力・垂直抗力・摩擦力・張力・
+# 弾性力を含み、FCI の言う Kinds of Force の下位概念すべてに当たる。
+#
+# 手を入れるときの約束
+# --------------------
+# - **キーを変えない。** KC の ID はキーから導かれ、Q-matrix は追記のみ（P8）。
+#   誤りは `deprecated` にして `superseded_by` で後継を指す
+# - ラベルと説明は直してよい（ID に効かない）
+# - **科目ごとに足さない。** 骨格はコースをまたいで共有される語彙である
+#
+# 投入:
+#     uv run aijudge-admin kc seed --namespace physics
+
+namespace: physics
+source: >-
+  日本学術会議「大学教育の分野別質保証のための教育課程編成上の参照基準
+  物理学・天文学分野」平成28年（2016年）10月3日 ── 第 1 階層は同報告の
+  「基本的内容」と「適宜選択」の分野（天文学を除く。`waves`・
+  `computational_physics`・`physics_history` は学修目標 3) 14) 12) による追加）。
+  第 2 階層は `mechanics` の 6 単位が Force Concept Inventory (Hestenes, Wells &
+  Swackhamer 1992) Table I そのまま、**残りは標準的なカリキュラム構成からの判断**。
+  高校範囲の第 3 階層は高等学校学習指導要領（平成30年告示）物理基礎・物理による。
+reference: reference/kokuji_h30_physics.yaml
+
+areas:
+  - key: mechanics
+    label: 力学
+    en: Mechanics
+    units:
+      # ----------------------------------------------------------------
+      # ここから 6 単位は FCI Table I（Newtonian Concepts in the Inventory）
+      # の 0.〜5. そのまま。第 2 階層に判断が入っていないのはここだけである。
+      # ----------------------------------------------------------------
+      - key: kinematics
+        label: 運動の表し方
+        en: Kinematics
+        components:
+          - {key: position, label: 位置と変位}
+          - {key: velocity, label: 速度}                        # FCI 0（位置と速度の区別）
+          - {key: acceleration, label: 加速度}                  # FCI 0（速度と加速度の区別）／物理基礎(1)(ア)㋒
+          - {key: motion_representation, label: 運動の表し方}    # 物理基礎(1)(ア)㋑
+          - {key: motion_graph, label: 運動のグラフ表示}
+          - {key: uniform_acceleration, label: 等加速度直線運動}
+          - {key: free_fall, label: 物体の落下運動}             # 物理基礎(1)(イ)㋓
+          - {key: vector_addition_of_velocities, label: 速度の合成}  # FCI 0
+          - {key: relative_velocity, label: 相対速度}
+          - {key: projectile_motion, label: 放物運動}           # 物理(1)(ア)㋑／FCI 0（放物軌道）
+          - {key: curvilinear_motion, label: 曲線運動の速度と加速度}  # 物理(1)(ア)㋐
+      - key: first_law
+        label: 慣性の法則
+        en: Newton's First Law
+        components:
+          - {key: inertia, label: 慣性}
+          - {key: no_force_constant_direction, label: 力が働かないとき向きは変わらない}  # FCI 1
+          - {key: no_force_constant_speed, label: 力が働かないとき速さは変わらない}      # FCI 1
+          - {key: cancelling_forces_motion, label: 力がつり合うときの運動}              # FCI 1
+          - {key: inertial_frame, label: 慣性系}
+      - key: second_law
+        label: 運動の法則
+        en: Newton's Second Law
+        components:
+          - {key: equation_of_motion, label: 運動方程式}        # 物理基礎(1)(イ)㋒
+          - {key: constant_force_constant_acceleration, label: 一定の力は一定の加速度を生む}  # FCI 2
+          - {key: impulsive_force, label: 撃力}                 # FCI 2
+          - {key: mass_as_inertia, label: 質量と慣性}
+          - {key: free_body_diagram, label: 力の図示}
+      - key: third_law
+        label: 作用反作用の法則
+        en: Newton's Third Law
+        components:
+          - {key: action_reaction_impulsive, label: 撃力に対する作用反作用}   # FCI 3
+          - {key: action_reaction_continuous, label: 連続的な力に対する作用反作用}  # FCI 3
+          - {key: force_pair_identification, label: 力の対の同定}
+      - key: superposition
+        label: 力の重ね合わせ
+        en: Superposition Principle
+        components:
+          - {key: vector_sum_of_forces, label: 力のベクトル和}   # FCI 4
+          - {key: cancelling_forces, label: つり合う力}         # FCI 4／物理基礎(1)(イ)㋑
+          - {key: force_decomposition, label: 力の分解}
+          - {key: equilibrium_condition, label: 力のつり合いの条件}  # 物理基礎(1)(イ)㋑
+      - key: kinds_of_force
+        label: 力の種類
+        en: Kinds of Force
+        components:
+          - {key: various_forces, label: 物体に働く様々な力}     # 物理基礎(1)(イ)㋐
+          - {key: normal_force, label: 垂直抗力}                # FCI 5S（受動的な接触力）
+          - {key: friction, label: 摩擦力}                      # FCI 5S（摩擦は運動を妨げる）
+          - {key: static_kinetic_friction, label: 静止摩擦と動摩擦}
+          - {key: tension, label: 張力}
+          - {key: elastic_force, label: 弾性力とフックの法則}
+          - {key: air_resistance, label: 空気の抵抗}            # FCI 5F
+          - {key: buoyancy, label: 浮力}                        # FCI 5F
+          - {key: gravity_weight, label: 重力と重さ}            # FCI 5G
+          - {key: fall_independent_of_weight, label: 落下の加速度は重さによらない}  # FCI 5G
+      # ----------------------------------------------------------------
+      # ここから下は FCI の外 ── Table I はエネルギーにも運動量にも
+      # 剛体にも 1 行も触れていない。判断である。
+      # ----------------------------------------------------------------
+      - key: work_energy
+        label: 仕事とエネルギー
+        en: Work and Energy
+        components:
+          - {key: work, label: 仕事}
+          - {key: kinetic_energy, label: 運動エネルギー}         # 物理基礎(1)(ウ)㋐
+          - {key: potential_energy, label: 位置エネルギー}       # 物理基礎(1)(ウ)㋐
+          - {key: elastic_potential_energy, label: 弾性エネルギー}
+          - {key: conservation_of_mechanical_energy, label: 力学的エネルギーの保存}  # 物理基礎(1)(ウ)㋑
+          - {key: work_energy_theorem, label: 仕事とエネルギーの関係}
+          - {key: power, label: 仕事率}
+          - {key: conservative_force, label: 保存力}
+          - {key: energy_dissipation, label: 摩擦によるエネルギーの散逸}
+      - key: momentum
+        label: 運動量
+        en: Momentum
+        components:
+          - {key: momentum, label: 運動量}
+          - {key: impulse, label: 力積}
+          - {key: impulse_momentum_relation, label: 運動量と力積の関係}  # 物理(1)(イ)㋐
+          - {key: conservation_of_momentum, label: 運動量の保存}      # 物理(1)(イ)㋑
+          - {key: collision, label: 衝突と反発係数}                   # 物理(1)(イ)㋒
+          - {key: energy_in_collision, label: 衝突における力学的エネルギーの変化}  # 物理(1)(イ)㋒
+          - {key: center_of_mass, label: 重心の運動}
+      - key: rigid_body
+        label: 剛体
+        en: Rigid Bodies
+        components:
+          - {key: torque, label: 力のモーメント}
+          - {key: rigid_equilibrium, label: 剛体のつり合いの条件}   # 物理(1)(ア)㋒
+          - {key: center_of_gravity, label: 重心}
+          - {key: couple, label: 偶力}
+          - {key: moment_of_inertia, label: 慣性モーメント}
+          - {key: rotational_equation, label: 回転の運動方程式}
+          - {key: angular_momentum, label: 角運動量}
+          - {key: conservation_of_angular_momentum, label: 角運動量の保存}
+      - key: circular_and_oscillation
+        label: 円運動と単振動
+        en: Circular Motion and Oscillation
+        components:
+          - {key: uniform_circular_motion, label: 等速円運動}       # 物理(1)(ウ)㋐
+          - {key: angular_velocity, label: 角速度と周期}
+          - {key: centripetal_force, label: 向心力}                 # 物理(1)(ウ)㋐
+          - {key: inertial_force, label: 慣性力と遠心力}
+          - {key: simple_harmonic_motion, label: 単振動}            # 物理(1)(ウ)㋑
+          - {key: spring_oscillation, label: ばね振り子}
+          - {key: simple_pendulum, label: 単振り子}
+          - {key: energy_of_oscillation, label: 振動のエネルギー}
+          - {key: damped_forced_oscillation, label: 減衰振動と強制振動}
+          - {key: resonance, label: 共振}
+      - key: gravitation
+        label: 万有引力
+        en: Gravitation
+        components:
+          - {key: kepler_laws, label: 惑星の運動の法則}            # 物理(1)(エ)㋐
+          - {key: universal_gravitation, label: 万有引力の法則}     # 物理(1)(エ)㋑
+          - {key: gravitational_potential, label: 万有引力による位置エネルギー}
+          - {key: satellite_motion, label: 人工衛星の運動}
+          - {key: escape_velocity, label: 脱出速度}
+      - key: analytical_mechanics
+        label: 解析力学
+        en: Analytical Mechanics
+        components:
+          - {key: generalized_coordinates, label: 一般化座標}
+          - {key: variational_principle, label: 変分原理}
+          - {key: lagrangian, label: ラグランジアン}
+          - {key: euler_lagrange, label: オイラー・ラグランジュ方程式}
+          - {key: hamiltonian, label: ハミルトニアン}
+          - {key: canonical_equations, label: 正準方程式}
+          - {key: symmetry_and_conservation, label: 対称性と保存則}
+
+  - key: waves
+    label: 波動
+    en: Waves
+    units:
+      - key: wave_basics
+        label: 波の性質
+        en: Properties of Waves
+        components:
+          - {key: wave_phenomenon, label: 波の性質}                # 物理基礎(2)(ア)㋐
+          - {key: wave_representation, label: 波の伝わり方とその表し方}  # 物理(2)(ア)㋐
+          - {key: amplitude_wavelength_period, label: 振幅・波長・周期}
+          - {key: wave_speed, label: 波の速さと振動数}
+          - {key: transverse_longitudinal, label: 横波と縦波}
+          - {key: wave_equation, label: 波動方程式}
+          - {key: traveling_wave, label: 進行波}
+          - {key: standing_wave, label: 定在波}
+      - key: superposition_and_interference
+        label: 重ね合わせと干渉
+        en: Superposition and Interference
+        components:
+          - {key: wave_superposition, label: 波の重ね合わせ}
+          - {key: interference, label: 干渉}                       # 物理(2)(ア)㋑
+          - {key: diffraction, label: 回折}                        # 物理(2)(ア)㋑
+          - {key: reflection_and_transmission, label: 反射と透過}
+          - {key: free_and_fixed_end, label: 自由端と固定端}
+          - {key: huygens_principle, label: ホイヘンスの原理}
+          - {key: beat, label: うなり}
+      - key: sound
+        label: 音
+        en: Sound
+        components:
+          - {key: sound_wave, label: 音波の性質}                   # 物理基礎(2)(ア)㋑
+          - {key: string_vibration, label: 弦の振動}               # 物理基礎(2)(ア)㋑
+          - {key: air_column_resonance, label: 気柱の共鳴}         # 物理基礎(2)(ア)㋑
+          - {key: sound_interference_diffraction, label: 音の干渉と回折}  # 物理(2)(イ)㋐
+          - {key: doppler_effect, label: ドップラー効果}           # 物理(2)(イ)㋑
+          - {key: sound_intensity, label: 音の強さと高さ}
+      - key: wave_analysis
+        label: 波の解析
+        en: Analysis of Waves
+        components:
+          - {key: fourier_decomposition, label: フーリエ分解}
+          - {key: dispersion, label: 分散}
+          - {key: phase_and_group_velocity, label: 位相速度と群速度}
+          - {key: wave_packet, label: 波束}
+
+  - key: thermodynamics
+    label: 熱力学・統計力学
+    en: Thermodynamics and Statistical Mechanics
+    units:
+      - key: heat_and_temperature
+        label: 熱と温度
+        en: Heat and Temperature
+        components:
+          - {key: heat_and_temperature, label: 熱と温度}           # 物理基礎(2)(イ)㋐
+          - {key: thermal_motion, label: 原子・分子の熱運動}       # 物理基礎(2)(イ)㋐
+          - {key: absolute_temperature, label: 絶対温度}
+          - {key: thermal_equilibrium, label: 熱平衡と熱力学第 0 法則}
+          - {key: heat_capacity, label: 熱容量と比熱}
+          - {key: latent_heat, label: 潜熱と状態変化}
+          - {key: thermal_expansion, label: 熱膨張}
+          - {key: heat_transfer, label: 熱の移動}                  # 物理基礎(2)(イ)㋑
+      - key: first_law_thermo
+        label: 熱力学第 1 法則
+        en: First Law of Thermodynamics
+        components:
+          - {key: internal_energy, label: 内部エネルギー}          # 物理(1)(オ)㋑
+          - {key: work_by_gas, label: 気体のする仕事}
+          - {key: first_law, label: 熱力学第 1 法則}
+          - {key: heat_work_conversion, label: 熱と仕事の変換}     # 物理基礎(2)(イ)㋑
+          - {key: state_change_of_gas, label: 気体の状態変化}      # 物理(1)(オ)㋒
+          - {key: adiabatic_process, label: 断熱変化}
+          - {key: heat_engine, label: 熱機関とサイクル}
+          - {key: thermal_efficiency, label: 熱効率}
+      - key: second_law_entropy
+        label: 熱力学第 2 法則とエントロピー
+        en: Second Law and Entropy
+        components:
+          - {key: irreversible_process, label: 不可逆過程}
+          - {key: second_law, label: 熱力学第 2 法則}
+          - {key: carnot_cycle, label: カルノーサイクル}
+          - {key: entropy, label: エントロピー}
+          - {key: entropy_increase, label: エントロピー増大の原理}
+          - {key: free_energy, label: 自由エネルギー}
+          - {key: third_law, label: 熱力学第 3 法則}
+      - key: kinetic_theory
+        label: 気体分子運動論
+        en: Kinetic Theory of Gases
+        components:
+          - {key: ideal_gas_law, label: 理想気体の状態方程式}
+          - {key: molecular_motion_and_pressure, label: 気体分子の運動と圧力}  # 物理(1)(オ)㋐
+          - {key: mean_kinetic_energy, label: 分子の平均運動エネルギーと温度}
+          - {key: equipartition, label: エネルギー等分配則}
+          - {key: mean_free_path, label: 平均自由行程}
+          - {key: real_gas, label: 実在気体}
+      - key: statistical_mechanics
+        label: 統計力学
+        en: Statistical Mechanics
+        components:
+          - {key: microstate_macrostate, label: 微視状態と巨視状態}
+          - {key: boltzmann_entropy, label: ボルツマンの関係式}
+          - {key: ensemble, label: アンサンブル}
+          - {key: partition_function, label: 分配関数}
+          - {key: maxwell_boltzmann, label: マクスウェル・ボルツマン分布}
+          - {key: bose_einstein, label: ボーズ・アインシュタイン分布}
+          - {key: fermi_dirac, label: フェルミ・ディラック分布}
+          - {key: quantum_statistics_application, label: 量子統計の応用}
+      - key: phase_transition
+        label: 相転移
+        en: Phase Transitions
+        components:
+          - {key: phase_diagram, label: 相図}
+          - {key: order_parameter, label: 秩序変数}
+          - {key: critical_phenomena, label: 臨界現象}
+          - {key: latent_heat_statistical, label: 相転移と潜熱}
+
+  - key: electromagnetism
+    label: 電磁気学
+    en: Electricity and Magnetism
+    units:
+      - key: electrostatics
+        label: 静電場
+        en: Electrostatics
+        components:
+          - {key: electric_charge, label: 電荷と帯電}
+          - {key: coulomb_law, label: クーロンの法則}              # 物理(3)(ア)㋐
+          - {key: electric_field, label: 電界}                     # 物理(3)(ア)㋐
+          - {key: field_lines, label: 電気力線}
+          - {key: gauss_law, label: ガウスの法則}
+          - {key: electric_potential, label: 電位}                 # 物理(3)(ア)㋑
+          - {key: potential_energy_electric, label: 静電気力による位置エネルギー}  # 物理(3)(ア)㋑
+          - {key: equipotential, label: 等電位面}
+          - {key: conductor_in_field, label: 導体と静電誘導}
+          - {key: dielectric, label: 誘電体と分極}
+          - {key: capacitance, label: 電気容量}                    # 物理(3)(ア)㋒
+          - {key: capacitor_connection, label: コンデンサーの接続}
+          - {key: capacitor_energy, label: コンデンサーに蓄えられるエネルギー}
+      - key: current_and_circuits
+        label: 電流と回路
+        en: Current and Circuits
+        components:
+          - {key: electric_current, label: 電流}
+          - {key: resistance, label: 電気抵抗}                     # 物理基礎(2)(ウ)㋐
+          - {key: resistivity, label: 抵抗率と形状の関係}          # 物理基礎(2)(ウ)㋐
+          - {key: ohm_law, label: オームの法則}
+          - {key: series_parallel, label: 直列接続と並列接続}
+          - {key: kirchhoff_laws, label: キルヒホッフの法則}       # 物理(3)(ア)㋓
+          - {key: joule_heat, label: ジュール熱と電力}
+          - {key: emf_and_internal_resistance, label: 起電力と内部抵抗}
+          - {key: transient_rc, label: RC 回路の過渡現象}
+          - {key: measurement_circuit, label: 測定のための電気回路}
+          - {key: power_generation_and_use, label: 発電・送電と電気の利用}  # 物理基礎(2)(ウ)㋑
+      - key: magnetostatics
+        label: 静磁場
+        en: Magnetostatics
+        components:
+          - {key: magnetic_field, label: 磁界}
+          - {key: current_magnetic_field, label: 電流がつくる磁界}  # 物理(3)(イ)㋐
+          - {key: biot_savart, label: ビオ・サバールの法則}
+          - {key: ampere_law, label: アンペールの法則}
+          - {key: force_on_current, label: 電流が磁界から受ける力}  # 物理(3)(イ)㋑
+          - {key: lorentz_force, label: ローレンツ力}
+          - {key: charged_particle_in_field, label: 磁界中の荷電粒子の運動}
+          - {key: magnetic_moment, label: 磁気モーメント}
+          - {key: magnetic_material, label: 磁性体}
+      - key: induction
+        label: 電磁誘導
+        en: Electromagnetic Induction
+        components:
+          - {key: magnetic_flux, label: 磁束}
+          - {key: faraday_law, label: ファラデーの電磁誘導の法則}   # 物理(3)(イ)㋒
+          - {key: lenz_law, label: レンツの法則}
+          - {key: induced_emf, label: 誘導起電力の向きと大きさ}     # 物理(3)(イ)㋒
+          - {key: motional_emf, label: 運動する導体に生じる起電力}
+          - {key: self_inductance, label: 自己誘導}
+          - {key: mutual_inductance, label: 相互誘導}
+          - {key: inductor_energy, label: コイルに蓄えられるエネルギー}
+      - key: alternating_current
+        label: 交流
+        en: Alternating Current
+        components:
+          - {key: ac_generation, label: 交流の発生}
+          - {key: rms_value, label: 実効値}
+          - {key: reactance, label: リアクタンス}
+          - {key: impedance, label: インピーダンス}
+          - {key: resonant_circuit, label: 共振回路}
+          - {key: transformer, label: 変圧器}
+          - {key: power_factor, label: 力率}
+      - key: maxwell_and_em_waves
+        label: マクスウェル方程式と電磁波
+        en: Maxwell's Equations and Electromagnetic Waves
+        components:
+          - {key: displacement_current, label: 変位電流}
+          - {key: maxwell_equations, label: マクスウェル方程式}
+          - {key: field_concept, label: 場の概念と近接作用}
+          - {key: em_wave, label: 電磁波}                          # 物理(3)(イ)㋓
+          - {key: em_spectrum, label: 電磁波の種類とその利用}       # 物理(3)(イ)㋓
+          - {key: em_wave_propagation, label: 電磁波の伝搬}
+          - {key: poynting_vector, label: エネルギーの流れ}
+
+  - key: optics
+    label: 光学
+    en: Optics
+    units:
+      - key: geometrical_optics
+        label: 幾何光学
+        en: Geometrical Optics
+        components:
+          - {key: light_propagation, label: 光の伝わり方}          # 物理(2)(ウ)㋐
+          - {key: law_of_reflection, label: 反射の法則}
+          - {key: law_of_refraction, label: 屈折の法則}
+          - {key: total_reflection, label: 全反射}
+          - {key: dispersion_of_light, label: 光の分散とスペクトル}
+          - {key: lens, label: レンズによる結像}
+          - {key: mirror, label: 鏡による結像}
+          - {key: optical_instrument, label: 光学機器}
+      - key: wave_optics
+        label: 波動光学
+        en: Wave Optics
+        components:
+          - {key: light_as_wave, label: 光波の性質}
+          - {key: interference_of_light, label: 光の干渉}          # 物理(2)(ウ)㋑
+          - {key: youngs_experiment, label: ヤングの実験}
+          - {key: thin_film_interference, label: 薄膜による干渉}
+          - {key: diffraction_of_light, label: 光の回折}           # 物理(2)(ウ)㋑
+          - {key: diffraction_grating, label: 回折格子}
+          - {key: polarization, label: 偏光}
+          - {key: resolution, label: 分解能}
+      - key: radiation_and_color
+        label: 放射と色
+        en: Radiation and Color
+        components:
+          - {key: light_intensity, label: 光の強さ}
+          - {key: color_and_spectrum, label: 色とスペクトル}
+          - {key: blackbody_radiation, label: 黒体放射}
+      - key: modern_optics
+        label: 現代の光学
+        en: Modern Optics
+        components:
+          - {key: laser, label: レーザー}
+          - {key: coherence, label: コヒーレンス}
+          - {key: nonlinear_optics, label: 非線形光学}
+          - {key: photonics, label: 光量子科学}
+
+  - key: special_relativity
+    label: 特殊相対論
+    en: Special Relativity
+    units:
+      - key: postulates
+        label: 基本仮定
+        en: Postulates
+        components:
+          - {key: principle_of_relativity, label: 相対性原理}
+          - {key: constancy_of_light_speed, label: 光速度不変の原理}
+          - {key: michelson_morley, label: マイケルソン・モーリーの実験}
+          - {key: limits_of_galilean, label: ガリレイ変換の限界}
+      - key: relativistic_kinematics
+        label: 時間と空間
+        en: Relativistic Kinematics
+        components:
+          - {key: lorentz_transformation, label: ローレンツ変換}
+          - {key: time_dilation, label: 時間の遅れ}
+          - {key: length_contraction, label: 長さの収縮}
+          - {key: relativity_of_simultaneity, label: 同時刻の相対性}
+          - {key: relativistic_velocity_addition, label: 速度の合成則}
+          - {key: invariant_interval, label: 不変間隔}
+      - key: relativistic_dynamics
+        label: 相対論的力学
+        en: Relativistic Dynamics
+        components:
+          - {key: relativistic_momentum, label: 相対論的運動量}
+          - {key: mass_energy_equivalence, label: 質量とエネルギーの等価性}
+          - {key: relativistic_energy, label: 相対論的エネルギー}
+          - {key: four_vector, label: 4 元ベクトル}
+      - key: relativity_applications
+        label: 相対論が説明する現象
+        en: Applications
+        components:
+          - {key: cosmic_ray_muon, label: 宇宙線ミューオンの寿命}
+          - {key: accelerator_physics, label: 加速器における粒子}
+          - {key: relativistic_doppler, label: 相対論的ドップラー効果}
+          - {key: general_relativity_intro, label: 一般相対論への入口}
+
+  - key: quantum_mechanics
+    label: 量子力学
+    en: Quantum Mechanics
+    units:
+      - key: quantum_origins
+        label: 量子論の成立
+        en: Origins of Quantum Theory
+        components:
+          - {key: planck_hypothesis, label: プランクの量子仮説}
+          - {key: photoelectric_effect, label: 光電効果}
+          - {key: photon, label: 光子}
+          - {key: compton_effect, label: コンプトン効果}
+          - {key: wave_particle_duality, label: 粒子性と波動性}     # 物理(4)(ア)㋑
+          - {key: de_broglie_wave, label: 物質波}
+          - {key: electron_diffraction, label: 電子線の回折}
+          - {key: atomic_spectrum, label: 原子のスペクトル}         # 物理(4)(イ)㋐
+          - {key: bohr_model, label: ボーアの原子模型}
+          - {key: energy_level, label: エネルギー準位}              # 物理(4)(イ)㋐
+      - key: wave_function
+        label: 波動関数
+        en: The Wave Function
+        components:
+          - {key: wave_function_concept, label: 波動関数}
+          - {key: born_interpretation, label: 確率解釈}
+          - {key: normalization, label: 規格化}
+          - {key: superposition_state, label: 状態の重ね合わせ}
+          - {key: operator_and_observable, label: 演算子と物理量}
+          - {key: expectation_value_quantum, label: 期待値}
+          - {key: commutation_relation, label: 交換関係}
+          - {key: uncertainty_principle, label: 不確定性原理}
+      - key: schrodinger_equation
+        label: シュレディンガー方程式
+        en: The Schrödinger Equation
+        components:
+          - {key: schrodinger_equation, label: シュレディンガー方程式}
+          - {key: stationary_state, label: 定常状態}
+          - {key: free_particle, label: 自由粒子}
+          - {key: infinite_well, label: 井戸型ポテンシャル}
+          - {key: potential_barrier, label: ポテンシャル障壁}
+          - {key: tunneling, label: トンネル効果}
+          - {key: quantum_harmonic_oscillator, label: 量子調和振動子}
+      - key: atomic_structure
+        label: 原子の構造
+        en: Atomic Structure
+        components:
+          - {key: hydrogen_atom, label: 水素原子}
+          - {key: orbital_angular_momentum, label: 軌道角運動量}
+          - {key: spin, label: スピン}
+          - {key: pauli_principle, label: パウリの排他原理}
+          - {key: electron_configuration, label: 電子配置と周期表}
+          - {key: many_electron_atom, label: 多電子原子}
+      - key: advanced_quantum
+        label: 量子力学の展開
+        en: Further Topics
+        components:
+          - {key: perturbation_theory, label: 摂動論}
+          - {key: variational_method, label: 変分法}
+          - {key: scattering, label: 散乱}
+          - {key: identical_particles, label: 同種粒子}
+          - {key: entanglement, label: 量子もつれ}
+          - {key: measurement_problem, label: 測定の問題}
+
+  - key: atomic_nuclear_particle
+    label: 原子・原子核・素粒子
+    en: Atomic, Nuclear and Particle Physics
+    units:
+      - key: electron_and_atom
+        label: 電子と原子
+        en: The Electron and the Atom
+        components:
+          - {key: electron_charge_and_mass, label: 電子の電荷と質量}  # 物理(4)(ア)㋐
+          - {key: millikan_experiment, label: ミリカンの実験}
+          - {key: specific_charge, label: 比電荷の測定}
+          - {key: x_ray, label: X 線}
+          - {key: atomic_model_history, label: 原子模型の変遷}
+      - key: nucleus
+        label: 原子核
+        en: The Nucleus
+        components:
+          - {key: nuclear_composition, label: 原子核の構成}          # 物理(4)(イ)㋑
+          - {key: isotope, label: 同位体}
+          - {key: nuclear_force, label: 核力}
+          - {key: mass_defect, label: 質量欠損}
+          - {key: binding_energy, label: 結合エネルギー}
+      - key: radioactivity
+        label: 放射線と崩壊
+        en: Radioactivity
+        components:
+          - {key: decay_types, label: 原子核の崩壊}                 # 物理(4)(イ)㋑
+          - {key: half_life, label: 半減期}
+          - {key: decay_law, label: 放射性崩壊の法則}
+          - {key: radiation_measurement, label: 放射線の測定}
+          - {key: radiation_and_human, label: 放射線と人体・利用}
+      - key: nuclear_reaction
+        label: 核反応
+        en: Nuclear Reactions
+        components:
+          - {key: nuclear_reaction, label: 核反応}                  # 物理(4)(イ)㋑
+          - {key: fission, label: 核分裂}
+          - {key: fusion, label: 核融合}
+          - {key: nuclear_energy_use, label: 原子力の利用}
+      - key: particles
+        label: 素粒子
+        en: Particle Physics
+        components:
+          - {key: elementary_particle, label: 素粒子の存在}          # 物理(4)(イ)㋒
+          - {key: quark_and_lepton, label: クォークとレプトン}
+          - {key: four_interactions, label: 四つの相互作用}
+          - {key: standard_model, label: 標準模型}
+          - {key: accelerator_experiment, label: 加速器による実験}
+
+  - key: condensed_matter
+    label: 物性
+    en: Condensed Matter Physics
+    units:
+      - key: crystal
+        label: 結晶
+        en: Crystals
+        components:
+          - {key: crystal_structure, label: 結晶構造}
+          - {key: lattice, label: 格子と単位胞}
+          - {key: reciprocal_lattice, label: 逆格子}
+          - {key: x_ray_diffraction, label: X 線回折とブラッグの条件}
+          - {key: crystal_defect, label: 格子欠陥}
+      - key: lattice_vibration
+        label: 格子振動
+        en: Lattice Vibrations
+        components:
+          - {key: phonon, label: フォノン}
+          - {key: specific_heat_of_solid, label: 固体の比熱}
+          - {key: einstein_debye_model, label: アインシュタイン模型とデバイ模型}
+          - {key: thermal_conduction_solid, label: 固体の熱伝導}
+      - key: electrons_in_solids
+        label: 固体中の電子
+        en: Electrons in Solids
+        components:
+          - {key: free_electron_model, label: 自由電子模型}
+          - {key: band_theory, label: バンド理論}
+          - {key: fermi_energy, label: フェルミエネルギー}
+          - {key: conductor_and_insulator, label: 導体・半導体・絶縁体}
+          - {key: semiconductor, label: 半導体}
+          - {key: pn_junction, label: pn 接合}
+          - {key: hall_effect, label: ホール効果}
+      - key: magnetism_and_superconductivity
+        label: 磁性と超伝導
+        en: Magnetism and Superconductivity
+        components:
+          - {key: dia_para_ferro, label: 反磁性・常磁性・強磁性}
+          - {key: exchange_interaction, label: 交換相互作用}
+          - {key: magnetic_domain, label: 磁区とヒステリシス}
+          - {key: superconductivity, label: 超伝導}
+          - {key: meissner_effect, label: マイスナー効果}
+          - {key: cooper_pair, label: クーパー対}
+      - key: nanoscale
+        label: ナノスケールの物理
+        en: Nanoscale Physics
+        components:
+          - {key: low_dimensional_system, label: 低次元系}
+          - {key: quantum_dot, label: 量子ドット}
+          - {key: mesoscopic_transport, label: メソスコピック伝導}
+
+  - key: fluids
+    label: 流体
+    en: Fluid Mechanics
+    units:
+      - key: fluid_statics
+        label: 静止流体
+        en: Fluid Statics
+        components:
+          - {key: pressure, label: 圧力}
+          - {key: atmospheric_pressure, label: 大気圧}
+          - {key: pascal_principle, label: パスカルの原理}
+          - {key: archimedes_principle, label: アルキメデスの原理}
+          - {key: surface_tension, label: 表面張力}
+      - key: ideal_flow
+        label: 理想流体の流れ
+        en: Ideal Flow
+        components:
+          - {key: continuity_equation, label: 連続の式}
+          - {key: bernoulli_theorem, label: ベルヌーイの定理}
+          - {key: streamline, label: 流線と流管}
+          - {key: potential_flow, label: ポテンシャル流}
+          - {key: circulation_and_lift, label: 循環と揚力}
+      - key: viscous_flow
+        label: 粘性流体
+        en: Viscous Flow
+        components:
+          - {key: viscosity, label: 粘性}
+          - {key: navier_stokes, label: ナビエ・ストークス方程式}
+          - {key: reynolds_number, label: レイノルズ数}
+          - {key: laminar_and_turbulent, label: 層流と乱流}
+          - {key: boundary_layer, label: 境界層}
+          - {key: drag, label: 抗力}
+      - key: fluid_waves
+        label: 流体中の波と不安定性
+        en: Waves and Instability in Fluids
+        components:
+          - {key: sound_in_fluid, label: 流体中の音波}
+          - {key: shock_wave, label: 衝撃波}
+          - {key: surface_wave, label: 表面波}
+          - {key: hydrodynamic_instability, label: 流体の不安定性}
+
+  - key: elasticity
+    label: 弾性体
+    en: Elasticity
+    units:
+      - key: stress_and_strain
+        label: 応力とひずみ
+        en: Stress and Strain
+        components:
+          - {key: stress, label: 応力}
+          - {key: strain, label: ひずみ}
+          - {key: hooke_law_elastic_body, label: 弾性体のフックの法則}
+          - {key: youngs_modulus, label: ヤング率}
+          - {key: poisson_ratio, label: ポアソン比}
+          - {key: shear_modulus, label: 剛性率}
+      - key: deformation
+        label: 変形
+        en: Deformation
+        components:
+          - {key: tension_and_compression, label: 引張と圧縮}
+          - {key: bending, label: 曲げ}
+          - {key: torsion, label: ねじり}
+          - {key: buckling, label: 座屈}
+          - {key: plasticity_and_fracture, label: 塑性と破壊}
+      - key: elastic_waves
+        label: 弾性波
+        en: Elastic Waves
+        components:
+          - {key: longitudinal_transverse_elastic, label: 弾性体中の縦波と横波}
+          - {key: sound_speed_in_solid, label: 固体中の音速}
+          - {key: seismic_wave, label: 地震波}
+          - {key: vibration_of_continuum, label: 連続体の振動}
+
+  - key: plasma
+    label: プラズマ
+    en: Plasma Physics
+    units:
+      - key: plasma_basics
+        label: プラズマの基礎
+        en: Fundamentals
+        components:
+          - {key: ionization, label: 電離}
+          - {key: quasi_neutrality, label: 準中性}
+          - {key: debye_shielding, label: デバイ遮蔽}
+          - {key: plasma_frequency, label: プラズマ振動数}
+      - key: particle_motion_and_confinement
+        label: 粒子の運動と閉じ込め
+        en: Particle Motion and Confinement
+        components:
+          - {key: single_particle_motion, label: 単一粒子の運動}
+          - {key: drift_motion, label: ドリフト運動}
+          - {key: magnetic_mirror, label: 磁気ミラー}
+          - {key: magnetic_confinement, label: 磁場閉じ込め}
+      - key: plasma_waves_and_instability
+        label: プラズマ波動と不安定性
+        en: Waves and Instabilities
+        components:
+          - {key: magnetohydrodynamics, label: 電磁流体力学}
+          - {key: plasma_wave, label: プラズマ波動}
+          - {key: plasma_instability, label: プラズマの不安定性}
+          - {key: fusion_plasma, label: 核融合プラズマ}
+
+  - key: biophysics
+    label: 生物物理
+    en: Biophysics
+    units:
+      - key: molecules_and_forces
+        label: 生体分子と力
+        en: Biomolecules and Forces
+        components:
+          - {key: biomolecule_structure, label: 生体分子の構造}
+          - {key: intermolecular_force, label: 分子間力}
+          - {key: self_assembly, label: 自己組織化}
+          - {key: brownian_motion, label: ブラウン運動}
+      - key: nonequilibrium_processes
+        label: 非平衡過程
+        en: Nonequilibrium Processes
+        components:
+          - {key: molecular_motor, label: 分子モーター}
+          - {key: biological_energy_conversion, label: 生体のエネルギー変換}
+          - {key: reaction_diffusion, label: 反応拡散系}
+          - {key: nonequilibrium_steady_state, label: 非平衡定常状態}
+      - key: biophysical_measurement
+        label: 生物物理の測定
+        en: Measurement in Biophysics
+        components:
+          - {key: single_molecule_measurement, label: 1 分子計測}
+          - {key: microscopy, label: 顕微鏡法}
+          - {key: spectroscopy_bio, label: 分光法}
+
+  # ------------------------------------------------------------------
+  # 参照基準の「基本的内容」の 1 つ。**実験レポートの採点はここに載る。**
+  # 力学や電磁気の KC では「測り方が分かっていない」を指せない ──
+  # 有効数字と誤差の扱いは、どの分野の実験でも同じ知識である。
+  # ------------------------------------------------------------------
+  - key: experiment_observation
+    label: 実験・観測
+    en: Experiment and Observation
+    units:
+      - key: measurement
+        label: 測定
+        en: Measurement
+        components:
+          - {key: physical_quantity_measurement, label: 物理量の測定と扱い方}  # 物理基礎(1)(ア)㋐
+          - {key: unit_and_dimension, label: 単位と次元}
+          - {key: dimensional_analysis, label: 次元解析}
+          - {key: significant_figures, label: 有効数字}
+          - {key: order_of_magnitude, label: 桁の見積り}
+          - {key: instrument_selection, label: 測定器の選択と分解能}
+          - {key: calibration, label: 較正}
+      - key: uncertainty
+        label: 誤差と不確かさ
+        en: Error and Uncertainty
+        components:
+          - {key: random_and_systematic_error, label: 偶然誤差と系統誤差}
+          - {key: repeated_measurement, label: 繰り返し測定と平均}
+          - {key: error_propagation, label: 誤差の伝播}
+          - {key: uncertainty_statement, label: 不確かさの表記}
+          - {key: least_squares_fit, label: 最小二乗法による当てはめ}
+      - key: experimental_design
+        label: 実験の計画
+        en: Experimental Design
+        components:
+          - {key: hypothesis_and_prediction, label: 仮説と予測}
+          - {key: control_of_variables, label: 条件の制御}
+          - {key: procedure_design, label: 手順の設計}
+          - {key: safety, label: 安全の確保}
+          - {key: reproducibility, label: 再現性}
+      - key: data_analysis
+        label: データの分析
+        en: Data Analysis
+        components:
+          - {key: graph_plotting, label: グラフ化}
+          - {key: linearization, label: 直線化}
+          - {key: comparison_with_model, label: 理論との比較}
+          - {key: outlier_treatment, label: 外れ値の扱い}
+          - {key: computer_analysis, label: 計算機による解析}
+      - key: reporting
+        label: 報告
+        en: Reporting
+        components:
+          - {key: lab_report_structure, label: 実験レポートの構成}
+          - {key: figure_and_table, label: 図と表}
+          - {key: discussion, label: 考察}
+          - {key: assumption_and_limitation, label: 仮定と適用限界の記述}
+          - {key: citation, label: 出典の記載}
+
+  - key: computational_physics
+    label: 計算物理
+    en: Computational Physics
+    units:
+      - key: numerical_methods
+        label: 数値解法
+        en: Numerical Methods
+        components:
+          - {key: discretization, label: 離散化}
+          - {key: numerical_integration_of_motion, label: 運動方程式の数値積分}
+          - {key: symplectic_integrator, label: シンプレクティック積分}
+          - {key: numerical_pde_physics, label: 場の方程式の数値解}
+          - {key: eigenvalue_problem_physics, label: 固有値問題の数値解}
+      - key: simulation
+        label: シミュレーション
+        en: Simulation
+        components:
+          - {key: molecular_dynamics, label: 分子動力学}
+          - {key: monte_carlo, label: モンテカルロ法}
+          - {key: finite_element, label: 有限要素法}
+          - {key: n_body_simulation, label: 多体シミュレーション}
+      - key: modeling_and_validation
+        label: モデル化と検証
+        en: Modeling and Validation
+        components:
+          - {key: model_from_first_principles, label: 基本法則からのモデル化}
+          - {key: nondimensionalization, label: 無次元化とパラメータ}
+          - {key: validation_against_experiment, label: 実験・観測との照合}
+          - {key: numerical_error_and_stability, label: 数値誤差と安定性}
+          - {key: reproducible_computation, label: 再現可能な計算}
+
+  - key: physics_history
+    label: 物理学の概念形成の歴史
+    en: History of Physical Concepts
+    units:
+      - key: classical_formation
+        label: 古典物理学の成立
+        en: Formation of Classical Physics
+        components:
+          - {key: ancient_worldview, label: 古代・中世の自然観}
+          - {key: galileo_and_newton, label: ガリレオとニュートン}
+          - {key: mechanical_worldview, label: 力学的自然観}
+          - {key: thermodynamics_formation, label: 熱力学の体系化}
+          - {key: electromagnetic_unification, label: 電磁気学の統一}
+      - key: modern_revolution
+        label: 現代物理学への転回
+        en: The Modern Revolution
+        components:
+          - {key: why_relativity, label: なぜ相対論が必要になったか}
+          - {key: why_quantum, label: なぜ量子力学が必要になったか}
+          - {key: crisis_experiments, label: 転回をもたらした実験}
+          - {key: interpretation_debate, label: 解釈をめぐる論争}
+      - key: physics_and_society
+        label: 物理学と社会
+        en: Physics and Society
+        components:
+          - {key: technology_from_physics, label: 物理学が拓く世界}      # 物理基礎(2)(オ)㋐
+          - {key: energy_and_society, label: エネルギーとその利用}       # 物理基礎(2)(エ)㋐
+          - {key: physics_future, label: 物理学が築く未来}              # 物理(4)(ウ)㋐
+          - {key: responsibility_of_scientist, label: 科学者の責任}
+
+  # ------------------------------------------------------------------
+  # 天文学 ── **入れないと決めた分野。枝は消さずに残してある。**
+  #
+  # 参照基準は「物理学・天文学分野」として一体で、学修目標 15) 16) 17) が
+  # 宇宙の階層構造・元素の起源・宇宙観の変遷を挙げている。それでもここに
+  # 入れていないのは、高校では天体が「地学」という別教科であり、この骨格が
+  # 物理に閉じているためである。
+  #
+  # **消さずに置くのは、次に必要になったとき同じ調査をやり直さないため。**
+  # 天文学の科目が要るようになったら、以下のコメントを外して
+  # `uv run aijudge-admin kc seed --namespace physics` を走らせ直せばよい
+  # （骨格は追記のみで増える ── 既にある KC はそのまま返る）。
+  # 地学の残り（地質・気象・地球）はこの枝には入らない。別の骨格が要る。
+  #
+  # - key: astronomy
+  #   label: 天文・宇宙
+  #   en: Astronomy and Astrophysics
+  #   units:
+  #     - key: observation
+  #       label: 天体観測
+  #       en: Astronomical Observation
+  #       components:
+  #         - {key: telescope, label: 望遠鏡}
+  #         - {key: magnitude_and_luminosity, label: 等級と光度}
+  #         - {key: spectral_observation, label: 分光観測}
+  #         - {key: distance_measurement, label: 距離の測定}
+  #         - {key: multiwavelength, label: 多波長観測}
+  #     - key: solar_system
+  #       label: 太陽系
+  #       en: The Solar System
+  #       components:
+  #         - {key: planetary_motion, label: 惑星の運動}
+  #         - {key: solar_system_formation, label: 太陽系の形成}
+  #         - {key: sun, label: 太陽}
+  #         - {key: small_bodies, label: 小天体}
+  #     - key: stars
+  #       label: 恒星
+  #       en: Stars
+  #       components:
+  #         - {key: stellar_structure, label: 恒星の構造}
+  #         - {key: nuclear_fusion_in_stars, label: 恒星内部の核融合}
+  #         - {key: hr_diagram, label: HR 図}
+  #         - {key: stellar_evolution, label: 恒星の進化}
+  #         - {key: supernova, label: 超新星爆発}
+  #         - {key: origin_of_elements, label: 元素の起源}
+  #         - {key: compact_object, label: 白色矮星・中性子星・ブラックホール}
+  #     - key: galaxies
+  #       label: 銀河
+  #       en: Galaxies
+  #       components:
+  #         - {key: milky_way, label: 銀河系}
+  #         - {key: galaxy_types, label: 銀河の分類}
+  #         - {key: galaxy_cluster, label: 銀河団}
+  #         - {key: large_scale_structure, label: 宇宙の大規模構造}
+  #     - key: cosmology
+  #       label: 宇宙論
+  #       en: Cosmology
+  #       components:
+  #         - {key: hubble_law, label: ハッブル・ルメートルの法則}
+  #         - {key: big_bang, label: ビッグバン}
+  #         - {key: cmb, label: 宇宙背景放射}
+  #         - {key: dark_matter_energy, label: 暗黒物質と暗黒エネルギー}
+  #         - {key: cosmic_evolution, label: 宇宙の進化}
+  #     - key: history_of_astronomy
+  #       label: 宇宙観の変遷
+  #       en: History of Astronomy
+  #       components:
+  #         - {key: calendar_and_ancient_astronomy, label: 暦と古代の天文学}
+  #         - {key: copernican_turn, label: 地動説への転回}
+  #         - {key: telescope_and_modern_view, label: 望遠鏡がもたらした宇宙観}
