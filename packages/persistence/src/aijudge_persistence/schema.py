@@ -599,7 +599,15 @@ class AuditEventRow(Base):
 
     action: Mapped[str] = mapped_column(String(64), index=True)
     target_type: Mapped[str] = mapped_column(String(32))
-    target_id: Mapped[str] = mapped_column(String(64))
+    # **対象が 1 つの id とは限らない。** 受講登録には固有の id が無く、
+    # 「どのコースの誰か」の対（`crs_…:usr_…` で 73 字）でしか名指せない。
+    # 64 字はこの単純な id ひとつぶんの寸法で、デモコースの自動登録が
+    # 最初のログインで 500 を返した（`enrol_into_demo_course`）。
+    #
+    # **切り詰めて入れる道は取らない** ── 対象を名指せない監査記録は、
+    # 後から「誰の何が変わったか」を言えない。自由書式の鍵をここに入れる
+    # 必要が出たら、それは `detail` の側の仕事である。
+    target_id: Mapped[str] = mapped_column(String(128))
 
     summary: Mapped[str] = mapped_column(String(500))
     detail: Mapped[dict] = mapped_column(JsonType)
