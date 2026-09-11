@@ -221,6 +221,24 @@ class SqlSubmissionRepository:
                 return
             offset += chunk
 
+    def list_for_versions(self, version_ids: Sequence[TaskVersionId]) -> tuple[Submission, ...]:
+        """この課題版たちへの提出。古い順。**上限を持たない**（#230）。
+
+        問題セット 1 つぶんなので、コース全体より桁が小さい ── ここに上限を
+        置くと、置いた意味より取りこぼしの害が大きい。
+        """
+        if not version_ids:
+            return ()
+        statement = (
+            select(SubmissionRow)
+            .where(SubmissionRow.task_version_id.in_([str(v) for v in version_ids]))
+            .order_by(SubmissionRow.created_at, SubmissionRow.id)
+        )
+        return tuple(
+            Submission.model_validate(row.document)
+            for row in self._session.execute(statement).scalars()
+        )
+
     def count_for_course(self, course_id: CourseId) -> SubmissionCounts:
         """このコースの提出を、数えるためだけに数える（#219）。
 

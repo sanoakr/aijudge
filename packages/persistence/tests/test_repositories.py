@@ -808,3 +808,41 @@ def test_counting_a_course_does_not_depend_on_the_listing_limit(database: Databa
 
     assert len(capped) == 1, "上限が効いていない（前提が崩れている）"
     assert (counts.learner, counts.trial) == (2, 1)
+
+
+def test_listing_by_version_is_not_capped(database: Database) -> None:
+    """問題セット単位の経路は上限を持たない（#230）。
+
+    **絞り込みが上限の前に来ること**が要点で、逆だとコースが大きいほど
+    問題セットの取りこぼしが増える。落ちるのは古い順に切るぶん新しい側で、
+    一括採点ではそれが「いま採点したい答案」だった。
+    """
+    from aijudge_core import Task
+
+    service = a_service(database)
+    with database.unit_of_work() as uow:
+        uow.tasks.save_task(Task(id=TASK_ID, course_id=COURSE, title="例題"))
+        uow.tasks.save_version(a_task_version())
+        uow.commit()
+
+    version = TaskVersionId(f"tsv_{1:032d}")
+    for index in range(3):
+        service.accept(
+            tenant_id=TENANT,
+            task_version_id=version,
+            learner_id=LEARNER,
+            subject_profile="cs_lang_c_intro",
+            files=code(f"int main(void){{return {index};}}"),
+        )
+
+    with database.unit_of_work() as uow:
+        capped = uow.submissions.list_for_course(COURSE, limit=1)
+        by_version = uow.submissions.list_for_versions([version])
+        empty = uow.submissions.list_for_versions([])
+
+    assert len(capped) == 1, "上限が効いていない（前提が崩れている）"
+    assert len(by_version) == 3
+    # **課題版を 1 つも渡さないときに全件を返さない。** 空は「対象なし」で
+    # あって「全部」ではない ── ここを取り違えると、問題セットが空のときに
+    # コース全体を採点に回す。
+    assert empty == ()

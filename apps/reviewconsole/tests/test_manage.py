@@ -5851,3 +5851,38 @@ def test_a_learner_cannot_download_the_template(world: World) -> None:
     world.register("s2400001", Role.LEARNER)
 
     assert world.client("s2400001").get(_template_url(world)).status_code in (403, 404)
+
+
+def test_bulk_grading_does_not_read_the_capped_listing(world: World, monkeypatch) -> None:
+    """**一括採点の対象を打ち切られた一覧から決めない**（#230）。
+
+    `list_for_course` は古い順に 5000 件で切る。コース全件を引いてから課題版
+    で絞ると、落ちるのは**いちばん新しい提出** ── 試験直後にいま採点したい
+    答案がちょうど外れる。しかも押す前の件数も同じ一覧から出ていたので、
+    「N 件待っている → N 件流した」と画面の中では矛盾せず、取りこぼしは
+    どこにも現れなかった。
+
+    5000 件を積んで再現するのは現実的でないので、**その API を呼んだら落ちる
+    ようにして**、対象が課題版で絞った側から来ていることを固定する。
+    """
+    from aijudge_persistence.repositories import SqlSubmissionRepository
+
+    world.register("teacher", Role.INSTRUCTOR)
+    _import_example(world)
+    unit = _unit_of(world)
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("打ち切られる一覧から採点の対象を決めてはいけない")
+
+    monkeypatch.setattr(SqlSubmissionRepository, "list_for_course", forbidden)
+
+    client = world.client("teacher")
+    for path in (
+        f"/manage/courses/{world.course.id}/units/{unit}/grade-now",
+        f"/manage/courses/{world.course.id}/units/{unit}/retry-failed",
+    ):
+        response = client.post(path, follow_redirects=False)
+        assert response.status_code == 303, path
+
+    # 件数を出す側（押す前に読む数）も同じ経路であること。
+    assert client.get(f"/manage/courses/{world.course.id}/units/{unit}").status_code == 200

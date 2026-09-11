@@ -717,12 +717,10 @@ def _exam_state(console, course, group, now: datetime) -> dict[str, object]:
     if not version_ids:
         return {"waiting_jobs": 0, "failed_jobs": (), "last_release": None}
     with console.database.unit_of_work() as uow:
-        submissions = [
-            submission
-            for submission in uow.submissions.list_for_course(course.id)
-            if str(submission.task_version_id) in version_ids
-        ]
-        ids = [s.id for s in submissions]
+        # **課題版で絞ってから引く**（#230）。コース全件を引いて Python で
+        # 絞ると、絞り込みが `list_for_course` の上限の後ろに来て、押す前に
+        # 出すこの件数から新しい提出が抜ける。
+        ids = [s.id for s in uow.submissions.list_for_versions(sorted(version_ids))]
         failed = uow.jobs.failed_for(ids)
         # 待たせている件数は「流したら何件動くか」。押す前に出す。
         waiting = uow.jobs.waiting_count(ids, now)
@@ -2180,11 +2178,8 @@ def register(templates) -> APIRouter:
         version_ids = {str(version.id) for _task, version in group.tasks}
         now = datetime.now(UTC)
         with console.database.unit_of_work() as uow:
-            submissions = [
-                s
-                for s in uow.submissions.list_for_course(course.id)
-                if str(s.task_version_id) in version_ids
-            ]
+            # **上限の内側だけを再試行しない**（#230）。
+            submissions = uow.submissions.list_for_versions(sorted(version_ids))
             failed = uow.jobs.failed_for([s.id for s in submissions])
             for job in failed:
                 uow.jobs.update(job.retried(now))
@@ -2218,11 +2213,11 @@ def register(templates) -> APIRouter:
         version_ids = {str(version.id) for _task, version in group.tasks}
         now = datetime.now(UTC)
         with console.database.unit_of_work() as uow:
-            submissions = [
-                submission
-                for submission in uow.submissions.list_for_course(course.id)
-                if str(submission.task_version_id) in version_ids
-            ]
+            # **一括採点の対象を打ち切られた一覧から決めない**（#230）。
+            # 古い順に切るので、落ちるのは試験直後の提出だった ── しかも
+            # 押す前の件数も同じ一覧から出ていたので、画面の中では
+            # 矛盾せず、取りこぼしはどこにも現れなかった。
+            submissions = uow.submissions.list_for_versions(sorted(version_ids))
             released = uow.jobs.release_waiting([s.id for s in submissions], now)
             uow.commit()
 

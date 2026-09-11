@@ -164,6 +164,16 @@ class SubmissionRepository(Protocol):
         """
         ...
 
+    def list_for_versions(self, version_ids: Sequence[TaskVersionId]) -> tuple[Submission, ...]:
+        """この課題版たちへの提出（#230）。
+
+        **問題セット単位の操作はこれを使う。** コース全件を引いてから課題版
+        で絞ると、絞り込みが `list_for_course` の上限の**後ろ**に来る ──
+        コースが大きいほど問題セットの取りこぼしが増え、落ちるのは古い順に
+        切るぶん**いちばん新しい提出**になる。一括採点がまさにその形だった。
+        """
+        ...
+
     def count_for_course(self, course_id: CourseId) -> SubmissionCounts:
         """このコースの提出の内訳を数える（#219）。
 

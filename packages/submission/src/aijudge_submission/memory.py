@@ -117,6 +117,10 @@ class InMemorySubmissionRepository:
         # 気づかれていない）。`dict` は挿入順を保つので、それで足りる。
         return tuple(self._items.values())[:limit]
 
+    def list_for_versions(self, version_ids: Sequence[TaskVersionId]) -> tuple[Submission, ...]:
+        wanted = {str(version_id) for version_id in version_ids}
+        return tuple(item for item in self._items.values() if str(item.task_version_id) in wanted)
+
     def count_for_course(self, course_id: CourseId) -> SubmissionCounts:
         # `list_for_course` と同じ理由でコースでは絞れない（課題を持たない）。
         # **数え方の規則は模型に訊く**のが要点で、そこは SQL 実装と揃っている。
