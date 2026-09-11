@@ -35,7 +35,6 @@ from aijudge_core import (
     HumanReview,
     ReviewRequest,
     ReviewState,
-    Role,
     Submission,
     Task,
     TaskVersion,
@@ -53,7 +52,7 @@ from aijudge_core.ids import (
     TenantId,
     UserId,
 )
-from aijudge_submission import GradingJob, GradingPhase, JobState
+from aijudge_submission import GradingJob, GradingPhase, JobState, SubmissionCounts
 from aijudge_submission.protocols import (
     AttentionCounts,
     ImmutabilityViolation,
@@ -94,6 +93,10 @@ class SqlSubmissionRepository:
             existing.state = submission.state.value
             existing.attempt = submission.attempt
             existing.submitted_at = submission.submitted_at
+            # **模型から写す。** 列は `Submission.is_trial` の索引であって
+            # 定義ではない（`schema.py`）。下書きのうちに `submitted_as` が
+            # 変わる経路があるので、保存のたびに写し直す。
+            existing.is_trial = submission.is_trial
             existing.document = _dump(submission)
             return
         # tenant_id は Submission に無い（コアはテナントを持たない）。
@@ -108,6 +111,7 @@ class SqlSubmissionRepository:
                 attempt=submission.attempt,
                 created_at=submission.created_at,
                 submitted_at=submission.submitted_at,
+                is_trial=submission.is_trial,
                 document=_dump(submission),
             )
         )
@@ -216,6 +220,23 @@ class SqlSubmissionRepository:
             if len(rows) < chunk:
                 return
             offset += chunk
+
+    def count_for_course(self, course_id: CourseId) -> SubmissionCounts:
+        """このコースの提出を、数えるためだけに数える（#219）。
+
+        **行を持ってこない。** 消してよいかの判断も画面の件数も数しか要らず、
+        提出の文書を数千件転送する理由が無い。`is_trial` が列になったので
+        SQL の側で分けられる（`schema.py`）。
+        """
+        statement = (
+            select(SubmissionRow.is_trial, func.count())
+            .join(TaskVersionRow, TaskVersionRow.id == SubmissionRow.task_version_id)
+            .join(TaskRow, TaskRow.id == TaskVersionRow.task_id)
+            .where(TaskRow.course_id == str(course_id))
+            .group_by(SubmissionRow.is_trial)
+        )
+        counts = {bool(is_trial): total for is_trial, total in self._session.execute(statement)}
+        return SubmissionCounts(learner=counts.get(False, 0), trial=counts.get(True, 0))
 
     def next_attempt(
         self, tenant_id: TenantId, learner_id: UserId, task_version_id: TaskVersionId
@@ -601,23 +622,12 @@ class SqlReviewRepository:
         無く JSON の中にある。行を持ってきて Python で弾くと、数えるためだけ
         に提出の文書を数百件転送することになる ── ここは数しか要らない。
 
-        **`is_demo` を落とさない。** `is_trial` は「教員の試行**または**デモ
-        コースへの提出」で、片方だけ写すとデモの提出が人待ちとして数えられる
-        （#194・#197 の「述語が 2 つあると片方だけ直る」がここで 3 度目に
-        起きていた）。ここは写しであり、定義は `Submission.is_trial` にある。
-
-        欄が無い古い文書は学習者の提出として数える ── どちらの欄も、入る前の
-        提出には概念そのものが無かった（#108・#194）。
+        **述語は列を見る。** 直前まではここで `is_trial` の規則を JSON パスで
+        手写ししており、`is_demo` を落としてデモコースへの提出を人待ちとして
+        数えていた。写しを持つのをやめ、保存のときに模型から書いた
+        `submissions.is_trial` を読む（`schema.py`）。
         """
-        learner_role = or_(
-            SubmissionRow.document["submitted_as"].as_string() == Role.LEARNER.value,
-            SubmissionRow.document["submitted_as"].as_string().is_(None),
-        )
-        not_demo = or_(
-            SubmissionRow.document["is_demo"].as_boolean().is_(None),
-            SubmissionRow.document["is_demo"].as_boolean().is_(False),
-        )
-        learner_submitted = and_(learner_role, not_demo)
+        learner_submitted = SubmissionRow.is_trial.is_(False)
 
         contested = (
             select(func.count())

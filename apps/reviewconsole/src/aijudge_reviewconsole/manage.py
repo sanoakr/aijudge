@@ -1912,9 +1912,9 @@ def register(templates) -> APIRouter:
             # 学習者の提出があるコースは消せない（#156）。**何件あるかを
             # 先に出す** ── 押してから断られるより、押す前に理由が読める方が
             # よい。教員の動作確認（trial・#108）は数えない（消せる）。
-            learner_submissions = sum(
-                1 for item in uow.submissions.list_for_course(course.id) if not item.is_trial
-            )
+            # **数えるだけなので、行は持ってこない**（#219）。`is_trial` が
+            # 列になったので SQL の側で分けられる。
+            learner_submissions = uow.submissions.count_for_course(course.id).learner
         people_count = len(enrollments)
 
         return templates.TemplateResponse(

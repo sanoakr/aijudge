@@ -99,6 +99,18 @@ class SubmissionRow(Base):
     attempt: Mapped[int] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(Timestamp)
     submitted_at: Mapped[datetime | None] = mapped_column(Timestamp, nullable=True)
+    # 成績にも測定にも数えない提出か（#108・#194）。
+    #
+    # **これは `Submission.is_trial` の写しであって、定義ではない。** 定義は
+    # 模型にあり（`submitted_as is not LEARNER or is_demo`）、ここは SQL から
+    # 引けるようにするための索引である。保存のときに模型から書き、**手で
+    # 編集しない**。
+    #
+    # 列にしてある理由は、無いあいだに同じ規則が 3 通りに写されたからである
+    # ── Python で弾く、JSON パスで手写しする（`is_demo` が落ちていた）、
+    # 全件を走査して数える（#219）。提出は SUBMITTED 以降不変なので、
+    # 写しが元とずれる余地は構造的に無い。
+    is_trial: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0", index=True)
     # Submission 全体（artifacts を含む）。読むときは丸ごと。
     document: Mapped[dict] = mapped_column(JsonType)
 

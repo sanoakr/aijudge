@@ -180,13 +180,9 @@ def cmd_course_delete(args: argparse.Namespace) -> int:
             # **数える側も打ち切られた一覧を使わない**（#219）。件数を先に
             # 出すのは「空振りと本物の削除を同じ顔で終わらせない」ためなので、
             # 5000 で頭打ちになる数を出すのはその目的を外す。
-            learner_count = 0
-            trial_count = 0
-            for submission in uow.submissions.iter_for_course(course.id):
-                if submission.is_trial:
-                    trial_count += 1
-                else:
-                    learner_count += 1
+            counts = uow.submissions.count_for_course(course.id)
+            learner_count = counts.learner
+            trial_count = counts.trial
             tasks = uow.tasks.list_for_course(course.id)
             enrolments = uow.identity.list_enrollments(course.id)
 

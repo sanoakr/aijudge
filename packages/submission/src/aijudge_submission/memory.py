@@ -39,7 +39,12 @@ from aijudge_core.ids import (
 )
 
 from .jobs import GradingJob, GradingPhase, JobState
-from .protocols import ImmutabilityViolation, RunDecision, SubmissionStoreError
+from .protocols import (
+    ImmutabilityViolation,
+    RunDecision,
+    SubmissionCounts,
+    SubmissionStoreError,
+)
 
 
 class InMemoryArtifactStore:
@@ -111,6 +116,13 @@ class InMemorySubmissionRepository:
         # 呼べば `AttributeError` になっていた（誰も呼んでいなかったので
         # 気づかれていない）。`dict` は挿入順を保つので、それで足りる。
         return tuple(self._items.values())[:limit]
+
+    def count_for_course(self, course_id: CourseId) -> SubmissionCounts:
+        # `list_for_course` と同じ理由でコースでは絞れない（課題を持たない）。
+        # **数え方の規則は模型に訊く**のが要点で、そこは SQL 実装と揃っている。
+        items = tuple(self._items.values())
+        trial = sum(1 for item in items if item.is_trial)
+        return SubmissionCounts(learner=len(items) - trial, trial=trial)
 
     def iter_for_course(self, course_id: CourseId, *, chunk: int = 1000) -> Iterator[Submission]:
         # `list_for_course` と同じ理由でコースでは絞れない（課題を持たない）。
