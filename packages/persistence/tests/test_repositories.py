@@ -853,6 +853,60 @@ def test_listing_by_version_is_not_capped(database: Database) -> None:
     assert empty == ()
 
 
+def test_the_listing_filters_before_it_reads(database: Database) -> None:
+    """**絞り込みは上限より前に効く**（#247）。
+
+    以前は上限まで読んでから Python で絞っていたので、「この課題だけ」を
+    見ても読み込み量はコース全体のままだった ── 上限に当たると、絞り込みは
+    **切り落とされた後ろ**を探すことになり、教員には「その課題の古い提出が
+    無い」と見える。上限 1 でも条件に合う提出が出ることで、順序が保存層の
+    側にあることが分かる。
+
+    **課題で絞る。課題版ではない** ── 提出は出したときの版を指すので、
+    最新版だけで絞ると課題を直す前の提出が消える。
+    """
+    from aijudge_core import Task
+
+    other_task = TaskId("tsk_" + "9" * 32)
+    other_version = TaskVersionId(f"tsv_{2:032d}")
+    with database.unit_of_work() as uow:
+        uow.tasks.save_task(Task(id=TASK_ID, course_id=COURSE, title="例題"))
+        uow.tasks.save_version(a_task_version())
+        uow.tasks.save_task(Task(id=other_task, course_id=COURSE, title="別の例題"))
+        uow.tasks.save_version(a_task_version(version=2).model_copy(update={"task_id": other_task}))
+        uow.commit()
+
+    service = SubmissionService(database.unit_of_work, _store(database))
+    wanted = service.accept(
+        tenant_id=TENANT,
+        task_version_id=TaskVersionId(f"tsv_{1:032d}"),
+        learner_id=LEARNER,
+        subject_profile="cs_lang_c_intro",
+        files=code("int main(void){return 1;}"),
+    ).submission
+    # 後から出した方が新しいので、絞らなければ上限 1 でこちらが残る。
+    service.accept(
+        tenant_id=TENANT,
+        task_version_id=other_version,
+        learner_id=LEARNER,
+        subject_profile="cs_lang_c_intro",
+        files=code("int main(void){return 2;}"),
+    )
+
+    with database.unit_of_work() as uow:
+        narrowed = uow.submissions.list_for_course(COURSE, limit=1, task_ids=[TASK_ID])
+        nobody = uow.submissions.list_for_course(COURSE, task_ids=[])
+        by_learner = uow.submissions.list_for_course(COURSE, learner_ids=[LEARNER])
+        no_learner = uow.submissions.list_for_course(COURSE, learner_ids=[])
+
+    assert [s.id for s in narrowed] == [wanted.id], "絞り込みが上限の後ろに来ている"
+    # **空の列は「該当なし」。** 全件に化けると、条件に誰も当たらない
+    # 絞り込みがコース全体の表示になる ── 絞り込みが壊れたようにしか見えない。
+    assert nobody == ()
+    assert len(by_learner) == 2
+    assert no_learner == ()
+
+
 def test_the_listing_keeps_the_newest_when_it_has_to_choose(database: Database) -> None:
     """**上限に当たったら古い側を落とす**（#233）。
 

@@ -171,11 +171,22 @@ class SqlSubmissionRepository:
             for row in self._session.execute(statement).scalars()
         )
 
-    def list_for_course(self, course_id: CourseId, *, limit: int = 5000) -> tuple[Submission, ...]:
+    def list_for_course(
+        self,
+        course_id: CourseId,
+        *,
+        limit: int = 5000,
+        task_ids: Sequence[TaskId] | None = None,
+        learner_ids: Sequence[UserId] | None = None,
+    ) -> tuple[Submission, ...]:
         """このコースの提出。**新しい順。** 教員の一覧が読む。
 
         提出は課題版を指しており、コースを直接持たない（持たせると課題の
         移動で片方だけ古くなる）ので、課題 → コースの経路で絞る。
+
+        **絞り込みは問い合わせに載せる**（#247）。読んでから Python で
+        絞ると、絞った表示でも読み込み量はコース全体のままで、上限に
+        当たったときは切られた後ろを探すことになる。
         """
         statement = (
             select(SubmissionRow)
@@ -187,6 +198,16 @@ class SqlSubmissionRepository:
             .order_by(SubmissionRow.created_at.desc(), SubmissionRow.id.desc())
             .limit(limit)
         )
+        # **空の列は「該当なし」。** 絞らないときは `None` が来る ── 空を
+        # 「絞らない」と読むと、条件に誰も当たらない絞り込みが全件表示に
+        # 化ける（絞り込みが壊れているようにしか見えない）。
+        # **課題で絞る。課題版ではない**（#247）── 提出は出したときの版を
+        # 指すので、最新版だけで絞ると課題を直す前の提出が消える。join は
+        # 既にあるので、絞る先を課題側に置くだけで済む。
+        if task_ids is not None:
+            statement = statement.where(TaskVersionRow.task_id.in_([str(t) for t in task_ids]))
+        if learner_ids is not None:
+            statement = statement.where(SubmissionRow.learner_id.in_([str(u) for u in learner_ids]))
         return tuple(
             Submission.model_validate(row.document)
             for row in self._session.execute(statement).scalars()

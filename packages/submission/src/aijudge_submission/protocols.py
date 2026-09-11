@@ -166,7 +166,14 @@ class SubmissionRepository(Protocol):
         self, tenant_id: TenantId, learner_id: UserId, task_version_id: TaskVersionId | None = None
     ) -> tuple[Submission, ...]: ...
 
-    def list_for_course(self, course_id: CourseId, *, limit: int = 5000) -> tuple[Submission, ...]:
+    def list_for_course(
+        self,
+        course_id: CourseId,
+        *,
+        limit: int = 5000,
+        task_ids: Sequence[TaskId] | None = None,
+        learner_ids: Sequence[UserId] | None = None,
+    ) -> tuple[Submission, ...]:
         """このコースの提出を**新しい順**に返す。**教員の一覧のためにある。**
 
         提出は課題版を指しており、コースを直接持たない（持たせると課題の
@@ -175,6 +182,17 @@ class SubmissionRepository(Protocol):
         **上限に当たったら古い側が落ちる**（#233）。以前は古い順に切って
         いたので、落ちるのは最近の提出だった ── 一覧は「実際に何が出ている
         か」を見る場所なので、それは目的と逆である。
+
+        **絞り込みは読む前に効かせる**（#247）。以前は上限まで読んでから
+        Python で絞っていたので、「第 3 回だけ」を見ても読み込み量は
+        コース全体のままだった ── 上限に当たれば、絞り込みは**切られた
+        後ろの範囲**を探すことになる。`task_ids` と `learner_ids` は
+        課題と学習者で先に絞る。空の列（`()`）は「該当なし」であって
+        「絞らない」ではないので、絞らないときは `None` を渡す。
+
+        **課題で絞る。課題版ではない。** 提出は出したときの版を指しており、
+        課題を直したあとの一覧には複数の版への提出が並ぶ ── 最新版だけで
+        絞ると、直す前に出した提出が一覧から消える。
 
         **判断にはこれを使わない。** 上限がある以上、ここで数えたものは
         「全部」ではない（`count_for_course` / `list_for_versions`）。

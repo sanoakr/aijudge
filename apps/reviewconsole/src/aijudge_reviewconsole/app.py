@@ -870,8 +870,6 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
         """
         course, _rows, _marked = _queue_rows(console, me, CourseId(course_id))
         with console.database.unit_of_work() as uow:
-            listing = load_rows(uow, course)
-            rows = listing.rows
             units = load_units(uow, course)
         # **問題セットを選んだら、問題の選択肢もそのセットに絞る。** 全課題を
         # 並べたままにすると、選んだセットに無い問題を選べてしまい、結果が
@@ -891,6 +889,17 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
             state=state,
             adopted=bool(adopted),
         )
+        # **絞り込んでから読む**（#247）。問題セット・問題・学習者は問い合わせに
+        # 載るので、普段の表示は数十〜数百行になり上限にはまず当たらない。
+        # 載らない条件（状態・採用・役割）はここで絞る ── **何を出すかを
+        # 決めるのはこの 1 行**で、保存層の絞り込みは読む量を減らすだけである
+        # （模型の実装は課題で絞れないが、それでも結果は変わらない）。
+        with console.database.unit_of_work() as uow:
+            listing = load_rows(uow, course, filters)
+            # **全件は数えて訊く**（#219）。読んだ行から数えると、絞り込んだ
+            # 表示では「全 N 件」が絞り込み後の数に化ける。
+            counts = uow.submissions.count_for_course(course.id)
+        rows = listing.rows
         shown = newest_first([row for row in rows if filters.matches(row)])
         return TEMPLATES.TemplateResponse(
             request,
@@ -900,7 +909,7 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 "course": course,
                 "section": {"label": "提出", "href": f"/courses/{course.id}/submissions"},
                 "rows": shown,
-                "total": len(rows),
+                "total": counts.learner + counts.trial,
                 "filters": filters,
                 # 問題セットの選択肢は全部、問題の選択肢は選んだセットの中だけ。
                 "units": units,
