@@ -271,8 +271,7 @@ form[data-working] button[disabled]{opacity:.55;cursor:progress}
 /* 説明は残りを取って折り返す。**`.desc` の余白をここで消す** ── 段落の
    ための下余白が行間に入ると、格子の行が不揃いになる。 */
 .kcpick .desc{margin:0;font-size:.82rem}
-/* 階層は字下げで見せる（レールと同じ作法・#185 の注記）。深さはキーの
-   点の数で、テンプレートが `d1`〜`d4` を付ける。 */
-.kcpick .d2 .k{padding-left:1em}
-.kcpick .d3 .k{padding-left:2em}
-.kcpick .d4 .k{padding-left:3em}
+/* **字下げはしない。** 階層はキーの文字列そのものに出ている
+   （`cs.ai.ml.overfitting`）ので、そのうえ行頭をずらすと、揃えるために
+   作った列がまた不揃いになる ── 目で追う手がかりは「行頭が 1 本である」
+   ことの側にある。 */
