@@ -25,7 +25,8 @@
   </p>
 </div>
 
-<table>
+{# 携帯では行を積む（`table.stack`）。 #}
+<table class="stack">
   <thead><tr>
     <th class="fit">提出</th><th class="fit">学習者</th><th class="grow">課題</th>
     <th class="fit">回</th><th class="fit"></th>
@@ -33,14 +34,14 @@
   <tbody>
   {% for row in rows %}
     <tr class="row-link" data-href="{{ root_prefix() }}/review/{{ row.submission.id }}/blind">
-      <td class="fit">{{ row.submission.submitted_at.strftime('%m-%d %H:%M') if row.submission.submitted_at else '—' }}</td>
-      <td class="fit mono">{{ row.learner.login if row.learner else '—' }}</td>
+      <td class="fit" data-label="提出">{{ row.submission.submitted_at.strftime('%m-%d %H:%M') if row.submission.submitted_at else '—' }}</td>
+      <td class="fit mono" data-label="学習者">{{ row.learner.login if row.learner else '—' }}</td>
       <td class="grow">
         {% if row.task %}{{ row.task.unit_label }}
           <span class="desc">{{ row.task.title }}</span>
         {% else %}—{% endif %}
       </td>
-      <td class="fit">{{ row.submission.attempt }} 回目</td>
+      <td class="fit" data-label="回">{{ row.submission.attempt }} 回目</td>
       <td class="fit"><a href="{{ root_prefix() }}/review/{{ row.submission.id }}/blind">自分で採点する</a></td>
     </tr>
   {% else %}
