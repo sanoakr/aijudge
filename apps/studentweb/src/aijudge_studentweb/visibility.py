@@ -103,12 +103,14 @@ class CriterionView:
             # 打ち切りは仕様どおりの結果なので「確認中」ではない。0% である
             # ことと、なぜ評価されなかったのかを同じ行で示す。
             return "評価していません（前の観点が 0% のため・0%）"
-        if self.by_human:
-            # 「確認中」だと機械が動いている最中に読める。この観点は待って
-            # いるのが人の採点であって、機械の結果ではない。
-            return "担当教員が採点します"
         if self.pending:
-            return "確認中"
+            # 「確認中」だと機械が動いている最中に読める。人の採点を待って
+            # いる観点は、待っている相手が違う。
+            #
+            # **待っているあいだだけの言い方である**（#236）。以前はここが
+            # `pending` より先にあり、教員が段階を付けたあとも「採点します」
+            # と出続けていた ── 総合点は動くのに、その内訳が出なかった。
+            return "担当教員が採点します" if self.by_human else "確認中"
         if self.level is None:
             return "採点できませんでした"
         return self.criterion.level_for(self.level).label
@@ -241,6 +243,22 @@ def build_result_view(
     views: list[CriterionView] = []
     for criterion in task_version.criteria:
         score = by_criterion.get(str(criterion.id))
+        reviewed_level = None if review is None else review.adjusted_levels.get(criterion.id)
+        if score is None and reviewed_level is not None:
+            # **人が採点した観点**（#236）。機械の判定は最初から無いので、
+            # 段階は教員の記録からしか来ない ── ここを空のままにすると、
+            # 総合点だけが動いて内訳が出ない（P4 は判定に根拠を求める）。
+            views.append(
+                CriterionView(
+                    criterion=criterion,
+                    level=reviewed_level,
+                    rationale=None,
+                    evidence_lines=(),
+                    pending=False,
+                    by_human=True,
+                )
+            )
+            continue
         if score is None:
             # 判定の無い観点。評価器が落ちた・人の採点を待っている場合は
             # 暫定であることを隠さず「確認中」、ゲートで打ち切った場合は

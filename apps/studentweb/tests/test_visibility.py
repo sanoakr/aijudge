@@ -236,3 +236,48 @@ def test_a_criterion_awaiting_a_human_still_withholds_the_score() -> None:
 
     assert view.score_ratio is None
     assert view.score_withheld
+
+
+def test_a_human_scored_criterion_shows_the_level_the_instructor_gave() -> None:
+    """**人が採点した観点も、段階を出す**（#236）。
+
+    機械の判定が無い観点は `awaiting_human` に入り、段階は教員の記録から
+    しか来ない。以前は表示の判定が `by_human` を `pending` より先に見て
+    いたので、**教員が段階を付けたあとも「担当教員が採点します」のまま**
+    だった ── 総合点だけが動いて、その内訳が学習者に出なかった。
+
+    P4 は判定に根拠を求める。人が付けた段階もその判定である。
+    """
+    run = _run_missing_the_ai_criterion().model_copy(
+        update={"unscored_criteria": (), "awaiting_human": (READABILITY,)}
+    )
+    review = HumanReview(
+        id=HumanReviewId(new_id("hrv")),
+        grading_run_id=run.id,
+        grader_id=UserId("usr_" + "6" * 32),
+        adjusted_levels={READABILITY: 3},
+        comment="読みやすさを確認しました。変数名は追えるので達成とします。",
+        reviewed_at=NOW,
+    )
+
+    view = build_result_view(run, _task_version(), review)
+    row = {view_.criterion.code: view_ for view_ in view.criteria}["readability"]
+
+    assert row.level == 3
+    assert not row.pending
+    assert row.label != "担当教員が採点します"
+    # **誰が付けたかは残す。** AI やテスト実行と同じ顔にはしない。
+    assert row.by_human
+
+
+def test_a_human_scored_criterion_says_who_is_waiting_before_it_is_scored() -> None:
+    """採点前は従来どおり ── 待っている相手が機械ではないと分かること。"""
+    run = _run_missing_the_ai_criterion().model_copy(
+        update={"unscored_criteria": (), "awaiting_human": (READABILITY,)}
+    )
+
+    view = build_result_view(run, _task_version(), None)
+    row = {view_.criterion.code: view_ for view_ in view.criteria}["readability"]
+
+    assert row.pending
+    assert row.label == "担当教員が採点します"

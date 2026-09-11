@@ -116,6 +116,9 @@
       <td class="fit">
         {% if row.pending %}<span class="desc">—</span>
         {% elif row.by_ai %}<span class="pill ai">AI</span>
+        {# **人が採点した観点を「テスト実行」と出さない**（#236）。機械の
+           判定が無い観点なので、判定の出どころは教員である。 #}
+        {% elif row.by_human %}<span class="pill">担当教員</span>
         {% else %}<span class="pill det">テスト実行</span>{% endif %}
       </td>
       <td class="grow">
