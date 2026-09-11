@@ -118,6 +118,10 @@
 :root[data-theme="dark"]{color-scheme:dark}
 :root[data-theme="light"]{color-scheme:light}
 *{box-sizing:border-box}
+/* **選択欄は中身で幅を決めない。** `select` の最小幅はいちばん長い選択肢の
+   幅になる ── 科目プロファイルの一覧のような長い項目が 1 つあると、それ
+   だけで頁が横に伸びる（実測 786px・視野 390px、#231）。 */
+select{max-width:100%}
 [hidden]{display:none!important}
 body{margin:0;background:var(--paper);color:var(--ink);
   font-family:var(--font-body);line-height:1.75}
@@ -346,6 +350,11 @@ footer.app-footer .inner{max-width:none;display:flex;align-items:center;gap:12px
    ========================================================================== */
 .app{display:grid;grid-template-columns:248px minmax(0,1fr);min-height:100vh}
 .app > .col{min-width:0;display:flex;flex-direction:column}
+/* **本題も縮めるようにする。** flex の項目は既定で `min-width:auto`＝
+   min-content より小さくならない ── 折り返さない列を持つ表が 1 つあると、
+   `main` ごと視野の外へ伸びる（#231・実測で 734px）。中で送る枠
+   （表・コード・知識要素の一覧）はそれぞれ自分で持っている。 */
+.app > .col > main{min-width:0;width:100%}
 .rail{background:var(--surface);border-right:1px solid var(--line);
   display:flex;flex-direction:column;position:sticky;top:0;height:100vh;
   overflow-y:auto}
@@ -388,7 +397,11 @@ footer.app-footer .inner{max-width:none;display:flex;align-items:center;gap:12px
    占め、本題が下に落ちる。**畳んだ時点で「左の帯」ではなくなるので、
    文言は位置を指してはいけない**（モックで一度書いて直した）。 */
 @media (max-width:860px){
-  .app{grid-template-columns:1fr}
+  /* **`1fr` ではなく `minmax(0,1fr)`。** 素の `1fr` は最小幅が min-content
+     なので、縮まない中身（折り返さない列を持つ表など）があると、列ごと
+     視野の外へ伸びる ── 畳んだはずの頁が横に動いていたのはこれ（#231）。
+     広い幅の側は最初から `minmax(0,1fr)` で書いてある。 */
+  .app{grid-template-columns:minmax(0,1fr)}
   .rail{position:static;height:auto;border-right:0;
     border-bottom:1px solid var(--line);
     flex-direction:row;flex-wrap:wrap;align-items:center;gap:12px;padding:8px 16px}
@@ -512,16 +525,25 @@ body:has(.gate) .gate{flex:1;min-height:0}
 
      添えるのはテンプレート側の仕事にした。**見出しはそのセルが何かを
      言う言葉**であって、機械が列の位置から推測してよいものではない。 */
-  table.stack, table.stack thead, table.stack tbody, table.stack tr, table.stack td{
-    display:block;width:auto}
-  table.stack thead{display:none}
-  table.stack tr{border:1px solid var(--line-soft);border-radius:4px;
+  /* **この幅では表をすべて畳む。** 横に送る枠で包む案は採れなかった ──
+     `display:block` にした表は内部が表のまま（無名の表ボックスができる）で、
+     幅が親を押し広げ続ける。実測でそうなっていた（#231）。
+
+     `data-label` が付いていない表は値だけが並ぶ。読めるが不十分なので、
+     見出しを添えたものには `.stack` を付けて「済み」の印にしてある。 */
+  table, table thead, table tbody, table tr, table td{display:block;width:auto}
+  table thead{display:none}
+  table tr{border:1px solid var(--line-soft);border-radius:4px;
     padding:10px 12px;margin:0 0 10px;background:var(--surface)}
-  table.stack td{border:0;padding:3px 0;white-space:normal;width:auto}
-  table.stack td.fit{width:auto}
+  table td{border:0;padding:3px 0;white-space:normal;width:auto}
+  table td.fit{width:auto}
   /* 見出しは値の前に、小さく。**空のセルは行ごと出さない** ── 見出しだけが
      並ぶと、無い値を探して読むことになる。 */
-  table.stack td[data-label]::before{content:attr(data-label);display:block;
+  table td[data-label]::before{content:attr(data-label);display:block;
     font-size:.7rem;letter-spacing:.06em;color:var(--muted)}
-  table.stack td:empty{display:none}
+  table td:empty{display:none}
+
+  /* 帯の中の並び。コンソールには「パスワード変更」が入る ── 身元と
+     同じ行に置く（出口だけを 1 行目の右に残す）。 */
+  header.top .inner > a:not(.brand){order:5;font-size:.8rem}
 }

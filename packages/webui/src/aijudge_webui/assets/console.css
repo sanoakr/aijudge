@@ -275,3 +275,15 @@ form[data-working] button[disabled]{opacity:.55;cursor:progress}
    （`cs.ai.ml.overfitting`）ので、そのうえ行頭をずらすと、揃えるために
    作った列がまた不揃いになる ── 目で追う手がかりは「行頭が 1 本である」
    ことの側にある。 */
+
+/* 携帯の幅（〜560px）。畳み方の本体は `base.css` にあり、ここはコンソール
+   固有の部品だけを足す（#231）。 */
+@media (max-width:560px){
+  /* 横に並べた入力欄は折り返す。**縮まない行が 1 つあると頁ごと横に動く**
+     ── 観点の「コード・重み・評価順」がそれで、実測で `main` の最小幅を
+     452px にしていた（視野は 390px）。 */
+  .criterion-fields .pair{flex-wrap:wrap}
+  .criterion-fields .pair > span{flex:1 1 8rem}
+  .formats{flex-wrap:wrap}
+  .keyline{flex-wrap:wrap}
+}
