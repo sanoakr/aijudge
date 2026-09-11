@@ -953,6 +953,11 @@ def create_app(app_state: StudentApp) -> FastAPI:
                 body["queue_depth"] = depth
                 # ざっくりの上限。ワーカー数で割る（`AIJUDGE_AI_WORKERS`、既定 1）。
                 # 正確さより「数分か・十数分か」が分かればよい。
+                #
+                # **これは本数の 2 つ目の写しである。** 実際の本数は systemd が
+                # 決めており（`aijudge.target`）、ここからは見えない。ずれると
+                # 目安が本数の比だけ狂うので、`aijudge-config-check` が両方を
+                # 突き合わせて、違っていたら知らせる（#260）。
                 batches = position // max(1, app_state.ai_workers) + 1
                 body["eta_seconds"] = batches * AVG_AI_SECONDS
         return JSONResponse(body, headers={"Cache-Control": "no-store"})

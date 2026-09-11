@@ -1,0 +1,15 @@
+# 構成が宣言どおりかを見る（#260・#261）。**状態が変わったときだけ通知する。**
+#
+# 見るのは 3 つ ── unit が届いているか、AI ワーカーが宣言どおり動いているか、
+# DB の接続上限がいまのプロセス数の最悪値を上回るか。
+#
+# 3 つ目を見るのは、**プロセス数だけ上げて DB を忘れる**のが最も起きやすい
+# 壊し方だからである。
+[Unit]
+Description=aiJudge configuration drift check (notifies on state change)
+ConditionPathIsDirectory=/opt/aijudge/deploy/systemd
+
+[Service]
+Type=oneshot
+ExecStart=/opt/aijudge/deploy/aijudge-config-check.sh
+SyslogIdentifier=aijudge-config-check
