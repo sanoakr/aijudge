@@ -367,10 +367,16 @@ p2/task.yaml</span></pre>
       class="card" data-working="生成中… 数十秒かかります（このまま待ってください）">
   <div class="field">
     <label>問う知識要素（1 つ以上・登録済みのものから選びます）</label>
-    <div class="checks">
+    {# 1 項目 1 行の格子（#224）。**`.checks` に戻さない** ── あれは拡張子の
+       ための部品で、幅の違う 2 つ組を流すと隣の項目と混ざって読めなくなる。
+       深さはキーの点の数で、字下げに使う。 #}
+    <div class="kcpick">
       {% for k in kcs %}
-      <label><input type="checkbox" name="kc" value="{{ k.key }}">
-        <span class="mono">{{ k.key }}</span> <span class="desc">{{ k.label }}</span></label>
+      <label class="d{{ [4, k.key.split('.') | length] | min }}">
+        <input type="checkbox" name="kc" value="{{ k.key }}">
+        <span class="k">{{ k.key }}</span>
+        <span class="desc">{{ k.label }}</span>
+      </label>
       {% endfor %}
     </div>
     <p class="desc" style="margin:6px 0 0">
