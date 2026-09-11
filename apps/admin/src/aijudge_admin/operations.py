@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from aijudge_audit import AuditAction, AuditRecorder
 from aijudge_authoring.importers import sharif_judge
 from aijudge_authoring.repository import TaskStoreError
 from aijudge_core import (
@@ -23,7 +24,7 @@ from aijudge_core import (
 )
 from aijudge_core.ids import CourseId, TenantId, UserId, derived_id, new_id
 from aijudge_grading import EvaluatorRegistry, load_profile
-from aijudge_identity import AuthenticationFailed, AuthService
+from aijudge_identity import AuthenticationFailed, AuthService, UserState
 from aijudge_persistence import Database
 
 from .roster import RosterEntry, generate_password
@@ -235,6 +236,39 @@ def set_password(database: Database, *, tenant_id: TenantId, login: str, passwor
 
         uow.identity.revoke_sessions_for(user.id, datetime.now(UTC))
         uow.commit()
+
+
+def disable_user(database: Database, *, tenant_id: TenantId, login: str) -> str:
+    """利用者を無効化する（#237）。**消すのではない。**
+
+    過去の提出と採点が参照しているので、行は残す（`UserState`）── 退学・
+    異動と同じ扱いで、画面の `/manage/users` と同じ規則である
+    （`AuthService.disable`）。ここで書き直さない。
+
+    **CLI に入口があるのは、作る側が CLI だけだからである**（#175 の
+    `staff`、名簿の取り込み）。作った本人が止められないと、打ち間違いの
+    口座も検証用の一時利用者も片付けられない ── 画面の側はテナント管理者
+    専用で、サーバに入れる人はその権限の外側にいる（#210 と同じ形）。
+
+    戻すのは表示名。「誰を止めたか」を呼び出し側が言えるようにするため。
+    """
+    with database.unit_of_work() as uow:
+        user = uow.identity.find_user_by_login(tenant_id, login)
+        if user is None:
+            raise AdminError(f"利用者 {login!r} がありません")
+        if user.state is UserState.DISABLED:
+            raise AdminError(f"利用者 {login!r} は既に無効です")
+        AuthService(uow.identity, audit=uow.audit).disable(user.id)
+        # 操作者は `system`（ADR 0016）── CLI は認証された主体を持たない。
+        AuditRecorder.for_system(uow.audit, tenant_id=tenant_id).record(
+            AuditAction.USER_DISABLED,
+            target_type="user",
+            target_id=str(user.id),
+            summary="利用者を無効化した（CLI）",
+            detail={"login": user.login},
+        )
+        uow.commit()
+        return user.display_name
 
 
 def create_staff(
