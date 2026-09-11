@@ -279,7 +279,9 @@ def test_an_unverified_email_cannot_log_in() -> None:
     この検査が効いていることを前提にしている。
     """
     provider = a_provider(
-        id_token=an_id_token(nonce="n", hd=None, email_verified=False),
+        # **`hd` は持たせる。** 落ちる理由を `email_verified` だけに絞る
+        # （#220 で `hd` も必須になったので、無いと理由が混ざる）。
+        id_token=an_id_token(nonce="n", email_verified=False),
     )
     with pytest.raises(AuthenticationFailed):
         exchange(provider, nonce="n")
@@ -287,7 +289,7 @@ def test_an_unverified_email_cannot_log_in() -> None:
 
 def test_a_missing_email_verified_claim_is_not_treated_as_verified() -> None:
     """欠落は「確認済み」ではない。**既定で通す側に倒さない。**"""
-    provider = a_provider(id_token=an_id_token(nonce="n", hd=None, email_verified=None))
+    provider = a_provider(id_token=an_id_token(nonce="n", email_verified=None))
     with pytest.raises(AuthenticationFailed):
         exchange(provider, nonce="n")
 
@@ -296,3 +298,27 @@ def test_a_verified_email_still_logs_in() -> None:
     """検査を足しても、正しい利用者は通ること。"""
     identity = exchange(a_provider(id_token=an_id_token(nonce="n")), nonce="n")
     assert identity.email == "taro@example.ac.jp"
+
+
+def test_a_token_without_a_hosted_domain_cannot_log_in() -> None:
+    """**`hd` を要求する**（#220）。
+
+    以前は無いときメールの後ろを見ていたが、それは「その機関のドメインを
+    名乗る」ことと区別がつかない ── `hd` は Google が組織の所属として
+    発行する主張で、利用者が決められる文字列ではない。
+
+    **Workspace でない機関のメールドメインは受け付けられなくなる。** 運用の
+    前提を狭める判断であり、`docs/RUNNING.md` に書いてある。
+    """
+    provider = a_provider(id_token=an_id_token(nonce="n", email="taro@example.ac.jp", hd=None))
+    with pytest.raises(AuthenticationFailed):
+        exchange(provider, nonce="n")
+
+
+def test_a_hosted_domain_outside_the_allowlist_cannot_log_in() -> None:
+    """別の組織の Workspace も通さない。"""
+    provider = a_provider(
+        id_token=an_id_token(nonce="n", email="taro@other.ac.jp", hd="other.ac.jp")
+    )
+    with pytest.raises(AuthenticationFailed):
+        exchange(provider, nonce="n")
