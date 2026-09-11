@@ -306,3 +306,39 @@ def test_bulk_finalization_will_not_close_a_criterion_a_human_must_score() -> No
         unscored_criteria=(C2,),
     )
     assert bulk_finalizable(broken, None)
+
+
+def test_the_total_is_withheld_until_someone_fills_the_gap() -> None:
+    """**保留の判定を持つ場所は 1 つ**（#235）。
+
+    学習者の画面はこれを正しく扱っていたのに、教員の一覧は
+    `FinalScore.final`（保留でも 0.0）をそのまま出していた ── 同じ提出が、
+    学習者には「保留」、教員には「0%」として見えていた。しかも教員側の
+    その 0% は、採用提出の選定と得点分布に数として入っていた。
+    """
+    from aijudge_core import score_withheld
+
+    provisional = _run(
+        (_score(C1, 1.0, 0.7),), routing=Routing.REVIEW_REQUIRED, awaiting_human=(C2,)
+    )
+    assert score_withheld(provisional, None) is True
+
+    settled = _run((_score(C1, 1.0, 1.0),))
+    assert score_withheld(settled, None) is False
+
+
+def test_a_review_lifts_the_withholding() -> None:
+    """**人が埋めれば解ける。** 段階が入った時点で総合点は根拠を持つ。"""
+    from aijudge_core import HumanReview, score_withheld
+    from aijudge_core.ids import HumanReviewId, UserId
+
+    run = _run((_score(C1, 1.0, 0.7),), routing=Routing.REVIEW_REQUIRED, awaiting_human=(C2,))
+    review = HumanReview(
+        id=HumanReviewId("hrv_" + "c" * 32),
+        grading_run_id=run.id,
+        grader_id=UserId("usr_" + "d" * 32),
+        adjusted_levels={C2: 2},
+        comment="人が採点する観点を埋めたので、総合点を出してよい",
+        reviewed_at=NOW,
+    )
+    assert score_withheld(run, review) is False

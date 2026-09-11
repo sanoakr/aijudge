@@ -150,3 +150,22 @@ def test_instructor_can_stream_the_video_with_ranges(world) -> None:
     assert part.status_code == 206
     assert part.headers["content-range"] == "bytes 100-149/256"
     assert part.content == bytes(range(100, 150))
+
+
+def test_a_withheld_total_is_not_shown_as_zero(world) -> None:
+    """**保留は 0% ではない**（#235）。
+
+    人が採点する観点しか無い提出は、学習者の画面では「—保留」と出る。
+    教員の一覧は `FinalScore.final`（保留でも 0.0）をそのまま出していたので、
+    同じ提出が教員には「0 点の答案」に見えていた ── しかもその 0% は
+    採用提出の選定と得点分布に数として入っていた。
+    """
+    client, _sub_id, _artifact_id = world
+
+    body = client.get(f"/courses/{COURSE}/submissions").text
+
+    assert "保留" in body
+    assert "0%" not in body
+    # **採用にもならない。** 点が無いものを「最も点の高い提出」に選ばない。
+    # 画面の説明文にも「採用提出」の語が出るので、行に付く印だけを見る。
+    assert 'pill ok">採用' not in body

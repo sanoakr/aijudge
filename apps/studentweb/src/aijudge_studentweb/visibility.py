@@ -73,6 +73,7 @@ from aijudge_core import (
     TaskVersion,
     final_score,
     grade_window,
+    score_withheld,
     settles_at,
 )
 
@@ -307,8 +308,10 @@ def build_result_view(
         reason = "採点できなかった観点があります。担当教員が確認します。"
 
     # 点が定まっていないあいだは総合点を出さない（モジュール冒頭）。
-    # 教員が確認して欠けを埋めれば出す。
-    withhold = unscored and review is None
+    # 教員が確認して欠けを埋めれば出す。**判定は `aijudge_core` に 1 つ**
+    # ── ここに書き写していたせいで、教員の一覧が別の答え（0%）を出していた
+    # （#235）。
+    withhold = score_withheld(run, review)
     score = final_score(run, task_version, review)
 
     return ResultView(
