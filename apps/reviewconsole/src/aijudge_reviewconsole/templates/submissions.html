@@ -131,6 +131,11 @@
       <td class="fit">
         {% if row.score is not none %}<strong>{{ '%.0f' | format(row.score * 100) }}%</strong>
           {% if row.adopted %}<span class="pill ok">採用</span>{% endif %}
+        {# **保留を「—」だけで出さない**（#235）。点が無い理由は「まだ採点が
+           無い」と「採点できなかった観点があるので出さない」の 2 つあり、
+           後者は人が埋めるべき状態である。以前は保留を 0% と出していて、
+           教員には 0 点の答案に見えていた。 #}
+        {% elif row.withheld %}<span class="pill attn">保留</span>
         {% else %}<span class="desc">—</span>{% endif %}
       </td>
       <td class="fit">

@@ -64,6 +64,7 @@ from .grading import (
     penalty_crosses_boundary,
     renormalize,
     resolve_conflicts,
+    score_withheld,
 )
 from .ids import derived_id, new_id, prefix_of
 from .knowledge import (
@@ -231,6 +232,7 @@ __all__ = [
     "prefix_of",
     "renormalize",
     "resolve_conflicts",
+    "score_withheld",
     "settles_at",
     "term_sort_key",
 ]

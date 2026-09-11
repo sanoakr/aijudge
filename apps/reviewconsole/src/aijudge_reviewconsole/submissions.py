@@ -32,6 +32,7 @@ from aijudge_core import (
     Task,
     TaskVersion,
     final_score,
+    score_withheld,
 )
 
 from .overview import unit_key
@@ -62,6 +63,9 @@ class Row:
     contested: bool
     # この学習者のこの課題で、いちばん点の高い提出か（＝成績に採用される）。
     adopted: bool = False
+    #: 総合点を保留しているか（#235）。`score` が `None` になる理由は
+    #: 「保留」と「まだ採点が無い」の 2 つあり、**画面はそれを区別する**。
+    withheld: bool = False
 
     @property
     def is_trial(self) -> bool:
@@ -226,7 +230,16 @@ def load_rows(uow: object, course: Course) -> list[Row]:
                 version=version,
                 learner=learners[learner_id],
                 role=submission.submitted_as,
-                score=None if run is None else final_score(run, version, review).final,
+                # **保留は 0% ではない**（#235）。`FinalScore.final` は
+                # 保留でも 0.0 を返すので、そのまま出すと学習者に「保留」と
+                # 見えている提出が、教員には「0 点の答案」として見える ──
+                # しかもこの値は採用提出の選定と得点分布に数として入る。
+                score=(
+                    None
+                    if run is None or score_withheld(run, review)
+                    else final_score(run, version, review).final
+                ),
+                withheld=run is not None and score_withheld(run, review),
                 finalized_by=_finalized_by(finalization, review),
                 finalized_by_login=_actor_login(finalization, review, uow, actors),
                 contested=request is not None and not request.resolved,

@@ -648,6 +648,21 @@ class FinalScore(BaseModel):
         return self.penalty_ratio > 0.0
 
 
+def score_withheld(run: GradingRun, review: HumanReview | None = None) -> bool:
+    """総合点を出さずに保留するか（#235）。
+
+    **この判定を持つ場所を 1 つにする。** 学習者の画面は保留を正しく
+    扱っていたのに、教員の一覧は `FinalScore.final`（保留でも 0.0）を
+    そのまま出していた ── 同じ提出が、学習者には「保留」、教員には「0%」
+    として見えていた。しかも教員側のその 0% は、採用提出の選定と得点分布に
+    数として入っていた。
+
+    **教員が欠けを埋めれば保留は解ける。** 人が段階を付けた時点で、
+    総合点は根拠を持つ（`_reviewed_evaluation`）。
+    """
+    return run.is_provisional and review is None
+
+
 def final_score(
     run: GradingRun,
     task_version: TaskVersion,
