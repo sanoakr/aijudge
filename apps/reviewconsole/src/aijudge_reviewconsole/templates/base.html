@@ -101,7 +101,14 @@
 </div>{# .topbar #}
 {% endif %}
 {# 2 面の画面（採点）だけ広く使う。`{% block main_class %}wide{% endblock %}`。 #}
-<main class="{% block main_class %}{% endblock %}">{% block body %}{% endblock %}</main>
+<main class="{% block main_class %}{% endblock %}">
+{# デモコースの帯（#194）。**教員にも出す** ── 成績を探しに来た人が
+   「ここには無い」と分かる必要がある。文言は学習者と同じものを使う
+   （違うことを言われると、どちらが本当か確かめることになる）。 #}
+{% if course is defined and course and is_demo_course(course.id) %}
+{% include "_demo_banner.html" %}
+{% endif %}
+{% block body %}{% endblock %}</main>
 <footer class="app-footer"><div class="inner">
   {% include "_theme_switch.html" %}
   <span>aiJudge {{ app_version }}{% if copyright_notice %} · {{ copyright_notice }}{% endif %}</span>

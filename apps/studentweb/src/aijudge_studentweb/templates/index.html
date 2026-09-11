@@ -20,7 +20,11 @@
   {% for row in rows %}
     <tr>
       <td class="mono">{{ row.course.code }}</td>
-      <td><a href="/courses/{{ row.course.id }}">{{ row.course.title }}</a></td>
+      <td><a href="/courses/{{ row.course.id }}">{{ row.course.title }}</a>
+        {# **入る前に分かる必要がある**（#194）。自動登録されているので、
+           自分で選んだ覚えが無いまま一覧に並んでいる。 #}
+        {% if is_demo_course(row.course.id) %}<span class="pill attn">お試し</span>{% endif %}
+      </td>
       <td>{{ row.course.term }}</td>
       <td class="desc">
         {% if row.role and row.role.value != 'learner' %}

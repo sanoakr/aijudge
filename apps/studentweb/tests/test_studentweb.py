@@ -1998,3 +1998,38 @@ def test_the_grading_job_takes_the_profile_from_the_task(world: World) -> None:
     assert job.subject_profile == "report_ja", (
         "コースの既定で採点されている。1 コースに種類の違う課題を置けない"
     )
+
+
+def test_the_demo_course_says_so_on_every_page_under_it(world: World, monkeypatch) -> None:
+    """**自動登録された学生には、そこが本物の課題に見える**（#194）。
+
+    ログインしただけで入っているので、自分で選んだ覚えが無い ──
+    「提出したのに成績に出ない」を不具合として報告されるより先に、画面が
+    言うべきである。
+
+    コースの下の全ページに出す。課題の画面でも結果の画面でも、**操作する
+    前に**目に入る必要がある。
+    """
+    monkeypatch.setenv("AIJUDGE_DEMO_COURSE", str(COURSE))
+    world.register("s2400010")
+    world.login("s2400010")
+
+    for path in (f"/courses/{COURSE}", f"/tasks/{world.task_version.id}"):
+        body = world.client.get(path).text
+        assert "これはお試しのコースです" in body, f"{path} に出ていない"
+        assert "成績にも学習履歴にも残りません" in body
+        # **採点は動くことも言う。** そこを黙ると試す気にならない。
+        assert "採点は本物と同じに動きます" in body
+
+    # 一覧にも印を出す ── **入る前に分かる必要がある。**
+    assert "お試し" in world.client.get("/").text
+
+
+def test_a_real_course_says_nothing_of_the_sort(world: World, monkeypatch) -> None:
+    """裏返し。**帯が出っぱなしでは意味が無い。**"""
+    monkeypatch.delenv("AIJUDGE_DEMO_COURSE", raising=False)
+    world.register("s2400011")
+    world.login("s2400011")
+
+    assert "これはお試しのコースです" not in world.client.get(f"/courses/{COURSE}").text
+    assert "お試し" not in world.client.get("/").text

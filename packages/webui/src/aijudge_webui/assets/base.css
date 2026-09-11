@@ -120,6 +120,11 @@ a{color:var(--ai)}
 .note{border-left:3px solid var(--verd);background:var(--verd-soft);padding:12px 16px;
   border-radius:0 3px 3px 0;font-size:.9rem;color:var(--ink-2);margin-bottom:20px}
 .note.warn{border-left-color:var(--shu);background:var(--shu-soft)}
+/* 「読んでおくべきこと」。**朱でも緑青でもない**（#194）── 朱は確定した
+   否定的な事実、緑青は済んだこと。デモコースの断りはどちらでもなく、
+   「これから操作する人に効く注意」なので琥珀である（`.pill.attn` と同じ
+   意味の色を、面の側にも用意する）。 */
+.note.act{border-left-color:var(--kin);background:var(--kin-soft)}
 table{border-collapse:collapse;width:100%;font-size:.9rem;table-layout:auto}
 /* 「説明」のように長い列に残りを吸わせ、他の列を潰させない。 */
 td.fit,th.fit{width:1%;white-space:nowrap}
@@ -382,3 +387,8 @@ footer.app-footer .inner{max-width:none;display:flex;align-items:center;gap:12px
   .rail a.nav .c{min-width:0}
   .railnote{order:4;padding:0}
 }
+
+/* デモコースの帯（#194）。**本文の頭に出す** ── 見出しより前に置くと
+   コース名より先に注意書きを読ませることになり、毎ページ邪魔になる。
+   見出しの直後で、最初に操作する前には必ず目に入る位置。 */
+.demo-banner{margin-bottom:var(--s5)}

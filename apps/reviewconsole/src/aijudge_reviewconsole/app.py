@@ -83,6 +83,7 @@ from aijudge_identity import (
     GoogleOidcProvider,
     PermissionDenied,
     Principal,
+    demo_course_from_env,
     session_cookie_kwargs,
 )
 from aijudge_persistence import Database, ObservationFileStore
@@ -159,9 +160,23 @@ def _read_copyright_notice() -> str:
 
 APP_VERSION = _read_app_version()
 
+
 # 見た目は `packages/webui` が 1 か所で持つ（#184）。テンプレートの探索先に
 # 共有の断片（`_theme_boot.html` / `_theme_switch.html`）を足す ── 自分の
 # `templates/` を先に見るので、同名を置けばアプリ側で上書きできる。
+def _is_demo_course(course_id: object) -> bool:
+    """このコースはデモか（#194）。**テンプレートから呼ぶ純関数。**
+
+    環境変数を読むだけで、DB は引かない ── `root_prefix()` と同じ形である
+    （ADR 0017 で「描画中に DB を引かない」と決めた線の内側）。
+
+    **呼び出しのたびに読む。** 値を起動時に固定すると、指名を変えたあとも
+    再起動まで古い判定が残る。
+    """
+    demo = demo_course_from_env()
+    return demo is not None and str(demo.course_id) == str(course_id)
+
+
 TEMPLATES = Jinja2Templates(
     directory=[str(Path(__file__).parent / "templates"), str(webui.TEMPLATES_DIR)],
     # 左の帯を全ページに配る（#189・ADR 0017 §2）。**ハンドラには渡させない**
@@ -190,6 +205,9 @@ TEMPLATES.env.globals["root_prefix"] = root_prefix
 # 「人が採点する」を表す評価器の名前。**画面に値を書き写さない** ── 書き写すと、
 # 模型の側で変えたときに画面だけが古い値を送り続ける。
 TEMPLATES.env.globals["HUMAN_SCORED"] = HUMAN_SCORED
+# デモコースの帯を出すのに使う（#194）。環境変数を読むだけの純関数で、
+# DB は引かない ── ADR 0017 で引いた線の内側である。
+TEMPLATES.env.globals["is_demo_course"] = _is_demo_course
 
 # 画面に埋め込んでよい種別。それ以外はダウンロードさせる（#75）。
 INLINE_KINDS = (ArtifactKind.IMAGE, ArtifactKind.PDF, ArtifactKind.VIDEO)

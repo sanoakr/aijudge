@@ -57,7 +57,14 @@
 {% endif %}
 </div>{# .topbar #}
 {% endif %}
-<main>{% block body %}{% endblock %}</main>
+<main>
+{# デモコースの帯（#194）。**コースの下の全ページに出す** ── 課題の画面でも
+   結果の画面でも、操作する前に目に入る必要がある。`ctx_course` はコース配下の
+   ページに必ず来る（上の文脈バナーと同じ材料）。 #}
+{% if ctx_course is defined and ctx_course and is_demo_course(ctx_course.id) %}
+{% include "_demo_banner.html" %}
+{% endif %}
+{% block body %}{% endblock %}</main>
 <footer class="app-footer"><div class="inner">
   {% include "_theme_switch.html" %}
   <span>aiJudge {{ app_version }}{% if copyright_notice %} · {{ copyright_notice }}{% endif %}</span>
