@@ -198,8 +198,11 @@ legend{font-weight:700;font-size:.95rem;padding:0 6px}
 .levels label:hover{background:var(--surface-2)}
 .levels input:checked + .lv{font-weight:700;color:var(--shu)}
 .lv{min-width:5.5em}
+/* **語の途中で折らない。** 狭い幅で「ログア／ウト」と 2 行になっていた
+   （携帯で実測）── 折れた押し釦は、押す場所にも文字にも見えない。入り
+   きらないときは字の方を詰める（下の携帯向けの規則）。 */
 button{font:inherit;font-weight:700;background:var(--shu);color:#fff;border:0;
-  border-radius:3px;padding:10px 22px;cursor:pointer}
+  border-radius:3px;padding:10px 22px;cursor:pointer;white-space:nowrap}
 button:hover{filter:brightness(1.08)}
 textarea{width:100%;font:inherit;font-size:.88rem;padding:10px 12px;border-radius:3px;
   border:1px solid var(--line);background:var(--surface);color:var(--ink);resize:vertical}
@@ -473,4 +476,52 @@ body:has(.gate) .gate{flex:1;min-height:0}
      折り返しても読めるよう行間を持たせてあり、切り詰めはしない
      （機関が決めた名前を機械が縮めるほうが悪い）。 */
   .gate-go{font-size:.82rem;padding:12px 8px}
+}
+
+/* ==========================================================================
+   携帯の幅（〜560px）
+   ==========================================================================
+
+   **教員も学習者も同じ体系で畳む。** 片方だけ直すと、同じ部品が画面に
+   よって違う畳み方をする ── 学習者の画面で覚えた読み方が、教員の画面で
+   通じなくなる。だから畳み方は `packages/webui` に 1 つ置く。
+
+   対象の幅は 560px。860px 以下でレールは既に帯へ畳んでいるので、ここで
+   扱うのは**その先の、1 行に 2 つ並べられない幅**である。 */
+@media (max-width:560px){
+  /* 頁の頭。**銘と出口を 1 行目に、身元を 2 行目に。** 以前は 3 つを
+     1 行に詰めていて、名前が長いと押し釦まで折れていた（「ログア／ウト」）。
+     出口（ログアウト）は幅が変わらないので、先に位置を決める。 */
+  header.top .inner{flex-wrap:wrap;align-items:center;gap:6px 10px;padding:10px 16px}
+  header.top .brand{order:1}
+  header.top .spacer{order:2}
+  header.top form{order:3}
+  /* 身元だけを 2 行目へ。**`.spacer` を巻き込まない** ── あれも `span` で、
+     一緒に落とすと押し釦を右へ押す役が居なくなる（実際に銘の真横に並んだ）。 */
+  header.top .inner > span:not(.spacer){order:4;width:100%;
+    font-size:.8rem;color:var(--head-muted)}
+  header.top button{padding:7px 12px;font-size:.8rem}
+  .ctx .inner{padding:7px 16px}
+
+  main{padding:20px 16px 56px}
+  h1{font-size:1.35rem}
+
+  /* **表は行を積む。** 列を横に送らせると、どの値がどの見出しのものか
+     見出しが画面の外にあるあいだ分からない ── 表の意味が失われる。
+     1 行を 1 枚の塊にし、各セルに見出しを添える（`data-label`）。
+
+     添えるのはテンプレート側の仕事にした。**見出しはそのセルが何かを
+     言う言葉**であって、機械が列の位置から推測してよいものではない。 */
+  table.stack, table.stack thead, table.stack tbody, table.stack tr, table.stack td{
+    display:block;width:auto}
+  table.stack thead{display:none}
+  table.stack tr{border:1px solid var(--line-soft);border-radius:4px;
+    padding:10px 12px;margin:0 0 10px;background:var(--surface)}
+  table.stack td{border:0;padding:3px 0;white-space:normal;width:auto}
+  table.stack td.fit{width:auto}
+  /* 見出しは値の前に、小さく。**空のセルは行ごと出さない** ── 見出しだけが
+     並ぶと、無い値を探して読むことになる。 */
+  table.stack td[data-label]::before{content:attr(data-label);display:block;
+    font-size:.7rem;letter-spacing:.06em;color:var(--muted)}
+  table.stack td:empty{display:none}
 }
