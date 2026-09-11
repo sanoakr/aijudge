@@ -75,6 +75,12 @@ class GoogleOidcProvider:
 
         state・nonce はここで発行するだけ ── セッションへの一時保存は
         呼び出し側（`apps/*` のログインルート、#125）の仕事。
+
+        **`prompt=select_account` を必ず付ける**（#208）。付けないと Google は
+        ブラウザに残っているセッションを黙って再利用するので、私物の口座で
+        サインイン済みの端末からは大学の口座を選べない ── しかも弾くのは
+        Google なので、利用者には aiJudge の不具合として見える。選ばせる方が
+        1 手多いが、**選べない状態からの復帰には別タブでの口座切り替えが要る**。
         """
         state = secrets.token_urlsafe(24)
         nonce = secrets.token_urlsafe(24)
@@ -85,7 +91,16 @@ class GoogleOidcProvider:
             "scope": "openid email",
             "state": state,
             "nonce": nonce,
+            "prompt": "select_account",
         }
+        # **`hd` は候補を絞る助けであって、検査ではない**（#208）。URL の
+        # 書き換えで外せるものに機関の境界を預けない ── 突合後のドメイン検査
+        # （`exchange_code`）が境界で、こちらはそのままにする。
+        #
+        # 許可ドメインが 2 つ以上ある機関では付けない。`hd` は 1 つしか取れず、
+        # 片方を選ぶと**もう片方の在学者が選択画面で自分の口座を見失う**。
+        if len(settings.allowed_domains) == 1:
+            params["hd"] = settings.allowed_domains[0]
         return f"{AUTHORIZATION_ENDPOINT}?{urlencode(params)}", state, nonce
 
     def exchange_code(
