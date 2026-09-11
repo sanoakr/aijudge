@@ -54,6 +54,16 @@
      `var()` の参照先が無い宣言は落ちるだけで、警告も出ずに書体が本文に戻る。
      件数が等幅でないと、桁ごとに幅が変わって右端で揃わない。 */
   --font-mono:ui-monospace,"SFMono-Regular",monospace;
+  /* 入口の押し釦の地（#212）。**`--ai` を地に使ってはいけない** ── あれは
+     文字色で、夜は明るい側（#8fb0dd）へ反転する。白文字を載せると
+     2.2:1 にしかならず、画面の唯一の操作が読めなくなる。地は昼夜とも
+     白文字が 4.5:1 を超える濃さで持つ（昼 8.2:1・夜 5.5:1）。 */
+  --go-bg:#1b4f8f; --go-ink:#ffffff;
+  /* フッタのぶんだけ入口の面を低くする（#212）。**`:has()` が効かない
+     ブラウザ向けの控えの値**で、実測に基づく（画面が狭いとフッタが
+     折り返して 101px まで伸びるので、そこでは少しはみ出す）。効く側では
+     下の flex がこの値を使わずに正確に埋める。 */
+  --gate-reserve:80px;
 }
 /* 夜の配色。**同じ値を 2 か所から当てる**（#181）。
 
@@ -79,6 +89,7 @@
     --kin:#e0ab52; --kin-soft:#2b2314;
     --ai:#8fb0dd; --ai-2:#a9c4ea; --ai-soft:#182234;
     --head-bg:#0b1c30; --head-ink:#d8e6f5; --head-muted:#7e9ab8;
+    --go-bg:#2f6ab5;
     --head-line:#153252; --head-shu:#f0a18e;
   }
 }
@@ -91,6 +102,7 @@
   --kin:#e0ab52; --kin-soft:#2b2314;
   --ai:#8fb0dd; --ai-2:#a9c4ea; --ai-soft:#182234;
   --head-bg:#0b1c30; --head-ink:#d8e6f5; --head-muted:#7e9ab8;
+  --go-bg:#2f6ab5;
   --head-line:#153252; --head-shu:#f0a18e;
 }
 /* フォーム部品（チェックボックス・スクロールバー・素の select）にも配色を
@@ -409,14 +421,31 @@ footer.app-footer .inner{max-width:none;display:flex;align-items:center;gap:12px
    教員が学習者の画面を開いたときに別のサービスに見えてはいけない。**
 
    間隔は px で書く ── この CSS に間隔の尺度は無い。 */
-.gate{min-height:100vh;display:flex;flex-direction:column;justify-content:center;
-  align-items:center;gap:28px;background:var(--head-bg);color:var(--head-ink);
-  padding:48px 20px;
+/* **入口はフッタを画面の外へ押し出してはいけない**（#212）。配色の切り替えは
+   フッタにあり、ログイン前に触れられることがそこに置いた理由だった
+   （`footer.app-footer` の注記）── `min-height:100vh` だと、その導線が
+   必ず折り返しの下に落ちる。
+
+   頁を縦の flex にして、残りの高さを面に渡す。**`:has()` で入口の頁だけに
+   閉じる** ── `main` を常に flex にすると、余白の相殺が無くなって全頁の
+   間隔が変わる。効かないブラウザでは下の `min-height` が控えとして残る。 */
+body:has(.gate){min-height:100dvh;display:flex;flex-direction:column}
+body:has(.gate) main{flex:1;display:flex;flex-direction:column}
+/* **控えの `min-height` はここで外す。** 残すと flex が縮められず、
+   フッタが折り返すほど狭い画面で控えの値ぶんだけはみ出す。 */
+body:has(.gate) .gate{flex:1;min-height:0}
+.gate{min-height:calc(100dvh - var(--gate-reserve));display:flex;flex-direction:column;
+  justify-content:center;align-items:center;gap:28px;
+  background:var(--head-bg);color:var(--head-ink);padding:48px 20px;
   /* `main` の余白と幅の制限を打ち消して、面を頁いっぱいに広げる
      （`main` は max-width:1100px・padding:32/24/80）。**入口に本文の段組みは
      要らず、藍が縁で切れていると帯の残骸に見える。** 左右は `main` の
      中央寄せごと外に出す必要があるので、負の余白ではなく視野幅で戻す。 */
-  width:100vw;margin:-32px calc(50% - 50vw) -80px}
+  /* 幅は `auto` のまま、負の余白だけで外へ出す。**`width:100vw` を足すと
+     二重にかかる** ── `100vw` は縦のスクロールバーを含み、`calc(50% - 50vw)`
+     は `main` の内容ボックス基準なので、スクロールバーが場所を取る環境では
+     両端がはみ出して横スクロールが生える。 */
+  margin:-32px calc(50% - 50vw) -80px}
 .gate-mark{text-align:center;max-width:30rem}
 .gate-mark h1{color:var(--head-ink);border:0;margin:0 0 10px;
   font-size:2.4rem;letter-spacing:.04em}
@@ -428,7 +457,10 @@ footer.app-footer .inner{max-width:none;display:flex;align-items:center;gap:12px
 .gate-card form{margin:0}
 /* ログインは**移動**であって判定ではない ── 朱ではなく藍（`--ai` の注記と
    同じ判断）。既定の `button` が朱なのでここで上書きする。 */
-.gate-go{width:100%;background:var(--ai);padding:12px 22px;font-size:.95rem}
+/* 地と文字を**両方**指定する。`button` の既定は `color:#fff` を継承させる
+   形なので、地だけ替えると夜に白文字のまま明るい地へ載る（#212）。 */
+.gate-go{width:100%;background:var(--go-bg);color:var(--go-ink);
+  padding:12px 22px;font-size:.95rem;line-height:1.4}
 .gate-note{color:var(--muted);font-size:.8rem;line-height:1.7;
   margin:14px 0 0;text-align:center}
 .gate .note{margin-bottom:14px}
@@ -436,7 +468,9 @@ footer.app-footer .inner{max-width:none;display:flex;align-items:center;gap:12px
   .gate{padding:32px 16px}
   .gate-mark h1{font-size:2rem}
   /* 機関の呼び名は長い（「龍大全学認証アカウントでログイン」で 16 字）。
-     **札の中で折り返させず、字の方を詰める** ── 2 行になった押し釦は
-     押す場所に見えなくなる。 */
+     狭い画面では字を詰めて 1 行に収まりやすくする。**収まることは保証
+     できない** ── 欄は 64 字まで受け付けるので、長い文言は折り返す。
+     折り返しても読めるよう行間を持たせてあり、切り詰めはしない
+     （機関が決めた名前を機械が縮めるほうが悪い）。 */
   .gate-go{font-size:.82rem;padding:12px 8px}
 }

@@ -1098,6 +1098,37 @@ def test_an_admin_can_save_oidc_settings_and_the_secret_never_leaks(
     assert "client-abc" in body
 
 
+def test_a_label_longer_than_the_field_is_answered_not_crashed(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """**画面の `maxlength` は検証ではない**（#212）。
+
+    それを無視する客体（curl・古い携帯の画面）から長い文言が来たとき、
+    開いている unit_of_work の中で模型の検証が落ちると、用意してある
+    案内ではなく素の 500 になる。
+    """
+    monkeypatch.setenv(ENV_OIDC_SECRET_KEY, Fernet.generate_key().decode("ascii"))
+    _make_admin(world, "admin11")
+    world.login("admin11")
+
+    response = world.client.post(
+        "/manage/oidc-settings",
+        data={
+            "client_id": "client-abc",
+            "client_secret": "s",
+            "allowed_domains": "example.ac.jp",
+            "login_label": "あ" * 65,
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    assert "64 字までです" in response.text
+    # **何も保存しない。** 拒んだのに片方だけ入っていては、直しようがない。
+    with world.database.unit_of_work() as uow:
+        assert uow.identity.get_oidc_settings(TENANT) is None
+
+
 def test_leaving_the_secret_blank_on_update_keeps_the_existing_one(
     world: World, monkeypatch: pytest.MonkeyPatch
 ) -> None:

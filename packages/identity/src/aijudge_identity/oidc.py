@@ -34,6 +34,10 @@ JWKS_ENDPOINT = "https://www.googleapis.com/oauth2/v3/certs"
 
 #: ログインボタンの既定の文言（#209）。**機関名を入れない。**
 DEFAULT_LOGIN_LABEL = "大学アカウントでログイン"
+#: 同じ文言の上限。**画面と模型が同じ数を見るために名前で持つ**（#212）──
+#: 画面の `maxlength` だけに書くと、それを無視した要求が模型の検証まで届き、
+#: 用意してある案内ではなく 500 になる。
+LOGIN_LABEL_MAX = 64
 
 
 class OidcSettings(BaseModel):
@@ -58,7 +62,7 @@ class OidcSettings(BaseModel):
     #: `AIJUDGE_DEMO_INSTRUCTOR_PREFIX` と同じ理由で、機関の語彙をコードに
     #: 焼き込まない ── **既定は機関に依らない一般的な文言**にしてあり、
     #: リポジトリが公開物である以上ここに機関名は入らない。
-    login_label: str = Field(default=DEFAULT_LOGIN_LABEL, min_length=1, max_length=64)
+    login_label: str = Field(default=DEFAULT_LOGIN_LABEL, min_length=1, max_length=LOGIN_LABEL_MAX)
 
 
 @dataclass(frozen=True)

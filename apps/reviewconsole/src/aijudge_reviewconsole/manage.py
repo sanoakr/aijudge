@@ -134,7 +134,7 @@ from aijudge_grading import (
 )
 from aijudge_grading.overrides import diff
 from aijudge_identity import AuthenticationFailed, AuthService, PermissionDenied, Principal
-from aijudge_identity.oidc import DEFAULT_LOGIN_LABEL, OidcSettings
+from aijudge_identity.oidc import DEFAULT_LOGIN_LABEL, LOGIN_LABEL_MAX, OidcSettings
 from aijudge_submission import SubmissionService
 
 from .audit_context import recorder_for
@@ -1576,6 +1576,13 @@ def register(templates) -> APIRouter:
                 return error("client secret を入力してください")
             if not domains:
                 return error("許可ドメインを 1 つ以上入力してください")
+            # **画面の `maxlength` は検証ではない**（#212）。curl や
+            # `maxlength` を無視する客体から 65 字が来ると、開いている
+            # unit_of_work の中で `ValidationError` が出て素の 500 になる
+            # ── すぐ上で用意している `error()` を通さずに終わってしまう。
+            label = login_label.strip()
+            if len(label) > LOGIN_LABEL_MAX:
+                return error(f"ログインボタンの文言は {LOGIN_LABEL_MAX} 字までです")
 
             uow.identity.save_oidc_settings(
                 OidcSettings(
@@ -1586,7 +1593,7 @@ def register(templates) -> APIRouter:
                     issuer=issuer.strip() or "https://accounts.google.com",
                     # **空欄は既定に戻す。** 機関の語彙を入れる欄なので、
                     # 消したときに前の機関名が残り続けてはいけない（#209）。
-                    login_label=login_label.strip() or DEFAULT_LOGIN_LABEL,
+                    login_label=label or DEFAULT_LOGIN_LABEL,
                 )
             )
             uow.commit()
