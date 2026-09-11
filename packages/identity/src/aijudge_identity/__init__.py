@@ -22,6 +22,7 @@ from .errors import AuthenticationFailed, PermissionDenied
 from .models import ApiToken, Principal, Session, User, UserState
 from .oidc import (
     DEFAULT_LOGIN_LABEL,
+    LOGIN_LABEL_MAX,
     GoogleOidcIdentity,
     GoogleOidcProvider,
     OidcSettings,
@@ -48,6 +49,7 @@ __all__ = [
     "ENV_DEMO_COURSE",
     "ENV_DEMO_INSTRUCTOR_PREFIX",
     "ENV_SECURE_COOKIES",
+    "LOGIN_LABEL_MAX",
     "MIN_PASSWORD_LENGTH",
     "TOKEN_PREFIX",
     "ApiToken",

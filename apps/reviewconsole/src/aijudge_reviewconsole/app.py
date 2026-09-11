@@ -595,6 +595,14 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
     def auth_callback(
         request: Request, code: str = "", state: str = "", error: str = ""
     ) -> Response:
+        # **文言はここで一度だけ引く**（#212）。`failed()` の中で引くと、
+        # 呼び出し口の多くは既に unit_of_work を開いており、その内側で
+        # もう 1 つ開くことになる ── SQLite は接続を 1 本しか持たない
+        # （`StaticPool`）ので、内側を閉じた時点で外側の取引が終わる。
+        # いまは失敗の経路に書き込みが無いので害は出ていないが、
+        # 次に書き込みを足した人が踏む。
+        label = _login_label(console)
+
         def failed(message: str) -> Response:
             response = TEMPLATES.TemplateResponse(
                 request,
@@ -603,7 +611,7 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                     "error": message,
                     "changed": False,
                     "google_configured": True,
-                    "login_label": _login_label(console),
+                    "login_label": label,
                 },
                 status_code=401,
             )
