@@ -1,0 +1,199 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## What this is
+
+aiJudge — an AI-assisted assessment platform for STEM coursework (programming,
+mathematics, written reports) on one grading substrate. It is a **uv workspace
+modular monolith**: one repo, one deploy unit, strictly enforced module
+boundaries.
+
+Read `README.md` for the current build status per phase, and
+`docs/design/00_システム設計方針と構築計画.md` §1 for the nine design principles
+(P1–P9) that every architectural argument in this codebase cites by number.
+`docs/adr/` holds the decisions; comments in the source reference them by number
+and expect you to have read them before changing the behaviour they describe.
+
+## Commands
+
+```fish
+uv sync --extra dev
+
+uv run pytest                                   # the whole suite
+uv run pytest packages/skill/tests/test_skill.py -v      # one file
+uv run pytest -k test_late_penalty              # one test by name
+uv run ruff check .                             # lint
+uv run ruff format .                            # format (line-length 100 — CI checks this)
+uv run mypy packages/core/src                   # strict, core only
+uv run lint-imports                             # module boundary contracts
+
+uv run alembic upgrade head                     # apply migrations (operational DBs too; never --create-schema)
+uv run alembic revision --autogenerate -m "..." # after any change to packages/persistence/.../schema.py
+```
+
+`packages/persistence/tests/test_migrations.py` fails the build when the schema
+built by migrations alone drifts from the model, so a schema change without a
+new revision does not pass CI.
+
+CI (`.github/workflows/ci.yml`) runs exactly those five checks plus an accuracy
+job. **Run `ruff format .` from the repo root**, not a subdirectory — the
+`line-length = 100` setting lives in the root `pyproject.toml`, and formatting
+from elsewhere silently falls back to 88 and breaks the CI format check.
+
+### Processes
+
+```fish
+docker compose up -d                            # PostgreSQL + MinIO
+uv run aijudge-web --create-schema              # learners, :8080 (first run creates schema)
+uv run aijudge-worker --phase deterministic     # fast lane
+uv run aijudge-worker --phase ai                # slow lane — separate queue on purpose (ADR 0011)
+uv run aijudge-review                           # instructors + /manage, :8765
+uv run aijudge-finalize --once                  # close grades past the deadline (cron or resident)
+uv run aijudge-admin ...                        # start-of-term bulk ops, user creation (CLI only)
+uv run aijudge-eval --subject cs_intro_c --out accuracy.md   # measure agreement; never grades
+```
+
+### Tests that are off by default
+
+```fish
+AIJUDGE_LIVE_LLM=1 uv run pytest evals/test_llm_live.py -v -s
+AIJUDGE_SANDBOX=docker uv run pytest packages/sandbox/tests/test_container.py -v
+```
+
+The container suite must **pass, not skip**, before real submissions run through
+the system; skip means "unverified", not "safe" (`docs/RUNNING.md`, ADR 0006).
+On macOS use colima. `sandbox-exec` alone cannot contain a fork bomb.
+
+### Environment
+
+`AIJUDGE_DATABASE_URL` (SQLite works but has no row locking — one worker only),
+`AIJUDGE_LLM_BASE_URL` / `AIJUDGE_LLM_MODEL` (default is a local ollama — a
+default must never send learner data off the machine, per P7),
+`AIJUDGE_SANDBOX` / `AIJUDGE_SANDBOX_WORKDIR` (must be a path the container can
+mount — host temp dirs on macOS bind-mount empty), `AIJUDGE_GOLDEN_DIR`
+(observation records live **outside the repo**; they contain student work).
+
+## Architecture
+
+### Layering
+
+`packages/core` is the subject-agnostic domain model and the event contracts. It
+depends on nothing and performs **no I/O**. Every other subsystem is a
+`packages/*` sibling that may import core and nothing else of ours — subsystems
+communicate through `aijudge_core.events`, never by importing each other.
+`apps/*` are the only composition roots allowed to combine subsystems.
+`packages/persistence` is infrastructure: no subsystem may import it.
+
+These rules are contracts in `.importlinter` and **fail the build**, not the
+review (ADR 0001). Adding a `packages/*` or `evaluators/*` directory means
+registering it in `.importlinter`; `packages/core/tests/test_boundaries.py`
+catches the omission. New test directories also need adding to `testpaths` in the
+root `pyproject.toml` — an omission there means the tests silently never run,
+which has already happened once.
+
+### Every store and repository has two implementations
+
+Each Store / Repository Protocol in `packages/submission/.../protocols.py` has an
+in-memory implementation (`packages/submission/.../memory.py`) and a persistence
+implementation (`packages/persistence/.../repositories.py`).
+`packages/persistence/tests/test_repositories.py` runs the **same tests against
+both** — its `database` fixture is parametrised (SQLite always, plus PostgreSQL
+when `AIJUDGE_TEST_DATABASE_URL` is set). Adding a Protocol method means
+implementing it in both places; the only place the two legitimately differ is row
+locking, which is branched explicitly.
+
+### Subjects are declarations, not code
+
+`packages/grading` never imports an evaluator. Evaluators register through the
+`aijudge.evaluators` entry point group (normalizers through
+`aijudge.normalizers`), and a profile in `subjects/*.yaml` names which ones run,
+in what order, and under what review policy. Naming an uninstalled evaluator
+fails at load, not at grading time. Adding a subject must not touch the engine —
+adding report grading (Phase 3) changed `core` and `grading` by zero lines, and
+that is the standing acceptance test for this design (ADR 0002).
+
+`subjects/*.yaml` is grading configuration, and **a profile any course uses is
+read-only in the browser** — one profile is the template for several courses, so
+rewriting it changes grading for courses the editor does not teach. `/manage/subjects`
+enforces that: a profile referenced by zero courses can be edited and renamed
+directly, a referenced one can only be *duplicated* (the copy is unreferenced, so
+it is editable, and existing courses keep pointing at the original). The
+referenced/unreferenced decision lives in `aijudge_admin.profiles`, not in the
+templates, and the checks run again at save time — a screen that only greys the
+field out cannot be trusted as the boundary (#146).
+
+The repository's own `subjects/` is **samples** (`subjects/README.md`); operational
+profiles live outside the git checkout, at `AIJUDGE_PROFILES_DIR`, or a deploy
+would overwrite them. Duplication copies the file **byte for byte** and patches
+only `name`/`description`: most of each profile is comments recording *why* a
+value is what it is, and round-tripping the model through `yaml.dump` erases all
+of it.
+
+Operational values of the same kind as a deadline (grace periods, late-penalty
+ladders, course rubrics) live on the course or task and are editable in
+`/manage`.
+
+### Deterministic first, AI second (P3)
+
+The pipeline order is deterministic evaluators → AI evaluators → aggregation. A
+criterion settled deterministically is never sent to a model. With the AI
+evaluators removed grading still completes — that is the degraded-mode
+requirement (P2), and when S6 is down the AI criteria record as *unscored* and
+**the overall total is withheld** rather than renormalised, because a partial
+total reads as a complete one.
+
+AI output is always structured and evidenced: `criterion_id → evidence →
+judgement → score → rationale` (P4). Nothing calls a provider directly —
+`packages/llm_gateway` enforces the policy that learner data reaches local models
+only, validates against the schema, retries with the actual error, and records
+prompt version and model id (P7, ADR 0004).
+
+### The distinctions the record keeps apart
+
+Several bugs in this codebase's history were one concept collapsed into another.
+Treat these as load-bearing:
+
+- **`HumanReview` vs `Finalization`** — an instructor read *this* submission
+  vs. the grade closed by some route. Only the former is evidence for κ. Collapse
+  them and a term's measured agreement is invented (ADR 0010).
+- **Grading vs measurement** — `import-linter` forbids imports in *both*
+  directions. `packages/observation` exists as its own package because the
+  record type living in `analytics` meant deleting analytics stopped grading
+  (ADR 0005, ADR 0007). Accuracy has three verdicts, and exit code `2`
+  (not measurable) is **not a pass**.
+- **Lateness vs the rubric** — the pipeline never sees `due_at`. The deduction is
+  applied afterwards by `aijudge_core.final_score` from a ladder on the course,
+  and is recorded on the run rather than recomputed at display time (ADR 0013).
+- **Grading vs reviewing** — the worker grades on submission; the console reads
+  what arrived. Reviewing is not a precondition for grading (ADR 0007).
+- **`evals/report_ja/` vs production** — that harness reads instructor marking
+  sheets and personal data. Its findings are *transcribed* into subject profiles
+  and evaluators; its code is never imported.
+  `tests/test_evals_stay_out_of_production.py` reads the source to enforce this,
+  because import-linter cannot see plain scripts.
+
+### Human-in-the-loop is the default (P5)
+
+AI grading proposes; it does not decide. Confidence, evaluator disagreement, and
+boundary-score proximity route to review. Blind marking for measurement is
+**sampled** by a hash of the submission id (never the instructor's choice), and
+the blind page has the verdict *absent* from the response, not merely hidden — a
+test asserts the body is clean.
+
+## Conventions
+
+- Comments and docs are **Japanese**; identifiers are English. Ruff's RUF001–003
+  are disabled because they conflict with Japanese punctuation.
+- Comments here carry the *reason and the measurement* behind a decision, often
+  citing an ADR and the defect that produced the rule. When changing such code,
+  update the comment's argument — do not delete it.
+- Grading results are append-only; reruns do not overwrite (P8). Reproducibility
+  fields `(rubric_version, prompt_version, model_id, params, input_hash)` belong
+  on the `GradingRun`.
+- Anything that reports a number it cannot justify should report `NOT_MEASURED`
+  with its reason instead. This pattern recurs across accuracy gates, approval
+  rate, difficulty estimation, and duplicate detection, and is deliberate.
+- Test file basenames must be unique across the whole repo — the test
+  directories have no `__init__.py`, so two files sharing a name break pytest
+  collection for the entire suite, not just those files.
