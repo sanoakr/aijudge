@@ -648,3 +648,44 @@ def test_the_rail_counts_an_unanswered_request_as_waiting_on_a_person(
         counts = uow.reviews.attention_counts_for_course(course.id)
 
     assert counts.contested == 1
+
+
+def test_the_rail_does_not_count_a_demo_submission(database: Database, course) -> None:
+    """デモコースの提出も試行である（#194・#197）。
+
+    **`is_trial` は「教員の試行または デモへの提出」。** 帯の件数を数える
+    SQL は `submitted_as` だけを写していて `is_demo` を落としており、
+    デモコースを有効にした配備では、お試しの提出が「確定処理」として
+    全ページの帯に出ていた。
+
+    数える道が 2 つあると片方だけ直る ── `test_a_demo_submission_is_a_trial`
+    が模型の側で同じことを言っている。
+    """
+    from aijudge_submission import InMemoryArtifactStore, SubmissionService
+
+    with database.unit_of_work() as uow:
+        uow.tasks.save_task(Task(id=TASK_ID, course_id=course.id, title="ex03 p1", session=3))
+        uow.tasks.save_version(_task_version())
+        uow.commit()
+
+    service = SubmissionService(database.unit_of_work, InMemoryArtifactStore())
+    result = service.accept(
+        tenant_id=TENANT,
+        task_version_id=TASK_VERSION,
+        learner_id=UserId(new_id("usr")),
+        # **学習者として、デモコースへ。** 教員の試行とは別の経路で trial に
+        # なる ── ここを `Role.INSTRUCTOR` にすると、落ちていた側を通らない。
+        submitted_as=Role.LEARNER,
+        is_demo=True,
+        subject_profile="cs_lang_c_intro",
+        files=[IncomingFile(filename="main.c", kind=ArtifactKind.CODE, payload=b"int main(){}")],
+    )
+    assert result.submission.is_trial, "模型の側では試行のはず（前提が崩れている）"
+
+    with database.unit_of_work() as uow:
+        uow.runs.save(_run(result.submission.id, routing=Routing.AUTO))
+        uow.commit()
+
+    with database.unit_of_work() as uow:
+        counts = uow.reviews.attention_counts_for_course(course.id)
+    assert counts.unfinalized == 0
