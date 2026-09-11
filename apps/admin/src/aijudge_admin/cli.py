@@ -238,13 +238,17 @@ def cmd_demo_reset(args: argparse.Namespace) -> int:
             if course is None:
                 print(f"デモコース {demo.course_id} がありません", file=sys.stderr)
                 return 2
-            submissions = uow.submissions.list_for_course(demo.course_id)
+            # **数えるだけなので行は持ってこない**（#219・#230）。以前は
+            # 打ち切られる一覧の長さを出していたので、5000 件を超えると
+            # 実際より少ない数を見せて「よろしいですか」と訊いていた。
+            counts = uow.submissions.count_for_course(demo.course_id)
+            submission_count = counts.learner + counts.trial
             tasks = uow.tasks.list_for_course(demo.course_id)
             enrolments = uow.identity.list_enrollments(demo.course_id)
 
         # **規模を先に出す。** 空振りと 90 件の削除が同じ顔で終わらないように。
         print(f"デモコース: {course.title}（{course.code} / {course.term}）")
-        print(f"  提出       {len(submissions):4d} 件（アーティファクトも消えます）")
+        print(f"  提出       {submission_count:4d} 件（アーティファクトも消えます）")
         print(f"  課題       {len(tasks):4d} 件")
         print(f"  受講登録   {len(enrolments):4d} 件（次のログインで戻ります）")
         if not getattr(args, "yes", False) and not _confirmed(
