@@ -172,6 +172,14 @@ class GoogleOidcProvider:
         if not sub or not email:
             raise AuthenticationFailed("Google のトークンに必要な情報がありません")
 
+        # **確認済みのメールでなければ通さない**（#220）。下のドメイン検査は
+        # `hd` が無いときメールの後ろを見るので、確認していないアドレスを
+        # 受け入れると「その機関のドメインを名乗るだけ」で境界を越えられる。
+        # #208 で `hd` を足したときの「境界は突合後の検査の側にある」という
+        # 判断は、この検査が効いていることを前提にしている。
+        if claims.get("email_verified") is not True:
+            raise AuthenticationFailed("このアカウントではログインできません")
+
         hd = claims.get("hd")
         domain = hd or email.rsplit("@", 1)[-1]
         if domain not in settings.allowed_domains:
