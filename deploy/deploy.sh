@@ -29,6 +29,24 @@ git checkout --detach "refs/tags/${TAG}"
 uv sync --frozen --extra dev
 uv run --project "${REPO_DIR}" alembic upgrade head
 
+# **unit ファイルも配る**（#261）。ここが無かったので、`deploy/systemd/` は
+# `bootstrap.sh` を走らせた最初の一度しか機械に届いていなかった ── 以後どれ
+# だけ直しても反映されない。2026-09-12 に測ったとき 11 個中 9 個がずれており、
+# AI ワーカー 4 本の宣言も、ログの名札も、systemd のサンドボックス化も、
+# 書いてあるのに効いていなかった。
+#
+# **root の仕事は root の service にやらせる。** このスクリプトは aijudge
+# ユーザで走り、polkit が許しているのは unit の起動停止だけである
+# （`deploy/polkit/49-aijudge.rules`）── `/etc/systemd/system/` への書き込みも
+# `daemon-reload` も許されていない。**権限を広げるのではなく**、root で走る
+# oneshot を 1 つ足して、それを「起動する」形にした。起動は既に許されている。
+#
+# 無い機械では黙って飛ばす ── この仕組みより前に入れた機械でも、デプロイ
+# 自体は従来どおり通る（そこは 1 度だけ手で入れる）。
+if systemctl list-unit-files aijudge-units.service >/dev/null 2>&1; then
+    systemctl start aijudge-units.service || echo "unit の配布に失敗（続行）"
+fi
+
 # migration の後に restart。**ワーカーも必ず入れ替える** ── 古いワーカーが
 # 新コードの採点行を読めずに詰まった事故が過去に 2 回ある
 # （docs/RUNNING.md #60/#80）。

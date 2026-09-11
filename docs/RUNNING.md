@@ -436,6 +436,61 @@ uv run aijudge-worker --phase ai --name ai4 &
 二度採点され、1 つの提出に採点結果が 2 つできる。`aijudge-worker` は
 起動時に警告する。
 
+### 並列度は 4 か所に散っている ── 一緒に動かす（#260・#261）
+
+**運用機の並列度を決める値は 1 か所に無い。** どれか 1 つだけ上げると、混んだ
+ときに接続が取れずに落ちる。**上げるときは DB を先に、下げるときは DB を後に。**
+
+| 値 | 置き場所 | elite の現在 |
+|---|---|---|
+| 学習者アプリのプロセス数 | `AIJUDGE_WEB_WORKERS`（EnvironmentFile） | 2 |
+| 教員コンソールのプロセス数 | 1 固定（`aijudge-review.service`） | 1 |
+| 決定的ワーカー | `aijudge-worker-det.service` | 1 |
+| AI ワーカー | `aijudge.target` の `Wants=`（@1〜@4） | 4 |
+| 1 プロセスあたりの DB 接続 | `packages/persistence/.../engine.py` | `pool_size 10 + max_overflow 20` |
+| DB の上限 | postgresql の `max_connections` | 300 |
+| 待ち時間の目安に使う本数 | `AIJUDGE_AI_WORKERS`（EnvironmentFile） | 4 |
+
+見積りは**プロセス数 × 30**（`pool_size + max_overflow`）。
+
+```
+web 2 + review 1 + det 1 + ai 4 + finalize 1 = 9 プロセス
+9 × 30 = 270（最悪）   9 × 10 = 90（定常）
+```
+
+**`max_connections` はこの最悪値を上回っていること。** 定常値で決めると、
+締切集中でちょうど足りなくなる ── 足りない瞬間は最も混んでいる瞬間である。
+
+**`AIJUDGE_AI_WORKERS` は AI ワーカーの本数と揃えること。** これは学習者に
+出す「あと何分」の計算にしか使わない値だが、**本数の 2 つ目の写し**である
+── 4 本動いているのに 1 と伝えると、目安が 4 倍になる。採点は止まらないので、
+黙ってずれ続ける。`aijudge-config-check` が両方を突き合わせて知らせる。
+
+**教員コンソールは 1 プロセスのまま。** 操作の結果をプロセス内の変数で持って
+いるので（`Console.last_*`）、複数にすると POST と続く GET が別のプロセスに
+入り、**確定を押しても何も起きなかったように見える**ことがある（#260）。
+直してから増やすこと。
+
+### 書いた設定が機械に届いているか
+
+**`deploy/systemd/` の変更は、デプロイのたびに配られる**（`install-units.sh`）。
+以前はそうでなく、`bootstrap.sh` を走らせた最初の一度しか届いていなかった ──
+2026-09-12 に測ったとき 11 個中 9 個がずれており、AI ワーカー 4 本の宣言も、
+ログの名札も、systemd のサンドボックス化も、**書いてあるのに効いていなかった**。
+
+疑わしいときは手で確かめる。
+
+```fish
+ssh <host> 'for f in /opt/aijudge/deploy/systemd/*; do n=(basename $f); cmp -s $f /etc/systemd/system/$n || echo "ずれ: $n"; done'
+```
+
+配り直しは root の oneshot に閉じてある（デプロイは aijudge ユーザで走り、
+`/etc/systemd/system/` への書き込み権限を持たない）。
+
+```fish
+ssh <host> 'sudo systemctl start aijudge-units.service; journalctl -u aijudge-units -n 20'
+```
+
 GPU を使う科目と使わない科目でキューを分けたい場合は `--subject` で絞る。
 
 ```fish

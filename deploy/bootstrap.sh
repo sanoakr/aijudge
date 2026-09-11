@@ -36,6 +36,12 @@ install -m 644 "${DEPLOY_DIR}/polkit/49-aijudge.rules" /etc/polkit-1/rules.d/
 echo "== aijudge.target を enable（start はしない） =="
 systemctl enable aijudge.target
 
+# **構成のずれを見る検査を入れる**（#260・#261）。unit がデプロイで配られる
+# ようになった後も、機械を直接触れば ずれる ── 誰も何も言わない状態に
+# 戻さないため、1 日 1 回見て、状態が変わったときだけ通知する。
+echo "== 構成のずれの検査を enable =="
+systemctl enable aijudge-config-check.timer
+
 cat <<'EOF'
 
 完了。次の手順（README.md も参照）:
@@ -44,4 +50,5 @@ cat <<'EOF'
   2. nginx の sites-enabled へ symlink を張り、証明書を取得して nginx -t / reload。
   3. 初回デプロイ:  sudo -u aijudge deploy/deploy.sh <tag>
   4. CD を有効化:    sudo systemctl enable --now aijudge-autodeploy.timer
+  5. 構成の検査:     sudo systemctl start aijudge-config-check.service  （1 度出力を見る）
 EOF

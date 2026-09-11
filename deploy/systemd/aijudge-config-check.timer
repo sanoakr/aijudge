@@ -1,0 +1,19 @@
+# 構成のずれを 1 日 1 回見る（#260・#261）。
+#
+# **頻繁に見ない。** ずれは人が何かを変えたときにしか起きず、分単位で追う
+# 種類の事象ではない。通知は状態が変わったときだけなので、頻度を上げても
+# 増えるのは検査の回数だけである。
+#
+# デプロイ直後にも走らせたいが、そこは `deploy.sh` が unit を配る側で
+# 担保している ── 検査は「配ったあとに誰かが機械を触った」を捕まえる。
+[Unit]
+Description=aiJudge configuration drift check (daily)
+
+[Timer]
+OnCalendar=*-*-* 06:30:00
+# 機械が止まっていた日の分を、起動後に 1 度だけ取り戻す。
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

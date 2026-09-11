@@ -1,0 +1,20 @@
+# `deploy/systemd/` の unit を機械へ配る（#261）。**root で走る。**
+#
+# デプロイ（`deploy.sh`）は aijudge ユーザで走り、`/etc/systemd/system/` への
+# 書き込み権限も `daemon-reload` の権限も持たない。polkit が許しているのは
+# unit の**起動停止だけ**なので（`deploy/polkit/49-aijudge.rules`）、root の
+# 仕事をこの oneshot に閉じ込めて、デプロイ側は「起動する」だけにしてある
+# ── 権限を広げずに済む。
+#
+# **この unit 自身は自分では更新できない。** 初回は `bootstrap.sh` が置く。
+# 中身を変えたときだけ、機械で 1 度だけ手で入れ直すこと。
+[Unit]
+Description=aiJudge install unit files from the checkout
+# チェックアウトが読めない状態では意味が無い。
+ConditionPathIsDirectory=/opt/aijudge/deploy/systemd
+
+[Service]
+Type=oneshot
+ExecStart=/opt/aijudge/deploy/install-units.sh
+# journald でこのサービスの行を引くための名札（ADR 0016）。
+SyslogIdentifier=aijudge-units

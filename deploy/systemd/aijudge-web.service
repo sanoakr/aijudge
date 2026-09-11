@@ -11,11 +11,19 @@ User=aijudge
 Group=aijudge
 WorkingDirectory=/opt/aijudge
 EnvironmentFile=/srv/aijudge/config/aijudge.env
-# --workers 4: 1 本のアップロードの write/fsync が他の接続を巻き込まないため
-# （動画の同時アップロード対策。設定は env からしか読ませないので必ず
-# EnvironmentFile を通す）。`.venv/bin` を直接呼ぶ ── `uv run` は再起動の
-# たびに解決をやり直すので、常駐サービスでは直接パスの方が速く確実。
-ExecStart=/opt/aijudge/.venv/bin/aijudge-web --host 127.0.0.1 --port 8080 --workers 4
+# **プロセス数はここに書かない。** `AIJUDGE_WEB_WORKERS` が決める
+# （EnvironmentFile・既定 1）── 直前までここに `--workers 4` と直書きして
+# ありながら、コメントは「設定は env からしか読ませない」と書いていた。
+# 引数は env より強いので、機械ごとに変えられない値が 1 つだけ混ざっていた。
+#
+# **DB の接続数と一緒に決める値である**（#260）。1 プロセスにつき
+# `pool_size 10 + max_overflow 20` を取るので、増やすなら
+# `max_connections` を先に上げる ── 逆順にすると、混んだときに接続が
+# 取れずに落ちる。見積りの表は `docs/RUNNING.md`。
+#
+# `.venv/bin` を直接呼ぶ ── `uv run` は再起動のたびに解決をやり直すので、
+# 常駐サービスでは直接パスの方が速く確実。
+ExecStart=/opt/aijudge/.venv/bin/aijudge-web --host 127.0.0.1 --port 8080
 # journald でこのサービスの行を引くための名札（ADR 0016）。
 SyslogIdentifier=aijudge-web
 Restart=on-failure
