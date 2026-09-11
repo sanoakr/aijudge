@@ -50,6 +50,10 @@
      `--shu`（#b03a29）は濃紺の上では沈んで読めない。 */
   --head-bg:#123256; --head-ink:#eaf1fa; --head-muted:#9db6d4;
   --head-line:#1d4674; --head-shu:#f0a18e;
+  /* 等幅（#215）。**レールは既にこの名前で引いていたのに、定義が無かった** ──
+     `var()` の参照先が無い宣言は落ちるだけで、警告も出ずに書体が本文に戻る。
+     件数が等幅でないと、桁ごとに幅が変わって右端で揃わない。 */
+  --font-mono:ui-monospace,"SFMono-Regular",monospace;
 }
 /* 夜の配色。**同じ値を 2 か所から当てる**（#181）。
 
@@ -143,7 +147,7 @@ th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line-soft);
 tr.row-link[data-clickable]:hover{background:var(--surface-2)}
 thead th{font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);
   font-weight:400;background:var(--surface-2)}
-code,pre,.mono{font-family:ui-monospace,"SFMono-Regular",monospace}
+code,pre,.mono{font-family:var(--font-mono)}
 pre.code{margin:0;overflow-x:auto;background:var(--surface-2);border:1px solid var(--line-soft);
   border-radius:3px;padding:14px 0;font-size:.8rem;line-height:1.65}
 pre.code .ln{display:block;padding:0 16px;white-space:pre}
@@ -391,7 +395,9 @@ footer.app-footer .inner{max-width:none;display:flex;align-items:center;gap:12px
 /* デモコースの帯（#194）。**本文の頭に出す** ── 見出しより前に置くと
    コース名より先に注意書きを読ませることになり、毎ページ邪魔になる。
    見出しの直後で、最初に操作する前には必ず目に入る位置。 */
-.demo-banner{margin-bottom:var(--s5)}
+/* `.note` の 20px より広い ── 本文から切り離すための余白である（#215 まで
+   `var(--s5)` を引いていたが、その変数はどこにも無く、宣言ごと落ちていた）。 */
+.demo-banner{margin-bottom:28px}
 
 /* 入口の面（#209）。**ログイン画面だけが体系の外に残っていた。**
 
@@ -402,8 +408,7 @@ footer.app-footer .inner{max-width:none;display:flex;align-items:center;gap:12px
    学習者とコンソールで同じ構図を使う。**同じ機関の同じシステムなので、
    教員が学習者の画面を開いたときに別のサービスに見えてはいけない。**
 
-   間隔は px で書く ── この CSS に間隔の変数は無い（`--s5` を使っている
-   規則が 1 つあるが、どこにも定義が無く当たっていない）。 */
+   間隔は px で書く ── この CSS に間隔の尺度は無い。 */
 .gate{min-height:100vh;display:flex;flex-direction:column;justify-content:center;
   align-items:center;gap:28px;background:var(--head-bg);color:var(--head-ink);
   padding:48px 20px;
