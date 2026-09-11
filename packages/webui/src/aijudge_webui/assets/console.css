@@ -242,3 +242,37 @@ form[data-working] button[disabled]{opacity:.55;cursor:progress}
 .critlist .lv{font-size:.78rem;font-family:ui-monospace,"SFMono-Regular",monospace;
   color:var(--ink-2)}
 .critlist .ev{font-size:.82rem;color:var(--ink-2);margin:0}
+
+/* 知識要素を選ぶ一覧（#224）。**`.checks` を流用しない。**
+
+   あちらは拡張子のための部品で、`.c` `.jpg / .jpeg` のように幅の揃った短い
+   札を 1 行に流して折り返す形である。知識要素は「点つなぎの長いキー」と
+   「長さがまちまちな日本語の説明」の 2 つ組で、幅の差が大きい ── 流して
+   折り返すと行ごとに切れ目が変わり、**隣の項目のキーと自分の説明が並んで
+   見える**。しかも `.desc` は `margin-bottom` を持つので、1 行に混ぜると
+   説明だけが上にずれ、対応がさらに読めなくなっていた。
+
+   1 項目 1 行の格子にして、チェック・キー・説明を**列で揃える**。 */
+.kcpick{display:grid;grid-template-columns:auto max-content 1fr;
+  align-items:baseline;gap:2px 10px;font-size:.88rem;
+  /* 987 件が平らに流れて 17,666px になっていた ── 選び終えても「生成」の
+     釦に戻れない。**枠の中で送る。** */
+  max-height:22rem;
+  /* **横も枠の中で送る。** キーの列は等幅で折り返させないので、狭い画面では
+     格子が枠より広くなる ── `overflow-y` だけだと、はみ出した分が頁の側の
+     横スクロールになり、頁全体が横に動く。 */
+  max-width:100%;overflow:auto;
+  border:1px solid var(--line-soft);border-radius:3px;padding:10px 12px}
+/* `label` は 3 つの升を持つ入れ物にすぎない。`display:contents` にすると
+   中の 3 つが格子に直接載り、**行をまたいで列が揃う**。 */
+.kcpick label{display:contents;cursor:pointer}
+.kcpick input[type=checkbox]{width:auto;margin:0;justify-self:center}
+.kcpick .k{font-family:var(--font-mono);font-size:.8rem;white-space:nowrap}
+/* 説明は残りを取って折り返す。**`.desc` の余白をここで消す** ── 段落の
+   ための下余白が行間に入ると、格子の行が不揃いになる。 */
+.kcpick .desc{margin:0;font-size:.82rem}
+/* 階層は字下げで見せる（レールと同じ作法・#185 の注記）。深さはキーの
+   点の数で、テンプレートが `d1`〜`d4` を付ける。 */
+.kcpick .d2 .k{padding-left:1em}
+.kcpick .d3 .k{padding-left:2em}
+.kcpick .d4 .k{padding-left:3em}
