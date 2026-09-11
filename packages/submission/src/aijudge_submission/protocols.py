@@ -146,6 +146,45 @@ class SubmissionCounts:
     trial: int
 
 
+@dataclass(frozen=True)
+class ScoredRow:
+    """得点の分布を描くのに要る値だけ（#253）。
+
+    **提出の文書は持ってこない。** 図は棒 11 本で、そのために 1 行 650 バイトの
+    文書を数千件運ぶ理由が無い ── ここにあるのは列から直に引ける値だけで、
+    1 行あたり数十バイトに収まる。
+
+    **集計（`GROUP BY`）にしない理由。** 一覧の絞り込みは 6 つあり、SQL に
+    載るのは 3 つだけである（#247）。残る状態・役割・採用提出まで集計で
+    扱うと、**絞り込みの規則が SQL と Python の 2 か所に増える** ── 図と
+    一覧が食い違う原因を、この issue が直そうとしている形のまま作り直す
+    ことになる。規則は `Filters` の 1 か所に置き、そこへ渡す材料を細くする。
+
+    **点は `final_ratio` から来る**（#253）。`score_ratio` は評価そのもので、
+    画面に出ている点ではない。`None` は「数えない」── 保留（#235）と、
+    課題版が引けない採点。
+    """
+
+    submission_id: SubmissionId
+    learner_id: UserId
+    task_id: TaskId
+    #: 画面に出ている点。`None` は数えない。
+    final_ratio: float | None
+    #: 成績にも統計にも数えない提出（#108）。
+    is_trial: bool
+    # 一覧の「状態」を組み立てるのに要る事実（`Row.state_label`）。**同じ
+    # 絞り込みを図にも効かせるため**にここまで持つ ── 状態で絞った一覧と、
+    # 絞っていない図が並ぶと、読み手はその図を絞った結果だと読む。
+    #: 採点が 1 件でもあるか。無ければ「採点中」。
+    graded: bool = False
+    #: 教員がこの採点を読んだか（`HumanReview`）。確定の出所になる。
+    reviewed: bool = False
+    #: 何らかの経路で成績が閉じたか（`Finalization`）。
+    finalized: bool = False
+    #: 未対応の再確認の依頼があるか。
+    contested: bool = False
+
+
 @runtime_checkable
 class SubmissionRepository(Protocol):
     """提出のメタデータ。"""
@@ -206,6 +245,27 @@ class SubmissionRepository(Protocol):
         で絞ると、絞り込みが `list_for_course` の上限の**後ろ**に来る ──
         コースが大きいほど問題セットの取りこぼしが増え、落ちるのは古い順に
         切るぶん**いちばん新しい提出**になる。一括採点がまさにその形だった。
+        """
+        ...
+
+    def scored_for_course(
+        self,
+        course_id: CourseId,
+        *,
+        task_ids: Sequence[TaskId] | None = None,
+        learner_ids: Sequence[UserId] | None = None,
+    ) -> tuple[ScoredRow, ...]:
+        """得点の分布のための細い読み出し（#253）。**打ち切らない。**
+
+        一覧には上限が要る ── **描く**からである。図に上限は要らない
+        ── 数えるだけなので件数に依らない。同じ行から作っている限り、
+        描画側の制約が数える側に伝染し、切られた母数の図がコース全体の
+        図として読まれる（#233）。一覧を頁送りにすると同じことが起きる
+        （#255）ので、先にここを切り離す。
+
+        絞り込みの引数は `list_for_course` と同じものを取る ── 図は一覧と
+        同じ範囲を描かなければならない。SQL に載らない条件（状態・役割・
+        採用提出）は呼び手が `Filters` で絞る。
         """
         ...
 

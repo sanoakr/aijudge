@@ -149,6 +149,16 @@ class GradingRunRow(Base):
     subject_profile: Mapped[str] = mapped_column(String(64), index=True)
     input_hash: Mapped[str] = mapped_column(String(128), index=True)
     score_ratio: Mapped[float] = mapped_column(Float)
+    # **一覧に出ている点**（#253）。`score_ratio` は評価そのもので、学習者にも
+    # 教員にも見えている点ではない ── 遅延減点を畳んだ後の値がこれである
+    # （`aijudge_core.final_score`）。得点の分布を行ではなく集計から出すために
+    # 列にした。**書くのは保存時の 1 度きり**で、採点の行は保存前に完成して
+    # いるので後から動かない（P8・`worker.py` の `_with_penalty`）。
+    #
+    # **NULL は「数えない」。** 総合点を保留した採点（#235）と、課題版が
+    # 引けない採点がこれに当たる。どちらも一覧に点として出ていない
+    # （後者は `load_rows` が行ごと落とす）ので、数から外れるのが正しい。
+    final_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
     confidence: Mapped[float] = mapped_column(Float)
     routing: Mapped[str] = mapped_column(String(32), index=True)
     superseded_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -175,6 +185,13 @@ class HumanReviewRow(Base):
     submission_id: Mapped[str] = mapped_column(String(64), index=True)
     grader_id: Mapped[str] = mapped_column(String(64), index=True)
     agreed: Mapped[bool] = mapped_column(Boolean, index=True)
+    # **この確認を畳んだ後の点**（#253）。教員が段階を直したか、遅延の猶予を
+    # 認めたかで、採点の行の `final_ratio` とは別の値になる。
+    #
+    # **こちらも 1 度きり。** 1 採点に 2 件目の確認は `save_review` が拒む
+    # （やり直しは再採点から）ので、書いた後に動かない。確認があれば総合点は
+    # 保留されないため、NULL にはならない。
+    final_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
     reviewed_at: Mapped[datetime] = mapped_column(Timestamp, index=True)
     document: Mapped[dict] = mapped_column(JsonType)
 

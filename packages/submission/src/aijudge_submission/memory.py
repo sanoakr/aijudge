@@ -43,6 +43,7 @@ from .jobs import GradingJob, GradingPhase, JobState
 from .protocols import (
     ImmutabilityViolation,
     RunDecision,
+    ScoredRow,
     SubmissionCounts,
     SubmissionStoreError,
 )
@@ -138,6 +139,19 @@ class InMemorySubmissionRepository:
     def list_for_versions(self, version_ids: Sequence[TaskVersionId]) -> tuple[Submission, ...]:
         wanted = {str(version_id) for version_id in version_ids}
         return tuple(item for item in self._items.values() if str(item.task_version_id) in wanted)
+
+    def scored_for_course(
+        self,
+        course_id: CourseId,
+        *,
+        task_ids: Sequence[TaskId] | None = None,
+        learner_ids: Sequence[UserId] | None = None,
+    ) -> tuple[ScoredRow, ...]:
+        # インメモリ実装は課題も採点も持たないので、点は出せない。**空を返す**
+        # ── 使うのは教員 UI（SQL 実装）だけである。0 件の分布として描かれる
+        # のではなく、呼び手が「数えられなかった」と分かる形にしたいので、
+        # この実装を使う画面が出たらここを埋めること。
+        return ()
 
     def count_for_course(self, course_id: CourseId) -> SubmissionCounts:
         # `list_for_course` と同じ理由でコースでは絞れない（課題を持たない）。

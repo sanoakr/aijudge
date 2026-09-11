@@ -104,8 +104,9 @@ from .sampling import is_blind_sample
 from .submissions import (
     STATE_LABELS,
     Filters,
-    distribution_of,
+    distribution_for,
     load_rows,
+    load_scored,
     newest_first,
 )
 from .urls import RedirectResponse, prefixed, root_prefix
@@ -899,6 +900,10 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
             # **全件は数えて訊く**（#219）。読んだ行から数えると、絞り込んだ
             # 表示では「全 N 件」が絞り込み後の数に化ける。
             counts = uow.submissions.count_for_course(course.id)
+            # **図は一覧とは別に読む**（#253）。一覧に上限が要るのは描くから
+            # で、図に上限は要らない ── 同じ行から作っている限り、切られた
+            # 分布がコース全体の分布として読まれる（#233）。
+            scored = load_scored(uow, course, filters)
         rows = listing.rows
         shown = newest_first([row for row in rows if filters.matches(row)])
         return TEMPLATES.TemplateResponse(
@@ -916,7 +921,7 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 "task_choices": choices,
                 "roles": [role.value for role in Role],
                 "states": STATE_LABELS,
-                "chart": distribution_of(shown),
+                "chart": distribution_for(scored, filters),
                 # **切れたことを画面が言う**（#233）。分布も同じ行から
                 # 作るので、母数が全部でないことは図の側にも要る。
                 "truncated": listing.truncated,

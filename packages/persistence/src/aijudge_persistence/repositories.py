@@ -38,6 +38,8 @@ from aijudge_core import (
     Submission,
     Task,
     TaskVersion,
+    final_score,
+    score_withheld,
 )
 from aijudge_core.events import EVENT_TYPES, DomainEvent
 from aijudge_core.ids import (
@@ -57,6 +59,7 @@ from aijudge_submission.protocols import (
     AttentionCounts,
     ImmutabilityViolation,
     RunDecision,
+    ScoredRow,
     SubmissionStoreError,
 )
 
@@ -262,6 +265,83 @@ class SqlSubmissionRepository:
             for row in self._session.execute(statement).scalars()
         )
 
+    def scored_for_course(
+        self,
+        course_id: CourseId,
+        *,
+        task_ids: Sequence[TaskId] | None = None,
+        learner_ids: Sequence[UserId] | None = None,
+    ) -> tuple[ScoredRow, ...]:
+        """得点の分布のための細い読み出し（#253）。**打ち切らない。**
+
+        **文書を読まない。** 図に要るのは点と、誰のどの課題かだけである。
+        提出の文書を読むと 1 行 650 バイト・数千件になり、それを Pydantic に
+        通す費用まで払うことになる ── ここは列だけで済む。
+
+        点は**提出ごとの最新の採点**から取り、確認があればそちらを優先する
+        （`COALESCE`）── 教員が段階を直したり猶予を認めたりした結果が
+        一覧に出ている点であり、図はそれと同じ数でなければならない
+        （`final_ratio`・#253）。「提出ごとの最新 1 件」の絞り方は
+        `latest_for_many` と同じものを使う。
+        """
+        latest = (
+            select(
+                GradingRunRow.submission_id.label("submission_id"),
+                func.max(GradingRunRow.created_at).label("created_at"),
+            )
+            .group_by(GradingRunRow.submission_id)
+            .subquery()
+        )
+        statement = (
+            select(
+                SubmissionRow.id,
+                SubmissionRow.learner_id,
+                TaskVersionRow.task_id,
+                func.coalesce(HumanReviewRow.final_ratio, GradingRunRow.final_ratio),
+                SubmissionRow.is_trial,
+                GradingRunRow.id,
+                HumanReviewRow.id,
+                FinalizationRow.id,
+                ReviewRequestRow.id,
+                ReviewRequestRow.resolved_by,
+            )
+            .join(TaskVersionRow, TaskVersionRow.id == SubmissionRow.task_version_id)
+            .join(TaskRow, TaskRow.id == TaskVersionRow.task_id)
+            # **採点が無い提出も出す。** 採点中は点を持たないが、図の下に出る
+            # 「該当 N 件」はそれを含む数である（一覧に並ぶのと同じ範囲）。
+            .outerjoin(latest, latest.c.submission_id == SubmissionRow.id)
+            .outerjoin(
+                GradingRunRow,
+                (GradingRunRow.submission_id == latest.c.submission_id)
+                & (GradingRunRow.created_at == latest.c.created_at),
+            )
+            .outerjoin(HumanReviewRow, HumanReviewRow.grading_run_id == GradingRunRow.id)
+            .outerjoin(FinalizationRow, FinalizationRow.grading_run_id == GradingRunRow.id)
+            .outerjoin(ReviewRequestRow, ReviewRequestRow.grading_run_id == GradingRunRow.id)
+            .where(TaskRow.course_id == str(course_id))
+        )
+        # 空の列は「該当なし」（`list_for_course` と同じ約束）。
+        if task_ids is not None:
+            statement = statement.where(TaskVersionRow.task_id.in_([str(t) for t in task_ids]))
+        if learner_ids is not None:
+            statement = statement.where(SubmissionRow.learner_id.in_([str(u) for u in learner_ids]))
+        return tuple(
+            ScoredRow(
+                submission_id=SubmissionId(row[0]),
+                learner_id=UserId(row[1]),
+                task_id=TaskId(row[2]),
+                final_ratio=row[3],
+                is_trial=bool(row[4]),
+                graded=row[5] is not None,
+                reviewed=row[6] is not None,
+                finalized=row[7] is not None,
+                # 依頼は**未対応のときだけ**「再確認の依頼あり」。対応済みの
+                # 依頼が残っていても状態は戻らない（`Row.contested` と同じ）。
+                contested=row[8] is not None and row[9] is None,
+            )
+            for row in self._session.execute(statement)
+        )
+
     def count_for_course(self, course_id: CourseId) -> SubmissionCounts:
         """このコースの提出を、数えるためだけに数える（#219）。
 
@@ -313,6 +393,31 @@ class SqlSubmissionRepository:
         self._session.flush()
 
 
+def _final_ratio(session: Session, run: GradingRun, review: HumanReview | None) -> float | None:
+    """一覧に出ている点（#253）。**`aijudge_core.final_score` が唯一の出どころ。**
+
+    `score_ratio` は評価そのもので、学習者にも教員にも見えている点ではない
+    ── 遅延減点と教員の修正を畳んだ後の値がこれである。**列にするのは、
+    得点の分布を行ではなく集計から出すため**で、行から作っていると一覧の
+    上限がそのまま図の母数になる（#233・#255）。
+
+    **ここで計算して列に書く。表示のたびに計算し直さない。** 2 か所で計算
+    すると、必ず食い違う ── 食い違った瞬間に図が嘘になる。同じ値である
+    ことは `test_repositories.py` が確かめる。
+
+    **NULL は「数えない」。** 保留した採点（#235）と、課題版が引けない採点が
+    これに当たる。どちらも一覧に点として出ていない（後者は `load_rows` が
+    行ごと落とす）ので、数から外れるのが正しい。
+    """
+    if score_withheld(run, review):
+        return None
+    row = session.get(TaskVersionRow, str(run.context.task_version_id))
+    if row is None:
+        return None
+    version = TaskVersion.model_validate(row.document)
+    return final_score(run, version, review).final
+
+
 class SqlGradingRunRepository:
     def __init__(self, session: Session) -> None:
         self._session = session
@@ -330,6 +435,7 @@ class SqlGradingRunRepository:
                 subject_profile=run.context.subject_profile,
                 input_hash=run.context.input_hash,
                 score_ratio=run.score_ratio,
+                final_ratio=_final_ratio(self._session, run, None),
                 confidence=run.confidence,
                 routing=run.routing.value,
                 superseded_by=None if run.superseded_by is None else str(run.superseded_by),
@@ -436,6 +542,9 @@ class SqlReviewRepository:
                     submission_id=str(run.submission_id),
                     grader_id=str(review.grader_id),
                     agreed=review.agreed,
+                    final_ratio=_final_ratio(
+                        self._session, GradingRun.model_validate(run.document), review
+                    ),
                     reviewed_at=review.reviewed_at,
                     document=_dump(review),
                 )
