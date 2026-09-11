@@ -1349,23 +1349,69 @@ def test_finalising_a_grade_writes_two_records_that_are_not_the_same_thing(
 def test_the_listing_says_when_it_stopped_reading(world: World, monkeypatch) -> None:
     """**黙って切らない**（#233）。
 
-    一覧は数千件を一度に描かないために上限を持つ。それ自体は妥当だが、
     上限に達したことを出さないと、教員は「最近の提出が無い」のか「読み
-    込んでいない」のかを区別できない ── 同じ行から作る得点分布も、
-    切られた母数で描いたことが伝わらない。
+    込んでいない」のかを区別できない。
 
-    5000 件を積むのは現実的でないので、**上限そのものを 1 に下げて**
-    同じ状態を作る。
+    **上限が残っているのは、絞り込みが SQL に載らないときだけ**（#255）。
+    載るときは頁で切るので、そもそも打ち切りが起きない ── ここは状態で
+    絞って、読んでから絞る経路を通す。
+
+    5000 件を積むのは現実的でないので、**上限そのものを下げて**同じ状態を
+    作る。
     """
     import aijudge_reviewconsole.submissions as submissions_module
 
     _instructor_and_submission(world)
     monkeypatch.setattr(submissions_module, "LISTING_LIMIT", 0)
 
-    body = world.client.get(f"/courses/{COURSE}/submissions").text
+    body = world.client.get(f"/courses/{COURSE}/submissions?state=open").text
 
     assert "まで読み込んでいます" in body
-    assert "この図は直近" in body or "採点済みの提出がありません" in body
+    # **図は切られていない**（#253）。一覧とは別の読み出しから作るので、
+    # 一覧の上限は図の母数に伝染しない。
+    assert "上の分布は切られていません" in body or "採点済みの提出がありません" in body
+
+
+def test_the_listing_pages_and_the_chart_does_not(world: World, monkeypatch) -> None:
+    """**頁送りは一覧だけに効く**（#255）。
+
+    図は一覧とは別の読み出しから作る（#253）ので、頁を送っても母数は
+    コース全体のままである ── 同じ行から作っていたころは、頁送りを入れると
+    「1 頁ぶんの分布」になるところだった。
+
+    100 件を積むのは重いので、**1 頁の件数を下げて**同じ状態を作る。
+    """
+    import aijudge_reviewconsole.submissions as submissions_module
+
+    _instructor_and_submission(world)
+    # 2 件目。別の学習者でよい ── 見たいのは頁の切れ方である。
+    world.submit(world.register("s2400002", role=Role.LEARNER))
+    monkeypatch.setattr(submissions_module, "PAGE_SIZE", 1)
+
+    first = world.client.get(f"/courses/{COURSE}/submissions").text
+    second = world.client.get(f"/courses/{COURSE}/submissions?page=2").text
+
+    assert "1 / 2 頁" in first
+    assert "2 / 2 頁" in second
+    # **総数は頁に追従しない。** 追従すると、コースの大きさが送るたびに変わる。
+    assert "該当 2 件" in first
+    assert "該当 2 件" in second
+
+
+def test_a_page_past_the_end_lands_on_the_last_one(world: World, monkeypatch) -> None:
+    """**行き過ぎても空の画面を出さない**（#255）。
+
+    URL は手で編まれるし、絞り込みを変えれば該当は減る。頁数を超えた値は
+    最後の頁に寄せる ── 「提出がありません」と出すと、無いのか行き過ぎたのか
+    区別できない。
+    """
+    import aijudge_reviewconsole.submissions as submissions_module
+
+    _instructor_and_submission(world)
+    monkeypatch.setattr(submissions_module, "PAGE_SIZE", 1)
+
+    body = world.client.get(f"/courses/{COURSE}/submissions?page=99").text
+    assert "条件に合う提出がありません" not in body
 
 
 def test_a_listing_that_fits_says_nothing(world: World) -> None:

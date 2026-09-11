@@ -172,6 +172,10 @@ class ScoredRow:
     final_ratio: float | None
     #: 成績にも統計にも数えない提出（#108）。
     is_trial: bool
+    # **採用提出を決めるのに要る**（#256）。同点なら後に出した方を採るので、
+    # 点だけでは決まらない。時刻だけでも決まらない（同じ時刻に入りうる）。
+    submitted_at: datetime
+    attempt: int
     # 一覧の「状態」を組み立てるのに要る事実（`Row.state_label`）。**同じ
     # 絞り込みを図にも効かせるため**にここまで持つ ── 状態で絞った一覧と、
     # 絞っていない図が並ぶと、読み手はその図を絞った結果だと読む。
@@ -210,6 +214,7 @@ class SubmissionRepository(Protocol):
         course_id: CourseId,
         *,
         limit: int = 5000,
+        offset: int = 0,
         task_ids: Sequence[TaskId] | None = None,
         learner_ids: Sequence[UserId] | None = None,
     ) -> tuple[Submission, ...]:
@@ -232,6 +237,10 @@ class SubmissionRepository(Protocol):
         **課題で絞る。課題版ではない。** 提出は出したときの版を指しており、
         課題を直したあとの一覧には複数の版への提出が並ぶ ── 最新版だけで
         絞ると、直す前に出した提出が一覧から消える。
+
+        `offset` は頁送りのため（#255）。**並びが定まっているからこそ
+        使える** ── 新しい順（#233）でなければ、同じ頁を二度開いて違う行が
+        出る。
 
         **判断にはこれを使わない。** 上限がある以上、ここで数えたものは
         「全部」ではない（`count_for_course` / `list_for_versions`）。

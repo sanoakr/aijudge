@@ -115,6 +115,7 @@ class InMemorySubmissionRepository:
         course_id: CourseId,
         *,
         limit: int = 5000,
+        offset: int = 0,
         task_ids: Sequence[TaskId] | None = None,
         learner_ids: Sequence[UserId] | None = None,
     ) -> tuple[Submission, ...]:
@@ -134,7 +135,7 @@ class InMemorySubmissionRepository:
         if learner_ids is not None:
             people = {str(learner_id) for learner_id in learner_ids}
             items = [item for item in items if str(item.learner_id) in people]
-        return tuple(items[:limit])
+        return tuple(items[offset : offset + limit])
 
     def list_for_versions(self, version_ids: Sequence[TaskVersionId]) -> tuple[Submission, ...]:
         wanted = {str(version_id) for version_id in version_ids}

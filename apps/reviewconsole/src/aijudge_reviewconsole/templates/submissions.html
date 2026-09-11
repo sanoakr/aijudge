@@ -2,7 +2,7 @@
 {% block title %}提出 — {{ course.title }} — aiJudge{% endblock %}
 {% block body %}
 <h1>提出</h1>
-<p class="subtitle">{{ course.title }}・{{ rows | length }} 件を表示（全 {{ total }} 件）</p>
+<p class="subtitle">{{ course.title }}・{{ page.first }}〜{{ page.last }} 件目を表示（該当 {{ page.total }} 件／全 {{ total }} 件）</p>
 
 {# **絞り込みは URL に載せる。** 状態をサーバに持たない ── 絞った結果を
    そのまま TA や学生に渡せないと、画面の説明から始めることになる
@@ -170,4 +170,20 @@
   {% endfor %}
   </tbody>
 </table>
+
+{# **頁送りは表の下**（#255）。上に置くと、読み終える前に次へ送る形になる。
+   絞り込みの `form` には `page` を入れない ── 条件を変えたら 1 頁目に戻る
+   のが正しく、3 頁目のまま条件を変えると、該当が 2 頁しか無いときに空の
+   画面が出る。`form` が `page` を持たなければ、送信のたびに自然に落ちる。 #}
+{% if page.pages > 1 %}
+<nav class="pager" aria-label="頁送り">
+  {% if page.has_prev %}
+  <a href="{{ page_href(page.number - 1) }}" rel="prev">← 新しい</a>
+  {% else %}<span class="off">← 新しい</span>{% endif %}
+  <span class="at">{{ page.number }} / {{ page.pages }} 頁</span>
+  {% if page.has_next %}
+  <a href="{{ page_href(page.number + 1) }}" rel="next">古い →</a>
+  {% else %}<span class="off">古い →</span>{% endif %}
+</nav>
+{% endif %}
 {% endblock %}

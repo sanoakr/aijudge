@@ -179,6 +179,7 @@ class SqlSubmissionRepository:
         course_id: CourseId,
         *,
         limit: int = 5000,
+        offset: int = 0,
         task_ids: Sequence[TaskId] | None = None,
         learner_ids: Sequence[UserId] | None = None,
     ) -> tuple[Submission, ...]:
@@ -199,6 +200,9 @@ class SqlSubmissionRepository:
             # **新しい順**（#233）。上限に当たったとき落ちるのを古い側に
             # する ── 一覧が見たいのは最近の提出である。
             .order_by(SubmissionRow.created_at.desc(), SubmissionRow.id.desc())
+            # **並びを決めてから切る。** 頁送りは並びが定まっていなければ
+            # 意味を持たない ── 同じ頁を二度開いて違う行が出る（#255）。
+            .offset(offset)
             .limit(limit)
         )
         # **空の列は「該当なし」。** 絞らないときは `None` が来る ── 空を
@@ -299,6 +303,8 @@ class SqlSubmissionRepository:
                 TaskVersionRow.task_id,
                 func.coalesce(HumanReviewRow.final_ratio, GradingRunRow.final_ratio),
                 SubmissionRow.is_trial,
+                func.coalesce(SubmissionRow.submitted_at, SubmissionRow.created_at),
+                SubmissionRow.attempt,
                 GradingRunRow.id,
                 HumanReviewRow.id,
                 FinalizationRow.id,
@@ -332,12 +338,14 @@ class SqlSubmissionRepository:
                 task_id=TaskId(row[2]),
                 final_ratio=row[3],
                 is_trial=bool(row[4]),
-                graded=row[5] is not None,
-                reviewed=row[6] is not None,
-                finalized=row[7] is not None,
+                submitted_at=row[5],
+                attempt=row[6],
+                graded=row[7] is not None,
+                reviewed=row[8] is not None,
+                finalized=row[9] is not None,
                 # 依頼は**未対応のときだけ**「再確認の依頼あり」。対応済みの
                 # 依頼が残っていても状態は戻らない（`Row.contested` と同じ）。
-                contested=row[8] is not None and row[9] is None,
+                contested=row[10] is not None and row[11] is None,
             )
             for row in self._session.execute(statement)
         )
