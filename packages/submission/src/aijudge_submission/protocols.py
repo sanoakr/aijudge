@@ -84,8 +84,18 @@ class RunDecision:
 class ArtifactStore(Protocol):
     """提出物の中身の置き場所。
 
-    メタデータ（`Artifact`）と中身を分けるのは、中身がオブジェクト
-    ストレージに、メタデータが RDB に載るため。`storage_key` が両者を繋ぐ。
+    メタデータ（`Artifact`）と中身を分けるのは、置き場所が別々でありうる
+    ため。`storage_key` が両者を繋ぐ。
+
+    **いまはファイルシステムの実装しか無い**（`FilesystemArtifactStore`）。
+    当初はオブジェクトストレージ（MinIO）を置く想定だったが、1 台で動かす
+    設計では足す理由が無く、開発の compose に立てたまま一度も使われて
+    いなかった（#248）。
+
+    **要るのは機械を分けたときで、扱う媒体の種類ではない。** 動画は既に
+    ファイルシステムで受けて Range 配信しており（`/work` の別ディスク）、
+    OCR が増やすのはテキストである。web とワーカーを別の機械に置くとき、
+    あるいは複数ノードで機関を分けるときに、この Protocol の実装を足す。
     """
 
     def put(self, key: str, payload: bytes) -> None: ...

@@ -25,7 +25,7 @@ uv run aijudge-admin user disable --login <id>   # 削除ではない。記録�
 ## 開発機（macOS / 単独プロセス）
 
 ```fish
-docker compose up -d                    # PostgreSQL + MinIO
+docker compose up -d                    # PostgreSQL（提出物はファイルシステム）
 set -gx AIJUDGE_DATABASE_URL postgresql+psycopg://aijudge:aijudge@localhost:5432/aijudge
 
 uv sync --extra dev
