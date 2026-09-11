@@ -853,6 +853,58 @@ def test_listing_by_version_is_not_capped(database: Database) -> None:
     assert empty == ()
 
 
+def test_the_final_ratio_column_matches_the_domain_function(database: Database) -> None:
+    """**列と画面が同じ数でなければならない**（#253）。
+
+    得点の分布は列から数え、一覧は `aijudge_core.final_score` から出す。
+    二つが食い違えば図は静かに嘘をつく ── 分布は一覧のように 1 行ずつ
+    見比べられないので、食い違いが目で見つからない。
+
+    遅延減点のある採点で確かめる。減点は `score_ratio` に入っていないので、
+    **`score_ratio` をそのまま列にした実装はここで落ちる**（この issue の
+    最初の案がそれだった）。
+    """
+    from sqlalchemy import select
+
+    from aijudge_core import LatePenalty, final_score
+
+    from aijudge_persistence.schema import GradingRunRow
+
+    # 採点が指している版そのものを保存する ── 別の版を置いても列は埋まらない
+    # （課題版が引けない採点は「数えない」なので NULL になる）。
+    version = a_task_version().model_copy(update={"id": TASK_VERSION})
+    with database.unit_of_work() as uow:
+        uow.tasks.save_version(version)
+        uow.commit()
+
+    submission_id = SubmissionId("sub_" + "c" * 32)
+    run = a_run("grn_" + "a" * 32, submission_id).model_copy(
+        update={
+            "penalty": LatePenalty(
+                ratio=0.2,
+                reason="1 日遅れ",
+                hours_late=24.0,
+                due_at=NOW,
+                submitted_at=NOW + timedelta(days=1),
+            )
+        }
+    )
+    with database.unit_of_work() as uow:
+        uow.runs.save(run)
+        uow.commit()
+
+    expected = final_score(run, version, None).final
+    with database.unit_of_work() as uow:
+        stored = uow._session.execute(  # type: ignore[attr-defined]
+            select(GradingRunRow.final_ratio).where(GradingRunRow.id == str(run.id))
+        ).scalar_one()
+
+    assert stored == expected
+    # 前提が崩れていないことも言う ── 減点が効いていなければこの試験は
+    # 何も確かめていない。
+    assert expected != run.score_ratio, "遅延減点が効いていない（前提が崩れている）"
+
+
 def test_the_listing_filters_before_it_reads(database: Database) -> None:
     """**絞り込みは上限より前に効く**（#247）。
 

@@ -38,6 +38,8 @@ from aijudge_core import (
     Submission,
     Task,
     TaskVersion,
+    final_score,
+    score_withheld,
 )
 from aijudge_core.events import EVENT_TYPES, DomainEvent
 from aijudge_core.ids import (
@@ -313,6 +315,31 @@ class SqlSubmissionRepository:
         self._session.flush()
 
 
+def _final_ratio(session: Session, run: GradingRun, review: HumanReview | None) -> float | None:
+    """一覧に出ている点（#253）。**`aijudge_core.final_score` が唯一の出どころ。**
+
+    `score_ratio` は評価そのもので、学習者にも教員にも見えている点ではない
+    ── 遅延減点と教員の修正を畳んだ後の値がこれである。**列にするのは、
+    得点の分布を行ではなく集計から出すため**で、行から作っていると一覧の
+    上限がそのまま図の母数になる（#233・#255）。
+
+    **ここで計算して列に書く。表示のたびに計算し直さない。** 2 か所で計算
+    すると、必ず食い違う ── 食い違った瞬間に図が嘘になる。同じ値である
+    ことは `test_repositories.py` が確かめる。
+
+    **NULL は「数えない」。** 保留した採点（#235）と、課題版が引けない採点が
+    これに当たる。どちらも一覧に点として出ていない（後者は `load_rows` が
+    行ごと落とす）ので、数から外れるのが正しい。
+    """
+    if score_withheld(run, review):
+        return None
+    row = session.get(TaskVersionRow, str(run.context.task_version_id))
+    if row is None:
+        return None
+    version = TaskVersion.model_validate(row.document)
+    return final_score(run, version, review).final
+
+
 class SqlGradingRunRepository:
     def __init__(self, session: Session) -> None:
         self._session = session
@@ -330,6 +357,7 @@ class SqlGradingRunRepository:
                 subject_profile=run.context.subject_profile,
                 input_hash=run.context.input_hash,
                 score_ratio=run.score_ratio,
+                final_ratio=_final_ratio(self._session, run, None),
                 confidence=run.confidence,
                 routing=run.routing.value,
                 superseded_by=None if run.superseded_by is None else str(run.superseded_by),
@@ -436,6 +464,9 @@ class SqlReviewRepository:
                     submission_id=str(run.submission_id),
                     grader_id=str(review.grader_id),
                     agreed=review.agreed,
+                    final_ratio=_final_ratio(
+                        self._session, GradingRun.model_validate(run.document), review
+                    ),
                     reviewed_at=review.reviewed_at,
                     document=_dump(review),
                 )
