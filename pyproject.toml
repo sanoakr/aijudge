@@ -134,3 +134,8 @@ dev = [
 docs = [
     "mkdocs-material>=9.5",
 ]
+# 利用ガイドのスクリーンショット撮影（tools/guide_shots/）。ブラウザは
+# `uv run --group guide-shots playwright install chromium` で別途入れる。
+guide-shots = [
+    "playwright>=1.50",
+]

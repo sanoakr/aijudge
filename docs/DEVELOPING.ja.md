@@ -42,9 +42,24 @@ uv run --only-group docs mkdocs serve    # :8000 でプレビュー
 ```
 
 `docs/guide/images/` のスクリーンショットは**使い捨ての SQLite にサンプルの
-アカウントを作って**（`aijudge-admin staff` / `demo seed`）撮ったもので、
-運用 DB からは撮らない（学生の提出物が入っている）。画面が変わったら同じ
-やり方で撮り直す。
+アカウントを作って**撮ったもので、運用 DB からは撮らない（学生の提出物が
+入っている）。`tools/guide_shots/guide_shots.py` が一式をやる ── DB を作り、
+Web・コンソール・両ワーカーを起動し、ガイドの筋書き（提出・blind 採点・
+再確認の依頼とその回答）を演じて PNG を書く。画面が変わったとき、また
+リリースのあと（フッターに版数が出る）に撮り直す。
+
+```fish
+uv sync --extra dev --group guide-shots
+uv run --group guide-shots playwright install chromium   # 初回だけ
+set -x AIJUDGE_SANDBOX docker; set -x AIJUDGE_SANDBOX_WORKDIR ~/.aijudge/work
+uv run --group guide-shots python tools/guide_shots/guide_shots.py all
+```
+
+採点に docker サンドボックスとモデル（`AIJUDGE_LLM_BASE_URL`、既定はローカル
+ollama）が要るので、1 回に数分かかる。ログイン画面だけは運用サイトから撮る
+（`--login-url`）── 使い捨て環境には OIDC が無く「ログインはまだ設定されて
+いません」の画面になる。切り抜きの目印はテンプレートの h2 の文言で、見出しを
+変えるとスクリプトはエラーで止まる（古い画像が黙って残ることはない）。
 
 ## モジュール境界は「推奨」ではなく強制
 
