@@ -144,8 +144,30 @@
 {% if review %}
 <div class="note warn">
   この採点はすでに確定しています（{{ review.reviewed_at.strftime('%Y-%m-%d %H:%M') }}{% if finalized_by_login %}・{{ finalized_by_login }}{% endif %}）。
-  やり直すには再採点してください。
+  {# **直せる人には直せると言う**（#275）。TA も 1 件ずつなら確定できるので、
+     そこでの判断ちがいを教員が直せる必要がある。追記で直すので、過去の
+     確認は消えない（P8）。 #}
+  {% if can_correct %}
+    内容を見直して<strong>確定し直せます</strong>（担当教員のみ）。
+    直前の確定は記録として残り、学習者には修正されたことが示されます。
+  {% else %}
+    直せるのは担当教員だけです。
+  {% endif %}
 </div>
+{% if review_history %}
+<details class="card">
+  <summary>確定の履歴（{{ review_history | length }} 件）</summary>
+  <ul>
+    {% for past, who in review_history %}
+    <li>
+      <span class="mono desc">{{ past.reviewed_at.strftime('%Y-%m-%d %H:%M') }}</span>
+      {% if who %}<span class="mono">{{ who }}</span>{% endif %}
+      ── {{ past.comment }}
+    </li>
+    {% endfor %}
+  </ul>
+</details>
+{% endif %}
 {% endif %}
 <p class="desc">
   総合 {{ '%.1f' | format(run.score_ratio * 100) }}% ／ 確信度 {{ '%.2f' | format(run.confidence) }}
@@ -261,10 +283,12 @@
        断る操作を見せない方がよい。経路の側でも拒む（`app.py`）ので、
        これは見た目の都合ではなく、二重の守りの手前側である。 #}
     <span class="spacer">
-      {% if review %}確定済みです（やり直すには再採点してください）
+      {% if review and not can_correct %}確定済みです（直せるのは担当教員だけです）
+      {% elif review %}確定済みです。直すと、修正したことが学習者に示されます
       {% else %}確定すると学習者に根拠が表示されます{% endif %}
     </span>
-    <button type="submit" {{ 'disabled' if review }}>成績を確定</button>
+    <button type="submit" {{ 'disabled' if review and not can_correct }}>
+      {{ '確定し直す' if review else '成績を確定' }}</button>
   </div>
 </form>
 {% endif %}

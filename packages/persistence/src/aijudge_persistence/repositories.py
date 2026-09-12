@@ -296,6 +296,14 @@ class SqlSubmissionRepository:
             .group_by(GradingRunRow.submission_id)
             .subquery()
         )
+        latest_review = (
+            select(
+                HumanReviewRow.grading_run_id.label("grading_run_id"),
+                func.max(HumanReviewRow.reviewed_at).label("reviewed_at"),
+            )
+            .group_by(HumanReviewRow.grading_run_id)
+            .subquery()
+        )
         statement = (
             select(
                 SubmissionRow.id,
@@ -321,7 +329,17 @@ class SqlSubmissionRepository:
                 (GradingRunRow.submission_id == latest.c.submission_id)
                 & (GradingRunRow.created_at == latest.c.created_at),
             )
-            .outerjoin(HumanReviewRow, HumanReviewRow.grading_run_id == GradingRunRow.id)
+            # **最新の確認だけを結合する**（#275）。訂正で 2 件目ができると、
+            # 素直に結合した場合 1 提出が複数行になり、図の母数が水増しされる。
+            .outerjoin(
+                latest_review,
+                latest_review.c.grading_run_id == GradingRunRow.id,
+            )
+            .outerjoin(
+                HumanReviewRow,
+                (HumanReviewRow.grading_run_id == latest_review.c.grading_run_id)
+                & (HumanReviewRow.reviewed_at == latest_review.c.reviewed_at),
+            )
             .outerjoin(FinalizationRow, FinalizationRow.grading_run_id == GradingRunRow.id)
             .outerjoin(ReviewRequestRow, ReviewRequestRow.grading_run_id == GradingRunRow.id)
             .where(TaskRow.course_id == str(course_id))
@@ -528,21 +546,18 @@ class SqlReviewRepository:
             raise SubmissionStoreError(f"no GradingRun {review.grading_run_id}")
         row = self._session.get(HumanReviewRow, str(review.id))
         if row is None:
-            existing = (
-                self._session.execute(
-                    select(HumanReviewRow).where(
-                        HumanReviewRow.grading_run_id == str(review.grading_run_id)
-                    )
-                )
-                .scalars()
-                .first()
-            )
-            if existing is not None:
-                # 二度確定できると成績が二つ存在する。やり直しは再採点から。
-                raise ImmutabilityViolation(
-                    f"GradingRun {review.grading_run_id} is already finalised by "
-                    f"{existing.grader_id}"
-                )
+            # **2 件目を拒まない**（#275）。TA も 1 件ずつなら確定できるので
+            # （`require_grader`）、そこでの判断ちがいを教員が直せないと、
+            # 誤った成績が再採点以外では動かせない。追記で直す ── 誰がいつ
+            # 何をしたかは全部残り、成績は最新のものを使う。
+            #
+            # **誰が直してよいかはここで決めない。** 保存層は言われたものを
+            # 書く（`delete_task` と同じ分担）── 教員だけが直せるという規則は
+            # 経路側にある（`app.py`）。
+            #
+            # 一致度（κ）には影響しない。あちらの標本は blind 採点だけで
+            # （`ObservationRecord.usable_for_agreement`）、AI の判定を見ながら
+            # 付けた確認は最初から入っていない。
             self._session.add(
                 HumanReviewRow(
                     id=str(review.id),
@@ -566,14 +581,35 @@ class SqlReviewRepository:
         return None if row is None else HumanReview.model_validate(row.document)
 
     def find_review_for_run(self, run_id: GradingRunId) -> HumanReview | None:
+        """この採点の確認。**訂正されていれば最新のもの**（#275）。
+
+        1 採点につき 1 件だったころは順序を気にしなくてよかったが、教員が
+        TA の判断を直せるようになったので、**成績は最新の確認が決める**。
+        並びを指定しないと、どれが返るかは実装まかせになる。
+        """
         row = (
             self._session.execute(
-                select(HumanReviewRow).where(HumanReviewRow.grading_run_id == str(run_id))
+                select(HumanReviewRow)
+                .where(HumanReviewRow.grading_run_id == str(run_id))
+                .order_by(HumanReviewRow.reviewed_at.desc(), HumanReviewRow.id.desc())
             )
             .scalars()
             .first()
         )
         return None if row is None else HumanReview.model_validate(row.document)
+
+    def reviews_for_run(self, run_id: GradingRunId) -> tuple[HumanReview, ...]:
+        """この採点の確認を**古い順に全部**（#275）。
+
+        訂正の履歴を画面に出すためにある ── 「直された」とだけ言われても、
+        何がどう変わったのかが分からなければ、学習者は納得のしようがない。
+        """
+        rows = self._session.execute(
+            select(HumanReviewRow)
+            .where(HumanReviewRow.grading_run_id == str(run_id))
+            .order_by(HumanReviewRow.reviewed_at, HumanReviewRow.id)
+        ).scalars()
+        return tuple(HumanReview.model_validate(row.document) for row in rows)
 
     def save_blind_mark(self, mark: BlindMark) -> None:
         if self._session.get(BlindMarkRow, str(mark.submission_id)) is not None:
@@ -742,10 +778,15 @@ class SqlReviewRepository:
         if not run_ids:
             return {}
         keys = [str(run_id) for run_id in run_ids]
+        # **訂正があれば最新のものを採る**（#275）。並びを指定しないと、
+        # 辞書に最後に入った行が勝ち、どれが勝つかは実装まかせになる ──
+        # 古い順に読んで上書きすれば、残るのは最新である。
         reviews = {
             GradingRunId(row.grading_run_id): HumanReview.model_validate(row.document)
             for row in self._session.execute(
-                select(HumanReviewRow).where(HumanReviewRow.grading_run_id.in_(keys))
+                select(HumanReviewRow)
+                .where(HumanReviewRow.grading_run_id.in_(keys))
+                .order_by(HumanReviewRow.reviewed_at, HumanReviewRow.id)
             ).scalars()
         }
         requests = {

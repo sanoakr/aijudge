@@ -142,6 +142,15 @@
 
 {% if view.review_comment %}
 <h2>{% if view.reviewed_individually %}担当教員から{% else %}確定の理由{% endif %}</h2>
+{# **直されたことは伝える**（#275）。一度示した点が動くので、黙って
+   差し替えると「前に見た点は何だったのか」に答えられない。
+   **誰が直したかは出さない** ── 役割で足りる。 #}
+{% if view.corrected %}
+<div class="note">
+  <strong>この採点は確定後に担当教員が見直し、修正されました。</strong>
+  下に出ているのは修正後の内容です。
+</div>
+{% endif %}
 <div class="card">{{ view.review_comment }}</div>
 {% endif %}
 

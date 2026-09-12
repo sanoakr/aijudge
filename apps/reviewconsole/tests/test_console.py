@@ -652,40 +652,65 @@ def test_agreeing_leaves_no_adjustment(world: World) -> None:
 
 
 @needs_c_compiler
-def test_finalizing_twice_is_refused(world: World) -> None:
-    """二度確定できると成績が二つ存在する。やり直しは再採点から。"""
+def test_an_instructor_can_correct_a_finalised_grade(world: World) -> None:
+    """**確定は直せる。ただし教員だけ**（#275）。
+
+    TA も 1 件ずつなら確定できる（`require_grader`）。そこでの判断ちがいを
+    誰も直せないと、誤った成績が再採点以外では動かせない ── 再採点は機械の
+    判定まで動かすので、直したいのが自分の判断であるときには重すぎる。
+
+    **追記で直す。** 確認は積み上がり、成績は最新のものが決める（P8）。
+
+    **一致度（κ）には影響しない。** あちらの標本は blind 採点だけで
+    （`ObservationRecord.usable_for_agreement`）、AI の判定を見ながら付けた
+    確認は最初から入っていない。
+    """
     _, accepted = _instructor_and_submission(world)
     world.worker.run_until_empty()
     with world.database.unit_of_work() as uow:
         run = uow.runs.latest_for(accepted.submission.id)
-    assert run is not None
     machine = {score.criterion_id: score.level for score in run.criterion_scores}
-    data = _agree_form(world, machine)
-    world.client.post(f"/review/{accepted.submission.id}/finalize", data=data)
-    again = world.client.post(f"/review/{accepted.submission.id}/finalize", data=data)
-    assert again.status_code == 409
 
-    # **断り方も見る**（#272）。以前は例外の文面をそのまま返しており、
-    # `GradingRun grn_… is already finalised by usr_…` が画面に出ていた ──
-    # 内部 ID も利用者 ID も教員には意味が無く、**誰が確定したのかが
-    # 分からなかった**（#102 で login を出すと決めたのに、ここだけ ID）。
-    # **押せない形にしてある**（#272）。断るより、断る操作を見せない方がよい。
-    page = world.client.get(f"/review/{accepted.submission.id}/reveal").text
-    assert "成績を確定</button>" in page
-    button = page[page.rindex("<button", 0, page.index("成績を確定</button>")) :]
-    assert "disabled" in button[: button.index(">")], "確定済みなのに押せる"
-    # **誰が確定したかを出す**（#102・#272）。日時だけでは、自分が確定したのか
-    # 他の教員かが分からない。
-    assert "instructor" in page[page.index("すでに確定しています") - 200 :][:400], (
-        "確定した人が画面に出ていない"
+    first = world.client.post(
+        f"/review/{accepted.submission.id}/finalize", data=_agree_form(world, machine)
+    )
+    assert first.status_code in (200, 303)
+
+    corrected = dict(_agree_form(world, machine))
+    corrected["comment"] = "先の確定を見直しました。境界の扱いを取り違えていました。"
+    again = world.client.post(f"/review/{accepted.submission.id}/finalize", data=corrected)
+    assert again.status_code in (200, 303), again.text
+
+    with world.database.unit_of_work() as uow:
+        history = uow.reviews.reviews_for_run(run.id)
+        latest = uow.reviews.find_review_for_run(run.id)
+    assert len(history) == 2, "訂正が追記されていない"
+    assert history[0].comment != history[1].comment, "古い確認が上書きされている"
+    assert latest.comment == corrected["comment"], "最新の確認が成績を決めていない"
+
+
+def test_an_assistant_cannot_correct_a_finalised_grade(world: World) -> None:
+    """**直せるのは教員だけ**（#275）。
+
+    TA まで直せると、同じ判断を同じ権限で往復できてしまい、誰の判断が最終
+    なのかが決まらない。**1 件目は誰でもよい** ── 分担して採点すること自体は
+    妨げない。
+    """
+    _, accepted = _instructor_and_submission(world)
+    world.worker.run_until_empty()
+    with world.database.unit_of_work() as uow:
+        run = uow.runs.latest_for(accepted.submission.id)
+    machine = {score.criterion_id: score.level for score in run.criterion_scores}
+    world.client.post(
+        f"/review/{accepted.submission.id}/finalize", data=_agree_form(world, machine)
     )
 
-    detail = again.json()["detail"]
-    assert "既に確定しています" in detail
-    assert "instructor" in detail, "誰が確認したかが出ていない"
-    assert "再採点" in detail, "次にできることが書かれていない"
-    assert "GradingRun" not in detail and "grn_" not in detail, "内部 ID が出ている"
-    assert "usr_" not in detail, "利用者 ID が出ている"
+    world.register("ta", role=Role.ASSISTANT)
+    world.login("ta")
+    response = world.client.post(
+        f"/review/{accepted.submission.id}/finalize", data=_agree_form(world, machine)
+    )
+    assert response.status_code == 403, response.text
 
 
 def test_finalizing_stays_on_the_page(world: World) -> None:

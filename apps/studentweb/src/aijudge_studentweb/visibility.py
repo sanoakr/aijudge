@@ -142,6 +142,11 @@ class ResultView:
     settles_at: datetime | None = None
     # 根拠説明（確定済みのとき）。教員が書いたものか、自動確定の定型文。
     review_comment: str | None = None
+    #: 確定したあとに担当教員が直したか（#275）。**直したことは伝える** ──
+    #: 一度示した点が動くので、黙って差し替えると「前に見た点は何だったのか」
+    #: に答えられない。**誰が直したかは出さない**（役割で足りる・スタッフ側で
+    #: は login が辿れる）。
+    corrected: bool = False
     # 再確認の依頼を出せるか。出せないなら理由。
     can_request_review: bool = False
     request_reason: str | None = None
@@ -206,6 +211,10 @@ def build_result_view(
     request: object | None = None,
     finalization: Finalization | None = None,
     auto_finalize_after_minutes: int | None = None,
+    #: この採点に付いた確認の件数（#275）。2 件以上なら訂正されている。
+    #: **件数だけ渡す** ── 学習者に必要なのは「直された」という事実で、
+    #: 誰がいつ何を書いたかではない（それはスタッフ側で辿れる）。
+    reviews: int = 1,
     now: datetime | None = None,
 ) -> ResultView:
     """採点結果を学習者向けの表示に畳む。
@@ -344,6 +353,7 @@ def build_result_view(
         window=window,
         settles_at=closes_at,
         review_comment=_justification(finalization, review),
+        corrected=reviews > 1,
         can_request_review=can_request,
         request_reason=reason,
         requested=request is not None,
