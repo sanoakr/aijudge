@@ -186,6 +186,18 @@ uv run aijudge-admin kc seed --namespace cs     # 冪等。骨格を直して再
 uv run aijudge-admin task import --course <id> --dir 課題のディレクトリ
 ```
 
+コース 1 つ分（コース・課題・回ごとの日程）を 1 つのファイルに書いて流すこと
+もできます。画像で出す課題（認定証のスクリーンショットなど）は取り込み元の
+形式では表せないので、こちらで宣言します。既存の課題ディレクトリは
+`problem_dir` で指せます。何度流しても増えません。
+
+```fish
+uv run aijudge-admin course apply --file network/2026/course.yaml
+```
+
+形式は `apps/admin/src/aijudge_admin/course_definition.py` の冒頭と
+`subjects/demo/course.yaml`（お試しコースの定義。同じ形式）にあります。
+
 ---
 
 ## いまどこまで動くか
