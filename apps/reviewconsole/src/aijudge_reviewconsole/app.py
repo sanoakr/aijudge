@@ -1211,6 +1211,12 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 # **誰が確定したかを出す**（#102・#272）。日時だけでは、自分が
                 # 確定したのか他の教員かが分からない。
                 "finalized_by_login": _actor_login_of(console, context.review),
+                # **教員なら直せる**（#275）。TA も 1 件ずつなら確定できるので、
+                # そこでの判断ちがいを直せる人が要る。1 件目は誰でもよい。
+                "can_correct": _is_course_instructor(console, me, context.course.id),
+                # 訂正の履歴。**何がどう変わったかを出す** ── 「直された」と
+                # だけ言われても、読み手は納得のしようがない。
+                "review_history": _review_history(console, context.run),
                 # **観点どうしの畳み方をこの場に出す**（ADR 0013 の隣の判断）。
                 # 重みだけでは判断できない ── AND では 1 つでも 0% になった
                 # 時点で以降が 0% になるので、段階を下げる意味がまるで違う。
@@ -1256,6 +1262,16 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 status_code=409,
                 detail="AI 評価がまだ届いていません。届いてから確定してください。",
             )
+        # **訂正は教員だけ**（#275）。TA も 1 件ずつなら確定できるので
+        # （`require_grader`）、そこでの判断ちがいを直せる人が要る。ただし
+        # 直せる人まで TA にすると、**同じ判断を同じ権限で往復できる**ように
+        # なり、誰の判断が最終なのかが決まらない。
+        #
+        # **1 件目は誰でもよい。** 直すときだけ教員を求める ── 分担して採点
+        # すること自体は妨げない。
+        if context.review is not None:
+            _require_course_instructor(console, me, context.course.id)
+
         final = _parse_levels(context.task_version.criteria, form)
         comment = str(form.get("comment", ""))
         # 遅延の減点の免除。**評価の修正とは別物**（ADR 0013）。減点の無い
@@ -1732,6 +1748,56 @@ def level_field(code: str) -> str:
     画面を見るまで分からなかった）。
     """
     return f"{LEVEL_FIELD_PREFIX}{code}"
+
+
+def _require_course_instructor(console, me: Principal, course_id: CourseId) -> None:
+    """そのコースの教員であること（#275）。**TA には許さない。**
+
+    `manage._require_instructor` と同じ判定だが、あちらは `Request` を取る
+    ので、確定の経路からは呼びにくい。判定そのもの（`require_membership` の
+    結果を役割で見る）は 1 行なので、ここでは重ねずに書く。
+    """
+    with console.database.unit_of_work() as uow:
+        auth = AuthService(uow.identity, audit=uow.audit)
+        try:
+            role = auth.require_membership(course_id, me.user_id)
+        except PermissionDenied as exc:
+            raise HTTPException(status_code=404, detail="提出が見つかりません") from exc
+    if role not in (Role.INSTRUCTOR, Role.ADMIN):
+        raise HTTPException(
+            status_code=403,
+            detail="確定済みの成績を直せるのは担当教員だけです。",
+        )
+
+
+def _is_course_instructor(console, me: Principal, course_id: CourseId) -> bool:
+    """そのコースの教員か（#275）。**拒むのではなく、出し分けに使う。**"""
+    with console.database.unit_of_work() as uow:
+        auth = AuthService(uow.identity, audit=uow.audit)
+        try:
+            role = auth.require_membership(course_id, me.user_id)
+        except PermissionDenied:
+            return False
+    return role in (Role.INSTRUCTOR, Role.ADMIN)
+
+
+def _review_history(console, run) -> tuple:
+    """この採点の確認を古い順に、誰が付けたかを添えて（#275）。
+
+    **1 件のときは出さない。** 訂正が無いのに履歴を出すと、何かが起きた
+    ように読める。
+    """
+    if run is None:
+        return ()
+    with console.database.unit_of_work() as uow:
+        reviews = uow.reviews.reviews_for_run(run.id)
+        if len(reviews) < 2:
+            return ()
+        out = []
+        for review in reviews:
+            user = uow.identity.get_user(review.grader_id)
+            out.append((review, getattr(user, "login", "") or ""))
+    return tuple(out)
 
 
 def _actor_login_of(console, record) -> str:

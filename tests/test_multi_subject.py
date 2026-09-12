@@ -360,8 +360,17 @@ def test_an_assistant_shares_the_grading(campus: Campus) -> None:
 
 
 @needs_c_compiler
-def test_only_one_teacher_can_finalise_a_submission(campus: Campus) -> None:
-    """2 人目の確定を拒否する。二度確定できると成績が二つ存在する。"""
+def test_a_ta_cannot_overturn_a_finalised_grade(campus: Campus) -> None:
+    """**確定を直せるのは教員だけ**（#275・ADR 0010 の追記）。
+
+    以前はここで「2 人目の確定を拒否する」を見ていた（1 採点に確定は 1 つ）。
+    いまは**教員なら直せる** ── TA も 1 件ずつなら確定できるので、そこでの
+    判断ちがいを直せる人が要る。ただし TA まで直せると、同じ判断を同じ権限で
+    往復できてしまい、誰の判断が最終なのかが決まらない。
+
+    成績は最新の確認が決め、過去の確認は残る（P8）。一致度（κ）には影響
+    しない ── あちらの標本は blind 採点だけである。
+    """
     enrol_roster(
         campus.database,
         tenant_id=TENANT,
@@ -387,10 +396,23 @@ def test_only_one_teacher_can_finalise_a_submission(campus: Campus) -> None:
         f"/review/{accepted.submission.id}/finalize", data=data, follow_redirects=False
     )
     assert first.status_code == 303
+    # TA は直せない。
     second = campus.login_teacher("c_ta").post(
         f"/review/{accepted.submission.id}/finalize", data=data
     )
-    assert second.status_code == 409
+    assert second.status_code == 403, second.text
+
+    # 教員は直せる ── 追記され、最新が成績を決める。
+    corrected = dict(data)
+    corrected["comment"] = "先の確定を見直しました。境界の扱いを取り違えていました。"
+    third = campus.login_teacher("c_teacher").post(
+        f"/review/{accepted.submission.id}/finalize", data=corrected, follow_redirects=False
+    )
+    assert third.status_code == 303, third.text
+    with campus.database.unit_of_work() as uow:
+        history = uow.reviews.reviews_for_run(run.id)
+    assert len(history) == 2
+    assert history[-1].comment == corrected["comment"]
 
 
 # --------------------------------------------------------------------------

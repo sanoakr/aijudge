@@ -196,8 +196,21 @@ class HumanReviewRow(Base):
     document: Mapped[dict] = mapped_column(JsonType)
 
     __table_args__ = (
-        # 1 採点につき確定は 1 つ。二度確定できると成績が二つ存在する。
-        UniqueConstraint("grading_run_id", name="uq_reviews_run"),
+        # **1 採点に確認が複数ありうる**（#275）。以前は `grading_run_id` に
+        # UNIQUE を張り、「二度確定できると成績が二つ存在する」としていた。
+        #
+        # 成績が二つになるのは、**どちらが最終かを決めていない**場合である。
+        # 最新を成績とすると決めたので、積み上げてよい ── 誰がいつ何をしたか
+        # が全部残り、P8 のとおり過去の確認も書き換えない。
+        #
+        # TA も 1 件ずつなら確定できる（`require_grader`）ので、そこでの判断
+        # ちがいを教員が直せる必要がある。直せる人を教員に限る規則は経路側に
+        # ある（`app.py`）── 表は「言われたものを書く」。
+        #
+        # **一致度（κ）には影響しない。** あちらの標本は blind 採点だけで
+        # （`ObservationRecord.usable_for_agreement`）、AI の判定を見ながら
+        # 付けた確認は最初から入っていない。
+        Index("ix_reviews_run_time", "grading_run_id", "reviewed_at"),
     )
 
 

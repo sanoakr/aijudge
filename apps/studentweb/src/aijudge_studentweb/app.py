@@ -1373,6 +1373,9 @@ def _submission_view(
         if task is None or course is None:
             raise HTTPException(status_code=404, detail="課題が見つかりません")
         review = None if run is None else uow.reviews.find_review_for_run(run.id)
+        # 確認が 2 件以上なら訂正されている（#275）。**件数だけ見る** ──
+        # 学習者に要るのは「直された」という事実で、誰が何を書いたかではない。
+        review_count = 0 if run is None else len(uow.reviews.reviews_for_run(run.id))
         request = None if run is None else uow.reviews.find_request_for_run(run.id)
         # 確定は Finalization が表す。HumanReview は「教員が読んだ」記録で
         # あって確定ではない（ADR 0010）。
@@ -1397,6 +1400,7 @@ def _submission_view(
             auto_finalize_after_minutes=grace_minutes(
                 task.auto_finalize_after_minutes, course.auto_finalize_after_minutes
             ),
+            reviews=review_count,
         )
     )
     return LoadedSubmission(
