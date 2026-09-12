@@ -41,3 +41,4 @@ evals/model_bench/
 # （`deploy/README.md`「機関固有の値はすべて…git 管理外に置く」）。
 docs/design/elite-deployment-proposal.md
 docs/design/disk-and-recovery-plan.md
+site/

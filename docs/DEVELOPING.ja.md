@@ -30,6 +30,22 @@ AIJUDGE_TEST_DATABASE_URL=postgresql+psycopg://aijudge:aijudge@localhost:5432/ai
 **PostgreSQL でしか捕まらないものは `[postgres]` のテストに置く** ── 行ロック
 （SQLite に無い）、列の長さ（SQLite は `VARCHAR(n)` の n を見ない）、JSONB。
 
+### 利用ガイドのサイト
+
+`docs/guide/` は利用者向けガイド（学生・TA・教員）で、`main` に入ると
+`.github/workflows/pages.yml` が GitHub Pages に出す。設計文書や ADR とは
+読者が違うので、別の MkDocs サイトにしてある。
+
+```fish
+uv sync --only-group docs
+uv run --only-group docs mkdocs serve    # :8000 でプレビュー
+```
+
+`docs/guide/images/` のスクリーンショットは**使い捨ての SQLite にサンプルの
+アカウントを作って**（`aijudge-admin staff` / `demo seed`）撮ったもので、
+運用 DB からは撮らない（学生の提出物が入っている）。画面が変わったら同じ
+やり方で撮り直す。
+
 ## モジュール境界は「推奨」ではなく強制
 
 `packages/core` は何にも依存せず、I/O を持たない。サブシステムどうしは互いを
