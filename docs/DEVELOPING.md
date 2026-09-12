@@ -31,6 +31,23 @@ AIJUDGE_TEST_DATABASE_URL=postgresql+psycopg://aijudge:aijudge@localhost:5432/ai
 locking (SQLite has none), column widths (SQLite ignores the `n` in
 `VARCHAR(n)`), and JSONB behaviour.
 
+### User guide site
+
+`docs/guide/` is the user guide (learners, TAs, instructors), published to
+GitHub Pages by `.github/workflows/pages.yml` on every push to `main` that
+touches it. It is a separate MkDocs site on purpose — the design documents and
+ADRs are for a different reader.
+
+```fish
+uv sync --only-group docs
+uv run --only-group docs mkdocs serve    # preview at :8000
+```
+
+The screenshots in `docs/guide/images/` come from a **local run with sample
+accounts** (`aijudge-admin staff` / `demo seed` on a throwaway SQLite database) —
+never from an operational database, which holds student work. Retake them the
+same way when a screen changes.
+
 ## Module boundaries are enforced, not suggested
 
 `packages/core` depends on nothing and performs no I/O. Subsystems never import

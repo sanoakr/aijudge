@@ -1,0 +1,60 @@
+# 利用者向けガイド（docs/guide/）を GitHub Pages に出すための設定。
+# 設計文書（docs/design・docs/adr）は対象外 ── 読者が違う。
+site_name: aiJudge 利用ガイド
+site_url: https://sanoakr.github.io/aijudge/
+repo_url: https://github.com/sanoakr/aijudge
+edit_uri: edit/main/docs/guide/
+docs_dir: docs/guide
+site_dir: site
+copyright: "© 2026 SANO Akira"
+
+theme:
+  name: material
+  language: ja
+  font: false
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      toggle:
+        icon: material/weather-night
+        name: 夜モード
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: 昼モード
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - toc.follow
+    - search.suggest
+    - content.action.edit
+
+nav:
+  - はじめに: index.md
+  - 学生向け: student.md
+  - TA 向け: ta.md
+  - 教員向け: instructor.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      toc_depth: 3
+  - def_list
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+extra_css:
+  - guide.css

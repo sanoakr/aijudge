@@ -131,3 +131,6 @@ dev = [
     "psycopg[binary]>=3.2",
     "pytest-asyncio>=1.4.0",
 ]
+docs = [
+    "mkdocs-material>=9.5",
+]

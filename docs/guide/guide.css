@@ -1,0 +1,9 @@
+/* スクリーンショットは枠を付けて本文と区別する */
+.md-typeset img { border: 1px solid #d0d4dc; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+.md-typeset img.narrow { max-width: 360px; }
+/* 案内のカード（index） */
+.guide-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin: 1.5rem 0; }
+.guide-cards a { display: block; padding: 1rem 1.2rem; border: 1px solid #d0d4dc; border-radius: 6px; text-decoration: none; color: inherit; }
+.guide-cards a:hover { border-color: #3f51b5; }
+.guide-cards a strong { display: block; font-size: 1.1rem; margin-bottom: .3rem; }
+.guide-cards > p { display: contents; }

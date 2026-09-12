@@ -9,6 +9,9 @@ final say**.
 
 It runs on a single machine inside your institution. Learner work never leaves it.
 
+**User guides** (Japanese, with screenshots) for learners, TAs and instructors:
+<https://sanoakr.github.io/aijudge/> — source in [`docs/guide/`](docs/guide/).
+
 ---
 
 ## What it does
