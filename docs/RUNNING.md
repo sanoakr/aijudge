@@ -391,6 +391,8 @@ JavaScript を切っていると切り替えは出ず、端末の設定に従う
 | `AIJUDGE_LOG_FORMAT` | 運用ログの形（`json` / `text`）。**運用では `json`** ── 1 行 1 イベントで `jq` で絞れる | `text` |
 | `AIJUDGE_LOG_LEVEL` | 運用ログの段（`DEBUG` / `INFO` / `WARNING` …） | `INFO` |
 | `AIJUDGE_PROFILES_DIR` | 科目プロファイル（`*.yaml`）の置き場所。**運用では git のチェックアウトの外を指す** ── リポジトリの `subjects/` はサンプルで、デプロイのたびに入れ替わる（`subjects/README.md`）。**web・review・worker・admin のすべてが同じ場所を指すこと** | リポジトリの `subjects/` |
+| `AIJUDGE_DEMO_COURSE` | お試しコースのコース ID（#194）。**設定した人だけが持つ機能** ── 未設定なら自動受講登録は 1 行も動かない。値は `aijudge-admin demo seed` が表示する ID を写す | 未設定（機能ごと無い） |
+| `AIJUDGE_DEMO_INSTRUCTOR_PREFIX` | お試しコースで教員として登録する、外部 IdP の `login` の接頭辞。**このコースの中だけ**で効く。空は全員に一致するので既定に戻る | `a`（龍谷大学の教職員） |
 
 ## 締切集中に備える
 
@@ -585,6 +587,40 @@ cron に置くなら 1 時間ごとで十分（猶予は時間単位の話）。
 
 取り下げた課題は学習者の一覧に出ず、URL を知っていても開けない。教員の一覧には
 「出題を取り下げ済み」と印を付けて残る。
+
+### お試しコース（#194・#197）
+
+**設定した人だけが持つ機能である。** `AIJUDGE_DEMO_COURSE` にコース ID を置いた
+ときだけ、ログインした人が自動でそのコースに受講登録される。提出も採点も本物と
+同じに動くが、**学習履歴にも評価にも残らない**（`is_trial`・#197）。
+
+```fish
+# 1. 定義から作る（冪等。subjects/demo/course.yaml）
+uv run aijudge-admin demo seed
+# 2. 表示されたコース ID を環境変数に置く（運用なら aijudge.env に書いて再起動）
+set -gx AIJUDGE_DEMO_COURSE crs_...
+```
+
+**定義は `$AIJUDGE_PROFILES_DIR/demo/course.yaml` から読む。** 運用では科目
+プロファイルと同じ木の下に来ている必要がある ── リポジトリの `subjects/*.yaml`
+だけを運用側へ写すと、この階層が落ちて `seed` も `reset` も定義が無いと言って
+止まる。
+
+**膨れ上がったら人が消す。** `demo reset` は提出・課題・受講登録を消して定義から
+作り直す。消す操作なので既定では件数を出して確認を挟み、`--yes` が自動化の口だが、
+**cron には載せない**（#194 の判断）── 規模はコンソールのコース一覧から見える。
+
+**運用機で手で叩くときは、env ファイルを自分で読ませること。**
+`/srv/aijudge/config/aijudge.env` は systemd の `EnvironmentFile=` が読むだけなので、
+`sudo -u aijudge aijudge-admin ...` のような素のシェルには何も入らない。
+`AIJUDGE_DEMO_COURSE が設定されていません` で止まるのはこれで、設定の不備ではない
+（同じ理由で `AIJUDGE_DATABASE_URL` も落ちるため、別の DB を見かねない）。
+
+```fish
+ssh <運用機> 'sudo -u aijudge sh -c "set -a; . /srv/aijudge/config/aijudge.env; set +a; exec /opt/aijudge/.venv/bin/aijudge-admin demo reset"'
+```
+
+内側は `sh` なので POSIX 構文である（fish に `set -a` は無い）。
 
 ### シラバスから基本情報と知識要素の候補を作る
 
