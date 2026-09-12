@@ -248,7 +248,14 @@
     <div class="rows">
       {% for group, suffixes in suffix_groups %}
       <div class="checkrow">
-        <span class="desc rowlabel">{{ group }}</span>
+        {# **群ごとの一括切り替え**。`name` を持たないので送信には出ない ──
+           個々の選択だけが値である。
+
+           `js-only` で出す ── これは JavaScript でしか作れない補助で、
+           無ければ 1 つずつ押せばよい。死んだチェック欄を出す方が悪い。 #}
+        <label class="desc rowlabel grouptoggle js-only" hidden>
+          <input type="checkbox" class="groupall"> {{ group }}</label>
+        <span class="desc rowlabel nojs">{{ group }}</span>
         <span class="checks">
           {% for shown, values in suffixes %}
           <label><input type="checkbox" name="suffix" value="{{ values | join(',') }}"

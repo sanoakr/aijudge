@@ -212,6 +212,10 @@ legend{font-weight:700;font-size:.95rem;padding:0 6px}
    きらないときは字の方を詰める（下の携帯向けの規則）。 */
 button{font:inherit;font-weight:700;background:var(--shu);color:#fff;border:0;
   border-radius:3px;padding:10px 22px;cursor:pointer;white-space:nowrap}
+/* **押せないボタンは押せないように見せる。** 見た目が同じだと、押しても
+   何も起きないのを「壊れている」と読む。 */
+button:disabled{opacity:.45;cursor:not-allowed}
+button:disabled:hover{filter:none}
 button:hover{filter:brightness(1.08)}
 textarea{width:100%;font:inherit;font-size:.88rem;padding:10px 12px;border-radius:3px;
   border:1px solid var(--line);background:var(--surface);color:var(--ink);resize:vertical}
@@ -411,8 +415,11 @@ footer.app-footer .inner{max-width:none;display:flex;align-items:center;gap:12px
   .app{grid-template-columns:minmax(0,1fr)}
   .rail{position:static;height:auto;border-right:0;
     border-bottom:1px solid var(--line);
-    flex-direction:row;flex-wrap:wrap;align-items:center;gap:12px;padding:8px 16px}
+    flex-direction:row;flex-wrap:wrap;align-items:center;gap:12px;padding:6px 16px}
   .rail .brand,.rail .switch{border:0;padding:0}
+  /* **添え字の行を詰める。** 本文の行送り（28px）を継ぐと、11px の字が
+     25px の行箱に入る ── 実測で銘が 50px あり、文字は 33px しかなかった。 */
+  .rail .brand .side{display:block;line-height:1.3}
   .rail .brand{flex:none}
   .rail .switch{flex:1;min-width:11rem}
   /* **横に送らせない**（#231）。以前は行き先を 1 本の帯に流して
@@ -421,7 +428,12 @@ footer.app-footer .inner{max-width:none;display:flex;align-items:center;gap:12px
 
      畳んで、開いたら**縦に全部**出す。開閉は checkbox と label（素の
      HTML）で、script が無くても動く。 */
+  /* **右端に置く。** 左に詰めると銘のすぐ隣に来て、押す場所が銘の長さで
+     動く ── コース名は機関が決めるので、こちらでは決められない。右端なら
+     どのコースでも同じ位置にある。`.switch` が無い画面では伸びる要素が
+     無いので、`margin-left:auto` が要る（実測: 右端まで 179px 空いていた）。 */
   .rail .railopen{order:3;display:inline-flex;align-items:center;gap:6px;
+    margin-left:auto;
     font-size:.85rem;font-weight:700;color:var(--ink);cursor:pointer;
     padding:6px 10px;border:1px solid var(--line);border-radius:3px}
   .rail .railopen:hover{background:var(--surface-2)}
@@ -539,10 +551,15 @@ body:has(.gate) .gate{flex:1;min-height:0}
   header.top form{order:2;margin-left:auto}
   /* ここで行を分ける。身元とパスワード変更が 2 行目に並ぶ（以前は
      それぞれが 1 行を取り、帯が 115px あった）。 */
+  /* **`spacer` は改行の役目だけ。行の間隔は行の側で取る。** ここに
+     `row-gap` を効かせると、高さ 0 の行が隙間を 2 つ消費する ── 実測で
+     上部バーは 93px あり、うち 6px が何も無い行のためだった。 */
   header.top .spacer{order:3;flex:0 0 100%;height:0;margin:0}
+  header.top .inner{padding:8px 16px;gap:0 10px}
   /* 身元だけを 2 行目へ。**`.spacer` を巻き込まない** ── あれも `span` で、
      一緒に落とすと押し釦を右へ押す役が居なくなる（実際に銘の真横に並んだ）。 */
-  header.top .inner > span:not(.spacer){order:4;font-size:.8rem;color:var(--head-muted)}
+  header.top .inner > span:not(.spacer){order:4;font-size:.8rem;color:var(--head-muted);
+    margin-top:6px}
   header.top button{padding:7px 12px;font-size:.8rem}
   .ctx .inner{padding:7px 16px}
 
@@ -575,5 +592,5 @@ body:has(.gate) .gate{flex:1;min-height:0}
 
   /* 帯の中の並び。コンソールには「パスワード変更」が入る ── 身元と
      同じ行に置く（出口だけを 1 行目の右に残す）。 */
-  header.top .inner > a:not(.brand){order:5;font-size:.8rem}
+  header.top .inner > a:not(.brand){order:5;font-size:.8rem;margin-top:6px}
 }

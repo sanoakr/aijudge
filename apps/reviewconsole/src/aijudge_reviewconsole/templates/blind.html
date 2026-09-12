@@ -55,7 +55,10 @@
     <form method="post" action="{{ root_prefix() }}/review/{{ submission.id }}/blind">
       {% for criterion in criteria %}
       <fieldset>
-        <legend>{{ criterion.title }}</legend>
+        {# 基準はこの場に出す（`reveal.html` と同じ理由）。 #}
+        <legend>{{ criterion.title }}
+          <span class="desc">（配点の {{ '%.0f' | format(criterion.weight * 100) }}%）</span>
+        </legend>
         <p class="desc">{{ criterion.description }}</p>
         <div class="levels">
           {# name は観点ごとに変える（reveal.html の注記を参照）。 #}
@@ -65,6 +68,7 @@
                    value="{{ level.level }}">
             <span class="lv">{{ level.level }}: {{ level.label }}</span>
             <span>{{ level.descriptor }}</span>
+            <span class="desc">{{ '%.0f' | format(level.score_ratio * 100) }}%</span>
           </label>
           {% endfor %}
         </div>
@@ -77,7 +81,14 @@
       </fieldset>
 
       <div class="deskbar">
-        <button type="submit">採点を確定して AI の判定を表示</button>
+        {# **済みなら押せなくする**（#272）。押しても 409 が返るだけで、
+           画面は「押したのに何も起きない」ようにしか見えない。
+           **誰が採点したかも出す** ── 「済み」だけでは、自分が済ませたのか
+           他の人かが分からない（#102 と同じ理由）。 #}
+        {% if marked_by %}
+        <span class="spacer">このブラインド採点は記録済みです（{{ marked_by }}）。</span>
+        {% endif %}
+        <button type="submit" {{ 'disabled' if marked_by }}>採点を確定して AI の判定を表示</button>
       </div>
     </form>
   </div>

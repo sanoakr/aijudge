@@ -665,6 +665,50 @@ def test_finalizing_twice_is_refused(world: World) -> None:
     again = world.client.post(f"/review/{accepted.submission.id}/finalize", data=data)
     assert again.status_code == 409
 
+    # **断り方も見る**（#272）。以前は例外の文面をそのまま返しており、
+    # `GradingRun grn_… is already finalised by usr_…` が画面に出ていた ──
+    # 内部 ID も利用者 ID も教員には意味が無く、**誰が確定したのかが
+    # 分からなかった**（#102 で login を出すと決めたのに、ここだけ ID）。
+    # **押せない形にしてある**（#272）。断るより、断る操作を見せない方がよい。
+    page = world.client.get(f"/review/{accepted.submission.id}/reveal").text
+    assert "成績を確定</button>" in page
+    button = page[page.rindex("<button", 0, page.index("成績を確定</button>")) :]
+    assert "disabled" in button[: button.index(">")], "確定済みなのに押せる"
+    # **誰が確定したかを出す**（#102・#272）。日時だけでは、自分が確定したのか
+    # 他の教員かが分からない。
+    assert "instructor" in page[page.index("すでに確定しています") - 200 :][:400], (
+        "確定した人が画面に出ていない"
+    )
+
+    detail = again.json()["detail"]
+    assert "既に確定しています" in detail
+    assert "instructor" in detail, "誰が確認したかが出ていない"
+    assert "再採点" in detail, "次にできることが書かれていない"
+    assert "GradingRun" not in detail and "grn_" not in detail, "内部 ID が出ている"
+    assert "usr_" not in detail, "利用者 ID が出ている"
+
+
+def test_finalizing_stays_on_the_page(world: World) -> None:
+    """**確定したら、その場に結果が出る**（#272）。
+
+    以前はコースのメニューへ飛んでいたので、押した結果が画面から消え、
+    確定できたのかどうかは戻って開き直すまで分からなかった。同じ画面へ
+    戻せば、確定済みとして描き直され、ボタンは押せなくなる。
+    """
+    _, accepted = _instructor_and_submission(world)
+    world.worker.run_until_empty()
+    with world.database.unit_of_work() as uow:
+        run = uow.runs.latest_for(accepted.submission.id)
+    machine = {score.criterion_id: score.level for score in run.criterion_scores}
+
+    response = world.client.post(
+        f"/review/{accepted.submission.id}/finalize",
+        data=_agree_form(world, machine),
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert response.headers["location"].endswith(f"/review/{accepted.submission.id}/reveal")
+
 
 @needs_c_compiler
 def test_the_grading_run_is_never_rewritten(world: World) -> None:

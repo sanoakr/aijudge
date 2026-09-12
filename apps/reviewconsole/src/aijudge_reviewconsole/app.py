@@ -66,6 +66,7 @@ from aijudge_core import (
     TaskVersion,
     blocks_finalization,
     content_type_for,
+    effective_aggregation,
     new_id,
     offered_years,
 )
@@ -955,7 +956,15 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 "task_choices": choices,
                 "roles": [role.value for role in Role],
                 "states": STATE_LABELS,
-                "chart": distribution_for(scored, filters),
+                # **デモコースでは試行も数える**（#273）。そこには守るべき
+                # 到達度が無く、分布もまた試す対象である。ただし役割で絞って
+                # いるあいだは従来どおり ── 細い行は `submitted_as` を持たず、
+                # 役割で絞れないので、数えると図と一覧の範囲がずれる。
+                "chart": distribution_for(
+                    scored,
+                    filters,
+                    count_trials=_is_demo_course(course.id) and not filters.role,
+                ),
                 # **切れたことを画面が言う**（#233）。分布も同じ行から
                 # 作るので、母数が全部でないことは図の側にも要る。
                 "truncated": listing.truncated,
@@ -1050,6 +1059,11 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
             "blind.html",
             {
                 "me": me,
+                # **既に採点済みなら押せなくする**（#272）。押しても 409 が
+                # 返るだけで、画面は「押したのに何も起きない」ようにしか
+                # 見えない。誰が採点したかも出す ── 「済み」だけでは、
+                # 自分が済ませたのか他の人かが分からない。
+                "marked_by": _actor_login_of(console, context.mark),
                 "submission": context.submission,
                 "task": context.task_version,
                 "lines": _numbered(console.source_of(context.submission)),
@@ -1093,7 +1107,11 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 )
             except ImmutabilityViolation as exc:
                 # 二度目を受け付けると、AI を見たあとの段階で上書きできる。
-                raise HTTPException(status_code=409, detail=str(exc)) from exc
+                # **文面は画面の側で書く**（#272）── 例外の文面は開発者向け。
+                raise HTTPException(
+                    status_code=409,
+                    detail="この提出のブラインド採点は既に記録されています（やり直せません）。",
+                ) from exc
             uow.commit()
 
         fresh = _load(console, me, SubmissionId(submission_id), request)
@@ -1190,6 +1208,15 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
             "reveal.html",
             {
                 "me": me,
+                # **誰が確定したかを出す**（#102・#272）。日時だけでは、自分が
+                # 確定したのか他の教員かが分からない。
+                "finalized_by_login": _actor_login_of(console, context.review),
+                # **観点どうしの畳み方をこの場に出す**（ADR 0013 の隣の判断）。
+                # 重みだけでは判断できない ── AND では 1 つでも 0% になった
+                # 時点で以降が 0% になるので、段階を下げる意味がまるで違う。
+                "aggregation": effective_aggregation(
+                    context.task_version.aggregation, context.course.rubric_aggregation
+                ),
                 "submission": context.submission,
                 "course": context.course,
                 "task": context.task_version,
@@ -1360,7 +1387,11 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                     )
             except ImmutabilityViolation as exc:
                 # 二度確定できると成績が二つ存在する。やり直しは再採点から。
-                raise HTTPException(status_code=409, detail=str(exc)) from exc
+                # **文面は画面の側で書く**（#272）── 例外の文面は開発者向けで、
+                # 内部 ID と利用者 ID がそのまま出ていた。
+                raise HTTPException(
+                    status_code=409, detail=_already_finalised(console, SubmissionId(submission_id))
+                ) from exc
             uow.commit()
 
         fresh = _load(console, me, SubmissionId(submission_id), request)
@@ -1376,7 +1407,11 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
             mark=fresh.mark,
             review=fresh.review,
         )
-        return RedirectResponse(f"/courses/{context.course.id}", status_code=303)
+        # **同じ画面に戻す。** 確定したらコースのメニューへ飛んでいたので、
+        # 押した結果が画面から消え、確定できたのかどうかを確かめるには
+        # 戻って開き直すしかなかった。戻せば、確定済みとして描き直され、
+        # ボタンは押せなくなる（`reveal.html`）── 結果がその場に出る。
+        return RedirectResponse(f"/review/{submission_id}/reveal", status_code=303)
 
     return app
 
@@ -1697,6 +1732,50 @@ def level_field(code: str) -> str:
     画面を見るまで分からなかった）。
     """
     return f"{LEVEL_FIELD_PREFIX}{code}"
+
+
+def _actor_login_of(console, record) -> str:
+    """記録した人の login（#102・#272）。**ID では誰か分からない。**
+
+    一覧では既に login を出している（`finalized_by_login`）のに、確認と
+    ブラインドの画面では出していなかった。同じ事実を、片方は読める形で、
+    片方は読めない形で出していた。
+    """
+    if record is None:
+        return ""
+    actor = getattr(record, "grader_id", None)
+    if actor is None:
+        return ""
+    with console.database.unit_of_work() as uow:
+        user = uow.identity.get_user(actor)
+    return getattr(user, "login", "") or ""
+
+
+def _already_finalised(console, submission_id: SubmissionId) -> str:
+    """既に確定している提出への文面（#272）。
+
+    **例外の文面をそのまま出さない。** `ImmutabilityViolation` は開発者に
+    向けて書かれたもので、`GradingRun grn_… is already finalised by usr_…`
+    が画面に出ていた ── 内部 ID も利用者 ID も、教員には意味が無い。
+
+    **誰が確定したかは login で言う**（#102）。一覧では既にそうしている
+    （`finalized_by_login`）のに、ここだけ ID のままだった。同じ事実を
+    片方では読める形で、片方では読めない形で出していた。
+
+    引けなかったときは名前を省く ── 「不明な誰か」と書いても情報は増えない。
+    """
+    who = ""
+    with console.database.unit_of_work() as uow:
+        run = uow.runs.latest_for(submission_id)
+        review = None if run is None else uow.reviews.find_review_for_run(run.id)
+        if review is not None:
+            user = uow.identity.get_user(review.grader_id)
+            who = getattr(user, "login", "") or ""
+    by = f"（{who} が確認済み）" if who else ""
+    return (
+        f"この提出は既に確定しています{by}。"
+        "確定は取り消せません ── 直すなら再採点からやり直してください。"
+    )
 
 
 def _parse_levels(

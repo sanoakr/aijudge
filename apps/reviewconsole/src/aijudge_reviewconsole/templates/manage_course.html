@@ -75,12 +75,21 @@
      PDF と画像は読めず、採点の前に変換の段が要る。並べて出すと「1 つ増やす
      だけ」のつもりで前提が変わる。
 
-     2 行しかないので、ボタンは右に並べて 1 かたまりにする。 #}
+     **群は 3 つある**（コード・テキスト / PDF・画像 / 動画）。以前ここには
+     「2 行しかないので」と書いてあったが、動画の群が後から増えている。
+     狭い画面では群名を上に出して、どの群も同じ形にする（`console.css`）。 #}
   <div class="formats">
     <div class="rows">
       {% for group, suffixes in suffix_groups %}
       <div class="checkrow">
-        <span class="desc rowlabel">{{ group }}</span>
+        {# **群ごとの一括切り替え**。`name` を持たないので送信には出ない ──
+           個々の選択だけが値である。
+
+           `js-only` で出す ── これは JavaScript でしか作れない補助で、
+           無ければ 1 つずつ押せばよい。死んだチェック欄を出す方が悪い。 #}
+        <label class="desc rowlabel grouptoggle js-only" hidden>
+          <input type="checkbox" class="groupall"> {{ group }}</label>
+        <span class="desc rowlabel nojs">{{ group }}</span>
         <span class="checks">
           {% for shown, values in suffixes %}
           <label><input type="checkbox" name="suffix" value="{{ values | join(',') }}"
