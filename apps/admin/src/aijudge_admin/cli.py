@@ -35,6 +35,7 @@ from aijudge_persistence import ENV_DATABASE_URL, Database
 from aijudge_telemetry import configure_logging
 
 from . import authoring_cli
+from .course_definition import apply_course_definition
 from .courses import delete_course
 from .demo_reset import reset_demo_course
 from .demo_seed import seed_demo_course
@@ -116,6 +117,31 @@ def cmd_course_create(args: argparse.Namespace) -> int:
         database.dispose()
     print(f"{'作成' if created else '更新'}: {course.id}")
     print(f"  {course.code} / {course.title} / {course.term} / {course.subject_profile}")
+    return 0
+
+
+def cmd_course_apply(args: argparse.Namespace) -> int:
+    """コースを定義（YAML）から作る。**何度走らせても増えない。**"""
+    database = _database(args)
+    try:
+        result = apply_course_definition(
+            database,
+            Path(args.file),
+            tenant_id=_tenant(args),
+            profiles_dir=args.profiles,
+            authored_by=_IMPORTER,
+        )
+    except AdminError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    finally:
+        database.dispose()
+    print(f"{'作成' if result.created else '更新'}: {result.course.id}")
+    print(
+        f"  {result.course.code} / {result.course.title} / {result.course.term}"
+        f" / {result.course.subject_profile}"
+    )
+    print(f"  課題 {result.tasks} 件")
     return 0
 
 
@@ -714,6 +740,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     create.add_argument("--profile", required=True, help="科目プロファイル名")
     create.set_defaults(func=cmd_course_create)
+    apply_ = course.add_parser("apply", help="定義（YAML）から作る（冪等。課題と日程も入る）")
+    apply_.add_argument("--file", required=True, help="コースの定義ファイル（course.yaml）")
+    apply_.set_defaults(func=cmd_course_apply)
     course.add_parser("list", help="一覧").set_defaults(func=cmd_course_list)
     # 削除は**課題があっても消えるが、学習者の提出があれば消えない**
     # （`aijudge_admin.courses`）。画面にも同じ操作がある（#156）。
