@@ -44,9 +44,26 @@ uv run --only-group docs mkdocs serve    # preview at :8000
 ```
 
 The screenshots in `docs/guide/images/` come from a **local run with sample
-accounts** (`aijudge-admin staff` / `demo seed` on a throwaway SQLite database) —
-never from an operational database, which holds student work. Retake them the
-same way when a screen changes.
+accounts** on a throwaway SQLite database — never from an operational database,
+which holds student work. `tools/guide_shots/guide_shots.py` does the whole
+thing: seeds the database, starts the web app, console and both workers, plays
+the scenario the guide describes (submissions, a blind mark, a review request
+and its answer) and writes the PNGs. Retake them when a screen changes, or
+after a release (the footer shows the version):
+
+```fish
+uv sync --extra dev --group guide-shots
+uv run --group guide-shots playwright install chromium   # once
+set -x AIJUDGE_SANDBOX docker; set -x AIJUDGE_SANDBOX_WORKDIR ~/.aijudge/work
+uv run --group guide-shots python tools/guide_shots/guide_shots.py all
+```
+
+Grading needs the docker sandbox and a model (`AIJUDGE_LLM_BASE_URL`, default
+local ollama), so a run takes a few minutes. The login screen alone is taken
+from the operational site (`--login-url`): a throwaway environment has no OIDC
+and would show the "login is not configured" page. The crop marks are the h2
+texts of the templates — change a heading and the script stops with an error
+rather than leaving a stale image behind.
 
 ## Module boundaries are enforced, not suggested
 
