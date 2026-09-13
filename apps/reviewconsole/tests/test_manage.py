@@ -4106,7 +4106,8 @@ def test_the_console_does_not_offer_admin_to_a_teacher(world: World) -> None:
     world.register("teacher", Role.INSTRUCTOR)
     page = world.client("teacher").get(f"/manage/courses/{world.course.id}/enrolments").text
 
-    options = {line for line in page.splitlines() if "<option" in line}
+    # 絞り込みの選択肢（すべて／…）は配る役割ではないので外して見る。
+    options = {line for line in page.splitlines() if "<option" in line and "すべて" not in line}
     assert not [line for line in options if 'value="admin"' in line], "admin が選択肢にある"
     for role in ("learner", "assistant", "instructor"):
         assert [line for line in options if f'value="{role}"' in line], f"{role} が選べない"
