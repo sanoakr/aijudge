@@ -61,6 +61,16 @@ def course(database: Database):
     return obj
 
 
+def _allow(database: Database, course, *keys: str) -> None:
+    """コースが使う知識要素に入れる。**未指定なら何も使わない**（#289）ので、
+    課題に付ける前に範囲へ入れておく。"""
+    with database.unit_of_work() as uow:
+        stored = uow.identity.get_course(course.id)
+        merged = tuple(sorted(set(stored.knowledge_components) | set(keys)))
+        uow.identity.save_course(stored.model_copy(update={"knowledge_components": merged}))
+        uow.commit()
+
+
 def _skeleton(database: Database):
     """骨格の分野と単位を置く。**教員はここを作れない**ので `seeding` で入れる。"""
     area = register_kc(database, key="cs.loops", label="ループ", namespaces=SPACES, seeding=True)
@@ -229,6 +239,7 @@ def test_a_task_cannot_name_an_unregistered_component(database: Database, course
 def test_a_task_with_registered_components_is_saved(database: Database, course) -> None:
     _skeleton(database)
     register_kc(database, key="cs.loops.control.termination", label="停止条件", namespaces=SPACES)
+    _allow(database, course, "cs.loops.control.termination")
     spec = TaskSpec(
         key="ex01/p1",
         statement="## 課題 ##\n\n本文",
@@ -253,6 +264,7 @@ def test_usage_counts_tasks_and_courses(database: Database, course) -> None:
     """自分のコースで使っていなくても、他のコースが使っていれば影響がある。"""
     _skeleton(database)
     register_kc(database, key="cs.loops.control.termination", label="停止条件", namespaces=SPACES)
+    _allow(database, course, "cs.loops.control.termination")
     save_task(
         database,
         course_id=course.id,
@@ -294,6 +306,7 @@ def test_a_used_component_is_never_deleted(database: Database, course) -> None:
     """
     _skeleton(database)
     register_kc(database, key="cs.loops.control.termination", label="停止条件", namespaces=SPACES)
+    _allow(database, course, "cs.loops.control.termination")
     save_task(
         database,
         course_id=course.id,
@@ -366,6 +379,7 @@ def test_editing_a_used_component_is_allowed(database: Database, course) -> None
     """使われていても直せる。取り上げる操作ではないので。"""
     _skeleton(database)
     register_kc(database, key="cs.loops.control.termination", label="停止", namespaces=SPACES)
+    _allow(database, course, "cs.loops.control.termination")
     save_task(
         database,
         course_id=course.id,
@@ -401,12 +415,14 @@ def test_editing_something_that_is_not_there_says_so(database: Database) -> None
 # --------------------------------------------------------------------------
 
 
-def test_without_a_declaration_every_registered_component_is_allowed(
-    database: Database, course
-) -> None:
-    """**空は「名前空間の全部」。** 宣言していないコースの取り込みを壊さない。"""
+def test_an_empty_selection_allows_nothing(database: Database, course) -> None:
+    """**空は「何も選んでいない」**（#289）。以前は「名前空間の全部」と読んで
+    いたので、作ったばかりのコースに 987 件が登録されているように見えた。
+    コースを介さない呼び出し（`None`）だけが範囲を見ない。"""
     _skeleton(database)
-    assert_registered(database, ("cs.loops",), course_keys=())
+    with pytest.raises(AdminError, match="このコースが使う知識要素"):
+        assert_registered(database, ("cs.loops",), course_keys=())
+    assert_registered(database, ("cs.loops",), course_keys=None)
 
 
 def test_a_component_outside_the_course_selection_is_refused(database: Database) -> None:

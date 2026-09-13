@@ -2517,7 +2517,7 @@ def test_the_kc_page_shows_the_namespaces_of_the_course(world: World) -> None:
     assert "知識要素" in body
     assert "cs" in body
     assert "コースには属しません" in body
-    assert "そのコースで選ぶまで一覧には出ません" in body
+    assert "ここで足したものだけ" in body
 
 
 def _seed(world: World) -> None:
@@ -2658,11 +2658,11 @@ def test_the_key_is_not_editable_from_the_page(world: World) -> None:
     assert 'name="label"' in form
     assert 'name="description"' in form
     assert '<input type="hidden" name="key" value="cs.loops.control.basic">' in form
-    assert 'キー（<span class="mono">cs.loops</span>）は変わりません' in form
+    assert 'キー（<span class="mono">cs.loops.control.basic</span>）は変わりません' in form
 
 
-def test_the_course_can_narrow_which_components_it_uses(world: World) -> None:
-    """**共有の語彙からの削除ではない。** 外しても知識要素は残る。"""
+def test_a_component_is_removed_from_the_course_with_the_remove_form(world: World) -> None:
+    """**共有の語彙からの削除ではない。** 外しても知識要素は残る（#289）。"""
     _seed(world)
     world.register("boss", Role.ADMIN)
     client = world.client("boss")
@@ -2670,8 +2670,8 @@ def test_the_course_can_narrow_which_components_it_uses(world: World) -> None:
         client.post(f"/manage/courses/{world.course.id}/kc", data={"key": key, "label": label})
 
     response = client.post(
-        f"/manage/courses/{world.course.id}/kc/scope",
-        data={"kc": ["cs.loops.control.basic"]},
+        f"/manage/courses/{world.course.id}/kc/scope/remove",
+        data={"kc": ["cs.loops.control.python"]},
         follow_redirects=False,
     )
     assert response.status_code == 303
@@ -2680,10 +2680,11 @@ def test_the_course_can_narrow_which_components_it_uses(world: World) -> None:
             "cs.loops.control.basic",
         )
     # **このコースの一覧からは消える。** 使わないと決めたものが並び続けると、
-    # 決めたこと自体が画面から読めない（#37）。
+    # 決めたこと自体が画面から読めない（#37）。名前空間の一覧には残る。
     page = client.get(f"/manage/courses/{world.course.id}/kc").text
-    assert "cs.loops.control.basic" in page
-    assert "cs.loops.control.python" not in page
+    assert "1 件をこのコースから外しました" in page
+    assert page.index("cs.loops.control.basic") < page.index('id="vocabulary"')
+    assert "cs.loops.control.python" in page.split('id="vocabulary"')[1]
 
     # **語彙からは消えていない。** 他のコースの Q-matrix は壊れない。
     from aijudge_core import kc_id_for
@@ -2693,44 +2694,72 @@ def test_the_course_can_narrow_which_components_it_uses(world: World) -> None:
 
 
 def test_a_component_left_out_can_be_brought_back(world: World) -> None:
-    """隠すなら戻す道が要る。**「このコースに追加する」は登録と範囲の両方。**
-
-    追加フォームは既にある知識要素をそのまま返す（何度押しても増えない）が、
-    コースの範囲に入れなければ、絞っているコースでは一覧に出てこない。
-    """
+    """隠すなら戻す道が要る ── 名前空間の一覧から足す（個別）か、追加フォーム。"""
     _seed(world)
     world.register("boss", Role.ADMIN)
     client = world.client("boss")
     for key, label in (("cs.loops.control.basic", "ループ"), ("cs.loops.control.python", "Python")):
         client.post(f"/manage/courses/{world.course.id}/kc", data={"key": key, "label": label})
     client.post(
-        f"/manage/courses/{world.course.id}/kc/scope", data={"kc": ["cs.loops.control.basic"]}
-    )
-    assert "cs.loops.control.python" not in client.get(f"/manage/courses/{world.course.id}/kc").text
-
-    client.post(
-        f"/manage/courses/{world.course.id}/kc",
-        data={"key": "cs.loops.control.python", "label": "Python"},
+        f"/manage/courses/{world.course.id}/kc/scope/remove",
+        data={"kc": ["cs.loops.control.python"]},
     )
 
-    assert "cs.loops.control.python" in client.get(f"/manage/courses/{world.course.id}/kc").text
+    response = client.post(
+        f"/manage/courses/{world.course.id}/kc/scope/add",
+        data={"kc": ["cs.loops.control.python"]},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert "1 件をこのコースに足しました" in client.get(response.headers["location"]).text
     with world.database.unit_of_work() as uow:
         course = uow.identity.get_course(world.course.id)
     assert course.knowledge_components == ("cs.loops.control.basic", "cs.loops.control.python")
 
 
-def test_a_course_that_has_not_narrowed_still_sees_everything(world: World) -> None:
-    """**「絞っていない」は「何も選んでいない」ではない。** 宣言するまで変えない。"""
+def test_a_new_course_uses_nothing_until_the_instructor_adds_something(world: World) -> None:
+    """**未指定なら何も登録しない**（#289）。以前は空を「名前空間の全部」と
+    読んでいたので、作ったばかりのコースに 987 件が並んだ。"""
     _seed(world)
     world.register("boss", Role.ADMIN)
     client = world.client("boss")
-    for key, label in (("cs.loops.control.basic", "ループ"), ("cs.loops.control.python", "Python")):
-        client.post(f"/manage/courses/{world.course.id}/kc", data={"key": key, "label": label})
+    from aijudge_admin import register_kc
+
+    register_kc(world.database, key="cs.loops.control.basic", label="ループ", namespaces=("cs",))
 
     page = client.get(f"/manage/courses/{world.course.id}/kc").text
-    assert "cs.loops.control.basic" in page and "cs.loops.control.python" in page
+    assert "（0 件）" in page
+    assert "まだ何も足していません" in page
+    # 名前空間の一覧には出るが、コースの範囲には無い。
+    assert "cs.loops.control.basic" in page.split('id="vocabulary"')[1]
     with world.database.unit_of_work() as uow:
-        # 追加しただけでは絞った状態にしない。
+        assert uow.identity.get_course(world.course.id).knowledge_components == ()
+
+
+def test_a_whole_branch_can_be_added_and_removed_at_once(world: World) -> None:
+    """階層ごと（`cs.loops` 以下）にまとめて足す・外す（#289）。"""
+    _seed(world)
+    world.register("boss", Role.ADMIN)
+    client = world.client("boss")
+    from aijudge_admin import register_kc
+
+    for key in ("cs.io", "cs.io.formatted"):
+        register_kc(world.database, key=key, label=key, namespaces=("cs",), seeding=True)
+    for key in ("cs.loops.control.basic", "cs.loops.control.python", "cs.io.formatted.printf"):
+        register_kc(world.database, key=key, label=key, namespaces=("cs",))
+
+    client.post(f"/manage/courses/{world.course.id}/kc/scope/add", data={"prefix": "cs.loops"})
+    with world.database.unit_of_work() as uow:
+        assert uow.identity.get_course(world.course.id).knowledge_components == (
+            "cs.loops.control.basic",
+            "cs.loops.control.python",
+        )
+    # `cs.loop` では `cs.loops` を巻き込まない（区切りまで一致）。
+    client.post(f"/manage/courses/{world.course.id}/kc/scope/remove", data={"prefix": "cs.loop"})
+    with world.database.unit_of_work() as uow:
+        assert len(uow.identity.get_course(world.course.id).knowledge_components) == 2
+    client.post(f"/manage/courses/{world.course.id}/kc/scope/remove", data={"prefix": "cs.loops"})
+    with world.database.unit_of_work() as uow:
         assert uow.identity.get_course(world.course.id).knowledge_components == ()
 
 
@@ -2749,22 +2778,23 @@ def test_the_drafting_form_offers_only_the_selected_components(world: World) -> 
 
     unit = _unit_of(world)
     body = client.get(f"/manage/courses/{world.course.id}/units/{unit}").text
-    assert "cs.loops.control.python" in body  # 絞る前は両方出る
+    assert "cs.loops.control.python" in body  # 足したものは両方出る
 
     client.post(
-        f"/manage/courses/{world.course.id}/kc/scope", data={"kc": ["cs.loops.control.basic"]}
+        f"/manage/courses/{world.course.id}/kc/scope/remove",
+        data={"kc": ["cs.loops.control.python"]},
     )
     body = client.get(f"/manage/courses/{world.course.id}/units/{unit}").text
     assert "cs.loops.control.basic" in body
     assert "cs.loops.control.python" not in body
 
 
-def test_a_component_the_course_still_uses_stays_visible_when_unselected(
+def test_a_component_the_course_still_uses_cannot_be_removed(
     world: World,
 ) -> None:
-    """**外しても、このコースの課題が使っていれば一覧に残す。**
+    """**このコースの課題が使っているものは外せない**（#289）。
 
-    消すと、その課題が何を問うているのかを画面から辿れなくなる。
+    外すと、その課題が問う知識要素が Q-matrix と食い違う。理由を添えて残す。
     """
     _seed(world)
     from aijudge_admin import save_task
@@ -2788,38 +2818,22 @@ def test_a_component_the_course_still_uses_stays_visible_when_unselected(
         authored_by=world.register("t2", Role.INSTRUCTOR).user_id,
     )
 
-    # 選択から外す。
-    client.post(f"/manage/courses/{world.course.id}/kc/scope", data={"kc": []})
-    client.post(
-        f"/manage/courses/{world.course.id}/kc/scope", data={"kc": ["cs.loops.control.nothing"]}
+    # 外そうとしても、課題が使っているので残る。
+    response = client.post(
+        f"/manage/courses/{world.course.id}/kc/scope/remove",
+        data={"kc": ["cs.loops.control.basic"]},
+        follow_redirects=False,
     )
-    page = client.get(f"/manage/courses/{world.course.id}/kc").text
+    page = client.get(response.headers["location"]).text
+    assert "0 件をこのコースから外しました" in page
+    assert "1 件は<strong>このコースの課題が使っているので外していません" in page
     assert "cs.loops.control.basic" in page
     # このコースの課題が使っていることが分かる。
-    assert "課題 1" in page
-
-
-def test_an_unscoped_course_says_it_is_not_narrowed(world: World) -> None:
-    """**全部を選んだ状態と、絞らないままは別物。**
-
-    あとから名前空間に足された知識要素の扱いが変わる。
-    """
-    _seed(world)
-    world.register("boss", Role.ADMIN)
-    client = world.client("boss")
-    client.post(
-        f"/manage/courses/{world.course.id}/kc",
-        data={"key": "cs.loops.control.basic", "label": "ループ"},
-    )
-
-    page = client.get(f"/manage/courses/{world.course.id}/kc").text
-    assert "まだ絞っていません" in page
-
-    client.post(
-        f"/manage/courses/{world.course.id}/kc/scope", data={"kc": ["cs.loops.control.basic"]}
-    )
-    page = client.get(f"/manage/courses/{world.course.id}/kc").text
-    assert "使う知識要素を絞っています" in page
+    assert "課題 1 件が使用中" in page
+    with world.database.unit_of_work() as uow:
+        assert uow.identity.get_course(world.course.id).knowledge_components == (
+            "cs.loops.control.basic",
+        )
 
 
 def test_only_an_admin_can_delete_a_component(world: World) -> None:
@@ -3542,9 +3556,10 @@ def test_a_component_this_course_does_not_use_is_offered_as_existing(
     )
     for key, label in (("cs.loops.control.arrays", "配列"), ("cs.loops.control.basic", "ループ")):
         client.post(f"/manage/courses/{world.course.id}/kc", data={"key": key, "label": label})
-    # このコースは cs.loops だけを使う ── cs.loops.control.arrays は体系にあるが範囲外。
+    # このコースは basic だけを使う ── cs.loops.control.arrays は体系にあるが範囲外。
     client.post(
-        f"/manage/courses/{world.course.id}/kc/scope", data={"kc": ["cs.loops.control.basic"]}
+        f"/manage/courses/{world.course.id}/kc/scope/remove",
+        data={"kc": ["cs.loops.control.arrays"]},
     )
 
     monkeypatch.setattr(

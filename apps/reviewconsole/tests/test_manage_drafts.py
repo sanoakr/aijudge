@@ -71,6 +71,8 @@ class World:
                         title=f"演習 {code}",
                         term="2026-前期",
                         subject_profile="cs_lang_c_intro",
+                        # 作問の候補はコースに足したものだけ（#289）。
+                        knowledge_components=("cs.loops.termination",),
                     )
                 )
             # **知識要素そのものを登録する。** 画面は Q-matrix から引いて

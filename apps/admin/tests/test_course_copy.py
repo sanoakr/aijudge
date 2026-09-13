@@ -240,6 +240,12 @@ def test_the_knowledge_components_survive_the_copy(world) -> None:
     for key, label in (("cs.loops", "繰り返し"), ("cs.loops.control", "制御")):
         register_kc(database, key=key, label=label, namespaces=("cs",), seeding=True)
     register_kc(database, key="cs.loops.control.termination", label="停止条件", namespaces=("cs",))
+    with database.unit_of_work() as uow:
+        stored = uow.identity.get_course(course.id)
+        uow.identity.save_course(
+            stored.model_copy(update={"knowledge_components": ("cs.loops.control.termination",)})
+        )
+        uow.commit()
     save_task(
         database,
         course_id=course.id,

@@ -19,20 +19,10 @@
 <div class="note">
   <strong>知識要素は名前空間（{{ namespaces | join(', ') or 'なし' }}）ごとに共有され、
   コースには属しません。</strong>
-  ここで足したものは、同じ名前空間を使う他のコースからも<strong>取り込めます</strong>
-  ── ただし、そのコースが使う知識要素を絞っていれば、そのコースで選ぶまで一覧には出ません。
-  <br>
-  {% if scoped %}
-    <strong>このコースは使う知識要素を絞っています。</strong>
-    チェックを外したものは作問の候補に出ず、<strong>この一覧からも消えます</strong>
-    （このコースの課題が使っているものは残ります）。戻すには下の
-    「知識要素を追加する」に同じキーを入れてください。
-  {% else %}
-    <strong>このコースはまだ絞っていません</strong>
-    — いまは名前空間の全部が作問の候補に出ます。チェックして保存すると、選んだものだけになります。
-    全部にチェックを入れて保存するのと絞らないままにするのは<strong>別の状態</strong>で、
-    あとから名前空間に足された知識要素は、絞っていなければ自動で入り、絞っていれば入りません。
-  {% endif %}
+  このコースが作問で使えるのは、<strong>ここで足したものだけ</strong>です
+  （いま {{ chosen_count }} 件）。何も足していなければ、作問フォームに候補は出ません。
+  足すのは下の「名前空間から足す」（個別・階層ごと）か、コースの基本情報からの候補、
+  新しいキーの追加のいずれかです。外しても語彙からは消えず、他のコースには影響しません。
   <br><span class="desc">名前空間そのものを増やすには科目プロファイルの変更が要ります
   （ブラウザからは増やせません）。</span>
 </div>
@@ -44,15 +34,28 @@
 </div>
 {% endif %}
 
-{# **このコースが使う範囲を宣言する。** 同じ名前空間を複数のコースが共有する
-   ので、絞らないと関係のない候補が作問フォームに並ぶ。外しても語彙からは
-   消えない（他のコースの Q-matrix は壊れない）。**説明は冒頭の注意書きに
-   まとめてある** ── 同じ話を 2 か所に書くと、片方だけが古くなる。 #}
-<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/kc/scope">
+{% if scope_result %}
+<div class="note {{ 'warn' if scope_result.kept else 'saved' }}">
+  {% if scope_result.action == 'added' %}
+    <strong>{{ scope_result.changed }} 件をこのコースに足しました。</strong>
+  {% else %}
+    <strong>{{ scope_result.changed }} 件をこのコースから外しました。</strong>
+    {% if scope_result.kept %}
+      {{ scope_result.kept }} 件は<strong>このコースの課題が使っているので外していません</strong>
+      （課題が問う知識要素を外すと Q-matrix が課題の中身と食い違います）。
+    {% endif %}
+  {% endif %}
+</div>
+{% elif saved_key == 'kc_scoped' %}<div class="note saved">{{ saved }}</div>{% endif %}
+
+<h2 id="scope">このコースが使う知識要素（{{ chosen_count }} 件）</h2>
+{# **外すのは明示の操作**。チェックして「選択したものを外す」。このコースの
+   課題が使っているものにはチェックが無く、理由（課題の件数）が出る。 #}
+<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/kc/scope/remove">
 {# 携帯では行を積む（`table.stack`）。キーは塊の先頭に立つので見出し無し。 #}
 <table class="stack">
   <thead><tr>
-    <th class="fit">使う</th>
+    <th class="fit">外す</th>
     <th class="grow">キー</th><th class="fit">名前</th>
     <th class="fit">課題</th><th class="fit">コース</th><th class="fit">追加</th>
     {% if is_admin %}<th class="fit"></th>{% endif %}
@@ -60,12 +63,15 @@
   <tbody>
   {% for row in rows %}
     <tr>
-      <td class="fit" data-label="使う">
-        <input type="checkbox" name="kc" value="{{ row.kc.key }}"
-               {{ 'checked' if row.in_course }}>
-        {# **外しても、このコースの課題が使っていれば残す。** 消すと、その
-           課題が何を問うているのかを画面から辿れなくなる。 #}
-        {% if row.used_here %}<br><span class="desc">課題 {{ row.used_here }}</span>{% endif %}
+      <td class="fit" data-label="外す">
+        {% if row.removable %}
+        <input type="checkbox" name="kc" value="{{ row.kc.key }}">
+        {% elif row.used_here %}
+        {# **このコースの課題が使っているものは外せない。** 外すと、その課題が
+           何を問うているのかが Q-matrix と食い違う。 #}
+        <span class="desc">課題 {{ row.used_here }} 件が使用中</span>
+        {% if not row.in_course %}<br><span class="desc">（範囲外）</span>{% endif %}
+        {% endif %}
       </td>
       <td class="grow mono">{{ row.kc.key }}
         {% if row.kc.deprecated %}<span class="pill no">引退</span>{% endif %}
@@ -146,17 +152,64 @@
       {% endif %}
     </tr>
   {% else %}
-    <tr><td colspan="{{ 7 if is_admin else 6 }}" class="desc">まだ知識要素がありません。</td></tr>
+    <tr><td colspan="{{ 7 if is_admin else 6 }}" class="desc">まだ何も足していません。下の「名前空間から足す」か、候補から足してください。</td></tr>
   {% endfor %}
   </tbody>
 </table>
 {% if rows %}
 <div class="actions">
-  {% if saved_key == 'kc_scoped' %}<span class="flash">{{ saved }}</span>{% endif %}
-  <button type="submit">このコースが使う知識要素を保存</button>
+  <button type="submit" class="minor">選択したものをこのコースから外す</button>
 </div>
 {% endif %}
 </form>
+
+<h2 id="vocabulary">名前空間から足す</h2>
+{# **階層ごとに畳む。** 987 件を平らに並べても選べない。分野（`cs.loops`）ごとに
+   開き、まとめて足す・外すか、個別にチェックして足す。 #}
+<p class="desc">
+  分野ごとに開いて、まとめて足す・外すか、個別にチェックして足します。
+  数字は「このコースに入っている件数／その分野の件数」です。
+</p>
+{% for group in groups %}
+<details class="criterion kc-group">
+  <summary>
+    <b class="mono">{{ group.prefix }}</b>
+    {% if group.label %}<span>{{ group.label }}</span>{% endif %}
+    <span class="desc">{{ group.in_course }} / {{ group.total }}</span>
+    <span class="open-hint">
+      {% if group.in_course < group.total %}
+      <form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/kc/scope/add" style="display:inline">
+        <input type="hidden" name="prefix" value="{{ group.prefix }}">
+        <button type="submit" class="minor">この階層をすべて足す</button>
+      </form>
+      {% endif %}
+      {% if group.in_course %}
+      <form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/kc/scope/remove" style="display:inline">
+        <input type="hidden" name="prefix" value="{{ group.prefix }}">
+        <button type="submit" class="minor">この階層をすべて外す</button>
+      </form>
+      {% endif %}
+    </span>
+  </summary>
+  <form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/kc/scope/add" class="criterion-fields">
+    <table class="stack">
+      <tbody>
+      {% for kc in group.kcs %}
+        <tr>
+          <td class="fit">
+            {% if kc.key in chosen_keys %}<span class="pill">このコースで使用中</span>
+            {% else %}<input type="checkbox" name="kc" value="{{ kc.key }}">{% endif %}
+          </td>
+          <td class="grow mono">{{ kc.key }}</td>
+          <td class="fit">{{ kc.label }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <div class="actions"><button type="submit" class="minor">選択したものをこのコースに足す</button></div>
+  </form>
+</details>
+{% endfor %}
 
 {# **材料はコースが既に持っている。** 基本情報でシラバスから読み取って保存した
    本文（`Course.description`）をそのまま使う。ここで貼り直させると、2 つの

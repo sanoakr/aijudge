@@ -15,6 +15,7 @@
       term: 2026-後期
       subject_profile: cs_network_python
       description: ...                      # 任意
+      knowledge_components: [cs.loops.control.basic, ...]   # 任意。課題が問うものは自動で入る
     units:                                  # 任意。回ごとの日程の既定
       ex1: {opens_at: 2026-09-18T13:00:00+09:00, due_at: 2026-09-25T23:59:00+09:00}
     tasks:
@@ -60,7 +61,7 @@ __all__ = ["AppliedCourse", "CourseDefinition", "apply_course_definition", "load
 
 # `course:` に書けるもののうち、`ensure_course` が受け取らない運用値。
 _COURSE_REQUIRED = ("code", "title", "term", "subject_profile")
-_COURSE_OPTIONAL = ("description", "upload_suffixes")
+_COURSE_OPTIONAL = ("description", "upload_suffixes", "knowledge_components")
 # 回ごとの既定として書ける日程。課題側に無ければここから埋める。
 _UNIT_SCHEDULE_KEYS = ("opens_at", "due_at")
 # 定義側だけの語彙。`TaskSpec` に渡す前に解決して消す。
@@ -212,6 +213,14 @@ def apply_course_definition(
         updates["description"] = spec["description"]
     if spec.get("upload_suffixes"):
         updates["upload_suffixes"] = tuple(spec["upload_suffixes"])
+    # **コースが使う知識要素は、定義が書いたものと課題が問うものの和**（#289）。
+    # 課題は範囲にある知識要素しか名指しできない（`kc.assert_registered`）ので、
+    # 定義に課題側の KC だけを書いても通るように、先に範囲へ入れる。既存の
+    # 範囲は残す ── 流し直しで教員が画面から足したものを消さない。
+    declared = {str(key) for key in spec.get("knowledge_components") or ()}
+    declared |= {key for task in definition.tasks for key in task.knowledge_components}
+    if declared - set(course.knowledge_components):
+        updates["knowledge_components"] = tuple(sorted(set(course.knowledge_components) | declared))
     if updates:
         with database.unit_of_work() as uow:
             stored = uow.identity.get_course(course.id)
