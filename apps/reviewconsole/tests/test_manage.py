@@ -1263,6 +1263,17 @@ def test_the_enrolment_list_can_be_filtered_by_role(world: World) -> None:
     assert "y239999" in page and "ta01" in page
 
 
+def test_anyone_on_the_console_can_download_the_course_template(world: World) -> None:
+    """教員が埋めて管理者に渡すひな形。管理者だけに出すと依頼する側が形式を知れない。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    assert "ひな形をダウンロード" in client.get("/").text
+    response = client.get("/manage/course-template.yaml")
+    assert response.status_code == 200
+    assert 'filename="course.yaml"' in response.headers["content-disposition"]
+    assert "subject_profile:" in response.text and "problem_dir:" in response.text
+
+
 def test_the_roster_form_names_accounts_not_student_numbers(
     world: World, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -3464,8 +3475,13 @@ def test_an_already_registered_candidate_cannot_be_adopted_again(monkeypatch, wo
     )
     body = client.post(f"/manage/courses/{world.course.id}/kc/candidates").text
     rows = body[body.index("候補（") :]
-    assert '<button type="submit" name="use" value="cs.loops.control.recursion">' in rows
-    assert '<button type="submit" name="use" value="cs.loops.control.arrays">' not in rows
+    assert (
+        '<button type="submit" name="use" value="cs.loops.control.recursion" class="minor">' in rows
+    )
+    assert (
+        '<button type="submit" name="use" value="cs.loops.control.arrays" class="minor">'
+        not in rows
+    )
     assert "このコースで使用中" in rows
     # 名前はキーで結ぶ。位置で対応づけると、選ばなかった候補の名前が付く。
     assert 'name="label:cs.loops.control.recursion"' in rows
@@ -3560,6 +3576,53 @@ def test_the_form_is_filled_with_the_candidate_that_was_chosen(world: World) -> 
     assert "まだ登録されていません" in body
 
 
+def test_candidates_can_be_adopted_in_bulk(monkeypatch, world: World) -> None:
+    """候補が 20 件あるとき 1 件ずつ往復させない。印を付けてまとめて足す ──
+    体系にあるものは範囲に入れるだけ、無いものは登録して範囲に入れる。"""
+    _seed(world)
+    world.register("boss", Role.ADMIN)
+    client = world.client("boss")
+    client.post(
+        f"/manage/courses/{world.course.id}/basics/apply",
+        data={"title": world.course.title, "description": "配列と再帰を扱える"},
+    )
+    # cs.loops.control.arrays は体系にあるが、このコースでは未使用。
+    from aijudge_admin import register_kc
+
+    register_kc(world.database, key="cs.loops.control.arrays", label="配列", namespaces=("cs",))
+    monkeypatch.setattr(
+        "aijudge_reviewconsole.manage.SyllabusReader",
+        _proposal("cs.loops.control.arrays", "cs.loops.control.recursion"),
+    )
+    body = client.post(f"/manage/courses/{world.course.id}/kc/candidates").text
+    rows = body[body.index("候補（") :]
+    assert 'name="adopt" value="cs.loops.control.arrays"' in rows
+    assert 'name="adopt" value="cs.loops.control.recursion"' in rows
+
+    response = client.post(
+        f"/manage/courses/{world.course.id}/kc/adopt",
+        data={
+            "adopt": ["cs.loops.control.arrays", "cs.loops.control.recursion"],
+            "label:cs.loops.control.recursion": "再帰",
+            "description:cs.loops.control.recursion": "再帰で書ける",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    page = client.get(response.headers["location"]).text
+    assert "候補から 2 件をこのコースに足しました" in page
+    assert "新しく登録 1 件・体系にあったもの 1 件" in page
+    with world.database.unit_of_work() as uow:
+        assert uow.identity.get_course(world.course.id).knowledge_components == (
+            "cs.loops.control.arrays",
+            "cs.loops.control.recursion",
+        )
+        from aijudge_core import kc_id_for
+
+        made = uow.skills.get_kc(kc_id_for("cs.loops.control.recursion"))
+        assert made is not None and made.label == "再帰"
+
+
 def test_a_component_this_course_does_not_use_is_offered_as_existing(
     monkeypatch, world: World
 ) -> None:
@@ -3591,7 +3654,7 @@ def test_a_component_this_course_does_not_use_is_offered_as_existing(
 
     assert "体系にあり" in rows
     # 範囲外でも取り込める（取り込めば範囲に入る）。
-    assert '<button type="submit" name="use" value="cs.loops.control.arrays">' in rows
+    assert '<button type="submit" name="use" value="cs.loops.control.arrays" class="minor">' in rows
 
 
 def test_taking_an_existing_component_shows_the_name_the_vocabulary_has(world: World) -> None:

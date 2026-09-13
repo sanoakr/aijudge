@@ -85,6 +85,7 @@ from aijudge_admin import (
     try_settings,
 )
 from aijudge_admin.bundles import MAX_ARCHIVE_BYTES
+from aijudge_admin.course_definition import course_template
 from aijudge_admin.drafting import TaskDrafter
 from aijudge_admin.roster import RosterEntry, RosterError, generate_password
 from aijudge_admin.syllabus import (
@@ -2078,12 +2079,18 @@ def register(templates) -> APIRouter:
         for task, _version in group.tasks:
             titles[task.title] = titles.get(task.title, 0) + 1
 
+        # 課題ごとの知識要素（#292）。**付いていない課題の成績は習熟度に
+        # 記録されない**ので、無いことも一覧で分かるようにする。
+        with console.database.unit_of_work() as uow:
+            kc_keys = {task.id: _kc_keys_of(uow, version) for task, version in group.tasks}
+
         rows = []
         for task, version in group.tasks:
             rows.append(
                 {
                     "task": task,
                     "version": version,
+                    "kc_keys": kc_keys.get(task.id, ()),
                     "duplicate_title": titles.get(task.title, 0) > 1,
                     # 取り下げた課題。**消えてはいない**ので一覧には残す（#51）。
                     "withdrawn": task.withdrawn,
@@ -3294,7 +3301,7 @@ def register(templates) -> APIRouter:
         return RedirectResponse(f"/courses/{course_id}/finalize", status_code=303)
 
     @router.post("/courses/{course_id}/tasks")
-    def add_task(
+    async def add_task(
         request: Request,
         course_id: str,
         statement: Annotated[str, Form()],
@@ -3377,6 +3384,9 @@ def register(templates) -> APIRouter:
                 # まま学期を過ごすことになる。
                 generation_failed = True
 
+        # 知識要素（#292）。付けるものはコースの範囲にも入れる。
+        components = _kcs_from_form(console, course, await request.form())
+
         try:
             spec = TaskSpec(
                 key=full_key,
@@ -3384,6 +3394,7 @@ def register(templates) -> APIRouter:
                 unit=unit.strip() or None,
                 position=int(position) if position.strip() else None,
                 readability_weight=float(readability_weight or 0.0),
+                knowledge_components=components,
                 reference_solution=None if generated is None else generated.reference_solution,
                 test_cases=(
                     ()
@@ -3596,6 +3607,42 @@ def register(templates) -> APIRouter:
             f"/manage/courses/{course_id}/units/{key}?saved=generated#generate", status_code=303
         )
 
+    def _kcs_from_form(console, course, form) -> tuple[str, ...]:
+        """フォームの知識要素（#292）。**課題に付けるものは、コースの範囲にも入れる。**
+
+        `kc` は登録済みのキー。`new_kc` は AI の候補から採る新しいもので
+        `キー|名前|説明` の形 ── ここで語彙に登録してから付ける。どちらも
+        コースの範囲に無ければ足す（付ける＝このコースが使う、なので）。
+        """
+        keys = [str(v).strip() for v in form.getlist("kc") if str(v).strip()]
+        namespaces = allowed_namespaces(
+            load_profile(console.profiles_dir / f"{course.subject_profile}.yaml")
+        )
+        for raw in form.getlist("new_kc"):
+            key, _sep, rest = str(raw).partition("|")
+            label, _sep, description = rest.partition("|")
+            key = key.strip()
+            if not key:
+                continue
+            try:
+                register_kc(
+                    console.database,
+                    key=key,
+                    label=label.strip() or key.rsplit(".", 1)[-1],
+                    description=description.strip() or None,
+                    namespaces=namespaces,
+                )
+            except AdminError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            keys.append(key)
+        chosen = tuple(dict.fromkeys(keys))
+        try:
+            assert_registered(console.database, chosen)
+        except AdminError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        _scope_in(console, course, chosen)
+        return chosen
+
     def _save_revision(
         console,
         me,
@@ -3612,12 +3659,21 @@ def register(templates) -> APIRouter:
         test_cases=(),
         generated_by=None,
         generation_prompt_version=None,
+        knowledge_components=None,
     ):
         """課題を直して新しい版を作る。訂正と「共通に戻す」で共有する。
 
         課題キーは変えられない ── 同一性の鍵で、変えれば別の課題になる。
         保存済みの版から取り出す（`TaskVersion.source_key`）。
+
+        `knowledge_components` が None なら**いまの版の知識要素を引き継ぐ**
+        （#292）。渡さない経路（問題文だけ直す等）で空にすると、訂正のたびに
+        Q-matrix が黙って消え、その課題の成績から習熟度が動かなくなる ──
+        観点・テストと同じ形の取りこぼしが、知識要素にも残っていた。
         """
+        if knowledge_components is None:
+            with console.database.unit_of_work() as uow:
+                knowledge_components = _kc_keys_of(uow, version)
         try:
             spec = TaskSpec(
                 key=_key_of(task, version),
@@ -3635,6 +3691,7 @@ def register(templates) -> APIRouter:
                 aggregation=aggregation,
                 reference_solution=reference_solution,
                 test_cases=test_cases,
+                knowledge_components=tuple(knowledge_components),
             )
         except (ValidationError, ValueError) as exc:
             raise HTTPException(status_code=400, detail=f"課題の指定が不正です: {exc}") from None
@@ -3688,7 +3745,18 @@ def register(templates) -> APIRouter:
         return rubric.to_rows(criteria)
 
     def _task_page(
-        request, me, course, *, unit_key_value, task=None, version=None, note=None, saved=""
+        request,
+        me,
+        course,
+        *,
+        unit_key_value,
+        task=None,
+        version=None,
+        note=None,
+        saved="",
+        statement=None,
+        chosen_kcs=None,
+        kc_candidates=None,
     ):
         """課題の編集／追加の画面。**追加と訂正で同じ形を使う。**
 
@@ -3717,6 +3785,14 @@ def register(templates) -> APIRouter:
                 for group in units
                 if group.key != unit_key_value
             ]
+        # 知識要素（#292）。候補はコースが使うもの、印はこの版が問うもの。
+        # `chosen_kcs` は候補を出したときにフォームで選ばれていたもの（書き
+        # かけを失わない）。
+        console = _console(request)
+        course_kcs = _course_kcs(console, course)
+        if chosen_kcs is None:
+            with console.database.unit_of_work() as uow:
+                chosen_kcs = _kc_keys_of(uow, version) if version is not None else ()
         return templates.TemplateResponse(
             request,
             "manage_task.html",
@@ -3730,6 +3806,11 @@ def register(templates) -> APIRouter:
                 "unit_key": unit_key_value,
                 "task": task,
                 "version": version,
+                # 書きかけの問題文（候補を出したあと）。無ければ保存済みの版。
+                "statement_draft": statement,
+                "course_kcs": course_kcs,
+                "chosen_kcs": tuple(chosen_kcs),
+                "kc_candidates": kc_candidates,
                 "rubric_rows": rows,
                 # 「共通ルーブリックに復元」が差し込む中身。**サーバが描く** ──
                 # 欄の作り方を JavaScript にも持たせると、項目が増えたときに
@@ -4161,6 +4242,83 @@ def register(templates) -> APIRouter:
             status_code=303,
         )
 
+    def _kc_candidates_for(console, course, statement: str) -> dict:
+        """問題文から、その課題が問う知識要素の候補を AI に出させる（#292）。
+
+        シラバスから候補を出す経路（`SyllabusReader.propose`）をそのまま使う
+        ── 関門（形・深さ・置き場所）を 1 つに保つため。返ってきた候補を
+        3 つに分ける: **このコースが使うもの**（付けるだけ）、**語彙にはあるが
+        このコースでは未使用のもの**（付ければコースの範囲にも入る）、
+        **まだ無いもの**（登録して付ける）。どれも教員が選んで初めて効く。
+        """
+        profile = load_profile(console.profiles_dir / f"{course.subject_profile}.yaml")
+        namespaces = allowed_namespaces(profile)
+        vocabulary = list_for_namespaces(console.database, namespaces, include_deprecated=False)
+        existing = tuple(kc.key for kc in vocabulary)
+        units = tuple(kc.key for kc in vocabulary if len(kc.path) == 2)
+        try:
+            result = SyllabusReader().propose(
+                statement, namespaces=namespaces, existing_keys=existing, unit_keys=units
+            )
+        except Exception as exc:  # 生成の失敗は運用の事象。理由を画面に返す。
+            raise HTTPException(status_code=502, detail=f"候補を作れませんでした: {exc}") from exc
+        labels = {kc.key: kc.label for kc in vocabulary}
+        chosen = set(course.knowledge_components)
+        in_course, in_vocabulary, new = [], [], []
+        for hint in result.proposal.knowledge_components:
+            entry = {
+                "key": hint.key,
+                "label": labels.get(hint.key, hint.label),
+                "description": hint.description,
+            }
+            if hint.key in chosen:
+                in_course.append(entry)
+            elif hint.key in labels:
+                in_vocabulary.append(entry)
+            else:
+                new.append(entry)
+        return {
+            "in_course": in_course,
+            "in_vocabulary": in_vocabulary,
+            "new": new,
+            "discarded": result.discarded,
+            "empty": not result.proposal.knowledge_components,
+        }
+
+    @router.post("/courses/{course_id}/tasks/{task_id}/kc-candidates", response_class=HTMLResponse)
+    async def task_kc_candidates(request: Request, course_id: str, task_id: str) -> Response:
+        """編集画面の「AI に候補を出させる」。**書きかけの問題文で出す** ──
+        保存してからでないと出せないと、問題文を書く手が止まる。フォームを
+        丸ごと受け取り、問題文と選択中の知識要素はそのまま画面に戻す。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+        with console.database.unit_of_work() as uow:
+            task = uow.tasks.get_task(TaskId(task_id))
+            version = uow.tasks.latest_version(TaskId(task_id))
+        if task is None or version is None or task.course_id != CourseId(course_id):
+            raise HTTPException(status_code=404, detail="課題が見つかりません")
+
+        form = await request.form()
+        statement = str(form.get("statement") or "") or version.statement
+        if len(statement.strip()) < 20:
+            raise HTTPException(status_code=400, detail="問題文が短すぎます（20 文字以上）")
+        chosen = tuple(str(v) for v in form.getlist("kc") if str(v).strip())
+        return _task_page(
+            request,
+            me,
+            course,
+            unit_key_value=task.unit or "_",
+            task=task,
+            version=version,
+            statement=statement,
+            chosen_kcs=chosen,
+            kc_candidates=_kc_candidates_for(console, course, statement),
+        )
+
     @router.post("/courses/{course_id}/tasks/{task_id}/revise")
     async def revise_task(request: Request, course_id: str, task_id: str) -> Response:
         """既にある課題を直す。**出題済みの版は書き換えず、版を上げる**（P8）。
@@ -4199,6 +4357,10 @@ def register(templates) -> APIRouter:
         # 次の版から採点されなくなる。
         criteria = criteria or rubric.from_criteria(version.criteria)
 
+        # 知識要素（#292）。欄が送られてきたときだけ置き換える ── 欄を持たない
+        # 経路（API 等）では None のまま渡し、いまの版のものを引き継ぐ。
+        components = _kcs_from_form(console, course, form) if "kc_form" in form else None
+
         _save_revision(
             console,
             me,
@@ -4210,6 +4372,7 @@ def register(templates) -> APIRouter:
             aggregation=aggregation,
             position=int(position) if position.strip() else task.position,
             accepted=_chosen_suffixes(suffix, formats, course),
+            knowledge_components=components,
             # **テストと参照解答も引き継ぐ**（#262）。観点と同じ理由で、
             # 結果はもっと悪い ── 観点が消えれば採点されない観点が出るだけ
             # だが、テストが消えると決定的評価が何も採点できず、総合点が
@@ -4853,6 +5016,71 @@ def register(templates) -> APIRouter:
                 ):
                     keys.add(item.key)
         return tuple(sorted(keys))
+
+    @router.get("/course-template.yaml")
+    def course_template_download(request: Request) -> Response:
+        """コース定義のひな形（#292 と同じ流れの入口）。
+
+        教員が埋めて管理者に渡し、管理者が `course apply` で投入する。
+        **教員にも出す** ── 管理者だけに出すと、依頼する側が形式を知る手段が
+        画面に無い。中身は静的で、学習者のデータは含まない。
+        """
+        from .app import require_principal
+
+        require_principal(request)
+        return Response(
+            course_template(),
+            media_type="application/x-yaml; charset=utf-8",
+            headers={"Content-Disposition": 'attachment; filename="course.yaml"'},
+        )
+
+    @router.post("/courses/{course_id}/kc/adopt")
+    async def adopt_candidates(request: Request, course_id: str) -> Response:
+        """候補をまとめてこのコースに足す（画面の「印を付けた候補をまとめて」）。
+
+        **体系にあるものは範囲に入れるだけ、無いものは登録して範囲に入れる。**
+        1 件ずつ追加フォームへ流して確かめる経路（`draft_candidate`）は残す ──
+        名前や説明を直したいものはそちら。候補は保存していないので、名前と
+        説明はフォームの hidden から取る（キーで結ぶ・`draft_candidate` と同じ）。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+        form = await request.form()
+        keys = [str(v).strip() for v in form.getlist("adopt") if str(v).strip()]
+        if not keys:
+            raise HTTPException(status_code=400, detail="採用する候補に印を付けてください")
+        namespaces = allowed_namespaces(
+            load_profile(console.profiles_dir / f"{course.subject_profile}.yaml")
+        )
+        known = {
+            kc.key
+            for kc in list_for_namespaces(console.database, namespaces, include_deprecated=False)
+        }
+        registered = 0
+        for key in keys:
+            if key in known:
+                continue
+            label = str(form.get(f"label:{key}") or "").strip() or key.rsplit(".", 1)[-1]
+            description = str(form.get(f"description:{key}") or "").strip() or None
+            try:
+                register_kc(
+                    console.database,
+                    key=key,
+                    label=label,
+                    description=description,
+                    namespaces=namespaces,
+                )
+            except AdminError as exc:
+                raise HTTPException(status_code=400, detail=f"{key}: {exc}") from exc
+            registered += 1
+        _scope_in(console, course, tuple(keys))
+        console.last_kc_scope = (str(course.id), "adopted", registered, len(keys) - registered)
+        return RedirectResponse(
+            f"/manage/courses/{course_id}/kc?saved=kc_scoped#kc", status_code=303
+        )
 
     @router.post("/courses/{course_id}/kc/scope/add")
     def add_kc_scope(

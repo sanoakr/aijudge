@@ -184,7 +184,7 @@
 <table>
   <thead><tr>
     <th class="fit">順</th><th class="grow">課題</th><th class="fit">テスト</th>
-    <th class="fit">観点</th><th class="fit">版</th><th class="fit">未確定</th><th class="fit"></th>
+    <th class="fit">観点</th><th class="fit">KC</th><th class="fit">版</th><th class="fit">未確定</th><th class="fit"></th>
   </tr></thead>
   <tbody>
   {% for row in tasks %}
@@ -236,6 +236,12 @@
       </td>
       <td class="fit">{{ row.test_cases }}</td>
       <td class="fit">{{ row.rubric_rows | length }}</td>
+      {# 知識要素（#292）。無い課題は成績が習熟度に記録されない。 #}
+      <td class="fit">
+        {% if row.kc_keys %}
+        <span title="{{ row.kc_keys | join(', ') }}">{{ row.kc_keys | length }}</span>
+        {% else %}<span class="pill attn" title="この課題の成績は知識要素の習熟度に記録されません">なし</span>{% endif %}
+      </td>
       {# **どちらが新しいのか読めるようにする。** 同じ題名が並ぶことがあり
          （#43）、版番号だけでは「いつの版か」が分からない（#54）。 #}
       <td class="fit desc">{{ row.version.version }} 版<br>
@@ -247,7 +253,7 @@
       <td class="fit"><a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/tasks/{{ row.task.id }}/edit">修正</a></td>
     </tr>
   {% else %}
-    <tr><td colspan="6" class="desc">この問題セットにはまだ課題がありません。</td></tr>
+    <tr><td colspan="8" class="desc">この問題セットにはまだ課題がありません。</td></tr>
   {% endfor %}
   </tbody>
 </table>
