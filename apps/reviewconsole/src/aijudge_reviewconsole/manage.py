@@ -5394,6 +5394,10 @@ def register(templates) -> APIRouter:
                         # 検査していない課題も並べる。**隠さない** ── 見えない
                         # ものは承認も却下もされず、待ち行列に溜まり続ける。
                         "clean": bool(checks and checks.verification.usable),
+                        # 学習者に出る形（#105 と同じ関数）。承認は「学生が読む
+                        # 画面」を見て決めるもので、Markdown の生文だけでは
+                        # 数式・コードの囲み・画像が意図どおりかが分からない。
+                        "statement_html": render_statement(version.statement),
                     }
                 )
         return templates.TemplateResponse(
