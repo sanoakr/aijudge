@@ -23,8 +23,10 @@
   です（他の名前空間 ── <span class="mono">math</span>・<span class="mono">physics</span> など ── は別の科目が使います）。
   このコースが作問で使えるのは、<strong>ここで足したものだけ</strong>です
   （いま {{ chosen_count }} 件）。何も足していなければ、作問フォームに候補は出ません。
-  足すのは下の「名前空間から足す」（個別・階層ごと）か、コースの基本情報からの候補、
-  新しいキーの追加のいずれかです。外しても語彙からは消えず、他のコースには影響しません。
+  足すのは下の「名前空間から足す」（個別・階層ごと）か、コースの基本情報からの候補です。
+  <strong>語彙そのものは骨格（管理者が投入）で決まり、画面から新しい知識要素は作れません</strong>
+  ── 同じ概念が別のキーで二重に登録されると習熟度が割れるためです。
+  外しても語彙からは消えず、他のコースには影響しません。
   <br><span class="desc">名前空間そのものを増やすには科目プロファイルの変更が要ります
   （ブラウザからは増やせません）。</span>
 </div>
@@ -40,9 +42,6 @@
 <div class="note {{ 'warn' if scope_result.kept else 'saved' }}">
   {% if scope_result.action == 'added' %}
     <strong>{{ scope_result.changed }} 件をこのコースに足しました。</strong>
-  {% elif scope_result.action == 'adopted' %}
-    <strong>候補から {{ scope_result.changed + scope_result.kept }} 件をこのコースに足しました</strong>
-    （新しく登録 {{ scope_result.changed }} 件・体系にあったもの {{ scope_result.kept }} 件）。
   {% else %}
     <strong>{{ scope_result.changed }} 件をこのコースから外しました。</strong>
     {% if scope_result.kept %}
@@ -225,11 +224,9 @@
       data-working="読み取り中… 十数秒かかります">
   <div class="inline-field">
     <span class="body desc">
-      <strong>出てくるのは、このコースが扱う知識要素です。</strong>
-      既にあるものも並びます（このコースが使う範囲を決める材料になります）。
-      ここからは登録しません ── 1 件ずつ「知識要素を追加する」に取り込み、確かめてから登録します。
-      既にある {{ existing | length }} 件に寄せるよう指示し、
-      <strong>骨格の単位の下にしか置かせません</strong>（重複と、登録できない候補を作らないため）。
+      <strong>出てくるのは、登録済みの語彙の中でこのコースが扱う知識要素です。</strong>
+      新しいキーは提案されません（一覧に無いものは理由を添えて除かれます）。
+      既にこのコースが使っているものも並びます ── このコースが使う範囲を決める材料になります。
     </span>
     <span class="working flash reading" hidden></span>
     <button type="submit">候補を生成</button>
@@ -259,10 +256,8 @@
     </tbody>
   </table>
   <p class="desc" style="margin-bottom:0">
-    キーは <span class="mono">分野.単位.名前</span> の 3 階層で、半角英小文字・数字・下線と
-    <span class="mono">.</span> だけで書きます ── 日本語は名前・説明のほうに入ります。
-    単位は骨格が決めており、そこに無い単位の下には置けません。
-    同じ概念が要るときは、下の「知識要素を追加する」から手で足してください。
+    候補は登録済みの語彙からしか採用できません。除かれたものに近い概念があれば、
+    下の「名前空間から足す」から探して足してください。
   </p>
 </div>
 {% endif %}
@@ -270,24 +265,16 @@
 {# **候補は保存していない**（生成のたびに作られる）ので、取り込みの POST が
    候補一覧そのものを持ち回る。値は**キーで結ぶ** ── 位置で対応づけると、
    選んでいない候補の名前が選んだ鍵に付く（#33 で直したのと同じ形）。 #}
-<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/kc/draft#add">
-  {% for k in proposal.knowledge_components %}
-  <input type="hidden" name="candidate" value="{{ k.key }}">
-  <input type="hidden" name="label:{{ k.key }}" value="{{ k.label }}">
-  <input type="hidden" name="description:{{ k.key }}" value="{{ k.description or '' }}">
-  <input type="hidden" name="source:{{ k.key }}" value="{{ k.source or '' }}">
-  {% endfor %}
+<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/kc/adopt#kc">
   <table>
     <thead><tr>
       <th class="fit">まとめて</th>
-      <th class="fit">キー</th><th class="grow">名前・根拠</th><th class="fit">状態</th><th class="fit"></th>
+      <th class="fit">キー</th><th class="grow">名前・根拠</th><th class="fit">状態</th>
     </tr></thead>
     <tbody>
     {% for k in proposal.knowledge_components %}
-      {# **3 つの状態を分ける。** 体系にあるものを「新規」と出すのは嘘で、
-         押した教員は自分が何を足したのかを誤解する（#41）。 #}
+      {# 2 つの状態: このコースで使用中か、語彙にあるが範囲外か。 #}
       {% set known = k.key in existing %}
-      {% set in_vocabulary = k.key in vocabulary %}
       <tr>
         <td class="fit">
           {# まとめて採用する印。使用中のものには要らない。 #}
@@ -297,49 +284,20 @@
         <td class="grow">{{ k.label }}
           {% if k.description %}<br><span class="desc">{{ k.description }}</span>{% endif %}
           {% if k.source %}<br><span class="desc">出典: {{ k.source }}</span>{% endif %}
-          {# **採用の前に近いものを見せる。** 分野・単位をまたいで探すので、
-             「別の分野に同じ語がある」に気づける ── 一覧を目で追っても
-             見つからない種類の重複である。 #}
-          {% if near.get(k.key) %}
-          <br><span class="desc">近いもの:
-            {% for hit in near[k.key] %}
-              <span class="mono">{{ hit.key }}</span>（{{ hit.kc.label }}{% if not hit.same_unit %}・<strong>別の枝</strong>{% endif %}）{% if not loop.last %} / {% endif %}
-            {% endfor %}
-          </span>
-          {% endif %}
         </td>
         <td class="fit">
           {% if known %}<span class="pill ok">このコースで使用中</span>
-          {% elif in_vocabulary %}<span class="pill">体系にあり</span>
-          {% else %}<span class="desc">新規</span>{% endif %}
-        </td>
-        <td class="fit">
-          {% if not known %}
-          {# 1 件だけを下の追加フォームに流し込み、直してから登録する経路。 #}
-          <button type="submit" name="use" value="{{ k.key }}" class="minor">追加フォームへ</button>
-          {% endif %}
+          {% else %}<span class="pill">語彙にあり（範囲外）</span>{% endif %}
         </td>
       </tr>
     {% endfor %}
     </tbody>
   </table>
   {# **まとめて採用する**。候補が 20 件あるとき 1 件ずつ往復させない。
-     「体系にあり」はコースの範囲に入れるだけ、「新規」はモデルの名前・説明の
-     まま登録して範囲に入れる（直したいものは「追加フォームへ」で 1 件ずつ）。 #}
+     採用＝このコースの範囲に入れること。語彙への登録は無い。 #}
   <div class="actions" style="justify-content:flex-start">
-    <button type="submit" formaction="{{ root_prefix() }}/manage/courses/{{ course.id }}/kc/adopt#kc">
-      印を付けた候補をまとめてこのコースに足す</button>
-    <span class="desc">「体系にあり」は範囲に入れるだけ、「新規」は名前・説明のまま登録して範囲に入れます。</span>
+    <button type="submit">印を付けた候補をまとめてこのコースに足す</button>
   </div>
-  <p class="desc">
-    <strong>「追加フォームへ」は登録しません。</strong>下の「知識要素を追加する」に入るので、
-    キー・名前・説明を確かめて（必要なら直して）から登録してください。<br>
-    <strong>「体系にあり」は、他のコースが既に作ったものです。</strong>
-    取り込んで登録すると<strong>このコースで使う範囲に入るだけ</strong>で、名前と説明は変わりません。<br>
-    <strong>置けるのは骨格の単位の下だけです。</strong>
-    分野と単位は骨格ファイルで決まっており、そこに無い場所を指す候補は上で除かれています。
-    第 1 階層（分野の根）を作るには管理者の操作が要ります。
-  </p>
 </form>
 {% else %}
 {# **原因を決めつけない。** 0 件になる理由はいくつもある（プロンプト・
@@ -356,93 +314,4 @@
 {% endif %}
 
 {% set ns = namespaces[0] if namespaces else 'cs' %}
-<h2 id="add">知識要素を追加する</h2>
-{# 新しい KC は**既存の単位の子**としてのみ足せる（`aijudge_admin.kc`）。
-   分野と単位は骨格が決めるので、ここで足せるのは第 3 階層だけ。 #}
-{% if suggestions %}
-{# **止めるだけで、拒まない。** 一致を強制すると、教員は近いだけの枝に
-   無理やり寄せる ── それは体系が整ったように見えて、実際には嘘の
-   対応づけが 1 件増えただけである。 #}
-<div class="note warn">
-  <strong>近い知識要素が既にあります。</strong>
-  同じ概念に別のキーを作ると、Q-matrix が同じものを 2 つに割ります。
-  下の候補で足りるならそちらを使い、違うものなら「このまま追加する」を押してください。
-  <table style="margin-top:10px">
-    <thead><tr><th>キー</th><th>名前</th><th class="fit">場所</th><th class="fit">近さ</th></tr></thead>
-    <tbody>
-    {% for hit in suggestions %}
-      <tr>
-        <td><code>{{ hit.key }}</code></td>
-        <td>{{ hit.kc.label }}</td>
-        <td class="fit">{% if hit.same_unit %}同じ単位{% else %}<strong>別の枝</strong>{% endif %}</td>
-        <td class="fit mono">{{ '%.2f'|format(hit.score) }}</td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  {# **どう測ったかを言う**（`duplicates.py` と同じ約束）。字面だけでは
-     言い換えた重複は見つからないので、「近いものは無かった」を安全の
-     証拠にさせない。 #}
-  <p class="desc" style="margin-bottom:0">
-    近さは<strong>字面で測っています</strong> ──
-    言い換え（「反復処理」と「くりかえし」など）は見つかりません。
-    一覧で確かめてください。
-  </p>
-</div>
-{% endif %}
-{% if draft %}
-<div class="note">
-  <strong>候補「{{ draft.key }}」を取り込みました。</strong>まだ登録されていません。
-  {% if draft_exists %}
-    <strong>これは既に体系にあります。</strong>名前と説明は体系のものを出しています ──
-    「追加する」を押すと<strong>このコースで使う範囲に入るだけ</strong>で、
-    <strong>名前と説明は変わりません</strong>（直すには一覧のその行を開いてください）。
-  {% else %}
-    <strong>キーは登録すると変えられません</strong>（ID がキーから決まります）。
-    中身を確かめて「追加する」を押してください。
-  {% endif %}
-</div>
-{% endif %}
-<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/kc" class="card">
-  <div class="inline-field">
-    <span class="body">
-      <label for="key">キー（<code>{{ namespaces[0] if namespaces else '名前空間' }}.親.子</code>）</label>
-      <input id="key" name="key" required value="{{ pending.key if pending else (draft.key if draft else '') }}"
-             placeholder="{{ namespaces[0] if namespaces else 'cs' }}.loops.termination">
-    </span>
-    {% if saved_key and saved_key.startswith('kc_') %}<span class="flash">{{ saved }}</span>{% endif %}
-  </div>
-  <div class="field">
-    <label for="label">名前（人が読む短い名前）</label>
-    <input id="label" name="label" value="{{ pending.label if pending else (draft.label if draft else '') }}"
-           placeholder="ループの停止条件">
-  </div>
-  <div class="field">
-    <label for="description">説明（任意）</label>
-    <input id="description" name="description"
-           value="{{ pending.description if pending else (draft.description if draft else '') }}"
-           placeholder="何ができれば身に付いたと言えるか">
-  </div>
-  <p class="desc">
-    {# **名前空間は階層に数えない**ことを先に言う。`cs.sdf` は点で 2 つに
-       分かれて見えるので、これを「第 1 階層」とだけ言うと読めない。 #}
-    <strong>名前空間（<code>{{ ns }}</code>）は階層に数えません。</strong>
-    <code>{{ ns }}.sdf</code> が分野、<code>{{ ns }}.sdf.fundamentals</code> が単位、
-    <code>{{ ns }}.sdf.fundamentals.branching</code> が知識要素です。<br>
-    <strong>足せるのは知識要素（第 3 階層）だけです。</strong>
-    分野と単位は骨格ファイル（<code>subjects/kc/{{ ns }}.yaml</code> ── CS2023 の
-    Knowledge Area / Knowledge Unit）で決まっており、この画面からは足せません。
-    増やすには骨格ファイルの変更が要ります。<br>
-    <strong>改名はできません</strong> — ID がキーから決まり、過去の採点がそれを指しているためです。
-    誤って作ったものは引退させてください。
-  </p>
-  <div class="actions">
-    {% if suggestions %}
-      {# 押し切れるようにする。**止めるのは 1 回だけ。** #}
-      <button type="submit" name="confirm" value="1">このまま追加する</button>
-    {% else %}
-      <button type="submit">追加</button>
-    {% endif %}
-  </div>
-</form>
 {% endblock %}

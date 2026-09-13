@@ -1,27 +1,16 @@
-"""シラバスから知識要素の候補を出すプロンプトの規則を固定する。
+"""シラバス・課題文から知識要素の候補を出すプロンプトの規則を固定する。
 
-**既にある知識要素の説明が要点。** ここを誤ると候補が 0 件になり、しかも
-**例外ではなく空の結果として返る**ので、画面には「候補が出ませんでした」
-としか出ない。二度同じ形で壊れた。
+方針（2026-09-13）: **知識要素は登録済みの語彙から選ぶだけで、新しいキーは
+作らない。** 語彙は骨格（`kc seed`）で決まり、画面から増やす経路は無い。
+増やせると同じ概念が別のキーで二重に登録され、Q-matrix が割れる。
 
-  @1  「重複を作らないこと」としか書いていない
-      → 根が 1 つあるだけで 0 件（実測 2026-08-30）
-  @2  「分野の根が既にあることは…ではありません」と根について言い足す
-      → **子が 1 件でもあると 0 件**（実測 2026-08-31・#30）
-  @3  件数にも形にも依らない言い方に直した
-  @4  **問いそのものを変えた**（#41）
+それ以前の版（@1〜@5）は「まだ無いものを挙げよ」の形で、既存が増えるほど
+候補が 0 件になる圧力と、モデルが存在しない単位や日本語のキーを作る問題を
+文言と関門で抑えていた。@6 で問いを「一覧から選べ」に変え、関門は
+「登録済みか」の 1 つになった。
 
-@2 が効かなかったのは、**症状に合わせて直したから**である。モデルが読んで
-いるのは「既にあるものがある＝網羅されつつある」という関係で、根か子かでは
-ない。@3 はその読みを打ち消す文言で凌いでいた。
-
-@4 は打ち消す必要そのものを無くす。**「まだ無いものを挙げよ」と訊く限り、
-既存が増えるほど「もう挙げるものが無い」への圧力が掛かる。**「このコースが
-扱う知識要素を挙げよ」に変え、既にあるものは既存のキーをそのまま書かせる。
-重複の禁止は「挙げるな」ではなく「同じ概念に新しいキーを作るな」になる。
-
-だからここで固定するのは文面そのものではなく、**既存を挙げてよいと言って
-いること**と、**特定の形・件数に限定していないこと**である。
+だからここで固定するのは、**一覧から選ばせていること**、**一覧に無いものは
+理由を添えて落とすこと**、**一覧に無い候補を通していないこと**である。
 """
 
 from __future__ import annotations
@@ -31,6 +20,8 @@ import json
 from aijudge_admin.syllabus import PROMPT, SyllabusReader
 from aijudge_llm_gateway import LlmGateway, ScriptedProvider
 
+EXISTING = ("cs.sdf.fundamentals.formatted_io", "cs.sdf.fundamentals.loops")
+
 _PAYLOAD = {
     "course": {},
     "knowledge_components": [
@@ -39,185 +30,86 @@ _PAYLOAD = {
 }
 
 
-def test_the_prompt_does_not_depend_on_how_many_already_exist() -> None:
-    """**既存の件数に依らない言い方であること。**
+def _propose(payload: dict, existing=EXISTING):
+    provider = ScriptedProvider([json.dumps(payload)])
+    reader = SyllabusReader(LlmGateway(provider), model="test")
+    return reader.propose("本文", namespaces=("cs",), existing_keys=existing), provider
 
-    ここが「分野の根が既にあることは…」のように**特定の形に限定**されると、
-    その形から外れた瞬間に 0 件へ戻る。実際にそうなった ── 根について言った
-    だけの版（@2）では、**子が 1 件でもあると 0 件**になり、この機能は
-    「一度使うと使えなくなる」形だった（#30）。
 
-    症状ごとに直していると、既存が増えるたびに同じことが起きる。
-    """
+def test_the_prompt_asks_to_choose_from_the_list_and_never_to_invent() -> None:
     rendered = PROMPT.template
-    # 件数に依らないと明言しているか。
-    assert "既にある数がいくつであっても" in rendered
-    assert "網羅されたとは考えないでください" in rendered
-    # 「根が」のような特定の形への限定に戻っていないか。
-    assert "分野の根（例" not in rendered
-    # **「この一覧に無いものを挙げよ」に戻っていないか。** それが 0 件への
-    # 圧力そのもので、@1〜@3 はその圧力を文言で打ち消そうとしていた。
+    assert "この中から選びます" in rendered
+    assert "一覧に無いキーを作らないでください" in rendered
+    # 「まだ無いものを挙げよ」の形に戻っていないか（0 件への圧力そのもの）。
     assert "この一覧に無いもの" not in rendered
-
-
-def test_the_existing_list_is_not_a_list_of_things_to_omit() -> None:
-    """**既にあるものも挙げてよい**と言っているか（#41）。
-
-    教員がこの画面で決めることは 2 つある ── 体系に足すものと、**このコースが
-    使う範囲**（`Course.knowledge_components`）。既存を挙げさせないと、後者を
-    決める材料が画面のどこにも出ない。#37 で範囲外の知識要素を一覧から隠した
-    ので、候補にも一覧にも出ない ── 存在を知る手段が無くなる。
-    """
-    rendered = PROMPT.template
-    assert "既にあるものも挙げてください" in rendered
-    # 重複の禁止は「挙げるな」ではなく「新しいキーを作るな」。
-    assert "一字も変えずにそのまま" in rendered
-    assert "言い換えた新しいキーを作らないでください" in rendered
-
-
-def test_the_empty_answer_is_reserved_for_actually_nothing_left() -> None:
-    """空で返してよい条件を 1 つに絞る。**曖昧だと「もう十分」で空になる。**"""
-    assert "1 つも扱っていないときだけ" in PROMPT.template
+    assert "新しい知識要素のキー" not in rendered
 
 
 def test_the_version_moved_with_the_wording() -> None:
-    """文面を変えたら版を上げる（P8）。版が同じで文面が違うと、過去に出した
-    候補が何から出たのか追えなくなる。
-    """
-    assert PROMPT.id == "syllabus_to_candidates_ja@5"
+    """文面を変えたら版を上げる（P8）。候補の出所を後から辿るため。"""
+    assert PROMPT.version == "6"
 
 
 def test_the_existing_keys_reach_the_prompt() -> None:
-    provider = ScriptedProvider([json.dumps(_PAYLOAD)])
-    reader = SyllabusReader(LlmGateway(provider), model="test")
-    reader.propose("シラバス本文", namespaces=("cs",), existing_keys=("cs.c_language",))
-
+    _result, provider = _propose(_PAYLOAD)
     sent = "\n".join(message.content for message in provider.calls[0].messages)
-    assert "cs.c_language" in sent
-    assert "シラバス本文" in sent
+    for key in EXISTING:
+        assert key in sent
 
 
 def test_no_existing_keys_says_so_rather_than_leaving_it_blank() -> None:
     """空欄を渡すと、モデルには「既存が無い」のか「欄が壊れている」のか
-    区別が付かない。
-    """
-    provider = ScriptedProvider([json.dumps(_PAYLOAD)])
-    reader = SyllabusReader(LlmGateway(provider), model="test")
-    reader.propose("シラバス本文", namespaces=("cs",), existing_keys=())
-
+    区別が付かない。"""
+    _result, provider = _propose(_PAYLOAD, existing=())
     sent = "\n".join(message.content for message in provider.calls[0].messages)
     assert "（まだありません）" in sent
 
 
-# --------------------------------------------------------------------------
-# キーの形（#157）
-# --------------------------------------------------------------------------
-
-
-def test_a_japanese_key_never_leaves_the_reader() -> None:
-    """**日本語のキーは候補にしない。**
-
-    プロンプトは「英小文字・数字・下線だけ」と頼んでいるが、頼みは強制では
-    ない ── 日本語のシラバスを読ませると、モデルは日本語のキーを返す。
-    落とさないと、そのキーは一覧 → 採用 → 追加フォームまで素通りし、
-    **最後の登録で初めて弾かれる**（教員は往復し終えてから断られる）。
-    """
+def test_a_key_not_in_the_vocabulary_is_dropped_with_its_reason() -> None:
+    """**登録済み以外は通さない。** 言い換えた新しいキーも、正しい形の
+    未登録キーも、日本語のキーも同じ扱い ── 理由だけが違う。"""
     payload = {
         "course": {},
         "knowledge_components": [
+            {"key": "cs.sdf.fundamentals.formatted_io", "label": "書式付き入出力"},
+            {"key": "cs.sdf.fundamentals.pointers", "label": "ポインタ（未登録）"},
             {"key": "cs.sdf.基礎.配列の走査", "label": "配列の走査"},
-            {"key": "cs.sdf.fundamentals.loops", "label": "繰り返し"},
-            {"key": "情報.sdf.fundamentals.pointers", "label": "ポインタ"},
         ],
     }
-    provider = ScriptedProvider([json.dumps(payload)])
-    reader = SyllabusReader(LlmGateway(provider), model="test")
-    result = reader.propose("シラバス本文", namespaces=("cs",), unit_keys=("cs.sdf.fundamentals",))
-
-    assert [k.key for k in result.proposal.knowledge_components] == ["cs.sdf.fundamentals.loops"]
-
-
-def test_what_was_dropped_is_reported_rather_than_silently_removed() -> None:
-    """黙って減らさない。20 件出したはずが 14 件しか並んでいないとき、
-    何が起きたのか画面から分からないのは、間違った候補が並ぶのと同じくらい悪い。
-    """
-    payload = {
-        "course": {},
-        "knowledge_components": [{"key": "cs.配列", "label": "配列"}],
-    }
-    provider = ScriptedProvider([json.dumps(payload)])
-    reader = SyllabusReader(LlmGateway(provider), model="test")
-    result = reader.propose("シラバス本文", namespaces=("cs",))
-
-    assert result.proposal.knowledge_components == ()
-    # **理由も返す。** 「6 件除きました」だけでは、教員は次に何をすれば
-    # よいのか分からない。
-    assert [d.key for d in result.discarded] == ["cs.配列"]
-    assert "キーの形" in result.discarded[0].reason
-
-
-def test_a_candidate_outside_the_skeleton_is_dropped_with_its_reason() -> None:
-    """**単位の一覧を渡しても、モデルは無い単位を作る。** 頼みは強制ではない。
-
-    落とさないと、教員は採用してから「骨格にありません」と断られる ──
-    #157 で字面について直した往復が、構造について残ることになる。
-    """
-    payload = {
-        "course": {},
-        "knowledge_components": [
-            {"key": "cs.sdf.fundamentals.loops", "label": "繰り返し"},
-            {"key": "cs.sdf.nosuchunit.thing", "label": "無い単位の下"},
-            {"key": "cs.sdf", "label": "分野そのもの"},
-            {"key": "cs.sdf.fundamentals.loops.nested", "label": "深すぎる"},
-        ],
-    }
-    provider = ScriptedProvider([json.dumps(payload)])
-    reader = SyllabusReader(LlmGateway(provider), model="test")
-    result = reader.propose("シラバス本文", namespaces=("cs",), unit_keys=("cs.sdf.fundamentals",))
-
-    assert [k.key for k in result.proposal.knowledge_components] == ["cs.sdf.fundamentals.loops"]
-    reasons = {d.key: d.reason for d in result.discarded}
-    assert "骨格に無い単位" in reasons["cs.sdf.nosuchunit.thing"]
-    assert "3 階層" in reasons["cs.sdf"]
-    assert "深すぎ" in reasons["cs.sdf.fundamentals.loops.nested"]
-
-
-def test_an_existing_component_outside_the_skeleton_still_passes() -> None:
-    """教員が足した知識要素は骨格の外にある。**単位で濾すとそれが落ちる。**"""
-    payload = {
-        "course": {},
-        "knowledge_components": [{"key": "cs.sdf.teacheradded.thing", "label": "教員が足した"}],
-    }
-    provider = ScriptedProvider([json.dumps(payload)])
-    reader = SyllabusReader(LlmGateway(provider), model="test")
-    result = reader.propose(
-        "シラバス本文",
-        namespaces=("cs",),
-        unit_keys=("cs.sdf.fundamentals",),
-        existing_keys=("cs.sdf.teacheradded.thing",),
-    )
-
-    assert [k.key for k in result.proposal.knowledge_components] == ["cs.sdf.teacheradded.thing"]
-    assert result.discarded == ()
-
-
-def test_the_units_are_sent_so_the_model_knows_where_things_go() -> None:
-    """渡さないと、モデルは存在しない単位を作る。"""
-    provider = ScriptedProvider([json.dumps(_PAYLOAD)])
-    reader = SyllabusReader(LlmGateway(provider), model="test")
-    reader.propose("シラバス本文", namespaces=("cs",), unit_keys=("cs.sdf.fundamentals",))
-
-    sent = "\n".join(message.content for message in provider.calls[0].messages)
-    assert "cs.sdf.fundamentals" in sent
-    assert "この下にしか置けません" in sent
-
-
-def test_a_clean_proposal_is_passed_through_unchanged() -> None:
-    provider = ScriptedProvider([json.dumps(_PAYLOAD)])
-    reader = SyllabusReader(LlmGateway(provider), model="test")
-    result = reader.propose("シラバス本文", namespaces=("cs",))
-
+    result, _ = _propose(payload)
     assert [k.key for k in result.proposal.knowledge_components] == [
         "cs.sdf.fundamentals.formatted_io"
     ]
+    reasons = {d.key: d.reason for d in result.discarded}
+    assert "登録済みの知識要素にありません" in reasons["cs.sdf.fundamentals.pointers"]
+    assert "キーの形が正しくありません" in reasons["cs.sdf.基礎.配列の走査"]
+
+
+def test_what_was_dropped_is_reported_rather_than_silently_removed() -> None:
+    """20 件出したはずが 14 件しか並んでいないとき、何が起きたのか画面から
+    分からないのは、間違った候補が並ぶのと同じくらい悪い。"""
+    payload = {
+        "course": {},
+        "knowledge_components": [{"key": "cs.sdf.fundamentals.nothing", "label": "無い"}],
+    }
+    result, _ = _propose(payload)
+    assert result.proposal.knowledge_components == ()
+    assert len(result.discarded) == 1
+
+
+def test_a_clean_proposal_is_passed_through_unchanged() -> None:
+    result, _ = _propose(_PAYLOAD)
+    assert [k.key for k in result.proposal.knowledge_components] == [
+        "cs.sdf.fundamentals.formatted_io"
+    ]
+    assert result.discarded == ()
+
+
+def test_unit_keys_are_still_accepted_for_compatibility() -> None:
+    """古い呼び出し（`unit_keys=`）が壊れないこと。使われはしない。"""
+    provider = ScriptedProvider([json.dumps(_PAYLOAD)])
+    reader = SyllabusReader(LlmGateway(provider), model="test")
+    result = reader.propose(
+        "本文", namespaces=("cs",), existing_keys=EXISTING, unit_keys=("cs.sdf.fundamentals",)
+    )
     assert result.discarded == ()

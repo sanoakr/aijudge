@@ -72,7 +72,6 @@ from aijudge_admin import (
     plan_bundle,
     read_bundle,
     read_profile_text,
-    register_kc,
     rename_profile,
     restore_kc,
     retire_kc,
@@ -80,7 +79,6 @@ from aijudge_admin import (
     save_grading_settings,
     save_profile_text,
     save_task,
-    suggest_similar,
     template_bundle,
     template_of,
     try_settings,
@@ -91,9 +89,7 @@ from aijudge_admin.drafting import TaskDrafter
 from aijudge_admin.roster import RosterEntry, RosterError, generate_password
 from aijudge_admin.syllabus import (
     MAX_SYLLABUS_BYTES,
-    KcHint,
     SyllabusError,
-    SyllabusProposal,
     SyllabusReader,
     read_document,
     to_markdown,
@@ -121,7 +117,6 @@ from aijudge_core import (
     Task,
     TestCase,
     format_term,
-    is_valid_kc_key,
     normalize_suffixes,
     offered_years,
 )
@@ -2901,125 +2896,21 @@ def register(templates) -> APIRouter:
         namespaces = allowed_namespaces(profile)
         vocabulary = list_for_namespaces(console.database, namespaces, include_deprecated=False)
         existing = [kc.key for kc in vocabulary]
-        # **単位の一覧を渡す。** 新しい候補はこの下にしか置けないので、
-        # 渡さないとモデルは存在しない単位を作り、教員は採用してから断られる。
-        units = tuple(kc.key for kc in vocabulary if len(kc.path) == 2)
         # 題名も渡す。「プログラミング及び実習 II」だけで分野が決まることは
         # ないが、本文が到達目標だけのときに科目の見当が付く。
         body = f"# {course.title}\n\n{course.description}"
         try:
+            # **候補は登録済みの語彙から選ばれる**（2026-09-13 決定）。一覧に
+            # 無いキーは `SyllabusReader` の関門が落とし、理由付きで返る。
             result = SyllabusReader().propose(
-                body,
-                namespaces=namespaces,
-                existing_keys=tuple(existing),
-                unit_keys=units,
+                body, namespaces=namespaces, existing_keys=tuple(existing)
             )
         except Exception as exc:  # 生成の失敗は運用の事象。理由を画面に返す。
             raise HTTPException(
                 status_code=502,
                 detail=f"候補を作れませんでした（S6 が止まっている可能性があります）: {exc}",
             ) from exc
-
-        # **新しい候補には近いものを添える。** 分野・単位をまたいで探すので、
-        # 「別の分野に同じ語がある」に採用の前に気づける ── 一覧を目で
-        # 追っても見つからない種類の重複である。
-        known = set(existing)
-        near = {
-            hint.key: suggest_similar(
-                console.database,
-                key=hint.key,
-                label=hint.label,
-                description=hint.description,
-                namespaces=namespaces,
-                existing=vocabulary,
-                limit=3,
-            )
-            for hint in result.proposal.knowledge_components
-            if hint.key not in known
-        }
-        return _kc_page(
-            request,
-            me,
-            course,
-            proposal=result.proposal,
-            discarded=result.discarded,
-            near=near,
-        )
-
-    @router.post("/courses/{course_id}/kc/draft", response_class=HTMLResponse)
-    async def draft_candidate(request: Request, course_id: str) -> Response:
-        """候補を 1 件、追加フォームに取り込む。**登録はしない。**
-
-        候補は素材であって成果物ではない。**KC の ID はキーから決まる**ので
-        （`kc_id_for`）、モデルの付けたキーが少しでも違えば直す道は無く、
-        使われたあとは消すこともできない。名前と説明も、モデルの言い回しが
-        そのまま共有の語彙に残る。だから登録の前に必ず人の手を通す ── 規則の
-        強制も説明も、手で足すときと同じ 1 本の経路（`add_kc`）に寄せる。
-
-        **候補は保存していない**（生成のたびに作られる）ので、取り込みの
-        POST が候補一覧そのものを持ち回る。JavaScript で欄を埋めない ──
-        この画面は他が全部サーバ描画で、JS を切った環境で「押しても何も
-        起きない」ボタンを作らないため。
-
-        **候補の値はキーで引く。位置で対応づけない**（#33 と同じ形の穴になる）。
-        """
-        from .app import require_principal
-
-        me = require_principal(request)
-        course = _require_instructor(request, me, CourseId(course_id))
-
-        form = await request.form()
-        keys = [str(value).strip() for value in form.getlist("candidate") if str(value).strip()]
-        proposal = SyllabusProposal(
-            knowledge_components=tuple(
-                KcHint(
-                    key=key,
-                    label=str(form.get(f"label:{key}", "")).strip() or key,
-                    description=str(form.get(f"description:{key}", "")).strip(),
-                    source=str(form.get(f"source:{key}", "")).strip(),
-                )
-                for key in keys
-            )
-        )
-
-        chosen = str(form.get("use") or "").strip()
-        draft = next((k for k in proposal.knowledge_components if k.key == chosen), None)
-        if draft is None:
-            raise HTTPException(status_code=400, detail="取り込む候補が選ばれていません")
-        if not is_valid_kc_key(chosen):
-            # 候補は `SyllabusReader.propose` で選り分け済みだが、**この POST は
-            # 候補一覧そのものを持ち回る**（候補は保存していない）ので、鍵は
-            # フォーム由来である。関門をもう一度置く（#157）。
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    f"知識要素のキー {chosen!r} は使えません。"
-                    "半角英小文字・数字・下線と `.` だけで書きます"
-                    "（例 `cs.loops.termination`）。"
-                ),
-            )
-
-        # **既にあるキーなら、体系の名前と説明を出す。** `register` は既にある
-        # ものをそのまま返す（名前も説明も変わらない）ので、モデルの書いた
-        # 名前を欄に入れると、教員はそこで直せると思い、直した内容は黙って
-        # 捨てられる。直すのは行の「名前・説明を直す」（`edit_kc`）の仕事。
-        console = _console(request)
-        profile = load_profile(console.profiles_dir / f"{course.subject_profile}.yaml")
-        stored = next(
-            (
-                kc
-                for kc in list_for_namespaces(
-                    console.database, allowed_namespaces(profile), include_deprecated=False
-                )
-                if kc.key == chosen
-            ),
-            None,
-        )
-        if stored is not None:
-            draft = KcHint(key=stored.key, label=stored.label, description=stored.description or "")
-        return _kc_page(
-            request, me, course, proposal=proposal, draft=draft, draft_exists=stored is not None
-        )
+        return _kc_page(request, me, course, proposal=result.proposal, discarded=result.discarded)
 
     @router.post("/courses/{course_id}/delete")
     def delete_course_route(request: Request, course_id: str) -> Response:
@@ -3618,32 +3509,10 @@ def register(templates) -> APIRouter:
     def _kcs_from_form(console, course, form) -> tuple[str, ...]:
         """フォームの知識要素（#292）。**課題に付けるものは、コースの範囲にも入れる。**
 
-        `kc` は登録済みのキー。`new_kc` は AI の候補から採る新しいもので
-        `キー|名前|説明` の形 ── ここで語彙に登録してから付ける。どちらも
-        コースの範囲に無ければ足す（付ける＝このコースが使う、なので）。
+        キーは登録済みの語彙のものだけ（2026-09-13 決定: 画面から語彙は
+        増やさない）。コースの範囲に無ければ足す（付ける＝このコースが使う）。
         """
-        keys = [str(v).strip() for v in form.getlist("kc") if str(v).strip()]
-        namespaces = allowed_namespaces(
-            load_profile(console.profiles_dir / f"{course.subject_profile}.yaml")
-        )
-        for raw in form.getlist("new_kc"):
-            key, _sep, rest = str(raw).partition("|")
-            label, _sep, description = rest.partition("|")
-            key = key.strip()
-            if not key:
-                continue
-            try:
-                register_kc(
-                    console.database,
-                    key=key,
-                    label=label.strip() or key.rsplit(".", 1)[-1],
-                    description=description.strip() or None,
-                    namespaces=namespaces,
-                )
-            except AdminError as exc:
-                raise HTTPException(status_code=400, detail=str(exc)) from exc
-            keys.append(key)
-        chosen = tuple(dict.fromkeys(keys))
+        chosen = tuple(dict.fromkeys(str(v).strip() for v in form.getlist("kc") if str(v).strip()))
         try:
             assert_registered(console.database, chosen)
         except AdminError as exc:
@@ -4254,41 +4123,30 @@ def register(templates) -> APIRouter:
         """問題文から、その課題が問う知識要素の候補を AI に出させる（#292）。
 
         シラバスから候補を出す経路（`SyllabusReader.propose`）をそのまま使う
-        ── 関門（形・深さ・置き場所）を 1 つに保つため。返ってきた候補を
-        3 つに分ける: **このコースが使うもの**（付けるだけ）、**語彙にはあるが
-        このコースでは未使用のもの**（付ければコースの範囲にも入る）、
-        **まだ無いもの**（登録して付ける）。どれも教員が選んで初めて効く。
+        ── 関門を 1 つに保つため。候補は登録済みの語彙からだけ来る（2026-09-13
+        決定）。返ってきた候補を 2 つに分ける: **このコースが使うもの**（付ける
+        だけ）と、**語彙にはあるがこのコースでは未使用のもの**（付ければコースの
+        範囲にも入る）。どちらも教員が選んで初めて効く。
         """
         profile = load_profile(console.profiles_dir / f"{course.subject_profile}.yaml")
         namespaces = allowed_namespaces(profile)
         vocabulary = list_for_namespaces(console.database, namespaces, include_deprecated=False)
         existing = tuple(kc.key for kc in vocabulary)
-        units = tuple(kc.key for kc in vocabulary if len(kc.path) == 2)
         try:
             result = SyllabusReader().propose(
-                statement, namespaces=namespaces, existing_keys=existing, unit_keys=units
+                statement, namespaces=namespaces, existing_keys=existing
             )
         except Exception as exc:  # 生成の失敗は運用の事象。理由を画面に返す。
             raise HTTPException(status_code=502, detail=f"候補を作れませんでした: {exc}") from exc
         labels = {kc.key: kc.label for kc in vocabulary}
         chosen = set(course.knowledge_components)
-        in_course, in_vocabulary, new = [], [], []
+        in_course, in_vocabulary = [], []
         for hint in result.proposal.knowledge_components:
-            entry = {
-                "key": hint.key,
-                "label": labels.get(hint.key, hint.label),
-                "description": hint.description,
-            }
-            if hint.key in chosen:
-                in_course.append(entry)
-            elif hint.key in labels:
-                in_vocabulary.append(entry)
-            else:
-                new.append(entry)
+            entry = {"key": hint.key, "label": labels.get(hint.key, hint.label)}
+            (in_course if hint.key in chosen else in_vocabulary).append(entry)
         return {
             "in_course": in_course,
             "in_vocabulary": in_vocabulary,
-            "new": new,
             "discarded": result.discarded,
             "empty": not result.proposal.knowledge_components,
         }
@@ -4951,11 +4809,6 @@ def register(templates) -> APIRouter:
         saved: str = "",
         proposal=None,
         discarded: tuple[str, ...] = (),
-        draft=None,
-        draft_exists: bool = False,
-        suggestions: tuple = (),
-        pending=None,
-        near=None,
     ) -> Response:
         """知識要素のページ。**候補が出ているかどうかだけが違う。**
 
@@ -5003,94 +4856,13 @@ def register(templates) -> APIRouter:
                 # 形が正準キーになっていないので落とした候補（#157）。
                 # **減った件数を黙らせない。**
                 "discarded": discarded,
-                # **「既にある」はこのコースから見えているものを指す。** 体系に
-                # あっても範囲外なら選べるようにする ── 選べなければ、一度
-                # 外した知識要素を候補から戻す道が無くなる（採用すれば範囲に入る）。
+                # **「既にある」はこのコースの範囲にあるものを指す。** 語彙に
+                # あっても範囲外なら採用できる（採用すれば範囲に入る）。候補は
+                # 登録済みの語彙からしか来ない（2026-09-13 決定）ので、状態は
+                # 「このコースで使用中」か「語彙にあり（範囲外）」の 2 つ。
                 "existing": [row["kc"].key for row in rows if not row["kc"].deprecated],
-                # 候補から取り込んだ 1 件。追加フォームの初期値になる。
-                "draft": draft,
-                "draft_exists": draft_exists,
-                # 近い既存 KC（分野・単位をまたいで探す）。**禁止ではなく提示** ──
-                # 一致を強制すると、教員は近いだけの枝に無理やり寄せる。
-                "suggestions": suggestions,
-                # 候補 1 件ごとの「近い既存 KC」（新しい候補にだけ付く）。
-                "near": near or {},
-                # 提示を出したときの、足そうとしていた内容。そのまま押し切れる
-                # ようにフォームへ戻す（打ち直させない）。
-                "pending": pending,
-                # **体系にあるか**と、**このコースから見えているか**は別。
-                # 候補には既にあるものも出る（#41）ので、3 つ目の状態
-                # 「体系にはあるが、このコースでは未使用」が現れる。
-                "vocabulary": [kc.key for kc in kcs if not kc.deprecated],
                 "has_basics": bool((course.description or "").strip()),
             },
-        )
-
-    @router.post("/courses/{course_id}/kc")
-    def add_kc(
-        request: Request,
-        course_id: str,
-        key: Annotated[str, Form()],
-        label: Annotated[str, Form()] = "",
-        description: Annotated[str, Form()] = "",
-        confirm: Annotated[str, Form()] = "",
-    ) -> Response:
-        """KC を 1 つ足す。規則の強制は `aijudge_admin.kc` にある。
-
-        **追加は明示的な行為にする**（禁止はしない）。科目の専門家は教員
-        しかおらず、禁止すれば既存の近いキーに無理やり寄せられるだけで、
-        構造としてはより悪くなる。
-
-        足せるのは知識要素（第 3 階層）まで。分野と単位は骨格が決めており、
-        **管理者であっても画面からは足せない**（`aijudge_admin.kc` の規則 2）。
-
-        **近いものがあれば一度止める。** 止めるだけで、押し切れる ── `confirm`
-        が来たらそのまま登録する。止めずに登録すると同義語が静かに増え、
-        止めて拒むと近いだけの枝に無理やり寄せられる。その間を取る。
-        """
-        from .app import require_principal
-
-        me = require_principal(request)
-        course = _require_instructor(request, me, CourseId(course_id))
-        console = _console(request)
-
-        profile = load_profile(console.profiles_dir / f"{course.subject_profile}.yaml")
-        namespaces = allowed_namespaces(profile)
-        wanted = key.strip()
-        if not confirm:
-            close = suggest_similar(
-                console.database,
-                key=wanted,
-                label=label.strip(),
-                description=description,
-                namespaces=namespaces,
-            )
-            if close:
-                return _kc_page(
-                    request,
-                    me,
-                    course,
-                    suggestions=close,
-                    pending={
-                        "key": wanted,
-                        "label": label.strip(),
-                        "description": description,
-                    },
-                )
-        try:
-            register_kc(
-                console.database,
-                key=wanted,
-                label=label.strip() or wanted,
-                description=description,
-                namespaces=namespaces,
-                actor_id=me.user_id,
-            )
-        except AdminError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        _scope_in(console, course, (key.strip(),))
-        return RedirectResponse(
-            f"/manage/courses/{course_id}/kc?saved=kc_added#kc", status_code=303
         )
 
     @router.post("/courses/{course_id}/kc/retire")
@@ -5168,12 +4940,11 @@ def register(templates) -> APIRouter:
 
     @router.post("/courses/{course_id}/kc/adopt")
     async def adopt_candidates(request: Request, course_id: str) -> Response:
-        """候補をまとめてこのコースに足す（画面の「印を付けた候補をまとめて」）。
+        """候補をまとめてこのコースの範囲に入れる（画面の「印を付けた候補をまとめて」）。
 
-        **体系にあるものは範囲に入れるだけ、無いものは登録して範囲に入れる。**
-        1 件ずつ追加フォームへ流して確かめる経路（`draft_candidate`）は残す ──
-        名前や説明を直したいものはそちら。候補は保存していないので、名前と
-        説明はフォームの hidden から取る（キーで結ぶ・`draft_candidate` と同じ）。
+        **語彙への登録は行わない**（2026-09-13 決定）。候補は登録済みの語彙から
+        選ばれたものだけなので、ここですることは範囲に入れることだけ。万一
+        未登録のキーが来たら断る（画面を経ない POST）。
         """
         from .app import require_principal
 
@@ -5181,35 +4952,15 @@ def register(templates) -> APIRouter:
         course = _require_instructor(request, me, CourseId(course_id))
         console = _console(request)
         form = await request.form()
-        keys = [str(v).strip() for v in form.getlist("adopt") if str(v).strip()]
+        keys = tuple(dict.fromkeys(str(v).strip() for v in form.getlist("adopt") if str(v).strip()))
         if not keys:
             raise HTTPException(status_code=400, detail="採用する候補に印を付けてください")
-        namespaces = allowed_namespaces(
-            load_profile(console.profiles_dir / f"{course.subject_profile}.yaml")
-        )
-        known = {
-            kc.key
-            for kc in list_for_namespaces(console.database, namespaces, include_deprecated=False)
-        }
-        registered = 0
-        for key in keys:
-            if key in known:
-                continue
-            label = str(form.get(f"label:{key}") or "").strip() or key.rsplit(".", 1)[-1]
-            description = str(form.get(f"description:{key}") or "").strip() or None
-            try:
-                register_kc(
-                    console.database,
-                    key=key,
-                    label=label,
-                    description=description,
-                    namespaces=namespaces,
-                )
-            except AdminError as exc:
-                raise HTTPException(status_code=400, detail=f"{key}: {exc}") from exc
-            registered += 1
-        _scope_in(console, course, tuple(keys))
-        console.last_kc_scope = (str(course.id), "adopted", registered, len(keys) - registered)
+        try:
+            assert_registered(console.database, keys)
+        except AdminError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        added = _scope_in(console, course, keys)
+        console.last_kc_scope = (str(course.id), "added", added, 0)
         return RedirectResponse(
             f"/manage/courses/{course_id}/kc?saved=kc_scoped#kc", status_code=303
         )

@@ -2769,6 +2769,31 @@ def test_the_kc_page_shows_the_namespaces_of_the_course(world: World) -> None:
     assert "ここで足したものだけ" in body
 
 
+def _use_kc(world: World, key: str, label: str = "") -> None:
+    """語彙に登録し（骨格の分野・単位も含めて）、このコースの範囲に入れる。
+
+    画面から語彙は増やせない（2026-09-13 決定）ので、テストでは `register_kc`
+    で骨格を置き、範囲への追加だけを画面（`kc/scope/add`）で行う。
+    """
+    from aijudge_admin import register_kc
+
+    parts = key.split(".")
+    for depth in range(2, len(parts) + 1):
+        prefix = ".".join(parts[:depth])
+        register_kc(
+            world.database,
+            key=prefix,
+            label=label if prefix == key and label else prefix,
+            namespaces=(parts[0],),
+            seeding=depth < 4,
+        )
+    with world.database.unit_of_work() as uow:
+        course = uow.identity.get_course(world.course.id)
+        merged = tuple(sorted(set(course.knowledge_components) | {key}))
+        uow.identity.save_course(course.model_copy(update={"knowledge_components": merged}))
+        uow.commit()
+
+
 def _seed(world: World) -> None:
     """骨格の分野と単位を置く。**画面からは作れない**ので直接入れる。
 
@@ -2781,88 +2806,6 @@ def _seed(world: World) -> None:
         register_kc(world.database, key=key, label=label, namespaces=("cs",), seeding=True)
 
 
-def test_nobody_creates_an_area_from_the_page(world: World) -> None:
-    """分野は骨格が決める。**管理者でも画面からは足せない。**
-
-    開けると `cs.loops` と `cs.iteration` が並ぶ。増やすのは骨格ファイルの
-    変更、つまりコードと同じレビューを通る決定である。
-    """
-    _seed(world)
-    world.register("boss", Role.ADMIN)
-    response = world.client("boss").post(
-        f"/manage/courses/{world.course.id}/kc",
-        data={"key": "cs.newfield", "label": "新分野"},
-    )
-    assert response.status_code == 400
-    detail = response.json()["detail"]
-    assert "骨格" in detail
-    # **名前空間が階層に数えられないことを言う。** `cs.newfield` は点で 2 つに
-    # 分かれて見えるので、「第 1 階層」だけでは何を指すのか読めない。
-    assert "名前空間" in detail and "階層に数えません" in detail
-
-
-def test_nobody_creates_a_unit_from_the_page(world: World) -> None:
-    _seed(world)
-    world.register("boss", Role.ADMIN)
-    response = world.client("boss").post(
-        f"/manage/courses/{world.course.id}/kc",
-        data={"key": "cs.loops.newunit", "label": "新単位"},
-    )
-    assert response.status_code == 400
-    assert "骨格" in response.json()["detail"]
-
-
-def test_an_instructor_extends_a_unit_from_the_skeleton(world: World) -> None:
-    """禁止ではなく、追加を明示的な行為にする。足せるのは知識要素まで。"""
-    _seed(world)
-    world.register("teacher", Role.INSTRUCTOR)
-    response = world.client("teacher").post(
-        f"/manage/courses/{world.course.id}/kc",
-        data={"key": "cs.loops.control.termination", "label": "停止条件"},
-        follow_redirects=False,
-    )
-    assert response.status_code == 303
-    body = world.client("teacher").get(f"/manage/courses/{world.course.id}/kc").text
-    assert "cs.loops.control.termination" in body
-
-
-def test_the_page_stops_once_on_a_near_duplicate_and_then_lets_it_through(world: World) -> None:
-    """**止めるだけで、拒まない。**
-
-    止めずに登録すると同義語が静かに増え、止めて拒むと教員は近いだけの枝に
-    無理やり寄せる。その間を取って、1 度だけ止める。
-    """
-    _seed(world)
-    world.register("teacher", Role.INSTRUCTOR)
-    client = world.client("teacher")
-    client.post(
-        f"/manage/courses/{world.course.id}/kc",
-        data={"key": "cs.loops.control.termination", "label": "停止条件"},
-    )
-
-    stopped = client.post(
-        f"/manage/courses/{world.course.id}/kc",
-        data={"key": "cs.loops.control.stop_condition", "label": "停止条件"},
-        follow_redirects=False,
-    )
-    assert stopped.status_code == 200
-    assert "近い知識要素が既にあります" in stopped.text
-    assert "cs.loops.control.termination" in stopped.text
-    # **どう測ったかを言う。** 字面だけでは言い換えは見つからない。
-    assert "字面で測っています" in stopped.text
-
-    forced = client.post(
-        f"/manage/courses/{world.course.id}/kc",
-        data={
-            "key": "cs.loops.control.stop_condition",
-            "label": "停止条件",
-            "confirm": "1",
-        },
-        follow_redirects=False,
-    )
-    assert forced.status_code == 303
-
-
 def test_an_instructor_can_correct_a_label(world: World) -> None:
     """**引退・削除と違って教員が直せる。**
 
@@ -2873,10 +2816,7 @@ def test_an_instructor_can_correct_a_label(world: World) -> None:
     _seed(world)
     world.register("boss", Role.ADMIN)
     world.register("teacher", Role.INSTRUCTOR)
-    world.client("boss").post(
-        f"/manage/courses/{world.course.id}/kc",
-        data={"key": "cs.loops.control.basic", "label": "ルーブ"},
-    )
+    _use_kc(world, "cs.loops.control.basic", "ルーブ")
 
     response = world.client("teacher").post(
         f"/manage/courses/{world.course.id}/kc/edit",
@@ -2896,10 +2836,7 @@ def test_the_key_is_not_editable_from_the_page(world: World) -> None:
     _seed(world)
     world.register("boss", Role.ADMIN)
     client = world.client("boss")
-    client.post(
-        f"/manage/courses/{world.course.id}/kc",
-        data={"key": "cs.loops.control.basic", "label": "ループ"},
-    )
+    _use_kc(world, "cs.loops.control.basic", "ループ")
 
     page = client.get(f"/manage/courses/{world.course.id}/kc").text
     form = page[page.index("名前・説明の修正") :]
@@ -2916,7 +2853,7 @@ def test_a_component_is_removed_from_the_course_with_the_remove_form(world: Worl
     world.register("boss", Role.ADMIN)
     client = world.client("boss")
     for key, label in (("cs.loops.control.basic", "ループ"), ("cs.loops.control.python", "Python")):
-        client.post(f"/manage/courses/{world.course.id}/kc", data={"key": key, "label": label})
+        _use_kc(world, key, label)
 
     response = client.post(
         f"/manage/courses/{world.course.id}/kc/scope/remove",
@@ -2948,7 +2885,7 @@ def test_a_component_left_out_can_be_brought_back(world: World) -> None:
     world.register("boss", Role.ADMIN)
     client = world.client("boss")
     for key, label in (("cs.loops.control.basic", "ループ"), ("cs.loops.control.python", "Python")):
-        client.post(f"/manage/courses/{world.course.id}/kc", data={"key": key, "label": label})
+        _use_kc(world, key, label)
     client.post(
         f"/manage/courses/{world.course.id}/kc/scope/remove",
         data={"kc": ["cs.loops.control.python"]},
@@ -3023,7 +2960,7 @@ def test_the_drafting_form_offers_only_the_selected_components(world: World) -> 
     client = world.client("boss")
     _import_example(world)
     for key, label in (("cs.loops.control.basic", "ループ"), ("cs.loops.control.python", "Python")):
-        client.post(f"/manage/courses/{world.course.id}/kc", data={"key": key, "label": label})
+        _use_kc(world, key, label)
 
     unit = _unit_of(world)
     body = client.get(f"/manage/courses/{world.course.id}/units/{unit}").text
@@ -3051,10 +2988,7 @@ def test_a_component_the_course_still_uses_cannot_be_removed(
 
     world.register("boss", Role.ADMIN)
     client = world.client("boss")
-    client.post(
-        f"/manage/courses/{world.course.id}/kc",
-        data={"key": "cs.loops.control.basic", "label": "ループ"},
-    )
+    _use_kc(world, "cs.loops.control.basic", "ループ")
     save_task(
         world.database,
         course_id=world.course.id,
@@ -3090,10 +3024,7 @@ def test_only_an_admin_can_delete_a_component(world: World) -> None:
     _seed(world)
     world.register("boss", Role.ADMIN)
     world.register("teacher", Role.INSTRUCTOR)
-    world.client("boss").post(
-        f"/manage/courses/{world.course.id}/kc",
-        data={"key": "cs.loops.control.typo", "label": "打ち間違い"},
-    )
+    _use_kc(world, "cs.loops.control.typo", "打ち間違い")
     response = world.client("teacher").post(
         f"/manage/courses/{world.course.id}/kc/delete", data={"key": "cs.loops.control.typo"}
     )
@@ -3109,10 +3040,7 @@ def test_an_unused_component_is_deleted_from_the_page(world: World) -> None:
     _seed(world)
     world.register("boss", Role.ADMIN)
     client = world.client("boss")
-    client.post(
-        f"/manage/courses/{world.course.id}/kc",
-        data={"key": "cs.loops.control.typo", "label": "打ち間違い"},
-    )
+    _use_kc(world, "cs.loops.control.typo", "打ち間違い")
     assert "cs.loops.control.typo" in client.get(f"/manage/courses/{world.course.id}/kc").text
 
     response = client.post(
@@ -3132,10 +3060,7 @@ def test_the_delete_control_is_hidden_for_a_used_component(world: World) -> None
 
     world.register("boss", Role.ADMIN)
     client = world.client("boss")
-    client.post(
-        f"/manage/courses/{world.course.id}/kc",
-        data={"key": "cs.loops.control.basic", "label": "ループ"},
-    )
+    _use_kc(world, "cs.loops.control.basic", "ループ")
     save_task(
         world.database,
         course_id=world.course.id,
@@ -3161,26 +3086,12 @@ def test_the_delete_control_is_hidden_for_a_used_component(world: World) -> None
     assert "使われています" in response.json()["detail"]
 
 
-def test_a_namespace_outside_the_profile_is_refused(world: World) -> None:
-    _seed(world)
-    world.register("boss", Role.ADMIN)
-    response = world.client("boss").post(
-        f"/manage/courses/{world.course.id}/kc",
-        data={"key": "csci.loops", "label": "ループ"},
-    )
-    assert response.status_code == 400
-    assert "名前空間" in response.json()["detail"]
-
-
 def test_only_an_admin_can_retire_a_component(world: World) -> None:
     """引退はコースをまたいで効く。1 コースの教員が他の語彙を畳めない。"""
     _seed(world)
     world.register("boss", Role.ADMIN)
     world.register("teacher", Role.INSTRUCTOR)
-    world.client("boss").post(
-        f"/manage/courses/{world.course.id}/kc",
-        data={"key": "cs.loops.control.basic", "label": "ループ"},
-    )
+    _use_kc(world, "cs.loops.control.basic", "ループ")
     response = world.client("teacher").post(
         f"/manage/courses/{world.course.id}/kc/retire", data={"key": "cs.loops.control.basic"}
     )
@@ -3363,10 +3274,7 @@ def test_a_generated_task_is_saved_awaiting_approval(monkeypatch, world: World) 
     world.register("teacher", Role.INSTRUCTOR)
     client = world.client("teacher")
     _import_example(world)
-    world.client("boss").post(
-        f"/manage/courses/{world.course.id}/kc",
-        data={"key": "cs.loops.control.basic", "label": "ループ"},
-    )
+    _use_kc(world, "cs.loops.control.basic", "ループ")
 
     class _Drafter:
         def __init__(self, *a, **kw) -> None: ...
@@ -3482,10 +3390,7 @@ def test_the_unit_page_offers_generation_only_with_components(world: World) -> N
 
     _seed(world)
     world.register("boss", Role.ADMIN)
-    world.client("boss").post(
-        f"/manage/courses/{world.course.id}/kc",
-        data={"key": "cs.loops.control.basic", "label": "ループ"},
-    )
+    _use_kc(world, "cs.loops.control.basic", "ループ")
     body = client.get(f"/manage/courses/{world.course.id}/units/{_unit_of(world)}").text
     assert "AI に課題を作らせる" in body
     assert 'name="kc"' in body
@@ -3548,8 +3453,8 @@ def test_candidates_come_from_the_course_basics(monkeypatch, world: World) -> No
 
     body = client.post(f"/manage/courses/{world.course.id}/kc/candidates").text
     assert "cs.loops.control.arrays" in body
-    # 一覧と同じページに出る（体系を見ながら選べるように）。
-    assert "知識要素を追加する" in body
+    # 一覧と同じページに出る（語彙を見ながら選べるように）。
+    assert "名前空間から足す" in body
 
 
 def test_the_candidates_are_built_from_the_saved_description(monkeypatch, world: World) -> None:
@@ -3584,21 +3489,6 @@ def _with_basics(world: World, client) -> None:
         f"/manage/courses/{world.course.id}/basics/apply",
         data={"title": world.course.title, "description": "## 到達目標\n\n配列を扱える"},
     )
-
-
-def test_the_generator_is_told_where_things_can_go(world: World, monkeypatch) -> None:
-    """**単位の一覧を渡す。** 渡さないとモデルは存在しない単位を作り、
-    教員は採用してから断られる（#157 の往復が構造について残る）。
-    """
-    _seed(world)
-    world.register("teacher", Role.INSTRUCTOR)
-    client = world.client("teacher")
-    _with_basics(world, client)
-
-    reader = _proposal("cs.loops.control.arrays")
-    monkeypatch.setattr("aijudge_reviewconsole.manage.SyllabusReader", reader)
-    client.post(f"/manage/courses/{world.course.id}/kc/candidates")
-    assert "cs.loops.control" in reader.last_units
 
 
 def test_what_the_gate_dropped_is_shown_with_its_reason(world: World, monkeypatch) -> None:
@@ -3636,28 +3526,6 @@ def test_what_the_gate_dropped_is_shown_with_its_reason(world: World, monkeypatc
     assert "分野そのもの" in body
 
 
-def test_a_new_candidate_carries_what_it_is_close_to(world: World, monkeypatch) -> None:
-    """**採用の前に近いものを見せる。** 分野・単位をまたいで探すので、
-    「別の分野に同じ語がある」に気づける。
-    """
-    _seed(world)
-    world.register("teacher", Role.INSTRUCTOR)
-    client = world.client("teacher")
-    client.post(
-        f"/manage/courses/{world.course.id}/kc",
-        data={"key": "cs.loops.control.array", "label": "配列"},
-    )
-    _with_basics(world, client)
-
-    monkeypatch.setattr(
-        "aijudge_reviewconsole.manage.SyllabusReader", _proposal("cs.loops.control.arrays")
-    )
-    body = client.post(f"/manage/courses/{world.course.id}/kc/candidates").text
-
-    assert "近いもの:" in body
-    assert "cs.loops.control.array" in body
-
-
 def test_candidates_need_the_basics_to_be_filled_in(world: World) -> None:
     """**候補を出せないことと、候補が無いことは違う。** 何をすればよいか言う。"""
     _seed(world)
@@ -3670,39 +3538,6 @@ def test_candidates_need_the_basics_to_be_filled_in(world: World) -> None:
     # 出せないときはボタンも出さず、基本情報への導線を出す。
     page = client.get(f"/manage/courses/{world.course.id}/kc").text
     assert f"/manage/courses/{world.course.id}/basics" in page
-
-
-def test_an_already_registered_candidate_cannot_be_adopted_again(monkeypatch, world: World) -> None:
-    """このコースで使用中のものは印だけ出して、選ばせない（押しても増えない）。"""
-    _seed(world)
-    world.register("teacher", Role.INSTRUCTOR)
-    client = world.client("teacher")
-    client.post(
-        f"/manage/courses/{world.course.id}/basics/apply",
-        data={"title": world.course.title, "description": "配列を扱える"},
-    )
-    # 第 1 階層は管理者の操作（`aijudge_admin.kc` の規則 2）。
-    world.register("boss", Role.ADMIN)
-    world.client("boss").post(
-        f"/manage/courses/{world.course.id}/kc",
-        data={"key": "cs.loops.control.arrays", "label": "配列"},
-    )
-    monkeypatch.setattr(
-        "aijudge_reviewconsole.manage.SyllabusReader",
-        _proposal("cs.loops.control.arrays", "cs.loops.control.recursion"),
-    )
-    body = client.post(f"/manage/courses/{world.course.id}/kc/candidates").text
-    rows = body[body.index("候補（") :]
-    assert (
-        '<button type="submit" name="use" value="cs.loops.control.recursion" class="minor">' in rows
-    )
-    assert (
-        '<button type="submit" name="use" value="cs.loops.control.arrays" class="minor">'
-        not in rows
-    )
-    assert "このコースで使用中" in rows
-    # 名前はキーで結ぶ。位置で対応づけると、選ばなかった候補の名前が付く。
-    assert 'name="label:cs.loops.control.recursion"' in rows
 
 
 def test_a_short_paste_is_refused(world: World) -> None:
@@ -3722,81 +3557,9 @@ def _candidate_form(*candidates, use: str) -> dict[str, object]:
     return data
 
 
-def test_taking_a_candidate_into_the_form_registers_nothing(world: World) -> None:
-    """**候補は素材であって成果物ではない。** 取り込んだだけでは何も入らない。
-
-    KC の ID はキーから決まる（`kc_id_for`）ので、モデルの付けたキーが少しでも
-    違えば直す道は無く、使われたあとは消すこともできない。だから登録の前に
-    必ず人の手を通す。
-    """
-    _seed(world)
-    world.register("boss", Role.ADMIN)
-    response = world.client("boss").post(
-        f"/manage/courses/{world.course.id}/kc/draft",
-        data=_candidate_form(
-            ("cs.loops.control.arrays", "配列", "添字でたどるまとまり"),
-            use="cs.loops.control.arrays",
-        ),
-    )
-    assert response.status_code == 200
-
-    from aijudge_core import kc_id_for
-
-    with world.database.unit_of_work() as uow:
-        assert uow.skills.get_kc(kc_id_for("cs.loops.control.arrays")) is None
-
-
-def test_a_japanese_key_cannot_be_taken_into_the_form(world: World) -> None:
-    """**関門をもう一度置く**（#157）。
-
-    候補は `SyllabusReader.propose` で選り分け済みだが、この POST は候補一覧
-    そのものを持ち回る（候補は保存していない）ので、鍵はフォーム由来である。
-    ここを通すと、教員は追加フォームまで進んでから登録で断られる。
-    """
-    _seed(world)
-    world.register("boss", Role.ADMIN)
-    response = world.client("boss").post(
-        f"/manage/courses/{world.course.id}/kc/draft",
-        data=_candidate_form(("cs.配列の走査", "配列の走査", ""), use="cs.配列の走査"),
-    )
-    assert response.status_code == 400
-    assert "半角英小文字" in response.text
-
-
-def test_the_form_is_filled_with_the_candidate_that_was_chosen(world: World) -> None:
-    """**選んだ鍵に、その鍵の名前が付く。**
-
-    隠し欄は全候補ぶん送られ、押されたのは 1 件だけ。位置で対応づけると、
-    3 件中 3 件目を押したときに 1 件目の名前が入る（#33 で直したのと同じ形）。
-    """
-    _seed(world)
-    world.register("boss", Role.ADMIN)
-    body = (
-        world.client("boss")
-        .post(
-            f"/manage/courses/{world.course.id}/kc/draft",
-            data=_candidate_form(
-                ("cs.loops.control.basic", "繰り返し", "while と for"),
-                ("cs.loops.control.pointers", "ポインタ", "アドレスを持つ変数"),
-                ("cs.loops.control.arrays", "配列", "添字でたどるまとまり"),
-                use="cs.loops.control.arrays",
-            ),
-        )
-        .text
-    )
-    form = body[body.index("知識要素を追加する") :]
-
-    assert 'value="cs.loops.control.arrays"' in form
-    assert 'value="配列"' in form
-    assert 'value="添字でたどるまとまり"' in form
-    # 押していない候補の名前は入らない。
-    assert 'value="繰り返し"' not in form
-    assert "まだ登録されていません" in body
-
-
 def test_candidates_can_be_adopted_in_bulk(monkeypatch, world: World) -> None:
-    """候補が 20 件あるとき 1 件ずつ往復させない。印を付けてまとめて足す ──
-    体系にあるものは範囲に入れるだけ、無いものは登録して範囲に入れる。"""
+    """候補が 20 件あるとき 1 件ずつ往復させない。印を付けてまとめて範囲に入れる。
+    **語彙への登録はしない**（2026-09-13 決定）── 語彙に無いキーは断る。"""
     _seed(world)
     world.register("boss", Role.ADMIN)
     client = world.client("boss")
@@ -3804,10 +3567,10 @@ def test_candidates_can_be_adopted_in_bulk(monkeypatch, world: World) -> None:
         f"/manage/courses/{world.course.id}/basics/apply",
         data={"title": world.course.title, "description": "配列と再帰を扱える"},
     )
-    # cs.loops.control.arrays は体系にあるが、このコースでは未使用。
     from aijudge_admin import register_kc
 
-    register_kc(world.database, key="cs.loops.control.arrays", label="配列", namespaces=("cs",))
+    for key, label in (("cs.loops.control.arrays", "配列"), ("cs.loops.control.recursion", "再帰")):
+        register_kc(world.database, key=key, label=label, namespaces=("cs",))
     monkeypatch.setattr(
         "aijudge_reviewconsole.manage.SyllabusReader",
         _proposal("cs.loops.control.arrays", "cs.loops.control.recursion"),
@@ -3819,26 +3582,25 @@ def test_candidates_can_be_adopted_in_bulk(monkeypatch, world: World) -> None:
 
     response = client.post(
         f"/manage/courses/{world.course.id}/kc/adopt",
-        data={
-            "adopt": ["cs.loops.control.arrays", "cs.loops.control.recursion"],
-            "label:cs.loops.control.recursion": "再帰",
-            "description:cs.loops.control.recursion": "再帰で書ける",
-        },
+        data={"adopt": ["cs.loops.control.arrays", "cs.loops.control.recursion"]},
         follow_redirects=False,
     )
     assert response.status_code == 303
     page = client.get(response.headers["location"]).text
-    assert "候補から 2 件をこのコースに足しました" in page
-    assert "新しく登録 1 件・体系にあったもの 1 件" in page
+    assert "2 件をこのコースに足しました" in page
     with world.database.unit_of_work() as uow:
         assert uow.identity.get_course(world.course.id).knowledge_components == (
             "cs.loops.control.arrays",
             "cs.loops.control.recursion",
         )
-        from aijudge_core import kc_id_for
 
-        made = uow.skills.get_kc(kc_id_for("cs.loops.control.recursion"))
-        assert made is not None and made.label == "再帰"
+    # 語彙に無いキーは採用できない（画面を経ない POST も同じ）。
+    refused = client.post(
+        f"/manage/courses/{world.course.id}/kc/adopt",
+        data={"adopt": ["cs.loops.control.nothing"]},
+    )
+    assert refused.status_code == 400
+    assert "登録されていない知識要素" in refused.json()["detail"]
 
 
 def test_a_component_this_course_does_not_use_is_offered_as_existing(
@@ -3856,7 +3618,7 @@ def test_a_component_this_course_does_not_use_is_offered_as_existing(
         data={"title": world.course.title, "description": "配列と再帰を扱える"},
     )
     for key, label in (("cs.loops.control.arrays", "配列"), ("cs.loops.control.basic", "ループ")):
-        client.post(f"/manage/courses/{world.course.id}/kc", data={"key": key, "label": label})
+        _use_kc(world, key, label)
     # このコースは basic だけを使う ── cs.loops.control.arrays は体系にあるが範囲外。
     client.post(
         f"/manage/courses/{world.course.id}/kc/scope/remove",
@@ -3870,75 +3632,12 @@ def test_a_component_this_course_does_not_use_is_offered_as_existing(
     body = client.post(f"/manage/courses/{world.course.id}/kc/candidates").text
     rows = body[body.index("候補（") :]
 
-    assert "体系にあり" in rows
-    # 範囲外でも取り込める（取り込めば範囲に入る）。
-    assert '<button type="submit" name="use" value="cs.loops.control.arrays" class="minor">' in rows
-
-
-def test_taking_an_existing_component_shows_the_name_the_vocabulary_has(world: World) -> None:
-    """**体系の名前を出す。** `register` は既にあるものをそのまま返す。
-
-    モデルの書いた名前を欄に入れると、教員はそこで直せると思い、直した内容は
-    黙って捨てられる。
-    """
-    _seed(world)
-    world.register("boss", Role.ADMIN)
-    client = world.client("boss")
-    client.post(
-        f"/manage/courses/{world.course.id}/kc",
-        data={
-            "key": "cs.loops.control.arrays",
-            "label": "配列",
-            "description": "添字でたどるまとまり",
-        },
-    )
-
-    body = client.post(
-        f"/manage/courses/{world.course.id}/kc/draft",
-        data=_candidate_form(
-            ("cs.loops.control.arrays", "配列型データ", "モデルの言い換え"),
-            use="cs.loops.control.arrays",
-        ),
-    ).text
-    form = body[body.index("知識要素を追加する") :]
-
-    assert 'value="配列"' in form
-    assert "モデルの言い換え" not in form
-    assert "名前と説明は変わりません" in body
-
-
-def test_a_candidate_that_was_not_offered_is_refused(world: World) -> None:
-    """取り込む候補が選ばれていないまま送られたら断る。"""
-    _seed(world)
-    world.register("boss", Role.ADMIN)
-    response = world.client("boss").post(
-        f"/manage/courses/{world.course.id}/kc/draft",
-        data=_candidate_form(("cs.loops.control.arrays", "配列", ""), use=""),
-    )
-    assert response.status_code == 400
-
-
-def test_a_candidate_taken_into_the_form_still_follows_the_same_rules(world: World) -> None:
-    """規則は手で足すときと同じ ── **取り込んだ先が同じ経路だから同じになる。**"""
-    _seed(world)
-    world.register("teacher", Role.INSTRUCTOR)
-    client = world.client("teacher")
-    body = client.post(
-        f"/manage/courses/{world.course.id}/kc/draft",
-        data=_candidate_form(
-            ("cs.loops.control.termination", "停止条件", ""), use="cs.loops.control.termination"
-        ),
-    ).text
-    assert 'value="cs.loops.control.termination"' in body
-
-    # 骨格に無い単位を指す候補は、そのまま登録しようとしても断られる
-    # （`add_kc` の規則 ── 候補は素材であって成果物ではない）。
-    response = client.post(
-        f"/manage/courses/{world.course.id}/kc",
-        data={"key": "cs.nosuch.unit_thing", "label": "停止条件", "confirm": "1"},
-    )
-    assert response.status_code == 400
-    assert "骨格" in response.json()["detail"]
+    assert "語彙にあり（範囲外）" in rows
+    # 範囲外でも採用できる（採用すれば範囲に入る）。
+    assert 'name="adopt" value="cs.loops.control.arrays"' in rows
+    # 語彙に無い候補は「新規」として出ず、関門が落とす（ここは代役なので落ちない
+    # が、採用は断られる）。
+    assert "新規" not in rows
 
 
 def test_the_course_settings_link_to_both_flows(world: World) -> None:
@@ -4031,10 +3730,7 @@ def test_the_long_running_forms_say_that_the_model_is_working(world: World) -> N
     client = world.client("boss")
     _import_example(world)
     # 作問の欄は、問える知識要素が 1 つ以上あって初めて出る。
-    client.post(
-        f"/manage/courses/{world.course.id}/kc",
-        data={"key": "cs.loops.control.basic", "label": "ループ"},
-    )
+    _use_kc(world, "cs.loops.control.basic", "ループ")
     unit = _unit_of(world)
 
     body = client.get(f"/manage/courses/{world.course.id}/units/{unit}").text
@@ -4049,10 +3745,7 @@ def test_the_progress_is_not_reported_as_a_number(world: World) -> None:
     world.register("boss", Role.ADMIN)
     client = world.client("boss")
     _import_example(world)
-    client.post(
-        f"/manage/courses/{world.course.id}/kc",
-        data={"key": "cs.loops.control.basic", "label": "ループ"},
-    )
+    _use_kc(world, "cs.loops.control.basic", "ループ")
     unit = _unit_of(world)
 
     body = client.get(f"/manage/courses/{world.course.id}/units/{unit}").text
@@ -4068,10 +3761,7 @@ def test_a_badge_that_needs_someone_is_not_the_same_as_a_bad_one(world: World) -
     _seed(world)
     world.register("boss", Role.ADMIN)
     client = world.client("boss")
-    client.post(
-        f"/manage/courses/{world.course.id}/kc",
-        data={"key": "cs.loops.control.basic", "label": "ループ"},
-    )
+    _use_kc(world, "cs.loops.control.basic", "ループ")
     client.post(
         f"/manage/courses/{world.course.id}/kc/retire", data={"key": "cs.loops.control.basic"}
     )
@@ -6477,10 +6167,7 @@ def test_the_template_names_the_knowledge_components_of_this_course(world: World
     _seed(world)
     world.register("boss", Role.ADMIN, tenant_admin=True)
     client = world.client("boss")
-    client.post(
-        f"/manage/courses/{world.course.id}/kc",
-        data={"key": "cs.loops.control.basic", "label": "繰り返し"},
-    )
+    _use_kc(world, "cs.loops.control.basic", "繰り返し")
 
     archive = zipfile.ZipFile(io.BytesIO(client.get(_template_url(world)).content))
 
