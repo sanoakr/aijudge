@@ -1,10 +1,10 @@
 {% extends "base.html" %}
-{% block title %}未承認の課題 — {{ course.title }}{% endblock %}
+{% block title %}未承認の課題（AI 作問） — {{ course.title }}{% endblock %}
 {% block body %}
-<h1>未承認の課題</h1>
+<h1>未承認の課題（AI 作問）</h1>
 
 {% if not rows %}
-<div class="note">未承認の課題はありません。</div>
+<div class="note">未承認の課題（AI 作問）はありません。</div>
 {% else %}
 <div class="note">
   <strong>承認するまで出題されません。</strong>
@@ -138,8 +138,14 @@
   </table>
   {% endif %}
 
-  <h3>課題文</h3>
-  <pre class="statement">{{ row.version.statement }}</pre>
+  <h3>学習者に出る形</h3>
+  {# 承認は学生が読む画面を見て決める（課題の編集画面と同じ描画）。
+     Markdown の生文は折り畳んで残す ── 直すときはそちらを見る。 #}
+  <div class="statement">{{ row.statement_html | safe }}</div>
+  <details style="margin-top:8px">
+    <summary class="desc">Markdown の原文</summary>
+    <pre class="statement">{{ row.version.statement }}</pre>
+  </details>
   {# **直してから承認できるようにする。** 却下は理由を書いて作問の改善に
      還流させる操作で、「少し直せば使える」課題まで却下に回すと、その理由が
      プロンプトの改善材料として役に立たない。 #}

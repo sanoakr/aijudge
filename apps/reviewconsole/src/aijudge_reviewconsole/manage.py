@@ -608,7 +608,7 @@ SAVED_MESSAGES: dict[str, str] = {
     "removed": "受講を取り消しました",
     "tests_added": (
         "テストケースを生成し、**新しい版**を作りました。承認するまで学習者には"
-        "いまの版が出続けます（未承認の課題から中身を確かめて承認してください）"
+        "いまの版が出続けます（未承認の課題（AI 作問）から中身を確かめて承認してください）"
     ),
     # **原因を決めつけない。** 作れない理由はいくつもある（モデルが止まって
     # いる・応答が長さで切れた・スキーマに合わない形で返した）。「S6 が
@@ -643,7 +643,7 @@ SAVED_MESSAGES: dict[str, str] = {
     # いると思ったまま学期が進む形が、いちばん高くつく。
     "bundle_in_review": (
         "取り込みました。**未承認なので、まだ学習者には出ません** —— "
-        "「未承認の課題」から中身を確かめて承認してください"
+        "「未承認の課題（AI 作問）」から中身を確かめて承認してください"
     ),
     "bundle_saved": "取り込みました（承認済みとして入れたので、日程の範囲で出題されます）",
     "tenant_admin_granted": "テナント管理者にしました（すべてのコースで教員として扱われます）",
@@ -5397,6 +5397,10 @@ def register(templates) -> APIRouter:
                         # 検査していない課題も並べる。**隠さない** ── 見えない
                         # ものは承認も却下もされず、待ち行列に溜まり続ける。
                         "clean": bool(checks and checks.verification.usable),
+                        # 学習者に出る形（#105 と同じ関数）。承認は「学生が読む
+                        # 画面」を見て決めるもので、Markdown の生文だけでは
+                        # 数式・コードの囲み・画像が意図どおりかが分からない。
+                        "statement_html": render_statement(version.statement),
                     }
                 )
         return templates.TemplateResponse(
@@ -5406,7 +5410,7 @@ def register(templates) -> APIRouter:
                 "me": me,
                 "course": course,
                 "section": {
-                    "label": "未承認の課題",
+                    "label": "未承認の課題（AI 作問）",
                     "href": f"/manage/courses/{course.id}/drafts",
                 },
                 "rows": rows,

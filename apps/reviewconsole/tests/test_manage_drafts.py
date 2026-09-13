@@ -356,3 +356,16 @@ def test_a_rejected_task_goes_into_no_set(world: World) -> None:
     with world.database.unit_of_work() as uow:
         task = uow.tasks.get_task(TaskId("tsk_" + "3" * 32))
     assert task.unit != "ex07", "却下したのにセットへ入った"
+
+
+def test_the_queue_shows_the_statement_as_the_learner_sees_it(world: World) -> None:
+    """承認は学生が読む画面を見て決める。Markdown の生文だけでは、数式や
+    コードの囲みが意図どおりかが分からない（課題の編集画面と同じ描画）。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    world.login("teacher")
+    page = world.client.get(f"/manage/courses/{COURSE}/drafts").text
+    assert "学習者に出る形" in page
+    # 見出しは描画されて h2 になる。原文も折り畳んで残る。
+    assert "<h2>生成された課題</h2>" in page
+    assert "Markdown の原文" in page
+    assert "## 生成された課題 ##" in page
