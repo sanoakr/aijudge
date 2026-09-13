@@ -229,6 +229,10 @@ def _external_url(request: Request, path: str) -> str:
 # 事故か攻撃なので受け付ける前に止める。`AIJUDGE_MAX_UPLOAD_BYTES` で変えられる。
 # **動画はこの経路では受けない**（`submit-video` + `MAX_VIDEO_BYTES`）。
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
+# 1 回の提出に入れられるファイル数と、合計の上限（1 ファイルの上限の何倍か）
+# （#283）。認定証を何枚か出す課題のためで、束ねて出す形は想定しない。
+MAX_FILES_PER_SUBMISSION = 10
+MAX_TOTAL_UPLOAD_FACTOR = 4
 # 動画 1 ファイルの上限（既定 5 GiB）。`AIJUDGE_MAX_VIDEO_BYTES` で変えられる。
 MAX_VIDEO_BYTES = 5 * 1024 * 1024 * 1024
 # AI 評価 1 観点の目安秒数（RUNNING.md の実測 ≈ 17s を丸めた値）。待ち時間の
@@ -608,6 +612,11 @@ def create_app(app_state: StudentApp) -> FastAPI:
             else ()
         )
         plain_accepts = tuple(s for s in accepts if s not in STREAMED_SUFFIXES)
+        # 画像・PDF の課題は複数ファイルを 1 つの提出にまとめられる（#283）。
+        # コードを受ける課題は 1 ファイル（テスト実行は 1 つのソースを走らせる）。
+        multi_file = bool(plain_accepts) and all(
+            kind_for(suffix) is not ArtifactKind.CODE for suffix in plain_accepts
+        )
         with app_state.database.unit_of_work() as uow:
             # 一覧と個別画面で同じ規則の点・状態を出すため、
             # ここも `load_progress` を通す（`progress.py`）。
@@ -630,6 +639,8 @@ def create_app(app_state: StudentApp) -> FastAPI:
                 "attempts": tuple(reversed(progress.attempts)),
                 "accepts": accepts,
                 "plain_accepts": plain_accepts,
+                "multi_file": multi_file,
+                "max_files": MAX_FILES_PER_SUBMISSION,
                 "video_accepts": video_accepts,
                 "max_video_bytes": app_state.max_video_bytes,
                 # 提出開始を過ぎているか。**過ぎるまで受け付けない**
@@ -653,10 +664,16 @@ def create_app(app_state: StudentApp) -> FastAPI:
         request: Request,
         task_version_id: str,
         me: Me,
-        upload: UploadFile,
+        upload: list[UploadFile],
     ) -> Response:
+        """提出を受け付ける。**ファイルは複数でよい**（#283）。
+
+        認定証を何枚も出す課題（修了した各レッスンの認定証）は、1 枚ずつ別の
+        提出にすると 1 回しか採用されない。画像・PDF の課題は複数を 1 つの
+        提出にまとめる。**コードの課題は 1 ファイル** ── テスト実行は 1 つの
+        ソースを走らせるので、2 つ出されても何を走らせるか決められない。
+        """
         version, course_obj, _task = _task_and_course(app_state, me, TaskVersionId(task_version_id))
-        payload = await upload.read()
 
         # **受付の外では受け取らない。** 画面で隠すだけでは、URL を知って
         # いれば出せてしまう（隠すのは表示の都合であって制限ではない）。
@@ -680,20 +697,62 @@ def create_app(app_state: StudentApp) -> FastAPI:
             )
 
         accepts = allowed_suffixes(_task.accepted_suffixes, course_obj.upload_suffixes)
-        filename = Path(upload.filename or "submission").name
-        suffix = Path(filename).suffix.lower()
-        kind = kind_for(suffix) if suffix in accepts else None
-        if kind is None:
+        if not upload:
+            raise HTTPException(status_code=400, detail="ファイルを選んでください")
+        if len(upload) > MAX_FILES_PER_SUBMISSION:
             raise HTTPException(
                 status_code=400,
-                detail=f"この形式は提出できません（受付: {', '.join(accepts)}）",
+                detail=f"1 回の提出で出せるのは {MAX_FILES_PER_SUBMISSION} ファイルまでです",
             )
-        if not payload:
-            raise HTTPException(status_code=400, detail="ファイルが空です")
-        if len(payload) > app_state.max_upload_bytes:
+        files: list[IncomingFile] = []
+        seen_names: set[str] = set()
+        total = 0
+        for item in upload:
+            payload = await item.read()
+            filename = Path(item.filename or "submission").name
+            suffix = Path(filename).suffix.lower()
+            kind = kind_for(suffix) if suffix in accepts else None
+            if kind is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"{filename}: この形式は提出できません（受付: {', '.join(accepts)}）",
+                )
+            if not payload:
+                raise HTTPException(status_code=400, detail=f"{filename}: ファイルが空です")
+            if len(payload) > app_state.max_upload_bytes:
+                raise HTTPException(
+                    status_code=413,
+                    detail=(
+                        f"{filename}: ファイルが大きすぎます"
+                        f"（上限 {app_state.max_upload_bytes} バイト）"
+                    ),
+                )
+            total += len(payload)
+            # 同じ名前が 2 つあると保存先が重なる。**黙って上書きしない** ──
+            # 2 枚目に番号を付けて残す（順番は出した順のまま）。
+            stem, dot, ext = filename.rpartition(".")
+            base = filename
+            counter = 2
+            while filename in seen_names:
+                filename = f"{stem}-{counter}.{ext}" if dot else f"{base}-{counter}"
+                counter += 1
+            seen_names.add(filename)
+            files.append(IncomingFile(filename=filename, kind=kind, payload=payload))
+        if total > app_state.max_upload_bytes * MAX_TOTAL_UPLOAD_FACTOR:
             raise HTTPException(
                 status_code=413,
-                detail=f"ファイルが大きすぎます（上限 {app_state.max_upload_bytes} バイト）",
+                detail=(
+                    "合計が大きすぎます"
+                    f"（上限 {app_state.max_upload_bytes * MAX_TOTAL_UPLOAD_FACTOR} バイト）"
+                ),
+            )
+        if len(files) > 1 and any(item.kind is ArtifactKind.CODE for item in files):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "プログラムの課題は 1 回の提出に 1 ファイルです"
+                    "（テスト実行は 1 つのソースを走らせます）"
+                ),
             )
 
         try:
@@ -702,7 +761,7 @@ def create_app(app_state: StudentApp) -> FastAPI:
                 task_version_id=version.id,
                 learner_id=me.user_id,
                 subject_profile=version.subject_profile,
-                files=[IncomingFile(filename=filename, kind=kind, payload=payload)],
+                files=files,
                 # 試験の問題セットでは、採点はここでは走らせない（#67）。
                 # テスト実行の結果は「どのケースで落ちたか」を含むので、
                 # **試験中の学習者にとっては答えの一部**である。

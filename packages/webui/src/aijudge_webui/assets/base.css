@@ -594,3 +594,16 @@ body:has(.gate) .gate{flex:1;min-height:0}
      同じ行に置く（出口だけを 1 行目の右に残す）。 */
   header.top .inner > a:not(.brand){order:5;font-size:.8rem;margin-top:6px}
 }
+
+/* 副次のボタン（`button.minor`）。「コースの共通ルーブリックに復元」「外す」など
+   は補助操作で、画面の一次操作（この問題を保存して更新する）
+   と同じ朱の塊で並ぶと、どれを押せば保存されるのかが読めない。輪郭だけの
+   小さめの釦にして、朱は保存に残す。 */
+button.minor{background:transparent;color:var(--ink-2);border:1px solid var(--line);
+  font-weight:600;font-size:.88rem;padding:7px 14px}
+button.minor:hover{filter:none;background:var(--surface-2);border-color:var(--ink-2)}
+
+/* 1 枚ずつ積む提出物の一覧（#283・学習者アプリ）。 */
+.upload-list{margin:8px 0 0;padding-left:1.4em}
+.upload-list li{display:flex;gap:10px;align-items:center;margin:4px 0}
+.upload-list li .mono{flex:1 1 auto;word-break:break-all}

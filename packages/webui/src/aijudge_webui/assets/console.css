@@ -327,13 +327,6 @@ form[data-working] button[disabled]{opacity:.55;cursor:progress}
 .criterion-fields label.danger-check{display:flex;align-items:center;gap:8px;margin-top:14px;
   font-size:.88rem;color:var(--shu);cursor:pointer}
 .criterion-fields label.danger-check input{width:auto;margin:0}
-/* 副次のボタン（`button.minor`）。「共通ルーブリックに復元」「画像を貼り付け」
-   は編集フォームの中の補助操作で、画面の一次操作（この問題を保存して更新する）
-   と同じ朱の塊で並ぶと、どれを押せば保存されるのかが読めない。輪郭だけの
-   小さめの釦にして、朱は保存に残す。 */
-button.minor{background:transparent;color:var(--ink-2);border:1px solid var(--line);
-  font-weight:600;font-size:.88rem;padding:7px 14px}
-button.minor:hover{filter:none;background:var(--surface-2);border-color:var(--ink-2)}
 /* テストケースの表（#284）。入出力は等幅で、折り返さずに横へ流す ──
    空白の数が正誤を分けるので、折り返して見せると空白が読めない。 */
 table.testcases pre.io{margin:0;padding:6px 8px;background:var(--surface-2);border:1px solid var(--line-soft);

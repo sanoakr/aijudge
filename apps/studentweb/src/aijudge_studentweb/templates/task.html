@@ -25,7 +25,29 @@
 <h2>提出する</h2>
 {% if open_for_submission %}
 {% if plain_accepts %}
-<form method="post" action="/tasks/{{ task.id }}/submit" enctype="multipart/form-data" class="card">
+<form method="post" action="/tasks/{{ task.id }}/submit" enctype="multipart/form-data" class="card"
+      {% if multi_file %}data-multi-upload{% endif %}>
+  {% if multi_file %}
+  {# **1 枚ずつ足して、まとめて出す**（#283）。認定証を何枚も出す課題で、
+     1 枚ごとに別の提出になると 1 回しか採用されない。選んだファイルは
+     JavaScript が `#upload` の FileList に積む（順番はそのまま・1 つずつ
+     消せる）。JavaScript が無ければ `multiple` の素の欄で一度に選ぶ。 #}
+  <div class="field">
+    <label for="upload">ファイル（{{ plain_accepts | join(', ') }}・{{ max_files }} 枚まで）</label>
+    <input id="upload" name="upload" type="file" required multiple accept="{{ plain_accepts | join(',') }}">
+    <div class="js-only" hidden>
+      <div class="inline-field" style="margin-top:8px">
+        <span class="body">
+          <input id="upload-picker" type="file" accept="{{ plain_accepts | join(',') }}" aria-label="追加するファイル">
+        </span>
+        <button type="button" class="minor" id="upload-add">この 1 枚を追加</button>
+      </div>
+      <ol id="upload-list" class="upload-list" aria-live="polite"></ol>
+      <p class="desc" id="upload-empty">まだ何も追加していません。1 枚ずつ追加してから「提出」を押してください。</p>
+    </div>
+  </div>
+  <div class="actions"><button type="submit">提出（追加した全部をまとめて）</button></div>
+  {% else %}
   {# 入力が 1 つなので、ボタンは同じ行の右端に置く。 #}
   <div class="inline-field">
     <span class="body">
@@ -34,12 +56,61 @@
     </span>
     <button type="submit">提出</button>
   </div>
+  {% endif %}
   <p class="desc" style="margin:12px 0 0">
     提出すると採点が始まります。<strong>観点別の評価はすぐに表示されます。</strong>
     担当教員の確認を経て成績が確定します。結果に疑問があれば、結果画面から
     再確認を依頼できます。
   </p>
 </form>
+{% if multi_file %}
+<script>
+(function () {
+  var form = document.querySelector("form[data-multi-upload]");
+  if (!form || !window.DataTransfer) return;
+  var real = form.querySelector("#upload");
+  var picker = form.querySelector("#upload-picker");
+  var add = form.querySelector("#upload-add");
+  var list = form.querySelector("#upload-list");
+  var empty = form.querySelector("#upload-empty");
+  var limit = {{ max_files }};
+  var files = [];
+  // 素の欄は隠し、1 枚ずつ積む欄を出す。
+  real.hidden = true;
+  real.required = false;
+  form.querySelector(".js-only").hidden = false;
+  function sync() {
+    var dt = new DataTransfer();
+    files.forEach(function (f) { dt.items.add(f); });
+    real.files = dt.files;
+    list.innerHTML = "";
+    files.forEach(function (f, i) {
+      var li = document.createElement("li");
+      var name = document.createElement("span");
+      name.className = "mono";
+      name.textContent = f.name + "（" + Math.round(f.size / 1024) + " KB）";
+      var rm = document.createElement("button");
+      rm.type = "button"; rm.className = "minor"; rm.textContent = "外す";
+      rm.addEventListener("click", function () { files.splice(i, 1); sync(); });
+      li.appendChild(name); li.appendChild(rm); list.appendChild(li);
+    });
+    empty.hidden = files.length > 0;
+  }
+  add.addEventListener("click", function () {
+    var f = picker.files && picker.files[0];
+    if (!f) return;
+    if (files.length >= limit) { alert(limit + " 枚までです"); return; }
+    if (files.some(function (g) { return g.name === f.name && g.size === f.size; })) {
+      alert("同じファイルは既に追加してあります"); picker.value = ""; return;
+    }
+    files.push(f); picker.value = ""; sync();
+  });
+  form.addEventListener("submit", function (e) {
+    if (files.length === 0) { e.preventDefault(); alert("ファイルを 1 枚以上追加してください"); }
+  });
+})();
+</script>
+{% endif %}
 {% endif %}
 {% if video_accepts %}
 {# 動画は取り込み経路が別（`submit-video`）。生バイト列を送るので multipart
