@@ -2,7 +2,7 @@
 {% block title %}受講者 — {{ course.title }} — aiJudge{% endblock %}
 {% block body %}
 <h1>受講者</h1>
-<p class="subtitle">{{ course.title }}・{{ total }} 名{% if q %}（<span class="mono">{{ q }}</span> で {{ people | length }} 名に絞り込み）{% endif %}</p>
+<p class="subtitle">{{ course.title }}・{{ total }} 名{% if q or role_filter %}（{% if q %}<span class="mono">{{ q }}</span>{% endif %}{% if q and role_filter %}・{% endif %}{% if role_filter %}<span class="mono">{{ role_filter }}</span>{% endif %} で {{ people | length }} 名に絞り込み）{% endif %}</p>
 
 {# 内訳は**絞り込みの前**の数。絞り込んだ結果の内訳を出すと、「TA が 0 名」が
    登録漏れなのか絞り込みの結果なのか分からない。 #}
@@ -19,8 +19,14 @@
   <input id="q" name="q" value="{{ q }}" placeholder="y2399" style="max-width:10rem"
          {{ 'autofocus' if q }}
          onfocus="this.setSelectionRange(this.value.length, this.value.length)">
+  {# 役割でも絞る。内訳の数字（上）はこの絞り込みの前の数。 #}
+  <label for="role-filter" class="desc">役割</label>
+  <select id="role-filter" name="role">
+    <option value="">すべて</option>
+    {% for r in all_roles %}<option value="{{ r }}" {{ 'selected' if r == role_filter }}>{{ r }}</option>{% endfor %}
+  </select>
   <button type="submit">絞り込み</button>
-  {% if q %}<a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/enrolments" class="desc">解除</a>{% endif %}
+  {% if q or role_filter %}<a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/enrolments" class="desc">解除</a>{% endif %}
 </form>
 
 {% if enrol_result %}

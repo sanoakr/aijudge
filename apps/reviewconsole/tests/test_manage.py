@@ -1243,6 +1243,26 @@ def test_sso_accounts_are_created_from_the_roster_before_their_first_login(
         assert principal.user_id == user.id
 
 
+def test_the_enrolment_list_can_be_filtered_by_role(world: World) -> None:
+    """TA だけ・教員だけを見るのに、100 名の学生の中から探さない。内訳の数は
+    絞り込みの前のまま。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    world.register("ta01", Role.ASSISTANT)
+    world.register("y239999", Role.LEARNER)
+    client = world.client("teacher")
+
+    page = client.get(f"/manage/courses/{world.course.id}/enrolments?role=assistant").text
+    rows = page[page.index('<table class="stack">') : page.index("<h2>受講登録</h2>")]
+    assert "ta01" in rows
+    assert "y239999" not in rows and "teacher" not in rows
+    assert "1 名に絞り込み" in page
+    assert "learner</span> <b>1</b>" in page  # 内訳は絞る前
+
+    # 語彙に無い役割は無視する（全員が出る）。
+    page = client.get(f"/manage/courses/{world.course.id}/enrolments?role=wizard").text
+    assert "y239999" in page and "ta01" in page
+
+
 def test_the_roster_form_names_accounts_not_student_numbers(
     world: World, monkeypatch: pytest.MonkeyPatch
 ) -> None:

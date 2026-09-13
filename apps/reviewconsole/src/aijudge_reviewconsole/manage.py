@@ -4244,6 +4244,7 @@ def register(templates) -> APIRouter:
         request: Request,
         course_id: str,
         q: str = "",
+        role: str = "",
         saved: str = "",
         enrolled: int = 0,
         already: int = 0,
@@ -4268,11 +4269,16 @@ def register(templates) -> APIRouter:
         console = _console(request)
 
         prefix = q.strip().lower()
+        # 役割でも絞る。TA だけ・教員だけを見たいとき、100 名の学生の中から
+        # 探すことになっていた。値は役割の語彙にあるものだけ（無ければ絞らない）。
+        wanted = role.strip() if role.strip() in {r.value for r in Role} else ""
         with console.database.unit_of_work() as uow:
             oidc = uow.identity.get_oidc_settings(me.tenant_id)
             all_enrollments = uow.identity.list_enrollments(course.id)
             people = []
             for enrollment in all_enrollments:
+                if wanted and enrollment.role.value != wanted:
+                    continue
                 user = uow.identity.get_user(enrollment.user_id)
                 login = getattr(user, "login", "") or str(enrollment.user_id)
                 if prefix and not login.lower().startswith(prefix):
@@ -4295,6 +4301,8 @@ def register(templates) -> APIRouter:
                 "role_counts": _role_counts(all_enrollments),
                 "total": len(all_enrollments),
                 "q": q.strip(),
+                "role_filter": wanted,
+                "all_roles": [r.value for r in Role],
                 # **画面から配れる役割だけを出す**（#100）。`admin` は出さない
                 # ── コースをまたぐ権限なので、コースの受講者一覧からは配れない。
                 "roles": [role.value for role in GRANTABLE_ROLES],
