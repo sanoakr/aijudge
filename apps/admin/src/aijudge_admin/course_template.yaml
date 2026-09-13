@@ -1,0 +1,112 @@
+# ============================================================================
+# aiJudge コース定義のひな形（course.yaml）
+#
+# 教員が埋めて管理者に渡し、管理者が運用機で投入します:
+#   aijudge-admin course apply --file course.yaml
+#
+# 何度流しても増えません（同じキーの課題は同じ課題として扱われます）。
+# 回を足したら追記して、同じコマンドをもう一度流します。
+#
+# 書けるものは apps/admin/src/aijudge_admin/course_definition.py 冒頭の
+# 説明が正です。このひな形はその写しで、`#` の行は消して構いません。
+# ============================================================================
+
+course:
+  # コースコード。半角英数字。学期と組で同一性が決まり、あとから変えられません。
+  code: network
+  # 学習者に出る題名
+  title: ネットワーク及び演習
+  # 学期は `年度-区分`（区分は 前期・後期・通年 など。管理者に確認）
+  term: 2026-後期
+  # 科目プロファイル（採点の設定の名前。管理者が用意したものから選ぶ）
+  #   cs_lang_c_intro   … C 言語（テスト実行 + AI の読みやすさ）
+  #   cs_network_python … Python（ネットワーク演習）
+  #   report_ja         … 日本語レポート
+  subject_profile: cs_network_python
+  # 概要（Markdown 可・任意）。学習者のコース画面に出ます。
+  description: >-
+    Python によるソケット・HTTP・スレッドの演習。講義ページは
+    https://example.ac.jp/network/ 。
+  # プログラムの課題で受け付ける拡張子（任意）。画像の課題は課題側で上書きします。
+  upload_suffixes: [.py]
+  # このコースが使う知識要素（任意）。課題側に書いたものは自動で入ります。
+  # knowledge_components: [cs.loops.control.basic]
+
+# 回ごとの日程の既定（任意）。課題側に日程が無ければこれが使われます。
+# 時刻は +09:00 付きで書きます。`due_at` を過ぎても提出は受け付けます
+# （受付終了・遅延の減点は教員コンソールで設定します）。
+units:
+  ex1:
+    opens_at: 2026-09-18T09:00:00+09:00
+    due_at: 2026-09-25T23:59:00+09:00
+  ex2:
+    opens_at: 2026-09-25T09:00:00+09:00
+    due_at: 2026-10-02T23:59:00+09:00
+
+tasks:
+  # --------------------------------------------------------------------------
+  # 1. 画像・PDF で出す課題（認定証のスクリーンショットなど）
+  #    自動採点はしません。観点は人が段階を付けます（evaluator: __human__）。
+  # --------------------------------------------------------------------------
+  - key: ex1/p1              # 課題キー。コースの中で一意。`回/問` の形が慣例
+    unit: ex1                # どの回に出すか（上の units のキー）
+    session: 1               # 何回目か（並べ替え用）
+    position: 1              # 回の中の順序
+    accepted_suffixes: [.png, .jpg, .jpeg, .pdf]
+    statement: |
+      ## [必須] 認定証提出 ##
+
+      講座の認定証の画面キャプチャを提出してください。
+      ニックネームには必ず自身の学籍番号を含めてください。
+    criteria:
+      - code: certificate
+        title: 認定証が確認できる
+        description: 講座名と合格が画像から読み取れるか。
+        weight: 0.6
+        evaluator: __human__
+        levels:
+          - {level: 0, label: 未達, descriptor: 認定証が写っていない, score_ratio: 0.0}
+          - {level: 1, label: 一部, descriptor: 講座名や合格が読み取れない, score_ratio: 0.5}
+          - {level: 2, label: 達成, descriptor: 講座名と合格が読み取れる, score_ratio: 1.0}
+      - code: nickname
+        title: 学籍番号入りのニックネーム
+        description: 認定証のニックネームに本人の学籍番号が含まれているか。
+        weight: 0.4
+        evaluator: __human__
+        levels:
+          - {level: 0, label: 未達, descriptor: 学籍番号が無い, score_ratio: 0.0}
+          - {level: 1, label: 達成, descriptor: 本人の学籍番号が含まれている, score_ratio: 1.0}
+
+  # --------------------------------------------------------------------------
+  # 2. プログラムの課題を、問題ディレクトリから読む（Sharif Judge 形式）
+  #    course.yaml からの相対パス。ディレクトリの中身:
+  #      desc.md          問題文（1 行目が `## [必須] 題名 ##`。[任意] も可）
+  #      in/input1.txt    テストケースの入力（input2.txt, … と続ける）
+  #      out/output1.txt  期待出力（input と同じ番号）
+  #      <name>.py / .c   参照解答（任意。AI の判定の手がかりになる）
+  #    キー・回・順序はディレクトリ名（ex1/p2）から決まります。
+  # --------------------------------------------------------------------------
+  - problem_dir: ex1/p2
+    readability_weight: 0.0   # AI の「読みやすさ」の重み。0 なら正しさだけ
+  - problem_dir: ex1/p3
+    readability_weight: 0.3   # 正しさ 0.7 ／ 読みやすさ 0.3
+    # knowledge_components: [cs.io.formatted.input]   # この課題が問う知識要素（任意）
+
+  # --------------------------------------------------------------------------
+  # 3. プログラムの課題をここに直接書く（ディレクトリを作らない場合）
+  # --------------------------------------------------------------------------
+  - key: ex2/p1
+    unit: ex2
+    session: 2
+    position: 1
+    readability_weight: 0.3
+    statement: |
+      ## [必須] 合計を求める ##
+
+      自然数 n と n 個の整数を読み込み、その合計を 1 行に出力しなさい。
+    reference_solution: |
+      n = int(input())
+      print(sum(int(input()) for _ in range(n)))
+    test_cases:
+      - {name: case1, input: "3\n1\n2\n3\n", expected: "6\n"}
+      - {name: case2, input: "1\n-5\n", expected: "-5\n"}

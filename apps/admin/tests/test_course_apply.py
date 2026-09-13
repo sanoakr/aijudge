@@ -177,3 +177,24 @@ def test_a_missing_problem_dir_is_named(tmp_path: Path) -> None:
     text = DEFINITION.replace("problem_dir: ex1/p3", "problem_dir: ex1/p9")
     with pytest.raises(AdminError, match="p9"):
         load_course_definition(_write_definition(tmp_path, text))
+
+
+def test_the_template_is_a_valid_definition(tmp_path: Path) -> None:
+    """配るひな形は、そのまま流せる形でなければならない（教員が埋めて管理者に渡す）。"""
+    from aijudge_admin.course_definition import course_template
+
+    text = course_template()
+    for problem in ("p2", "p3"):
+        problem_dir = tmp_path / "ex1" / problem
+        (problem_dir / "in").mkdir(parents=True)
+        (problem_dir / "out").mkdir()
+        (problem_dir / "desc.md").write_text(DESC, encoding="utf-8")
+        (problem_dir / "in" / "input1.txt").write_text("", encoding="utf-8")
+        (problem_dir / "out" / "output1.txt").write_text("Hello\n", encoding="utf-8")
+    path = tmp_path / "course.yaml"
+    path.write_text(text, encoding="utf-8")
+
+    definition = load_course_definition(path)
+    assert definition.course["code"] == "network"
+    assert [task.key for task in definition.tasks] == ["ex1/p1", "ex1/p2", "ex1/p3", "ex2/p1"]
+    assert definition.tasks[3].test_cases[0].expected == "6\n"

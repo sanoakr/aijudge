@@ -57,7 +57,23 @@ from aijudge_persistence import Database
 from .authoring import save_task
 from .operations import AdminError, ensure_course
 
-__all__ = ["AppliedCourse", "CourseDefinition", "apply_course_definition", "load_course_definition"]
+__all__ = [
+    "AppliedCourse",
+    "CourseDefinition",
+    "apply_course_definition",
+    "course_template",
+    "load_course_definition",
+]
+
+# 教員に渡すひな形。**説明のコメントごと配る** ── 形式の説明はこのファイル
+# 冒頭にあるが、教員はリポジトリを開かない。画面からダウンロードして埋め、
+# 管理者に渡す（`course apply` を流すのは管理者）。
+TEMPLATE_PATH = Path(__file__).with_name("course_template.yaml")
+
+
+def course_template() -> str:
+    return TEMPLATE_PATH.read_text(encoding="utf-8")
+
 
 # `course:` に書けるもののうち、`ensure_course` が受け取らない運用値。
 _COURSE_REQUIRED = ("code", "title", "term", "subject_profile")

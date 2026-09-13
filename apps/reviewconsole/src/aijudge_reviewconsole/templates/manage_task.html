@@ -91,8 +91,82 @@
   </p>
   <div class="field">
     <textarea id="statement" name="statement" rows="14" required
-      placeholder="## [必須] 課題の題名 ##&#10;&#10;自然数 n を入力し…">{{ version.statement if version else '' }}</textarea>
+      placeholder="## [必須] 課題の題名 ##&#10;&#10;自然数 n を入力し…">{{ statement_draft if statement_draft is not none else (version.statement if version else '') }}</textarea>
   </div>
+  </div>
+
+  <div class="subsection">
+  <h3>問う知識要素</h3>
+  {# **課題に付いた知識要素だけが習熟度を動かす**（#292）。付いていない課題の
+     成績は、どの知識要素にも記録されない。候補はこのコースが使うものだけ
+     （`_course_kcs`）。AI の候補は書きかけの問題文で出せる（`kc-candidates`）。 #}
+  <input type="hidden" name="kc_form" value="1">
+  <p class="desc" style="margin:0 0 8px">
+    この課題の成績がどの知識要素の習熟度に効くかを決めます。
+    <strong>付いていない課題の成績は、どの知識要素にも記録されません。</strong>
+    付け外しは新しい版になります（過去の採点は元の版のまま）。
+  </p>
+  {% if course_kcs %}
+  <div class="kcpick">
+    {% for k in course_kcs %}
+    <label>
+      <input type="checkbox" name="kc" value="{{ k.key }}" {{ 'checked' if k.key in chosen_kcs }}>
+      <span class="k">{{ k.key }}</span>
+      <span class="desc">{{ k.label }}</span>
+    </label>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="desc">このコースはまだ知識要素を使っていません。
+    <a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/kc">知識要素</a>で足すか、下の候補から付けてください。</p>
+  {% endif %}
+  {% if task %}
+  <div class="actions" style="justify-content:flex-start">
+    {# **入れ子のフォームは作れない**ので、同じフォームを別の先へ送る
+       （`formaction`）。書きかけの問題文と選択中の知識要素がそのまま渡る。 #}
+    <button type="submit" class="minor"
+            formaction="{{ root_prefix() }}/manage/courses/{{ course.id }}/tasks/{{ task.id }}/kc-candidates"
+            formnovalidate>AI に候補を出させる</button>
+    <span class="desc">いまの問題文から候補を出します（数十秒）。保存はされません。</span>
+  </div>
+  {% endif %}
+  {% if kc_candidates %}
+  <div class="note" style="margin-top:12px">
+    <strong>AI の候補</strong> ── 印を付けて「この問題を保存して更新する」で付きます。
+    {% if kc_candidates.empty %}<br>候補はありませんでした（問題文が知識要素を 1 つも扱っていないと読まれました）。{% endif %}
+    {% if kc_candidates.in_course %}
+    <p style="margin:8px 0 4px"><strong>このコースが使っているもの</strong>（付けるだけ）</p>
+    <div class="kcpick">
+      {% for c in kc_candidates.in_course %}
+      <label><input type="checkbox" name="kc" value="{{ c.key }}" {{ 'checked' if c.key in chosen_kcs }}>
+        <span class="k">{{ c.key }}</span><span class="desc">{{ c.label }}</span></label>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% if kc_candidates.in_vocabulary %}
+    <p style="margin:8px 0 4px"><strong>語彙にはあるが、このコースでは未使用のもの</strong>（付けるとコースの範囲にも入ります）</p>
+    <div class="kcpick">
+      {% for c in kc_candidates.in_vocabulary %}
+      <label><input type="checkbox" name="kc" value="{{ c.key }}">
+        <span class="k">{{ c.key }}</span><span class="desc">{{ c.label }}</span></label>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% if kc_candidates.new %}
+    <p style="margin:8px 0 4px"><strong>まだ無いもの</strong>（登録してコースの範囲に入れ、この課題に付けます）</p>
+    <div class="kcpick">
+      {% for c in kc_candidates.new %}
+      <label><input type="checkbox" name="new_kc" value="{{ c.key }}|{{ c.label }}|{{ c.description }}">
+        <span class="k">{{ c.key }}</span><span class="desc">{{ c.label }}{% if c.description %} ── {{ c.description }}{% endif %}</span></label>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% if kc_candidates.discarded %}
+    <p class="desc" style="margin:8px 0 0">採用できない候補を {{ kc_candidates.discarded | length }} 件落としました:
+      {% for d in kc_candidates.discarded %}<span class="mono">{{ d.key }}</span>（{{ d.reason }}）{% if not loop.last %}、{% endif %}{% endfor %}</p>
+    {% endif %}
+  </div>
+  {% endif %}
   </div>
 
   {# 問題文に貼る画像（#64）。**この画面で受け取り、カーソル位置に差し込む。**
@@ -229,8 +303,8 @@
       <button type="button" class="minor" id="restore-course-rubric"
               data-replace-target="#rubric-editor"
               data-replace-template="#course-rubric-rows"
-              data-confirm-title="共通ルーブリックに復元しますか"
-              data-confirm="この課題だけの観点は失われ、コースの共通ルーブリックの内容に置き換わります。保存するまでは反映されないので、やめたいときは保存せずに画面を離れてください。">共通ルーブリックに復元</button>
+              data-confirm-title="コースの共通ルーブリックに復元しますか"
+              data-confirm="この課題だけの観点は失われ、コースの共通ルーブリックの内容に置き換わります。保存するまでは反映されないので、やめたいときは保存せずに画面を離れてください。">コースの共通ルーブリックに復元</button>
     </div>
   </div>
   <template id="course-rubric-rows">

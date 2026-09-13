@@ -71,6 +71,18 @@
 {% endfor %}
 </nav>
 
+{% if not is_admin %}
+{# **教員にも入口を出す。** コースを作れるのは管理者だが、依頼する側が
+   形式を知る手段が画面に無いと、口頭で伝えた課題と日程を管理者が
+   打ち直すことになる。ひな形を埋めて渡せば `course apply` で入る。 #}
+<h2>コースの作成を依頼する</h2>
+<p class="subtitle">
+  コースは管理者が作ります。課題・回ごとの日程まで含めた定義ファイル
+  （<a href="{{ root_prefix() }}/manage/course-template.yaml">ひな形をダウンロード</a>）を
+  埋めて管理者に渡すと、そのまま投入できます。
+</p>
+{% endif %}
+
 {% if is_admin %}
 <h2>コースを追加する</h2>
 <form method="post" action="{{ root_prefix() }}/manage/courses" class="card">
@@ -128,6 +140,11 @@
     </p>
   </div>
   <div class="actions"><button type="submit">作成</button></div>
+  <p class="desc" style="margin-top:12px">
+    課題と日程まで含めてまとめて作るなら、定義ファイルを
+    <code>aijudge-admin course apply --file course.yaml</code> で投入します
+    （<a href="{{ root_prefix() }}/manage/course-template.yaml">ひな形をダウンロード</a>）。
+  </p>
 </form>
 
 <h2>ローカル利用者</h2>

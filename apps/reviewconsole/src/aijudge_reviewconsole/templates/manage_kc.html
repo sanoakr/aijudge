@@ -17,8 +17,10 @@
    範囲の説明と 1 つにまとめてある ── 2 つに分けると、同じ「共有」という語が
    離れた場所で別の意味に読まれる。 #}
 <div class="note">
-  <strong>知識要素は名前空間（{{ namespaces | join(', ') or 'なし' }}）ごとに共有され、
-  コースには属しません。</strong>
+  <strong>知識要素は名前空間ごとに共有され、コースには属しません。</strong>
+  このコースの科目プロファイルが使えるのは
+  {% for n in namespaces %}<span class="mono">{{ n }}</span>{% if not loop.last %}・{% endif %}{% else %}<em>なし</em>{% endfor %}
+  です（他の名前空間 ── <span class="mono">math</span>・<span class="mono">physics</span> など ── は別の科目が使います）。
   このコースが作問で使えるのは、<strong>ここで足したものだけ</strong>です
   （いま {{ chosen_count }} 件）。何も足していなければ、作問フォームに候補は出ません。
   足すのは下の「名前空間から足す」（個別・階層ごと）か、コースの基本情報からの候補、
@@ -38,6 +40,9 @@
 <div class="note {{ 'warn' if scope_result.kept else 'saved' }}">
   {% if scope_result.action == 'added' %}
     <strong>{{ scope_result.changed }} 件をこのコースに足しました。</strong>
+  {% elif scope_result.action == 'adopted' %}
+    <strong>候補から {{ scope_result.changed + scope_result.kept }} 件をこのコースに足しました</strong>
+    （新しく登録 {{ scope_result.changed }} 件・体系にあったもの {{ scope_result.kept }} 件）。
   {% else %}
     <strong>{{ scope_result.changed }} 件をこのコースから外しました。</strong>
     {% if scope_result.kept %}
@@ -274,6 +279,7 @@
   {% endfor %}
   <table>
     <thead><tr>
+      <th class="fit">まとめて</th>
       <th class="fit">キー</th><th class="grow">名前・根拠</th><th class="fit">状態</th><th class="fit"></th>
     </tr></thead>
     <tbody>
@@ -283,6 +289,10 @@
       {% set known = k.key in existing %}
       {% set in_vocabulary = k.key in vocabulary %}
       <tr>
+        <td class="fit">
+          {# まとめて採用する印。使用中のものには要らない。 #}
+          {% if not known %}<input type="checkbox" name="adopt" value="{{ k.key }}">{% endif %}
+        </td>
         <td class="fit mono">{{ k.key }}</td>
         <td class="grow">{{ k.label }}
           {% if k.description %}<br><span class="desc">{{ k.description }}</span>{% endif %}
@@ -305,15 +315,24 @@
         </td>
         <td class="fit">
           {% if not known %}
-          <button type="submit" name="use" value="{{ k.key }}">この候補を採用</button>
+          {# 1 件だけを下の追加フォームに流し込み、直してから登録する経路。 #}
+          <button type="submit" name="use" value="{{ k.key }}" class="minor">追加フォームへ</button>
           {% endif %}
         </td>
       </tr>
     {% endfor %}
     </tbody>
   </table>
+  {# **まとめて採用する**。候補が 20 件あるとき 1 件ずつ往復させない。
+     「体系にあり」はコースの範囲に入れるだけ、「新規」はモデルの名前・説明の
+     まま登録して範囲に入れる（直したいものは「追加フォームへ」で 1 件ずつ）。 #}
+  <div class="actions" style="justify-content:flex-start">
+    <button type="submit" formaction="{{ root_prefix() }}/manage/courses/{{ course.id }}/kc/adopt#kc">
+      印を付けた候補をまとめてこのコースに足す</button>
+    <span class="desc">「体系にあり」は範囲に入れるだけ、「新規」は名前・説明のまま登録して範囲に入れます。</span>
+  </div>
   <p class="desc">
-    <strong>押しても登録はされません。</strong>下の「知識要素を追加する」に入るので、
+    <strong>「追加フォームへ」は登録しません。</strong>下の「知識要素を追加する」に入るので、
     キー・名前・説明を確かめて（必要なら直して）から登録してください。<br>
     <strong>「体系にあり」は、他のコースが既に作ったものです。</strong>
     取り込んで登録すると<strong>このコースで使う範囲に入るだけ</strong>で、名前と説明は変わりません。<br>
