@@ -281,7 +281,10 @@
       テストケースは API（<code>POST /api/courses/{{ course.id }}/tasks</code>）から入れます。
     {% endif %}
   </p>
-  <div class="actions"><button type="submit">保存</button></div>
+  {# **訂正のときは「この問題を保存して更新する」**。フォームの末尾が「提出できるファイル形式」
+     なので、「保存」だと拡張子だけを保存するボタンに見える ── 押すと問題文と
+     観点も含めて新しい版ができる操作である。 #}
+  <div class="actions"><button type="submit">{{ 'この問題を保存して更新する' if task else '保存' }}</button></div>
 </form>
 
 {% if task %}

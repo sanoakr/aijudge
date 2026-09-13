@@ -5721,6 +5721,18 @@ def test_the_breadcrumb_class_is_not_used_for_anything_else() -> None:
     assert guilty == []
 
 
+def test_the_edit_form_button_says_it_updates_the_task(world: World) -> None:
+    """フォームの末尾が「提出できるファイル形式」なので、「保存」だと拡張子だけを
+    保存するボタンに見える。訂正では「この問題を保存して更新する」、新規では「保存」。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    task_id = _import_example(world)
+    edit = client.get(f"/manage/courses/{world.course.id}/tasks/{task_id}/edit").text
+    assert ">この問題を保存して更新する<" in edit
+    new = client.get(f"/manage/courses/{world.course.id}/units/ex01/tasks/new").text
+    assert ">保存<" in new and ">この問題を保存して更新する<" not in new
+
+
 def test_no_form_posts_to_a_path_without_the_prefix() -> None:
     """テンプレートの `action=` は必ず `root_prefix()` を通す（#281）。
 
