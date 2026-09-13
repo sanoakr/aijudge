@@ -50,7 +50,7 @@
     {% endif %}
     {% if ctx_submission %}
       <span class="sep">&gt;</span>
-      <span aria-current="page">提出 {{ ctx_submission.attempt }} 回目{% if ctx_submission.submitted_at %}（{{ ctx_submission.submitted_at.strftime('%Y-%m-%d %H:%M') }}）{% endif %}</span>
+      <span aria-current="page">提出 {{ ctx_submission.attempt }} 回目{% if ctx_submission.submitted_at %}（{{ ctx_submission.submitted_at | local('%Y-%m-%d %H:%M') }}）{% endif %}</span>
     {% endif %}
   </nav>
 </div></div>

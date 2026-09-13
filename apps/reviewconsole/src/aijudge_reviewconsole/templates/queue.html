@@ -20,7 +20,7 @@
   <tbody>
   {% for row in rows %}
     <tr class="row-link" data-href="{{ root_prefix() }}/review/{{ row.submission.id }}/reveal">
-      <td class="fit" data-label="依頼">{{ row.request.requested_at.strftime('%m-%d %H:%M') }}</td>
+      <td class="fit" data-label="依頼">{{ row.request.requested_at | local('%m-%d %H:%M') }}</td>
       <td class="fit mono" data-label="学習者">{{ row.learner.login if row.learner else '—' }}</td>
       <td class="fit" data-label="課題">
         {% if row.task %}{{ row.task.unit_label }}<br>
@@ -63,7 +63,7 @@
   <tbody>
   {% for row in resolved %}
     <tr class="row-link" data-href="{{ root_prefix() }}/review/{{ row.submission.id }}/reveal">
-      <td class="fit">{{ row.request.requested_at.strftime('%m-%d %H:%M') }}</td>
+      <td class="fit">{{ row.request.requested_at | local('%m-%d %H:%M') }}</td>
       <td class="fit mono">{{ row.learner.login if row.learner else '—' }}</td>
       <td class="grow">
         {% if row.task %}<span class="mono desc">{{ row.task.unit or row.task.unit_label }}</span>
@@ -72,7 +72,7 @@
       <td class="grow desc">{{ row.request.reason }}</td>
       <td class="fit">
         {% if row.answered_by %}<span class="mono">{{ row.answered_by.login }}</span>
-          {% if row.review %}<br><span class="desc">{{ row.review.reviewed_at.strftime('%m-%d %H:%M') }}</span>{% endif %}
+          {% if row.review %}<br><span class="desc">{{ row.review.reviewed_at | local('%m-%d %H:%M') }}</span>{% endif %}
         {% else %}<span class="desc">記録なし</span>{% endif %}
       </td>
       <td class="fit"><a href="{{ root_prefix() }}/review/{{ row.submission.id }}/reveal">見る</a></td>

@@ -84,7 +84,7 @@
       <span aria-current="page">
         {%- if learner is defined and learner %}<span class="mono">{{ learner.login }}</span> {% endif -%}
         提出 {{ submission.attempt }} 回目
-        {%- if submission.submitted_at %}（{{ submission.submitted_at.strftime('%Y-%m-%d %H:%M') }}）{% endif -%}
+        {%- if submission.submitted_at %}（{{ submission.submitted_at | local('%Y-%m-%d %H:%M') }}）{% endif -%}
       </span>
     {% endif %}
     {% for step in trail %}

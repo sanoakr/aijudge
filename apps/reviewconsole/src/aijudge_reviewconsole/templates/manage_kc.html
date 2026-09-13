@@ -111,7 +111,7 @@
          使っていなくても他のコースが使っていれば影響がある。 #}
       <td class="fit" data-label="課題">{{ row.tasks }}</td>
       <td class="fit" data-label="コース">{{ row.courses }}</td>
-      <td class="fit desc" data-label="追加">{{ row.kc.created_at.strftime('%Y-%m-%d') if row.kc.created_at else '—' }}</td>
+      <td class="fit desc" data-label="追加">{{ row.kc.created_at | local('%Y-%m-%d') if row.kc.created_at else '—' }}</td>
       {% if is_admin %}
       <td class="fit">
         <details>

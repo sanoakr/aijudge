@@ -46,9 +46,9 @@
     <b class="c-key">{{ unit.unit or unit.label }}</b>
     <span class="c-num desc">{% if unit.unit and unit.session is not none %}{{ unit.label }}{% endif %}</span>
     <span class="c-count desc">{{ unit.count }} 問{% if unit.hidden %}<br><span class="pill no">{% if unit.hidden == unit.count %}出題していません{% else %}うち {{ unit.hidden }} 問は非出題{% endif %}</span>{% endif %}</span>
-    <span class="c-date desc">公開 {% if unit.opens_at %}{{ unit.opens_at.strftime('%m-%d %H:%M') }}{% else %}<em>未設定</em>{% endif %}</span>
-    <span class="c-date desc">開始 {% if unit.submissions_open_at %}{{ unit.submissions_open_at.strftime('%m-%d %H:%M') }}{% elif unit.opens_at %}公開と同時{% else %}<em>未設定</em>{% endif %}</span>
-    <span class="c-date desc">締切 {% if unit.due_at %}{{ unit.due_at.strftime('%m-%d %H:%M') }}{% else %}<em>未設定</em>{% endif %}</span>
+    <span class="c-date desc">公開 {% if unit.opens_at %}{{ unit.opens_at | local('%m-%d %H:%M') }}{% else %}<em>未設定</em>{% endif %}</span>
+    <span class="c-date desc">開始 {% if unit.submissions_open_at %}{{ unit.submissions_open_at | local('%m-%d %H:%M') }}{% elif unit.opens_at %}公開と同時{% else %}<em>未設定</em>{% endif %}</span>
+    <span class="c-date desc">締切 {% if unit.due_at %}{{ unit.due_at | local('%m-%d %H:%M') }}{% else %}<em>未設定</em>{% endif %}</span>
     <span class="c-open">
       {# 期限が過ぎたのに未確定が残っているのは、自動確定が動いていないか
          異議申立が残っているかのどちらか。どちらも教員が見るべき状態。 #}

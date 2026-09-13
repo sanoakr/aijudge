@@ -15,9 +15,9 @@
 <h1>{{ ctx_task.title }}</h1>
 <p class="crumb">
   {# 経路は上部のパンくずが持つ。ここに残すのは、この課題そのものの日付。 #}
-  {% if ctx_task.opens_at %}{{ ctx_task.opens_at.strftime('%Y-%m-%d') }} 提示{% endif %}
-  {% if ctx_task.submissions_open_at %}<span class="sep">·</span> 提出開始 {{ ctx_task.submissions_open_at.strftime('%Y-%m-%d %H:%M') }}{% endif %}
-  {% if ctx_task.due_at %}<span class="sep">·</span> 締切 {{ ctx_task.due_at.strftime('%Y-%m-%d %H:%M') }}{% endif %}
+  {% if ctx_task.opens_at %}{{ ctx_task.opens_at | local('%Y-%m-%d') }} 提示{% endif %}
+  {% if ctx_task.submissions_open_at %}<span class="sep">·</span> 提出開始 {{ ctx_task.submissions_open_at | local('%Y-%m-%d %H:%M') }}{% endif %}
+  {% if ctx_task.due_at %}<span class="sep">·</span> 締切 {{ ctx_task.due_at | local('%Y-%m-%d %H:%M') }}{% endif %}
 </p>
 
 <div class="statement">{{ statement_html | safe }}</div>
@@ -202,7 +202,7 @@
 <div class="note warn">
   <strong>まだ提出できません。</strong>
   {% set opens = ctx_task.submissions_open_at or ctx_task.opens_at %}
-  {{ opens.strftime('%Y-%m-%d %H:%M') }} から受け付けます（{{ accepts | join(', ') }}）。
+  {{ opens | local('%Y-%m-%d %H:%M') }} から受け付けます（{{ accepts | join(', ') }}）。
 </div>
 {% endif %}
 
@@ -226,7 +226,7 @@
   {% for item in attempts %}
     <tr>
       <td class="fit" data-label="回">{{ item.submission.attempt }}</td>
-      <td class="fit" data-label="提出日時">{{ item.submission.submitted_at.strftime('%Y-%m-%d %H:%M') if item.submission.submitted_at else '—' }}</td>
+      <td class="fit" data-label="提出日時">{{ item.submission.submitted_at | local('%Y-%m-%d %H:%M') if item.submission.submitted_at else '—' }}</td>
       <td class="fit" data-label="得点">
         {% if item.score_ratio is not none %}
           <strong>{{ '%.0f' | format(item.score_ratio * 100) }}%</strong>

@@ -187,6 +187,9 @@ TEMPLATES = Jinja2Templates(
     context_processors=[rail_context],
 )
 TEMPLATES.env.globals["app_version"] = APP_VERSION
+# 日時は UTC で保存し、表示だけ機関の時刻に直す（`aijudge_webui.local_filter`）。
+# テンプレートで `strftime` を直に呼ばない ── 呼ぶと UTC のまま出る。
+TEMPLATES.env.filters["local"] = webui.local_filter
 TEMPLATES.env.globals["copyright_notice"] = _read_copyright_notice()
 
 

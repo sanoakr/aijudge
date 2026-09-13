@@ -2185,3 +2185,33 @@ def test_a_bad_file_among_several_names_itself(world: World) -> None:
     )
     assert response.status_code == 400
     assert response.json()["detail"].startswith("notes.txt:")
+
+
+def test_the_submission_time_is_shown_in_the_institution_time(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """提出日時は UTC で保存し、表示は機関の時刻（既定 JST）。9 時間ずれて
+    見えていた（13:26 JST の提出が「04:26」）。"""
+    from aijudge_webui import ENV_TIMEZONE, local_filter
+
+    monkeypatch.setenv(ENV_TIMEZONE, "Asia/Tokyo")
+    world.register("s2400001")
+    world.login("s2400001")
+    location = _submit_image(world)
+    submission_id = location.split("/")[-1].split("?")[0]
+    with world.database.unit_of_work() as uow:
+        submission = uow.submissions.get(SubmissionId(submission_id))
+    shown = local_filter(submission.submitted_at, "%Y-%m-%d %H:%M")
+    assert shown in world.client.get(f"/tasks/{world.task_version.id}").text
+    assert submission.submitted_at.astimezone(UTC).strftime("%H:%M") != shown[-5:]
+
+
+def test_no_template_formats_a_datetime_without_the_local_filter() -> None:
+    templates = Path(__file__).resolve().parents[1] / "src" / "aijudge_studentweb" / "templates"
+    guilty = [
+        f"{path.name}:{number}"
+        for path in templates.glob("*.html")
+        for number, line in enumerate(path.read_text().splitlines(), 1)
+        if ".strftime(" in line
+    ]
+    assert guilty == []

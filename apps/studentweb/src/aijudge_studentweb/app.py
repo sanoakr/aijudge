@@ -161,6 +161,9 @@ TEMPLATES = Jinja2Templates(
     directory=[str(Path(__file__).parent / "templates"), str(webui.TEMPLATES_DIR)]
 )
 TEMPLATES.env.globals["app_version"] = APP_VERSION
+# 日時は UTC で保存し、表示だけ機関の時刻に直す（`aijudge_webui.local_filter`）。
+# テンプレートで `strftime` を直に呼ばない ── 呼ぶと UTC のまま出る。
+TEMPLATES.env.filters["local"] = webui.local_filter
 TEMPLATES.env.globals["copyright_notice"] = _read_copyright_notice()
 # デモコースの帯を出すのに使う（#194）。環境変数を読むだけの純関数。
 TEMPLATES.env.globals["is_demo_course"] = _is_demo_course
@@ -685,14 +688,14 @@ def create_app(app_state: StudentApp) -> FastAPI:
             opens = _task.submissions_open_at or _task.opens_at
             raise HTTPException(
                 status_code=409,
-                detail=f"まだ提出できません（{opens.strftime('%Y-%m-%d %H:%M')} から受け付けます）",
+                detail=f"まだ提出できません（{webui.local_filter(opens)} から受け付けます）",
             )
         if window is SubmissionWindow.CLOSED:
             raise HTTPException(
                 status_code=409,
                 detail=(
                     "提出の受付は終了しました"
-                    f"（{_task.accepts_until.strftime('%Y-%m-%d %H:%M')} まででした）"
+                    f"（{webui.local_filter(_task.accepts_until)} まででした）"
                 ),
             )
 
@@ -806,14 +809,14 @@ def create_app(app_state: StudentApp) -> FastAPI:
             opens = _task.submissions_open_at or _task.opens_at
             raise HTTPException(
                 status_code=409,
-                detail=f"まだ提出できません（{opens.strftime('%Y-%m-%d %H:%M')} から受け付けます）",
+                detail=f"まだ提出できません（{webui.local_filter(opens)} から受け付けます）",
             )
         if window is SubmissionWindow.CLOSED:
             raise HTTPException(
                 status_code=409,
                 detail=(
                     "提出の受付は終了しました"
-                    f"（{_task.accepts_until.strftime('%Y-%m-%d %H:%M')} まででした）"
+                    f"（{webui.local_filter(_task.accepts_until)} まででした）"
                 ),
             )
 

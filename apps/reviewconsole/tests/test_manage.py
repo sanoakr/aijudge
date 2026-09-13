@@ -922,6 +922,48 @@ def test_the_schedule_is_set_for_the_whole_problem_set(world: World) -> None:
         assert task.session == 3
 
 
+def test_the_schedule_is_typed_and_shown_in_the_institution_time(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """入力欄の「23:59」は機関の時刻（既定 JST）で、保存は UTC、表示は元どおり。
+
+    以前は入力を UTC として読み、保存した UTC をそのまま出していたので、
+    締切も提出日時も 9 時間ずれて見えた。
+    """
+    from datetime import UTC, datetime
+
+    from aijudge_webui import ENV_TIMEZONE
+
+    monkeypatch.setenv(ENV_TIMEZONE, "Asia/Tokyo")
+    world.register("teacher", Role.INSTRUCTOR)
+    _import_example(world)
+    unit = _unit_of(world)
+    client = world.client("teacher")
+    client.post(
+        f"/manage/courses/{world.course.id}/units/{unit}/schedule",
+        data={"opens_at": "2026-09-18T09:00", "due_at": "2026-09-25T23:59"},
+    )
+    with world.database.unit_of_work() as uow:
+        (task,) = uow.tasks.list_for_course(world.course.id)
+    assert task.due_at == datetime(2026, 9, 25, 14, 59, tzinfo=UTC)
+
+    page = client.get(f"/manage/courses/{world.course.id}/units/{unit}").text
+    assert 'value="2026-09-25T23:59"' in page  # 入力欄に戻る値も機関の時刻
+    assert 'value="2026-09-18T09:00"' in page
+
+
+def test_no_template_formats_a_datetime_without_the_local_filter() -> None:
+    """`strftime` を直に呼ぶと UTC のまま出る。必ず `local` フィルタを通す。"""
+    templates = Path(__file__).resolve().parents[1] / "src" / "aijudge_reviewconsole" / "templates"
+    guilty = [
+        f"{path.name}:{number}"
+        for path in templates.glob("*.html")
+        for number, line in enumerate(path.read_text().splitlines(), 1)
+        if ".strftime(" in line
+    ]
+    assert guilty == []
+
+
 def test_a_deadline_before_the_opening_is_refused(world: World) -> None:
     world.register("teacher", Role.INSTRUCTOR)
     _import_example(world)
@@ -4192,10 +4234,13 @@ def test_the_list_says_which_version_and_when_it_was_made(world: World) -> None:
         version = uow.tasks.latest_version(TaskId(task_id))
 
     listing = client.get(f"/manage/courses/{world.course.id}/units/{unit}").text
-    assert version.created_at.strftime("%m-%d %H:%M") in listing
+    from aijudge_webui import local_filter
+
+    # 表示は機関の時刻（保存は UTC）。
+    assert local_filter(version.created_at, "%m-%d %H:%M") in listing
 
     page = client.get(f"/manage/courses/{world.course.id}/tasks/{task_id}/edit").text
-    assert version.created_at.strftime("%Y-%m-%d %H:%M") in page
+    assert local_filter(version.created_at, "%Y-%m-%d %H:%M") in page
 
 
 def test_a_task_without_submissions_can_be_deleted(world: World) -> None:

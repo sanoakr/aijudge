@@ -50,6 +50,7 @@ from fastapi import APIRouter, Form, HTTPException, Request, Response, UploadFil
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import ValidationError
 
+import aijudge_webui as webui
 from aijudge_admin import (
     AdminError,
     allowed_namespaces,
@@ -1068,14 +1069,16 @@ def _unit_href(course_id: str, task) -> str:
 def _parse_when(raw: str) -> datetime | None:
     """`YYYY-MM-DDTHH:MM` を読む。空なら None（締切なし）。
 
-    タイムゾーンは UTC として扱う。素の値を入れると締切判定がサーバの
-    ローカル時刻に依存する（ADR 0006 で同じ罠を踏んでいる）。
+    **入力欄の時刻は機関のタイムゾーン**（`AIJUDGE_TIMEZONE`・既定 JST）として
+    読み、保存は UTC。以前は UTC として読んでいたので、教員が「23:59」と
+    打った締切が JST の翌朝 8:59 になっていた。素の naive 値のまま入れると
+    締切判定がサーバのローカル時刻に依存する（ADR 0006 で同じ罠を踏んでいる）。
     """
     text = raw.strip()
     if not text:
         return None
     try:
-        return datetime.fromisoformat(text).replace(tzinfo=UTC)
+        return webui.from_local(datetime.fromisoformat(text))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=f"日時の形式が不正です: {raw!r}") from exc
 
