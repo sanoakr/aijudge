@@ -110,7 +110,10 @@ def parse(rows: list[dict[str, str]]) -> tuple[CriterionSpec, ...]:
         if not code and not title:
             continue
         if not code or not title:
-            raise AdminError("観点にはコードと題名の両方が要ります")
+            raise AdminError(
+                "観点にはコードと題名の両方が要ります"
+                "（観点を消すには「この観点を削除する」に印を付けます）"
+            )
         if code in codes:
             raise AdminError(f"観点コード {code!r} が重複しています")
         codes.add(code)

@@ -124,7 +124,7 @@
                accept="{{ image_suffixes | join(',') }}">
       </span>
       <span class="flash" data-image-status hidden></span>
-      <button type="button" data-image-submit>画像を貼り付け</button>
+      <button type="button" class="minor" data-image-submit>画像を貼り付け</button>
     </div>
     {# **失敗は行を分けて出す。** 成功の印（緑の ✓）と同じ場所に赤い理由を
        出すと、貼れなかったことが「貼れた」に見える。 #}
@@ -226,7 +226,7 @@
       <strong>保存するまで反映されません。</strong>
     </p>
     <div class="actions">
-      <button type="button" id="restore-course-rubric"
+      <button type="button" class="minor" id="restore-course-rubric"
               data-replace-target="#rubric-editor"
               data-replace-template="#course-rubric-rows"
               data-confirm-title="共通ルーブリックに復元しますか"

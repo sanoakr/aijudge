@@ -954,8 +954,14 @@ def _rubric_from_form(form) -> list[dict[str, str]]:
     `code`・`title`… の同名フィールドが行数ぶん並ぶので、位置で組み直す。
     """
     codes = form.getlist("criterion_code")
+    # **削除は明示の印で**（`criterion_delete`・値は元のコード）。印は付いた
+    # 行しか送られてこないので位置では組めず、元のコードで突き合わせる。
+    deleted = {str(code) for code in form.getlist("criterion_delete")}
+    originals = form.getlist("criterion_original")
     rows: list[dict[str, str]] = []
     for index in range(len(codes)):
+        if index < len(originals) and str(originals[index]) in deleted:
+            continue
 
         def at(field: str, index: int = index) -> str:
             values = form.getlist(field)

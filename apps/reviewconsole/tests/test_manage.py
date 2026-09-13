@@ -4592,6 +4592,57 @@ def test_an_existing_task_rubric_can_be_edited(world: World) -> None:
     assert [c.code for c in original.criteria] == ["correctness", "readability"]
 
 
+def test_a_criterion_is_removed_with_the_explicit_mark(world: World) -> None:
+    """観点を消すのは「この観点を削除する」の印で行う。
+
+    以前は「コードを空にする」だったが、コードだけ消すと題名が残って
+    「コードと題名の両方が要ります」で止まり、消す手段が無いように見えた。
+    印は元のコードで突き合わせるので、コードの欄が触られていても消える。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    client.post(
+        f"/manage/courses/{world.course.id}/tasks",
+        data={
+            "key_suffix": "p1",
+            "unit": "ex04",
+            "statement": "## [必須] 課題 ##\n\n本文",
+            "position": "1",
+            "readability_weight": "0.3",
+        },
+    )
+    with world.database.unit_of_work() as uow:
+        (task,) = uow.tasks.list_for_course(world.course.id)
+
+    page = client.get(f"/manage/courses/{world.course.id}/tasks/{task.id}/edit").text
+    assert 'name="criterion_delete" value="readability"' in page
+    assert "コードを空にします" not in page
+
+    form = _rubric_form(("correctness", "正しさ", "1.0", ""), ("", "変数名と構造", "0.3", ""))
+    form["criterion_original"] = ["correctness", "readability"]
+    form["criterion_delete"] = ["readability"]
+    response = client.post(
+        f"/manage/courses/{world.course.id}/tasks/{task.id}/revise",
+        data={"statement": "## [必須] 課題 ##\n\n本文", "readability_weight": "0.3", **form},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303, response.text
+    with world.database.unit_of_work() as uow:
+        latest = uow.tasks.latest_version(task.id)
+    assert [c.code for c in latest.criteria] == ["correctness"]
+
+
+def test_clearing_only_the_code_points_at_the_delete_mark(world: World) -> None:
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    response = client.post(
+        f"/manage/courses/{world.course.id}/rubric",
+        data=_rubric_form(("runs", "動く", "0.5", ""), ("", "読める", "0.5", "")),
+    )
+    assert response.status_code == 400
+    assert "この観点を削除する" in response.json()["detail"]
+
+
 def test_the_rubric_editor_is_on_both_screens(world: World) -> None:
     world.register("teacher", Role.INSTRUCTOR)
     _import_example(world)

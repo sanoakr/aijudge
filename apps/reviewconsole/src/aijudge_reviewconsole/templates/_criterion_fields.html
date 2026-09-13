@@ -38,4 +38,15 @@
   <label>段階（1 行 1 段・<span class="mono">名前 | 説明 | 割合</span>。空なら 4 段の既定）</label>
   <textarea name="criterion_levels" rows="6" class="mono"
     placeholder="未達 | 満たしていない | 0&#10;一部 | 一部を満たす | 0.34&#10;概ね | おおむね満たす | 0.67&#10;達成 | 満たしている | 1.0">{{ row.levels }}</textarea>
+  {# **消すのは明示の操作**。以前は「コードを空にする」だったが、コードだけ
+     消すと題名が残って「コードと題名の両方が要ります」で止まり、消す手段が
+     画面のどこにも無いように見えた。元のコードを別に送るのは、印を付けた
+     うえでコードの欄も触られていた場合に、どの行を消すのかを迷わないため。 #}
+  <input type="hidden" name="criterion_original" value="{{ row.code }}">
+  {% if row.code %}
+  <label class="danger-check">
+    <input type="checkbox" name="criterion_delete" value="{{ row.code }}">
+    この観点を削除する（保存のときに消えます）
+  </label>
+  {% endif %}
 </div>
