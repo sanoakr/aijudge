@@ -4116,7 +4116,8 @@ def test_the_console_offers_instructor_to_an_admin(world: World) -> None:
     """管理者も同じ範囲（`admin` だけが画面の外）。"""
     world.register("boss", Role.ADMIN)
     page = world.client("boss").get(f"/manage/courses/{world.course.id}/enrolments").text
-    options = {line for line in page.splitlines() if "<option" in line}
+    # 絞り込みの選択肢（すべて／…）は配る役割ではないので外して見る。
+    options = {line for line in page.splitlines() if "<option" in line and "すべて" not in line}
     for role in ("learner", "assistant", "instructor"):
         assert [line for line in options if f'value="{role}"' in line], f"{role} が選べない"
     assert not [line for line in options if 'value="admin"' in line], "admin が選択肢にある"
