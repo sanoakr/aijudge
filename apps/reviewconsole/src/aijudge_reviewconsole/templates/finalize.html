@@ -87,7 +87,7 @@
   <tbody>
   {% for row in rows %}
     <tr class="row-link" data-href="{{ root_prefix() }}/review/{{ row.submission.id }}/reveal">
-      <td class="fit" data-label="提出">{{ row.submission.submitted_at.strftime('%m-%d %H:%M') if row.submission.submitted_at else '—' }}</td>
+      <td class="fit" data-label="提出">{{ row.submission.submitted_at | local('%m-%d %H:%M') if row.submission.submitted_at else '—' }}</td>
       <td class="fit mono" data-label="学習者">{{ row.learner.login if row.learner else '—' }}</td>
       <td class="grow">
         {% if row.task %}<span class="mono desc">{{ row.task.unit or row.task.unit_label }}</span>

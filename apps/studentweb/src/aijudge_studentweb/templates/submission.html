@@ -87,13 +87,13 @@
        確定したこと自体が事後にしか分からない（ADR 0010）。 #}
     <p class="desc" style="margin:0">
       <strong>仮確定です。</strong>
-      {{ view.settles_at.strftime('%m/%d %H:%M') }} に確定します。
+      {{ view.settles_at | local('%m/%d %H:%M') }} に確定します。
       判定に疑問があれば、それまでに下の欄から再確認を依頼してください。
     </p>
   {% else %}
     <p class="desc" style="margin:0">
       自動採点の結果です。担当教員の確認を経て確定します。
-      {% if view.settles_at %}（{{ view.settles_at.strftime('%m/%d %H:%M') }} に確定予定）{% endif %}
+      {% if view.settles_at %}（{{ view.settles_at | local('%m/%d %H:%M') }} に確定予定）{% endif %}
     </p>
   {% endif %}
 {% endif %}
@@ -154,7 +154,7 @@
 <div class="card">{{ view.review_comment }}</div>
 {% endif %}
 
-<h2>採点の再確認を依頼する{% if view.provisional_pending %}（{{ view.settles_at.strftime('%m/%d %H:%M') }} まで）{% endif %}</h2>
+<h2>採点の再確認を依頼する{% if view.provisional_pending %}（{{ view.settles_at | local('%m/%d %H:%M') }} まで）{% endif %}</h2>
 {% if view.can_request_review %}
 <form method="post" action="/submissions/{{ submission.id }}/request-review" class="card">
   <div class="field">
@@ -176,7 +176,7 @@
     {% endif %}
     何が違うと考えるかを具体的に書いてください。
     {% if view.settles_at %}
-      <strong>{{ view.settles_at.strftime('%m/%d %H:%M') }} を過ぎるとこの欄からは依頼できなくなります。</strong>
+      <strong>{{ view.settles_at | local('%m/%d %H:%M') }} を過ぎるとこの欄からは依頼できなくなります。</strong>
     {% endif %}
   </p>
   <div class="actions"><button type="submit">再確認の依頼</button></div>

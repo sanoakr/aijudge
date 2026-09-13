@@ -47,7 +47,7 @@
       <td class="fit">
         {% if user.is_active %}<span class="pill ok">有効</span>{% else %}<span class="pill no">無効</span>{% endif %}
       </td>
-      <td class="fit desc">{{ user.created_at.strftime('%Y-%m-%d') }}</td>
+      <td class="fit desc">{{ user.created_at | local('%Y-%m-%d') }}</td>
     </tr>
   {% else %}
     <tr><td colspan="6" class="desc">条件に合う利用者がいません。</td></tr>

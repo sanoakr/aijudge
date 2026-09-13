@@ -57,7 +57,7 @@
           {% else %}<span class="desc">なし ── 正しさの観点は AI が判定し、教員が確定させます</span>{% endif %}
         </td></tr>
       <tr><td class="fit">締切</td>
-        <td class="grow">{% if task.due_at %}{{ task.due_at.strftime('%Y-%m-%d %H:%M') }}{% else %}<span class="desc">未設定</span>{% endif %}</td></tr>
+        <td class="grow">{% if task.due_at %}{{ task.due_at | local('%Y-%m-%d %H:%M') }}{% else %}<span class="desc">未設定</span>{% endif %}</td></tr>
     </tbody>
   </table>
 </div>

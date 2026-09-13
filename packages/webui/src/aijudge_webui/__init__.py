@@ -14,9 +14,23 @@
 
 from __future__ import annotations
 
+import os
+from datetime import UTC, datetime, tzinfo
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-__all__ = ["ASSETS_DIR", "STATIC_MOUNT", "TEMPLATES_DIR", "asset_url"]
+__all__ = [
+    "ASSETS_DIR",
+    "DEFAULT_TIMEZONE",
+    "ENV_TIMEZONE",
+    "STATIC_MOUNT",
+    "TEMPLATES_DIR",
+    "asset_url",
+    "display_zone",
+    "from_local",
+    "local_filter",
+    "to_local",
+]
 
 #: CSS の置き場所。`StaticFiles(directory=ASSETS_DIR)` に渡す。
 ASSETS_DIR = Path(__file__).parent / "assets"
@@ -40,3 +54,48 @@ def asset_url(name: str, *, version: str = "", prefix: str = "") -> str:
     """
     url = f"{prefix}{STATIC_MOUNT}/{name}"
     return f"{url}?v={version}" if version else url
+
+
+# ── 表示のタイムゾーン ─────────────────────────────────────
+#
+# 日時は **UTC で保存し、表示だけ機関の時刻に直す**（`UtcDateTime`）。
+# 以前は保存した UTC を `strftime` でそのまま出していたので、提出日時も
+# 締切も 9 時間ずれて見えた（提出 13:26 JST が「04:26」）。締切の入力欄も
+# 同じ ── 教員が JST のつもりで打った時刻を UTC として保存していた。
+#
+# 機関の時刻は環境変数で決める。**コードに機関を焼き込まない**が、既定は
+# 運用している場所（日本）に合わせる ── 未設定で UTC に落ちると、いちばん
+# 多い配備で全員の時刻がずれる。
+ENV_TIMEZONE = "AIJUDGE_TIMEZONE"
+DEFAULT_TIMEZONE = "Asia/Tokyo"
+
+
+def display_zone() -> tzinfo:
+    """表示に使うタイムゾーン。名前が不正なら既定に落とし、黙って UTC にはしない。"""
+    name = os.environ.get(ENV_TIMEZONE, "").strip() or DEFAULT_TIMEZONE
+    try:
+        return ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError):
+        return ZoneInfo(DEFAULT_TIMEZONE)
+
+
+def to_local(value: datetime | None) -> datetime | None:
+    """保存された日時（aware・UTC）を表示のタイムゾーンへ。naive は UTC とみなす。"""
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    return value.astimezone(display_zone())
+
+
+def from_local(value: datetime) -> datetime:
+    """入力欄の日時（naive・表示のタイムゾーン）を保存用の UTC に。"""
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=display_zone())
+    return value.astimezone(UTC)
+
+
+def local_filter(value: datetime | None, fmt: str = "%Y-%m-%d %H:%M") -> str:
+    """Jinja のフィルタ `local`。`{{ x | local('%m-%d %H:%M') }}`。None は空。"""
+    converted = to_local(value)
+    return "" if converted is None else converted.strftime(fmt)

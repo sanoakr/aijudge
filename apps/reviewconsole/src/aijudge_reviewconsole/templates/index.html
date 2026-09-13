@@ -15,7 +15,7 @@
       <span class="mono desc">{{ d.course.code }}</span>
       <span class="desc">{{ d.course.term }}</span>
       <span class="desc">
-        {% if d.next_due %}次の締切 {{ d.next_due.strftime('%m-%d %H:%M') }}
+        {% if d.next_due %}次の締切 {{ d.next_due | local('%m-%d %H:%M') }}
         {% else %}締切の設定された課題がありません{% endif %}
       </span>
     </span>
