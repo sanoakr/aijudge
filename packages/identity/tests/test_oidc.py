@@ -218,6 +218,19 @@ def test_a_pre_registered_email_login_is_linked_and_its_password_discarded() -> 
         service.login(tenant_id=TENANT, login="taro@example.ac.jp", password="pw-from-roster")
 
 
+def test_a_provisioned_external_user_has_no_password_and_links_on_first_login() -> None:
+    """名簿から先に作る学内アカウント（#285）。パスワードは無く、初回で結び付く。"""
+    service = AuthService(InMemoryIdentityRepository(), audit=InMemoryAuditLog())
+    made = service.provision_external(tenant_id=TENANT, email="taro@example.ac.jp")
+    assert made.login == "taro@example.ac.jp" and not made.is_external
+
+    principal, _ = service.login_with_google(tenant_id=TENANT, identity=an_identity())
+
+    assert principal.user_id == made.user_id and principal.is_external
+    with pytest.raises(AuthenticationFailed):
+        service.provision_external(tenant_id=TENANT, email="taro@example.ac.jp")
+
+
 def test_an_email_already_linked_to_another_sub_is_refused() -> None:
     """同じメールアドレスに別の `sub` が結び付いている利用者は奪えない。"""
     service = AuthService(InMemoryIdentityRepository(), audit=InMemoryAuditLog())

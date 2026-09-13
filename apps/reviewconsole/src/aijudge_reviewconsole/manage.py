@@ -86,7 +86,7 @@ from aijudge_admin import (
 )
 from aijudge_admin.bundles import MAX_ARCHIVE_BYTES
 from aijudge_admin.drafting import TaskDrafter
-from aijudge_admin.roster import RosterError, generate_password
+from aijudge_admin.roster import RosterEntry, RosterError, generate_password
 from aijudge_admin.syllabus import (
     MAX_SYLLABUS_BYTES,
     KcHint,
@@ -946,6 +946,12 @@ def _aggregation_from_form(form) -> Aggregation | None:
         return Aggregation(raw)
     except ValueError:
         raise AdminError(f"観点の畳み方が不正です: {raw!r}") from None
+
+
+def _is_sso_login(login: str, domains: set[str]) -> bool:
+    """学内ログイン（OIDC）のアカウントか ── 許可ドメインのメールアドレス。"""
+    local, at, domain = login.rpartition("@")
+    return bool(at and local) and domain.lower() in {d.lower() for d in domains}
 
 
 def _rubric_from_form(form) -> list[dict[str, str]]:
@@ -4241,6 +4247,7 @@ def register(templates) -> APIRouter:
         saved: str = "",
         enrolled: int = 0,
         already: int = 0,
+        provisioned: int = 0,
         unknown: str = "",
     ) -> Response:
         """受講者の一覧。**コースの設定とは別の画面にする。**
@@ -4303,6 +4310,7 @@ def register(templates) -> APIRouter:
                     {
                         "enrolled": enrolled,
                         "already": already,
+                        "provisioned": provisioned,
                         "unknown": [name for name in unquote(unknown).split(",") if name],
                     }
                     if saved == "enrolled"
@@ -4387,19 +4395,32 @@ def register(templates) -> APIRouter:
         for entry in entries:
             _require_grantable(entry.role)
 
-        # 画面からは**既存利用者の登録だけ**を許す。新規作成はパスワードの
-        # 配布が伴うので CLI（`aijudge-admin enrol --credentials`）で行う。
+        # **学内ログインのアカウントは、まだ無ければここで作る**（#285）。
+        # login が OIDC の許可ドメインのメールアドレスなら、パスワードを配る
+        # 必要が無い ── 捨て値で作っておき、本人の初回 SSO ログインで結び付く。
+        # 教員が名簿を貼るだけで学期を始められるのは、これがあってこそ。
+        #
+        # ローカルアカウントの新規作成だけは引き続き CLI に回す。パスワードの
+        # 配布が伴い、画面に平文を出すと端末の履歴や画面共有に残る。
         #
         # **未登録が混ざっていても、残りは入れる。** 全部を断ると、100 行の
         # 名簿が 1 行の綴り違いで丸ごと弾かれ、教員はどの行かを探して貼り
         # 直すことになる。入った件数と入らなかったアカウントは戻り先の画面に
         # そのまま出す（`enrolments` の `enrol_result`）。
+        provisioned = 0
         with console.database.unit_of_work() as uow:
-            known = tuple(
-                entry
-                for entry in entries
-                if uow.identity.find_user_by_login(me.tenant_id, entry.login) is not None
-            )
+            oidc = uow.identity.get_oidc_settings(me.tenant_id)
+            domains = set(oidc.allowed_domains) if oidc else set()
+            auth = AuthService(uow.identity, audit=uow.audit)
+            known: list[RosterEntry] = []
+            for entry in entries:
+                if uow.identity.find_user_by_login(me.tenant_id, entry.login) is not None:
+                    known.append(entry)
+                elif _is_sso_login(entry.login, domains):
+                    auth.provision_external(tenant_id=me.tenant_id, email=entry.login)
+                    provisioned += 1
+                    known.append(entry)
+            uow.commit()
         unknown = [entry.login for entry in entries if entry not in known]
         enrolled = already = 0
         if known:
@@ -4417,7 +4438,8 @@ def register(templates) -> APIRouter:
             shown += f",…ほか {len(unknown) - MAX_UNKNOWN_SHOWN} 件"
         return RedirectResponse(
             f"/manage/courses/{course_id}/enrolments?saved=enrolled"
-            f"&enrolled={enrolled}&already={already}&unknown={quote(shown)}#result",
+            f"&enrolled={enrolled}&already={already}&provisioned={provisioned}"
+            f"&unknown={quote(shown)}#result",
             status_code=303,
         )
 

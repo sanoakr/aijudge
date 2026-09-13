@@ -153,6 +153,30 @@ class AuthService:
         self._repository.save_user(user)
         return _principal(user)
 
+    def provision_external(self, *, tenant_id: TenantId, email: str) -> Principal:
+        """学内ログイン（OIDC）の利用者を、本人の初回ログインより先に作る（#285）。
+
+        名簿から受講登録するときに要る。パスワードは配らない ── JIT で作る
+        ときと同じ捨て値を入れ、初回の SSO ログインで `sub` が結び付く
+        （`_link_by_email`）。ローカルパスワードでのログイン経路は最初から無い。
+
+        ドメインが許可されているかは呼び出し側が確かめる（この層は OIDC 設定を
+        引かない）。
+        """
+        if self._repository.find_user_by_login(tenant_id, email) is not None:
+            raise AuthenticationFailed("この ID は既に使われています")
+        user = User(
+            id=UserId(new_id("usr")),
+            tenant_id=tenant_id,
+            login=email,
+            display_name=email.split("@", 1)[0],
+            email=email,
+            password_hash=hash_password(secrets.token_urlsafe(32)),
+            created_at=self._clock(),
+        )
+        self._repository.save_user(user)
+        return _principal(user)
+
     def change_password(self, user_id: UserId, *, current: str, new: str) -> None:
         user = self._repository.get_user(user_id)
         if user is None or not verify_password(current, user.password_hash):

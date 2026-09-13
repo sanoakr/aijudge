@@ -1177,6 +1177,72 @@ def test_unknown_accounts_are_reported_and_the_rest_are_enrolled(world: World) -
         assert uow.identity.find_user_by_login(TENANT, "nobody") is None
 
 
+def _enable_sso(
+    world: World, monkeypatch: pytest.MonkeyPatch, domain: str = "example.ac.jp"
+) -> None:
+    from cryptography.fernet import Fernet
+
+    from aijudge_identity import OidcSettings
+    from aijudge_persistence import ENV_OIDC_SECRET_KEY
+
+    monkeypatch.setenv(ENV_OIDC_SECRET_KEY, Fernet.generate_key().decode("ascii"))
+    with world.database.unit_of_work() as uow:
+        uow.identity.save_oidc_settings(
+            OidcSettings(
+                tenant_id=TENANT,
+                client_id="client-abc",
+                client_secret="test-secret",
+                allowed_domains=(domain,),
+            )
+        )
+        uow.commit()
+
+
+def test_sso_accounts_are_created_from_the_roster_before_their_first_login(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """学内ログインのアカウントは、まだ無くても名簿から作って登録できる（#285）。
+
+    パスワードは配らない（捨て値）。本人の初回 SSO ログインで結び付く。
+    許可ドメイン外の未登録アカウントは従来どおり断り、CLI を案内する。
+    """
+    from aijudge_identity import GoogleOidcIdentity
+
+    _enable_sso(world, monkeypatch)
+    world.register("teacher", Role.INSTRUCTOR)
+    response = world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/enrolments",
+        data={
+            "roster": "y239999@example.ac.jp\nta25001@example.ac.jp\nnobody\nx@other.ac.jp",
+            "role": "learner",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    page = world.client("teacher").get(response.headers["location"]).text
+    assert "2 件を登録しました" in page
+    assert "うち 2 件はまだログインしたことのない学内アカウント" in page
+    assert "2 件は登録できませんでした" in page
+    assert "nobody, x@other.ac.jp" in page
+
+    with world.database.unit_of_work() as uow:
+        user = uow.identity.find_user_by_login(TENANT, "y239999@example.ac.jp")
+        assert user is not None and user.external_id is None
+        auth = AuthService(uow.identity, audit=uow.audit)
+        assert auth.role_in(world.course.id, user.id) is Role.LEARNER
+        # 配られていないパスワードでは入れない。
+        with pytest.raises(AuthenticationFailed):
+            auth.login(tenant_id=TENANT, login="y239999@example.ac.jp", password="anything")
+        # 初回の SSO ログインで同じ利用者に結び付く。
+        principal, _ = auth.login_with_google(
+            tenant_id=TENANT,
+            identity=GoogleOidcIdentity(
+                sub="sub-y239999", email="y239999@example.ac.jp", hd="example.ac.jp"
+            ),
+        )
+        assert principal.user_id == user.id
+
+
 def test_the_roster_form_names_accounts_not_student_numbers(
     world: World, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1190,22 +1256,7 @@ def test_the_roster_form_names_accounts_not_student_numbers(
     assert "ta01" in page
     assert "学内ログイン（OIDC）は設定されていません" in page
 
-    from cryptography.fernet import Fernet
-
-    from aijudge_identity import OidcSettings
-    from aijudge_persistence import ENV_OIDC_SECRET_KEY
-
-    monkeypatch.setenv(ENV_OIDC_SECRET_KEY, Fernet.generate_key().decode("ascii"))
-    with world.database.unit_of_work() as uow:
-        uow.identity.save_oidc_settings(
-            OidcSettings(
-                tenant_id=TENANT,
-                client_id="client-abc",
-                client_secret="test-secret",
-                allowed_domains=("example.ac.jp",),
-            )
-        )
-        uow.commit()
+    _enable_sso(world, monkeypatch)
     page = world.client("teacher").get(f"/manage/courses/{world.course.id}/enrolments").text
     assert "y239999@example.ac.jp" in page
 
