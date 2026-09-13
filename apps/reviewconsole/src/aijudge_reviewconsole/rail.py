@@ -115,7 +115,7 @@ def course_rail(
     authoring = [RailItem("問題セット", manage)]
     groups = [grading]
     if can_manage:
-        authoring.append(RailItem("未承認の課題", f"{manage}/drafts"))
+        authoring.append(RailItem("未承認の課題（AI 作問）", f"{manage}/drafts"))
     groups.append(RailGroup(title="出題", items=tuple(authoring)))
     if can_manage:
         groups.append(

@@ -1,10 +1,10 @@
 {% extends "base.html" %}
-{% block title %}未承認の課題 — {{ course.title }}{% endblock %}
+{% block title %}未承認の課題（AI 作問） — {{ course.title }}{% endblock %}
 {% block body %}
-<h1>未承認の課題</h1>
+<h1>未承認の課題（AI 作問）</h1>
 
 {% if not rows %}
-<div class="note">未承認の課題はありません。</div>
+<div class="note">未承認の課題（AI 作問）はありません。</div>
 {% else %}
 <div class="note">
   <strong>承認するまで出題されません。</strong>
