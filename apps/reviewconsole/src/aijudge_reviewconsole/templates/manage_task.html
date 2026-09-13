@@ -50,7 +50,10 @@
    門 1・門 2 の検査が走る）。訂正と、テストを使わない追加は待たない。 #}
 <form method="post" class="card"
       {% if not task and wants_tests %}data-working="生成中… 数十秒かかります（このまま待ってください）"{% endif %}
-      action="{{ '/manage/courses/%s/tasks/%s/revise' | format(course.id, task.id)
+      {# **接頭辞を通す**（#281）。ここだけ `/manage/...` を直に出していたので、
+         `/console` の下で動く運用機では prefix の外へ POST され、保存が
+         `{"detail":"Not Found"}` になった。ローカル（接頭辞なし）では出ない。 #}
+      action="{{ root_prefix() }}{{ '/manage/courses/%s/tasks/%s/revise' | format(course.id, task.id)
                 if task else '/manage/courses/%s/tasks' | format(course.id) }}">
   {% if task %}
     <p class="desc" style="margin:0 0 14px">

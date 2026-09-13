@@ -591,6 +591,9 @@ def _key_candidates(task) -> list[str]:
 # どこを触っていたのかを探し直すことになる（設定が縦に並ぶ画面ほど効く）。
 # 素の HTML でこれをやるには、リダイレクト先に錨を付けるのが確実で、
 # JavaScript も要らない。
+# 受講登録の結果に載せる「未登録アカウント」の上限。それ以上は件数だけ言う。
+MAX_UNKNOWN_SHOWN = 20
+
 SAVED_MESSAGES: dict[str, str] = {
     "schedule": "日程を保存しました（この問題セットの全課題に反映）",
     "moved": "課題を移しました（日程は移動先に揃えました）",
@@ -4225,12 +4228,25 @@ def register(templates) -> APIRouter:
         )
 
     @router.get("/courses/{course_id}/enrolments", response_class=HTMLResponse)
-    def enrolments(request: Request, course_id: str, q: str = "", saved: str = "") -> Response:
+    def enrolments(
+        request: Request,
+        course_id: str,
+        q: str = "",
+        saved: str = "",
+        enrolled: int = 0,
+        already: int = 0,
+        unknown: str = "",
+    ) -> Response:
         """受講者の一覧。**コースの設定とは別の画面にする。**
 
         受講 100 名規模になると、設定を 1 つ直しに来た教員が毎回 100 行を
         めくることになる。絞り込みは前方一致 ── 選択肢に並べても選べない
         （提出の一覧と同じ理由）。
+
+        `enrolled` / `already` / `unknown` は直前の受講登録の結果
+        （`add_enrolments` がリダイレクトで渡す）。**何件入って何件が
+        入らなかったかを、その場で言う。** 「保存しました」だけだと、
+        名簿の半分が未登録だったことに学期が始まってから気づく。
         """
         from .app import require_principal
 
@@ -4240,6 +4256,7 @@ def register(templates) -> APIRouter:
 
         prefix = q.strip().lower()
         with console.database.unit_of_work() as uow:
+            oidc = uow.identity.get_oidc_settings(me.tenant_id)
             all_enrollments = uow.identity.list_enrollments(course.id)
             people = []
             for enrollment in all_enrollments:
@@ -4270,6 +4287,21 @@ def register(templates) -> APIRouter:
                 "roles": [role.value for role in GRANTABLE_ROLES],
                 "saved": SAVED_MESSAGES.get(saved),
                 "saved_key": saved,
+                # **アカウントの書き方は設定から出す。** 学内ログイン（OIDC）の
+                # アカウントは `<学籍番号>@<許可ドメイン>` で、ローカルアカウント
+                # は login そのもの。「学籍番号を並べる」と書いていたが、龍大では
+                # 学籍番号＠ドメインがアカウントなので、番号だけを貼ると全員が
+                # 未登録になる。
+                "login_domains": list(oidc.allowed_domains) if oidc else [],
+                "enrol_result": (
+                    {
+                        "enrolled": enrolled,
+                        "already": already,
+                        "unknown": [name for name in unquote(unknown).split(",") if name],
+                    }
+                    if saved == "enrolled"
+                    else None
+                ),
             },
         )
 
@@ -4351,30 +4383,36 @@ def register(templates) -> APIRouter:
 
         # 画面からは**既存利用者の登録だけ**を許す。新規作成はパスワードの
         # 配布が伴うので CLI（`aijudge-admin enrol --credentials`）で行う。
+        #
+        # **未登録が混ざっていても、残りは入れる。** 全部を断ると、100 行の
+        # 名簿が 1 行の綴り違いで丸ごと弾かれ、教員はどの行かを探して貼り
+        # 直すことになる。入った件数と入らなかったアカウントは戻り先の画面に
+        # そのまま出す（`enrolments` の `enrol_result`）。
         with console.database.unit_of_work() as uow:
-            unknown = [
-                entry.login
+            known = tuple(
+                entry
                 for entry in entries
-                if uow.identity.find_user_by_login(me.tenant_id, entry.login) is None
-            ]
-        if unknown:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    f"利用者が未登録です: {', '.join(unknown[:10])}"
-                    f"{' ほか' if len(unknown) > 10 else ''}。"
-                    "新規作成はパスワードの配布が伴うため "
-                    "`aijudge-admin enrol --credentials <path>` で行ってください"
-                ),
+                if uow.identity.find_user_by_login(me.tenant_id, entry.login) is not None
             )
-        enrol_roster(
-            console.database,
-            tenant_id=me.tenant_id,
-            course_id=CourseId(course_id),
-            entries=entries,
-        )
+        unknown = [entry.login for entry in entries if entry not in known]
+        enrolled = already = 0
+        if known:
+            report = enrol_roster(
+                console.database,
+                tenant_id=me.tenant_id,
+                course_id=CourseId(course_id),
+                entries=known,
+            )
+            enrolled, already = len(report.enrolled), len(report.already)
+        # 未登録の一覧は URL に載せて戻す。**長さは切る** ── 名簿を丸ごと
+        # 間違えた（番号だけを貼った）ときに、URL が数千文字になる。
+        shown = ",".join(unknown[:MAX_UNKNOWN_SHOWN])
+        if len(unknown) > MAX_UNKNOWN_SHOWN:
+            shown += f",…ほか {len(unknown) - MAX_UNKNOWN_SHOWN} 件"
         return RedirectResponse(
-            f"/manage/courses/{course_id}?saved=enrolled#enrolments", status_code=303
+            f"/manage/courses/{course_id}/enrolments?saved=enrolled"
+            f"&enrolled={enrolled}&already={already}&unknown={quote(shown)}#result",
+            status_code=303,
         )
 
     @router.post("/courses/{course_id}/enrolments/{user_id}/remove")

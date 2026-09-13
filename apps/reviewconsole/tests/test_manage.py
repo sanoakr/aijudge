@@ -1128,17 +1128,86 @@ def test_an_existing_user_can_be_enrolled(world: World) -> None:
         )
 
 
-def test_an_unknown_user_is_refused_with_a_pointer_to_the_cli(world: World) -> None:
-    """新規作成はパスワードの配布が伴う。画面に平文を出さない。"""
+def test_enrolment_comes_back_to_the_same_page_with_the_counts(world: World) -> None:
+    """登録のあとは受講者の画面に戻り、**何件入ったか**をその場で言う。"""
     world.register("teacher", Role.INSTRUCTOR)
+    world.register("y239999", None)
+    world.register("y239998", Role.LEARNER)
     response = world.client("teacher").post(
         f"/manage/courses/{world.course.id}/enrolments",
-        data={"roster": "nobody", "role": "learner"},
+        data={"roster": "y239999\ny239998", "role": "learner"},
+        follow_redirects=False,
     )
-    assert response.status_code == 400
-    detail = response.json()["detail"]
-    assert "未登録" in detail
-    assert "aijudge-admin enrol" in detail
+    assert response.status_code == 303
+    location = response.headers["location"]
+    assert location.startswith(f"/manage/courses/{world.course.id}/enrolments?")
+    assert "enrolled=1" in location and "already=1" in location
+
+    page = world.client("teacher").get(location).text
+    assert "1 件を登録しました" in page
+    assert "1 件は登録済み" in page
+    assert "登録できませんでした" not in page
+
+
+def test_unknown_accounts_are_reported_and_the_rest_are_enrolled(world: World) -> None:
+    """**未登録が混ざっていても残りは入れる。** 入らなかったアカウントは
+    画面に名指しで出す ── 全部を断ると、100 行の名簿が 1 行の綴り違いで
+    丸ごと弾かれる。新規作成はパスワードの配布が伴うので CLI に回す。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    world.register("y239999", None)
+    response = world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/enrolments",
+        data={"roster": "y239999\nnobody\nghost@example.ac.jp", "role": "learner"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    page = world.client("teacher").get(response.headers["location"]).text
+    assert "1 件を登録しました" in page
+    assert "2 件は登録できませんでした" in page
+    assert "nobody, ghost@example.ac.jp" in page
+    assert "aijudge-admin enrol" in page
+
+    with world.database.unit_of_work() as uow:
+        user = uow.identity.find_user_by_login(TENANT, "y239999")
+        assert user is not None
+        assert (
+            AuthService(uow.identity, audit=uow.audit).role_in(world.course.id, user.id)
+            is Role.LEARNER
+        )
+        assert uow.identity.find_user_by_login(TENANT, "nobody") is None
+
+
+def test_the_roster_form_names_accounts_not_student_numbers(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """龍大では `学籍番号@mail.ryukoku.ac.jp` がアカウントで、「学籍番号を
+    並べる」と書くと番号だけが貼られて全員が未登録になる。例は OIDC の
+    許可ドメインから作り、ローカルアカウントの例も並べる。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    page = world.client("teacher").get(f"/manage/courses/{world.course.id}/enrolments").text
+    assert "学籍番号を並べます" not in page
+    assert "アカウント" in page
+    assert "ta01" in page
+    assert "学内ログイン（OIDC）は設定されていません" in page
+
+    from cryptography.fernet import Fernet
+
+    from aijudge_identity import OidcSettings
+    from aijudge_persistence import ENV_OIDC_SECRET_KEY
+
+    monkeypatch.setenv(ENV_OIDC_SECRET_KEY, Fernet.generate_key().decode("ascii"))
+    with world.database.unit_of_work() as uow:
+        uow.identity.save_oidc_settings(
+            OidcSettings(
+                tenant_id=TENANT,
+                client_id="client-abc",
+                client_secret="test-secret",
+                allowed_domains=("example.ac.jp",),
+            )
+        )
+        uow.commit()
+    page = world.client("teacher").get(f"/manage/courses/{world.course.id}/enrolments").text
+    assert "y239999@example.ac.jp" in page
 
 
 def test_a_broken_roster_is_refused(world: World) -> None:
@@ -5648,6 +5717,24 @@ def test_the_breadcrumb_class_is_not_used_for_anything_else() -> None:
     """
     templates = Path(__file__).resolve().parents[1] / "src" / "aijudge_reviewconsole" / "templates"
     guilty = [path.name for path in templates.glob("*.html") if 'class="crumb"' in path.read_text()]
+
+    assert guilty == []
+
+
+def test_no_form_posts_to_a_path_without_the_prefix() -> None:
+    """テンプレートの `action=` は必ず `root_prefix()` を通す（#281）。
+
+    課題の編集フォームだけが `/manage/...` を直に出しており、`/console` の
+    下で動く運用機では prefix の外へ POST されて保存が 404 になった。
+    ローカル（接頭辞なし）では再現しないので、書き方そのものを固定する。
+    """
+    templates = Path(__file__).resolve().parents[1] / "src" / "aijudge_reviewconsole" / "templates"
+    guilty = [
+        f"{path.name}:{number}"
+        for path in templates.glob("*.html")
+        for number, line in enumerate(path.read_text().splitlines(), 1)
+        if re.search(r"""action=["']\{\{\s*'/""", line) or re.search(r"""action=["']/""", line)
+    ]
 
     assert guilty == []
 

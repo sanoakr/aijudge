@@ -213,3 +213,38 @@ def test_a_non_member_sees_no_courses(backend) -> None:
     auth, _, _ = backend
     principal = _register(auth)
     assert auth.do(lambda s: s.courses_for(TENANT, principal.user_id)) == ()
+
+
+def test_a_user_made_from_the_roster_is_linked_on_first_sso_login(backend) -> None:
+    """名簿から先に作られた利用者（login がメールアドレス）は、初回の SSO
+    ログインで `sub` と結び付く（#285）。
+
+    **SQL の側でしか出ない**不具合だった: 結び付けずに同じ login で作ると
+    `users.tenant_id, users.login` の UNIQUE 制約に当たる。インメモリ実装は
+    制約を持たないので `packages/identity/tests` では通ってしまう。
+    """
+    from aijudge_identity import GoogleOidcIdentity
+
+    auth, _, _ = backend
+    before = auth.do(
+        lambda s: s.register(
+            tenant_id=TENANT,
+            login="y239999@example.ac.jp",
+            display_name="y239999",
+            password=PASSWORD,
+        )
+    )
+    identity = GoogleOidcIdentity(sub="sub-9", email="y239999@example.ac.jp", hd="example.ac.jp")
+
+    principal, _token = auth.do(lambda s: s.login_with_google(tenant_id=TENANT, identity=identity))
+
+    assert principal.user_id == before.user_id
+    assert principal.is_external
+    # 配布したローカルパスワードは捨て値に置き換わり、もう通らない。
+    with pytest.raises(AuthenticationFailed):
+        auth.do(
+            lambda s: s.login(tenant_id=TENANT, login="y239999@example.ac.jp", password=PASSWORD)
+        )
+    # 2 回目は `sub` で引ける。
+    again, _ = auth.do(lambda s: s.login_with_google(tenant_id=TENANT, identity=identity))
+    assert again.user_id == before.user_id
