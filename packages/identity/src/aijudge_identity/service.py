@@ -232,8 +232,16 @@ class AuthService:
         ドメイン制限は `GoogleOidcProvider.exchange_code` が既に済ませている
         ── ここでの仕事は「この `sub` に対応する `User` を引く、無ければ
         JIT で作る」だけ。**事前の名簿投入は要らない**（#121 で決定済み）。
+
+        要らないが、**あってもよい**（#285）。名簿から先に作られた利用者
+        （login がメールアドレス）は `sub` を持たないので、`sub` で引けなければ
+        メールアドレスで引き、初回だけ結び付ける。結び付けずに同じ login で
+        作ろうとすると UNIQUE 制約に当たり、学期初めに名簿を流した学生全員が
+        初回ログインで 500 になる。
         """
         user = self._repository.find_user_by_external_id(tenant_id, identity.sub)
+        if user is None:
+            user = self._link_by_email(tenant_id, identity)
         if user is None:
             user = User(
                 id=UserId(new_id("usr")),
@@ -256,6 +264,37 @@ class AuthService:
 
         self._record_login_success(user, method="google")
         return self._start_session(user)
+
+    def _link_by_email(self, tenant_id: TenantId, identity: GoogleOidcIdentity) -> User | None:
+        """メールアドレスが login の既存利用者に `sub` を結び付ける（#285）。
+
+        **ローカルパスワードは捨て値に置き換える。** 学内アカウントに配布
+        パスワードという 2 つ目のログイン経路を残す理由が無く、名簿から
+        出した credentials ファイルが漏れても効かなくなる（JIT で作った
+        利用者と同じ状態に揃える）。
+
+        別の `sub` が既に結び付いている利用者には触らない ── 同じメール
+        アドレスに 2 つの口座があることになり、こちらで決められる話ではない。
+        """
+        candidates = {identity.email, identity.email.lower()}
+        for login in candidates:
+            user = self._repository.find_user_by_login(tenant_id, login)
+            if user is None:
+                continue
+            if user.external_id is not None and user.external_id != identity.sub:
+                raise AuthenticationFailed(
+                    "このメールアドレスは別の学内アカウントに結び付いています。管理者に連絡してください"
+                )
+            linked = user.model_copy(
+                update={
+                    "external_id": identity.sub,
+                    "email": user.email or identity.email,
+                    "password_hash": hash_password(secrets.token_urlsafe(32)),
+                }
+            )
+            self._repository.save_user(linked)
+            return linked
+        return None
 
     def _start_session(self, user: User) -> tuple[Principal, str]:
         """セッションを作る。**ログインの両経路がここで合流する。**

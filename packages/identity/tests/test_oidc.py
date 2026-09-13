@@ -203,6 +203,30 @@ def test_a_second_login_resolves_the_same_user() -> None:
     assert principal1.user_id == principal2.user_id
 
 
+def test_a_pre_registered_email_login_is_linked_and_its_password_discarded() -> None:
+    """名簿から先に作られた利用者は初回の SSO ログインで結び付き（#285）、
+    配布パスワードは捨て値になる ── 学内アカウントに 2 つ目の経路を残さない。"""
+    service = AuthService(InMemoryIdentityRepository(), audit=InMemoryAuditLog())
+    before = service.register(
+        tenant_id=TENANT, login="taro@example.ac.jp", display_name="taro", password="pw-from-roster"
+    )
+
+    principal, _ = service.login_with_google(tenant_id=TENANT, identity=an_identity())
+
+    assert principal.user_id == before.user_id and principal.is_external
+    with pytest.raises(AuthenticationFailed):
+        service.login(tenant_id=TENANT, login="taro@example.ac.jp", password="pw-from-roster")
+
+
+def test_an_email_already_linked_to_another_sub_is_refused() -> None:
+    """同じメールアドレスに別の `sub` が結び付いている利用者は奪えない。"""
+    service = AuthService(InMemoryIdentityRepository(), audit=InMemoryAuditLog())
+    service.login_with_google(tenant_id=TENANT, identity=an_identity(sub="sub-1"))
+
+    with pytest.raises(AuthenticationFailed):
+        service.login_with_google(tenant_id=TENANT, identity=an_identity(sub="sub-2"))
+
+
 def test_a_google_session_resolves_like_any_other_session() -> None:
     """下流のコース・役割判定に変更が要らないことの確認。"""
     service = AuthService(InMemoryIdentityRepository(), audit=InMemoryAuditLog())
