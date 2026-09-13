@@ -24,7 +24,7 @@ from fastapi.testclient import TestClient
 from aijudge_admin import ensure_course
 from aijudge_authoring.statement import render_statement
 from aijudge_core import ReviewState, Role
-from aijudge_core.ids import CourseId, TaskVersionId, TenantId
+from aijudge_core.ids import CourseId, TaskId, TaskVersionId, TenantId
 from aijudge_identity import AuthenticationFailed, AuthService
 from aijudge_persistence import Database
 from aijudge_reviewconsole import SESSION_COOKIE, Console, create_app
@@ -1272,6 +1272,182 @@ def test_anyone_on_the_console_can_download_the_course_template(world: World) ->
     assert response.status_code == 200
     assert 'filename="course.yaml"' in response.headers["content-disposition"]
     assert "subject_profile:" in response.text and "problem_dir:" in response.text
+
+
+# --------------------------------------------------------------------------
+# テストケースの閲覧と修正（#284）
+# --------------------------------------------------------------------------
+
+
+def test_test_cases_are_shown_to_the_instructor_and_the_ta(world: World) -> None:
+    """件数だけでなく**中身**を見せる。取り込んだ in/out が正しいかは、これまで
+    DB か手元のディレクトリでしか確かめられなかった。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    world.register("ta", Role.ASSISTANT)
+    task_id = _import_example(world)
+    with world.database.unit_of_work() as uow:
+        version = uow.tasks.latest_version(TaskId(task_id))
+    first = version.test_cases[0]
+
+    for who in ("teacher", "ta"):
+        page = world.client(who).get(f"/manage/courses/{world.course.id}/tasks/{task_id}/edit").text
+        assert 'class="testcases"' in page
+        assert first.name in page
+        assert html.escape(str(first.payload["expected"]).strip()) in page
+    # 直せるのは教員だけ。
+    assert (
+        "テストケースを直す"
+        in world.client("teacher")
+        .get(f"/manage/courses/{world.course.id}/tasks/{task_id}/edit")
+        .text
+    )
+    assert (
+        "テストケースを直す"
+        not in world.client("ta")
+        .get(f"/manage/courses/{world.course.id}/tasks/{task_id}/edit")
+        .text
+    )
+
+
+def _task_with_tests(world: World, author: str = "teacher") -> str:
+    """参照解答とテストケースを持つ課題（画面から直せるようキー付きで保存）。
+
+    作者は既定で `teacher` ── 版の同一性は作者も見る（`substantive`）ので、
+    別の人が同じ内容を保存すると版が上がる。"""
+    from aijudge_admin import save_task
+    from aijudge_authoring import TaskSpec
+    from aijudge_authoring.spec import TestCaseSpec
+
+    saved = save_task(
+        world.database,
+        course_id=world.course.id,
+        spec=TaskSpec(
+            key="ex01/p1",
+            unit="ex01",
+            statement="## [必須] 合計 ##\n\n合計を出力する。",
+            reference_solution="#include <stdio.h>\nint main(void){return 0;}\n",
+            test_cases=(
+                TestCaseSpec(name="case1", input="1 2\n", expected="3\n"),
+                TestCaseSpec(name="case2", input="2 2\n", expected="4\n"),
+                TestCaseSpec(name="case3", input="0 0\n", expected="0\n"),
+            ),
+        ),
+        subject_profile="cs_lang_c_intro",
+        authored_by=_user_id(world, author),
+    )
+    return str(saved.task.id)
+
+
+def _user_id(world: World, login: str):
+    with world.database.unit_of_work() as uow:
+        user = uow.identity.find_user_by_login(TENANT, login)
+    return user.id if user is not None else world.register(login, Role.INSTRUCTOR).user_id
+
+
+def _case_form(version, **changes) -> dict[str, list[str]]:
+    """版のテストケースをフォームの並びにする（`case_*` の同名フィールド）。"""
+    cases = [
+        {
+            "name": case.name,
+            "input": str(case.payload.get("input", "")),
+            "expected": str(case.payload.get("expected", "")),
+            "weight": str(case.weight),
+            "hidden": "1" if case.hidden else "0",
+        }
+        for case in version.test_cases
+    ]
+    for index, fields in changes.items():
+        cases[int(index)].update(fields)
+    return {
+        "case_name": [c["name"] for c in cases],
+        "case_input": [c["input"] for c in cases],
+        "case_expected": [c["expected"] for c in cases],
+        "case_weight": [c["weight"] for c in cases],
+        "case_hidden": [c["hidden"] for c in cases],
+    }
+
+
+def test_editing_test_cases_makes_a_new_version_after_the_gate(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """修正は版を上げる（P8）。参照解答があれば門 1 を通してから保存する。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    task_id = _task_with_tests(world)
+    with world.database.unit_of_work() as uow:
+        before = uow.tasks.latest_version(TaskId(task_id))
+    assert before.reference_solution
+
+    seen: list[int] = []
+
+    def passes(self, candidate, source):
+        seen.append(len(candidate.test_cases))
+        return True, "all cases pass"
+
+    monkeypatch.setattr("aijudge_reviewconsole.manage.TaskVerifier.passes", passes)
+    form = _case_form(before, **{"0": {"expected": "9 9 9.000\n"}})
+    form["case_delete"] = ["1"]
+    response = world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/tasks/{task_id}/test-cases/edit",
+        data=form,
+        follow_redirects=False,
+    )
+    assert response.status_code == 303, response.text
+    assert "saved=tests_revised" in response.headers["location"]
+    assert seen == [len(before.test_cases) - 1]
+
+    with world.database.unit_of_work() as uow:
+        after = uow.tasks.latest_version(TaskId(task_id))
+        original = uow.tasks.get_version(before.id)
+    assert after.version == before.version + 1
+    assert len(after.test_cases) == len(before.test_cases) - 1
+    assert after.test_cases[0].payload["expected"] == "9 9 9.000\n"
+    # 元の版はそのまま（過去の採点が指している）。
+    assert original.test_cases[0].payload["expected"] == before.test_cases[0].payload["expected"]
+    # 問題文・観点・参照解答は引き継ぐ。
+    assert after.statement == before.statement
+    assert [c.code for c in after.criteria] == [c.code for c in before.criteria]
+    assert after.reference_solution == before.reference_solution
+
+
+def test_test_cases_the_reference_fails_are_not_saved(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """期待出力の誤字 1 つで全員が落ちる形を、保存する前に止める。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    task_id = _task_with_tests(world)
+    with world.database.unit_of_work() as uow:
+        before = uow.tasks.latest_version(TaskId(task_id))
+    monkeypatch.setattr(
+        "aijudge_reviewconsole.manage.TaskVerifier.passes",
+        lambda self, candidate, source: (False, "case1: expected 2 2 2.000, got 9 9 9.000"),
+    )
+    response = world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/tasks/{task_id}/test-cases/edit",
+        data=_case_form(before, **{"0": {"expected": "9 9 9.000\n"}}),
+    )
+    assert response.status_code == 400
+    assert "参照解答が通らない" in response.json()["detail"]
+    with world.database.unit_of_work() as uow:
+        assert uow.tasks.latest_version(TaskId(task_id)).version == before.version
+
+
+def test_unchanged_test_cases_do_not_bump_the_version(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    world.register("teacher", Role.INSTRUCTOR)
+    task_id = _task_with_tests(world)
+    with world.database.unit_of_work() as uow:
+        before = uow.tasks.latest_version(TaskId(task_id))
+    monkeypatch.setattr(
+        "aijudge_reviewconsole.manage.TaskVerifier.passes",
+        lambda self, candidate, source: (True, "ok"),
+    )
+    world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/tasks/{task_id}/test-cases/edit",
+        data=_case_form(before),
+    )
+    with world.database.unit_of_work() as uow:
+        assert uow.tasks.latest_version(TaskId(task_id)).version == before.version
 
 
 def test_the_roster_form_names_accounts_not_student_numbers(

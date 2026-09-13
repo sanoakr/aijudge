@@ -118,6 +118,7 @@ from aijudge_core import (
     ReviewState,
     Role,
     Task,
+    TestCase,
     format_term,
     is_valid_kc_key,
     normalize_suffixes,
@@ -614,6 +615,10 @@ SAVED_MESSAGES: dict[str, str] = {
     # 動いていた**（#52）。理由は `last_test_case_error` にそのまま出す。
     "tests_failed": "テストケースを作れませんでした。課題はいまの版のままです",
     "regraded": "この版で採点し直します（確定済みの提出はそのままです）",
+    "tests_revised": (
+        "テストケースを直して**新しい版**にしました。過去の採点は元の版のままです。"
+        "出題済みの提出をこの版で見直すなら「この版で採点し直す」を押してください"
+    ),
     "withdrawn": "出題を取り下げました（学習者に出なくなります。記録は残ります）",
     "restored": "出題の取り下げを取り消しました",
     "task_deleted": "課題を削除しました（提出が 1 件も無いもの）",
@@ -4317,6 +4322,130 @@ def register(templates) -> APIRouter:
             statement=statement,
             chosen_kcs=chosen,
             kc_candidates=_kc_candidates_for(console, course, statement),
+        )
+
+    @router.post("/courses/{course_id}/tasks/{task_id}/test-cases/edit")
+    async def edit_test_cases(request: Request, course_id: str, task_id: str) -> Response:
+        """テストケースを直して新しい版にする（#284）。
+
+        **既存の版は書き換えない**（P8）。出題済みの版のテストを書き換えると、
+        過去の採点が何で判定されたのか辿れなくなる。同じ内容なら版は上がらない。
+
+        **参照解答があれば門 1 を先に通す。** 参照解答が通らない入出力は
+        保存しない ── 保存してから全員が落ちる形は、期待出力の誤字 1 つで
+        起きる。参照解答が無い課題は確かめようが無いので、そのまま保存する
+        （画面はそう言っている）。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+        with console.database.unit_of_work() as uow:
+            task = uow.tasks.get_task(TaskId(task_id))
+            version = uow.tasks.latest_version(TaskId(task_id))
+        if task is None or version is None or task.course_id != CourseId(course_id):
+            raise HTTPException(status_code=404, detail="課題が見つかりません")
+
+        form = await request.form()
+        names = [str(v) for v in form.getlist("case_name")]
+        inputs = [str(v) for v in form.getlist("case_input")]
+        expected = [str(v) for v in form.getlist("case_expected")]
+        weights = [str(v) for v in form.getlist("case_weight")]
+        hidden = [str(v) for v in form.getlist("case_hidden")]
+        deleted = {str(v) for v in form.getlist("case_delete")}
+
+        def at(values: list[str], index: int, default: str = "") -> str:
+            return values[index] if index < len(values) else default
+
+        cases: list[TestCaseSpec] = []
+        seen: set[str] = set()
+        for index in range(len(names)):
+            if str(index) in deleted:
+                continue
+            name = at(names, index).strip()
+            text_in = at(inputs, index).replace("\r\n", "\n")
+            text_out = at(expected, index).replace("\r\n", "\n")
+            if not name and not text_in.strip() and not text_out.strip():
+                continue  # 追加用の空行
+            if not name:
+                raise HTTPException(status_code=400, detail=f"{index + 1} 行目: 名前が要ります")
+            if name in seen:
+                raise HTTPException(status_code=400, detail=f"名前 {name!r} が重複しています")
+            seen.add(name)
+            try:
+                weight = float(at(weights, index, "1.0") or 1.0)
+            except ValueError:
+                raise HTTPException(
+                    status_code=400, detail=f"{name}: 重みが数値ではありません"
+                ) from None
+            cases.append(
+                TestCaseSpec(
+                    name=name,
+                    input=text_in,
+                    expected=text_out,
+                    hidden=at(hidden, index, "1") != "0",
+                    weight=weight,
+                )
+            )
+        if not cases:
+            raise HTTPException(
+                status_code=400,
+                detail="テストケースが 0 件になります。全部消すなら課題を取り下げてください",
+            )
+
+        # 門 1: 参照解答が全ケースを通るか。**通らなければ保存しない。**
+        if version.reference_solution:
+            evaluator_id = next(
+                (case.evaluator_id for case in version.test_cases), CODE_TEST_RUNNER
+            )
+            candidate = version.model_copy(
+                update={
+                    "test_cases": tuple(
+                        TestCase(
+                            name=case.name,
+                            evaluator_id=evaluator_id,
+                            payload={"input": case.input, "expected": case.expected},
+                            hidden=case.hidden,
+                            weight=case.weight,
+                        )
+                        for case in cases
+                    )
+                }
+            )
+            profile = load_profile(console.profiles_dir / f"{version.subject_profile}.yaml")
+            try:
+                verifier = TaskVerifier(EvaluatorRegistry().load_installed(), profile)
+                passed, detail = verifier.passes(candidate, version.reference_solution)
+            except (
+                Exception
+            ) as exc:  # サンドボックス不在など。**保存しない**（確かめられていない）。
+                raise HTTPException(
+                    status_code=502, detail=f"参照解答を走らせられませんでした: {exc}"
+                ) from exc
+            if not passed:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"参照解答が通らないテストケースがあるので保存しません: {detail}",
+                )
+
+        _save_revision(
+            console,
+            me,
+            course,
+            task,
+            version,
+            statement=version.statement,
+            criteria=rubric.from_criteria(version.criteria),
+            aggregation=version.aggregation,
+            position=task.position,
+            accepted=task.accepted_suffixes,
+            reference_solution=version.reference_solution,
+            test_cases=tuple(cases),
+        )
+        return RedirectResponse(
+            f"/manage/courses/{course_id}/tasks/{task_id}/edit?saved=tests_revised#tests",
+            status_code=303,
         )
 
     @router.post("/courses/{course_id}/tasks/{task_id}/revise")

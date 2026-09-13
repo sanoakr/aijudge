@@ -334,3 +334,15 @@ form[data-working] button[disabled]{opacity:.55;cursor:progress}
 button.minor{background:transparent;color:var(--ink-2);border:1px solid var(--line);
   font-weight:600;font-size:.88rem;padding:7px 14px}
 button.minor:hover{filter:none;background:var(--surface-2);border-color:var(--ink-2)}
+/* テストケースの表（#284）。入出力は等幅で、折り返さずに横へ流す ──
+   空白の数が正誤を分けるので、折り返して見せると空白が読めない。 */
+table.testcases pre.io{margin:0;padding:6px 8px;background:var(--surface-2);border:1px solid var(--line-soft);
+  border-radius:3px;font-size:.82rem;white-space:pre;max-height:12em;overflow:auto;min-width:8rem}
+table.testcases textarea{min-width:14rem;font-size:.82rem;white-space:pre}
+/* 編集の表では欄を中身に合わせる（`.criterion-fields` の 100% 幅を打ち消す）。 */
+table.testcases input:not([type=checkbox]){width:8rem;min-width:6rem}
+table.testcases input[type=number]{width:5rem;min-width:5rem}
+table.testcases select{width:auto}
+table.testcases td.fit{white-space:nowrap}
+table.testcases th.fit,table.testcases td.fit{width:1%}
+table.testcases textarea{width:100%}

@@ -361,6 +361,60 @@
   <div class="actions"><button type="submit">{{ 'この問題を保存して更新する' if task else '保存' }}</button></div>
 </form>
 
+{% if task and (version.test_cases or wants_tests) %}
+{# テストケースの閲覧と修正（#284）。**修正は版を上げる**（P8）── 出題済みの
+   版のテストを書き換えると、過去の採点が何で判定されたのか辿れなくなる。
+   参照解答があれば保存前に門 1（参照解答が全ケースを通る）を走らせ、通らない
+   入出力は保存しない。 #}
+<div class="card" id="tests">
+  <h3 style="margin-top:0">テストケース（{{ version.test_cases | length }} 件）</h3>
+  {% include "_test_cases_table.html" %}
+  <details style="margin-top:12px">
+    <summary><b>テストケースを直す</b><span class="desc">（保存すると新しい版になります）</span></summary>
+    <form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/tasks/{{ task.id }}/test-cases/edit" class="criterion-fields">
+      <p class="desc" style="margin:8px 0">
+        入力と期待出力は<strong>改行も含めてそのまま</strong>使われます（末尾に改行を 1 つ入れるのが普通です）。
+        名前・入力・期待出力が空の行は捨てます。
+        {% if version.reference_solution %}<strong>保存前に参照解答を全ケースで走らせ、通らなければ保存しません。</strong>
+        {% else %}参照解答が無いので、入出力の整合は確かめずに保存します。{% endif %}
+      </p>
+      <div style="overflow-x:auto">
+      <table class="testcases">
+        <thead><tr>
+          <th class="fit">消す</th><th class="fit">名前</th><th class="fit">重み</th><th class="fit">学習者に</th>
+          <th>入力</th><th>期待出力</th>
+        </tr></thead>
+        <tbody>
+        {% for case in version.test_cases %}
+          <tr>
+            <td class="fit"><input type="checkbox" name="case_delete" value="{{ loop.index0 }}" style="width:auto"></td>
+            <td class="fit"><input name="case_name" value="{{ case.name }}"></td>
+            <td class="fit"><input name="case_weight" type="number" step="0.1" min="0.1" value="{{ case.weight }}"></td>
+            <td class="fit"><select name="case_hidden">
+              <option value="1" {{ 'selected' if case.hidden }}>見せない</option>
+              <option value="0" {{ 'selected' if not case.hidden }}>見せる</option></select></td>
+            <td><textarea name="case_input" rows="3" class="mono">{{ case.payload.get('input', '') }}</textarea></td>
+            <td><textarea name="case_expected" rows="3" class="mono">{{ case.payload.get('expected', '') }}</textarea></td>
+          </tr>
+        {% endfor %}
+        {# 追加用の空行。名前が空なら捨てられる。 #}
+        <tr>
+          <td class="fit desc">追加</td>
+          <td class="fit"><input name="case_name" placeholder="case{{ version.test_cases | length + 1 }}"></td>
+          <td class="fit"><input name="case_weight" type="number" step="0.1" min="0.1" value="1.0"></td>
+          <td class="fit"><select name="case_hidden"><option value="1">見せない</option><option value="0">見せる</option></select></td>
+          <td><textarea name="case_input" rows="3" class="mono"></textarea></td>
+          <td><textarea name="case_expected" rows="3" class="mono"></textarea></td>
+        </tr>
+        </tbody>
+      </table>
+      </div>
+      <div class="actions"><button type="submit">テストケースを保存して新しい版にする</button></div>
+    </form>
+  </details>
+</div>
+{% endif %}
+
 {% if task %}
 {# **後から足せる。** 以前は「作り直してください」と書いてあり、作り直せば
    別の課題になって同じ問題が 2 件並んだ（#43）。 #}
