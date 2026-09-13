@@ -29,12 +29,16 @@
 <div id="result" class="note {{ 'saved' if not enrol_result.unknown else 'warn' }}">
   <strong>受講登録: {{ enrol_result.enrolled }} 件を登録しました</strong>
   {% if enrol_result.already %}（ほかに {{ enrol_result.already }} 件は登録済みでした）{% endif %}
+  {% if enrol_result.provisioned %}
+  <br>うち {{ enrol_result.provisioned }} 件はまだログインしたことのない学内アカウントで、利用者を新たに作りました。
+  本人が学内ログインをした時点でそのまま結び付きます（パスワードの配布は要りません）。
+  {% endif %}
   {% if enrol_result.unknown %}
-  <br><strong>{{ enrol_result.unknown | length }} 件は登録できませんでした</strong> ── 利用者が未登録のアカウントです:
+  <br><strong>{{ enrol_result.unknown | length }} 件は登録できませんでした</strong> ── 学内ログインのドメインではなく、利用者も未登録のアカウントです:
   <span class="mono">{{ enrol_result.unknown | join(', ') }}</span>
-  <br><span class="desc">学内ログインの利用者は、本人が一度ログインすると作られます。
-    ローカルアカウントの新規作成はパスワードの配布が伴うため、画面ではなく
-    <code>aijudge-admin enrol --credentials &lt;path&gt;</code> で行います。</span>
+  <br><span class="desc">ローカルアカウントの新規作成はパスワードの配布が伴うため、画面ではなく
+    <code>aijudge-admin enrol --credentials &lt;path&gt;</code> で行います。
+    学内アカウントなら <span class="mono">学籍番号@ドメイン</span> の形で書き直してください。</span>
   {% endif %}
 </div>
 {% elif saved %}<div class="note saved">{{ saved }}</div>{% endif %}
@@ -150,8 +154,11 @@
     </table>
   </div>
   <p class="desc">
-    この画面で登録できるのは、既に利用者として存在するアカウントだけです。
-    学内ログインの利用者は本人が一度ログインすると作られ、ローカルアカウントの
+    {% if login_domains %}
+    学内ログインのアカウント（<span class="mono">@{{ login_domains | join(' / @') }}</span>）は、
+    まだログインしたことがなくてもここで登録できます（本人の初回ログインで結び付きます）。
+    {% endif %}
+    ローカルアカウントは既に利用者として存在するものだけ登録できます ──
     新規作成（パスワードの配布）は <code>aijudge-admin enrol</code> で行います。
     パスワードはこの画面では扱いません。
   </p>
