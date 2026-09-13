@@ -154,7 +154,7 @@
   <tbody>
   {% for row in rows %}
     <tr class="row-link" data-href="{{ root_prefix() }}/review/{{ row.submission.id }}/reveal">
-      <td class="fit" data-label="提出日時">{{ row.submission.submitted_at.strftime('%m-%d %H:%M') if row.submission.submitted_at else '—' }}</td>
+      <td class="fit" data-label="提出日時">{{ row.submission.submitted_at | local('%m-%d %H:%M') if row.submission.submitted_at else '—' }}</td>
       <td class="fit mono" data-label="学習者">{{ row.login }}
         {# 教員・TA 自身の試行（#108）。**隠さずに印を付ける** ── 成績にも
            統計にも数えないが、出したこと自体は事実として一覧に残す。 #}

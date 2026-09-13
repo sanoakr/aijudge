@@ -36,6 +36,7 @@ from aijudge_core import (
 )
 from aijudge_core.ids import TaskVersionId, TenantId, UserId
 from aijudge_submission import GradingRunRepository, ReviewRepository, SubmissionRepository
+from aijudge_webui import local_filter
 
 from .visibility import ResultView, build_result_view
 
@@ -104,7 +105,7 @@ class AttemptSummary:
         if view.score_withheld:
             return "採点できなかった観点があります"
         if not view.confirmed and view.settles_at is not None:
-            return f"{view.settles_at.strftime('%m/%d %H:%M')} に確定"
+            return f"{local_filter(view.settles_at, '%m/%d %H:%M')} に確定"
         return None
 
 

@@ -135,7 +135,7 @@
 {% if review_request %}
 <div class="note warn">
   <strong>学習者からの再確認の依頼</strong>
-  （{{ review_request.requested_at.strftime('%Y-%m-%d %H:%M') }}）<br>
+  （{{ review_request.requested_at | local('%Y-%m-%d %H:%M') }}）<br>
   {{ review_request.reason }}
 </div>
 {% endif %}
@@ -143,7 +143,7 @@
 <h2>最終確定</h2>
 {% if review %}
 <div class="note warn">
-  この採点はすでに確定しています（{{ review.reviewed_at.strftime('%Y-%m-%d %H:%M') }}{% if finalized_by_login %}・{{ finalized_by_login }}{% endif %}）。
+  この採点はすでに確定しています（{{ review.reviewed_at | local('%Y-%m-%d %H:%M') }}{% if finalized_by_login %}・{{ finalized_by_login }}{% endif %}）。
   {# **直せる人には直せると言う**（#275）。TA も 1 件ずつなら確定できるので、
      そこでの判断ちがいを教員が直せる必要がある。追記で直すので、過去の
      確認は消えない（P8）。 #}
@@ -160,7 +160,7 @@
   <ul>
     {% for past, who in review_history %}
     <li>
-      <span class="mono desc">{{ past.reviewed_at.strftime('%Y-%m-%d %H:%M') }}</span>
+      <span class="mono desc">{{ past.reviewed_at | local('%Y-%m-%d %H:%M') }}</span>
       {% if who %}<span class="mono">{{ who }}</span>{% endif %}
       ── {{ past.comment }}
     </li>
@@ -240,8 +240,8 @@
     <legend>遅延の減点</legend>
     <p class="desc">
       {{ run.penalty.reason }}<br>
-      締切 {{ run.penalty.due_at.strftime('%m/%d %H:%M') }} ／
-      提出 {{ run.penalty.submitted_at.strftime('%m/%d %H:%M') }}
+      締切 {{ run.penalty.due_at | local('%m/%d %H:%M') }} ／
+      提出 {{ run.penalty.submitted_at | local('%m/%d %H:%M') }}
     </p>
     <label>
       <input type="checkbox" name="waive_penalty" value="1"

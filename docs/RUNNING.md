@@ -383,6 +383,7 @@ JavaScript を切っていると切り替えは出ず、端末の設定に従う
 | `AIJUDGE_CONSOLE_URL` | 学習者アプリが出す教員コンソールの場所（#103）。逆プロキシの後ろなど、相手が別ホストのときだけ指定する | 未設定（開いているホスト名 + `AIJUDGE_CONSOLE_PORT`） |
 | `AIJUDGE_LEARNER_URL` | 教員コンソールが出す学習者アプリの場所（#103） | 未設定（開いているホスト名 + `AIJUDGE_LEARNER_PORT`） |
 | `AIJUDGE_CONSOLE_PORT` / `AIJUDGE_LEARNER_PORT` | 相手のポート（URL 未設定のときに使う・#114） | `8765` / `8080` |
+| `AIJUDGE_TIMEZONE` | 画面に出す日時と、締切の入力欄のタイムゾーン（IANA 名）。保存は常に UTC。未設定・不正なら `Asia/Tokyo` | `Asia/Tokyo` |
 | `AIJUDGE_CONSOLE_ROOT_PREFIX` | コンソールを接頭辞の下に出す（`/console` など）。逆プロキシで 1 つのホストにまとめるときに使う。**Google の承認済みリダイレクト URI にもこの接頭辞が入る** | 未設定（ルート直下） |
 | `AIJUDGE_ALLOWED_HOSTS` | 受け付ける `Host`（コンマ区切り・#116）。**逆プロキシを前に立てるなら設定する** | `*`（素通し） |
 | `AIJUDGE_LLM_BASE_URL` / `AIJUDGE_LLM_MODEL` | ローカル LLM | — |

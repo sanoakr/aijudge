@@ -35,7 +35,7 @@
   </div>
   <div class="field">
     <label>作成</label>
-    <p class="desc">{{ user.created_at.strftime('%Y-%m-%d %H:%M') }}</p>
+    <p class="desc">{{ user.created_at | local('%Y-%m-%d %H:%M') }}</p>
   </div>
 </div>
 

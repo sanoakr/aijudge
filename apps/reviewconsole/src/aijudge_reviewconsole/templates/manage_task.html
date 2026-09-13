@@ -62,11 +62,11 @@
       {# **いつの版かを出す。** 訂正すると版が上がるが、番号だけでは新旧が
          読めない ── 同じ題名の課題が並んでいるときはなおさら（#54）。 #}
       <br>いま <strong>{{ version.version }} 版</strong>
-      （{{ version.created_at.strftime('%Y-%m-%d %H:%M') }} 作成）
+      （{{ version.created_at | local('%Y-%m-%d %H:%M') }} 作成）
       {% if published and published.id != version.id %}
       <span class="sep">·</span> 学習者に出ているのは
       <strong>{{ published.version }} 版</strong>
-      （{{ published.created_at.strftime('%Y-%m-%d %H:%M') }} 作成）
+      （{{ published.created_at | local('%Y-%m-%d %H:%M') }} 作成）
       {% endif %}
     </p>
   {% else %}
@@ -474,7 +474,7 @@
       <select id="move-unit" name="unit">
         {% for group in other_units %}
         <option value="{{ group.unit or group.label }}">{{ group.unit or group.label }}
-          — 締切 {% if group.due_at %}{{ group.due_at.strftime('%m-%d %H:%M') }}{% else %}未設定{% endif %}</option>
+          — 締切 {% if group.due_at %}{{ group.due_at | local('%m-%d %H:%M') }}{% else %}未設定{% endif %}</option>
         {% endfor %}
       </select>
     </span>
