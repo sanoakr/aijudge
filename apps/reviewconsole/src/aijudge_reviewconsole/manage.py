@@ -625,7 +625,7 @@ SAVED_MESSAGES: dict[str, str] = {
     "kc_restored": "引退を取り消しました",
     "kc_deleted": "知識要素を削除しました（一度も使われていないもの）",
     "kc_edited": "知識要素の名前と説明を直しました（キーは変わりません）",
-    "kc_scoped": "このコースが使う知識要素を保存しました（語彙からは消えません）",
+    "kc_scoped": "このコースが使う知識要素を更新しました（語彙からは消えません）",
     "basics": "基本情報を保存しました",
     "role": "役割を変えました",
     # **削除ではない**（#144・`AuthService.disable`）。過去の提出と採点が
@@ -4527,9 +4527,7 @@ def register(templates) -> APIRouter:
         return _kc_page(request, me, course, saved=saved)
 
     def _course_kcs(console, course):
-        """このコースが作問で選べる知識要素。
-
-        **宣言があればその範囲、無ければ名前空間の全部**（後方互換）。
+        """このコースが作問で選べる知識要素 ── **コースに足したものだけ**（#289）。
         引退したものは出さない ── 選べば課題に付いてしまう。
         """
         namespaces = allowed_namespaces(
@@ -4537,28 +4535,23 @@ def register(templates) -> APIRouter:
         )
         kcs = list_for_namespaces(console.database, namespaces, include_deprecated=False)
         chosen = set(course.knowledge_components)
-        return [kc for kc in kcs if not chosen or kc.key in chosen]
+        return [kc for kc in kcs if kc.key in chosen]
 
-    def _scope_in(console, course, keys: tuple[str, ...]) -> None:
-        """足した知識要素を、このコースが使う範囲にも入れる。
+    def _scope_in(console, course, keys: tuple[str, ...]) -> int:
+        """足した知識要素を、このコースが使う範囲にも入れる。**足した数を返す。**
 
         **「このコースに追加する」は、登録と範囲の両方を意味する。** 片方だけ
-        だと、絞っているコースでは追加しても一覧に出てこない ── 範囲から外した
-        ものを戻す道が塞がる（外れたものは一覧から隠れるため、戻す唯一の道が
-        ここになる）。
-
-        **絞っていないコースでは何もしない。** 空は「絞っていない」であって
-        「何も選んでいない」ではないので、ここで書き込むと、宣言していない
-        コースが黙って絞られた状態に変わる。
+        だと、追加しても一覧に出てこない ── 範囲から外したものを戻す道が
+        塞がる（外れたものは一覧から隠れるため、戻す道がここになる）。
         """
-        if not course.knowledge_components:
-            return
-        merged = tuple(sorted(set(course.knowledge_components) | {k for k in keys if k}))
+        before = set(course.knowledge_components)
+        merged = tuple(sorted(before | {k for k in keys if k}))
         if merged == tuple(course.knowledge_components):
-            return
+            return 0
         with console.database.unit_of_work() as uow:
             uow.identity.save_course(course.model_copy(update={"knowledge_components": merged}))
             uow.commit()
+        return len(merged) - len(before)
 
     def _kc_use_in_course(console, course) -> dict[str, int]:
         """**このコースの課題**が使っている知識要素と、その件数。
@@ -4580,26 +4573,25 @@ def register(templates) -> APIRouter:
         return counts
 
     def _kc_rows(console, course, kcs):
-        """一覧の行。**このコースで使うか**と、**このコースの課題が使っているか**。
+        """一覧の行 ── **このコースが使うもの**と、**このコースの課題が使っているもの**。
 
-        2 つは別物である。宣言から外しても、既に出題した課題の Q-matrix は
-        動かない（追記のみ・P8）ので、**外した後も「このコースの課題 N 件が
-        使用中」として残す** ── 消してしまうと、その課題が何を問うているのかを
-        画面から辿る手段が無くなる。
+        2 つは別物である。範囲から外しても、既に出題した課題の Q-matrix は
+        動かない（追記のみ・P8）ので、課題が使っているものは範囲に無くても
+        残す ── 消してしまうと、その課題が何を問うているのかを画面から辿る
+        手段が無くなる。
 
-        **範囲から外し、どの課題も使っていないものは出さない。** 同じ名前空間を
+        **範囲に無く、どの課題も使っていないものは出さない。** 同じ名前空間を
         複数のコースが共有するので、出し続けると「このコースが使わないと決めた
-        もの」が一覧に残り、決めたこと自体が画面から読めなくなる。戻したく
-        なったら追加フォームか候補から入れ直す（どちらもコースの範囲に入れる）。
+        もの」が一覧に残り、決めたこと自体が画面から読めなくなる。足すときは
+        名前空間の一覧（`_vocabulary_groups`）から。
 
-        **絞っていないコースでは何も隠さない。** 「絞っていない」は「全部を
-        選んでいる」とは別の状態で、宣言するまで挙動を変えない。
+        **このコースの課題が使っているものは外せない**（#289）。外すと Q-matrix
+        が課題の中身と食い違う。理由（課題の件数）を添えて残す。
         """
         chosen = set(course.knowledge_components)
         usage_rows = kc_usage(console.database, kcs)
         here = _kc_use_in_course(console, course)
-        if chosen:
-            kcs = tuple(kc for kc in kcs if kc.key in chosen or here.get(kc.key))
+        kcs = tuple(kc for kc in kcs if kc.key in chosen or here.get(kc.key))
         return [
             {
                 "usage": usage_rows[kc.key],
@@ -4607,11 +4599,45 @@ def register(templates) -> APIRouter:
                 "used": usage_rows[kc.key].used,
                 "tasks": usage_rows[kc.key].tasks,
                 "courses": usage_rows[kc.key].courses,
-                # 宣言していなければ全部が対象（後方互換の既定）。
-                "in_course": not chosen or kc.key in chosen,
+                "in_course": kc.key in chosen,
                 "used_here": here.get(kc.key, 0),
+                "removable": kc.key in chosen and not here.get(kc.key),
             }
             for kc in kcs
+        ]
+
+    def _is_component(key: str) -> bool:
+        """知識要素そのもの（`名前空間.分野.単位.知識要素`）か。
+
+        分野（`cs.loops`）と単位（`cs.loops.control`）は骨格の枝であって、
+        課題が問うものではない。範囲に入れる対象にしない。
+        """
+        return len(key.split(".")) >= 4
+
+    def _vocabulary_groups(kcs, chosen: set[str]) -> list[dict]:
+        """名前空間の語彙を**階層ごと**にまとめる（#289）。
+
+        987 件を平らに並べても選べない。分野（`cs.loops`）ごとに畳み、その
+        階層をまとめて足す・外すための接頭辞と、コースに入っている数を添える。
+        引退したものは足せないので出さない。
+        """
+        labels = {kc.key: kc.label for kc in kcs}
+        groups: dict[str, list] = {}
+        for kc in kcs:
+            if kc.deprecated or not _is_component(kc.key):
+                continue
+            parts = kc.key.split(".")
+            prefix = ".".join(parts[:2])
+            groups.setdefault(prefix, []).append(kc)
+        return [
+            {
+                "prefix": prefix,
+                "label": labels.get(prefix, ""),
+                "kcs": members,
+                "total": len(members),
+                "in_course": sum(1 for kc in members if kc.key in chosen),
+            }
+            for prefix, members in sorted(groups.items())
         ]
 
     def _kc_page(
@@ -4645,6 +4671,13 @@ def register(templates) -> APIRouter:
         namespaces = allowed_namespaces(profile)
         kcs = list_for_namespaces(console.database, namespaces)
         rows = _kc_rows(console, course, kcs)
+        chosen = set(course.knowledge_components)
+        # 直前の足す・外すの結果（件数）。画面に出したら消す。
+        scope_result = None
+        if console.last_kc_scope and console.last_kc_scope[0] == str(course.id):
+            _cid, action, changed, kept = console.last_kc_scope
+            scope_result = {"action": action, "changed": changed, "kept": kept}
+            console.last_kc_scope = None
         return templates.TemplateResponse(
             request,
             "manage_kc.html",
@@ -4654,10 +4687,11 @@ def register(templates) -> APIRouter:
                 "section": {"label": "知識要素", "href": f"/manage/courses/{course.id}/kc"},
                 "namespaces": namespaces,
                 "rows": rows,
-                # 何も選んでいなければ名前空間の全部（後方互換）。画面では
-                # 「まだ絞っていない」と言う ── 全部にチェックが入っているのと、
-                # 宣言していないのは違う状態である。
-                "scoped": bool(course.knowledge_components),
+                "chosen_count": len(chosen),
+                "chosen_keys": chosen,
+                # 名前空間の語彙を階層ごとに。ここから足す・外す（#289）。
+                "groups": _vocabulary_groups(kcs, chosen),
+                "scope_result": scope_result,
                 "saved": SAVED_MESSAGES.get(saved),
                 "saved_key": saved,
                 "is_admin": _is_admin(request, me),
@@ -4793,21 +4827,37 @@ def register(templates) -> APIRouter:
         saved = "kc_restored" if restore else "kc_retired"
         return RedirectResponse(f"/manage/courses/{course_id}/kc?saved={saved}#kc", status_code=303)
 
-    @router.post("/courses/{course_id}/kc/scope")
-    def set_kc_scope(
+    def _scope_targets(console, course, kc: list[str], prefix: str) -> tuple[str, ...]:
+        """足す・外す対象のキー。個別のチェックと、階層の接頭辞の両方から。
+
+        接頭辞は `cs.loops` のように**区切りまで一致**させる（`cs.loop` で
+        `cs.loops` を巻き込まない）。引退した知識要素は対象にしない。
+        """
+        keys = {key.strip() for key in kc if key.strip()}
+        prefix = prefix.strip()
+        if prefix:
+            namespaces = allowed_namespaces(
+                load_profile(console.profiles_dir / f"{course.subject_profile}.yaml")
+            )
+            for item in list_for_namespaces(console.database, namespaces, include_deprecated=False):
+                if _is_component(item.key) and (
+                    item.key == prefix or item.key.startswith(prefix + ".")
+                ):
+                    keys.add(item.key)
+        return tuple(sorted(keys))
+
+    @router.post("/courses/{course_id}/kc/scope/add")
+    def add_kc_scope(
         request: Request,
         course_id: str,
         kc: Annotated[list[str], Form()] = [],  # noqa: B006 - FastAPI の複数値
+        prefix: Annotated[str, Form()] = "",
     ) -> Response:
-        """このコースが使う知識要素を宣言する。
+        """知識要素をこのコースが使う範囲に足す ── 個別（チェック）にも、
+        階層ごと（`prefix`）にも（#289）。
 
-        **共有の語彙からの削除ではない。** 外しても知識要素は残り、他のコースの
-        Q-matrix は壊れない。ここで決めるのは「今後この課題で使う範囲」だけで、
-        既に出題した課題が何を問うているかは動かない（追記のみ・P8）。
-
-        空で保存すると「絞らない」に戻る（名前空間の全部）。**全部を選んだ状態
-        とは別物**で、あとから名前空間に足された知識要素の扱いが変わる ──
-        絞っていなければ自動で入り、絞っていれば入らない。
+        **語彙への登録ではない。** 名前空間に既にあるものを、このコースの
+        作問候補に入れるだけ。無いキーは黙って落とさず断る。
         """
         from .app import require_principal
 
@@ -4815,10 +4865,54 @@ def register(templates) -> APIRouter:
         course = _require_instructor(request, me, CourseId(course_id))
         console = _console(request)
 
-        chosen = tuple(sorted({key.strip() for key in kc if key.strip()}))
-        with console.database.unit_of_work() as uow:
-            uow.identity.save_course(course.model_copy(update={"knowledge_components": chosen}))
-            uow.commit()
+        keys = _scope_targets(console, course, kc, prefix)
+        if not keys:
+            raise HTTPException(status_code=400, detail="足す知識要素が選ばれていません")
+        try:
+            assert_registered(console.database, keys)
+        except AdminError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        added = _scope_in(console, course, keys)
+        console.last_kc_scope = (str(course.id), "added", added, 0)
+        return RedirectResponse(
+            f"/manage/courses/{course_id}/kc?saved=kc_scoped#kc", status_code=303
+        )
+
+    @router.post("/courses/{course_id}/kc/scope/remove")
+    def remove_kc_scope(
+        request: Request,
+        course_id: str,
+        kc: Annotated[list[str], Form()] = [],  # noqa: B006 - FastAPI の複数値
+        prefix: Annotated[str, Form()] = "",
+    ) -> Response:
+        """知識要素をこのコースが使う範囲から外す（#289）。
+
+        **共有の語彙からの削除ではない。** 外しても知識要素は残り、他のコースの
+        Q-matrix は壊れない。**このコースの課題が使っているものは外さない**
+        ── 外すと Q-matrix が課題の中身と食い違う。残した数は結果に出す。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+
+        keys = set(_scope_targets(console, course, kc, prefix))
+        if not keys:
+            raise HTTPException(status_code=400, detail="外す知識要素が選ばれていません")
+        here = _kc_use_in_course(console, course)
+        kept = {key for key in keys if here.get(key)}
+        remaining = tuple(
+            key for key in course.knowledge_components if key not in keys or key in kept
+        )
+        removed = len(course.knowledge_components) - len(remaining)
+        if removed:
+            with console.database.unit_of_work() as uow:
+                uow.identity.save_course(
+                    course.model_copy(update={"knowledge_components": remaining})
+                )
+                uow.commit()
+        console.last_kc_scope = (str(course.id), "removed", removed, len(kept))
         return RedirectResponse(
             f"/manage/courses/{course_id}/kc?saved=kc_scoped#kc", status_code=303
         )

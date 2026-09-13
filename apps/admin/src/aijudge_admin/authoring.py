@@ -87,7 +87,7 @@ def save_task(
     assert_registered(
         database,
         spec.knowledge_components,
-        course_keys=() if course is None else course.knowledge_components,
+        course_keys=None if course is None else course.knowledge_components,
     )
     # 採点のプロファイル（#195）。**課題が指定していればそれ、無ければ
     # コースの既定。** 既存の課題は誰も指定していないので、これまでと同じ
