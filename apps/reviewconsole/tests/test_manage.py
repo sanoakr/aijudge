@@ -1243,6 +1243,26 @@ def test_sso_accounts_are_created_from_the_roster_before_their_first_login(
         assert principal.user_id == user.id
 
 
+def test_the_enrolment_list_can_be_filtered_by_role(world: World) -> None:
+    """TA だけ・教員だけを見るのに、100 名の学生の中から探さない。内訳の数は
+    絞り込みの前のまま。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    world.register("ta01", Role.ASSISTANT)
+    world.register("y239999", Role.LEARNER)
+    client = world.client("teacher")
+
+    page = client.get(f"/manage/courses/{world.course.id}/enrolments?role=assistant").text
+    rows = page[page.index('<table class="stack">') : page.index("<h2>受講登録</h2>")]
+    assert "ta01" in rows
+    assert "y239999" not in rows and "teacher" not in rows
+    assert "1 名に絞り込み" in page
+    assert "learner</span> <b>1</b>" in page  # 内訳は絞る前
+
+    # 語彙に無い役割は無視する（全員が出る）。
+    page = client.get(f"/manage/courses/{world.course.id}/enrolments?role=wizard").text
+    assert "y239999" in page and "ta01" in page
+
+
 def test_the_roster_form_names_accounts_not_student_numbers(
     world: World, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -4101,7 +4121,8 @@ def test_the_console_does_not_offer_admin_to_a_teacher(world: World) -> None:
     world.register("teacher", Role.INSTRUCTOR)
     page = world.client("teacher").get(f"/manage/courses/{world.course.id}/enrolments").text
 
-    options = {line for line in page.splitlines() if "<option" in line}
+    # 絞り込みの選択肢（すべて／…）は配る役割ではないので外して見る。
+    options = {line for line in page.splitlines() if "<option" in line and "すべて" not in line}
     assert not [line for line in options if 'value="admin"' in line], "admin が選択肢にある"
     for role in ("learner", "assistant", "instructor"):
         assert [line for line in options if f'value="{role}"' in line], f"{role} が選べない"
@@ -4111,7 +4132,8 @@ def test_the_console_offers_instructor_to_an_admin(world: World) -> None:
     """管理者も同じ範囲（`admin` だけが画面の外）。"""
     world.register("boss", Role.ADMIN)
     page = world.client("boss").get(f"/manage/courses/{world.course.id}/enrolments").text
-    options = {line for line in page.splitlines() if "<option" in line}
+    # 絞り込みの選択肢（すべて／…）は配る役割ではないので外して見る。
+    options = {line for line in page.splitlines() if "<option" in line and "すべて" not in line}
     for role in ("learner", "assistant", "instructor"):
         assert [line for line in options if f'value="{role}"' in line], f"{role} が選べない"
     assert not [line for line in options if 'value="admin"' in line], "admin が選択肢にある"
