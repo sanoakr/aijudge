@@ -2111,3 +2111,77 @@ def test_the_tables_carry_their_headings_into_the_stacked_form(world: World) -> 
     assert cells, "行が無い（前提が崩れている）"
     unlabelled = [cell for cell in cells if "data-label=" not in cell]
     assert not unlabelled, f"見出しの無いセルがある: {unlabelled}"
+
+
+# --------------------------------------------------------------------------
+# 複数ファイルを 1 つの提出にまとめる（#283）
+# --------------------------------------------------------------------------
+
+
+def test_several_images_go_into_one_submission(world: World) -> None:
+    """認定証を何枚も出す課題。1 枚ずつ別の提出にすると 1 回しか採用されない。"""
+    world.register("s2400001")
+    world.login("s2400001")
+    _set_task(world, accepted_suffixes=(".png", ".jpg"))
+    response = world.client.post(
+        f"/tasks/{world.task_version.id}/submit",
+        files=[
+            ("upload", ("lesson1.png", b"png one", "image/png")),
+            ("upload", ("lesson2.png", b"png two", "image/png")),
+            ("upload", ("lesson2.png", b"png two again", "image/png")),
+        ],
+        follow_redirects=False,
+    )
+    assert response.status_code == 303, response.text
+    submission_id = response.headers["location"].split("/")[-1].split("?")[0]
+    with world.database.unit_of_work() as uow:
+        submission = uow.submissions.get(SubmissionId(submission_id))
+    names = [artifact.filename for artifact in submission.artifacts]
+    # 順番はそのまま。同じ名前は黙って上書きせず番号を付ける。
+    assert names == ["lesson1.png", "lesson2.png", "lesson2-2.png"]
+
+    body = world.client.get(response.headers["location"]).text
+    assert body.count("<img src=") == 3
+
+
+def test_the_image_task_form_offers_one_at_a_time_adding(world: World) -> None:
+    world.register("s2400001")
+    world.login("s2400001")
+    _set_task(world, accepted_suffixes=(".png", ".pdf"))
+    page = world.client.get(f"/tasks/{world.task_version.id}").text
+    assert 'name="upload" type="file" required multiple' in page
+    assert "この 1 枚を追加" in page
+    # コードの課題は 1 ファイルのまま。
+    _set_task(world, accepted_suffixes=(".c",))
+    page = world.client.get(f"/tasks/{world.task_version.id}").text
+    assert "multiple" not in page.split('name="upload"')[1].split(">")[0]
+
+
+def test_a_code_task_refuses_two_files(world: World) -> None:
+    """テスト実行は 1 つのソースを走らせる。2 つ出されても何を走らせるか決められない。"""
+    world.register("s2400001")
+    world.login("s2400001")
+    response = world.client.post(
+        f"/tasks/{world.task_version.id}/submit",
+        files=[
+            ("upload", ("a.c", b"int main(){}", "text/plain")),
+            ("upload", ("b.c", b"int main(){return 1;}", "text/plain")),
+        ],
+    )
+    assert response.status_code == 400
+    assert "1 ファイル" in response.json()["detail"]
+
+
+def test_a_bad_file_among_several_names_itself(world: World) -> None:
+    world.register("s2400001")
+    world.login("s2400001")
+    _set_task(world, accepted_suffixes=(".png",))
+    response = world.client.post(
+        f"/tasks/{world.task_version.id}/submit",
+        files=[
+            ("upload", ("ok.png", b"png", "image/png")),
+            ("upload", ("notes.txt", b"text", "text/plain")),
+        ],
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"].startswith("notes.txt:")
