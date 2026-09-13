@@ -13,15 +13,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-import yaml
-
-from aijudge_authoring import TaskSpec
 from aijudge_core import Course
 from aijudge_core.ids import TenantId, UserId
 from aijudge_persistence import Database
 
-from .authoring import save_task
-from .operations import AdminError, ensure_course
+from .course_definition import apply_course_definition
+from .operations import AdminError
 
 __all__ = ["DemoSeed", "demo_definition_path", "seed_demo_course"]
 
@@ -51,18 +48,12 @@ def seed_demo_course(
 ) -> DemoSeed:
     """定義を読んでコースと課題を作る。**何度走らせても増えない。**
 
-    冪等なのは `ensure_course` と `save_task` がそうだからで、ここは
-    読んで渡すだけである。
+    読んで投入するのは `course_definition`（どのコースも同じ経路・
+    `course apply`）で、デモに固有なのは定義の置き場所と KC の骨格だけ。
     """
     path = demo_definition_path(profiles_dir)
     if not path.exists():
         raise AdminError(f"デモコースの定義がありません: {path}")
-    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-
-    spec = data.get("course") or {}
-    for key in ("code", "title", "term", "subject_profile"):
-        if not spec.get(key):
-            raise AdminError(f"デモコースの定義に {key} がありません: {path}")
 
     # **KC の骨格を先に入れる**（#194）。課題は登録済みの KC しか名指しできず
     # （`kc.assert_registered`）、デモの KC は `demo` 名前空間にしかない ──
@@ -72,28 +63,10 @@ def seed_demo_course(
     # 骨格の投入も冪等なので、毎回通してよい。
     _seed_skeleton(database, profiles_dir)
 
-    course, created = ensure_course(
-        database,
-        tenant_id=tenant_id,
-        code=spec["code"],
-        title=spec["title"],
-        term=spec["term"],
-        subject_profile=spec["subject_profile"],
-        profiles_dir=profiles_dir,
+    applied = apply_course_definition(
+        database, path, tenant_id=tenant_id, profiles_dir=profiles_dir, authored_by=authored_by
     )
-
-    tasks = data.get("tasks") or []
-    for raw in tasks:
-        save_task(
-            database,
-            course_id=course.id,
-            spec=TaskSpec.model_validate(raw),
-            # 課題が自分のプロファイルを持つ（#195）。ここで渡すのは既定で、
-            # 定義が `subject_profile` を書いていればそちらが勝つ。
-            subject_profile=course.subject_profile,
-            authored_by=authored_by,
-        )
-    return DemoSeed(course=course, tasks=len(tasks), created=created)
+    return DemoSeed(course=applied.course, tasks=applied.tasks, created=applied.created)
 
 
 def _seed_skeleton(database: Database, profiles_dir: Path) -> None:

@@ -92,14 +92,23 @@ def ensure_course(
     course_id = course_id_for(tenant_id, code, term)
     with database.unit_of_work() as uow:
         existing = uow.identity.get_course(course_id)
-        course = Course(
-            id=course_id,
-            tenant_id=tenant_id,
-            code=code,
-            title=title,
-            term=term,
-            subject_profile=subject_profile,
-        )
+        if existing is None:
+            course = Course(
+                id=course_id,
+                tenant_id=tenant_id,
+                code=code,
+                title=title,
+                term=term,
+                subject_profile=subject_profile,
+            )
+        else:
+            # **既にあるコースは題名とプロファイルだけ直す。** 器を作り直すと
+            # 概要・共通ルーブリック・提出できる形式・遅延の減点といった、
+            # ブラウザで入れた運用値が既定に戻る ── 学期途中に `course create`
+            # や定義の流し直しをした日に、締切の減点が黙って消えていた。
+            course = existing.model_copy(
+                update={"title": title, "subject_profile": subject_profile}
+            )
         uow.identity.save_course(course)
         uow.commit()
     return course, existing is None

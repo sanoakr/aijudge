@@ -224,6 +224,19 @@ Existing Sharif Judge course material imports as-is:
 uv run aijudge-admin task import --course <id> --dir path/to/exercises
 ```
 
+A whole course — course, tasks and per-unit schedule — can also be written in
+one file and applied. Tasks submitted as images (a certificate screenshot, say)
+have no place in the import format, so they are declared here; existing problem
+directories are referenced with `problem_dir`. Applying twice adds nothing.
+
+```fish
+uv run aijudge-admin course apply --file network/2026/course.yaml
+```
+
+The format is described at the top of
+`apps/admin/src/aijudge_admin/course_definition.py`; `subjects/demo/course.yaml`
+(the try-it course) is written in it.
+
 ---
 
 ## Where it stands
