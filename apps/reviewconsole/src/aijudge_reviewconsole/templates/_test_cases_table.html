@@ -1,0 +1,24 @@
+{# テストケースの一覧（#284）。**中身を見せる** ── 件数だけでは、取り込んだ
+   in/out が正しいかも、学生が「入力例 1 で落ちる」と言ったときに何を
+   走らせたのかも、画面から分からなかった。長い入出力は折り返さず横に流す。 #}
+<div style="overflow-x:auto">
+<table class="testcases">
+  <thead><tr>
+    <th class="fit">名前</th><th class="fit">重み</th><th class="fit">学習者に</th>
+    <th>入力</th><th>期待出力</th>
+  </tr></thead>
+  <tbody>
+  {% for case in version.test_cases %}
+    <tr>
+      <td class="fit mono">{{ case.name }}</td>
+      <td class="fit">{{ case.weight }}</td>
+      <td class="fit desc">{{ '見せない' if case.hidden else '見せる' }}</td>
+      <td><pre class="io">{{ case.payload.get('input', '') }}</pre></td>
+      <td><pre class="io">{{ case.payload.get('expected', '') }}</pre></td>
+    </tr>
+  {% else %}
+    <tr><td colspan="5" class="desc">テストケースはありません。</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>

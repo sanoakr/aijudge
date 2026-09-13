@@ -53,7 +53,7 @@
         <td class="grow mono">{{ accepted | join(' ') }}</td></tr>
       <tr><td class="fit">テストケース</td>
         <td class="grow">
-          {% if version.test_cases %}{{ version.test_cases | length }} 件（テスト実行で確定します）
+          {% if version.test_cases %}{{ version.test_cases | length }} 件（テスト実行で確定します・下に中身）
           {% else %}<span class="desc">なし ── 正しさの観点は AI が判定し、教員が確定させます</span>{% endif %}
         </td></tr>
       <tr><td class="fit">締切</td>
@@ -61,4 +61,13 @@
     </tbody>
   </table>
 </div>
+
+{% if version.test_cases %}
+<div class="card">
+  <h2 style="margin-top:0">テストケース（{{ version.test_cases | length }} 件）</h2>
+  <p class="desc">学習者の提出はこの入力で走り、期待出力と比べられます（行末の空白と末尾の空行だけ無視）。
+    直すのは担当教員です。</p>
+  {% include "_test_cases_table.html" %}
+</div>
+{% endif %}
 {% endblock %}
