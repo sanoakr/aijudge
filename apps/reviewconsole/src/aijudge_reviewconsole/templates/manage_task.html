@@ -144,7 +144,7 @@
     </div>
     {% endif %}
     {% if kc_candidates.in_vocabulary %}
-    <p style="margin:8px 0 4px"><strong>語彙にはあるが、このコースでは未使用のもの</strong>（付けるとコースの範囲にも入ります）</p>
+    <p style="margin:8px 0 4px"><strong>語彙にあるが、このコースでは未使用のもの</strong>（付けるとコースの範囲にも入ります）</p>
     <div class="kcpick">
       {% for c in kc_candidates.in_vocabulary %}
       <label><input type="checkbox" name="kc" value="{{ c.key }}">
@@ -152,17 +152,8 @@
       {% endfor %}
     </div>
     {% endif %}
-    {% if kc_candidates.new %}
-    <p style="margin:8px 0 4px"><strong>まだ無いもの</strong>（登録してコースの範囲に入れ、この課題に付けます）</p>
-    <div class="kcpick">
-      {% for c in kc_candidates.new %}
-      <label><input type="checkbox" name="new_kc" value="{{ c.key }}|{{ c.label }}|{{ c.description }}">
-        <span class="k">{{ c.key }}</span><span class="desc">{{ c.label }}{% if c.description %} ── {{ c.description }}{% endif %}</span></label>
-      {% endfor %}
-    </div>
-    {% endif %}
     {% if kc_candidates.discarded %}
-    <p class="desc" style="margin:8px 0 0">採用できない候補を {{ kc_candidates.discarded | length }} 件落としました:
+    <p class="desc" style="margin:8px 0 0">登録済みの語彙に無い候補を {{ kc_candidates.discarded | length }} 件落としました（新しい知識要素は作りません）:
       {% for d in kc_candidates.discarded %}<span class="mono">{{ d.key }}</span>（{{ d.reason }}）{% if not loop.last %}、{% endif %}{% endfor %}</p>
     {% endif %}
   </div>
