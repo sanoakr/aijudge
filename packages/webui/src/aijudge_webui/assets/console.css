@@ -322,3 +322,15 @@ form[data-working] button[disabled]{opacity:.55;cursor:progress}
   gap:6px 18px;margin:18px 0 4px;font-size:.85rem}
 .pager .at{color:var(--muted);font-variant-numeric:tabular-nums}
 .pager .off{color:var(--muted);opacity:.45}
+/* 観点の削除の印（`_criterion_fields.html`）。消す操作なので朱で寄せるが、
+   ボタンではない ── 印を付けて「保存」で消える、という 2 段の操作にしてある。 */
+.criterion-fields label.danger-check{display:flex;align-items:center;gap:8px;margin-top:14px;
+  font-size:.88rem;color:var(--shu);cursor:pointer}
+.criterion-fields label.danger-check input{width:auto;margin:0}
+/* 副次のボタン（`button.minor`）。「共通ルーブリックに復元」「画像を貼り付け」
+   は編集フォームの中の補助操作で、画面の一次操作（この問題を保存して更新する）
+   と同じ朱の塊で並ぶと、どれを押せば保存されるのかが読めない。輪郭だけの
+   小さめの釦にして、朱は保存に残す。 */
+button.minor{background:transparent;color:var(--ink-2);border:1px solid var(--line);
+  font-weight:600;font-size:.88rem;padding:7px 14px}
+button.minor:hover{filter:none;background:var(--surface-2);border-color:var(--ink-2)}
