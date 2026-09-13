@@ -15,7 +15,7 @@
 {# 受講 100 名規模になるので、絞り込みは前方一致。選択肢に並べても選べない
    （提出の一覧と同じ理由）。 #}
 <form method="get" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/enrolments" class="addline">
-  <label for="q" class="desc">学籍番号で絞り込む（前方一致）</label>
+  <label for="q" class="desc">アカウントで絞り込む（前方一致）</label>
   <input id="q" name="q" value="{{ q }}" placeholder="y2399" style="max-width:10rem"
          {{ 'autofocus' if q }}
          onfocus="this.setSelectionRange(this.value.length, this.value.length)">
@@ -23,18 +23,32 @@
   {% if q %}<a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/enrolments" class="desc">解除</a>{% endif %}
 </form>
 
-{% if saved %}<div class="note saved">{{ saved }}</div>{% endif %}
+{% if enrol_result %}
+{# 受講登録の結果。**入った数と入らなかったアカウントを両方言う。**
+   「保存しました」だけだと、名簿の半分が未登録だったことに気づけない。 #}
+<div id="result" class="note {{ 'saved' if not enrol_result.unknown else 'warn' }}">
+  <strong>受講登録: {{ enrol_result.enrolled }} 件を登録しました</strong>
+  {% if enrol_result.already %}（ほかに {{ enrol_result.already }} 件は登録済みでした）{% endif %}
+  {% if enrol_result.unknown %}
+  <br><strong>{{ enrol_result.unknown | length }} 件は登録できませんでした</strong> ── 利用者が未登録のアカウントです:
+  <span class="mono">{{ enrol_result.unknown | join(', ') }}</span>
+  <br><span class="desc">学内ログインの利用者は、本人が一度ログインすると作られます。
+    ローカルアカウントの新規作成はパスワードの配布が伴うため、画面ではなく
+    <code>aijudge-admin enrol --credentials &lt;path&gt;</code> で行います。</span>
+  {% endif %}
+</div>
+{% elif saved %}<div class="note saved">{{ saved }}</div>{% endif %}
 
 {# 携帯では行を積む（`table.stack`）。**見出しはセルに添える** ── 列の
    位置から推測させない。 #}
 <table class="stack">
   <thead><tr>
-    <th class="fit">学籍番号</th><th class="grow">氏名</th><th class="fit">役割</th><th class="fit"></th>
+    <th class="fit">アカウント</th><th class="grow">氏名</th><th class="fit">役割</th><th class="fit"></th>
   </tr></thead>
   <tbody>
   {% for row in people %}
     <tr>
-      <td class="fit mono" data-label="学籍番号">{{ row.login }}</td>
+      <td class="fit mono" data-label="アカウント">{{ row.login }}</td>
       <td class="grow" data-label="氏名">{{ row.user.display_name if row.user else '—' }}</td>
       <td class="fit" data-label="役割">
         {% if row.enrollment.user_id == me.user_id %}
@@ -80,8 +94,21 @@
 <h2>受講登録</h2>
 <form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/enrolments" class="card">
   <div class="field">
-    <label for="roster">名簿（1 行 1 名。学籍番号を並べます）</label>
-    <textarea id="roster" name="roster" rows="5" required placeholder="y239999&#10;y239998"></textarea>
+    {# **アカウントであって学籍番号ではない。** 学内ログイン（OIDC）の利用者の
+       アカウントは `<学籍番号>@<許可ドメイン>` で、番号だけを貼ると全員が
+       未登録になる。例は設定のドメインから作る（他機関でもそのまま合う）。 #}
+    <label for="roster">名簿（1 行 1 名。ログインに使う<strong>アカウント</strong>を並べます）</label>
+    <textarea id="roster" name="roster" rows="5" required
+              placeholder="{% if login_domains %}y239999@{{ login_domains[0] }}&#10;y239998@{{ login_domains[0] }}&#10;{% endif %}ta01"></textarea>
+    <p class="desc">
+      {% if login_domains %}
+      学内ログインの利用者は <span class="mono">学籍番号@{{ login_domains | join(' / ') }}</span>
+      のように書きます（例: <span class="mono">y239999@{{ login_domains[0] }}</span>）。
+      {% endif %}
+      ローカルアカウント（配布した ID とパスワードでログインする利用者）は
+      その ID をそのまま書きます（例: <span class="mono">ta01</span>）。
+      {% if not login_domains %}学内ログイン（OIDC）は設定されていません。{% endif %}
+    </p>
   </div>
   <div class="field">
     <label for="role">役割の既定</label>
@@ -123,8 +150,10 @@
     </table>
   </div>
   <p class="desc">
-    ログインは <code>@mail.ryukoku.ac.jp</code> の Google アカウントで行います。
-    メールアドレスとパスワードはこの画面では扱いません。
+    この画面で登録できるのは、既に利用者として存在するアカウントだけです。
+    学内ログインの利用者は本人が一度ログインすると作られ、ローカルアカウントの
+    新規作成（パスワードの配布）は <code>aijudge-admin enrol</code> で行います。
+    パスワードはこの画面では扱いません。
   </p>
   <div class="actions"><button type="submit">登録</button></div>
 </form>
