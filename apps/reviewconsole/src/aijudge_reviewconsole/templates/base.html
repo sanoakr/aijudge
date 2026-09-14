@@ -151,6 +151,48 @@
 </dialog>
 <script>
 document.querySelectorAll(".js-only").forEach(function (el) { el.hidden = false; });
+
+{# **押した場所に戻る**（#309）。保存は POST → 303 → GET で、戻ってくるのは
+   別の読み込みである ── ブラウザは頁の先頭を出す。画面の下の方にある欄
+   （観点の中の入出力セット、知識要素）を直した人は、押すたびに先頭へ飛ばされ、
+   自分がどこを触っていたのかを探し直すことになる。
+
+   **開いていた `<details>` も戻す。** 位置だけ戻しても、畳まれた状態では
+   高さが変わっていて別の場所に着く ── 観点は既定で畳んであるので、
+   ルーブリックを直した直後がまさにそれになる。
+
+   覚えるのは**この頁のぶんだけ**（`pathname` を鍵にする）。1 回使ったら消す
+   ── 消さないと、後から普通に開き直したときにも勝手に飛ぶ。
+
+   `sessionStorage` は private window などで例外を投げうるので、失敗しても
+   画面は普通に出る（位置が戻らないだけ）。 #}
+(function () {
+  var key = "aijudge:place:" + location.pathname;
+  function open_ids() {
+    var ids = [];
+    document.querySelectorAll("details[id][open]").forEach(function (el) { ids.push(el.id); });
+    return ids;
+  }
+  document.addEventListener("submit", function () {
+    try {
+      sessionStorage.setItem(key, JSON.stringify({ y: window.scrollY, open: open_ids() }));
+    } catch (e) { /* 使えないなら覚えない */ }
+  }, true);
+  try {
+    var saved = sessionStorage.getItem(key);
+    if (saved) {
+      sessionStorage.removeItem(key);
+      var place = JSON.parse(saved);
+      (place.open || []).forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el && el.tagName === "DETAILS") el.open = true;
+      });
+      // **位置の指定がある頁では、そちらを優先する**（`#tests` など）。
+      // 経路が行き先を名指ししているなら、それが押した人の用である。
+      if (!location.hash) window.scrollTo(0, place.y || 0);
+    }
+  } catch (e) { /* 壊れた記録は無視する */ }
+})();
 document.querySelectorAll(".checkrow .nojs").forEach(function (el) { el.remove(); });
 
 {# 提出できるファイル形式の、**群ごとの一括切り替え**。

@@ -3791,6 +3791,10 @@ def register(templates) -> APIRouter:
                     or DEFAULT_UPLOAD_SUFFIXES
                 ),
                 "note": note or SAVED_MESSAGES.get(saved),
+                # 直前に何を保存したか（#309）。**その場所を開いて返す** ──
+                # 観点の中の欄から保存したのに畳まれた画面が返ると、直した
+                # ものがどこへ行ったのか分からない。JavaScript が無くても効く。
+                "saved_key": saved,
                 "other_units": others,
                 # テストで確定できる科目か。宣言していない科目（レポートなど）
                 # には出さない ── 選べない選択肢を見せない。

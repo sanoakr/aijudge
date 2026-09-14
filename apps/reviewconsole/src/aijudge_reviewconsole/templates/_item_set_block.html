@@ -10,7 +10,8 @@
     この課題で決めるなら下の「項目表を直す」から足してください{% endif %}。
   </p>
   {% include "_item_list_table.html" %}
-  <details style="margin-top:12px">
+  <details id="items-edit" style="margin-top:12px"
+    {%- if saved_key is defined and saved_key == 'items_revised' %} open{% endif %}>
     <summary><b>項目表を直す</b><span class="desc">（保存すると新しい版になります）</span></summary>
     <div class="criterion-fields">
       <p class="desc" style="margin:8px 0">

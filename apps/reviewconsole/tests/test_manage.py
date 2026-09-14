@@ -1608,6 +1608,59 @@ def test_the_task_page_groups_its_sections_into_boxes(world: World) -> None:
     assert body.index("<h2>分類</h2>") > form_open
 
 
+def test_saving_comes_back_to_the_place_you_pressed(world: World, monkeypatch) -> None:
+    """**押した場所に戻る**（#309）。
+
+    保存は POST → 303 → GET で、戻ってくるのは別の読み込みである ── 頁の
+    先頭が出る。観点は既定で畳んであるので、その中の入出力セットを直した人は
+    「直したものがどこへ行ったのか」を探すことになる。
+
+    JavaScript は位置と開いていた `<details>` を覚えて戻すが（`base.html`）、
+    **無くても効くようにする** ── 保存の種類が分かっているなら、サーバが
+    その場所を開いて返せる。ここで固定するのはそちら側である。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    task_id = _task_with_tests(world)
+    with world.database.unit_of_work() as uow:
+        version = uow.tasks.latest_version(TaskId(task_id))
+    # 門 1（参照解答が全ケースを通る）はサンドボックスを使う。ここで確かめたい
+    # のは戻り先なので通す。
+    monkeypatch.setattr(
+        "aijudge_reviewconsole.manage.TaskVerifier.passes",
+        lambda self, candidate, source: (True, "all cases pass"),
+    )
+
+    response = world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/tasks/{task_id}/test-cases/edit",
+        data=_case_form(version, **{"0": {"expected": "9\n"}}),
+        follow_redirects=False,
+    )
+    # 行き先は入出力セットそのもの（観点の中にある）。
+    assert response.headers["location"].endswith("#tests")
+
+    page = world.client("teacher").get(response.headers["location"]).text
+    # その観点は開いて返す。畳んだまま返すと、`#tests` へも飛べない。
+    assert 'class="criterion" id="criterion-correctness" open>' in page.replace("\n", "")
+    # 直した欄も開いておく。
+    assert 'id="io-edit"' in page and "io-edit" in page.split("テストケースを直す")[0]
+
+
+def test_every_criterion_carries_a_stable_id(world: World) -> None:
+    """開き直すのに使う id は**観点コード**で付ける（#309）。
+
+    番号で覚えると、観点を 1 つ消しただけで別の観点が開く。コードは観点の
+    同一性そのものである（課題をまたいで同じ観点は同じコード）。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    task_id = _import_example(world)
+
+    page = (
+        world.client("teacher").get(f"/manage/courses/{world.course.id}/tasks/{task_id}/edit").text
+    )
+    assert 'id="criterion-correctness"' in page
+    assert 'id="criterion-readability"' in page
+
+
 def test_data_no_criterion_uses_is_called_unused(world: World) -> None:
     """**持っているのに使われていないデータを、黙って隠さない**（#303）。
 

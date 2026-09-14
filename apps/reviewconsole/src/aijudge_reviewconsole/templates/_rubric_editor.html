@@ -4,7 +4,16 @@
    ものを誤って書き換えない。追加も畳んであり、開いて初めて書ける ──
    常に空の行が出ていると、新しい観点なのか既存なのかが読み取れない。 #}
 {% for row in rows %}
-<details class="criterion">
+{# **安定した id を付ける**（#309）。保存のあと、開いていた観点を開き直すのに
+   使う（`base.html`）── 番号で覚えると、観点を 1 つ消しただけで別の観点が
+   開く。コードは観点の同一性そのものである。
+
+   `saved_key` が検証データの保存を指しているときは、**サーバ側で開いておく**
+   ── その観点の中の欄から保存したのだから、戻ってきて畳まれていたら
+   「直したものがどこへ行ったのか」になる。JavaScript が無くても効く。 #}
+{% set holds_data = criterion_data.get(row.evaluator) if criterion_data is defined and criterion_data else none %}
+<details class="criterion" id="criterion-{{ row.code }}"
+  {%- if holds_data and saved_key is defined and saved_key in ('tests_revised', 'items_revised') %} open{% endif %}>
   <summary>
     <b>{{ row.title or row.code }}</b>
     <span class="mono desc">{{ row.code }}</span>
