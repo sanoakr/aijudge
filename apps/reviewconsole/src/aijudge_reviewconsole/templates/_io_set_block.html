@@ -17,7 +17,8 @@
     下の「テストケースを直す」から足してください{% endif %}。
   </p>
   {% include "_test_cases_table.html" %}
-  <details style="margin-top:12px">
+  <details id="io-edit" style="margin-top:12px"
+    {%- if saved_key is defined and saved_key == 'tests_revised' %} open{% endif %}>
     <summary><b>テストケースを直す</b><span class="desc">（保存すると新しい版になります）</span></summary>
     <div class="criterion-fields">
       <p class="desc" style="margin:8px 0">
