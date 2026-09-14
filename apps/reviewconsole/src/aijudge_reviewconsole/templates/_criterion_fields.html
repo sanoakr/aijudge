@@ -49,4 +49,17 @@
     この観点を削除する（保存のときに消えます）
   </label>
   {% endif %}
+
+  {# **この観点が使う検証データを、ここに置く**（#303）。入出力セットも項目表も
+     「どの観点が何で判定されるか」に属するもので、課題全体の属性ではない。
+     どの形かは評価器が名乗る（`aijudge_grading.test_case_shape`）── 画面が
+     評価器名の表を持たないための宣言である。
+
+     `criterion_data` を渡すのは課題の編集画面だけ。コースの共通ルーブリックの
+     画面と、この画面の `<template>`（共通に復元する中身）では渡さない ──
+     渡すと同じ欄が 2 つでき、同じ `id` と同じ名前の入力が二重になる。 #}
+  {% set data_shape = criterion_data.get(row.evaluator) if criterion_data is defined and criterion_data else none %}
+  {% if data_shape == 'io' %}{% include "_io_set_block.html" %}
+  {% elif data_shape == 'items' %}{% include "_item_set_block.html" %}
+  {% endif %}
 </div>

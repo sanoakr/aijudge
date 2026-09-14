@@ -1,0 +1,63 @@
+{# 項目表を、**それを使う観点の中に**置く（#303・#302）。置き場所の理由は
+   入出力セットと同じ（`_io_set_block.html`）。送信先はページ末尾の
+   `<form id="items-form">` に `form` 属性で結び付ける。 #}
+<div class="subsection" id="items">
+  <h4 style="margin:0 0 6px">項目表（{{ item_cases | length }} 件）</h4>
+  <p class="desc" style="margin:0 0 10px">
+    この観点は <span class="mono">{{ row.evaluator }}</span> が判定します。提出物に
+    <strong>この項目が含まれているか</strong>を 1 つずつ見て、満たした重みの割合で段階が決まります{% if not item_cases %} —
+    <strong>項目が 1 件も無いので、科目プロファイルの既定が使われます</strong>。
+    この課題で決めるなら下の「項目表を直す」から足してください{% endif %}。
+  </p>
+  {% include "_item_list_table.html" %}
+  <details style="margin-top:12px">
+    <summary><b>項目表を直す</b><span class="desc">（保存すると新しい版になります）</span></summary>
+    <div class="criterion-fields">
+      <p class="desc" style="margin:8px 0">
+        <strong>「満たす条件」と「言い換えの例」は判定する AI への助言です。</strong>
+        例に無い書き方でも、求めた内容が書かれていれば「ある」と判定されます
+        — 例をいくら並べても、そこに無い書き方を落とすわけではありません。
+        言い換えはカンマか読点で区切ります。項目名が空の行は捨てます。
+      </p>
+      <p class="desc" style="margin:8px 0">
+        <strong>この欄は「この問題を保存して更新する」では保存されません。</strong>
+        下の「項目表を保存して新しい版にする」を押してください。
+      </p>
+      <div style="overflow-x:auto">
+      <table class="testcases">
+        <thead><tr>
+          <th class="fit">消す</th><th class="fit">項目</th><th class="fit">重み</th><th class="fit">学習者に</th>
+          <th>満たす条件</th><th>言い換えの例</th>
+        </tr></thead>
+        <tbody>
+        {% for case in item_cases %}
+          <tr>
+            <td class="fit"><input form="items-form" type="checkbox" name="item_delete" value="{{ loop.index0 }}" style="width:auto"></td>
+            <td class="fit"><input form="items-form" name="item_name" value="{{ case.name }}"></td>
+            <td class="fit"><input form="items-form" name="item_weight" type="number" step="0.1" min="0.1" value="{{ case.weight }}"></td>
+            <td class="fit"><select form="items-form" name="item_hidden">
+              <option value="0" {{ 'selected' if not case.hidden }}>見せる</option>
+              <option value="1" {{ 'selected' if case.hidden }}>見せない</option></select></td>
+            <td><textarea form="items-form" name="item_description" rows="2">{{ case.payload.get('description', '') }}</textarea></td>
+            <td><textarea form="items-form" name="item_aliases" rows="2">{{ (case.payload.get('aliases') or []) | join('、') }}</textarea></td>
+          </tr>
+        {% endfor %}
+        {# 追加用の空行。名前が空なら捨てられる。 #}
+        <tr>
+          <td class="fit desc">追加</td>
+          <td class="fit"><input form="items-form" name="item_name" placeholder="考察"></td>
+          <td class="fit"><input form="items-form" name="item_weight" type="number" step="0.1" min="0.1" value="1.0"></td>
+          <td class="fit"><select form="items-form" name="item_hidden">
+            <option value="0">見せる</option><option value="1">見せない</option></select></td>
+          <td><textarea form="items-form" name="item_description" rows="2" placeholder="結果から言えることを、結果の言い換えに留まらず書いている"></textarea></td>
+          <td><textarea form="items-form" name="item_aliases" rows="2" placeholder="考察、議論"></textarea></td>
+        </tr>
+        </tbody>
+      </table>
+      </div>
+      <div class="actions">
+        <button form="items-form" type="submit">項目表を保存して新しい版にする</button>
+      </div>
+    </div>
+  </details>
+</div>

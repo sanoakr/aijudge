@@ -1531,6 +1531,104 @@ def test_a_compliance_criterion_does_not_ask_for_an_input_output_set(world: Worl
 # --------------------------------------------------------------------------
 
 
+def test_the_data_a_criterion_uses_sits_inside_that_criterion(world: World) -> None:
+    """**採点材料は、それを使う観点の中に置く**（#303）。
+
+    入出力セットも項目表も「どの観点が何で判定されるか」に属するもので、
+    課題全体の属性ではない（レポート課題に入出力は無関係）。画面の末尾に
+    独立したカードとして置いていたときは、観点の設定を見ている人が下まで
+    スクロールして初めて採点材料に出会った。
+
+    **入れ子のフォームは作れない**ので、欄は観点の中に置き、送信先は
+    `form` 属性で結び付ける（HTML5）。ここではその結び付きを固定する ──
+    外れると、押しても何も起きないボタンになる。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    task_id = _import_example(world)
+
+    page = (
+        world.client("teacher").get(f"/manage/courses/{world.course.id}/tasks/{task_id}/edit").text
+    )
+    # 観点の欄の中に出ている（観点の削除印より後ろ = 同じ <details> の中）。
+    assert page.index("この観点を削除する") < page.index("入出力セット"), "観点の外に出ている"
+    # 送信先は末尾の空フォームで、欄はそれを名指しする。
+    assert 'id="io-form"' in page
+    assert 'form="io-form" name="case_name"' in page
+    assert '<button form="io-form" type="submit">' in page
+
+
+def test_the_page_is_ordered_the_way_a_task_is_written(world: World) -> None:
+    """**書く順に並べる**（#303）。
+
+    以前は知識要素が問題文の直下にあり、画像の欄はその下だった ── 問題文を
+    書き終えた人が最初に出会うのが「この課題はどの知識要素を問うか」で、
+    まだ書き上がっていないものについての問いだった。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    task_id = _import_example(world)
+
+    body = _main(
+        world.client("teacher").get(f"/manage/courses/{world.course.id}/tasks/{task_id}/edit").text
+    )
+    order = [
+        body.index("問題文に貼る画像"),
+        body.index("提出できるファイル形式"),
+        body.index("ルーブリック（この課題の観点）"),
+        body.index("問う知識要素"),
+    ]
+    assert order == sorted(order), order
+    # 学習者に出る形は畳んでおく（書き始める前に読むものではない）。
+    assert '<details class="card" id="preview">' in body
+
+
+def test_data_no_criterion_uses_is_called_unused(world: World) -> None:
+    """**持っているのに使われていないデータを、黙って隠さない**（#303）。
+
+    欄は観点の中にあるので、観点が評価器を指名していない課題では画面から
+    消える ── 観点を宣言する前に作られた課題や、評価器を付け替えた課題で
+    起きる。消すのではなく、使われていないと言う。
+    """
+    from aijudge_admin import save_task
+    from aijudge_authoring import TaskSpec
+    from aijudge_authoring.spec import CriterionSpec, LevelSpec, TestCaseSpec
+
+    world.register("teacher", Role.INSTRUCTOR)
+    saved = save_task(
+        world.database,
+        course_id=world.course.id,
+        spec=TaskSpec(
+            key="ex01/p7",
+            unit="ex01",
+            statement="## [必須] 合計 ##\n\n合計を出力する。",
+            criteria=(
+                CriterionSpec(
+                    code="design",
+                    title="設計",
+                    description="構成が読み取れるか。",
+                    weight=1.0,
+                    # **どの観点もテスト実行を指名していない。**
+                    evaluator=None,
+                    levels=(
+                        LevelSpec(level=0, label="未達", descriptor="読めない", score_ratio=0.0),
+                        LevelSpec(level=1, label="達成", descriptor="読める", score_ratio=1.0),
+                    ),
+                ),
+            ),
+            test_cases=(TestCaseSpec(name="case1", input="1 2\n", expected="3\n"),),
+        ),
+        subject_profile="cs_lang_c_intro",
+        authored_by=_user_id(world, "teacher"),
+    )
+
+    page = (
+        world.client("teacher")
+        .get(f"/manage/courses/{world.course.id}/tasks/{saved.task.id}/edit")
+        .text
+    )
+    assert "使われていない入出力セット" in page
+    assert "case1" in page
+
+
 def _task_with_items(world: World, *, items: tuple[str, ...] = ()) -> str:
     """項目表で採点する観点を持つ課題（レポート）。"""
     from aijudge_admin import save_task

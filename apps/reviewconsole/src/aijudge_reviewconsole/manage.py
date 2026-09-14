@@ -384,16 +384,33 @@ def _data_driven_criteria(registry, version) -> dict[str, tuple[str, ...]]:
     return {shape: tuple(sorted(names)) for shape, names in sorted(out.items())}
 
 
-def _cases_of(version, evaluators: tuple[str, ...]):
-    """この評価器あての検証データだけ。
+def _cases_by_shape(registry, version) -> dict[str, tuple]:
+    """この課題が持つ検証データを、形ごとに分ける。
 
     **混ぜて出さない**（#302）。1 つの課題が入出力と項目表の両方を持てる
     （`TestCase.evaluator_id` で分かれる）ので、画面もその単位で見せる ──
     混ぜると、入出力の表に項目が並び、どちらの編集欄で直すのか読めない。
+
+    **観点ではなく、データ自身の評価器で分ける**（#303）。観点が評価器を
+    指名していない課題でも、データは持っていることがある（観点を宣言する前に
+    作られた課題、評価器を付け替えた課題）── 観点を基準に選ぶと、持っている
+    のに画面から消える。使われていないことは画面の側で言う。
     """
     if version is None:
-        return ()
-    return tuple(case for case in version.test_cases if case.evaluator_id in evaluators)
+        return {}
+    out: dict[str, list] = {}
+    for case in version.test_cases:
+        try:
+            shape = test_case_shape(registry.get(case.evaluator_id))
+        except KeyError:
+            # 入っていない評価器あてのデータ。科目の構成を変えた直後に
+            # 起きうる。**形が分からないので出さない**（入出力の欄で
+            # 編集させると黙って壊す）。
+            shape = None
+        if shape is None:
+            continue
+        out.setdefault(shape, []).append(case)
+    return {shape: tuple(cases) for shape, cases in out.items()}
 
 
 #: 入出力の組を読む評価器（この画面が編集している側）。**名前で書かない** ──
@@ -3729,6 +3746,7 @@ def register(templates) -> APIRouter:
         # かけを失わない）。
         console = _console(request)
         data_criteria = _data_driven_criteria(registry, version)
+        cases_by_shape = _cases_by_shape(registry, version)
         course_kcs = _course_kcs(console, course)
         if chosen_kcs is None:
             with console.database.unit_of_work() as uow:
@@ -3781,10 +3799,16 @@ def register(templates) -> APIRouter:
                 # （#300・#302）。**科目が宣言していなくても、観点に割り当てた
                 # なら欄を出す。** 形は評価器が名乗る（`test_case_shape`）。
                 "data_criteria": data_criteria,
+                # 評価器 → 検証データの形（#303）。**観点の欄がこれを見て、
+                # 自分の採点材料をその場に出す** ── 入出力セットも項目表も
+                # 「どの観点が何で判定されるか」に属する。
+                "criterion_data": {
+                    name: shape for shape, names in data_criteria.items() for name in names
+                },
                 # 形ごとの検証データ。**混ぜない** ── 1 つの課題が入出力と
                 # 項目表の両方を持てる。
-                "io_cases": _cases_of(version, data_criteria.get("io", ())),
-                "item_cases": _cases_of(version, data_criteria.get("items", ())),
+                "io_cases": cases_by_shape.get("io", ()),
+                "item_cases": cases_by_shape.get("items", ()),
                 # **既にある課題にも出す。** #15 より前に画面から作った課題は
                 # テストケースを持てず、正しさが AI 判定のまま残っている。
                 # 課題を開いたときに分からなければ、直す機会が無い。
@@ -4035,7 +4059,9 @@ def register(templates) -> APIRouter:
         # 出すと、採点しながら読む相手にとっては学習者に見えている画面と
         # 別物になる（`statement.py`）。
         if not _can_edit(role):
-            data_criteria = _data_driven_criteria(EvaluatorRegistry().load_installed(), version)
+            readonly_registry = EvaluatorRegistry().load_installed()
+            data_criteria = _data_driven_criteria(readonly_registry, version)
+            cases_by_shape = _cases_by_shape(readonly_registry, version)
             return templates.TemplateResponse(
                 request,
                 "task_readonly.html",
@@ -4059,8 +4085,11 @@ def register(templates) -> APIRouter:
                     # 出す ── 「AI が判定します」と出していたので、実際には
                     # 誰も判定していないことが伝わらなかった。
                     "data_criteria": data_criteria,
-                    "io_cases": _cases_of(version, data_criteria.get("io", ())),
-                    "item_cases": _cases_of(version, data_criteria.get("items", ())),
+                    "criterion_data": {
+                        name: shape for shape, names in data_criteria.items() for name in names
+                    },
+                    "io_cases": cases_by_shape.get("io", ()),
+                    "item_cases": cases_by_shape.get("items", ()),
                 },
             )
         return _task_page(

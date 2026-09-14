@@ -29,7 +29,9 @@
    描き直さない ── 普通の文章では一致し、**間違いが起きるところでだけ
    食い違う**ものは、プレビューではなく別の意見である。 #}
 {% if task %}
-<details class="card" id="preview" open>
+{# **最初は畳む**（#303）。書き始める前に読むものではない ── 開いたままだと、
+   問題文の欄にたどり着くまでに保存済みの本文を 1 画面ぶんスクロールする。 #}
+<details class="card" id="preview">
   <summary><b>学習者に出る形</b>
     <span class="desc">保存済みの {{ version.version }} 版です。書きかけを見るには「プレビューを更新」を押します</span></summary>
   <div class="statement" data-preview style="margin-top:12px">{{ statement_html | safe }}</div>
@@ -95,71 +97,11 @@
   </div>
   </div>
 
-  <div class="subsection">
-  <h3>問う知識要素</h3>
-  {# **課題に付いた知識要素だけが習熟度を動かす**（#292）。付いていない課題の
-     成績は、どの知識要素にも記録されない。候補はこのコースが使うものだけ
-     （`_course_kcs`）。AI の候補は書きかけの問題文で出せる（`kc-candidates`）。 #}
-  <input type="hidden" name="kc_form" value="1">
-  <p class="desc" style="margin:0 0 8px">
-    この課題の成績がどの知識要素の習熟度に効くかを決めます。
-    <strong>付いていない課題の成績は、どの知識要素にも記録されません。</strong>
-    付け外しは新しい版になります（過去の採点は元の版のまま）。
-  </p>
-  {% if course_kcs %}
-  <div class="kcpick">
-    {% for k in course_kcs %}
-    <label>
-      <input type="checkbox" name="kc" value="{{ k.key }}" {{ 'checked' if k.key in chosen_kcs }}>
-      <span class="k">{{ k.key }}</span>
-      <span class="desc">{{ k.label }}</span>
-    </label>
-    {% endfor %}
-  </div>
-  {% else %}
-  <p class="desc">このコースはまだ知識要素を使っていません。
-    <a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/kc">知識要素</a>で足すか、下の候補から付けてください。</p>
-  {% endif %}
-  {% if task %}
-  <div class="actions" style="justify-content:flex-start">
-    {# **入れ子のフォームは作れない**ので、同じフォームを別の先へ送る
-       （`formaction`）。書きかけの問題文と選択中の知識要素がそのまま渡る。 #}
-    <button type="submit" class="minor"
-            formaction="{{ root_prefix() }}/manage/courses/{{ course.id }}/tasks/{{ task.id }}/kc-candidates"
-            formnovalidate>AI に候補を出させる</button>
-    <span class="desc">いまの問題文から候補を出します（数十秒）。保存はされません。</span>
-  </div>
-  {% endif %}
-  {% if kc_candidates %}
-  <div class="note" style="margin-top:12px">
-    <strong>AI の候補</strong> ── 印を付けて「この問題を保存して更新する」で付きます。
-    {% if kc_candidates.empty %}<br>候補はありませんでした（問題文が知識要素を 1 つも扱っていないと読まれました）。{% endif %}
-    {% if kc_candidates.in_course %}
-    <p style="margin:8px 0 4px"><strong>このコースが使っているもの</strong>（付けるだけ）</p>
-    <div class="kcpick">
-      {% for c in kc_candidates.in_course %}
-      <label><input type="checkbox" name="kc" value="{{ c.key }}" {{ 'checked' if c.key in chosen_kcs }}>
-        <span class="k">{{ c.key }}</span><span class="desc">{{ c.label }}</span></label>
-      {% endfor %}
-    </div>
-    {% endif %}
-    {% if kc_candidates.in_vocabulary %}
-    <p style="margin:8px 0 4px"><strong>語彙にあるが、このコースでは未使用のもの</strong>（付けるとコースの範囲にも入ります）</p>
-    <div class="kcpick">
-      {% for c in kc_candidates.in_vocabulary %}
-      <label><input type="checkbox" name="kc" value="{{ c.key }}">
-        <span class="k">{{ c.key }}</span><span class="desc">{{ c.label }}</span></label>
-      {% endfor %}
-    </div>
-    {% endif %}
-    {% if kc_candidates.discarded %}
-    <p class="desc" style="margin:8px 0 0">登録済みの語彙に無い候補を {{ kc_candidates.discarded | length }} 件落としました（新しい知識要素は作りません）:
-      {% for d in kc_candidates.discarded %}<span class="mono">{{ d.key }}</span>（{{ d.reason }}）{% if not loop.last %}、{% endif %}{% endfor %}</p>
-    {% endif %}
-  </div>
-  {% endif %}
-  </div>
-
+  {# **画面は書く順に並べる**（#303）。問題文 → 貼る画像 → 提出形式 →
+     ルーブリック → 畳み方 → 知識要素。以前は知識要素が問題文の直下にあり、
+     画像の欄はその下だったので、問題文を書き終えた人が最初に出会うのが
+     「この課題はどの知識要素を問うか」だった ── まだ書き上がっていない
+     ものについての問いである。 #}
   {# 問題文に貼る画像（#64）。**この画面で受け取り、カーソル位置に差し込む。**
      受け口はここだけである（#300）── 別の画面で 1 行を作って手で貼る形も
      持っていたが、そこへ行くと書きかけの問題文は失われる。課題の編集は
@@ -210,6 +152,34 @@
       既に保存してある画像は <span class="mono">![説明](/images/…)</span> の形で問題文に書けます。
     </p>
   </noscript>
+
+  <div class="subsection">
+  <h3>提出できるファイル形式</h3>
+  <input type="hidden" name="formats" value="1">
+  <div class="formats">
+    <div class="rows">
+      {% for group, suffixes in suffix_groups %}
+      <div class="checkrow">
+        {# **群ごとの一括切り替え**。`name` を持たないので送信には出ない ──
+           個々の選択だけが値である。
+
+           `js-only` で出す ── これは JavaScript でしか作れない補助で、
+           無ければ 1 つずつ押せばよい。死んだチェック欄を出す方が悪い。 #}
+        <label class="desc rowlabel grouptoggle js-only" hidden>
+          <input type="checkbox" class="groupall"> {{ group }}</label>
+        <span class="desc rowlabel nojs">{{ group }}</span>
+        <span class="checks">
+          {% for shown, values in suffixes %}
+          <label><input type="checkbox" name="suffix" value="{{ values | join(',') }}"
+            {{ 'checked' if values | select('in', course_suffixes) | list }}>
+            <span class="mono">{{ shown }}</span></label>
+          {% endfor %}
+        </span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  </div>
 
   {# **テストで確定できる科目なら、テストケースを用意する。** 無い課題は
      正しさの観点が AI 判定に落ち（`TaskSpec.auto_graded`）、全課題が教員の
@@ -302,7 +272,12 @@
     </div>
   </div>
   <template id="course-rubric-rows">
-    {% with rows = course_rubric_rows %}{% include "_rubric_editor.html" %}{% endwith %}
+    {# **検証データの欄は入れない**（#303）。共通ルーブリックに復元したときに
+       差し込まれる中身なので、入れると同じ欄が 2 つでき、同じ名前の入力が
+       二重に送られる。 #}
+    {% with rows = course_rubric_rows, criterion_data = {} %}
+      {% include "_rubric_editor.html" %}
+    {% endwith %}
   </template>
   </div>
 
@@ -313,31 +288,68 @@
   </div>
 
   <div class="subsection">
-  <h3>提出できるファイル形式</h3>
-  <input type="hidden" name="formats" value="1">
-  <div class="formats">
-    <div class="rows">
-      {% for group, suffixes in suffix_groups %}
-      <div class="checkrow">
-        {# **群ごとの一括切り替え**。`name` を持たないので送信には出ない ──
-           個々の選択だけが値である。
-
-           `js-only` で出す ── これは JavaScript でしか作れない補助で、
-           無ければ 1 つずつ押せばよい。死んだチェック欄を出す方が悪い。 #}
-        <label class="desc rowlabel grouptoggle js-only" hidden>
-          <input type="checkbox" class="groupall"> {{ group }}</label>
-        <span class="desc rowlabel nojs">{{ group }}</span>
-        <span class="checks">
-          {% for shown, values in suffixes %}
-          <label><input type="checkbox" name="suffix" value="{{ values | join(',') }}"
-            {{ 'checked' if values | select('in', course_suffixes) | list }}>
-            <span class="mono">{{ shown }}</span></label>
-          {% endfor %}
-        </span>
-      </div>
+  <h3>問う知識要素</h3>
+  {# **課題に付いた知識要素だけが習熟度を動かす**（#292）。付いていない課題の
+     成績は、どの知識要素にも記録されない。候補はこのコースが使うものだけ
+     （`_course_kcs`）。AI の候補は書きかけの問題文で出せる（`kc-candidates`）。 #}
+  <input type="hidden" name="kc_form" value="1">
+  <p class="desc" style="margin:0 0 8px">
+    この課題の成績がどの知識要素の習熟度に効くかを決めます。
+    <strong>付いていない課題の成績は、どの知識要素にも記録されません。</strong>
+    付け外しは新しい版になります（過去の採点は元の版のまま）。
+  </p>
+  {% if course_kcs %}
+  <div class="kcpick">
+    {% for k in course_kcs %}
+    <label>
+      <input type="checkbox" name="kc" value="{{ k.key }}" {{ 'checked' if k.key in chosen_kcs }}>
+      <span class="k">{{ k.key }}</span>
+      <span class="desc">{{ k.label }}</span>
+    </label>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="desc">このコースはまだ知識要素を使っていません。
+    <a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/kc">知識要素</a>で足すか、下の候補から付けてください。</p>
+  {% endif %}
+  {% if task %}
+  <div class="actions" style="justify-content:flex-start">
+    {# **入れ子のフォームは作れない**ので、同じフォームを別の先へ送る
+       （`formaction`）。書きかけの問題文と選択中の知識要素がそのまま渡る。 #}
+    <button type="submit" class="minor"
+            formaction="{{ root_prefix() }}/manage/courses/{{ course.id }}/tasks/{{ task.id }}/kc-candidates"
+            formnovalidate>AI に候補を出させる</button>
+    <span class="desc">いまの問題文から候補を出します（数十秒）。保存はされません。</span>
+  </div>
+  {% endif %}
+  {% if kc_candidates %}
+  <div class="note" style="margin-top:12px">
+    <strong>AI の候補</strong> ── 印を付けて「この問題を保存して更新する」で付きます。
+    {% if kc_candidates.empty %}<br>候補はありませんでした（問題文が知識要素を 1 つも扱っていないと読まれました）。{% endif %}
+    {% if kc_candidates.in_course %}
+    <p style="margin:8px 0 4px"><strong>このコースが使っているもの</strong>（付けるだけ）</p>
+    <div class="kcpick">
+      {% for c in kc_candidates.in_course %}
+      <label><input type="checkbox" name="kc" value="{{ c.key }}" {{ 'checked' if c.key in chosen_kcs }}>
+        <span class="k">{{ c.key }}</span><span class="desc">{{ c.label }}</span></label>
       {% endfor %}
     </div>
+    {% endif %}
+    {% if kc_candidates.in_vocabulary %}
+    <p style="margin:8px 0 4px"><strong>語彙にあるが、このコースでは未使用のもの</strong>（付けるとコースの範囲にも入ります）</p>
+    <div class="kcpick">
+      {% for c in kc_candidates.in_vocabulary %}
+      <label><input type="checkbox" name="kc" value="{{ c.key }}">
+        <span class="k">{{ c.key }}</span><span class="desc">{{ c.label }}</span></label>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% if kc_candidates.discarded %}
+    <p class="desc" style="margin:8px 0 0">登録済みの語彙に無い候補を {{ kc_candidates.discarded | length }} 件落としました（新しい知識要素は作りません）:
+      {% for d in kc_candidates.discarded %}<span class="mono">{{ d.key }}</span>（{{ d.reason }}）{% if not loop.last %}、{% endif %}{% endfor %}</p>
+    {% endif %}
   </div>
+  {% endif %}
   </div>
 
   <p class="desc" style="margin-top:20px">
@@ -355,140 +367,42 @@
   <div class="actions"><button type="submit">{{ 'この問題を保存して更新する' if task else '保存' }}</button></div>
 </form>
 
-{% if task and (io_cases or wants_tests or data_criteria.get('io')) %}
-{# テストケースの閲覧と修正（#284）。**修正は版を上げる**（P8）── 出題済みの
-   版のテストを書き換えると、過去の採点が何で判定されたのか辿れなくなる。
-   参照解答があれば保存前に門 1（参照解答が全ケースを通る）を走らせ、通らない
-   入出力は保存しない。
+{# **どの観点も使っていない検証データは、使われていないと言う**（#303）。
 
-   **この課題の観点が入出力セットを読む評価器を指しているなら、0 件でも欄を出す**
-   （#300）。観点はそれぞれ自分の評価器を持つ（ADR 0018）ので、科目の宣言だけで
-   出し分けると `code_test_runner` を割り当てた課題でも欄が出ず、その評価器が
-   何を走らせるのかを画面から確かめられなかった。読むかどうかは評価器が宣言する
-   ── 決定論的かどうかで出し分けると、検証データを持たない評価器（提出の遵守）の
-   課題に永久に空の欄が出て、AI でも検証データを読む評価器（項目表の照合）には
-   欄が出ない（#302）。 #}
-<div class="card" id="tests">
-  <h3 style="margin-top:0">入出力セット（テストケース {{ io_cases | length }} 件）</h3>
-  {% if data_criteria.get('io') %}
+   欄は観点の中にあるので、観点が評価器を指名していない課題では画面から
+   消える ── 持っているのに見えないデータができる。以前の課題（観点を
+   宣言する前に作られたもの）や、評価器を付け替えた課題で起きる。 #}
+{% if task and io_cases and not data_criteria.get('io') %}
+<div class="card">
+  <h3 style="margin-top:0">使われていない入出力セット（{{ io_cases | length }} 件）</h3>
   <p class="desc" style="margin:0 0 10px">
-    この課題は
-    {% for name in data_criteria['io'] %}<span class="mono">{{ name }}</span>{% if not loop.last %} / {% endif %}{% endfor %}
-    で採点する観点を持ちます{% if not io_cases %} —
-    <strong>入出力セットが 1 件も無いので、その観点は判定できません</strong>（総点は伏せられます・ADR 0015）。
-    下の「テストケースを直す」から足してください{% endif %}。
+    この課題は入出力セットを持っていますが、<strong>どの観点もそれを読む評価器を
+    指名していません</strong> — いま採点には使われていません。使うには、上のルーブリックで
+    観点の「判定する評価器」に <span class="mono">code_test_runner</span> を選んでください。
   </p>
-  {% endif %}
   {% include "_test_cases_table.html" %}
-  <details style="margin-top:12px">
-    <summary><b>テストケースを直す</b><span class="desc">（保存すると新しい版になります）</span></summary>
-    <form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/tasks/{{ task.id }}/test-cases/edit" class="criterion-fields">
-      <p class="desc" style="margin:8px 0">
-        入力と期待出力は<strong>改行も含めてそのまま</strong>使われます（末尾に改行を 1 つ入れるのが普通です）。
-        名前・入力・期待出力が空の行は捨てます。
-        {% if version.reference_solution %}<strong>保存前に参照解答を全ケースで走らせ、通らなければ保存しません。</strong>
-        {% else %}参照解答が無いので、入出力の整合は確かめずに保存します。{% endif %}
-      </p>
-      <div style="overflow-x:auto">
-      <table class="testcases">
-        <thead><tr>
-          <th class="fit">消す</th><th class="fit">名前</th><th class="fit">重み</th><th class="fit">学習者に</th>
-          <th>入力</th><th>期待出力</th>
-        </tr></thead>
-        <tbody>
-        {% for case in io_cases %}
-          <tr>
-            <td class="fit"><input type="checkbox" name="case_delete" value="{{ loop.index0 }}" style="width:auto"></td>
-            <td class="fit"><input name="case_name" value="{{ case.name }}"></td>
-            <td class="fit"><input name="case_weight" type="number" step="0.1" min="0.1" value="{{ case.weight }}"></td>
-            <td class="fit"><select name="case_hidden">
-              <option value="1" {{ 'selected' if case.hidden }}>見せない</option>
-              <option value="0" {{ 'selected' if not case.hidden }}>見せる</option></select></td>
-            <td><textarea name="case_input" rows="3" class="mono">{{ case.payload.get('input', '') }}</textarea></td>
-            <td><textarea name="case_expected" rows="3" class="mono">{{ case.payload.get('expected', '') }}</textarea></td>
-          </tr>
-        {% endfor %}
-        {# 追加用の空行。名前が空なら捨てられる。 #}
-        <tr>
-          <td class="fit desc">追加</td>
-          <td class="fit"><input name="case_name" placeholder="case{{ io_cases | length + 1 }}"></td>
-          <td class="fit"><input name="case_weight" type="number" step="0.1" min="0.1" value="1.0"></td>
-          <td class="fit"><select name="case_hidden"><option value="1">見せない</option><option value="0">見せる</option></select></td>
-          <td><textarea name="case_input" rows="3" class="mono"></textarea></td>
-          <td><textarea name="case_expected" rows="3" class="mono"></textarea></td>
-        </tr>
-        </tbody>
-      </table>
-      </div>
-      <div class="actions"><button type="submit">テストケースを保存して新しい版にする</button></div>
-    </form>
-  </details>
+</div>
+{% endif %}
+{% if task and item_cases and not data_criteria.get('items') %}
+<div class="card">
+  <h3 style="margin-top:0">使われていない項目表（{{ item_cases | length }} 件）</h3>
+  <p class="desc" style="margin:0 0 10px">
+    この課題は項目表を持っていますが、<strong>どの観点もそれを読む評価器を指名して
+    いません</strong> — いま採点には使われていません。
+  </p>
+  {% include "_item_list_table.html" %}
 </div>
 {% endif %}
 
+{# 検証データの送信先（#303）。**欄は観点の中にある** ── 入れ子のフォームは
+   作れないので、`form` 属性で結び付ける（HTML5）。ここには欄を置かない。 #}
+{% if task and data_criteria.get('io') %}
+<form id="io-form" method="post"
+      action="{{ root_prefix() }}/manage/courses/{{ course.id }}/tasks/{{ task.id }}/test-cases/edit"></form>
+{% endif %}
 {% if task and data_criteria.get('items') %}
-{# 項目表の閲覧と修正（#302）。**修正は版を上げる**（P8）── 出題済みの版の
-   項目を書き換えると、過去の採点が何で判定されたのか辿れなくなる。
-
-   入出力セットと同じ扱いだが、**部品は分ける** ── 入力と期待出力の組と、
-   項目の並びは違う形である。どちらを出すかは評価器が名乗る
-   （`aijudge_grading.test_case_shape`）。 #}
-<div class="card" id="items">
-  <h3 style="margin-top:0">項目表（{{ item_cases | length }} 件）</h3>
-  <p class="desc" style="margin:0 0 10px">
-    この課題は
-    {% for name in data_criteria['items'] %}<span class="mono">{{ name }}</span>{% if not loop.last %} / {% endif %}{% endfor %}
-    で採点する観点を持ちます。提出物に<strong>この項目が含まれているか</strong>を 1 つずつ見て、
-    満たした重みの割合で段階が決まります{% if not item_cases %} —
-    <strong>項目が 1 件も無いので、科目プロファイルの既定が使われます</strong>。
-    この課題で決めるなら下の「項目表を直す」から足してください{% endif %}。
-  </p>
-  {% include "_item_list_table.html" %}
-  <details style="margin-top:12px">
-    <summary><b>項目表を直す</b><span class="desc">（保存すると新しい版になります）</span></summary>
-    <form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/tasks/{{ task.id }}/items/edit" class="criterion-fields">
-      <p class="desc" style="margin:8px 0">
-        <strong>「満たす条件」と「言い換えの例」は判定する AI への助言です。</strong>
-        例に無い書き方でも、求めた内容が書かれていれば「ある」と判定されます
-        — 例をいくら並べても、そこに無い書き方を落とすわけではありません。
-        言い換えはカンマか読点で区切ります。項目名が空の行は捨てます。
-      </p>
-      <div style="overflow-x:auto">
-      <table class="testcases">
-        <thead><tr>
-          <th class="fit">消す</th><th class="fit">項目</th><th class="fit">重み</th><th class="fit">学習者に</th>
-          <th>満たす条件</th><th>言い換えの例</th>
-        </tr></thead>
-        <tbody>
-        {% for case in item_cases %}
-          <tr>
-            <td class="fit"><input type="checkbox" name="item_delete" value="{{ loop.index0 }}" style="width:auto"></td>
-            <td class="fit"><input name="item_name" value="{{ case.name }}"></td>
-            <td class="fit"><input name="item_weight" type="number" step="0.1" min="0.1" value="{{ case.weight }}"></td>
-            <td class="fit"><select name="item_hidden">
-              <option value="0" {{ 'selected' if not case.hidden }}>見せる</option>
-              <option value="1" {{ 'selected' if case.hidden }}>見せない</option></select></td>
-            <td><textarea name="item_description" rows="2">{{ case.payload.get('description', '') }}</textarea></td>
-            <td><textarea name="item_aliases" rows="2">{{ (case.payload.get('aliases') or []) | join('、') }}</textarea></td>
-          </tr>
-        {% endfor %}
-        {# 追加用の空行。名前が空なら捨てられる。 #}
-        <tr>
-          <td class="fit desc">追加</td>
-          <td class="fit"><input name="item_name" placeholder="考察"></td>
-          <td class="fit"><input name="item_weight" type="number" step="0.1" min="0.1" value="1.0"></td>
-          <td class="fit"><select name="item_hidden">
-            <option value="0">見せる</option><option value="1">見せない</option></select></td>
-          <td><textarea name="item_description" rows="2" placeholder="結果から言えることを、結果の言い換えに留まらず書いている"></textarea></td>
-          <td><textarea name="item_aliases" rows="2" placeholder="考察、議論"></textarea></td>
-        </tr>
-        </tbody>
-      </table>
-      </div>
-      <div class="actions"><button type="submit">項目表を保存して新しい版にする</button></div>
-    </form>
-  </details>
-</div>
+<form id="items-form" method="post"
+      action="{{ root_prefix() }}/manage/courses/{{ course.id }}/tasks/{{ task.id }}/items/edit"></form>
 {% endif %}
 
 {% if task %}
