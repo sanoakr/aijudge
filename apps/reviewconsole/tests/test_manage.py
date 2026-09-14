@@ -1737,6 +1737,127 @@ def test_data_no_criterion_uses_is_called_unused(world: World) -> None:
     assert "case1" in page
 
 
+def test_every_installed_evaluator_can_be_picked_for_a_criterion(world: World) -> None:
+    """**足した評価器は画面から選べること**（#315）。
+
+    観点の「判定する評価器」は決定的評価器しか並べていなかったので、AI でも
+    指名しないと走らない評価器 ── 項目を積み上げる `checklist_ai_judge`
+    （#302）── を割り当てる手段が画面に無かった。
+
+    表記は**説明（評価器コード）**で揃える。選ぶときに要るのは「何を見る
+    評価器か」で、コードはその確認である。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    task_id = _import_example(world)
+
+    page = (
+        world.client("teacher").get(f"/manage/courses/{world.course.id}/tasks/{task_id}/edit").text
+    )
+    assert 'value="checklist_ai_judge"' in page, "足した AI 評価器が選べない"
+    assert 'value="code_test_runner"' in page
+    assert "（checklist_ai_judge）" in page, "表記が説明（コード）の順でない"
+    # 空は `rubric_ai_judge` のことなので、選択肢として二重に並べない。
+    assert 'value="rubric_ai_judge"' not in page
+
+
+# --------------------------------------------------------------------------
+# 既存の課題を AI で書き直す（#306）
+# --------------------------------------------------------------------------
+
+
+def _revision(monkeypatch, *, changes=("入力の範囲を明記した",), kcs=()) -> None:
+    monkeypatch.setattr(
+        "aijudge_reviewconsole.manage.TaskReviser.revise",
+        lambda self, statement, *, criteria, vocabulary, current_kcs=(): SimpleNamespace(
+            statement="## [必須] 合計 ##\n\n2 つの整数（各 0 以上 100 以下）の和を出力する。",
+            changes=tuple(changes),
+            knowledge_components=tuple(kcs),
+            prompt_id="task_revision_ja@1",
+            model="stub-model",
+            unchanged=not changes,
+        ),
+    )
+
+
+def test_an_ai_revision_waits_for_approval(world: World, monkeypatch) -> None:
+    """**必ず承認待ち**（#306・P5・ADR 0008）。
+
+    教員はまだ 1 文字も読んでいない。承認するまで学習者にはいまの版が
+    出続ける。書き直すのは問題文と知識要素だけで、観点と入出力セットと
+    参照解答は触らない ── 観点の段階は教員が決めるもので、期待出力は参照解答を
+    走らせて作るものだから（#305）。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    task_id = _task_with_tests(world)
+    with world.database.unit_of_work() as uow:
+        before = uow.tasks.latest_version(TaskId(task_id))
+        published_before = uow.tasks.latest_published_version(TaskId(task_id))
+    _revision(monkeypatch)
+
+    response = world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/tasks/{task_id}/revise-with-ai",
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert "/drafts" in response.headers["location"], "差分を読む場所へ送っていない"
+
+    with world.database.unit_of_work() as uow:
+        after = uow.tasks.latest_version(TaskId(task_id))
+        published_after = uow.tasks.latest_published_version(TaskId(task_id))
+    assert after.version == before.version + 1
+    assert "0 以上 100 以下" in after.statement
+    # **学習者に出ているものは動かない。**
+    assert published_after.id == published_before.id
+    assert after.provenance.review_state is not ReviewState.APPROVED
+    assert after.provenance.generated_by == "stub-model"
+    # 観点・入出力セット・参照解答は触らない。
+    assert [c.code for c in after.criteria] == [c.code for c in before.criteria]
+    assert [c.name for c in after.test_cases] == [c.name for c in before.test_cases]
+    assert after.reference_solution == before.reference_solution
+
+
+def test_a_revision_with_nothing_to_change_is_not_queued(world: World, monkeypatch) -> None:
+    """**空の改訂を承認待ちに積まない**（#306）。
+
+    積むと、教員は差分の無い版を 1 件ずつ開いて確かめることになる ──
+    承認待ちの一覧は「人が見るべきもの」だけを載せる場所である。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    task_id = _task_with_tests(world)
+    with world.database.unit_of_work() as uow:
+        before = uow.tasks.latest_version(TaskId(task_id))
+    _revision(monkeypatch, changes=())
+
+    world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/tasks/{task_id}/revise-with-ai",
+        follow_redirects=False,
+    )
+
+    with world.database.unit_of_work() as uow:
+        after = uow.tasks.latest_version(TaskId(task_id))
+    assert after.id == before.id, "直すところが無いのに版が増えている"
+
+
+def test_the_queue_tells_a_revision_from_a_new_task(world: World, monkeypatch) -> None:
+    """**新規か改訂かを出す**（#306）。判断そのものが違う ── 新規は「出すか
+    どうか」、改訂は「置き換えるかどうか」である。差分も出す（承認は差分を
+    見て決めるもので、書き換わった問題文を頭から読み直させない）。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    task_id = _task_with_tests(world)
+    _revision(monkeypatch)
+    world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/tasks/{task_id}/revise-with-ai",
+        follow_redirects=False,
+    )
+
+    page = world.client("teacher").get(f"/manage/courses/{world.course.id}/drafts").text
+    assert "改訂" in page
+    assert 'class="code diff"' in page
+    # 足した行と消した行が読める形で出ている。
+    assert "0 以上 100 以下" in page
+
+
 # --------------------------------------------------------------------------
 # 解答例と、そこから作るテストケース（#305）
 # --------------------------------------------------------------------------
@@ -1829,6 +1950,10 @@ def test_writing_a_solution_does_not_save_anything(world: World, monkeypatch) ->
 
     assert "AI が書いた" in page
     assert "書きかけ" in page, "書きかけの入出力が捨てられている"
+    # **読ませるために描き直しているのだから、開いて返す**（#314）。畳んで
+    # 返すと、何も起きなかったように見える（生成は数十秒かかる）。
+    assert 'id="criterion-correctness" open>' in page.replace("\n", "")
+    assert 'id="reference"' in page and "open>" in page
     with world.database.unit_of_work() as uow:
         after = uow.tasks.latest_version(TaskId(task_id))
     assert after.version == before.version, "生成で版が上がっている"
@@ -1886,6 +2011,9 @@ def test_a_proposal_takes_its_expected_output_from_running_the_solution(
     assert "caseX" in page and "11" in page
     # 走らなかったケースは採用の印を出さない（理由を言う）。
     assert "採れません" in page and "nonzero exit" in page
+    # 提案は編集欄の中に出る。**両方開いて返す**（#314）。
+    assert 'id="criterion-correctness" open>' in page.replace("\n", "")
+    assert 'id="io-edit"' in page and "テストケースを直す" in page
     # 提案の時点では保存しない。
     with world.database.unit_of_work() as uow:
         after = uow.tasks.latest_version(TaskId(task_id))

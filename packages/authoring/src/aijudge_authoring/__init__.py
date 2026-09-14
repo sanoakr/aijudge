@@ -21,6 +21,7 @@ from .repository import (
     TaskStoreError,
     substantive,
 )
+from .revision import RevisedTask
 from .similarity import (
     DEFAULT_SIMILARITY_THRESHOLD,
     DuplicateReport,
@@ -63,6 +64,7 @@ __all__ = [
     "Mutation",
     "MutationKind",
     "MutationOutcome",
+    "RevisedTask",
     "SimilarTask",
     "SimilarityMethod",
     "SolvabilityOutcome",

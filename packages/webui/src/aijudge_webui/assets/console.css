@@ -49,10 +49,20 @@
    下にボタンを置くより縦が詰まる。 */
 .formats{display:flex;align-items:flex-start;gap:16px}
 .formats .rows{flex:1;min-width:0}
-/* 性質ごとに 1 行。行の頭に何の並びかを書き、拡張子はその右に並べる。
-   **チェックと拡張子は 1 つの塊**として扱い、間で折り返させない。 */
-.checkrow{display:flex;flex-wrap:wrap;align-items:center;gap:2px 14px;margin-bottom:6px}
-.checkrow .rowlabel{flex:0 0 8.5em}
+/* 提出できるファイル形式（#313）。性質ごとに 1 行。行の頭に何の並びかを書き、
+   拡張子はその右に並べる。**チェックと拡張子は 1 つの塊**として扱い、間で
+   折り返させない。
+
+   **群名の列を揃える。**
+   行ごとの flex で群名に固定幅（8.5em）を与えていたが、「コード・テキスト」は
+   8 字あって収まらず、**群名だけが 2 行に折り返して行がずれていた**。字数は
+   群によって違う（8 / 6 / 2 字）ので、固定幅では必ずどれかが合わない。
+   格子にして、群名の列を**いちばん長い群に合わせる** ── 折り返さないので
+   行もずれない。 */
+.formats .rows{display:grid;grid-template-columns:max-content minmax(0,1fr);
+  gap:8px 14px;align-items:center}
+.checkrow{display:contents}
+.checkrow .rowlabel{white-space:nowrap}
 /* 群ごとの一括切り替え。**群名そのものを押せるようにする** ── 小さな欄だけを
    狙わせない。欄と字の間は他のチェックと同じ間隔にして、行の中で浮かないように
    する。 */
@@ -336,7 +346,8 @@ form[data-working] button[disabled]{opacity:.55;cursor:progress}
      コース設定）で「PDF・画像」だけが群名の下に回り込み、**3 群が 3 通りの
      形**になっていた（`.jpg / .jpeg` が長いため）。
      群名を上に出して、選択肢に幅を全部渡す。どの群も同じ形になる。 */
-  .checkrow{display:block}
+  .formats .rows{display:block}
+  .checkrow{display:block;margin-bottom:10px}
   .checkrow .rowlabel{display:block;flex:none;margin:0 0 4px}
   .checkrow .checks{display:flex}
   .keyline{flex-wrap:wrap}
@@ -370,3 +381,12 @@ table.testcases select{width:auto}
 table.testcases td.fit{white-space:nowrap}
 table.testcases th.fit,table.testcases td.fit{width:1%}
 table.testcases textarea{width:100%}
+
+/* 問題文の差分（#306）。**足した行と消した行を色で分ける** ── 記号だけでは、
+   長い差分で目が滑る。地の色を薄く敷くのは、行全体がどちらなのかを一目で
+   取れるようにするため（記号は行頭にしかない）。 */
+pre.code.diff{white-space:pre-wrap;word-break:break-word}
+pre.code.diff .add{display:block;background:var(--ai-soft);color:var(--ink)}
+pre.code.diff .del{display:block;background:var(--shu-soft);color:var(--ink)}
+pre.code.diff .meta{display:block;color:var(--muted)}
+pre.code.diff .same{display:block}

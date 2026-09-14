@@ -113,5 +113,8 @@ def test_the_format_groups_take_the_same_shape_on_a_phone() -> None:
     """
     css = (webui.ASSETS_DIR / "console.css").read_text(encoding="utf-8")
     narrow = css[css.index("@media (max-width:560px)") :]
-    assert ".checkrow{display:block}" in narrow, "群ごとに形が変わる"
+    # 広い画面では格子で群名の列を揃える（#313）。狭い画面ではその格子も解く
+    # ── 解かないと、群名の列が幅を取ったまま選択肢が潰れる。
+    assert ".formats .rows{display:block}" in narrow, "格子が解けていない"
+    assert ".checkrow{display:block" in narrow, "群ごとに形が変わる"
     assert ".checkrow .rowlabel{display:block" in narrow

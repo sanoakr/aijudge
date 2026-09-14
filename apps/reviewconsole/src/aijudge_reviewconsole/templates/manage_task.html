@@ -427,6 +427,16 @@
     観点の「判定する評価器」に <span class="mono">code_test_runner</span> を選んでください。
   </p>
   {% include "_test_cases_table.html" %}
+  {# **参照解答もここに出す**（#314）。編集欄は観点の中にあるので、観点が
+     評価器を指名していない課題では参照解答も画面から消えていた ── 持って
+     いるのに見えないものを作らない。直すには、まず観点に評価器を割り当てる。 #}
+  {% if version.reference_solution %}
+  <details style="margin-top:12px">
+    <summary><b>参照解答</b>
+      <span class="desc">{{ version.reference_solution.splitlines() | length }} 行 · 教員だけが見られます</span></summary>
+    <pre class="code" style="margin-top:8px">{{ version.reference_solution }}</pre>
+  </details>
+  {% endif %}
 </div>
 {% endif %}
 {% if task and item_cases and not data_criteria.get('items') %}
@@ -457,6 +467,27 @@
    関係がない ── 見出しで分けないと、上の「保存して更新する」がこれらにも
    効くように見える。 #}
 <h2>この問題への操作</h2>
+
+{# 既存の課題を現在の基準に合わせて書き直す（#306）。**必ず承認待ちになる** ──
+   教員はまだ 1 文字も読んでいない（P5・ADR 0008）。 #}
+<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/tasks/{{ task.id }}/revise-with-ai"
+      class="card" data-working="書き直しています… 数十秒かかります（このまま待ってください）">
+  <h3 style="margin-top:0">AI に書き直させる</h3>
+  <p class="desc" style="margin:0 0 8px">
+    いまの観点に合わせて<strong>問題文を書き直し</strong>、問う知識要素を選び直します。
+    観点（ルーブリック）と入出力セットと参照解答は<strong>触りません</strong>
+    — 観点の段階は教員が決めるもので、期待出力は参照解答を走らせて作るものだからです。
+  </p>
+  <p class="desc" style="margin:0 0 8px">
+    できるのは<strong>承認待ちの新しい版</strong>で、
+    <strong>承認するまで学習者にはいまの版が出続けます</strong>。
+    未承認の課題（AI 作問）の一覧で<strong>差分を読んでから</strong>承認してください。
+    直すところが無ければ版は増やしません。
+  </p>
+  <div class="actions">
+    <button type="submit">いまの基準に合わせて書き直す</button>
+  </div>
+</form>
 
 {# **後から足せる。** 以前は「作り直してください」と書いてあり、作り直せば
    別の課題になって同じ問題が 2 件並んだ（#43）。 #}
