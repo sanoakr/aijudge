@@ -1351,6 +1351,60 @@ def test_test_cases_are_shown_to_the_instructor_and_the_ta(world: World) -> None
     )
 
 
+def test_a_task_that_names_a_deterministic_evaluator_can_edit_its_cases(world: World) -> None:
+    """**観点に決定論的な評価器を割り当てたら、入出力セットの欄を出す**（#300）。
+
+    出し分けを科目プロファイルの宣言だけで決めていたので、`code_test_runner`
+    を観点に割り当てた課題でも、科目が宣言していなければ欄が出なかった ──
+    その評価器が何を走らせるのかを画面から確かめる手段が無く、テストケースが
+    0 件のまま出題しても、画面はそれを言わなかった。観点は課題ごとに自分の
+    評価器を持つ（ADR 0018）ので、判断はこの課題の観点で行う。
+    """
+    from aijudge_admin import save_task
+    from aijudge_authoring import TaskSpec
+    from aijudge_authoring.spec import CriterionSpec, LevelSpec
+
+    world.register("teacher", Role.INSTRUCTOR)
+    saved = save_task(
+        world.database,
+        course_id=world.course.id,
+        spec=TaskSpec(
+            key="ex01/p9",
+            unit="ex01",
+            statement="## [必須] 出力 ##\n\nhello と出力する。",
+            criteria=(
+                CriterionSpec(
+                    code="correctness",
+                    title="出力の正しさ",
+                    description="仕様どおりの出力を返すか。テスト実行で判定する。",
+                    weight=1.0,
+                    evaluator="code_test_runner",
+                    levels=(
+                        LevelSpec(
+                            level=0, label="未達", descriptor="満たしていない", score_ratio=0.0
+                        ),
+                        LevelSpec(
+                            level=1, label="達成", descriptor="満たしている", score_ratio=1.0
+                        ),
+                    ),
+                ),
+            ),
+        ),
+        # テスト実行を宣言していない科目。**それでも欄は出す。**
+        subject_profile="report_ja",
+        authored_by=_user_id(world, "teacher"),
+    )
+    page = (
+        world.client("teacher")
+        .get(f"/manage/courses/{world.course.id}/tasks/{saved.task.id}/edit")
+        .text
+    )
+    assert "入出力セット" in page, "決定論的な評価器を割り当てた課題に欄が出ていない"
+    assert "テストケースを直す" in page, "直せない"
+    # 0 件であることと、その帰結を言う（伏せられる総点の理由が画面から読める）。
+    assert "入出力セットが 1 件も無いので" in page
+
+
 def _task_with_tests(world: World, author: str = "teacher") -> str:
     """参照解答とテストケースを持つ課題（画面から直せるようキー付きで保存）。
 
@@ -5042,22 +5096,26 @@ def test_clearing_a_unit_deletes_what_is_unused(world: World) -> None:
 def test_an_uploaded_image_comes_back_with_the_line_to_paste(world: World) -> None:
     """**URL を手で書かせない。** 打ち間違いは「画像が出ない課題文」としてしか
     現れず、なぜ出ないのかが画面から分からない。
+
+    受け口は課題の編集画面の 1 つだけである（#300）── 共通設定にも 1 行を
+    出すフォームがあったが、そこで作った行を手で貼るには書きかけの問題文を
+    置いて往復することになる。
     """
     world.register("teacher", Role.INSTRUCTOR)
     client = world.client("teacher")
 
     response = client.post(
-        f"/manage/courses/{world.course.id}/images",
+        f"/manage/courses/{world.course.id}/images.json",
         files={"upload": ("shot.png", b"fake png bytes", "image/png")},
         data={"alt": "端末の画面"},
-        follow_redirects=True,
     )
     assert response.status_code == 200
-    assert "![端末の画面](/images/" in response.text, "貼り付ける 1 行が出ていない"
+    line = response.json()["markdown"]
+    assert line.startswith("![端末の画面](/images/"), "貼り付ける 1 行が出ていない"
 
     # 上げた画像はその場で読める。
-    line = response.text.split("![端末の画面](")[1].split(")")[0]
-    served = client.get(f"/manage/courses/{world.course.id}/images/{line.rsplit('/', 1)[1]}")
+    url = line.split("](", 1)[1].split(")", 1)[0]
+    served = client.get(f"/manage/courses/{world.course.id}/images/{url.rsplit('/', 1)[1]}")
     assert served.status_code == 200
     assert served.content == b"fake png bytes"
     assert served.headers["content-type"].startswith("image/png")
@@ -5128,7 +5186,7 @@ def test_a_format_that_cannot_be_pasted_is_refused(world: World) -> None:
     client = world.client("teacher")
 
     response = client.post(
-        f"/manage/courses/{world.course.id}/images",
+        f"/manage/courses/{world.course.id}/images.json",
         files={"upload": ("report.pdf", b"%PDF-1.7", "application/pdf")},
     )
     assert response.status_code == 400

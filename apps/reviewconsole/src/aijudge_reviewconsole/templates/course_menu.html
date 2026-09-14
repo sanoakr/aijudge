@@ -1,12 +1,16 @@
 {% extends "base.html" %}
-{% block title %}{{ course.title }} — aiJudge{% endblock %}
+{% block title %}問題セット — {{ course.title }} — aiJudge{% endblock %}
 {% block body %}
-<h1>{{ course.title }}</h1>
-<p class="subtitle">{{ course.code }} / {{ course.term }} / 科目プロファイル
+{# **見出しは帯の項目名と同じ語にする**（#300）。この画面が持つのは問題セットの
+   一覧と、その日程と、確定がどこまで進んだか ── コース名は帯とパンくずが
+   出しているので、見出しには何の画面かを書く。 #}
+<h1>問題セット</h1>
+<p class="subtitle">{{ course.title }}
+  <span class="sep">·</span> {{ course.code }} / {{ course.term }} / 科目プロファイル
   <span class="mono">{{ course.subject_profile }}</span></p>
 
 {# **よく使うものを上に。** 学期中に教員が開くのはほとんどが「いまの回」で、
-   コース全体の設定やプロファイルの確認は学期に数回しかない。全部を同じ濃さで
+   共通設定やプロファイルの確認は学期に数回しかない。全部を同じ濃さで
    並べると、毎回そこから目で探すことになる。
 
    問題セットは **TA にも出す**（#102）── 開くと読むだけの画面になる。
@@ -32,7 +36,6 @@
 {% endif %}
 {% endif %}
 
-<h2>問題セット</h2>
 {% if units %}
 <nav class="menu sets">
   {# 学期を通すと 15 行前後になる。**1 セット 1 行に収める**うえ、列を

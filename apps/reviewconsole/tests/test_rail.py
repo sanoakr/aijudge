@@ -116,19 +116,51 @@ def test_the_rail_marks_where_you_are(world: World) -> None:
     assert marked == [f"/courses/{world.course.id}/submissions"], marked
 
 
+def test_every_rail_item_names_the_page_it_opens(world: World) -> None:
+    """**項目名と、その先の見出しを同じ語にする**（#300）。
+
+    違う語を当てると、押した先が目当ての画面かどうかを見出しで確かめられない
+    ── 帯の「問題セット」がコース全体の設定へ送っていたのがその形で、
+    設定を探しに来た人にも問題を探しに来た人にも目印にならなかった。
+
+    **見出しの側を読んで突き合わせる。** 対応表をこのテストに書くと、
+    どちらかを直したときにもう片方が古いまま残る（画面が 2 か所にあるのと
+    同じ壊れ方をテストが再現することになる）。
+    """
+    world.register("boss", Role.INSTRUCTOR, tenant_admin=True)
+    client = world.client("boss")
+
+    seen = 0
+    for page in (client.get("/").text, client.get(f"/courses/{world.course.id}").text):
+        rail = _rail(page)
+        for href, label in re.findall(
+            r'<a[^>]*href="([^"]+)"[^>]*>\s*<span class="t">([^<]+)</span>', rail
+        ):
+            opened = client.get(href)
+            assert opened.status_code == 200, (href, opened.status_code)
+            heading = re.search(r"<h1[^>]*>(.*?)</h1>", opened.text, re.S)
+            assert heading is not None, f"{href} に見出しが無い"
+            text = re.sub(r"<[^>]+>", "", heading.group(1)).strip()
+            assert text == label.strip(), f"帯「{label}」の先の見出しが「{text}」"
+            seen += 1
+    assert seen >= 9, f"帯の項目を読めていない（{seen} 件）"
+
+
 def test_the_rail_does_not_offer_an_assistant_what_they_cannot_open(world: World) -> None:
     """TA に押すと 403 になる行き先を出さない（#102 と同じ扱い）。
 
     **見えるのに押せないものを並べない。** 問題セットは読めるので出す ──
     採点している課題を読めないと、学習者の質問にも自分の付けた点にも
-    答えられない。
+    答えられない。共通設定は担当教員のものなので出さない（#300）。
     """
     world.register("teacher", Role.INSTRUCTOR)
     world.register("ta", Role.ASSISTANT)
     rail = _rail(world.client("ta").get(f"/courses/{world.course.id}").text)
 
-    assert f"/manage/courses/{world.course.id}" in rail, "問題セットは TA にも出す"
-    for gone in ("/enrolments", "/kc", "/drafts", "/basics"):
+    assert "問題セット" in rail, "問題セットは TA にも出す"
+    assert f'href="/courses/{world.course.id}"' in rail
+    assert "共通設定" not in rail, "TA の帯に共通設定が出ている"
+    for gone in ("/enrolments", "/kc", "/drafts", "/basics", "/manage/courses/"):
         assert gone not in rail, f"TA の帯に {gone} が出ている"
 
 

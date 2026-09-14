@@ -349,6 +349,31 @@ def _wants_tests(request: Request, course, version=None) -> bool:
     return CODE_TEST_RUNNER in profile.deterministic
 
 
+def _deterministic_criteria(registry, version) -> tuple[str, ...]:
+    """この課題版が**決定論的な評価器に任せている**観点の、評価器 id（#300）。
+
+    入出力セット（テストケース）の欄を出すかどうかはこれで決める。
+
+    **科目の宣言ではなく、この課題の観点で見る。** 観点はそれぞれ自分の
+    評価器を持ち（`RubricCriterion.evaluator_id`・ADR 0018）、科目が宣言して
+    いない評価器を 1 問にだけ割り当てることがある。科目の宣言だけで判断して
+    いたので、`code_test_runner` を割り当てた課題でも入出力セットが画面に
+    出ず、**その評価器が何を走らせるのかを確かめる手段が無かった**。
+
+    登録済みの評価器だけを返す ── `HUMAN_SCORED`（人が採点する）と空
+    （AI が判定する）はここに入らない。
+    """
+    if version is None:
+        return ()
+    installed = set(registry.ids_of_kind(EvaluatorKind.DETERMINISTIC))
+    chosen = {
+        criterion.evaluator
+        for criterion in rubric.from_criteria(version.criteria)
+        if criterion.evaluator in installed
+    }
+    return tuple(sorted(chosen))
+
+
 def _submission_count(console, task) -> int:
     """この課題への提出の件数。**削除してよいかの判定に使う。**"""
     if task is None:
@@ -621,7 +646,6 @@ SAVED_MESSAGES: dict[str, str] = {
     "unit_cleared": "問題セットを片付けました",
     "released": "いままでの提出を採点に回しました（以後の提出はまた採点開始時刻まで待ちます）",
     "retried": "失敗していた採点を流し直しました",
-    "image": "画像を保存しました。下の 1 行を課題文に貼り付けてください",
     "kc_added": "知識要素を追加しました",
     "kc_retired": "知識要素を引退させました",
     "kc_restored": "引退を取り消しました",
@@ -1896,7 +1920,11 @@ def register(templates) -> APIRouter:
         tasks: int = 0,
         skipped: int = 0,
     ) -> Response:
-        """**コース全体**の設定 ── 基本情報・受講者・自動確定・提出形式・採点設定。
+        """コースの**共通設定** ── 基本情報・受講者・自動確定・提出形式・採点設定。
+
+        **画面の見出し・区画名・帯の項目名は「共通設定」で揃える**（#300）。
+        帯が「問題セット」と呼びながらこの画面へ送っていたので、押した先が
+        目当ての画面かどうかを見出しで確かめられなかった。
 
         課題（日程・一括確定・追加）はここには出さない。問題セットのページに
         分けてある（`unit_settings`）。1 枚に積むと、教員は「ex03 の締切を
@@ -1929,7 +1957,7 @@ def register(templates) -> APIRouter:
         trial=None,
         values=None,
     ) -> Response:
-        """コース全体の設定の画面。
+        """コースの共通設定の画面。
 
         採点設定もここに出す。**別のページに分けない** ── 雛形からの差分は
         コースの設定の一部で、他の設定と行き来しながら決めるものだから。
@@ -1959,23 +1987,13 @@ def register(templates) -> APIRouter:
             {
                 "me": me,
                 "course": course,
-                "section": {"label": "コース全体の設定", "href": f"/manage/courses/{course.id}"},
+                "section": {"label": "共通設定", "href": f"/manage/courses/{course.id}"},
                 "saved": note or SAVED_MESSAGES.get(saved),
                 "saved_key": saved,
                 # コースの削除は作成と同じくテナント管理者だけ（#156）。
                 # 担当教員には出さない ── 押せないものを見せない。
                 "is_admin": _is_admin(request, me),
                 "learner_submissions": learner_submissions,
-                # 直前に上げた画像の貼り付け行（#64）。
-                "last_image": (
-                    console.last_image[1]
-                    if console.last_image is not None and console.last_image[0] == str(course.id)
-                    else None
-                ),
-                "image_suffixes": sorted(images.SUFFIX_TYPES),
-                "image_max_mb": images.MAX_BYTES // (1024 * 1024),
-                # 貼るときの既定の表示幅。**画面で言う値と貼る値を 1 つにする。**
-                "image_display_width": images.DISPLAY_WIDTH,
                 "people_count": people_count,
                 "role_counts": _role_counts(enrollments),
                 # シラバスの本文は Markdown。素のまま出すと見出しも箇条書きも
@@ -2271,35 +2289,13 @@ def register(templates) -> APIRouter:
             status_code=303,
         )
 
-    @router.post("/courses/{course_id}/images")
-    async def upload_statement_image(
-        request: Request,
-        course_id: str,
-        upload: UploadFile,
-        alt: Annotated[str, Form()] = "",
-    ) -> Response:
-        """課題文に貼る画像を受け取る（#64）。
-
-        **提出物と同じストアに置く。** 保存先を増やさない。鍵はコースと
-        中身から導くので、URL と鍵の対応を別に持たずに済む
-        （`aijudge_authoring.images`）。
-
-        **貼り付ける 1 行を画面に出す。** URL を手で書かせない ── 打ち間違いは
-        「画像が出ない課題文」としてしか現れず、なぜ出ないのかが分からない。
-        """
-        from .app import require_principal
-
-        me = require_principal(request)
-        course = _require_instructor(request, me, CourseId(course_id))
-        line = await _store_statement_image(request, course, upload, alt)
-        _console(request).last_image = (str(course.id), line)
-        return RedirectResponse(f"/manage/courses/{course_id}?saved=image#images", status_code=303)
-
     async def _store_statement_image(request: Request, course, upload: UploadFile, alt: str) -> str:
         """画像をストアに置き、**課題文に貼り付ける 1 行**を返す。
 
-        画面が 2 つある（コースの設定と課題の編集）ので、保存の規則は 1 か所に
-        置く ── 書き写すと、片方だけが古い上限や古い鍵の作り方で動く日が来る。
+        **受け口は課題の編集画面の 1 つだけ**（#300）。以前は共通設定にも
+        フォームの受け口があり、そこで作った 1 行を教員が手で貼る形だったが、
+        書きかけの問題文を置いて往復することになる ── 課題の編集は 1 つの
+        フォームで、保存するまで何も残らない。
         """
         console = _console(request)
         payload = await upload.read()
@@ -2326,14 +2322,15 @@ def register(templates) -> APIRouter:
     ) -> Response:
         """課題の編集画面から上げる画像（#64）。**貼り付けまでやる。**
 
-        コースの設定画面のように 1 行を出して手で貼らせると、書きかけの問題文を
-        置いて別の画面へ行き、戻ってきて貼る、という往復になる ── その間に
-        編集中の内容は失われる（課題の編集は 1 つのフォームで、保存するまで
-        何も残らない）。**同じ画面で受け取り、カーソル位置に差し込む。**
+        **課題文に貼る画像の受け口はこれ 1 つである**（#300）。別の画面で
+        1 行を出して手で貼らせる形も持っていたが、書きかけの問題文を置いて
+        別の画面へ行き、戻ってきて貼る、という往復になる ── その間に編集中の
+        内容は失われる（課題の編集は 1 つのフォームで、保存するまで何も
+        残らない）。**同じ画面で受け取り、カーソル位置に差し込む。**
 
         画面を遷移させないので JSON で返す。差し込みは呼び出し側の
         JavaScript（`base.html`）が行う。JavaScript が無い場合はここへ来ない
-        ── 課題の編集画面はコースの設定画面への案内を出す。
+        ── 課題の編集画面はそう言う（`<noscript>`）。
         """
         from .app import require_principal
 
@@ -3714,6 +3711,9 @@ def register(templates) -> APIRouter:
                 # テストで確定できる科目か。宣言していない科目（レポートなど）
                 # には出さない ── 選べない選択肢を見せない。
                 "wants_tests": _wants_tests(request, course, version),
+                # この課題で決定論的な評価器に任せている観点（#300）。
+                # **科目が宣言していなくても、割り当てたなら入出力セットを出す。**
+                "deterministic_criteria": _deterministic_criteria(registry, version),
                 # **既にある課題にも出す。** #15 より前に画面から作った課題は
                 # テストケースを持てず、正しさが AI 判定のまま残っている。
                 # 課題を開いたときに分からなければ、直す機会が無い。
