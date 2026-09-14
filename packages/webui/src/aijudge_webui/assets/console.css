@@ -72,6 +72,12 @@ a.row.hidden-from-learners:hover{opacity:1}
 tr.hidden-from-learners:hover > td{opacity:1}
 .subsection{margin-top:24px;padding-top:18px;border-top:1px solid var(--line-soft)}
 .subsection > h3:first-child{margin-top:0}
+/* 箱の先頭の小項目は罫線を引かない（#308）。大項目ごとに箱で区切るように
+   なったので、箱のすぐ内側にもう 1 本線が来ると二重の枠に見える。 */
+.card > .subsection:first-child{margin-top:0;padding-top:0;border-top:none}
+/* 観点の中に入った採点材料（#303）。**3 段目の見出し**なので、上の小項目より
+   弱く出す ── 強さが同じだと、観点に属するものが観点と並んで見える。 */
+.criterion-fields > .subsection > h4{font-size:.88rem;color:var(--ink-2);margin:0 0 6px}
 /* 小項目の中の説明と入力の間隔を揃える。 */
 .subsection > select,.subsection > input{margin-bottom:8px}
 /* ルーブリックの編集。**観点ごとに畳む** ── 開いていないものは触れないので、

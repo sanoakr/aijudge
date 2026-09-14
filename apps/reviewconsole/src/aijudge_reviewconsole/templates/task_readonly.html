@@ -40,6 +40,26 @@
         <td class="fit">{{ '%.2f' | format(row.weight | float) }}</td>
         <td class="fit mono desc">{{ row.evaluator or "人が採点" }}</td>
       </tr>
+      {# **採点材料は、それを使う観点の行の下に**（#303）。教員の画面と同じ
+         置き方にする ── 同じ課題を見ているのに、材料がどの観点のものかの
+         見え方が役割で変わると、TA と教員の話が食い違う。 #}
+      {% set shape = criterion_data.get(row.evaluator) if criterion_data is defined and criterion_data else none %}
+      {% if shape == 'io' and io_cases %}
+      <tr><td colspan="4">
+        <p class="desc" style="margin:0 0 6px">入出力セット（{{ io_cases | length }} 件）。
+          学習者の提出はこの入力で走り、期待出力と比べられます（行末の空白と末尾の空行だけ無視）。
+          <strong>直すのは担当教員です</strong>（この画面は確認だけ）。</p>
+        {% include "_test_cases_table.html" %}
+      </td></tr>
+      {% elif shape == 'items' %}
+      <tr><td colspan="4">
+        <p class="desc" style="margin:0 0 6px">項目表（{{ item_cases | length }} 件）。
+          提出物にこの項目が含まれているかを 1 つずつ見て、満たした重みの割合で段階が決まります。
+          <strong>直すのは担当教員です</strong>。
+          {% if not item_cases %}この課題は項目を持たないので、科目プロファイルの既定が使われます。{% endif %}</p>
+        {% include "_item_list_table.html" %}
+      </td></tr>
+      {% endif %}
     {% endfor %}
     </tbody>
   </table>
@@ -70,22 +90,20 @@
   </table>
 </div>
 
-{% if data_criteria.get('items') %}
+{# **どの観点も使っていない検証データは、使われていないと言う**（#303）。
+   欄は観点の行の下にあるので、指名が無いと画面から消える。 #}
+{% if io_cases and not data_criteria.get('io') %}
 <div class="card">
-  <h2 style="margin-top:0">項目表（{{ item_cases | length }} 件）</h2>
-  <p class="desc">提出物にこの項目が含まれているかを 1 つずつ見て、満たした重みの
-    割合で段階が決まります。<strong>直すのは担当教員です</strong>（この画面は確認だけ）。
-    {% if not item_cases %}この課題は項目を持たないので、科目プロファイルの既定が使われます。{% endif %}</p>
-  {% include "_item_list_table.html" %}
+  <h2 style="margin-top:0">使われていない入出力セット（{{ io_cases | length }} 件）</h2>
+  <p class="desc">どの観点もこれを読む評価器を指名していないので、いま採点には使われていません。</p>
+  {% include "_test_cases_table.html" %}
 </div>
 {% endif %}
-
-{% if io_cases %}
+{% if item_cases and not data_criteria.get('items') %}
 <div class="card">
-  <h2 style="margin-top:0">入出力セット（テストケース {{ io_cases | length }} 件）</h2>
-  <p class="desc">学習者の提出はこの入力で走り、期待出力と比べられます（行末の空白と末尾の空行だけ無視）。
-    <strong>直すのは担当教員です</strong>（この画面は確認だけ）。</p>
-  {% include "_test_cases_table.html" %}
+  <h2 style="margin-top:0">使われていない項目表（{{ item_cases | length }} 件）</h2>
+  <p class="desc">どの観点もこれを読む評価器を指名していないので、いま採点には使われていません。</p>
+  {% include "_item_list_table.html" %}
 </div>
 {% endif %}
 {% endblock %}

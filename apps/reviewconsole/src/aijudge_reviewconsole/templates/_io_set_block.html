@@ -1,0 +1,70 @@
+{# 入出力セット（テストケース）を、**それを使う観点の中に**置く（#303）。
+
+   置き場所の理由: 参照解答と入出力セットはひと組で、片方だけ見ても意味が
+   ない。そしてどちらも「`code_test_runner` を指名した観点」に属するもので、
+   課題全体の属性ではない（レポート課題には無関係）。画面の末尾に独立した
+   カードとして置いていたときは、観点の設定を見ている人が下までスクロール
+   して初めて採点材料に出会った。
+
+   **入れ子のフォームは作れない。** 欄はここに置き、送信先はページ末尾の
+   `<form id="io-form">` に `form` 属性で結び付ける（HTML5）。こうしないと、
+   ルーブリックの編集フォームの中にテストケースのフォームを入れることになる。 #}
+<div class="subsection" id="tests">
+  <h4 style="margin:0 0 6px">入出力セット（テストケース {{ io_cases | length }} 件）</h4>
+  <p class="desc" style="margin:0 0 10px">
+    この観点は <span class="mono">{{ row.evaluator }}</span> が判定します{% if not io_cases %} —
+    <strong>入出力セットが 1 件も無いので、この観点は判定できません</strong>（総点は伏せられます・ADR 0015）。
+    下の「テストケースを直す」から足してください{% endif %}。
+  </p>
+  {% include "_test_cases_table.html" %}
+  <details style="margin-top:12px">
+    <summary><b>テストケースを直す</b><span class="desc">（保存すると新しい版になります）</span></summary>
+    <div class="criterion-fields">
+      <p class="desc" style="margin:8px 0">
+        入力と期待出力は<strong>改行も含めてそのまま</strong>使われます（末尾に改行を 1 つ入れるのが普通です）。
+        名前・入力・期待出力が空の行は捨てます。
+        {% if version.reference_solution %}<strong>保存前に参照解答を全ケースで走らせ、通らなければ保存しません。</strong>
+        {% else %}参照解答が無いので、入出力の整合は確かめずに保存します。{% endif %}
+      </p>
+      <p class="desc" style="margin:8px 0">
+        <strong>この欄は「この問題を保存して更新する」では保存されません。</strong>
+        下の「テストケースを保存して新しい版にする」を押してください
+        — 問題文と観点の保存とは別の操作です（どちらも版が上がります）。
+      </p>
+      <div style="overflow-x:auto">
+      <table class="testcases">
+        <thead><tr>
+          <th class="fit">消す</th><th class="fit">名前</th><th class="fit">重み</th><th class="fit">学習者に</th>
+          <th>入力</th><th>期待出力</th>
+        </tr></thead>
+        <tbody>
+        {% for case in io_cases %}
+          <tr>
+            <td class="fit"><input form="io-form" type="checkbox" name="case_delete" value="{{ loop.index0 }}" style="width:auto"></td>
+            <td class="fit"><input form="io-form" name="case_name" value="{{ case.name }}"></td>
+            <td class="fit"><input form="io-form" name="case_weight" type="number" step="0.1" min="0.1" value="{{ case.weight }}"></td>
+            <td class="fit"><select form="io-form" name="case_hidden">
+              <option value="1" {{ 'selected' if case.hidden }}>見せない</option>
+              <option value="0" {{ 'selected' if not case.hidden }}>見せる</option></select></td>
+            <td><textarea form="io-form" name="case_input" rows="3" class="mono">{{ case.payload.get('input', '') }}</textarea></td>
+            <td><textarea form="io-form" name="case_expected" rows="3" class="mono">{{ case.payload.get('expected', '') }}</textarea></td>
+          </tr>
+        {% endfor %}
+        {# 追加用の空行。名前が空なら捨てられる。 #}
+        <tr>
+          <td class="fit desc">追加</td>
+          <td class="fit"><input form="io-form" name="case_name" placeholder="case{{ io_cases | length + 1 }}"></td>
+          <td class="fit"><input form="io-form" name="case_weight" type="number" step="0.1" min="0.1" value="1.0"></td>
+          <td class="fit"><select form="io-form" name="case_hidden"><option value="1">見せない</option><option value="0">見せる</option></select></td>
+          <td><textarea form="io-form" name="case_input" rows="3" class="mono"></textarea></td>
+          <td><textarea form="io-form" name="case_expected" rows="3" class="mono"></textarea></td>
+        </tr>
+        </tbody>
+      </table>
+      </div>
+      <div class="actions">
+        <button form="io-form" type="submit">テストケースを保存して新しい版にする</button>
+      </div>
+    </div>
+  </details>
+</div>
