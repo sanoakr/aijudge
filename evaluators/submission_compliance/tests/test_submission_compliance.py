@@ -204,7 +204,7 @@ def test_a_task_without_this_criterion_is_skipped() -> None:
             "task_version": request.task_version.model_copy(
                 update={
                     "criteria": (
-                        _criterion().model_copy(update={"evaluator_id": "report_structure"}),
+                        _criterion().model_copy(update={"evaluator_id": "checklist_ai_judge"}),
                     )
                 }
             )

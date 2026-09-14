@@ -43,10 +43,16 @@ _KEY_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789
 
 
 class TestCaseSpec(BaseModel):
-    """テストケース 1 件。入力と期待出力を**中身で**持つ。
+    """決定的評価器が読む検証データ 1 件。入力と期待出力を**中身で**持つ。
 
     パスで持たない。サーバ上のパスを呼び出し元に指定させると、そこが
     読み取りの穴になる（zip 取り込みで同じ判断をしている）。
+
+    **入出力とは限らない**（#302）。`TestCase` は「決定的評価器が使う検証
+    データ」で、コードの入出力も、レポートの必須節リストも同じ型に載る
+    （`aijudge_core.task.TestCase`）。宣言の側だけが入出力の形に固定されて
+    いたので、レポートの節は課題に書けず、科目プロファイルにしか置けなかった
+    ── コースをまたいで共有される雛形に、1 問ごとの答えを書くことになる。
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -57,6 +63,16 @@ class TestCaseSpec(BaseModel):
     # 学習者に中身を見せるか。既定は見せない（見せると答えを合わせられる）。
     hidden: bool = True
     weight: float = Field(default=1.0, gt=0.0)
+    #: この 1 件を読む評価器。**None なら課題の既定**（`TaskSpec.evaluator`）。
+    #:
+    #: 1 つの課題が違う評価器の検証データを持てる。混在は実在する ──
+    #: レポートの項目表（`checklist_ai_judge`）と入出力が同じ課題に乗る。
+    #: 束ねて既定に倒していたので、`network_test_runner` のケースを画面から
+    #: 直すと `code_test_runner` に書き換わっていた（例外は出ず、採点の
+    #: 段階で「テストが無い」として現れる）。
+    evaluator: str | None = None
+    #: 入出力以外の中身。**形は評価器が決める**（P1）。空なら入力と期待出力。
+    payload: dict[str, object] = Field(default_factory=dict)
 
 
 class LevelSpec(BaseModel):
@@ -361,12 +377,21 @@ def build_task_version(
     cases = tuple(
         TestCase(
             name=case.name,
-            evaluator_id=spec.evaluator,
+            # **この 1 件を読む評価器。** 宣言が無ければ課題の既定に倒す
+            # （従来どおり）。倒しきっていたころは、混在した検証データが
+            # 保存のたびに 1 つの評価器へ寄せられていた（#302）。
+            evaluator_id=case.evaluator or spec.evaluator,
             # **キー名は評価器が読むものと一致していなければならない。**
             # `code_test_runner` は `payload.get("expected", "")` で読む。
             # 違う名前で書くと既定値の空文字と比較され、**全ケースが黙って
             # 不合格になる**（例外は出ない）。テストで固定してある。
-            payload={"input": case.input, "expected": case.expected},
+            #
+            # `payload` を持つ宣言はそれをそのまま渡す ── 入出力の形をしない
+            # 検証データ（レポートの必須節など）に、空の input/expected を
+            # 混ぜない。
+            payload=dict(case.payload)
+            if case.payload
+            else {"input": case.input, "expected": case.expected},
             hidden=case.hidden,
             weight=case.weight,
         )

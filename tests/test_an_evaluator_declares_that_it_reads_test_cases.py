@@ -20,8 +20,13 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[1]
 EVALUATORS = REPO_ROOT / "evaluators"
 
-#: 入出力セットを読んでいる印。`EvaluationRequest.test_cases` の読み出し。
-READS = re.compile(r"\brequest\.test_cases\b")
+#: 検証データを読んでいる印。
+#:
+#: **2 通りある**（#302）。決定的評価器にはパイプラインが自分あての分だけを
+#: 渡す（`request.test_cases`）が、AI 評価器には渡らないので課題版から拾う
+#: （`request.task_version.test_cases`）。どちらも「課題が持つ検証データを
+#: 読む」ことに変わりはなく、画面はその 1 点だけを知りたい。
+READS = re.compile(r"\brequest\.(?:task_version\.)?test_cases\b")
 DECLARES = re.compile(r"^\s*uses_test_cases\s*=\s*True\s*$", re.M)
 
 

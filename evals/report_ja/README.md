@@ -29,7 +29,7 @@ uv run python evals/report_ja/measure.py --name final
 
 | 観点 | 配点 | 段階 | 担当 |
 |---|---:|---|---|
-| 体裁 | 4 | 0–4 | `report_structure`（決定的） |
+| 体裁 | 4 | 0–4 | `checklist_ai_judge`（AI・旧 `report_structure`）|
 | 実験先 | 3 | 0–3 | `rubric_ai_judge` |
 | 実験条件 | 2 | 0–2 | `rubric_ai_judge` |
 | 独自性 | 8 | 0–8 | `rubric_ai_judge` |
@@ -124,7 +124,8 @@ n = 19 で、4 回の反復はいずれも同じ 19 件に対する当てはめ�
 観点別で目立つもの:
 
 - **体裁は 2 本が κ = 1.000 で完全一致するが、これは一致ではない。**
-  `report_structure` が決定的に判定しており、LLM は関与していない。
+  当時の `report_structure` が決定的に判定しており、LLM は関与していない
+  （この評価器は #302 で廃止した）。
   同じコードが同じ入力に同じ答えを返しただけである。CSV とは
   κ = 0.200 で、**CSV の採点者は本文から読めないもの（図表の作り・
   ページの見栄え）を見ている**ことを示す

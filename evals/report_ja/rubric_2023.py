@@ -152,7 +152,10 @@ CRITERIA = [
             "体裁だけで判断すること。**"
         ),
         "weight": POINTS["format"] / TOTAL_POINTS,
-        "evaluator": "report_structure",
+        # 2026-09 まではこの観点を決定的評価器 `report_structure` が担当して
+        # いた（#302 で廃止）。**過去の測定値はその評価器のもの**で、いまの
+        # 配線で引き直した値とは比較できない。
+        "evaluator": "checklist_ai_judge",
         "levels": _levels(
             [
                 (0, "未達", "レポートの体をなしていない"),
@@ -266,7 +269,7 @@ CRITERIA = [
 ]
 
 EVALUATOR_OPTIONS = {
-    "report_structure": {
+    "checklist_ai_judge": {
         "sections": {
             # 課題文の「含むべき内容」は 6 項目で、**タイトルが 1 番目**である。
             # 以前は 5 項目しか見ていなかった。

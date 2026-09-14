@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections import Counter
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -129,7 +130,7 @@ from aijudge_grading import (
     OverrideError,
     effective_profile,
     load_profile,
-    reads_test_cases,
+    test_case_shape,
 )
 from aijudge_grading.overrides import diff
 from aijudge_identity import AuthenticationFailed, AuthService, PermissionDenied, Principal
@@ -350,39 +351,91 @@ def _wants_tests(request: Request, course, version=None) -> bool:
     return CODE_TEST_RUNNER in profile.deterministic
 
 
-def _test_driven_criteria(registry, version) -> tuple[str, ...]:
-    """この課題版が**入出力セットで採点する**観点の、評価器 id（#300）。
+def _data_driven_criteria(registry, version) -> dict[str, tuple[str, ...]]:
+    """この課題版が**検証データで採点する**観点の評価器を、データの形ごとに。
 
-    入出力セット（テストケース）の欄を出すかどうかはこれで決める。
+    返す形は `{"io": ("code_test_runner",), "items": ("checklist_ai_judge",)}`。
+    画面はこれで編集欄を選ぶ ── 入出力の組と項目の並びは別の部品である。
 
-    **科目の宣言ではなく、この課題の観点で見る。** 観点はそれぞれ自分の
-    評価器を持ち（`RubricCriterion.evaluator_id`・ADR 0018）、科目が宣言して
-    いない評価器を 1 問にだけ割り当てることがある。科目の宣言だけで判断して
-    いたので、`code_test_runner` を割り当てた課題でも入出力セットが画面に
-    出ず、**その評価器が何を走らせるのかを確かめる手段が無かった**。
+    **科目の宣言ではなく、この課題の観点で見る**（#300）。観点はそれぞれ
+    自分の評価器を持ち（`RubricCriterion.evaluator_id`・ADR 0018）、科目が
+    宣言していない評価器を 1 問にだけ割り当てることがある。科目の宣言だけで
+    判断していたので、`code_test_runner` を割り当てた課題でも入出力セットが
+    画面に出ず、**その評価器が何を走らせるのかを確かめる手段が無かった**。
 
-    **「決定論的か」では広すぎる。** 提出の遵守（`submission_compliance`）や
-    レポートの構造（`report_structure`）も決定論的だが入出力セットを持たない
-    ので、その観点の課題に永久に空の欄を出すことになる。読むかどうかは
-    評価器が宣言する（`aijudge_grading.reads_test_cases`）── 画面が評価器名の
-    表を持つと、評価器を足した日にその表だけが古くなる。
+    **「決定論的か」では答えにならない**（#302）。提出の遵守
+    （`submission_compliance`）は決定論的だが検証データを持たず、項目表の
+    照合（`checklist_ai_judge`）は AI だが課題ごとの項目表を読む。読むか、
+    どの形かは評価器が宣言する（`aijudge_grading.test_case_shape`）── 画面が
+    評価器名の表を持つと、評価器を足した日にその表だけが古くなる。
 
-    登録済みの評価器だけを返す ── `HUMAN_SCORED`（人が採点する）と空
+    登録済みの評価器だけを見る ── `HUMAN_SCORED`（人が採点する）と空
     （AI が判定する）はここに入らない。
     """
     if version is None:
+        return {}
+    shapes = {name: test_case_shape(registry.get(name)) for name in registry.ids()}
+    out: dict[str, set[str]] = {}
+    for criterion in rubric.from_criteria(version.criteria):
+        shape = shapes.get(criterion.evaluator)
+        if shape is None:
+            continue
+        out.setdefault(shape, set()).add(criterion.evaluator)
+    return {shape: tuple(sorted(names)) for shape, names in sorted(out.items())}
+
+
+def _cases_of(version, evaluators: tuple[str, ...]):
+    """この評価器あての検証データだけ。
+
+    **混ぜて出さない**（#302）。1 つの課題が入出力と項目表の両方を持てる
+    （`TestCase.evaluator_id` で分かれる）ので、画面もその単位で見せる ──
+    混ぜると、入出力の表に項目が並び、どちらの編集欄で直すのか読めない。
+    """
+    if version is None:
         return ()
-    reads = {
-        name
-        for name in registry.ids_of_kind(EvaluatorKind.DETERMINISTIC)
-        if reads_test_cases(registry.get(name))
-    }
-    chosen = {
-        criterion.evaluator
-        for criterion in rubric.from_criteria(version.criteria)
-        if criterion.evaluator in reads
-    }
-    return tuple(sorted(chosen))
+    return tuple(case for case in version.test_cases if case.evaluator_id in evaluators)
+
+
+#: 入出力の組を読む評価器（この画面が編集している側）。**名前で書かない** ──
+#: 評価器が形を名乗るので、そこから引く（`_io_evaluator_ids`）。
+def _io_evaluator_ids(registry) -> tuple[str, ...]:
+    return tuple(name for name in registry.ids() if test_case_shape(registry.get(name)) == "io")
+
+
+def _kept_cases(version, *, editing: tuple[str, ...]):
+    """いま直していない評価器あての検証データを、そのまま持ち越す（#302）。
+
+    **保存は版を作り直す操作なので、渡さなかったものは消える。** 1 つの課題が
+    入出力の組と項目表の両方を持てるようになったので、片方の画面で保存すると
+    もう片方が黙って消えた ── 消えても例外は出ず、採点の段になって「検証
+    データが無い」として現れる。
+
+    宣言は `TestCaseSpec` に残す（評価器と中身をそのまま）── 課題の既定に
+    倒すと、別の評価器あてに書き換わる。
+    """
+    if version is None:
+        return ()
+    return tuple(
+        TestCaseSpec(
+            name=case.name,
+            evaluator=case.evaluator_id,
+            payload=dict(case.payload),
+            hidden=case.hidden,
+            weight=case.weight,
+        )
+        for case in version.test_cases
+        if case.evaluator_id not in editing
+    )
+
+
+def _split_aliases(raw: str) -> tuple[str, ...]:
+    """言い換えの入力を分ける。カンマ・読点・改行のどれでも区切れる。
+
+    **区切り文字を 1 つに決めない。** 日本語の一覧は読点で書くのが自然で、
+    決めつけると「、で区切ったら 1 件になった」が起きる。
+    """
+    parts = re.split(r"[,、\n]+", raw)
+    return tuple(part.strip() for part in parts if part.strip())
 
 
 def _submission_count(console, task) -> int:
@@ -657,6 +710,7 @@ SAVED_MESSAGES: dict[str, str] = {
     "unit_cleared": "問題セットを片付けました",
     "released": "いままでの提出を採点に回しました（以後の提出はまた採点開始時刻まで待ちます）",
     "retried": "失敗していた採点を流し直しました",
+    "items_revised": "項目表を直して新しい版にしました",
     "kc_added": "知識要素を追加しました",
     "kc_retired": "知識要素を引退させました",
     "kc_restored": "引退を取り消しました",
@@ -3674,6 +3728,7 @@ def register(templates) -> APIRouter:
         # `chosen_kcs` は候補を出したときにフォームで選ばれていたもの（書き
         # かけを失わない）。
         console = _console(request)
+        data_criteria = _data_driven_criteria(registry, version)
         course_kcs = _course_kcs(console, course)
         if chosen_kcs is None:
             with console.database.unit_of_work() as uow:
@@ -3722,9 +3777,14 @@ def register(templates) -> APIRouter:
                 # テストで確定できる科目か。宣言していない科目（レポートなど）
                 # には出さない ── 選べない選択肢を見せない。
                 "wants_tests": _wants_tests(request, course, version),
-                # この課題で入出力セットを読む評価器に任せている観点（#300）。
-                # **科目が宣言していなくても、割り当てたなら入出力セットを出す。**
-                "test_driven_criteria": _test_driven_criteria(registry, version),
+                # この課題が検証データで採点する観点を、データの形ごとに
+                # （#300・#302）。**科目が宣言していなくても、観点に割り当てた
+                # なら欄を出す。** 形は評価器が名乗る（`test_case_shape`）。
+                "data_criteria": data_criteria,
+                # 形ごとの検証データ。**混ぜない** ── 1 つの課題が入出力と
+                # 項目表の両方を持てる。
+                "io_cases": _cases_of(version, data_criteria.get("io", ())),
+                "item_cases": _cases_of(version, data_criteria.get("items", ())),
                 # **既にある課題にも出す。** #15 より前に画面から作った課題は
                 # テストケースを持てず、正しさが AI 判定のまま残っている。
                 # 課題を開いたときに分からなければ、直す機会が無い。
@@ -3975,6 +4035,7 @@ def register(templates) -> APIRouter:
         # 出すと、採点しながら読む相手にとっては学習者に見えている画面と
         # 別物になる（`statement.py`）。
         if not _can_edit(role):
+            data_criteria = _data_driven_criteria(EvaluatorRegistry().load_installed(), version)
             return templates.TemplateResponse(
                 request,
                 "task_readonly.html",
@@ -3993,13 +4054,13 @@ def register(templates) -> APIRouter:
                     "accepted": task.accepted_suffixes
                     or course.upload_suffixes
                     or DEFAULT_UPLOAD_SUFFIXES,
-                    # 入出力セットを読む評価器に任せている観点（#300）。
-                    # **TA には確認だけ。** 0 件のときに何が起きているかは
-                    # 教員と同じ言葉で出す ── 「AI が判定します」と出して
-                    # いたので、実際には誰も判定していないことが伝わらなかった。
-                    "test_driven_criteria": _test_driven_criteria(
-                        EvaluatorRegistry().load_installed(), version
-                    ),
+                    # 検証データで採点する観点（#300・#302）。**TA には確認
+                    # だけ。** 0 件のときに何が起きているかは教員と同じ言葉で
+                    # 出す ── 「AI が判定します」と出していたので、実際には
+                    # 誰も判定していないことが伝わらなかった。
+                    "data_criteria": data_criteria,
+                    "io_cases": _cases_of(version, data_criteria.get("io", ())),
+                    "item_cases": _cases_of(version, data_criteria.get("items", ())),
                 },
             )
         return _task_page(
@@ -4320,10 +4381,119 @@ def register(templates) -> APIRouter:
             position=task.position,
             accepted=task.accepted_suffixes,
             reference_solution=version.reference_solution,
-            test_cases=tuple(cases),
+            # **他の評価器あての検証データを巻き込まない**（#302）。ここが
+            # 直しているのは入出力の組だけで、同じ課題が項目表を持っている
+            # ことがある ── 全件を作り直していたので、入出力を 1 文字直すと
+            # 項目表が黙って消えた。
+            test_cases=tuple(cases)
+            + _kept_cases(version, editing=_io_evaluator_ids(EvaluatorRegistry().load_installed())),
         )
         return RedirectResponse(
             f"/manage/courses/{course_id}/tasks/{task_id}/edit?saved=tests_revised#tests",
+            status_code=303,
+        )
+
+    @router.post("/courses/{course_id}/tasks/{task_id}/items/edit")
+    async def edit_item_list(request: Request, course_id: str, task_id: str) -> Response:
+        """項目表を直して新しい版にする（#302）。
+
+        **既存の版は書き換えない**（P8）。出題済みの版の項目を書き換えると、
+        過去の採点が何で判定されたのか辿れなくなる。同じ内容なら版は上がらない。
+
+        入出力セットと違い、**保存前に確かめられることが無い** ── 項目が
+        妥当かどうかは提出物を読まないと分からず、それは採点そのものである。
+        だから門は無く、代わりに判定は確定させない（AI 評価器の側・P5）。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+        with console.database.unit_of_work() as uow:
+            task = uow.tasks.get_task(TaskId(task_id))
+            version = uow.tasks.latest_version(TaskId(task_id))
+        if task is None or version is None or task.course_id != CourseId(course_id):
+            raise HTTPException(status_code=404, detail="課題が見つかりません")
+
+        registry = EvaluatorRegistry().load_installed()
+        named = _data_driven_criteria(registry, version).get("items", ())
+        if not named:
+            # **観点が指名していない課題に項目表を持たせない。** 持たせると、
+            # 誰も読まないデータが版に残り、画面にも出ない。
+            raise HTTPException(
+                status_code=400,
+                detail="この課題の観点は項目表を読む評価器を指名していません",
+            )
+
+        form = await request.form()
+        names = [str(v) for v in form.getlist("item_name")]
+        descriptions = [str(v) for v in form.getlist("item_description")]
+        aliases = [str(v) for v in form.getlist("item_aliases")]
+        weights = [str(v) for v in form.getlist("item_weight")]
+        hidden = [str(v) for v in form.getlist("item_hidden")]
+        deleted = {str(v) for v in form.getlist("item_delete")}
+
+        def at(values: list[str], index: int, default: str = "") -> str:
+            return values[index] if index < len(values) else default
+
+        items: list[TestCaseSpec] = []
+        seen: set[str] = set()
+        for index in range(len(names)):
+            if str(index) in deleted:
+                continue
+            name = at(names, index).strip()
+            if not name:
+                continue  # 追加用の空行
+            if name in seen:
+                raise HTTPException(status_code=400, detail=f"項目 {name!r} が重複しています")
+            seen.add(name)
+            try:
+                weight = float(at(weights, index, "1.0") or 1.0)
+            except ValueError:
+                raise HTTPException(
+                    status_code=400, detail=f"{name}: 重みが数値ではありません"
+                ) from None
+            if weight <= 0:
+                raise HTTPException(status_code=400, detail=f"{name}: 重みは正の値にしてください")
+            payload: dict[str, object] = {}
+            description = at(descriptions, index).strip()
+            if description:
+                payload["description"] = description
+            hints = _split_aliases(at(aliases, index))
+            if hints:
+                payload["aliases"] = list(hints)
+            items.append(
+                TestCaseSpec(
+                    name=name,
+                    # **この 1 件を読む評価器を明示する。** 課題の既定に倒すと
+                    # `code_test_runner` あてになり、誰も読まないまま残る。
+                    evaluator=named[0],
+                    payload=payload,
+                    hidden=at(hidden, index, "0") == "1",
+                    weight=weight,
+                )
+            )
+        if not items:
+            # **0 件は「既定に従う」である。** 科目プロファイルの項目表が
+            # 使われる ── 画面はそう言っている。全部消せることは残す。
+            pass
+
+        _save_revision(
+            console,
+            me,
+            course,
+            task,
+            version,
+            statement=version.statement,
+            criteria=rubric.from_criteria(version.criteria),
+            aggregation=version.aggregation,
+            position=task.position,
+            accepted=task.accepted_suffixes,
+            reference_solution=version.reference_solution,
+            test_cases=tuple(items) + _kept_cases(version, editing=named),
+        )
+        return RedirectResponse(
+            f"/manage/courses/{course_id}/tasks/{task_id}/edit?saved=items_revised#items",
             status_code=303,
         )
 

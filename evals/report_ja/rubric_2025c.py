@@ -149,7 +149,10 @@ CRITERIA = [
             "で出されているか。読めば機械的に分かることなので機械が判定する。"
         ),
         "weight": POINTS["format"] / TOTAL_POINTS,
-        "evaluator": "report_structure",
+        # 2026-09 まではこの観点を決定的評価器 `report_structure` が担当して
+        # いた（#302 で廃止）。**過去の測定値はその評価器のもの**で、いまの
+        # 配線で引き直した値とは比較できない。
+        "evaluator": "checklist_ai_judge",
         "levels": _levels(
             [
                 (0, "未達", "節・分量・測定値・提出形式のいずれも満たさない"),

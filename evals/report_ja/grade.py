@@ -82,6 +82,16 @@ def build_task_version() -> TaskVersion:
     )
 
 
+def _ai_evaluators() -> tuple[str, ...]:
+    """観点が指名している AI 評価器（順は宣言順、重複は畳む）。"""
+    named = [c.get("evaluator") for c in rubric.CRITERIA]
+    out = ["rubric_ai_judge"]
+    for name in named:
+        if name and name not in out and name not in rubric.DETERMINISTIC:
+            out.append(name)
+    return tuple(out)
+
+
 def build_profile(samples: int) -> SubjectProfile:
     options = dict(rubric.EVALUATOR_OPTIONS)
     options["rubric_ai_judge"] = {"samples": samples}
@@ -92,7 +102,10 @@ def build_profile(samples: int) -> SubjectProfile:
         normalizers=("document_text",),
         # **どの決定的評価器を使うかはルーブリックが決める**（rubric.py 参照）。
         deterministic=rubric.DETERMINISTIC,
-        ai_evaluators=("rubric_ai_judge",),
+        # **AI 評価器は観点の指名から決める**（#302）。書き写すと、観点が
+        # 指名している評価器を宣言し忘れた版だけが黙って未採点になる ──
+        # 科目が宣言していない評価器は走らない（`GradingPipeline`）。
+        ai_evaluators=_ai_evaluators(),
         evaluator_options=options,
         # **確信度は自己一貫性から作られるので、サンプル数が閾値の意味を決める。**
         # samples=2 では確信度が 1.0 か 0.5 にしかならず、どこに閾値を置いても

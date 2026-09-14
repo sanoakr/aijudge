@@ -26,11 +26,13 @@ from .profile import (
     load_profiles,
 )
 from .protocol import (
+    TEST_CASE_SHAPES,
     EvaluationOutcome,
     EvaluationRequest,
     Evaluator,
     Normalizer,
     reads_test_cases,
+    test_case_shape,
 )
 from .registry import (
     ENTRY_POINT_GROUP,
@@ -47,6 +49,7 @@ __all__ = [
     "LOCKED_KEYS",
     "NORMALIZER_ENTRY_POINT_GROUP",
     "PIPELINE_VERSION",
+    "TEST_CASE_SHAPES",
     "ContentLoader",
     "EvaluationOutcome",
     "EvaluationRequest",
@@ -69,4 +72,5 @@ __all__ = [
     "load_profiles",
     "project_observations",
     "reads_test_cases",
+    "test_case_shape",
 ]
