@@ -16,6 +16,7 @@ import re
 import zipfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from urllib.parse import quote
 
 import pytest
@@ -1523,7 +1524,8 @@ def test_a_compliance_criterion_does_not_ask_for_an_input_output_set(world: Worl
         .get(f"/manage/courses/{world.course.id}/tasks/{saved.task.id}/edit")
         .text
     )
-    assert "入出力セット" not in page, "入出力セットを持たない観点に欄が出ている"
+    assert 'id="tests"' not in page, "入出力セットを持たない観点に欄が出ている"
+    assert 'id="items"' not in page
 
 
 # --------------------------------------------------------------------------
@@ -1661,6 +1663,32 @@ def test_every_criterion_carries_a_stable_id(world: World) -> None:
     assert 'id="criterion-readability"' in page
 
 
+def test_the_four_boxes_are_one_save(world: World) -> None:
+    """**1 回の保存の単位を、枠で示す**（#311）。
+
+    大項目ごとに箱で区切った（#308）ことで、共通設定のように箱ごとに保存が
+    あるように見えていた ── あちらは節ごとに別のフォームで、こちらは問題・
+    提出・採点・分類の全部で 1 つの版になる。押すボタンは枠の足元の 1 つだけ。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    task_id = _import_example(world)
+
+    body = _main(
+        world.client("teacher").get(f"/manage/courses/{world.course.id}/tasks/{task_id}/edit").text
+    )
+    frame = body[body.index('<section class="taskform">') : body.index("</section>")]
+    for major in ("<h2>問題</h2>", "<h2>提出</h2>", "<h2>採点</h2>", "<h2>分類</h2>"):
+        assert major in frame, f"{major} が保存の枠の外にある"
+    # 保存は枠の足元。**枠の外に出すと、どこまでを保存するのか読めなくなる。**
+    assert "taskform-foot" in frame
+    # 押せる保存はこの 1 つだけ（欄の説明が同じ語を使うのは構わない ──
+    # 「この欄はそれでは保存されない」と言うために要る）。
+    assert frame.count('<button type="submit">この問題を保存して更新する</button>') == 1
+    # 枠から下は別の操作（押すとその場で起きる）。
+    assert "<h2>この問題への操作</h2>" in body
+    assert body.index("</section>") < body.index("<h2>この問題への操作</h2>")
+
+
 def test_data_no_criterion_uses_is_called_unused(world: World) -> None:
     """**持っているのに使われていないデータを、黙って隠さない**（#303）。
 
@@ -1707,6 +1735,192 @@ def test_data_no_criterion_uses_is_called_unused(world: World) -> None:
     )
     assert "使われていない入出力セット" in page
     assert "case1" in page
+
+
+# --------------------------------------------------------------------------
+# 解答例と、そこから作るテストケース（#305）
+# --------------------------------------------------------------------------
+
+
+def test_the_reference_solution_is_visible_to_the_instructor_only(world: World) -> None:
+    """**参照解答を画面に出す**（#305）。
+
+    いままでどこにも出ていなかった ── 生成経路が書き込むだけで、教員は中身を
+    読めず、直すこともできなかった。門 1 が落ちても、何が通らないのか確かめる
+    手段が無い。
+
+    **TA には出さない。** 解答そのものなので、読める人を増やさない。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    world.register("ta", Role.ASSISTANT)
+    task_id = _task_with_tests(world)
+
+    page = (
+        world.client("teacher").get(f"/manage/courses/{world.course.id}/tasks/{task_id}/edit").text
+    )
+    assert 'id="reference"' in page
+    assert "int main(void){return 0;}" in page
+
+    ta_page = world.client("ta").get(f"/manage/courses/{world.course.id}/tasks/{task_id}/edit").text
+    assert "int main(void){return 0;}" not in ta_page, "TA に参照解答が出ている"
+
+
+def test_the_reference_solution_is_saved_with_the_cases(world: World, monkeypatch) -> None:
+    """参照解答と入出力セットは**ひと組で保存する**（#305）。
+
+    門 1 は両方を突き合わせる検査なので、片方だけ先に保存できると、教員が
+    意図していない組み合わせを検査することになる。門にかけるのも**いま欄に
+    あるもの**である ── 保存済みで確かめると、直した解答例ではない別のもので
+    判定する。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    task_id = _task_with_tests(world)
+    with world.database.unit_of_work() as uow:
+        before = uow.tasks.latest_version(TaskId(task_id))
+
+    checked: list[str] = []
+
+    def passes(self, candidate, source):
+        checked.append(source)
+        return True, ""
+
+    monkeypatch.setattr("aijudge_reviewconsole.manage.TaskVerifier.passes", passes)
+    form = _case_form(before)
+    form["reference_solution"] = ["int main(void){return 1;}\n"]
+    world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/tasks/{task_id}/test-cases/edit",
+        data=form,
+        follow_redirects=False,
+    )
+
+    with world.database.unit_of_work() as uow:
+        after = uow.tasks.latest_version(TaskId(task_id))
+    assert after.reference_solution == "int main(void){return 1;}\n"
+    assert checked == ["int main(void){return 1;}\n"], "門にかけたのが欄の内容ではない"
+
+
+def test_writing_a_solution_does_not_save_anything(world: World, monkeypatch) -> None:
+    """**生成では版を上げない**（#305・#58 と同じ作法）。
+
+    押した瞬間に承認待ちが増えて元に戻せない、を避ける。書いたものは欄に
+    入るだけで、保存は「保存」で行う。**書きかけの入出力も捨てない。**
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    task_id = _task_with_tests(world)
+    with world.database.unit_of_work() as uow:
+        before = uow.tasks.latest_version(TaskId(task_id))
+
+    monkeypatch.setattr(
+        "aijudge_reviewconsole.manage.SolutionWriter.write",
+        lambda self, statement, language="c": SimpleNamespace(
+            solution="/* AI が書いた */\nint main(void){return 0;}\n",
+            prompt_id="p",
+            model="m",
+        ),
+    )
+    page = (
+        world.client("teacher")
+        .post(
+            f"/manage/courses/{world.course.id}/tasks/{task_id}/reference-solution",
+            data=_case_form(before, **{"0": {"input": "書きかけ\n"}}),
+        )
+        .text
+    )
+
+    assert "AI が書いた" in page
+    assert "書きかけ" in page, "書きかけの入出力が捨てられている"
+    with world.database.unit_of_work() as uow:
+        after = uow.tasks.latest_version(TaskId(task_id))
+    assert after.version == before.version, "生成で版が上がっている"
+
+
+def test_a_proposal_takes_its_expected_output_from_running_the_solution(
+    world: World, monkeypatch
+) -> None:
+    """**期待出力はモデルに書かせない**（#305）。
+
+    参照解答を実際に走らせた出力を使う。誤った期待出力は「全員が落ちる」と
+    して現れ、原因は提出物の側に見える ── 決定的な結果は `conclusive` なので
+    AI にも見直されない（P3）。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    task_id = _task_with_tests(world)
+    with world.database.unit_of_work() as uow:
+        before = uow.tasks.latest_version(TaskId(task_id))
+
+    monkeypatch.setattr(
+        "aijudge_reviewconsole.manage.InputProposer.propose",
+        lambda self, statement, reference, language="c", count=5: SimpleNamespace(
+            cases=(
+                SimpleNamespace(name="caseX", input="5 6\n", why="普通の値"),
+                SimpleNamespace(name="caseY", input="0 0\n", why="境界値"),
+            ),
+            prompt_id="p",
+            model="m",
+        ),
+    )
+    monkeypatch.setattr(
+        "aijudge_reviewconsole.manage.outputs_for",
+        lambda registry, profile, version, reference, inputs, *, evaluator_id: tuple(
+            SimpleNamespace(
+                name=name,
+                input=text,
+                output="11\n" if name == "caseX" else "",
+                ok=(name == "caseX"),
+                reason="" if name == "caseX" else "nonzero exit",
+            )
+            for name, text in inputs
+        ),
+    )
+    form = _case_form(before)
+    form["reference_solution"] = ["int main(void){return 0;}\n"]
+    page = (
+        world.client("teacher")
+        .post(
+            f"/manage/courses/{world.course.id}/tasks/{task_id}/test-cases/propose",
+            data=form,
+        )
+        .text
+    )
+
+    assert "caseX" in page and "11" in page
+    # 走らなかったケースは採用の印を出さない（理由を言う）。
+    assert "採れません" in page and "nonzero exit" in page
+    # 提案の時点では保存しない。
+    with world.database.unit_of_work() as uow:
+        after = uow.tasks.latest_version(TaskId(task_id))
+    assert after.version == before.version
+
+
+def test_only_the_proposals_you_tick_are_kept(world: World, monkeypatch) -> None:
+    """**採用は 1 件ずつ人が押す**（P5）。印を付けなかった提案は消える。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    task_id = _task_with_tests(world)
+    with world.database.unit_of_work() as uow:
+        before = uow.tasks.latest_version(TaskId(task_id))
+    monkeypatch.setattr(
+        "aijudge_reviewconsole.manage.TaskVerifier.passes",
+        lambda self, candidate, source: (True, ""),
+    )
+
+    form = _case_form(before)
+    form["reference_solution"] = [before.reference_solution]
+    form["prop_name"] = ["caseX", "caseY"]
+    form["prop_input"] = ["5 6\n", "0 0\n"]
+    form["prop_expected"] = ["11\n", "0\n"]
+    form["prop_adopt"] = ["0"]  # caseX だけ採用する
+    world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/tasks/{task_id}/test-cases/edit",
+        data=form,
+        follow_redirects=False,
+    )
+
+    with world.database.unit_of_work() as uow:
+        after = uow.tasks.latest_version(TaskId(task_id))
+    names = [case.name for case in after.test_cases]
+    assert "caseX" in names
+    assert "caseY" not in names, "印を付けていない提案が入っている"
+    assert next(c for c in after.test_cases if c.name == "caseX").payload["expected"] == "11\n"
 
 
 def _task_with_items(world: World, *, items: tuple[str, ...] = ()) -> str:
@@ -1766,7 +1980,9 @@ def test_a_checklist_criterion_shows_the_item_list_not_the_io_set(world: World) 
     )
     assert "項目表" in page
     assert "目的" in page and "考察" in page
-    assert "入出力セット" not in page, "項目表の課題に入出力の欄が出ている"
+    # **欄そのものが無いこと**を見る。語そのものは案内文にも出るので、
+    # 文字列の有無で見ると案内を書き換えただけで落ちる。
+    assert 'id="tests"' not in page, "項目表の課題に入出力の欄が出ている"
 
 
 def test_an_empty_item_list_says_the_profile_default_is_used(world: World) -> None:

@@ -68,6 +68,7 @@ from aijudge_admin import (
     kc_usage,
     list_for_namespaces,
     list_profiles,
+    outputs_for,
     parse_roster,
     pending_counts,
     plan_bundle,
@@ -99,7 +100,7 @@ from aijudge_admin.task_verifier import TaskVerifier
 from aijudge_admin.tasks import clear_unit
 from aijudge_admin.tasks import delete as delete_task
 from aijudge_admin.tasks import withdraw as withdraw_task
-from aijudge_admin.test_cases import TestCaseWriter
+from aijudge_admin.test_cases import InputProposer, SolutionWriter, TestCaseWriter
 from aijudge_audit import AuditAction
 from aijudge_authoring import TaskChecks, TaskSpec, images, render_markdown, render_statement
 from aijudge_authoring.drafting import Blueprint, Difficulty
@@ -3713,6 +3714,9 @@ def register(templates) -> APIRouter:
         statement=None,
         chosen_kcs=None,
         kc_candidates=None,
+        reference_draft=None,
+        proposed=None,
+        io_draft=None,
     ):
         """課題の編集／追加の画面。**追加と訂正で同じ形を使う。**
 
@@ -3811,8 +3815,15 @@ def register(templates) -> APIRouter:
                 },
                 # 形ごとの検証データ。**混ぜない** ── 1 つの課題が入出力と
                 # 項目表の両方を持てる。
-                "io_cases": cases_by_shape.get("io", ()),
+                # 書きかけの入出力セット（#305）。**生成や提案から戻った
+                # ときは、保存済みではなく手元の内容を出す** ── 書きかけを
+                # 捨てて保存済みを出すと、直しかけたものが黙って消える。
+                "io_cases": io_draft if io_draft is not None else cases_by_shape.get("io", ()),
                 "item_cases": cases_by_shape.get("items", ()),
+                # AI に書かせた解答例（保存はしていない）。
+                "reference_draft": reference_draft,
+                # 走らせて期待出力を埋めた提案（採用は人が選ぶ・P5）。
+                "proposed": proposed,
                 # **既にある課題にも出す。** #15 より前に画面から作った課題は
                 # テストケースを持てず、正しさが AI 判定のまま残っている。
                 # 課題を開いたときに分からなければ、直す機会が無い。
@@ -4327,6 +4338,18 @@ def register(templates) -> APIRouter:
         weights = [str(v) for v in form.getlist("case_weight")]
         hidden = [str(v) for v in form.getlist("case_hidden")]
         deleted = {str(v) for v in form.getlist("case_delete")}
+        # 参照解答は入出力セットと一緒に保存する（#305）。**ひと組だから** ──
+        # 門 1 は両方を突き合わせる検査で、片方だけ先に保存できると、教員が
+        # 意図していない組み合わせを検査することになる。欄が無い経路（API や
+        # 古い画面）から来たときは、いまの版のものをそのまま持ち越す。
+        if "reference_solution" in form:
+            typed = str(form["reference_solution"]).replace("\r\n", "\n")
+            # **空白だけなら「無い」。** 消したいときに消せる。中身があるなら
+            # 打たれたまま持つ ── 末尾の改行を落とすと、触っていないのに
+            # 版が上がる（内容の同一性はそこも見る）。
+            reference = typed if typed.strip() else None
+        else:
+            reference = version.reference_solution
 
         def at(values: list[str], index: int, default: str = "") -> str:
             return values[index] if index < len(values) else default
@@ -4361,6 +4384,35 @@ def register(templates) -> APIRouter:
                     weight=weight,
                 )
             )
+        # **採用した提案だけを足す**（#305）。印を付けなかったものは消える ──
+        # 生成物は提案であって確定ではない（P5）。期待出力は提案の時点で
+        # 参照解答を走らせて埋めてある。
+        prop_names = [str(v) for v in form.getlist("prop_name")]
+        prop_inputs = [str(v) for v in form.getlist("prop_input")]
+        prop_expected = [str(v) for v in form.getlist("prop_expected")]
+        for raw in form.getlist("prop_adopt"):
+            try:
+                index = int(str(raw))
+            except ValueError:
+                continue
+            if not (0 <= index < len(prop_names)):
+                continue
+            name = prop_names[index].strip()
+            if not name or name in seen:
+                # 同じ名前が既にあるなら足さない。**黙って上書きしない** ──
+                # 直したばかりのケースが提案で消えるのは、押した人の意図ではない。
+                continue
+            seen.add(name)
+            cases.append(
+                TestCaseSpec(
+                    name=name,
+                    input=at(prop_inputs, index).replace("\r\n", "\n"),
+                    expected=at(prop_expected, index).replace("\r\n", "\n"),
+                    hidden=True,
+                    weight=1.0,
+                )
+            )
+
         if not cases:
             raise HTTPException(
                 status_code=400,
@@ -4368,7 +4420,9 @@ def register(templates) -> APIRouter:
             )
 
         # 門 1: 参照解答が全ケースを通るか。**通らなければ保存しない。**
-        if version.reference_solution:
+        # 見るのは**いま欄にあるもの**（#305）── 保存済みで確かめると、
+        # 教員が直した解答例ではない別のもので判定することになる。
+        if reference:
             evaluator_id = next(
                 (case.evaluator_id for case in version.test_cases), CODE_TEST_RUNNER
             )
@@ -4389,7 +4443,7 @@ def register(templates) -> APIRouter:
             profile = load_profile(console.profiles_dir / f"{version.subject_profile}.yaml")
             try:
                 verifier = TaskVerifier(EvaluatorRegistry().load_installed(), profile)
-                passed, detail = verifier.passes(candidate, version.reference_solution)
+                passed, detail = verifier.passes(candidate, reference)
             except (
                 Exception
             ) as exc:  # サンドボックス不在など。**保存しない**（確かめられていない）。
@@ -4413,7 +4467,7 @@ def register(templates) -> APIRouter:
             aggregation=version.aggregation,
             position=task.position,
             accepted=task.accepted_suffixes,
-            reference_solution=version.reference_solution,
+            reference_solution=reference,
             # **他の評価器あての検証データを巻き込まない**（#302）。ここが
             # 直しているのは入出力の組だけで、同じ課題が項目表を持っている
             # ことがある ── 全件を作り直していたので、入出力を 1 文字直すと
@@ -4424,6 +4478,191 @@ def register(templates) -> APIRouter:
         return RedirectResponse(
             f"/manage/courses/{course_id}/tasks/{task_id}/edit?saved=tests_revised#tests",
             status_code=303,
+        )
+
+    async def _io_draft_from(form) -> tuple:
+        """フォームに入っている入出力セットを、画面に出す形で読み直す（#305）。
+
+        **書きかけを捨てない。** 生成や提案から戻ったときに保存済みを出すと、
+        直しかけた入出力が黙って消える。`TestCase` の形にして返す（画面は
+        保存済みと同じ部品で描く）。
+        """
+        names = [str(v) for v in form.getlist("case_name")]
+        inputs = [str(v) for v in form.getlist("case_input")]
+        expected = [str(v) for v in form.getlist("case_expected")]
+        weights = [str(v) for v in form.getlist("case_weight")]
+        hidden = [str(v) for v in form.getlist("case_hidden")]
+        deleted = {str(v) for v in form.getlist("case_delete")}
+        out = []
+        for index, name in enumerate(names):
+            if str(index) in deleted or not name.strip():
+                continue
+            try:
+                weight = float(weights[index]) if index < len(weights) else 1.0
+            except ValueError:
+                weight = 1.0
+            out.append(
+                TestCase(
+                    name=name.strip(),
+                    evaluator_id=CODE_TEST_RUNNER,
+                    payload={
+                        "input": (inputs[index] if index < len(inputs) else "").replace(
+                            "\r\n", "\n"
+                        ),
+                        "expected": (expected[index] if index < len(expected) else "").replace(
+                            "\r\n", "\n"
+                        ),
+                    },
+                    hidden=(hidden[index] if index < len(hidden) else "1") != "0",
+                    weight=weight,
+                )
+            )
+        return tuple(out)
+
+    @router.post("/courses/{course_id}/tasks/{task_id}/reference-solution")
+    async def write_reference_solution(request: Request, course_id: str, task_id: str) -> Response:
+        """AI に解答例を書かせて欄に入れる（#305）。**保存はしない。**
+
+        版が上がるのは「保存」を押したときだけ（#58 と同じ作法）── 押した
+        瞬間に承認待ちが増えて元に戻せない、を避ける。
+
+        **書いたものは教員が読んで直す前提である。** 門が言えるのは「参照解答と
+        テストケースが整合している」までで、両方が同じ勘違いをしていれば
+        そのまま通る（`TaskVerifier`）。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+        task = _task_of(console, course, task_id)
+        with console.database.unit_of_work() as uow:
+            version = uow.tasks.latest_version(TaskId(task_id))
+        if version is None:
+            raise HTTPException(status_code=404, detail="課題が見つかりません")
+
+        form = await request.form()
+        profile = load_profile(console.profiles_dir / f"{version.subject_profile}.yaml")
+        try:
+            written = SolutionWriter().write(version.statement, language=_language_of(profile))
+        except Exception as exc:
+            # **理由をそのまま出す**（決めつけない・#52）。モデルが落ちている
+            # のか、応答が形式に合わないのかで、次にすることが違う。
+            return _task_page(
+                request,
+                me,
+                course,
+                unit_key_value=unit_key(task),
+                task=task,
+                version=version,
+                note=f"解答例を書けませんでした: {exc}",
+                io_draft=await _io_draft_from(form),
+            )
+        return _task_page(
+            request,
+            me,
+            course,
+            unit_key_value=unit_key(task),
+            task=task,
+            version=version,
+            note=(
+                "解答例を書きました。**まだ保存していません** — 読んで直してから"
+                "「テストケースを保存して新しい版にする」を押してください"
+            ),
+            reference_draft=written.solution,
+            io_draft=await _io_draft_from(form),
+        )
+
+    @router.post("/courses/{course_id}/tasks/{task_id}/test-cases/propose")
+    async def propose_test_cases(request: Request, course_id: str, task_id: str) -> Response:
+        """解答例からテストケースを提案する（#305）。**保存はしない。**
+
+        **期待出力はモデルに書かせない。** 入力だけを提案させ、**いま欄にある
+        解答例を実際に走らせて**埋める（`outputs_for`）── 誤った期待出力は
+        「全員が落ちる」として現れ、原因は提出物の側に見える。決定的な結果は
+        `conclusive` なので AI にも見直されない（P3）。
+
+        **走らせるにはサンドボックスが要る。** 無い環境では作れないと言う ──
+        黙ってモデルの書いた出力に落とすと、確かめていないものが確かめた顔で
+        入る（`docs/RUNNING.md`・ADR 0006）。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+        task = _task_of(console, course, task_id)
+        with console.database.unit_of_work() as uow:
+            version = uow.tasks.latest_version(TaskId(task_id))
+        if version is None:
+            raise HTTPException(status_code=404, detail="課題が見つかりません")
+
+        form = await request.form()
+        io_draft = await _io_draft_from(form)
+        reference = str(form.get("reference_solution") or "").replace("\r\n", "\n")
+
+        def page(note: str, proposed=None):
+            return _task_page(
+                request,
+                me,
+                course,
+                unit_key_value=unit_key(task),
+                task=task,
+                version=version,
+                note=note,
+                reference_draft=reference or None,
+                io_draft=io_draft,
+                proposed=proposed,
+            )
+
+        if not reference.strip():
+            # **解答例が無ければ提案しない。** 期待出力を埋める相手が無い。
+            return page("解答例が空です。先に解答例を書く（または AI に書かせる）でください")
+
+        profile = load_profile(console.profiles_dir / f"{version.subject_profile}.yaml")
+        try:
+            proposal = InputProposer().propose(
+                version.statement, reference, language=_language_of(profile)
+            )
+        except Exception as exc:
+            return page(f"テストケースを提案できませんでした: {exc}")
+
+        # 既にある名前は避ける。**黙って上書きしない。**
+        taken = {case.name for case in io_draft}
+        wanted = [
+            (case.name, case.input.replace("\r\n", "\n"))
+            for case in proposal.cases
+            if case.name not in taken
+        ]
+        try:
+            runs = outputs_for(
+                EvaluatorRegistry().load_installed(),
+                profile,
+                version,
+                reference,
+                wanted,
+                evaluator_id=CODE_TEST_RUNNER,
+            )
+        except Exception as exc:  # サンドボックス不在など
+            return page(f"解答例を走らせられませんでした（サンドボックスが要ります）: {exc}")
+
+        why = {case.name: case.why for case in proposal.cases}
+        proposed = [
+            {
+                "name": run.name,
+                "input": run.input,
+                "output": run.output,
+                "ok": run.ok,
+                "reason": run.reason,
+                "why": why.get(run.name, ""),
+            }
+            for run in runs
+        ]
+        usable = sum(1 for row in proposed if row["ok"])
+        return page(
+            f"{len(proposed)} 件を提案しました（走ったのは {usable} 件）。"
+            "採用するものに印を付けて保存してください。**印を付けないものは入りません**",
+            proposed=proposed,
         )
 
     @router.post("/courses/{course_id}/tasks/{task_id}/items/edit")

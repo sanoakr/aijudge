@@ -72,6 +72,31 @@ a.row.hidden-from-learners:hover{opacity:1}
 tr.hidden-from-learners:hover > td{opacity:1}
 .subsection{margin-top:24px;padding-top:18px;border-top:1px solid var(--line-soft)}
 .subsection > h3:first-child{margin-top:0}
+/* 課題の編集（#311）。**1 回の保存の単位を枠で示す。**
+   大項目ごとに箱で区切った（#308）ことで、共通設定のように箱ごとに保存が
+   あるように見えていた ── あちらは節ごとに別のフォームで、こちらは
+   問題・提出・採点・分類の全部で 1 つの版になる。
+
+   階層は 枠（保存の単位）> 箱（大項目）> 小項目 > 観点 > 採点材料。
+   枠は地の色を一段落とし、中の箱を白いままにして段差を作る（線を増やすと
+   箱の枠と二重になる）。 */
+.taskform{background:var(--surface-2);border:1px solid var(--line);border-radius:6px;
+  padding:14px 14px 0;margin-bottom:24px}
+.taskform-head{display:flex;flex-wrap:wrap;gap:10px;align-items:baseline;margin:0 4px 12px}
+.taskform-head > b{font-size:1rem}
+/* 保存は枠の足元に貼り付ける。**枠の中に居ることが要点** ── 外に置くと、
+   どこまでを保存するボタンなのかがまた読めなくなる。 */
+.taskform-foot{display:flex;flex-wrap:wrap;gap:12px;align-items:center;
+  justify-content:space-between;margin:16px -14px 0;padding:14px;
+  border-top:1px solid var(--line);background:var(--surface)}
+.taskform-foot > .desc{flex:1 1 16rem}
+/* 枠の中の箱は最後のものも下に余白を残さない（枠の padding が受ける）。 */
+.taskform > .card:last-of-type{margin-bottom:0}
+/* 枠の中の大項目。**頁の見出しより弱く、小項目より強く** ── 枠に入った時点で
+   「この問題の内容」の下の段なので、頁の h2 と同じ強さでは段が読めない。 */
+.taskform > h2{font-size:1rem;margin:20px 4px 8px;color:var(--ink)}
+.taskform > h2:first-of-type{margin-top:4px}
+
 /* 箱の先頭の小項目は罫線を引かない（#308）。大項目ごとに箱で区切るように
    なったので、箱のすぐ内側にもう 1 本線が来ると二重の枠に見える。 */
 .card > .subsection:first-child{margin-top:0;padding-top:0;border-top:none}

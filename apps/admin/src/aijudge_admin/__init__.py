@@ -94,7 +94,7 @@ from .task_review import (
     pending_reviews,
     reject,
 )
-from .task_verifier import DEFAULT_MUTATION_LIMIT, TaskVerifier
+from .task_verifier import DEFAULT_MUTATION_LIMIT, CaseRun, TaskVerifier, outputs_for
 
 __all__ = [
     "APPROVAL_RATE_GATE",
@@ -105,6 +105,7 @@ __all__ = [
     "AdminError",
     "ApprovalRate",
     "BundledTask",
+    "CaseRun",
     "DeletedCourse",
     "DuplicateChecker",
     "DuplicatedCourse",
@@ -153,6 +154,7 @@ __all__ = [
     "list_tasks",
     "load_roster",
     "load_skeleton",
+    "outputs_for",
     "parse_roster",
     "pending_counts",
     "pending_reviews",

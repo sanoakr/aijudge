@@ -120,4 +120,200 @@ class TestCaseWriter:
         )
 
 
-__all__ = ["PROMPT", "GeneratedCases", "GenerationResult", "TestCaseWriter"]
+# --------------------------------------------------------------------------
+# 段階を踏んで作る（#305）
+# --------------------------------------------------------------------------
+#
+# `TestCaseWriter` は参照解答とテストケースを 1 回でまとめて作る。**それとは
+# 別に、人が途中で確かめられる経路を置く。** 解答例を読んで直してから、その
+# 解答例を使ってテストケースを提案させる ── まとめて作ると、教員が受け取る
+# のは「どこから来たのか分からない期待出力」になる。
+#
+# **期待出力はモデルに書かせない。** 参照解答を実際に走らせた出力を使う
+# （`outputs_for`）。誤った期待出力は「全員が落ちる」として現れ、原因は提出物の
+# 側に見える ── 決定的な結果は `conclusive` なので AI にも見直されない（P3）。
+
+
+class WrittenSolution(BaseModel):
+    """解答例だけを書かせるときの構造化出力（P4）。"""
+
+    model_config = ConfigDict(extra="ignore")
+
+    solution: str = Field(min_length=1, max_length=20000)
+
+
+class ProposedInput(BaseModel):
+    """提案されたテストケース 1 件。**入力だけ。**
+
+    期待出力は参照解答を走らせて埋めるので、モデルには書かせない。
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    name: str = Field(min_length=1, max_length=64)
+    input: str = Field(max_length=8000)
+    why: str = Field(default="", max_length=200)
+
+
+class ProposedInputs(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    cases: tuple[ProposedInput, ...] = Field(min_length=1)
+
+
+SOLUTION_PROMPT = PromptTemplate(
+    name="reference_solution_for_statement_ja",
+    # 文面を変えたら必ず版を上げる（P8）。
+    version="1",
+    system=(
+        "あなたは大学の理工系科目の課題に、参照解答を書く教員です。"
+        "**課題文を書き換えません。** 与えられた課題文がそのまま出題されます。"
+        "**出力の形式は課題文の指定にそのまま従います** ── 区切り文字・桁数・"
+        "改行の位置を勝手に決めると、この解答例から作るテストケースが"
+        "正しい提出を不正解にします。"
+        "標準入力から読み、標準出力へ書きます。"
+        "JSON オブジェクトのみを出力し、それ以外の文字は書きません。"
+    ),
+    template=(
+        "## 課題文\n{statement}\n\n"
+        "## 言語\n{language}\n\n"
+        '出力する JSON の形: {{"solution": "ソースコード全体"}}\n'
+    ),
+)
+
+INPUTS_PROMPT = PromptTemplate(
+    name="test_case_inputs_for_solution_ja",
+    version="1",
+    system=(
+        "あなたは大学の理工系科目の課題に、テストケースの入力を考える教員です。"
+        "**入力だけを作ります。期待出力は書きません** ── 期待出力は参照解答を"
+        "実際に走らせて埋めるので、書いても使われません。"
+        "入力ごとに出力が変わるものにします ── どの入力でも同じ出力になる組は、"
+        "解答の中身を確かめられません。"
+        "少なくとも 1 件は境界値（最小の入力、値が等しい場合など）にします。"
+        "JSON オブジェクトのみを出力し、それ以外の文字は書きません。"
+    ),
+    template=(
+        "## 課題文\n{statement}\n\n"
+        "## 参照解答（{language}）\n```\n{reference}\n```\n\n"
+        "## 作る件数\n{count} 件\n\n"
+        "出力する JSON の形: "
+        '{{"cases": [{{"name": "case1", "input": "標準入力に流す内容", '
+        '"why": "何を確かめるか"}}]}}\n'
+    ),
+)
+
+
+@dataclass(frozen=True)
+class SolutionResult:
+    """書かせた解答例と、その出所（P8）。"""
+
+    solution: str
+    prompt_id: str
+    model: str
+
+
+@dataclass(frozen=True)
+class InputsResult:
+    """提案された入力と、その出所（P8）。"""
+
+    cases: tuple[ProposedInput, ...]
+    prompt_id: str
+    model: str
+
+
+class SolutionWriter:
+    """課題文から解答例を書く。**保存はしない。**
+
+    書いたものは教員が読んで直す前提である ── モデルの解答が課題文の意図と
+    合っているかは、門では確かめられない（`TaskVerifier` が言えるのは
+    「参照解答とテストケースが整合している」までで、両方が同じ勘違いを
+    していればそのまま通る）。
+    """
+
+    def __init__(
+        self,
+        gateway: LlmGateway | None = None,
+        *,
+        model: str | None = None,
+        max_tokens: int = 4096,
+    ) -> None:
+        self._gateway = gateway or default_gateway()
+        self._model = model or default_model()
+        self._max_tokens = max_tokens
+
+    def write(self, statement: str, *, language: str = "c") -> SolutionResult:
+        result = self._gateway.complete_structured(
+            SOLUTION_PROMPT,
+            WrittenSolution,
+            model=self._model,
+            # 課題文は教員が書いたもので、学習者のデータを含まない（P7）。
+            data_class=DataClass.NON_PERSONAL,
+            timeout_seconds=300.0,
+            max_tokens=self._max_tokens,
+            statement=statement[:8000],
+            language=language,
+        )
+        return SolutionResult(
+            solution=result.value.solution,
+            prompt_id=SOLUTION_PROMPT.id,
+            model=self._model,
+        )
+
+
+class InputProposer:
+    """解答例と課題文から、テストケースの**入力**を提案する。
+
+    **期待出力は返さない。** 参照解答を走らせて埋める（`outputs_for`）ので、
+    モデルが書いた出力は使わない ── 誤った期待出力は全員の減点として現れ、
+    原因が提出物の側に見える。
+    """
+
+    def __init__(
+        self,
+        gateway: LlmGateway | None = None,
+        *,
+        model: str | None = None,
+        max_tokens: int = 4096,
+    ) -> None:
+        self._gateway = gateway or default_gateway()
+        self._model = model or default_model()
+        self._max_tokens = max_tokens
+
+    def propose(
+        self, statement: str, reference: str, *, language: str = "c", count: int = 5
+    ) -> InputsResult:
+        result = self._gateway.complete_structured(
+            INPUTS_PROMPT,
+            ProposedInputs,
+            model=self._model,
+            data_class=DataClass.NON_PERSONAL,
+            timeout_seconds=300.0,
+            max_tokens=self._max_tokens,
+            statement=statement[:8000],
+            reference=reference[:8000],
+            language=language,
+            count=count,
+        )
+        return InputsResult(
+            cases=result.value.cases,
+            prompt_id=INPUTS_PROMPT.id,
+            model=self._model,
+        )
+
+
+__all__ = [
+    "INPUTS_PROMPT",
+    "PROMPT",
+    "SOLUTION_PROMPT",
+    "GeneratedCases",
+    "GenerationResult",
+    "InputProposer",
+    "InputsResult",
+    "ProposedInput",
+    "ProposedInputs",
+    "SolutionResult",
+    "SolutionWriter",
+    "TestCaseWriter",
+    "WrittenSolution",
+]
