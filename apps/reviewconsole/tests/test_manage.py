@@ -1581,6 +1581,33 @@ def test_the_page_is_ordered_the_way_a_task_is_written(world: World) -> None:
     assert '<details class="card" id="preview">' in body
 
 
+def test_the_task_page_groups_its_sections_into_boxes(world: World) -> None:
+    """**大項目ごとに箱で区切る**（#308）。
+
+    以前はページ全体が 1 枚の箱で、節の区切りは細い罫線 1 本だった ── どこ
+    までが問題文の話でどこからが採点の話なのかが読めず、大項目と中項目が同じ
+    強さに見えていた。出題の共通設定と同じ作法（大項目は箱の外の見出し、
+    中身は箱）に揃える。
+
+    **フォームは 1 つのまま。** 送信の単位は変えない（問題文・観点・形式は
+    1 回の保存で 1 つの版になる）ので、箱はフォームの中にある。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    task_id = _import_example(world)
+
+    body = _main(
+        world.client("teacher").get(f"/manage/courses/{world.course.id}/tasks/{task_id}/edit").text
+    )
+    for major in ("<h2>問題</h2>", "<h2>提出</h2>", "<h2>採点</h2>", "<h2>分類</h2>"):
+        assert major in body, major
+    # 大項目は箱の外、中身は箱の中。
+    assert body.index("<h2>問題</h2>") < body.index("問題文に貼る画像")
+    # フォームは 1 つ（編集の本体）。採点材料の送信先は別に置いた空フォーム。
+    form_open = body.index('<form method="post"')
+    assert '<form method="post" class="card"' not in body, "ページ全体が 1 枚の箱に戻っている"
+    assert body.index("<h2>分類</h2>") > form_open
+
+
 def test_data_no_criterion_uses_is_called_unused(world: World) -> None:
     """**持っているのに使われていないデータを、黙って隠さない**（#303）。
 

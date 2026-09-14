@@ -50,15 +50,27 @@
    状態が生まれる（実際に `readability_weight` でそうなった）。 #}
 {# 追加でテストケースを作るときだけ待たせる（参照解答とテストケースの生成、
    門 1・門 2 の検査が走る）。訂正と、テストを使わない追加は待たない。 #}
-<form method="post" class="card"
+{# **大項目ごとに箱で区切る**（#308）。出題の共通設定（`manage_course.html`）と
+   同じ作法 ── 大項目は箱の外の見出し（h2）、中身は箱（`.card`）、中項目は
+   箱の中の見出し（h3）。
+
+   以前はページ全体が 1 枚の箱で、節の区切りは細い罫線 1 本だった。どこまでが
+   問題文の話でどこからが採点の話なのかが読めず、大項目と中項目が同じ強さに
+   見えていた。観点の中に採点材料が入った（#303）ことで階層が 1 段深くなり、
+   区分が要るようになった。
+
+   **フォームは 1 つのまま。** 箱は `<form>` の中に置く ── 送信の単位は
+   変えない（問題文・観点・形式は 1 回の保存で 1 つの版になる）。 #}
+<form method="post"
       {% if not task and wants_tests %}data-working="生成中… 数十秒かかります（このまま待ってください）"{% endif %}
       {# **接頭辞を通す**（#281）。ここだけ `/manage/...` を直に出していたので、
          `/console` の下で動く運用機では prefix の外へ POST され、保存が
          `{"detail":"Not Found"}` になった。ローカル（接頭辞なし）では出ない。 #}
       action="{{ root_prefix() }}{{ '/manage/courses/%s/tasks/%s/revise' | format(course.id, task.id)
                 if task else '/manage/courses/%s/tasks' | format(course.id) }}">
+  <div class="card">
   {% if task %}
-    <p class="desc" style="margin:0 0 14px">
+    <p class="desc" style="margin:0">
       課題キー <span class="mono">{{ version.source_key or '(記録なし)' }}</span>
       <span class="sep">·</span> キーは変えられません（同一性の鍵で、変えると別の課題になります）
       {# **いつの版かを出す。** 訂正すると版が上がるが、番号だけでは新旧が
@@ -81,7 +93,10 @@
       </div>
     </div>
   {% endif %}
+  </div>
 
+  <h2>問題</h2>
+  <div class="card">
   {# **節の見出しとして出す**（「観点の畳み方」と同じ見え方）。以前は小さな
      ラベルで、同じ画面の中でルーブリックや提出形式より弱く見えていた ──
      課題の本体は問題文なので、見出しの強さが中身の重さと逆になっていた。
@@ -152,7 +167,10 @@
       既に保存してある画像は <span class="mono">![説明](/images/…)</span> の形で問題文に書けます。
     </p>
   </noscript>
+  </div>
 
+  <h2>提出</h2>
+  <div class="card">
   <div class="subsection">
   <h3>提出できるファイル形式</h3>
   <input type="hidden" name="formats" value="1">
@@ -180,7 +198,10 @@
     </div>
   </div>
   </div>
+  </div>
 
+  <h2>採点</h2>
+  <div class="card">
   {# **テストで確定できる科目なら、テストケースを用意する。** 無い課題は
      正しさの観点が AI 判定に落ち（`TaskSpec.auto_graded`）、全課題が教員の
      確定待ちになる。作るのは追加のときだけ ── 訂正で作り直すと、出題済みの
@@ -287,6 +308,10 @@
   {% endwith %}
   </div>
 
+  </div>
+
+  <h2>分類</h2>
+  <div class="card">
   <div class="subsection">
   <h3>問う知識要素</h3>
   {# **課題に付いた知識要素だけが習熟度を動かす**（#292）。付いていない課題の
@@ -350,6 +375,8 @@
     {% endif %}
   </div>
   {% endif %}
+  </div>
+
   </div>
 
   <p class="desc" style="margin-top:20px">
