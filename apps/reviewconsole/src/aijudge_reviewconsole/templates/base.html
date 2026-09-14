@@ -173,10 +173,24 @@ document.querySelectorAll(".js-only").forEach(function (el) { el.hidden = false;
     document.querySelectorAll("details[id][open]").forEach(function (el) { ids.push(el.id); });
     return ids;
   }
-  document.addEventListener("submit", function () {
+  document.addEventListener("submit", function (event) {
+    var place = JSON.stringify({ y: window.scrollY, open: open_ids() });
+    try { sessionStorage.setItem(key, place); } catch (e) { /* 使えないなら覚えない */ }
+    {# **送信先が別の経路のこともある**（#314）。AI の生成（解答例・テストケースの
+       提案・知識要素の候補）は、同じ画面を描いて返すが**URL は生成の経路の
+       まま**である ── 経路ごとに鍵を分けていたので、戻ってきた画面はどこにも
+       覚えが無く、頁の先頭から始まっていた。送信先のぶんも覚えておく。 #}
+    var form = event.target;
+    var action =
+      (event.submitter && event.submitter.getAttribute("formaction")) ||
+      (form && form.getAttribute("action")) ||
+      "";
+    if (!action) return;
     try {
-      sessionStorage.setItem(key, JSON.stringify({ y: window.scrollY, open: open_ids() }));
-    } catch (e) { /* 使えないなら覚えない */ }
+      var target = new URL(action, location.href);
+      if (target.origin !== location.origin) return;
+      sessionStorage.setItem("aijudge:place:" + target.pathname, place);
+    } catch (e) { /* 読めない行き先は覚えない */ }
   }, true);
   try {
     var saved = sessionStorage.getItem(key);
@@ -187,9 +201,11 @@ document.querySelectorAll(".js-only").forEach(function (el) { el.hidden = false;
         var el = document.getElementById(id);
         if (el && el.tagName === "DETAILS") el.open = true;
       });
-      // **位置の指定がある頁では、そちらを優先する**（`#tests` など）。
-      // 経路が行き先を名指ししているなら、それが押した人の用である。
-      if (!location.hash) window.scrollTo(0, place.y || 0);
+      // **覚えた位置を優先する**（#314）。経路は `#schedule` のような行き先を
+      // 付けて戻すが、それは**JavaScript が無い人のための案内**である ──
+      // 指定された見出しは画面のいちばん上に来るので、読んでいた位置からは
+      // やはり動く。覚えがあるなら、押す前に見ていた場所へ戻す方が近い。
+      window.scrollTo(0, place.y || 0);
     }
   } catch (e) { /* 壊れた記録は無視する */ }
 })();

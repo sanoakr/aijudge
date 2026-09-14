@@ -358,6 +358,10 @@ class Console:
         # 直前に片付けた問題セットの内訳（#59）。**件数だけでは足りない** ──
         # 削除と取り下げが混ざるので、何がどちらになったかを画面に出す。
         self.last_clear: tuple[str, object] | None = None
+        # 直前の AI 改訂で何を直したと言っているか（#306）: (course_id, task_id, 変更点)。
+        # **差分と一緒に読ませる** ── 何を直したつもりなのかが分からないと、
+        # 教員は書き換わった問題文を頭から読み直すことになる。
+        self.last_revision: tuple[str, str, tuple[str, ...]] | None = None
         # 直前に採点へ回した件数（#67）。**0 件だったことも伝える** ──
         # 押したのに何も起きなかったのが正常なのか異常なのか分からない。
         self.last_release: tuple[str, int] | None = None

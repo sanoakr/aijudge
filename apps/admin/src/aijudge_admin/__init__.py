@@ -74,6 +74,7 @@ from .profiles import (
     rename_profile,
     save_profile_text,
 )
+from .revision import RevisionResult, TaskReviser
 from .roster import (
     RosterEntry,
     RosterError,
@@ -119,6 +120,7 @@ __all__ = [
     "PlannedTask",
     "ProfileSummary",
     "ReviewPacket",
+    "RevisionResult",
     "RosterEntry",
     "RosterError",
     "SavedTask",
@@ -126,6 +128,7 @@ __all__ = [
     "Skeleton",
     "SolvabilityChecker",
     "TaskOutcome",
+    "TaskReviser",
     "TaskVerifier",
     "TrialResult",
     "allowed_namespaces",

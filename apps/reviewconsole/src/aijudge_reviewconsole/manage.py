@@ -37,6 +37,7 @@
 
 from __future__ import annotations
 
+import difflib
 import hashlib
 import json
 import re
@@ -88,6 +89,7 @@ from aijudge_admin import (
 from aijudge_admin.bundles import MAX_ARCHIVE_BYTES
 from aijudge_admin.course_definition import course_template
 from aijudge_admin.drafting import TaskDrafter
+from aijudge_admin.revision import TaskReviser
 from aijudge_admin.roster import RosterEntry, RosterError, generate_password
 from aijudge_admin.syllabus import (
     MAX_SYLLABUS_BYTES,
@@ -456,6 +458,33 @@ def _split_aliases(raw: str) -> tuple[str, ...]:
     return tuple(part.strip() for part in parts if part.strip())
 
 
+def _statement_diff(before: str, after: str) -> tuple[dict[str, str], ...]:
+    """問題文の差分（#306）。行単位の unified 差分を、画面が描ける形で返す。
+
+    **承認は差分を見て決めるもの**である。承認待ちの一覧は新しい版の本文を
+    出すだけだったので、改訂を承認する人は書き換わった問題文を頭から読み直す
+    ことになっていた ── どこが変わったのかは、読み比べないと分からない。
+
+    文脈は 2 行。**全文の差分にしない** ── 長い課題文では変わっていない行が
+    画面を埋め、変わった行が探しにくくなる。
+    """
+    rows: list[dict[str, str]] = []
+    for line in difflib.unified_diff(before.splitlines(), after.splitlines(), lineterm="", n=2):
+        if line.startswith("+++") or line.startswith("---"):
+            continue
+        kind = (
+            "meta"
+            if line.startswith("@@")
+            else "add"
+            if line.startswith("+")
+            else "del"
+            if line.startswith("-")
+            else "same"
+        )
+        rows.append({"kind": kind, "text": line})
+    return tuple(rows)
+
+
 def _submission_count(console, task) -> int:
     """この課題への提出の件数。**削除してよいかの判定に使う。**"""
     if task is None:
@@ -729,6 +758,9 @@ SAVED_MESSAGES: dict[str, str] = {
     "released": "いままでの提出を採点に回しました（以後の提出はまた採点開始時刻まで待ちます）",
     "retried": "失敗していた採点を流し直しました",
     "items_revised": "項目表を直して新しい版にしました",
+    "revision_queued": "書き直した版を承認待ちに積みました。差分を読んで承認してください",
+    "revision_none": "直すところはありませんでした（版は増やしていません）",
+    "revision_failed": "書き直せませんでした",
     "kc_added": "知識要素を追加しました",
     "kc_retired": "知識要素を引退させました",
     "kc_restored": "引退を取り消しました",
@@ -986,11 +1018,33 @@ def _collect_overrides(form) -> dict:
     judge: dict = {}
     if value("samples"):
         judge["samples"] = int(_positive_number(value("samples"), "サンプル数"))
+    # 提出の遵守（#316）。**いままで YAML にしか無かった** ── 効いているのに
+    # 画面のどこからも読めず、直すにはサーバ上のファイルを触るしかなかった。
+    #
+    # 上書きはそのコースにしか効かないので、教員が触ってよい（`overrides` の
+    # 冒頭）。雛形（`subjects/*.yaml`）は読み取り専用のまま。
+    compliance: dict = {}
+    kinds = [name for name in form.getlist("required_kinds") if name]
+    if kinds:
+        compliance["required_kinds"] = kinds
+    if value("filename_pattern"):
+        pattern = value("filename_pattern")
+        try:
+            re.compile(pattern)
+        except re.error as exc:
+            # **保存させない。** 壊れた正規表現は採点の時に落ちる ── そのとき
+            # 画面に出るのは「体裁が判定できません」だけで、原因が読めない。
+            raise HTTPException(
+                status_code=400, detail=f"ファイル名の規則が正規表現として不正です: {exc}"
+            ) from None
+        compliance["filename_pattern"] = pattern
     options = {}
     if runner:
         options["code_test_runner"] = runner
     if judge:
         options["rubric_ai_judge"] = judge
+    if compliance:
+        options["submission_compliance"] = compliance
     if options:
         overrides["evaluator_options"] = options
 
@@ -1094,6 +1148,24 @@ def _rubric_from_form(form) -> list[dict[str, str]]:
             }
         )
     return rows
+
+
+def _artifact_kind_rows() -> list[dict[str, str]]:
+    """提出物の種別と、それに当たる拡張子（#316）。
+
+    **表は 1 つだけ**（`aijudge_core.uploads.SUFFIX_KINDS`）。画面に種別の
+    一覧を書き写すと、拡張子を足した日にそこだけが古くなる ── 種別は拡張子
+    から決まる（`kind_for`）ので、表を畳めば選択肢になる。
+    """
+    from aijudge_core import SUFFIX_KINDS
+
+    grouped: dict[str, list[str]] = {}
+    for suffix, kind in SUFFIX_KINDS.items():
+        grouped.setdefault(kind.value, []).append(suffix)
+    return [
+        {"name": kind, "suffixes": " ".join(sorted(suffixes))}
+        for kind, suffixes in sorted(grouped.items())
+    ]
 
 
 def _evaluator_rows(registry, kind) -> list[dict[str, str]]:
@@ -2125,6 +2197,8 @@ def register(templates) -> APIRouter:
                 # 名前を書けると、その科目の採点が恒久的に失敗する。
                 "deterministic": _evaluator_rows(registry, EvaluatorKind.DETERMINISTIC),
                 "ai_evaluators": _evaluator_rows(registry, EvaluatorKind.AI),
+                # 提出の遵守が見る値（#316）。選択肢は拡張子の表から作る。
+                "artifact_kinds": _artifact_kind_rows(),
                 "languages": sorted(LANGUAGES),
                 "trial": trial,
             },
@@ -3788,6 +3862,10 @@ def register(templates) -> APIRouter:
                 "course_has_rubric": bool(course.rubric),
                 "rubric_is_course_default": bool(course.rubric) and rows == course_rows,
                 "deterministic": _evaluator_rows(registry, EvaluatorKind.DETERMINISTIC),
+                # **AI 評価器も選べるようにする**（#315）。空（「AI が段階を
+                # 判定する」）は `rubric_ai_judge` のことで、項目を積み上げる
+                # `checklist_ai_judge` は指名しなければ走らない。
+                "ai_evaluators": _evaluator_rows(registry, EvaluatorKind.AI),
                 "suffix_groups": SUFFIX_GROUPS,
                 "course_suffixes": (
                     (task.accepted_suffixes if task is not None else ())
@@ -4518,6 +4596,82 @@ def register(templates) -> APIRouter:
                 )
             )
         return tuple(out)
+
+    @router.post("/courses/{course_id}/tasks/{task_id}/revise-with-ai")
+    def revise_task_with_ai(request: Request, course_id: str, task_id: str) -> Response:
+        """課題をいまの基準に合わせて書き直させ、**承認待ちの版**として積む（#306）。
+
+        **必ず承認待ちである。** 教員はまだ 1 文字も読んでいない ── 生成物は
+        提案であって確定ではない（P5・ADR 0008）。承認するまで学習者には
+        いまの版が出続ける。
+
+        書き直すのは**問題文と知識要素だけ**。観点はコースの共通ルーブリックが
+        持っており（`_course_rubric_rows`）、段階の記述まで決まっている ──
+        そこをモデルに書かせると、コースごとに決めた段階が課題ごとに割れる。
+        入出力セットと参照解答も触らない（#305 の仕事で、期待出力は走らせて
+        作る）── 混ぜると、どちらの都合で期待出力が変わったのかが辿れない。
+
+        **直すところが無ければ積まない。** 差分の無い版を承認待ちに置くと、
+        教員は中身の無い版を 1 件ずつ開いて確かめることになる。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+        task = _task_of(console, course, task_id)
+        with console.database.unit_of_work() as uow:
+            version = uow.tasks.latest_version(TaskId(task_id))
+            current_kcs = _kc_keys_of(uow, version) if version is not None else ()
+        if version is None:
+            raise HTTPException(status_code=404, detail="課題が見つかりません")
+
+        rows = rubric.to_rows(version.criteria)
+        try:
+            revised = TaskReviser().revise(
+                version.statement,
+                criteria=tuple((row["title"], row["description"]) for row in rows),
+                vocabulary=tuple((kc.key, kc.label) for kc in _course_kcs(console, course)),
+                current_kcs=tuple(current_kcs),
+            )
+        except Exception as exc:
+            # **理由をそのまま出す**（決めつけない・#52）。
+            return RedirectResponse(
+                f"/manage/courses/{course_id}/tasks/{task_id}/edit"
+                f"?saved=revision_failed#{quote(str(exc)[:80], safe='')}",
+                status_code=303,
+            )
+
+        if revised.unchanged:
+            return RedirectResponse(
+                f"/manage/courses/{course_id}/tasks/{task_id}/edit?saved=revision_none",
+                status_code=303,
+            )
+
+        _save_revision(
+            console,
+            me,
+            course,
+            task,
+            version,
+            statement=revised.statement,
+            # **観点はそのまま。** 変えるのは問題文と知識要素だけ。
+            criteria=rubric.from_criteria(version.criteria),
+            aggregation=version.aggregation,
+            position=task.position,
+            accepted=task.accepted_suffixes,
+            # 参照解答と検証データは持ち越す（触らない）。
+            reference_solution=version.reference_solution,
+            test_cases=_kept_cases(version, editing=()),
+            knowledge_components=revised.knowledge_components or None,
+            # **これが承認待ちにする印である**（`_provenance`）。
+            generated_by=revised.model,
+            generation_prompt_version=revised.prompt_id,
+        )
+        console.last_revision = (str(course.id), task_id, revised.changes)
+        return RedirectResponse(
+            f"/manage/courses/{course_id}/drafts?saved=revision_queued", status_code=303
+        )
 
     @router.post("/courses/{course_id}/tasks/{task_id}/reference-solution")
     async def write_reference_solution(request: Request, course_id: str, task_id: str) -> Response:
@@ -5591,6 +5745,7 @@ def register(templates) -> APIRouter:
                 if version.task_id not in tasks:
                     continue
                 checks = uow.tasks.get_checks(version.id)
+                published = uow.tasks.latest_published_version(version.task_id)
                 rows.append(
                     {
                         "version": version,
@@ -5605,6 +5760,23 @@ def register(templates) -> APIRouter:
                         # 検査が失敗した下書き・古い下書きでも同じことが起きる
                         # ので、記録の有無とは別に扱う。
                         "kc_keys": _kc_keys_of(uow, version),
+                        # **新規か改訂か**（#306）。同じ一覧に混ざるので、いま
+                        # 何を承認しようとしているのかが読めないと困る ──
+                        # 新規は「出すかどうか」、改訂は「置き換えるかどうか」
+                        # で、判断そのものが違う。
+                        "published": published,
+                        # 改訂の差分。**承認は差分を見て決めるもの**で、
+                        # 書き換わった問題文を頭から読み直させない。
+                        "diff": (
+                            _statement_diff(published.statement, version.statement)
+                            if published is not None and published.id != version.id
+                            else ()
+                        ),
+                        # **提出済みであることを言う。** 出題済みの課題の問題文を
+                        # 書き換えると、既に提出した学習者と後から提出する学習者で
+                        # 違う問題になる。過去の採点は自分の版を指したまま残る
+                        # （P8）ので壊れないが、承認するかどうかの判断材料である。
+                        "submissions": uow.tasks.submission_count(version.task_id),
                         # 検査していない課題も並べる。**隠さない** ── 見えない
                         # ものは承認も却下もされず、待ち行列に溜まり続ける。
                         "clean": bool(checks and checks.verification.usable),

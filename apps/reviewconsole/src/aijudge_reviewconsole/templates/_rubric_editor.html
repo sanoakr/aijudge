@@ -12,13 +12,28 @@
    ── その観点の中の欄から保存したのだから、戻ってきて畳まれていたら
    「直したものがどこへ行ったのか」になる。JavaScript が無くても効く。 #}
 {% set holds_data = criterion_data.get(row.evaluator) if criterion_data is defined and criterion_data else none %}
+{# 開いて返す場合（#309・#314）:
+   - 検証データを保存した直後（その観点の中の欄から保存したのだから）
+   - AI に書かせた解答例や提案を持って戻ってきたとき（**それを読ませるために
+     描き直している**のに畳んで返したら、何も見せていないのと同じ） #}
+{% set carries_draft = (reference_draft is defined and reference_draft)
+   or (proposed is defined and proposed) %}
 <details class="criterion" id="criterion-{{ row.code }}"
-  {%- if holds_data and saved_key is defined and saved_key in ('tests_revised', 'items_revised') %} open{% endif %}>
+  {%- if holds_data and ((saved_key is defined and saved_key in ('tests_revised', 'items_revised'))
+                         or carries_draft) %} open{% endif %}>
   <summary>
     <b>{{ row.title or row.code }}</b>
     <span class="mono desc">{{ row.code }}</span>
     <span class="desc">重み {{ row.weight }}</span>
     <span class="desc">{{ row.evaluator if row.evaluator else 'AI が判定' }}</span>
+    {# **畳んだままでも、中に何があるかを出す**（#314）。採点材料は観点の中に
+       あるので（#303）、外から見えるのは観点名だけだった ── 参照解答を画面に
+       出したのに（#305）、開くまで在ることも分からない。 #}
+    {% if holds_data == 'io' %}
+    <span class="desc">入出力 {{ io_cases | length }} 件{% if version and version.reference_solution %}・参照解答あり{% else %}・<strong>参照解答なし</strong>{% endif %}</span>
+    {% elif holds_data == 'items' %}
+    <span class="desc">項目 {{ item_cases | length }} 件</span>
+    {% endif %}
     <span class="desc open-hint">開いて修正</span>
   </summary>
   {% with row = row %}{% include "_criterion_fields.html" %}{% endwith %}

@@ -14,13 +14,41 @@
 </div>
 
 {% for row in rows %}
+{% set revision = row.published and row.published.id != row.version.id %}
 <div class="card">
-  <h2>{{ row.task.title }}</h2>
+  {# **新規か改訂かを行に出す**（#306）。同じ一覧に混ざるので、いま何を承認
+     しようとしているのかが読めないと困る ── 新規は「出すかどうか」、改訂は
+     「置き換えるかどうか」で、判断そのものが違う。 #}
+  <h2>{{ row.task.title }}
+    <span class="pill {{ 'attn' if revision }}">{{ '改訂' if revision else '新規' }}</span></h2>
   <p class="desc" style="margin:0 0 12px">
     課題版 <code>{{ row.version.id }}</code><br>
     出所: {{ row.version.provenance.generated_by or "教員が作成" }}
     （{{ row.version.provenance.generation_prompt_version or "—" }}）
+    {% if revision %}<br>いま学習者に出ているのは <strong>{{ row.published.version }} 版</strong>
+    （{{ row.published.created_at | local('%Y-%m-%d %H:%M') }} 作成）{% endif %}
   </p>
+
+  {% if revision and row.submissions %}
+  {# **提出済みであることを言う**（#306）。出題済みの課題の問題文を書き換えると、
+     既に提出した学習者と後から提出する学習者で違う問題になる。過去の採点は
+     自分の版を指したまま残る（P8）ので壊れないが、承認するかどうかの判断材料
+     である。 #}
+  <div class="note warn">
+    <strong>この課題には提出が {{ row.submissions }} 件あります。</strong>
+    承認すると、以後の提出は書き直した問題文に対するものになります
+    ── 既に提出した学習者とは<strong>違う問題</strong>になります。
+    過去の採点はそのまま残ります（自分の版を指したまま）。
+  </div>
+  {% endif %}
+
+  {% if row.diff %}
+  {# **承認は差分を見て決めるもの。** 新しい本文だけを出していたので、改訂を
+     承認する人は書き換わった問題文を頭から読み直すことになっていた。 #}
+  <h3>問題文の差分</h3>
+  <pre class="code diff">{% for line in row.diff %}<span class="{{ line.kind }}">{{ line.text }}</span>
+{% endfor %}</pre>
+  {% endif %}
 
   {# **知識要素は必ず出す。** 宣言した KC をこの課題が実際に問うているかは
      機械が検証していない。見せなければ誰も気づかないまま Q-matrix に残り、

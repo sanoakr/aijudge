@@ -283,9 +283,58 @@
       </span>
     </div>
   </div>
+  {# **表記は「説明（評価器コード）」で揃える**（#315）。観点の選択欄と同じ順で
+     読めるようにする ── 選ぶときに要るのは「何を見る評価器か」で、コードは
+     その確認である。 #}
+  {# 提出の遵守が見る値（#316）。**いままで YAML にしか無かった** ── 効いて
+     いるのに画面のどこからも読めず、直すにはサーバ上のファイルを触るしか
+     なかった。上書きはこのコースにしか効かないので教員が触ってよい。
+
+     **提出できる形式（上の「提出できるファイル形式」）とは別のもの。**
+     あちらは受理の可否（出せるかどうか）で、こちらは採点 ── 複数許した中から
+     指示どおりのものを選んだかを見る。両方 PDF だけにすれば、こちらは
+     何も判定しない（出せるものが 1 つしか無い）。 #}
+  <h3 id="compliance">提出の遵守（submission_compliance）</h3>
+  <p class="desc" style="margin:0 0 8px">
+    出したか・ファイル名は規則どおりか・形式は指示どおりかを見ます。
+    <strong>本文は読みません。</strong>
+    提出があれば満点から始め、不備 1 つにつき 1 段下げます
+    （提出そのものが無い場合だけ最低段階）。
+    この評価器を使う観点がある課題にだけ効きます。
+  </p>
+  <div class="field">
+    <div class="checkrow">
+      <span class="desc rowlabel">求める形式</span>
+      <span class="checks">
+        {% set required = (overrides.get('evaluator_options', {}).get('submission_compliance', {}).get('required_kinds')
+                           or profile.evaluator_options.get('submission_compliance', {}).get('required_kinds') or []) %}
+        {% for kind in artifact_kinds %}
+        <label title="{{ kind.suffixes }}"><input type="checkbox" name="required_kinds" value="{{ kind.name }}"
+          {{ 'checked' if kind.name in required }}> <span class="mono">{{ kind.name }}</span></label>
+        {% endfor %}
+      </span>
+    </div>
+    <p class="desc" style="margin:6px 0 0">
+      どれも選ばなければ形式は見ません。<strong>選んだうちのどれかに当たれば可</strong>です
+      （複数選べます）。
+    </p>
+  </div>
+  <div class="field">
+    <label for="filename_pattern">ファイル名の規則（正規表現・空なら見ません）</label>
+    <input id="filename_pattern" name="filename_pattern"
+           placeholder="{{ profile.evaluator_options.get('submission_compliance', {}).get('filename_pattern', '^[0-9A-Za-z]+_report[.]pdf$') }}"
+           value="{{ overrides.get('evaluator_options', {}).get('submission_compliance', {}).get('filename_pattern', '') }}">
+    <p class="desc" style="margin:6px 0 0">
+      <strong>先頭から照合します</strong>（<span class="mono">^</span> は書かなくても効きます。
+      末尾まで見るには <span class="mono">$</span> を書いてください）。
+      課題文がファイル名を指定していないなら<strong>空にしてください</strong> —
+      書かなければ「見ていません」と採点の理由に残ります。黙って満点にはしません。
+    </p>
+  </div>
+
   <ul class="desc evaluators">
     {% for row in deterministic + ai_evaluators %}
-    <li><span class="mono">{{ row.name }}</span> — {{ row.about or '説明がありません' }}</li>
+    <li>{{ row.about or '説明がありません' }}（<span class="mono">{{ row.name }}</span>）</li>
     {% endfor %}
   </ul>
   <p class="desc">
