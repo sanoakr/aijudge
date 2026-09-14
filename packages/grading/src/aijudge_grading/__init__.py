@@ -25,7 +25,13 @@ from .profile import (
     load_profile,
     load_profiles,
 )
-from .protocol import EvaluationOutcome, EvaluationRequest, Evaluator, Normalizer
+from .protocol import (
+    EvaluationOutcome,
+    EvaluationRequest,
+    Evaluator,
+    Normalizer,
+    reads_test_cases,
+)
 from .registry import (
     ENTRY_POINT_GROUP,
     NORMALIZER_ENTRY_POINT_GROUP,
@@ -62,4 +68,5 @@ __all__ = [
     "load_profile",
     "load_profiles",
     "project_observations",
+    "reads_test_cases",
 ]

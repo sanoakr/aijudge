@@ -106,6 +106,10 @@ class NetworkTestRunner:
 
     evaluator_id = EVALUATOR_ID
     kind = EvaluatorKind.DETERMINISTIC
+    # 入出力セット（`EvaluationRequest.test_cases`）を読む（#300）。
+    # **画面はこの宣言で欄を出す** ── 評価器名の表を画面に持たせると、
+    # 評価器を足した日にその表だけが古くなる。
+    uses_test_cases = True
 
     def __init__(self, sandbox: Sandbox | None = None) -> None:
         self._sandbox = sandbox

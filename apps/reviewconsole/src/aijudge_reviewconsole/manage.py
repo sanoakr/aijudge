@@ -129,6 +129,7 @@ from aijudge_grading import (
     OverrideError,
     effective_profile,
     load_profile,
+    reads_test_cases,
 )
 from aijudge_grading.overrides import diff
 from aijudge_identity import AuthenticationFailed, AuthService, PermissionDenied, Principal
@@ -349,8 +350,8 @@ def _wants_tests(request: Request, course, version=None) -> bool:
     return CODE_TEST_RUNNER in profile.deterministic
 
 
-def _deterministic_criteria(registry, version) -> tuple[str, ...]:
-    """この課題版が**決定論的な評価器に任せている**観点の、評価器 id（#300）。
+def _test_driven_criteria(registry, version) -> tuple[str, ...]:
+    """この課題版が**入出力セットで採点する**観点の、評価器 id（#300）。
 
     入出力セット（テストケース）の欄を出すかどうかはこれで決める。
 
@@ -360,16 +361,26 @@ def _deterministic_criteria(registry, version) -> tuple[str, ...]:
     いたので、`code_test_runner` を割り当てた課題でも入出力セットが画面に
     出ず、**その評価器が何を走らせるのかを確かめる手段が無かった**。
 
+    **「決定論的か」では広すぎる。** 提出の遵守（`submission_compliance`）や
+    レポートの構造（`report_structure`）も決定論的だが入出力セットを持たない
+    ので、その観点の課題に永久に空の欄を出すことになる。読むかどうかは
+    評価器が宣言する（`aijudge_grading.reads_test_cases`）── 画面が評価器名の
+    表を持つと、評価器を足した日にその表だけが古くなる。
+
     登録済みの評価器だけを返す ── `HUMAN_SCORED`（人が採点する）と空
     （AI が判定する）はここに入らない。
     """
     if version is None:
         return ()
-    installed = set(registry.ids_of_kind(EvaluatorKind.DETERMINISTIC))
+    reads = {
+        name
+        for name in registry.ids_of_kind(EvaluatorKind.DETERMINISTIC)
+        if reads_test_cases(registry.get(name))
+    }
     chosen = {
         criterion.evaluator
         for criterion in rubric.from_criteria(version.criteria)
-        if criterion.evaluator in installed
+        if criterion.evaluator in reads
     }
     return tuple(sorted(chosen))
 
@@ -3711,9 +3722,9 @@ def register(templates) -> APIRouter:
                 # テストで確定できる科目か。宣言していない科目（レポートなど）
                 # には出さない ── 選べない選択肢を見せない。
                 "wants_tests": _wants_tests(request, course, version),
-                # この課題で決定論的な評価器に任せている観点（#300）。
+                # この課題で入出力セットを読む評価器に任せている観点（#300）。
                 # **科目が宣言していなくても、割り当てたなら入出力セットを出す。**
-                "deterministic_criteria": _deterministic_criteria(registry, version),
+                "test_driven_criteria": _test_driven_criteria(registry, version),
                 # **既にある課題にも出す。** #15 より前に画面から作った課題は
                 # テストケースを持てず、正しさが AI 判定のまま残っている。
                 # 課題を開いたときに分からなければ、直す機会が無い。
@@ -3982,6 +3993,13 @@ def register(templates) -> APIRouter:
                     "accepted": task.accepted_suffixes
                     or course.upload_suffixes
                     or DEFAULT_UPLOAD_SUFFIXES,
+                    # 入出力セットを読む評価器に任せている観点（#300）。
+                    # **TA には確認だけ。** 0 件のときに何が起きているかは
+                    # 教員と同じ言葉で出す ── 「AI が判定します」と出して
+                    # いたので、実際には誰も判定していないことが伝わらなかった。
+                    "test_driven_criteria": _test_driven_criteria(
+                        EvaluatorRegistry().load_installed(), version
+                    ),
                 },
             )
         return _task_page(

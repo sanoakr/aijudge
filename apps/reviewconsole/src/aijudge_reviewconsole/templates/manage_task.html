@@ -355,22 +355,24 @@
   <div class="actions"><button type="submit">{{ 'この問題を保存して更新する' if task else '保存' }}</button></div>
 </form>
 
-{% if task and (version.test_cases or wants_tests or deterministic_criteria) %}
+{% if task and (version.test_cases or wants_tests or test_driven_criteria) %}
 {# テストケースの閲覧と修正（#284）。**修正は版を上げる**（P8）── 出題済みの
    版のテストを書き換えると、過去の採点が何で判定されたのか辿れなくなる。
    参照解答があれば保存前に門 1（参照解答が全ケースを通る）を走らせ、通らない
    入出力は保存しない。
 
-   **この課題が決定論的な評価器を使うなら、0 件でも欄を出す**（#300）。観点は
-   それぞれ自分の評価器を持つ（ADR 0018）ので、科目の宣言だけで出し分けると
-   `code_test_runner` を割り当てた課題でも欄が出ず、その評価器が何を走らせるのかを
-   画面から確かめられなかった。 #}
+   **この課題の観点が入出力セットを読む評価器を指しているなら、0 件でも欄を出す**
+   （#300）。観点はそれぞれ自分の評価器を持つ（ADR 0018）ので、科目の宣言だけで
+   出し分けると `code_test_runner` を割り当てた課題でも欄が出ず、その評価器が
+   何を走らせるのかを画面から確かめられなかった。読むかどうかは評価器が宣言する
+   ── 決定論的かどうかで出し分けると、提出の遵守やレポートの構造のように
+   入出力セットを持たない観点の課題に、永久に空の欄が出る。 #}
 <div class="card" id="tests">
   <h3 style="margin-top:0">入出力セット（テストケース {{ version.test_cases | length }} 件）</h3>
-  {% if deterministic_criteria %}
+  {% if test_driven_criteria %}
   <p class="desc" style="margin:0 0 10px">
     この課題は
-    {% for name in deterministic_criteria %}<span class="mono">{{ name }}</span>{% if not loop.last %} / {% endif %}{% endfor %}
+    {% for name in test_driven_criteria %}<span class="mono">{{ name }}</span>{% if not loop.last %} / {% endif %}{% endfor %}
     で採点する観点を持ちます{% if not version.test_cases %} —
     <strong>入出力セットが 1 件も無いので、その観点は判定できません</strong>（総点は伏せられます・ADR 0015）。
     下の「テストケースを直す」から足してください{% endif %}。

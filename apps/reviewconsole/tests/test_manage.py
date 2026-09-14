@@ -1351,14 +1351,17 @@ def test_test_cases_are_shown_to_the_instructor_and_the_ta(world: World) -> None
     )
 
 
-def test_a_task_that_names_a_deterministic_evaluator_can_edit_its_cases(world: World) -> None:
-    """**観点に決定論的な評価器を割り当てたら、入出力セットの欄を出す**（#300）。
+def test_a_task_that_names_a_test_driven_evaluator_can_edit_its_cases(world: World) -> None:
+    """**観点が入出力セットを読む評価器を指したら、その欄を出す**（#300）。
 
     出し分けを科目プロファイルの宣言だけで決めていたので、`code_test_runner`
     を観点に割り当てた課題でも、科目が宣言していなければ欄が出なかった ──
     その評価器が何を走らせるのかを画面から確かめる手段が無く、テストケースが
     0 件のまま出題しても、画面はそれを言わなかった。観点は課題ごとに自分の
     評価器を持つ（ADR 0018）ので、判断はこの課題の観点で行う。
+
+    「決定論的か」では広すぎる（提出の遵守は入出力セットを持たない）ので、
+    読むかどうかは評価器の宣言で見る（`reads_test_cases`）。
     """
     from aijudge_admin import save_task
     from aijudge_authoring import TaskSpec
@@ -1399,10 +1402,128 @@ def test_a_task_that_names_a_deterministic_evaluator_can_edit_its_cases(world: W
         .get(f"/manage/courses/{world.course.id}/tasks/{saved.task.id}/edit")
         .text
     )
-    assert "入出力セット" in page, "決定論的な評価器を割り当てた課題に欄が出ていない"
+    assert "入出力セット" in page, "入出力セットを読む評価器を指した課題に欄が出ていない"
     assert "テストケースを直す" in page, "直せない"
     # 0 件であることと、その帰結を言う（伏せられる総点の理由が画面から読める）。
     assert "入出力セットが 1 件も無いので" in page
+
+
+def test_an_assistant_reads_the_input_output_set_but_cannot_change_it(world: World) -> None:
+    """**TA は確認だけ**（#300・#102 と同じ扱い）。
+
+    採点している課題の入出力セットを読めないと、学習者の「入力例 1 で落ちる」に
+    答えられない。直すのは担当教員 ── 修正は版を上げる操作で、出題済みの
+    採点基準を動かす（P8）。
+
+    0 件のときに**何が起きているかを教員と同じ言葉で出す。** 以前は「なし ──
+    正しさの観点は AI が判定します」と出していたが、観点がテスト実行を
+    指していれば AI は判定しない。誰も判定していない画面が「AI が見ている」と
+    言うことになる。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    world.register("ta", Role.ASSISTANT)
+    task_id = _import_example(world)
+
+    page = world.client("ta").get(f"/manage/courses/{world.course.id}/tasks/{task_id}/edit").text
+    assert "入出力セット" in page, "TA が入出力セットを読めない"
+    assert 'class="testcases"' in page
+    # 直す口は出さない。**押せないものを見せない。**
+    assert "テストケースを直す" not in page
+    assert "/test-cases/edit" not in page
+    # **隠すだけの画面は境界にならない。** 経路の側でも拒む。
+    refused = world.client("ta").post(
+        f"/manage/courses/{world.course.id}/tasks/{task_id}/test-cases/edit",
+        data={"case_name": "case1", "case_input": "1\n", "case_expected": "1\n"},
+    )
+    assert refused.status_code in (403, 404), refused.status_code
+
+    # 0 件の課題では、判定できないことを言う（「AI が判定します」ではない）。
+    from aijudge_admin import save_task
+    from aijudge_authoring import TaskSpec
+    from aijudge_authoring.spec import CriterionSpec, LevelSpec
+
+    empty = save_task(
+        world.database,
+        course_id=world.course.id,
+        spec=TaskSpec(
+            key="ex01/p8",
+            unit="ex01",
+            statement="## [必須] 出力 ##\n\nhello と出力する。",
+            criteria=(
+                CriterionSpec(
+                    code="correctness",
+                    title="出力の正しさ",
+                    description="仕様どおりの出力を返すか。",
+                    weight=1.0,
+                    evaluator="code_test_runner",
+                    levels=(
+                        LevelSpec(
+                            level=0, label="未達", descriptor="満たしていない", score_ratio=0.0
+                        ),
+                        LevelSpec(
+                            level=1, label="達成", descriptor="満たしている", score_ratio=1.0
+                        ),
+                    ),
+                ),
+            ),
+        ),
+        subject_profile="cs_lang_c_intro",
+        authored_by=_user_id(world, "teacher"),
+    )
+    page = (
+        world.client("ta").get(f"/manage/courses/{world.course.id}/tasks/{empty.task.id}/edit").text
+    )
+    assert "判定できません" in page
+    assert "AI が判定" not in page
+
+
+def test_a_compliance_criterion_does_not_ask_for_an_input_output_set(world: World) -> None:
+    """**決定論的でも入出力セットを持たない評価器には、欄を出さない**（#300）。
+
+    提出の遵守（`submission_compliance`）は出したか・名前は規則どおりかを見る
+    もので、入力と期待出力を持たない。決定論的かどうかで出し分けると、
+    レポート課題の画面に永久に空の欄が並ぶ ── 埋まらない欄は、埋め忘れなのか
+    そういうものなのかを画面から区別できない。
+    """
+    from aijudge_admin import save_task
+    from aijudge_authoring import TaskSpec
+    from aijudge_authoring.spec import CriterionSpec, LevelSpec
+
+    world.register("teacher", Role.INSTRUCTOR)
+    saved = save_task(
+        world.database,
+        course_id=world.course.id,
+        spec=TaskSpec(
+            key="rep01/p1",
+            unit="rep01",
+            statement="## [必須] 考察 ##\n\n実験の考察を書く。",
+            criteria=(
+                CriterionSpec(
+                    code="compliance",
+                    title="提出の体裁",
+                    description="指示どおりのファイル名と形式で出ているか。",
+                    weight=1.0,
+                    evaluator="submission_compliance",
+                    levels=(
+                        LevelSpec(
+                            level=0, label="未達", descriptor="満たしていない", score_ratio=0.0
+                        ),
+                        LevelSpec(
+                            level=1, label="達成", descriptor="満たしている", score_ratio=1.0
+                        ),
+                    ),
+                ),
+            ),
+        ),
+        subject_profile="report_ja",
+        authored_by=_user_id(world, "teacher"),
+    )
+    page = (
+        world.client("teacher")
+        .get(f"/manage/courses/{world.course.id}/tasks/{saved.task.id}/edit")
+        .text
+    )
+    assert "入出力セット" not in page, "入出力セットを持たない観点に欄が出ている"
 
 
 def _task_with_tests(world: World, author: str = "teacher") -> str:
