@@ -109,12 +109,19 @@ def course_rail(
             RailItem("blind 採点", f"{base}/blind"),
         ),
     )
+    # **項目名は行き先の見出しと同じ語にする**（#300）。違う語を当てると、
+    # 押した先が目当ての画面かどうかを見出しで確かめられない ── 「問題セット」
+    # がコース全体の設定へ飛んでいたのがその形だった。
+    #
     # 問題セットは TA にも出す（#102）── 採点している課題を読めないと、
-    # 学習者の質問にも自分の付けた点にも答えられない。追加と日程は
-    # 担当教員のものなので、その先の行き先は出さない。
-    authoring = [RailItem("問題セット", manage)]
+    # 学習者の質問にも自分の付けた点にも答えられない。行き先はコースの
+    # 一覧（`/courses/{id}`）そのもので、追加と日程はその先にある。
+    authoring = [RailItem("問題セット", base)]
     groups = [grading]
     if can_manage:
+        # 科目・ルーブリック・提出形式など、**このコースの課題すべてに効く値**。
+        # 課題ごとの設定は課題のページが持つ。
+        authoring.append(RailItem("共通設定", manage))
         authoring.append(RailItem("未承認の課題（AI 作問）", f"{manage}/drafts"))
     groups.append(RailGroup(title="出題", items=tuple(authoring)))
     if can_manage:
@@ -122,7 +129,7 @@ def course_rail(
             RailGroup(
                 title="設定",
                 items=(
-                    RailItem("コース全体", f"{manage}/basics"),
+                    RailItem("コースの基本情報", f"{manage}/basics"),
                     RailItem("受講者", f"{manage}/enrolments"),
                     RailItem("知識要素（KC）", f"{manage}/kc"),
                 ),
@@ -153,10 +160,11 @@ def tenant_rail(*, is_admin: bool) -> Rail:
         groups.append(
             RailGroup(
                 title="テナントの設定",
+                # 項目名は行き先の見出しと同じ語で（#300）。
                 items=(
-                    RailItem("利用者", "/manage/users"),
+                    RailItem("利用者の一覧", "/manage/users"),
                     RailItem("科目プロファイル", "/manage/subjects"),
-                    RailItem("ログイン方式", "/manage/oidc-settings"),
+                    RailItem("Google ログイン設定", "/manage/oidc-settings"),
                 ),
             )
         )

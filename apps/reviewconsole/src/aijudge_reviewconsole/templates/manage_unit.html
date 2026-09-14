@@ -167,7 +167,7 @@
   </div>
   <p class="desc" style="margin:10px 0 0">
     いまは<strong>コースの設定</strong>（{% if course_grace %}{{ course_grace }} 分{% else %}自動確定なし{% endif %}）が
-    効いています。<a href="{{ root_prefix() }}/manage/courses/{{ course.id }}">コース全体の設定</a>で変えられます。
+    効いています。<a href="{{ root_prefix() }}/manage/courses/{{ course.id }}">共通設定</a>で変えられます。
     {# **確定の時刻は提出ごとに違う。** 起点は課題の締切ではなく、その提出の
        採点が終わった時刻なので、セット単位の「いつ確定するか」は無い。 #}
     確定は<strong>提出ごと</strong>に、その採点が終わってから数えます。

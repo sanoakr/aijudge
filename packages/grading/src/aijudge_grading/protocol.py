@@ -75,12 +75,33 @@ class Evaluator(Protocol):
 
     `evaluator_id` は科目プロファイル（subjects/*.yaml）から参照される名前。
     `kind` が DETERMINISTIC なら AI より先に走り、その判定は AI に覆されない。
+
+    **`EvaluationRequest.test_cases` を読む評価器は `uses_test_cases = True`
+    を宣言する**（#300）。契約の必須項目にはしない ── 既存の評価器と
+    テストの替え玉が全部その属性を持つことになる。宣言しなければ
+    「読まない」で、それが多数派である（`reads_test_cases`）。
+
+    この宣言があるのは、**入出力セットの欄を出すかどうかを画面が決められる
+    ようにする**ため。画面が評価器名の表を持つと、評価器を足した日に
+    その表だけが古くなる（`_evaluator_rows` が説明を docstring から取るのと
+    同じ理由）。
     """
 
     evaluator_id: str
     kind: EvaluatorKind
 
     def evaluate(self, request: EvaluationRequest) -> EvaluationOutcome: ...
+
+
+def reads_test_cases(evaluator: object) -> bool:
+    """この評価器は入出力セット（`EvaluationRequest.test_cases`）を読むか。
+
+    宣言していなければ読まない。**「決定論的かどうか」とは別の問い**で、
+    提出の遵守（`submission_compliance`）やレポートの構造（`report_structure`）は
+    決定論的だが入出力セットを持たない ── 一緒にすると、そういう課題の画面に
+    永久に空の入出力セットの欄が出る。
+    """
+    return bool(getattr(evaluator, "uses_test_cases", False))
 
 
 @runtime_checkable

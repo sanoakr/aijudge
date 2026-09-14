@@ -161,12 +161,12 @@
   </div>
 
   {# 問題文に貼る画像（#64）。**この画面で受け取り、カーソル位置に差し込む。**
-     コースの設定画面にも同じ受け口はあるが、そこへ行くと書きかけの問題文は
-     失われる ── 課題の編集は 1 つのフォームで、保存するまで何も残らない。
+     受け口はここだけである（#300）── 別の画面で 1 行を作って手で貼る形も
+     持っていたが、そこへ行くと書きかけの問題文は失われる。課題の編集は
+     1 つのフォームで、保存するまで何も残らない。
 
      **フォームを入れ子にできない**ので、送信は JavaScript で行う（`base.html`
-     の `data-image-upload`）。JavaScript が無ければこの欄は出ず、下の案内から
-     コースの設定画面で 1 行を作って手で貼ることになる。 #}
+     の `data-image-upload`）。JavaScript が無ければこの欄は出ない。 #}
   <div class="subsection js-only" hidden
        data-image-upload="{{ root_prefix() }}/manage/courses/{{ course.id }}/images.json"
        data-image-target="#statement">
@@ -201,10 +201,13 @@
     </p>
   </div>
   <noscript>
+    {# **できないことは、できないと言う。** 受け口は JavaScript からしか
+       叩けないので（入れ子のフォームにできない）、代わりの画面は無い。
+       外部の URL を書く案内もしない ── 課題文を開くたびに学外へ取りに
+       行くことになる（設計原則 P7）。 #}
     <p class="desc">
-      画像は<a href="{{ root_prefix() }}/manage/courses/{{ course.id }}#images">コースの設定</a>で保存し、
-      出てきた 1 行を問題文に貼り付けてください
-      （この画面で書きかけの内容は保存されないので、先に保存してから移動してください）。
+      問題文に画像を貼るには JavaScript が要ります。
+      既に保存してある画像は <span class="mono">![説明](/images/…)</span> の形で問題文に書けます。
     </p>
   </noscript>
 
@@ -352,13 +355,29 @@
   <div class="actions"><button type="submit">{{ 'この問題を保存して更新する' if task else '保存' }}</button></div>
 </form>
 
-{% if task and (version.test_cases or wants_tests) %}
+{% if task and (version.test_cases or wants_tests or test_driven_criteria) %}
 {# テストケースの閲覧と修正（#284）。**修正は版を上げる**（P8）── 出題済みの
    版のテストを書き換えると、過去の採点が何で判定されたのか辿れなくなる。
    参照解答があれば保存前に門 1（参照解答が全ケースを通る）を走らせ、通らない
-   入出力は保存しない。 #}
+   入出力は保存しない。
+
+   **この課題の観点が入出力セットを読む評価器を指しているなら、0 件でも欄を出す**
+   （#300）。観点はそれぞれ自分の評価器を持つ（ADR 0018）ので、科目の宣言だけで
+   出し分けると `code_test_runner` を割り当てた課題でも欄が出ず、その評価器が
+   何を走らせるのかを画面から確かめられなかった。読むかどうかは評価器が宣言する
+   ── 決定論的かどうかで出し分けると、提出の遵守やレポートの構造のように
+   入出力セットを持たない観点の課題に、永久に空の欄が出る。 #}
 <div class="card" id="tests">
-  <h3 style="margin-top:0">テストケース（{{ version.test_cases | length }} 件）</h3>
+  <h3 style="margin-top:0">入出力セット（テストケース {{ version.test_cases | length }} 件）</h3>
+  {% if test_driven_criteria %}
+  <p class="desc" style="margin:0 0 10px">
+    この課題は
+    {% for name in test_driven_criteria %}<span class="mono">{{ name }}</span>{% if not loop.last %} / {% endif %}{% endfor %}
+    で採点する観点を持ちます{% if not version.test_cases %} —
+    <strong>入出力セットが 1 件も無いので、その観点は判定できません</strong>（総点は伏せられます・ADR 0015）。
+    下の「テストケースを直す」から足してください{% endif %}。
+  </p>
+  {% endif %}
   {% include "_test_cases_table.html" %}
   <details style="margin-top:12px">
     <summary><b>テストケースを直す</b><span class="desc">（保存すると新しい版になります）</span></summary>

@@ -1,7 +1,10 @@
 {% extends "base.html" %}
-{% block title %}{{ course.title }} の設定 — aiJudge{% endblock %}
+{% block title %}共通設定 — {{ course.title }} — aiJudge{% endblock %}
 {% block body %}
-<h1>コース全体の設定</h1>
+{# **見出しは帯の項目名と同じ語にする**（#300）。ここにあるのは、このコースの
+   課題すべてに効く値 ── 共通ルーブリック・採点設定・提出できるファイル形式。
+   1 問ごとの設定は課題のページが持つ。 #}
+<h1>共通設定</h1>
 <p class="subtitle">{{ course.title }}
   {# 課題（日程・一括確定・追加）は問題セットのページにある。1 枚に積むと、
      「ex03 の締切を直す」ために縦に長い画面を目で探すことになる。 #}
@@ -299,39 +302,6 @@
     <button type="submit" name="action" value="save">保存</button>
   </div>
 </form>
-{# 課題文に貼る画像（#64）。**描画はもともと通る** ── 課題文は Markdown で、
-   `![](URL)` はそのまま `<img>` になる。足りていなかったのは置き場所だけで、
-   外部 URL を書かせると課題文を開くたびに学外へ取りに行くことになる（P7）。 #}
-<h2 id="images">課題文に貼る画像</h2>
-<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/images"
-      enctype="multipart/form-data" class="card">
-  <p class="desc" style="margin:0 0 10px">
-    画像を上げると、<strong>課題文に貼り付ける 1 行</strong>が出ます。それを問題文の
-    好きな位置に貼ってください。URL を手で書く必要はありません
-    — 打ち間違いは「画像が出ない課題文」としてしか現れず、原因が画面から分かりません。
-    大きな画像には<strong>幅 {{ image_display_width }}px</strong>が付きます
-    （<span class="mono">{width=…}</span>・縦横比はそのまま。数字はあとから直せます）。
-    <br>
-    保存先は提出物と同じ学内のストアです。<strong>学外には出ません。</strong>
-    受講者と担当教員だけが見られます。
-  </p>
-  <div class="inline-field">
-    <span class="body">
-      <label for="image-file">画像（{{ image_suffixes | join(' / ') }}・{{ image_max_mb }}MB まで）</label>
-      <input id="image-file" type="file" name="upload"
-             accept="{{ image_suffixes | join(',') }}" required>
-      <label for="image-alt">説明（画像が出ないときに代わりに読まれます）</label>
-      <input id="image-alt" name="alt" placeholder="cc コマンドを実行した端末の画面">
-    </span>
-    {% if saved_key == 'image' %}<span class="flash">{{ saved }}</span>{% endif %}
-    <button type="submit">画像の保存</button>
-  </div>
-  {% if last_image %}
-  <p class="desc" style="margin:12px 0 0">課題文に貼り付ける 1 行:</p>
-  <pre class="code mono" style="margin:4px 0 0">{{ last_image }}</pre>
-  {% endif %}
-</form>
-
 {% if is_admin %}
 {# **複製は「作る」操作**（#170）。だから削除と同じ管理者権限で、置き場所は
    その手前 ── 学期の頭にすることが、コース設定の末尾で終わる形にする。 #}
