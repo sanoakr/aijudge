@@ -155,7 +155,10 @@ CRITERIA = [
             "出されているか。読めば機械的に分かることなので機械が判定する。"
         ),
         "weight": POINTS["format"] / TOTAL_POINTS,
-        "evaluator": "report_structure",
+        # 2026-09 まではこの観点を決定的評価器 `report_structure` が担当して
+        # いた（#302 で廃止）。**過去の測定値はその評価器のもの**で、いまの
+        # 配線で引き直した値とは比較できない。
+        "evaluator": "checklist_ai_judge",
         "levels": _levels(
             [
                 (0, "未達", "節・分量・測定値・提出形式のいずれも満たさない"),
@@ -309,7 +312,7 @@ CRITERIA = [
 # 科目プロファイルに渡す評価器の設定。体裁の 4 本目の条件（提出形式）は
 # 課題文が PDF を指定しているので課す。
 EVALUATOR_OPTIONS = {
-    "report_structure": {
+    "checklist_ai_judge": {
         "sections": {
             # 課題文の「含むべき内容」は 6 項目で、**タイトルが 1 番目**である。
             # 以前は 5 項目しか見ていなかった。

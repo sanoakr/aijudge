@@ -13,6 +13,7 @@
 
 **1 は満たした。** レポート科目を足すのに変えたのは `subjects/report_ja.yaml` と
 プラグイン 3 つ（`document_text` / `report_structure` / `submission_compliance`）だけで、
+（`report_structure` はその後 #302 で廃止し、`checklist_ai_judge` が引き継いだ）
 コアと採点エンジンの差分は 0 行。`import-linter` の 15 契約も無傷である。
 Phase 3 の仮説（新しい科目種の追加が YAML とプラグインだけで済む）は成立した。
 

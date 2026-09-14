@@ -1526,6 +1526,249 @@ def test_a_compliance_criterion_does_not_ask_for_an_input_output_set(world: Worl
     assert "入出力セット" not in page, "入出力セットを持たない観点に欄が出ている"
 
 
+# --------------------------------------------------------------------------
+# 項目表（#302）
+# --------------------------------------------------------------------------
+
+
+def _task_with_items(world: World, *, items: tuple[str, ...] = ()) -> str:
+    """項目表で採点する観点を持つ課題（レポート）。"""
+    from aijudge_admin import save_task
+    from aijudge_authoring import TaskSpec
+    from aijudge_authoring.spec import CriterionSpec, LevelSpec, TestCaseSpec
+
+    saved = save_task(
+        world.database,
+        course_id=world.course.id,
+        spec=TaskSpec(
+            key="rep01/p2",
+            unit="rep01",
+            statement="## [必須] 実験レポート ##\n\n性能を評価しなさい。",
+            criteria=(
+                CriterionSpec(
+                    code="structure",
+                    title="構成",
+                    description="課題が求める項目が揃っているか。",
+                    weight=1.0,
+                    evaluator="checklist_ai_judge",
+                    levels=(
+                        LevelSpec(level=0, label="未達", descriptor="揃わない", score_ratio=0.0),
+                        LevelSpec(level=1, label="達成", descriptor="すべて揃う", score_ratio=1.0),
+                    ),
+                ),
+            ),
+            test_cases=tuple(
+                TestCaseSpec(
+                    name=name,
+                    evaluator="checklist_ai_judge",
+                    payload={"aliases": [name]},
+                    hidden=False,
+                )
+                for name in items
+            ),
+        ),
+        subject_profile="report_ja",
+        authored_by=_user_id(world, "teacher"),
+    )
+    return str(saved.task.id)
+
+
+def test_a_checklist_criterion_shows_the_item_list_not_the_io_set(world: World) -> None:
+    """**形が違うものを同じ欄で編集させない**（#302）。
+
+    入出力の組と項目の並びは別の形で、どちらを出すかは評価器が名乗る
+    （`test_case_shape`）。項目表の課題に入出力の欄を出すと、入力と期待出力を
+    求められて何も書けない。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    task_id = _task_with_items(world, items=("目的", "考察"))
+
+    page = (
+        world.client("teacher").get(f"/manage/courses/{world.course.id}/tasks/{task_id}/edit").text
+    )
+    assert "項目表" in page
+    assert "目的" in page and "考察" in page
+    assert "入出力セット" not in page, "項目表の課題に入出力の欄が出ている"
+
+
+def test_an_empty_item_list_says_the_profile_default_is_used(world: World) -> None:
+    """**0 件は「無い」ではなく「既定に従う」である。**
+
+    黙って空の表を出すと、教員は自分が消したのか最初から無いのか分からない。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    task_id = _task_with_items(world)
+
+    page = (
+        world.client("teacher").get(f"/manage/courses/{world.course.id}/tasks/{task_id}/edit").text
+    )
+    assert "項目表（0 件）" in page
+    assert "科目プロファイルの既定が使われます" in page
+
+
+def test_editing_the_item_list_raises_a_new_version(world: World) -> None:
+    """**修正は版を上げる**（P8）。出題済みの版の項目を書き換えない。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    task_id = _task_with_items(world, items=("目的",))
+    with world.database.unit_of_work() as uow:
+        before = uow.tasks.latest_version(TaskId(task_id))
+
+    response = world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/tasks/{task_id}/items/edit",
+        data={
+            "item_name": ["目的", "考察"],
+            "item_weight": ["1.0", "3.0"],
+            "item_hidden": ["0", "0"],
+            "item_description": ["何を確かめる実験かが書かれている", ""],
+            "item_aliases": ["目的、背景と目的", "考察,議論"],
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+
+    with world.database.unit_of_work() as uow:
+        after = uow.tasks.latest_version(TaskId(task_id))
+    assert after.version == before.version + 1
+    items = {case.name: case for case in after.test_cases}
+    assert set(items) == {"目的", "考察"}
+    # **区切りはカンマでも読点でもよい。** 決めつけると「、で区切ったら
+    # 1 件になった」が起きる。
+    assert items["目的"].payload["aliases"] == ["目的", "背景と目的"]
+    assert items["考察"].payload["aliases"] == ["考察", "議論"]
+    assert items["目的"].payload["description"] == "何を確かめる実験かが書かれている"
+    assert items["考察"].weight == 3.0
+    # **読む評価器を明示して保存する。** 課題の既定に倒すと code_test_runner
+    # あてになり、誰も読まないまま残る。
+    assert {case.evaluator_id for case in after.test_cases} == {"checklist_ai_judge"}
+
+
+def test_editing_one_kind_of_data_keeps_the_other(world: World) -> None:
+    """**片方の画面で保存して、もう片方を消さない**（#302）。
+
+    保存は版を作り直す操作なので、渡さなかった検証データは消える。消えても
+    例外は出ず、採点の段になって「検証データが無い」として現れる。
+    """
+    from aijudge_admin import save_task
+    from aijudge_authoring import TaskSpec
+    from aijudge_authoring.spec import CriterionSpec, LevelSpec, TestCaseSpec
+
+    world.register("teacher", Role.INSTRUCTOR)
+    saved = save_task(
+        world.database,
+        course_id=world.course.id,
+        spec=TaskSpec(
+            key="mix01/p1",
+            unit="mix01",
+            statement="## [必須] 混在 ##\n\nプログラムとレポートを出す。",
+            criteria=(
+                CriterionSpec(
+                    code="correctness",
+                    title="出力の正しさ",
+                    description="仕様どおりの出力を返すか。",
+                    weight=0.5,
+                    evaluator="code_test_runner",
+                    levels=(
+                        LevelSpec(level=0, label="未達", descriptor="通らない", score_ratio=0.0),
+                        LevelSpec(level=1, label="達成", descriptor="通る", score_ratio=1.0),
+                    ),
+                ),
+                CriterionSpec(
+                    code="structure",
+                    title="構成",
+                    description="求める項目が揃っているか。",
+                    weight=0.5,
+                    evaluator="checklist_ai_judge",
+                    levels=(
+                        LevelSpec(level=0, label="未達", descriptor="揃わない", score_ratio=0.0),
+                        LevelSpec(level=1, label="達成", descriptor="揃う", score_ratio=1.0),
+                    ),
+                ),
+            ),
+            test_cases=(
+                TestCaseSpec(name="case1", input="1 2\n", expected="3\n"),
+                TestCaseSpec(
+                    name="考察", evaluator="checklist_ai_judge", payload={"aliases": ["考察"]}
+                ),
+            ),
+        ),
+        subject_profile="cs_lang_c_intro",
+        authored_by=_user_id(world, "teacher"),
+    )
+    task_id = str(saved.task.id)
+
+    # 入出力だけを直す。項目表は残る。
+    world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/tasks/{task_id}/test-cases/edit",
+        data={
+            "case_name": ["case1"],
+            "case_input": ["2 2\n"],
+            "case_expected": ["4\n"],
+            "case_weight": ["1.0"],
+            "case_hidden": ["1"],
+        },
+        follow_redirects=False,
+    )
+    with world.database.unit_of_work() as uow:
+        version = uow.tasks.latest_version(TaskId(task_id))
+    by_evaluator = {case.evaluator_id: case for case in version.test_cases}
+    assert set(by_evaluator) == {"code_test_runner", "checklist_ai_judge"}
+    assert by_evaluator["code_test_runner"].payload["expected"] == "4\n"
+
+    # 項目表だけを直す。入出力は残る。
+    world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/tasks/{task_id}/items/edit",
+        data={
+            "item_name": ["考察", "結果"],
+            "item_weight": ["1.0", "1.0"],
+            "item_hidden": ["0", "0"],
+            "item_description": ["", ""],
+            "item_aliases": ["考察", "結果"],
+        },
+        follow_redirects=False,
+    )
+    with world.database.unit_of_work() as uow:
+        version = uow.tasks.latest_version(TaskId(task_id))
+    names = {case.evaluator_id: [] for case in version.test_cases}
+    for case in version.test_cases:
+        names[case.evaluator_id].append(case.name)
+    assert sorted(names["checklist_ai_judge"]) == ["結果", "考察"]
+    assert names["code_test_runner"] == ["case1"]
+
+
+def test_an_assistant_reads_the_item_list_but_cannot_change_it(world: World) -> None:
+    """**TA は確認だけ**（#302・#300 と同じ扱い）。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    world.register("ta", Role.ASSISTANT)
+    task_id = _task_with_items(world, items=("目的",))
+
+    page = world.client("ta").get(f"/manage/courses/{world.course.id}/tasks/{task_id}/edit").text
+    assert "項目表" in page and "目的" in page
+    assert "項目表を直す" not in page
+    assert "/items/edit" not in page
+    # **隠すだけの画面は境界にならない。** 経路の側でも拒む。
+    refused = world.client("ta").post(
+        f"/manage/courses/{world.course.id}/tasks/{task_id}/items/edit",
+        data={"item_name": ["目的"], "item_weight": ["1.0"], "item_hidden": ["0"]},
+    )
+    assert refused.status_code in (403, 404), refused.status_code
+
+
+def test_a_task_whose_criteria_do_not_read_an_item_list_refuses_one(world: World) -> None:
+    """**誰も読まないデータを版に残さない。**
+
+    観点が項目表を読む評価器を指名していない課題に項目を持たせると、画面にも
+    出ず、採点にも使われないものが残る。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    task_id = _import_example(world)
+
+    refused = world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/tasks/{task_id}/items/edit",
+        data={"item_name": ["目的"], "item_weight": ["1.0"], "item_hidden": ["0"]},
+    )
+    assert refused.status_code == 400
+
+
 def _task_with_tests(world: World, author: str = "teacher") -> str:
     """参照解答とテストケースを持つ課題（画面から直せるようキー付きで保存）。
 

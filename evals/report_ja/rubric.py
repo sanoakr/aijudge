@@ -38,8 +38,12 @@ RUBRIC = _module.DATASET
 DESCRIPTOR_SOURCE = _module.DESCRIPTOR_SOURCE
 # **どの決定的評価器を使うかもルーブリックが決める。** 体裁を本文の構造から
 # 見るか、提出そのものから見るかはルーブリックの立場であって、科目の性質では
-# ない。既定は本文の構造を見る側（従来の挙動）。
-DETERMINISTIC = getattr(_module, "DETERMINISTIC", ("report_structure",))
+# ない。
+#
+# 既定は提出そのものを見る側。本文の構造を決定的に見ていた `report_structure`
+# は #302 で廃止した（PDF に見出しの構造は無く、正規表現で探すのは当て推量
+# だった）。構造を問う観点は AI 側の `checklist_ai_judge` が担当する。
+DETERMINISTIC = getattr(_module, "DETERMINISTIC", ("submission_compliance",))
 POINTS = _module.POINTS
 TOTAL_POINTS = _module.TOTAL_POINTS
 MAX_LEVEL = _module.MAX_LEVEL

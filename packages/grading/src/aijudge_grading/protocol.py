@@ -93,13 +93,35 @@ class Evaluator(Protocol):
     def evaluate(self, request: EvaluationRequest) -> EvaluationOutcome: ...
 
 
+#: 検証データの形。画面はこれで編集の仕方を選ぶ（#302）。
+#: `io` は入力と期待出力の組、`items` は項目の並び。
+TEST_CASE_SHAPES = ("io", "items")
+
+
+def test_case_shape(evaluator: object) -> str | None:
+    """この評価器が読む検証データの形。
+
+    **画面が評価器名の表を持たないため**にある（`reads_test_cases` と同じ
+    理由）。入出力の編集欄と項目表の編集欄は別の画面部品なので、どちらを
+    出すかは評価器に言わせる。宣言が無ければ入出力（従来の形）。
+
+    知らない形を名乗る評価器には、画面は編集欄を出さずに「この評価器の
+    検証データは画面から編集できません」と言う ── 知らない形を入出力の
+    欄で編集させると、黙って壊す。
+    """
+    if not reads_test_cases(evaluator):
+        return None
+    shape = getattr(evaluator, "test_case_shape", "io")
+    return str(shape)
+
+
 def reads_test_cases(evaluator: object) -> bool:
     """この評価器は入出力セット（`EvaluationRequest.test_cases`）を読むか。
 
-    宣言していなければ読まない。**「決定論的かどうか」とは別の問い**で、
-    提出の遵守（`submission_compliance`）やレポートの構造（`report_structure`）は
-    決定論的だが入出力セットを持たない ── 一緒にすると、そういう課題の画面に
-    永久に空の入出力セットの欄が出る。
+    宣言していなければ読まない。**「決定論的かどうか」とは別の問い**である。
+    提出の遵守（`submission_compliance`）は決定論的だが検証データを持たず、
+    項目表の照合（`checklist_ai_judge`）は AI だが課題ごとの項目表を読む。
+    種別で代用すると、片方には永久に空の欄が出て、もう片方には欄が出ない。
     """
     return bool(getattr(evaluator, "uses_test_cases", False))
 

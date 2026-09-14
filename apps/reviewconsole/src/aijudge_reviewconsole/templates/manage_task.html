@@ -355,7 +355,7 @@
   <div class="actions"><button type="submit">{{ 'この問題を保存して更新する' if task else '保存' }}</button></div>
 </form>
 
-{% if task and (version.test_cases or wants_tests or test_driven_criteria) %}
+{% if task and (io_cases or wants_tests or data_criteria.get('io')) %}
 {# テストケースの閲覧と修正（#284）。**修正は版を上げる**（P8）── 出題済みの
    版のテストを書き換えると、過去の採点が何で判定されたのか辿れなくなる。
    参照解答があれば保存前に門 1（参照解答が全ケースを通る）を走らせ、通らない
@@ -365,15 +365,16 @@
    （#300）。観点はそれぞれ自分の評価器を持つ（ADR 0018）ので、科目の宣言だけで
    出し分けると `code_test_runner` を割り当てた課題でも欄が出ず、その評価器が
    何を走らせるのかを画面から確かめられなかった。読むかどうかは評価器が宣言する
-   ── 決定論的かどうかで出し分けると、提出の遵守やレポートの構造のように
-   入出力セットを持たない観点の課題に、永久に空の欄が出る。 #}
+   ── 決定論的かどうかで出し分けると、検証データを持たない評価器（提出の遵守）の
+   課題に永久に空の欄が出て、AI でも検証データを読む評価器（項目表の照合）には
+   欄が出ない（#302）。 #}
 <div class="card" id="tests">
-  <h3 style="margin-top:0">入出力セット（テストケース {{ version.test_cases | length }} 件）</h3>
-  {% if test_driven_criteria %}
+  <h3 style="margin-top:0">入出力セット（テストケース {{ io_cases | length }} 件）</h3>
+  {% if data_criteria.get('io') %}
   <p class="desc" style="margin:0 0 10px">
     この課題は
-    {% for name in test_driven_criteria %}<span class="mono">{{ name }}</span>{% if not loop.last %} / {% endif %}{% endfor %}
-    で採点する観点を持ちます{% if not version.test_cases %} —
+    {% for name in data_criteria['io'] %}<span class="mono">{{ name }}</span>{% if not loop.last %} / {% endif %}{% endfor %}
+    で採点する観点を持ちます{% if not io_cases %} —
     <strong>入出力セットが 1 件も無いので、その観点は判定できません</strong>（総点は伏せられます・ADR 0015）。
     下の「テストケースを直す」から足してください{% endif %}。
   </p>
@@ -395,7 +396,7 @@
           <th>入力</th><th>期待出力</th>
         </tr></thead>
         <tbody>
-        {% for case in version.test_cases %}
+        {% for case in io_cases %}
           <tr>
             <td class="fit"><input type="checkbox" name="case_delete" value="{{ loop.index0 }}" style="width:auto"></td>
             <td class="fit"><input name="case_name" value="{{ case.name }}"></td>
@@ -410,7 +411,7 @@
         {# 追加用の空行。名前が空なら捨てられる。 #}
         <tr>
           <td class="fit desc">追加</td>
-          <td class="fit"><input name="case_name" placeholder="case{{ version.test_cases | length + 1 }}"></td>
+          <td class="fit"><input name="case_name" placeholder="case{{ io_cases | length + 1 }}"></td>
           <td class="fit"><input name="case_weight" type="number" step="0.1" min="0.1" value="1.0"></td>
           <td class="fit"><select name="case_hidden"><option value="1">見せない</option><option value="0">見せる</option></select></td>
           <td><textarea name="case_input" rows="3" class="mono"></textarea></td>
@@ -420,6 +421,71 @@
       </table>
       </div>
       <div class="actions"><button type="submit">テストケースを保存して新しい版にする</button></div>
+    </form>
+  </details>
+</div>
+{% endif %}
+
+{% if task and data_criteria.get('items') %}
+{# 項目表の閲覧と修正（#302）。**修正は版を上げる**（P8）── 出題済みの版の
+   項目を書き換えると、過去の採点が何で判定されたのか辿れなくなる。
+
+   入出力セットと同じ扱いだが、**部品は分ける** ── 入力と期待出力の組と、
+   項目の並びは違う形である。どちらを出すかは評価器が名乗る
+   （`aijudge_grading.test_case_shape`）。 #}
+<div class="card" id="items">
+  <h3 style="margin-top:0">項目表（{{ item_cases | length }} 件）</h3>
+  <p class="desc" style="margin:0 0 10px">
+    この課題は
+    {% for name in data_criteria['items'] %}<span class="mono">{{ name }}</span>{% if not loop.last %} / {% endif %}{% endfor %}
+    で採点する観点を持ちます。提出物に<strong>この項目が含まれているか</strong>を 1 つずつ見て、
+    満たした重みの割合で段階が決まります{% if not item_cases %} —
+    <strong>項目が 1 件も無いので、科目プロファイルの既定が使われます</strong>。
+    この課題で決めるなら下の「項目表を直す」から足してください{% endif %}。
+  </p>
+  {% include "_item_list_table.html" %}
+  <details style="margin-top:12px">
+    <summary><b>項目表を直す</b><span class="desc">（保存すると新しい版になります）</span></summary>
+    <form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/tasks/{{ task.id }}/items/edit" class="criterion-fields">
+      <p class="desc" style="margin:8px 0">
+        <strong>「満たす条件」と「言い換えの例」は判定する AI への助言です。</strong>
+        例に無い書き方でも、求めた内容が書かれていれば「ある」と判定されます
+        — 例をいくら並べても、そこに無い書き方を落とすわけではありません。
+        言い換えはカンマか読点で区切ります。項目名が空の行は捨てます。
+      </p>
+      <div style="overflow-x:auto">
+      <table class="testcases">
+        <thead><tr>
+          <th class="fit">消す</th><th class="fit">項目</th><th class="fit">重み</th><th class="fit">学習者に</th>
+          <th>満たす条件</th><th>言い換えの例</th>
+        </tr></thead>
+        <tbody>
+        {% for case in item_cases %}
+          <tr>
+            <td class="fit"><input type="checkbox" name="item_delete" value="{{ loop.index0 }}" style="width:auto"></td>
+            <td class="fit"><input name="item_name" value="{{ case.name }}"></td>
+            <td class="fit"><input name="item_weight" type="number" step="0.1" min="0.1" value="{{ case.weight }}"></td>
+            <td class="fit"><select name="item_hidden">
+              <option value="0" {{ 'selected' if not case.hidden }}>見せる</option>
+              <option value="1" {{ 'selected' if case.hidden }}>見せない</option></select></td>
+            <td><textarea name="item_description" rows="2">{{ case.payload.get('description', '') }}</textarea></td>
+            <td><textarea name="item_aliases" rows="2">{{ (case.payload.get('aliases') or []) | join('、') }}</textarea></td>
+          </tr>
+        {% endfor %}
+        {# 追加用の空行。名前が空なら捨てられる。 #}
+        <tr>
+          <td class="fit desc">追加</td>
+          <td class="fit"><input name="item_name" placeholder="考察"></td>
+          <td class="fit"><input name="item_weight" type="number" step="0.1" min="0.1" value="1.0"></td>
+          <td class="fit"><select name="item_hidden">
+            <option value="0">見せる</option><option value="1">見せない</option></select></td>
+          <td><textarea name="item_description" rows="2" placeholder="結果から言えることを、結果の言い換えに留まらず書いている"></textarea></td>
+          <td><textarea name="item_aliases" rows="2" placeholder="考察、議論"></textarea></td>
+        </tr>
+        </tbody>
+      </table>
+      </div>
+      <div class="actions"><button type="submit">項目表を保存して新しい版にする</button></div>
     </form>
   </details>
 </div>

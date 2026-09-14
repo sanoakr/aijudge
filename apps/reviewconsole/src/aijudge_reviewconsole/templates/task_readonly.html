@@ -53,14 +53,14 @@
         <td class="grow mono">{{ accepted | join(' ') }}</td></tr>
       <tr><td class="fit">入出力セット</td>
         <td class="grow">
-          {% if version.test_cases %}{{ version.test_cases | length }} 件（テスト実行で確定します・下に中身）
-          {% elif test_driven_criteria %}
+          {% if io_cases %}{{ io_cases | length }} 件（テスト実行で確定します・下に中身）
+          {% elif data_criteria.get('io') %}
           {# **0 件は「AI が判定する」ではない**（#300）。観点が入出力セットを
              読む評価器を指しているので、セットが無ければその観点は未採点のまま
              残り、総点は伏せられる（ADR 0015）。誰も判定していないことを、
              そう言う。 #}
           <span class="desc">0 件 ──
-            <span class="mono">{% for name in test_driven_criteria %}{{ name }}{% if not loop.last %} / {% endif %}{% endfor %}</span>
+            <span class="mono">{% for name in data_criteria['io'] %}{{ name }}{% if not loop.last %} / {% endif %}{% endfor %}</span>
             の観点は判定できません（担当教員が入れるまで総点は出ません）</span>
           {% else %}<span class="desc">なし ── 正しさの観点は AI が判定し、教員が確定させます</span>{% endif %}
         </td></tr>
@@ -70,9 +70,19 @@
   </table>
 </div>
 
-{% if version.test_cases %}
+{% if data_criteria.get('items') %}
 <div class="card">
-  <h2 style="margin-top:0">入出力セット（テストケース {{ version.test_cases | length }} 件）</h2>
+  <h2 style="margin-top:0">項目表（{{ item_cases | length }} 件）</h2>
+  <p class="desc">提出物にこの項目が含まれているかを 1 つずつ見て、満たした重みの
+    割合で段階が決まります。<strong>直すのは担当教員です</strong>（この画面は確認だけ）。
+    {% if not item_cases %}この課題は項目を持たないので、科目プロファイルの既定が使われます。{% endif %}</p>
+  {% include "_item_list_table.html" %}
+</div>
+{% endif %}
+
+{% if io_cases %}
+<div class="card">
+  <h2 style="margin-top:0">入出力セット（テストケース {{ io_cases | length }} 件）</h2>
   <p class="desc">学習者の提出はこの入力で走り、期待出力と比べられます（行末の空白と末尾の空行だけ無視）。
     <strong>直すのは担当教員です</strong>（この画面は確認だけ）。</p>
   {% include "_test_cases_table.html" %}

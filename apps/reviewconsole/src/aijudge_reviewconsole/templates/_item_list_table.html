@@ -1,0 +1,24 @@
+{# 項目表の一覧（#302）。**中身を見せる** ── 件数だけでは、何を求めている
+   課題なのかも、学習者の「書いたのに点が付かない」に何と答えるかも、画面から
+   分からない。言い換えと判定条件は AI への助言で、一致の条件ではない。 #}
+<div style="overflow-x:auto">
+<table class="testcases">
+  <thead><tr>
+    <th class="fit">項目</th><th class="fit">重み</th><th class="fit">学習者に</th>
+    <th>満たす条件</th><th>言い換えの例</th>
+  </tr></thead>
+  <tbody>
+  {% for case in item_cases %}
+    <tr>
+      <td class="fit mono">{{ case.name }}</td>
+      <td class="fit">{{ case.weight }}</td>
+      <td class="fit desc">{{ '見せない' if case.hidden else '見せる' }}</td>
+      <td>{{ case.payload.get('description', '') or '—' }}</td>
+      <td class="desc">{{ (case.payload.get('aliases') or []) | join('・') or '—' }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="5" class="desc">項目はまだありません。</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
