@@ -68,6 +68,19 @@
          `{"detail":"Not Found"}` になった。ローカル（接頭辞なし）では出ない。 #}
       action="{{ root_prefix() }}{{ '/manage/courses/%s/tasks/%s/revise' | format(course.id, task.id)
                 if task else '/manage/courses/%s/tasks' | format(course.id) }}">
+  {# **これで 1 つの保存**（#311）。問題・提出・採点・分類は 1 つのフォームで、
+     押すボタンは足元の 1 つだけである ── 大項目ごとに箱で区切った（#308）
+     ことで、共通設定のように**箱ごとに保存があるように見えていた**。あちらは
+     節ごとに別のフォームで、こちらは全部で 1 つの版になる。
+
+     枠で囲い、見出しと保存を同じ枠に入れて、どこまでが 1 回の保存なのかを
+     目に見える形にする。 #}
+  <section class="taskform">
+  <div class="taskform-head">
+    <b>この問題の内容</b>
+    <span class="desc">問題・提出・採点・分類を{% if task %}まとめて保存すると<strong>新しい版</strong>になります{% else %}書いて保存します{% endif %}</span>
+  </div>
+
   <div class="card">
   {% if task %}
     <p class="desc" style="margin:0">
@@ -379,7 +392,7 @@
 
   </div>
 
-  <p class="desc" style="margin-top:20px">
+  <p class="desc" style="margin:16px 4px 0">
     {% if task %}
       問題文か観点を変えると<strong>新しい版</strong>ができます（いま {{ version.version }} 版）。
       過去の採点は元の版のまま残ります。提出形式だけを変えたときは版は上がりません。
@@ -391,7 +404,13 @@
   {# **訂正のときは「この問題を保存して更新する」**。フォームの末尾が「提出できるファイル形式」
      なので、「保存」だと拡張子だけを保存するボタンに見える ── 押すと問題文と
      観点も含めて新しい版ができる操作である。 #}
-  <div class="actions"><button type="submit">{{ 'この問題を保存して更新する' if task else '保存' }}</button></div>
+  <div class="taskform-foot">
+    <span class="desc">
+      {%- if task %}上の 4 つをまとめて保存します（入出力セットと項目表は観点の中の欄から別に保存します）
+      {%- else %}書いた内容で課題を作ります{% endif %}</span>
+    <button type="submit">{{ 'この問題を保存して更新する' if task else '保存' }}</button>
+  </div>
+  </section>
 </form>
 
 {# **どの観点も使っていない検証データは、使われていないと言う**（#303）。
@@ -433,6 +452,12 @@
 {% endif %}
 
 {% if task %}
+{# **ここから下は、内容の編集とは別の操作である**（#311）。押すとその場で
+   起きるもの（生成・再採点・移動・取り下げ・削除）で、上のフォームの保存とは
+   関係がない ── 見出しで分けないと、上の「保存して更新する」がこれらにも
+   効くように見える。 #}
+<h2>この問題への操作</h2>
+
 {# **後から足せる。** 以前は「作り直してください」と書いてあり、作り直せば
    別の課題になって同じ問題が 2 件並んだ（#43）。 #}
 {% if falls_back_to_ai %}

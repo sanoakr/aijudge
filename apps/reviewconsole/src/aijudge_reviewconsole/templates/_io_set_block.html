@@ -16,6 +16,42 @@
     <strong>入出力セットが 1 件も無いので、この観点は判定できません</strong>（総点は伏せられます・ADR 0015）。
     下の「テストケースを直す」から足してください{% endif %}。
   </p>
+  {# 参照解答（#305）。**教員だけが見る** ── 学習者はもちろん、TA にも出さない
+     （この画面は `task_readonly.html` と別で、あちらには足さない）。
+
+     **いままで画面のどこにも出ていなかった。** 生成経路（AI 作問・テストケースの
+     後付け・zip 束の取り込み）が書き込むだけで、教員は中身を読めず、直すことも
+     できなかった ── 門 1（参照解答が全ケースを通る）が落ちても、何が通らないのか
+     確かめる手段が無い。 #}
+  <details id="reference" style="margin:12px 0"
+    {%- if reference_draft is defined and reference_draft %} open{% endif %}>
+    <summary><b>参照解答</b>
+      <span class="desc">
+        {%- if version.reference_solution %}あります（{{ version.reference_solution.splitlines() | length }} 行）
+        {%- else %}ありません{% endif %} · 教員だけが見られます</span></summary>
+    <div class="criterion-fields">
+      <p class="desc" style="margin:8px 0">
+        期待出力は<strong>この解答例を実際に走らせて</strong>作ります。
+        だから解答例が課題文の意図どおりであることが先で、
+        <strong>読んで直すのは教員の仕事です</strong>
+        — 門が言えるのは「参照解答とテストケースが整合している」までで、
+        両方が同じ勘違いをしていればそのまま通ります。
+      </p>
+      <textarea form="io-form" name="reference_solution" rows="12" class="mono"
+        placeholder="#include <stdio.h>&#10;int main(void) { ... }">{{ reference_draft if reference_draft is defined and reference_draft else (version.reference_solution or '') }}</textarea>
+      {% if task %}
+      <div class="actions" style="justify-content:flex-start">
+        {# **入れ子のフォームは作れない**ので、同じフォームを別の先へ送る
+           （`formaction`）── 書きかけの解答例とテストケースがそのまま渡る。
+           知識要素の候補と同じ作法（`manage_task.html`）。 #}
+        <button form="io-form" type="submit" class="minor" formnovalidate
+                formaction="{{ root_prefix() }}/manage/courses/{{ course.id }}/tasks/{{ task.id }}/reference-solution"
+                data-working="書いています… 数十秒かかります">AI に解答例を書かせる</button>
+        <span class="desc">いまの問題文から書きます（数十秒）。<strong>保存はされません。</strong></span>
+      </div>
+      {% endif %}
+    </div>
+  </details>
   {% include "_test_cases_table.html" %}
   <details id="io-edit" style="margin-top:12px"
     {%- if saved_key is defined and saved_key == 'tests_revised' %} open{% endif %}>
@@ -63,6 +99,59 @@
         </tbody>
       </table>
       </div>
+      {# 提案（#305）。**採用したものだけが入る。** 印を付けずに保存すれば
+         消える ── 生成物は提案であって確定ではない（P5）。
+
+         期待出力は参照解答を走らせて埋めてある。走らなかったケースは
+         採用の印を出さない（理由を書く）── 途中まで出た出力を期待出力に
+         すると、正しい提出がその中途半端な出力と比べられる。 #}
+      {% if proposed is defined and proposed %}
+      <div class="note" style="margin:12px 0">
+        <strong>AI の提案（{{ proposed | length }} 件）</strong> ──
+        印を付けたものだけが、保存のときに入出力セットに入ります。
+        期待出力は<strong>いまの解答例を実際に走らせた出力</strong>です。
+        <div style="overflow-x:auto;margin-top:8px">
+        <table class="testcases">
+          <thead><tr>
+            <th class="fit">採用</th><th class="fit">名前</th>
+            <th>入力</th><th>期待出力</th><th class="fit">何を確かめるか</th>
+          </tr></thead>
+          <tbody>
+          {% for case in proposed %}
+          <tr>
+            <td class="fit">
+              {% if case.ok %}
+              <input form="io-form" type="checkbox" name="prop_adopt" value="{{ loop.index0 }}" style="width:auto">
+              {% else %}<span class="pill no">採れません</span>{% endif %}
+            </td>
+            <td class="fit mono">{{ case.name }}
+              <input form="io-form" type="hidden" name="prop_name" value="{{ case.name }}"></td>
+            <td><pre class="io">{{ case.input }}</pre>
+              <textarea form="io-form" name="prop_input" hidden>{{ case.input }}</textarea></td>
+            <td>
+              {% if case.ok %}<pre class="io">{{ case.output }}</pre>
+              <textarea form="io-form" name="prop_expected" hidden>{{ case.output }}</textarea>
+              {% else %}<span class="desc">{{ case.reason }}</span>
+              <textarea form="io-form" name="prop_expected" hidden></textarea>{% endif %}</td>
+            <td class="fit desc">{{ case.why }}</td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+        </div>
+      </div>
+      {% endif %}
+      {% if task %}
+      <div class="actions" style="justify-content:flex-start">
+        <button form="io-form" type="submit" class="minor" formnovalidate
+                formaction="{{ root_prefix() }}/manage/courses/{{ course.id }}/tasks/{{ task.id }}/test-cases/propose"
+                data-working="提案しています… 数十秒かかります">解答例からテストケースを提案</button>
+        <span class="desc">
+          上の解答例を走らせて期待出力を埋めます（数十秒）。<strong>保存はされません。</strong>
+          解答例が無いと提案できません。
+        </span>
+      </div>
+      {% endif %}
       <div class="actions">
         <button form="io-form" type="submit">テストケースを保存して新しい版にする</button>
       </div>

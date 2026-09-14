@@ -12,6 +12,8 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from aijudge_authoring import (
@@ -30,6 +32,7 @@ from aijudge_core import (
     Submission,
     SubmissionState,
     TaskVersion,
+    TestCase,
     new_id,
 )
 from aijudge_core.ids import ArtifactId, SubmissionId, UserId
@@ -155,6 +158,125 @@ class TaskVerifier:
                 if score.score_ratio < 1.0:
                     return False, (score.rationale or "満点ではありません")[:400]
         return True, ""
+
+
+@dataclass(frozen=True)
+class CaseRun:
+    """入力 1 件を参照解答に流した結果（#305）。
+
+    **期待出力はここから作る。** モデルに書かせた期待出力は、誤っていても
+    誰も気づかないまま決定的採点に入る ── 決定的な結果は `conclusive` なので
+    AI にも見直されない（P3）。誤りは「全員が落ちる」として現れ、原因は
+    提出物の側に見える。
+    """
+
+    name: str
+    input: str
+    output: str
+    ok: bool
+    #: 走らなかった理由（タイムアウト、非ゼロ終了、コンパイル失敗）。
+    reason: str = ""
+
+
+def outputs_for(
+    registry: EvaluatorRegistry,
+    profile: SubjectProfile,
+    task_version: TaskVersion,
+    reference: str,
+    inputs: Sequence[tuple[str, str]],
+    *,
+    evaluator_id: str,
+) -> tuple[CaseRun, ...]:
+    """参照解答に入力を流し、出た出力を返す（#305）。
+
+    **採点と同じ経路で走らせる。** 別に実行系を書くと、ここで作った期待出力を
+    採点が再現しない ── `TaskVerifier.passes` が同じ理由で評価器を通している
+    のと同じ判断である（このモジュールの冒頭）。
+
+    期待出力を空にした仮のテストケースで評価器を呼び、`raw_output` に残る
+    実際の出力を拾う。**落ちたケースは落ちたと返す** ── 出力が空なのか
+    走らなかったのかを区別せずに期待出力へ入れると、「空を期待する」テスト
+    ケースが黙って出来上がる。
+    """
+    if not inputs:
+        return ()
+    candidate = task_version.model_copy(
+        update={
+            "test_cases": tuple(
+                TestCase(
+                    name=name,
+                    evaluator_id=evaluator_id,
+                    # 期待出力は空。**比較の結果は見ない**（見るのは実際の出力）。
+                    payload={"input": text, "expected": ""},
+                    hidden=True,
+                    weight=1.0,
+                )
+                for name, text in inputs
+            )
+        }
+    )
+    submission, artifact_id = _candidate(candidate)
+    outcome = registry.get(evaluator_id).evaluate(
+        EvaluationRequest(
+            task_version=candidate,
+            submission=submission,
+            artifact_contents={artifact_id: reference.encode()},
+            test_cases=candidate.test_cases,
+            timeout_seconds=profile.timeout_seconds,
+            options=profile.evaluator_options.get(evaluator_id, {}),
+        )
+    )
+    if outcome.status is EvaluatorStatus.FAILED:
+        # コンパイルできない、サンドボックスが無い、など。**1 件も作らない。**
+        detail = str(outcome.raw_output.get("compile_error") or outcome.error or "")[:400]
+        return tuple(
+            CaseRun(name=name, input=text, output="", ok=False, reason=detail or "実行できません")
+            for name, text in inputs
+        )
+    by_name = {
+        str(case.get("name")): case
+        for case in outcome.raw_output.get("cases", ())
+        if isinstance(case, dict)
+    }
+    runs: list[CaseRun] = []
+    for name, text in inputs:
+        case = by_name.get(name)
+        if case is None:
+            runs.append(
+                CaseRun(name=name, input=text, output="", ok=False, reason="走りませんでした")
+            )
+            continue
+        actual = case.get("actual")
+        lines = [str(line) for line in actual] if isinstance(actual, list) else []
+        reason = str(case.get("reason") or "")
+        exit_code = case.get("exit_code")
+        # **「出力が違う」は失敗ではない。** 期待出力を空にして走らせている
+        # ので、出力が出ればかならず不一致になる ── ここで見たいのは
+        # 「ちゃんと終わったか」だけである。
+        #
+        # 逆に、**出力が出ていても落ちていれば採らない。** 非ゼロ終了や
+        # タイムアウトの途中までの出力を期待出力にすると、正しい提出が
+        # その中途半端な出力と比べられる。
+        broke = reason not in ("", "output mismatch") or (
+            isinstance(exit_code, int) and exit_code != 0
+        )
+        ok = not broke
+        if ok:
+            reason = ""
+        elif not reason:
+            reason = f"終了コード {exit_code}"
+        runs.append(
+            CaseRun(
+                name=name,
+                input=text,
+                # 末尾に改行を 1 つ。評価器は正規化して比べる（`normalize_output`）
+                # が、画面に出す・保存するのは人が読む形にする。
+                output=("\n".join(lines) + "\n") if lines else "",
+                ok=ok,
+                reason=reason,
+            )
+        )
+    return tuple(runs)
 
 
 def _candidate(task_version: TaskVersion) -> tuple[Submission, ArtifactId]:
