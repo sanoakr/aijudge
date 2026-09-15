@@ -132,6 +132,10 @@ def course_rail(
                     RailItem("コースの基本情報", f"{manage}/basics"),
                     RailItem("受講者", f"{manage}/enrolments"),
                     RailItem("知識要素（KC）", f"{manage}/kc"),
+                    # 習熟度（#328）。**知識要素の隣に置く** ── 何を問うかを
+                    # 決める画面と、その結果どうなっているかを見る画面である。
+                    # TA には出さない（`_require_enrolment_manager` と揃える）。
+                    RailItem("習熟度", f"{manage}/mastery"),
                 ),
             )
         )

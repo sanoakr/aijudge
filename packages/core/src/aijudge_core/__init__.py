@@ -74,7 +74,14 @@ from .knowledge import (
     kc_id_for,
     parse_kc_key,
 )
-from .skill import Credential, CredentialExport, MasteryModel, SkillEvidence, SkillState
+from .skill import (
+    Credential,
+    CredentialExport,
+    MasteryModel,
+    SkillEvidence,
+    SkillPoint,
+    SkillState,
+)
 from .spans import (
     ArtifactSpan,
     CharSpan,
@@ -189,6 +196,7 @@ __all__ = [
     "RubricCriterion",
     "RubricLevel",
     "SkillEvidence",
+    "SkillPoint",
     "SkillState",
     "SkillStateUpdated",
     "Submission",

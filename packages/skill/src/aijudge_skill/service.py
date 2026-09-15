@@ -18,6 +18,7 @@ from aijudge_core import (
     MasteryModel,
     Routing,
     SkillEvidence,
+    SkillPoint,
     SkillState,
     SkillStateUpdated,
     new_id,
@@ -116,6 +117,7 @@ class SkillService:
         )
         history = ((() if state is None else state.evidence) + (evidence,))[-self._max_evidence :]
 
+        observations = (0 if state is None else state.observation_count) + 1
         self._repository.save_state(
             SkillState(
                 tenant_id=tenant_id,
@@ -123,9 +125,26 @@ class SkillService:
                 kc_id=outcome.kc_id,
                 mastery=mastery,
                 model=MasteryModel.BKT,
-                observation_count=(0 if state is None else state.observation_count) + 1,
+                observation_count=observations,
                 evidence=history,
                 updated_at=observed_at,
+            )
+        )
+        # **動いた瞬間を残す**（#328）。`SkillState` は最新の 1 行を持ち替える
+        # ので、ここで残さないと推移は二度と読めない ── 根拠は最新 20 件に
+        # 切られ、BKT は観測列を畳むので遡れない。
+        #
+        # 呼ぶのは実際に動いたときだけである。上の早期 return（確信度不足・
+        # 再送）を通った時点で、この行は「新しい観測を 1 つ畳んだ」を意味する。
+        self._repository.append_point(
+            SkillPoint(
+                tenant_id=tenant_id,
+                learner_id=event.learner_id,
+                kc_id=outcome.kc_id,
+                mastery=mastery,
+                observation_count=observations,
+                model=MasteryModel.BKT,
+                recorded_at=observed_at,
             )
         )
         return SkillStateUpdated(
@@ -137,7 +156,7 @@ class SkillService:
             mastery=mastery,
             previous_mastery=previous,
             model=MasteryModel.BKT,
-            observation_count=(0 if state is None else state.observation_count) + 1,
+            observation_count=observations,
         )
 
 

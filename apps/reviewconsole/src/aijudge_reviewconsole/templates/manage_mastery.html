@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block title %}習熟度 — {{ course.title }}{% endblock %}
+{% block body %}
+<h1>習熟度</h1>
+<p class="subtitle">{{ course.title }}</p>
+
+{# **これは断面である。** 習熟度は学習者 × KC で 1 つの値で、コース別には
+   持っていない ── ここに出しているのは、このコースの受講者を、このコースが
+   使う知識要素で切ったものにすぎない。値そのものには担当外の科目で得た
+   観測も入っている。黙って「このコースの習熟度」と出すと、教員は自分の
+   課題では説明できない値を説明しようとすることになる。 #}
+<div class="note">
+  <strong>これは推定値です。</strong>
+  予測の妥当性（次の課題の正誤をどれだけ当てるか）は<strong>まだ測っていません</strong>。
+  学習者には出していません。
+  <br>
+  習熟度は<strong>コースをまたいで積み上がります</strong>。
+  ここに出るのはこのコースの受講者とこのコースが使う知識要素で切った断面で、
+  値そのものには他の科目で得た観測も入っています。
+  <a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/kc">知識要素</a>
+</div>
+
+{% if not view.measured %}
+<div class="note warn">
+  <strong>まだ記録がありません。</strong>
+  知識要素の付いた課題が採点されると、ここに分布と推移が出ます。
+  課題に知識要素が付いていないと、その成績は習熟度に記録されません。
+</div>
+{% else %}
+
+<h2 id="distribution">分布</h2>
+<div class="card">
+  <div class="hist">
+    {% for count in view.bands %}
+    <div class="bar" title="{{ band_label(loop.index0) }}%: {{ count }} 件">
+      <span class="n">{{ count if count else '' }}</span>
+      <span class="fill" style="height:{{ (100 * count / view.bands | max) | round(1) if view.bands | max else 0 }}%"></span>
+      <span class="x">{{ band_label(loop.index0) }}</span>
+    </div>
+    {% endfor %}
+  </div>
+  {# **母数を偽らない。** 受講者の数と、記録のある受講者の数は別に出す。 #}
+  <p class="desc" style="margin:10px 0 0">
+    受講者 {{ view.learners }} 名のうち<strong>記録があるのは {{ view.learners_with_data }} 名</strong>・
+    平均 <strong>{{ '%.0f' | format(view.mean * 100) }}%</strong>。
+    1 つの棒は「学習者 × 知識要素」の組の数です。
+  </p>
+</div>
+
+<h2 id="trend">推移</h2>
+<div class="card">
+  {# **縦軸は 0–100% で固定**（`mastery.polyline`）。データに合わせて詰めると、
+     0.62 から 0.64 への動きが画面いっぱいの上昇に見える。 #}
+  <svg viewBox="0 0 {{ chart.width }} {{ chart.height }}" width="100%" height="{{ chart.height }}"
+       role="img" aria-label="習熟度の平均の推移" style="overflow:visible">
+    {% for ratio in [0.0, 0.5, 1.0] %}
+    <line x1="0" x2="{{ chart.width }}"
+          y1="{{ chart.height - ratio * chart.height }}" y2="{{ chart.height - ratio * chart.height }}"
+          stroke="var(--line-soft)" stroke-width="1"></line>
+    {% endfor %}
+    <polyline points="{{ line }}" fill="none" stroke="var(--ai)" stroke-width="2"
+              stroke-linejoin="round" stroke-linecap="round"></polyline>
+  </svg>
+  <p class="desc" style="margin:10px 0 0">
+    縦は 0〜100%。各日の値は<strong>その日時点の平均</strong>です
+    （その日に採点された人だけの平均ではありません）。
+    {% if view.trend %}
+    <br>
+    {{ view.trend[0].day }} から {{ view.trend[-1].day }}・
+    母数は {{ view.trend[0].pairs }} → <strong>{{ view.trend[-1].pairs }}</strong> 組に増えています
+    —— <strong>母数が動く図です</strong>。線の上下だけで読まないでください。
+    {% endif %}
+  </p>
+  {# **記録はいつからか。** 空の区間を「まだ動いていない」と読ませない。 #}
+  {% if view.recorded_since %}
+  <p class="desc" style="margin:6px 0 0">
+    記録は <strong>{{ view.recorded_since | local('%Y-%m-%d') }}</strong> からです。
+    それ以前の採点は習熟度には効いていますが、<strong>推移としては残っていません</strong>。
+  </p>
+  {% endif %}
+</div>
+{% endif %}
+
+<h2 id="kcs">知識要素ごと</h2>
+<table>
+  <thead><tr>
+    <th class="grow">知識要素</th><th class="fit">記録</th><th class="fit">平均</th>
+    <th class="fit">分布</th>
+  </tr></thead>
+  <tbody>
+  {% for row in view.rows %}
+    <tr>
+      <td class="grow">{{ row.label }}<br><span class="desc mono">{{ row.key }}</span></td>
+      <td class="fit">{{ row.learners }} 名</td>
+      <td class="fit">
+        {%- if row.mean is none %}<span class="desc">—</span>
+        {%- else %}{{ '%.0f' | format(row.mean * 100) }}%{% endif %}
+      </td>
+      <td class="fit">
+        {# 1 行ぶんの分布。**段の並びは上の図と同じ** ── 違う順に並べると
+           読み比べられない。 #}
+        <span class="bands" role="img"
+              aria-label="{% for n in row.bands %}{{ band_label(loop.index0) }}%: {{ n }} 名 {% endfor %}">
+          {%- for n in row.bands %}
+          <span class="band" style="flex:{{ n if n else 0 }}"
+                title="{{ band_label(loop.index0) }}%: {{ n }} 名"></span>
+          {%- endfor %}
+        </span>
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="4" class="desc">
+      このコースは知識要素を使っていません。
+      <a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/kc">知識要素</a>から足してください。
+    </td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<p class="subtitle">
+  1 人ずつ見るには<a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/enrolments">受講者</a>から開きます。
+</p>
+{% endblock %}
