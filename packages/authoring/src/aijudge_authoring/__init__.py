@@ -13,6 +13,7 @@ AI 作問はこのパッケージのワーカーとして Phase 4 で足す。�
 from __future__ import annotations
 
 from .difficulty import DifficultyEstimate, TaskOutcomeStats
+from .draft_store import DraftKind, TaskDraftRecord
 from .importers import sharif_judge
 from .repository import (
     InMemoryTaskRepository,
@@ -57,6 +58,7 @@ __all__ = [
     "DEFAULT_SIMILARITY_THRESHOLD",
     "CriterionSpec",
     "DifficultyEstimate",
+    "DraftKind",
     "DuplicateReport",
     "GateOutcome",
     "InMemoryTaskRepository",
@@ -71,6 +73,7 @@ __all__ = [
     "SolvabilityReport",
     "SolverAttempt",
     "TaskChecks",
+    "TaskDraftRecord",
     "TaskImmutabilityViolation",
     "TaskOutcomeStats",
     "TaskRepository",

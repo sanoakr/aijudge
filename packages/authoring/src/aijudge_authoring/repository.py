@@ -20,6 +20,7 @@ from typing import Protocol, runtime_checkable
 from aijudge_core import ReviewState, Task, TaskVersion
 from aijudge_core.ids import CourseId, TaskId, TaskVersionId, UserId
 
+from .draft_store import TaskDraftRecord
 from .verification import TaskChecks
 
 
@@ -49,6 +50,26 @@ class TaskRepository(Protocol):
 
     def latest_published_version(self, task_id: TaskId) -> TaskVersion | None:
         """**学習者に出してよい**最新版。承認済みが 1 つも無ければ None。"""
+        ...
+
+    # -- 承認待ちの下書き（#321）。**課題表の外に置く** ------------------
+    #
+    # 生成物は承認するまで課題にしない（`draft_store` の冒頭）。契約をここに
+    # 並べるのは、保管の口が 1 つであるため ── 別の Protocol に分けると、
+    # 合成ルートが 2 つの保管を持ち回ることになる。
+
+    def save_draft(self, draft: TaskDraftRecord) -> None:
+        """下書きを保存する。**同じ ID なら上書き**（版は積まない）。"""
+        ...
+
+    def get_draft(self, draft_id: str) -> TaskDraftRecord | None: ...
+
+    def list_drafts(self, course_id: CourseId) -> tuple[TaskDraftRecord, ...]:
+        """このコースの承認待ち。**古い順。**"""
+        ...
+
+    def delete_draft(self, draft_id: str) -> None:
+        """下書きを消す。**却下も削除もこれ**（ADR 0019）。無い ID でも落とさない。"""
         ...
 
     def list_versions(self, task_id: TaskId) -> tuple[TaskVersion, ...]:
@@ -128,6 +149,33 @@ class InMemoryTaskRepository:
         self._versions: dict[TaskVersionId, TaskVersion] = {}
         self._order: list[TaskVersionId] = []
         self._checks: dict[TaskVersionId, TaskChecks] = {}
+        # 承認待ちの下書き（#321）。**課題とは別に持つ** ── 承認するまで課題は
+        # 存在しない（`draft_store` の冒頭）。
+        self._drafts: dict[str, TaskDraftRecord] = {}
+        self._draft_order: list[str] = []
+
+    # -- 下書き（#321）------------------------------------------------------
+
+    def save_draft(self, draft: TaskDraftRecord) -> None:
+        if draft.id not in self._drafts:
+            self._draft_order.append(draft.id)
+        self._drafts[draft.id] = draft
+
+    def get_draft(self, draft_id: str) -> TaskDraftRecord | None:
+        return self._drafts.get(draft_id)
+
+    def list_drafts(self, course_id: CourseId) -> tuple[TaskDraftRecord, ...]:
+        return tuple(
+            self._drafts[key]
+            for key in self._draft_order
+            if key in self._drafts and self._drafts[key].course_id == course_id
+        )
+
+    def delete_draft(self, draft_id: str) -> None:
+        # **無い ID でも落とさない。** 二度押しは普通に起きる（`DraftStore`）。
+        self._drafts.pop(draft_id, None)
+        if draft_id in self._draft_order:
+            self._draft_order.remove(draft_id)
 
     def save_task(self, task: Task) -> None:
         self._tasks[task.id] = task

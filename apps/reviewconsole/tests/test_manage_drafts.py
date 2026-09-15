@@ -16,27 +16,18 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import text
 
+from aijudge_authoring import DraftKind, TaskDraftRecord, TaskSpec
+from aijudge_authoring.spec import TestCaseSpec
 from aijudge_authoring.verification import GateOutcome, TaskChecks, VerificationReport
 from aijudge_core import (
     Course,
     KnowledgeComponent,
-    Provenance,
-    QMatrixEntry,
-    ReviewState,
     Role,
-    RubricCriterion,
-    RubricLevel,
-    Task,
-    TaskVersion,
+    kc_id_for,
 )
 from aijudge_core.ids import (
     CourseId,
-    CriterionId,
-    KcId,
-    TaskId,
-    TaskVersionId,
     TenantId,
 )
 from aijudge_identity import AuthService
@@ -49,8 +40,7 @@ PROFILES = REPO_ROOT / "subjects"
 TENANT = TenantId("ten_" + "0" * 32)
 COURSE = CourseId("crs_" + "1" * 32)
 OTHER_COURSE = CourseId("crs_" + "9" * 32)
-VERSION = TaskVersionId("tsv_" + "3" * 32)
-KC = KcId("kc_" + "4" * 32)
+DRAFT = "dft_" + "3" * 32
 PASSWORD = "correct horse battery"
 
 
@@ -81,28 +71,20 @@ class World:
             # この課題が何を問うかの出どころではない。
             uow.skills.save_kc(
                 KnowledgeComponent(
-                    id=KC,
+                    # **ID は正準キーから導く。** 課題が KC を名指しできるか
+                    # の検査は `kc_id_for(key)` で引くので、別の ID で入れると
+                    # 「登録されていない」と言われる（#321 で採用の経路が
+                    # `save_task` を通るようになって表に出た）。
+                    id=kc_id_for("cs.loops.termination"),
                     namespace="cs",
                     path=("loops", "termination"),
                     label="ループの停止条件",
                 )
             )
-            uow.tasks.save_task(
-                Task(id=TaskId("tsk_" + "3" * 32), course_id=COURSE, title="生成課題")
-            )
-            uow.tasks.save_version(_version())
-            uow.tasks.save_checks(
-                VERSION,
-                TaskChecks(
-                    verification=VerificationReport(
-                        reference_passes=GateOutcome.PASSED,
-                        mutants_total=5,
-                        mutants_killed=5,
-                    ),
-                    declared_kcs=("cs.loops.termination",),
-                    checked_at=datetime(2026, 8, 29, tzinfo=UTC),
-                ),
-            )
+            # **課題は作らない**（#321）。承認待ちは下書きで、採用したときに
+            # 初めて課題になる ── それまで同一性（課題キー → 課題 ID）は
+            # 決まっていない。
+            uow.tasks.save_draft(_draft())
             uow.commit()
 
     def register(self, login: str, role: Role, course: CourseId = COURSE):
@@ -123,35 +105,35 @@ class World:
         self.client.cookies.set(SESSION_COOKIE, response.cookies[SESSION_COOKIE])
 
 
-def _version() -> TaskVersion:
-    return TaskVersion(
-        id=VERSION,
-        task_id=TaskId("tsk_" + "3" * 32),
-        version=1,
-        subject_profile="cs_lang_c_intro",
-        statement="## 生成された課題 ##\n\n2 つの整数を読み、和を出力しなさい。",
-        criteria=(
-            RubricCriterion(
-                id=CriterionId("crt_" + "5" * 32),
-                code="correctness",
-                title="正しさ",
-                description="テスト実行で判定する。",
-                weight=1.0,
-                levels=(
-                    RubricLevel(level=0, label="未達", descriptor="通らない", score_ratio=0.0),
-                    RubricLevel(level=1, label="達成", descriptor="通る", score_ratio=1.0),
-                ),
+def _draft() -> TaskDraftRecord:
+    return TaskDraftRecord(
+        id=DRAFT,
+        course_id=COURSE,
+        kind=DraftKind.NEW,
+        spec=TaskSpec(
+            key="ex07/generated",
+            title="生成課題",
+            statement="## 生成された課題 ##\n\n2 つの整数を読み、和を出力しなさい。",
+            knowledge_components=("cs.loops.termination",),
+            test_cases=(
+                TestCaseSpec(name="case1", input="1 2\n", expected="3\n"),
+                TestCaseSpec(name="case2", input="2 2\n", expected="4\n"),
             ),
+            reference_solution="int main(void){return 0;}\n",
         ),
-        q_matrix=(QMatrixEntry(task_version_id=VERSION, kc_id=KC),),
-        max_score=100.0,
-        provenance=Provenance(
-            authored_by=None,
-            generated_by="stub",
-            generation_prompt_version="task_draft_ja@1",
-            review_state=ReviewState.IN_REVIEW,
-        ),
+        generated_by="stub",
+        generation_prompt_version="task_draft_ja@1",
         created_at=datetime(2026, 8, 29, tzinfo=UTC),
+        subject_profile="cs_lang_c_intro",
+        checks=TaskChecks(
+            verification=VerificationReport(
+                reference_passes=GateOutcome.PASSED,
+                mutants_total=5,
+                mutants_killed=5,
+            ),
+            declared_kcs=("cs.loops.termination",),
+            checked_at=datetime(2026, 8, 29, tzinfo=UTC),
+        ),
     )
 
 
@@ -202,11 +184,9 @@ def test_the_components_are_shown_even_without_a_checks_record(world: World) -> 
     本番で踏んだ。AI 作問は門の検査を記録していなかったので、**この画面が
     確認するためにある対象そのもの**が、常にこの嘘を出していた。
     """
-    # 記録を消す（検査が失敗した下書き・古い下書きで実際に起きる状態）。
+    # 検査の記録が無い下書き（検査が動かない環境・サンドボックス不在で起きる）。
     with world.database.unit_of_work() as uow:
-        uow._session.execute(  # type: ignore[attr-defined]
-            text("delete from task_checks where task_version_id = :v"), {"v": str(VERSION)}
-        )
+        uow.tasks.save_draft(_draft().model_copy(update={"checks": None}))
         uow.commit()
 
     world.register("teacher", Role.INSTRUCTOR)
@@ -223,74 +203,93 @@ def test_the_queue_says_approval_is_what_publishes(world: World) -> None:
     assert "承認するまで出題されません" in world.client.get(_url()).text
 
 
-def test_the_queue_offers_a_way_to_fix_the_draft(world: World) -> None:
-    """**直してから承認できるようにする。** 却下は理由を作問の改善に還流させる
-    操作で、「少し直せば使える」課題まで却下に回すと、その理由が材料として
-    役に立たない。
+def test_the_queue_lets_you_fix_the_draft_before_taking_it(world: World) -> None:
+    """**採用の瞬間まで何でも直せる**（#321）。
+
+    課題はまだ無いので、直しても版は増えない ── 以前は生成の時点で課題に
+    なっていたので、直すには「版を上げる」しかなく、キーに至っては**二度と
+    変えられなかった**。
     """
     world.register("teacher", Role.INSTRUCTOR)
     world.login("teacher")
     body = world.client.get(_url()).text
-    assert f"/manage/courses/{COURSE}/tasks/tsk_{'3' * 32}/edit" in body
+    assert 'name="key_suffix"' in body, "採用時にキーを直せない"
+    assert 'name="statement"' in body
+    assert 'name="title"' in body
 
 
-def test_approving_publishes_the_version(world: World) -> None:
+def test_taking_a_draft_creates_the_task(world: World) -> None:
+    """**採用したときに初めて課題になる**（#321）。"""
     world.register("teacher", Role.INSTRUCTOR)
     world.login("teacher")
     response = world.client.post(
-        f"{_url()}/{VERSION}",
-        data={"decision": "approve", "reason": ""},
+        f"{_url()}/{DRAFT}",
+        data={"decision": "approve", "key_suffix": "generated", "unit": "ex07"},
         follow_redirects=False,
     )
     assert response.status_code == 303
 
     with world.database.unit_of_work() as uow:
-        assert uow.tasks.get_version(VERSION).is_published
+        tasks = uow.tasks.list_for_course(COURSE)
+        assert len(tasks) == 1, "採用したのに課題ができていない"
+        version = uow.tasks.latest_published_version(tasks[0].id)
+        assert version is not None, "採用した課題が出題されない"
+        # 出所は残る（P8）。承認したのは人だが、書いたのはモデルである。
+        assert version.provenance.generated_by == "stub"
+        # 門の記録は課題版へ移る（下書きは消えるので、ここに無いと失われる）。
+        assert uow.tasks.get_checks(version.id) is not None
+        # 下書きはもう無い。
+        assert uow.tasks.list_drafts(COURSE) == ()
 
 
-def test_rejecting_without_a_reason_is_refused(world: World) -> None:
+def test_the_key_is_settled_when_the_draft_is_taken(world: World) -> None:
+    """**キーは採用のときに決まる**（#321）。
+
+    キーは変えられない同一性の鍵で、提出も採点もここにぶら下がる ── 生成の
+    時点で決め切ると、中身を読む前に名前が確定してしまう。
+    """
     world.register("teacher", Role.INSTRUCTOR)
     world.login("teacher")
-    response = world.client.post(
-        f"{_url()}/{VERSION}",
-        data={"decision": "reject", "reason": "短い"},
+    world.client.post(
+        f"{_url()}/{DRAFT}",
+        data={"decision": "approve", "key_suffix": "sum-two", "unit": "ex07"},
         follow_redirects=False,
     )
-    assert response.status_code == 400
 
     with world.database.unit_of_work() as uow:
-        assert uow.tasks.get_version(VERSION).provenance.review_state is ReviewState.IN_REVIEW
+        task = uow.tasks.list_for_course(COURSE)[0]
+        version = uow.tasks.latest_version(task.id)
+    assert version.source_key == "ex07/sum-two", version.source_key
 
 
-def test_rejecting_records_the_reason(world: World) -> None:
+def test_dropping_a_draft_removes_it_and_creates_nothing(world: World) -> None:
+    """**捨てるのは即時の削除**（ADR 0019）。理由は聞かない。
+
+    却下の記録を残さないと決めたので（承認率は測らない）、書かせる意味が無い。
+    捨てても学習者には何も影響しない ── 課題になっていないのだから。
+    """
     world.register("teacher", Role.INSTRUCTOR)
     world.login("teacher")
-    reason = "入力の形式が課題文に書かれておらず、解答者によって読みが分かれます。"
     response = world.client.post(
-        f"{_url()}/{VERSION}",
-        data={"decision": "reject", "reason": reason},
-        follow_redirects=False,
+        f"{_url()}/{DRAFT}", data={"decision": "drop"}, follow_redirects=False
     )
     assert response.status_code == 303
 
     with world.database.unit_of_work() as uow:
-        provenance = uow.tasks.get_version(VERSION).provenance
-    assert provenance.review_state is ReviewState.REJECTED
-    assert provenance.reject_reason == reason
+        assert uow.tasks.list_drafts(COURSE) == ()
+        assert uow.tasks.list_for_course(COURSE) == (), "捨てたのに課題ができている"
 
 
-def test_a_decided_version_cannot_be_decided_again(world: World) -> None:
-    """やり直しは新しい版から（P8）。"""
+def test_a_draft_decided_twice_is_gone_the_second_time(world: World) -> None:
+    """二度押しは普通に起きる。**1 度目で消えている**ので 404。"""
     world.register("teacher", Role.INSTRUCTOR)
     world.login("teacher")
-    world.client.post(f"{_url()}/{VERSION}", data={"decision": "approve", "reason": ""})
+    world.client.post(f"{_url()}/{DRAFT}", data={"decision": "drop"})
 
     again = world.client.post(
-        f"{_url()}/{VERSION}",
-        data={"decision": "approve", "reason": ""},
-        follow_redirects=False,
+        f"{_url()}/{DRAFT}", data={"decision": "drop"}, follow_redirects=False
     )
-    assert again.status_code == 409
+    assert again.status_code == 404
 
 
 def test_the_queue_can_generate_without_choosing_a_set(world: World) -> None:
@@ -313,49 +312,24 @@ def test_the_queue_can_generate_without_choosing_a_set(world: World) -> None:
     assert "問う知識要素" in page
 
 
-def test_approval_places_the_task_in_the_chosen_set(world: World) -> None:
-    """承認が「どこに出すか」を決める唯一の場面（#84）。
+def test_taking_a_draft_places_the_task_in_the_chosen_set(world: World) -> None:
+    """採用が「どこに出すか」を決める唯一の場面（#84）。
 
     日程は選んだセットに揃う ── 課題の移動と同じ規則（`_place_in_unit`）。
     """
-    from aijudge_core.ids import TaskId
-
     world.register("teacher", Role.INSTRUCTOR)
     world.login("teacher")
-    client = world.client
 
-    response = client.post(
-        f"/manage/courses/{COURSE}/drafts/{VERSION}",
-        data={"decision": "approve", "unit": "ex07"},
+    response = world.client.post(
+        f"/manage/courses/{COURSE}/drafts/{DRAFT}",
+        data={"decision": "approve", "key_suffix": "generated", "unit": "ex07"},
         follow_redirects=False,
     )
     assert response.status_code == 303
 
     with world.database.unit_of_work() as uow:
-        task = uow.tasks.get_task(TaskId("tsk_" + "3" * 32))
-    assert task.unit == "ex07", "承認で選んだセットに入っていない"
-
-
-def test_a_rejected_task_goes_into_no_set(world: World) -> None:
-    """**却下したものはどのセットにも入れない。** 残骸を並べないための線。"""
-    from aijudge_core.ids import TaskId
-
-    world.register("teacher", Role.INSTRUCTOR)
-    world.login("teacher")
-    client = world.client
-
-    client.post(
-        f"/manage/courses/{COURSE}/drafts/{VERSION}",
-        data={
-            "decision": "reject",
-            "unit": "ex07",
-            "reason": "入力の形式が課題文に書かれておらず、解答者によって読みが分かれます。",
-        },
-    )
-
-    with world.database.unit_of_work() as uow:
-        task = uow.tasks.get_task(TaskId("tsk_" + "3" * 32))
-    assert task.unit != "ex07", "却下したのにセットへ入った"
+        task = uow.tasks.list_for_course(COURSE)[0]
+    assert task.unit == "ex07", "採用で選んだセットに入っていない"
 
 
 def test_the_queue_shows_the_statement_as_the_learner_sees_it(world: World) -> None:

@@ -56,6 +56,9 @@ PREFIXES: dict[str, str] = {
     "evt": "DomainEvent",
     # 監査記録（ADR 0016）。運用ログでも採点記録でもない 3 つめの記録。
     "aud": "AuditEvent",
+    # 承認待ちの課題（ADR 0019）。**課題 ID とは別の空間** ── 採用するまで
+    # 課題は存在しないので、課題キーから導く ID もまだ無い。
+    "dft": "TaskDraft",
 }
 
 _ID_RE = re.compile(r"^(?P<prefix>[a-z]+)_(?P<body>[0-9a-f]{32})$")
