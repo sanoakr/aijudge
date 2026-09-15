@@ -248,3 +248,48 @@ def test_a_user_made_from_the_roster_is_linked_on_first_sso_login(backend) -> No
     # 2 回目は `sub` で引ける。
     again, _ = auth.do(lambda s: s.login_with_google(tenant_id=TENANT, identity=identity))
     assert again.user_id == before.user_id
+
+
+def test_roles_by_user_agrees_with_the_in_memory_implementation(backend) -> None:
+    """利用者ごとの役割（#326）。**SQL でも同じ規則。**
+
+    インメモリ側は `packages/identity/tests/test_auth.py` が固定している。
+    こちらで確かめたいのは、1 回の問い合わせに畳んだ SQL が同じ答えを返す
+    ことと、**テナントを越えない**ことである ── 役割は名簿そのものなので、
+    越えれば他学の名簿が見える。
+    """
+    auth, _, _ = backend
+    staff = _register(auth, "staff")
+    alone = _register(auth, "nobody")
+    other_course = CourseId("crs_" + "2" * 32)
+    for course_id, code in ((COURSE, "prog2"), (other_course, "network")):
+        auth.do(
+            lambda service, cid=course_id, c=code: service._repository.save_course(
+                Course(
+                    id=cid,
+                    tenant_id=TENANT,
+                    code=c,
+                    title=c,
+                    term="2026-前期",
+                    subject_profile="cs_lang_c_intro",
+                )
+            )
+        )
+    # 同じ人が、片方で教員・もう片方で TA。**丸めない。**
+    auth.do(
+        lambda service: service.enroll(
+            tenant_id=TENANT, course_id=COURSE, user_id=staff.user_id, role=Role.INSTRUCTOR
+        )
+    )
+    auth.do(
+        lambda service: service.enroll(
+            tenant_id=TENANT, course_id=other_course, user_id=staff.user_id, role=Role.ASSISTANT
+        )
+    )
+
+    roles = auth.do(lambda service: service._repository.roles_by_user(TENANT))
+
+    assert roles[staff.user_id] == frozenset({Role.INSTRUCTOR, Role.ASSISTANT})
+    # 受講の無い人は鍵ごと現れない（空集合ではない）。
+    assert alone.user_id not in roles
+    assert auth.do(lambda service: service._repository.roles_by_user(OTHER_TENANT)) == {}

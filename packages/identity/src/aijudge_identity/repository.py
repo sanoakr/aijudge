@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Protocol, runtime_checkable
 
-from aijudge_core import Course, Enrollment, term_sort_key
+from aijudge_core import Course, Enrollment, Role, term_sort_key
 from aijudge_core.ids import ApiTokenId, CourseId, TenantId, UserId
 
 from .models import ApiToken, Session, User
@@ -117,6 +117,19 @@ class IdentityRepository(Protocol):
         ...
 
     def list_enrollments(self, course_id: CourseId) -> tuple[Enrollment, ...]: ...
+
+    def roles_by_user(self, tenant_id: TenantId) -> dict[UserId, frozenset[Role]]:
+        """このテナントで、利用者ごとに**どの役割を持っているか**（#326）。
+
+        役割はコースごとに付く（`Enrollment`）ので、テナント全体の一覧では
+        1 人が複数の役割を持ちうる ── 同じ人が片方のコースの教員で、別の
+        コースの TA であることは普通にある。**丸めない**：どちらかに決めると、
+        「TA で絞る」がその人を落とす。
+
+        受講の無い利用者は**鍵ごと現れない**。空集合を返すと「役割を持たない」
+        と「そもそも受講が無い」が同じ形になり、呼び出し側で区別できない。
+        """
+        ...
 
     def remove_enrollment(self, course_id: CourseId, user_id: UserId) -> None:
         """受講を取り消す。
@@ -271,6 +284,14 @@ class InMemoryIdentityRepository:
         return tuple(
             enrollment for (cid, _), enrollment in self._enrollments.items() if cid == course_id
         )
+
+    def roles_by_user(self, tenant_id: TenantId) -> dict[UserId, frozenset[Role]]:
+        found: dict[UserId, set[Role]] = {}
+        for enrollment in self._enrollments.values():
+            if enrollment.tenant_id != tenant_id:
+                continue
+            found.setdefault(enrollment.user_id, set()).add(enrollment.role)
+        return {user_id: frozenset(roles) for user_id, roles in found.items()}
 
     def remove_enrollment(self, course_id: CourseId, user_id: UserId) -> None:
         self._enrollments.pop((course_id, user_id), None)

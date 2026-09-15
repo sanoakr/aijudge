@@ -24,7 +24,7 @@ from fastapi.testclient import TestClient
 
 from aijudge_admin import ensure_course
 from aijudge_authoring.statement import render_statement
-from aijudge_core import ReviewState, Role
+from aijudge_core import Course, ReviewState, Role
 from aijudge_core.ids import CourseId, TaskId, TaskVersionId, TenantId
 from aijudge_identity import AuthenticationFailed, AuthService
 from aijudge_persistence import Database
@@ -202,6 +202,102 @@ def test_only_an_admin_can_delete_a_course(world: World) -> None:
     assert response.status_code == 403
     with world.database.unit_of_work() as uow:
         assert uow.identity.get_course(world.course.id) is not None
+
+
+# --------------------------------------------------------------------------
+# 利用者の一覧の絞り込み（#326）
+# --------------------------------------------------------------------------
+
+
+def _users_page(world: World, query: str = "") -> str:
+    return world.client("boss").get(f"/manage/users{query}").text
+
+
+def test_the_user_list_filters_by_role(world: World) -> None:
+    """**役割で絞れる**（#326・受講者一覧と同じ）。
+
+    TA だけ・教員だけを見たいとき、学生の中から探すことになっていた。
+    """
+    world.register("boss", Role.ADMIN)
+    world.register("teacher", Role.INSTRUCTOR)
+    world.register("ta", Role.ASSISTANT)
+    world.register("student", Role.LEARNER)
+
+    assistants = _users_page(world, "?role=assistant")
+
+    assert "ta</a>" in assistants
+    assert "teacher</a>" not in assistants, "教員が TA の絞り込みに残っている"
+    assert "student</a>" not in assistants
+    # 役割は行にも出る ── 出さないと、絞り込みが効いたのか行から分からない。
+    assert "assistant" in assistants
+
+
+def test_a_user_with_two_roles_is_found_by_either(world: World) -> None:
+    """**丸めない**（`roles_by_user`）。片方のコースの教員が別のコースの
+    TA であることは普通にあり、どちらかに決めると絞り込みがその人を落とす。
+    """
+    world.register("boss", Role.ADMIN)
+    with world.database.unit_of_work() as uow:
+        other = Course(
+            id=CourseId("crs_" + "7" * 32),
+            tenant_id=world.course.tenant_id,
+            code="other",
+            title="別のコース",
+            term="2026-後期",
+            subject_profile=world.course.subject_profile,
+        )
+        uow.identity.save_course(other)
+        uow.commit()
+    world.register("both", Role.INSTRUCTOR)
+    world.register("both2", Role.ASSISTANT, course_id=other.id)
+    # 同じ人に 2 つ目の役割を足す。
+    with world.database.unit_of_work() as uow:
+        principal = uow.identity.find_user_by_login(world.course.tenant_id, "both")
+        AuthService(uow.identity, audit=uow.audit).enroll(
+            tenant_id=world.course.tenant_id,
+            course_id=other.id,
+            user_id=principal.id,
+            role=Role.ASSISTANT,
+        )
+        uow.commit()
+
+    assert "both</a>" in _users_page(world, "?role=instructor")
+    assert "both</a>" in _users_page(world, "?role=assistant")
+
+
+def test_the_user_list_filters_by_login_method_in_both_directions(world: World) -> None:
+    """**逆向きにも絞れる**（#326）。
+
+    札（ローカルだけ）しか無かったので、「SSO で入った人が何人いるか」が
+    数えられなかった。
+    """
+    world.register("boss", Role.ADMIN)
+    world.register("local-only", Role.LEARNER)
+    with world.database.unit_of_work() as uow:
+        user = uow.identity.find_user_by_login(world.course.tenant_id, "local-only")
+        uow.identity.save_user(user.model_copy(update={"external_id": "sub-123"}))
+        uow.commit()
+
+    sso = _users_page(world, "?login_kind=sso")
+    local = _users_page(world, "?login_kind=local")
+
+    assert "local-only</a>" in sso
+    assert "boss</a>" not in sso, "ローカルの利用者が SSO の絞り込みに残っている"
+    assert "local-only</a>" not in local
+    assert "boss</a>" in local
+
+
+def test_the_old_local_only_link_still_filters(world: World) -> None:
+    """`local=1` は `login_kind=local` の旧名。**受け続ける。**
+
+    運用の手元に残った URL が黙って全件に戻ると、絞ったつもりの一覧を読む。
+    """
+    world.register("boss", Role.ADMIN)
+
+    page = _users_page(world, "?local=1")
+
+    assert "boss</a>" in page
+    assert "解除" in page, "絞り込みが効いていない（解除の導線が出ない）"
 
 
 def test_an_admin_deletes_a_course_with_no_learner_submissions(world: World) -> None:

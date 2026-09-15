@@ -1,24 +1,41 @@
 {% extends "base.html" %}
-{% block title %}ローカルログイン — aiJudge{% endblock %}
+{% block title %}ローカルログイン — aiJudge レビュー{% endblock %}
 {% block body %}
-<div class="narrow">
-  <h1>aiJudge レビュー（ローカル）</h1>
-  <p class="subtitle">
-    ローカル運用アカウント専用のログインです。
-    通常は <a href="{{ root_prefix() }}/login">大学アカウントでのログイン</a>を使ってください。
-  </p>
-  {% if error %}<div class="note warn">{{ error }}</div>{% endif %}
-  {% if changed %}<div class="note">パスワードを変更しました。新しいパスワードでログインしてください。</div>{% endif %}
-  <form method="post" action="{{ root_prefix() }}/auth/local" class="card">
-    <div class="field">
-      <label for="login">ID</label>
-      <input id="login" name="login" autocomplete="username" required autofocus>
-    </div>
-    <div class="field">
-      <label for="password">パスワード</label>
-      <input id="password" name="password" type="password" autocomplete="current-password" required>
-    </div>
-    <div class="actions"><button type="submit">ログイン</button></div>
-  </form>
+{# ローカル運用アカウントの入口（#326）。**大学アカウントの入口と同じ面に
+   する。** 以前はここだけが本文の段組みの中の素の枠で、同じシステムの同じ
+   入口が 2 種類あった ── 管理者が使うのはこちらなので、揃っていない側が
+   よりによって運用の入口だった。
+
+   地の色は管理側の朱（`.gate-admin`）。押す場所は札の中に 1 つだけ置く。 #}
+<div class="gate gate-admin">
+  <div class="gate-mark">
+    <h1>aiJudge</h1>
+    <p class="gate-lead">ローカル運用アカウントでの管理・確認の画面です。</p>
+  </div>
+
+  <div class="gate-card">
+    {% if error %}<div class="note warn">{{ error }}</div>{% endif %}
+    {% if changed %}<div class="note">パスワードを変更しました。新しいパスワードでログインしてください。</div>{% endif %}
+    <form method="post" action="{{ root_prefix() }}/auth/local">
+      <div class="field">
+        <label for="login">ID</label>
+        <input id="login" name="login" autocomplete="username" required autofocus>
+      </div>
+      <div class="field">
+        <label for="password">パスワード</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required>
+      </div>
+      <div class="actions"><button type="submit" class="gate-go">ログイン</button></div>
+    </form>
+    <p class="gate-note">
+      ローカル運用アカウント専用です。
+      通常は <a href="{{ root_prefix() }}/login">大学アカウントでのログイン</a>を使ってください。
+    </p>
+    {# 利用ガイド（#327）。**入口にも置く。** 署名が無いと帯が出ないので、
+       ログインの前に読みたい人にはここしか経路が無い。 #}
+    <p class="gate-note">
+      <a href="{{ guide_url() }}" target="_blank" rel="noopener">利用ガイド</a>
+    </p>
+  </div>
 </div>
 {% endblock %}

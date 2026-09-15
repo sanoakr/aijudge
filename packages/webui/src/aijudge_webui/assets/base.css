@@ -532,6 +532,32 @@ body:has(.gate) .gate{flex:1;min-height:0}
   padding:12px 22px;font-size:.95rem;line-height:1.4}
 .gate-note{color:var(--muted);font-size:.8rem;line-height:1.7;
   margin:14px 0 0;text-align:center;text-wrap:balance}
+/* 管理側の入口（#326）。**構図は同じで、面の色だけが違う。**
+
+   学習者の入口と同じ作りにするのは、同じ機関の同じシステムだからである
+   （`login.html` の注記）。だが**どちらの扉の前にいるかは分からなければ
+   ならない** ── 教員は 2 つの画面を並べて開く。構図まで変えると別のサービス
+   に見えるので、変えるのは地の色だけにする。
+
+   ここでの朱は**判定ではない**（判定の三色に混ぜない・`--shu` の注記）。
+   「いまどちらの入口か」を言うだけの符牒で、この面から先には出てこない。
+
+   置き換えるのは記号（`--head-*` と `--go-bg`）で、`.gate` の規則には触れ
+   ない ── 2 つの入口が別の規則で描かれると、片方を直した日にもう片方が
+   古いままになる。白文字の対比は藍と同じ水準で選んだ（昼 8.1:1・夜 5.5:1）。 */
+.gate-admin{--head-bg:#5c1d16; --head-ink:#fbeeea; --head-muted:#d2a89f;
+  --go-bg:#8f2f1b}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]) .gate-admin{--head-bg:#2a100c; --head-ink:#f2ddd8;
+    --head-muted:#b98d84; --go-bg:#b5452f}
+}
+:root[data-theme="dark"] .gate-admin{--head-bg:#2a100c; --head-ink:#f2ddd8;
+  --head-muted:#b98d84; --go-bg:#b5452f}
+/* 入口に置く欄（`login_local.html`）。**札の中は本文の地**なので、
+   通常の `.field` がそのまま効く。幅だけ札に合わせる。 */
+.gate-card .field{margin:0 0 12px}
+.gate-card .field input{width:100%}
+.gate-card .actions{margin:16px 0 0}
 .gate .note{margin-bottom:14px}
 @media (max-width:480px){
   .gate{padding:32px 16px}

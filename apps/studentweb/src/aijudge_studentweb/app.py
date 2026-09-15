@@ -167,6 +167,9 @@ TEMPLATES.env.filters["local"] = webui.local_filter
 TEMPLATES.env.globals["copyright_notice"] = _read_copyright_notice()
 # デモコースの帯を出すのに使う（#194）。環境変数を読むだけの純関数。
 TEMPLATES.env.globals["is_demo_course"] = _is_demo_course
+# 利用ガイド（#327）。**学生向けの頁へ直に送る** ── 索引に落とすと、学生は
+# TA 向け・教員向けと並んだ一覧から自分の頁を選ぶことになる。
+TEMPLATES.env.globals["guide_url"] = lambda: webui.guide_url("student")
 
 
 def _static_url(name: str) -> str:

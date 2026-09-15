@@ -1,23 +1,41 @@
 {% extends "base.html" %}
 {% block title %}ローカルログイン — aiJudge{% endblock %}
 {% block body %}
-<div class="narrow">
-  <h1>aiJudge（ローカル）</h1>
-  <p class="crumb">
-    ローカル運用アカウント専用のログインです。
-    通常は <a href="/login">大学アカウントでのログイン</a>を使ってください。
-  </p>
-  {% if error %}<div class="note warn">{{ error }}</div>{% endif %}
-  <form method="post" action="/auth/local" class="card">
-    <div class="field">
-      <label for="login">学籍番号 / ID</label>
-      <input id="login" name="login" autocomplete="username" required autofocus>
-    </div>
-    <div class="field">
-      <label for="password">パスワード</label>
-      <input id="password" name="password" type="password" autocomplete="current-password" required>
-    </div>
-    <div class="actions"><button type="submit">ログイン</button></div>
-  </form>
+{# ローカルアカウントの入口（#326）。**大学アカウントの入口と同じ面にする。**
+
+   入口は 4 つある（学習者と管理側 × 大学アカウントとローカル）。ここだけが
+   本文の段組みの中の素の枠で、同じ入口が 2 種類の姿を持っていた。
+
+   地は藍 ── **学習者側は藍、管理側は朱**（`.gate-admin`）。どちらの入口かは
+   地の色だけで分かり、構図は 4 つとも同じである。 #}
+<div class="gate">
+  <div class="gate-mark">
+    <h1>aiJudge</h1>
+    <p class="gate-lead">提出した課題の採点結果と、その根拠を見るための画面です。</p>
+  </div>
+
+  <div class="gate-card">
+    {% if error %}<div class="note warn">{{ error }}</div>{% endif %}
+    <form method="post" action="/auth/local">
+      <div class="field">
+        <label for="login">学籍番号 / ID</label>
+        <input id="login" name="login" autocomplete="username" required autofocus>
+      </div>
+      <div class="field">
+        <label for="password">パスワード</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required>
+      </div>
+      <div class="actions"><button type="submit" class="gate-go">ログイン</button></div>
+    </form>
+    <p class="gate-note">
+      ローカルアカウント専用です。
+      通常は <a href="/login">大学アカウントでのログイン</a>を使ってください。
+    </p>
+    {# 利用ガイド（#327）。**入口にも置く。** 署名が無いと帯が出ないので、
+       ログインの前に読みたい人にはここしか経路が無い。 #}
+    <p class="gate-note">
+      <a href="{{ guide_url() }}" target="_blank" rel="noopener">利用ガイド</a>
+    </p>
+  </div>
 </div>
 {% endblock %}

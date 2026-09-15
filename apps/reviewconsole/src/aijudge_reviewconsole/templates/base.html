@@ -42,6 +42,10 @@
   {% if not me.is_external %}
   <a href="{{ root_prefix() }}/manage/account/password">パスワード変更</a>
   {% endif %}
+  {# 利用ガイド（#327）。**どの画面からも届く場所に置く** ── 使い方が分から
+     なくなるのは作業の途中で、入口に戻ってから探すものではない。別の場所
+     （GitHub Pages）なので新しいタブで開く。 #}
+  <a href="{{ guide_url() }}" target="_blank" rel="noopener">利用ガイド</a>
   <form method="post" action="{{ root_prefix() }}/logout"><button type="submit">ログアウト</button></form>
 </div></header>
 {% set trail = trail if trail is defined and trail else () %}

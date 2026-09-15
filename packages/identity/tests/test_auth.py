@@ -475,3 +475,64 @@ def test_a_session_token_is_not_an_api_token() -> None:
     )
 
     assert service.resolve_api_token(session_token) is None
+
+
+# --------------------------------------------------------------------------
+# 利用者ごとの役割（#326）
+# --------------------------------------------------------------------------
+
+
+def test_the_roles_of_a_user_are_not_rounded_to_one(auth) -> None:
+    """**同じ人が 2 つの役割を持つ。** 丸めてはいけない。
+
+    役割はコースごとに付くので、片方のコースの教員が別のコースの TA である
+    ことは普通にある。どちらかに決めると、「TA で絞る」がその人を落とす ──
+    絞り込みは「見落とさないこと」が仕事なので、これは静かに嘘をつく。
+    """
+    service, repository, _ = auth
+    principal = register(service, "staff")
+    first = _course(service, repository)
+    second = Course(
+        id=CourseId("crs_" + "2" * 32),
+        tenant_id=TENANT,
+        code="other",
+        title="別のコース",
+        term="2026-後期",
+        subject_profile=first.subject_profile,
+    )
+    repository.save_course(second)
+    service.enroll(
+        tenant_id=TENANT, course_id=first.id, user_id=principal.user_id, role=Role.INSTRUCTOR
+    )
+    service.enroll(
+        tenant_id=TENANT, course_id=second.id, user_id=principal.user_id, role=Role.ASSISTANT
+    )
+
+    roles = repository.roles_by_user(TENANT)
+
+    assert roles[principal.user_id] == frozenset({Role.INSTRUCTOR, Role.ASSISTANT})
+
+
+def test_a_user_with_no_enrolment_is_absent_rather_than_empty(auth) -> None:
+    """**受講の無い人は鍵ごと現れない。**
+
+    空集合を返すと「役割を持たない」と「そもそも受講が無い」が同じ形になり、
+    呼び出し側で区別できない。
+    """
+    service, repository, _ = auth
+    alone = register(service, "nobody")
+
+    assert alone.user_id not in repository.roles_by_user(TENANT)
+
+
+def test_roles_do_not_leak_across_tenants(auth) -> None:
+    """テナントを越えない。**役割は名簿そのもの**なので、越えると他学の
+    名簿が見える。"""
+    service, repository, _ = auth
+    principal = register(service)
+    course = _course(service, repository)
+    service.enroll(
+        tenant_id=TENANT, course_id=course.id, user_id=principal.user_id, role=Role.LEARNER
+    )
+
+    assert repository.roles_by_user(TenantId("ten_" + "9" * 32)) == {}
