@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -23,7 +24,20 @@ CONSOLE = REPO_ROOT / "apps" / "reviewconsole" / "src" / "aijudge_reviewconsole"
 LEARNER = REPO_ROOT / "apps" / "studentweb" / "src" / "aijudge_studentweb" / "templates"
 BASE_CSS = REPO_ROOT / "packages" / "webui" / "src" / "aijudge_webui" / "assets" / "base.css"
 
+#: 入口は 4 つ ── 2 つのアプリ × 2 つの認証方式（大学アカウントとローカル）。
+#: **4 つとも同じ構図**で、地の色だけが学習者（藍）と管理側（朱）に分かれる。
 ADMIN_ENTRANCES = (CONSOLE / "login.html", CONSOLE / "login_local.html")
+LEARNER_ENTRANCES = (LEARNER / "login.html", LEARNER / "login_local.html")
+
+
+def markup(path: Path) -> str:
+    """Jinja の註釈を外した中身。
+
+    **註釈まで読むと、書いてあることと出るものを取り違える。** 入口の註釈は
+    もう一方の入口（`.gate-admin`）に触れるので、素朴に部分一致で見ると
+    「学習者の入口が朱になっている」と言い出す（実際そうなった）。
+    """
+    return re.sub(r"\{#.*?#\}", "", path.read_text(encoding="utf-8"), flags=re.DOTALL)
 
 
 def test_both_admin_entrances_are_the_red_ground() -> None:
@@ -34,17 +48,30 @@ def test_both_admin_entrances_are_the_red_ground() -> None:
     よりによって運用の入口だった。
     """
     for path in ADMIN_ENTRANCES:
-        body = path.read_text(encoding="utf-8")
+        body = markup(path)
         assert 'class="gate gate-admin"' in body, f"{path.name}: 管理側の入口が朱の面になっていない"
+
+
+def test_both_learner_entrances_stay_indigo() -> None:
+    """学習者は **2 つとも**藍。**区別が付かなければ、色を分けた意味が無い。**"""
+    for path in LEARNER_ENTRANCES:
+        body = markup(path)
+        assert 'class="gate"' in body, f"{path.name}: 学習者の入口が藍の面になっていない"
+        assert "gate-admin" not in body, f"{path.name}: 学習者の入口まで朱になっている"
+
+
+def test_every_entrance_shares_the_composition() -> None:
+    """**4 つとも同じ構図。** 変えてよいのは地の色だけである。
+
+    入口が増えるのは認証方式を足したときで、そのとき素の枠で書かれると
+    「同じシステムの入口が 2 種類の姿を持つ」がまた起きる ── 一度起きて
+    いる（学習者・管理側とも `login_local.html` がそうだった）。
+    """
+    for path in ADMIN_ENTRANCES + LEARNER_ENTRANCES:
+        body = markup(path)
         assert 'class="gate-mark"' in body, f"{path.name}: 入口の構図（銘）が無い"
         assert 'class="gate-card"' in body, f"{path.name}: 入口の構図（札）が無い"
-
-
-def test_the_learner_entrance_stays_indigo() -> None:
-    """学習者の入口は藍のまま。**区別が付かなければ、色を分けた意味が無い。**"""
-    body = (LEARNER / "login.html").read_text(encoding="utf-8")
-    assert 'class="gate"' in body
-    assert "gate-admin" not in body, "学習者の入口まで朱になっている"
+        assert 'class="narrow"' not in body, f"{path.name}: 本文の段組みの中に残っている"
 
 
 def test_the_red_ground_has_a_night_value_on_both_paths() -> None:
