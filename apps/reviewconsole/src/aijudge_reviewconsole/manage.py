@@ -761,6 +761,7 @@ SAVED_MESSAGES: dict[str, str] = {
     "revision_queued": "書き直した版を承認待ちに積みました。差分を読んで承認してください",
     "revision_none": "直すところはありませんでした（版は増やしていません）",
     "revision_failed": "書き直せませんでした",
+    "restored_version": "選んだ版の中身で新しい版を作りました（この版が学習者に出ます）",
     "kc_added": "知識要素を追加しました",
     "kc_retired": "知識要素を引退させました",
     "kc_restored": "引退を取り消しました",
@@ -2261,6 +2262,14 @@ def register(templates) -> APIRouter:
         # 記録されない**ので、無いことも一覧で分かるようにする。
         with console.database.unit_of_work() as uow:
             kc_keys = {task.id: _kc_keys_of(uow, version) for task, version in group.tasks}
+            # **学習者に出ているのはどれか**（#319）。一覧は `latest_version` を
+            # 並べるので、承認待ちや却下済みの**新しい版**があると、その状態を
+            # 課題そのものの状態として出していた ── 改訂を却下しただけで
+            # 「却下済み — 出題されません」と出るが、**1 つ前の承認済みは出て
+            # いる**。画面が学習者の見え方と食い違う。
+            published = {
+                task.id: uow.tasks.latest_published_version(task.id) for task, _ in group.tasks
+            }
 
         rows = []
         for task, version in group.tasks:
@@ -2284,8 +2293,12 @@ def register(templates) -> APIRouter:
                     # `latest_version` をレビュー状態で絞らないので、生成した
                     # ままの課題もここに出る。印が無いと、教員は「この回は
                     # 5 問」と読むのに出題されるのは承認済みのぶんだけになる。
+                    # 新しい版の状態。**課題そのものの状態ではない**（#319）。
                     "in_review": (version.provenance.review_state is ReviewState.IN_REVIEW),
                     "rejected": version.provenance.review_state is ReviewState.REJECTED,
+                    # 学習者に出ている版（無ければ None）。ラベルはこれで決める
+                    # ── 出ているかどうかは、承認済みの版があるかどうかである。
+                    "published": published.get(task.id),
                     # 訂正フォームの初期値。読みやすさの観点の重みは
                     # 版の中にあるので、そこから取り出す。
                     "readability_weight": next(
@@ -3825,6 +3838,10 @@ def register(templates) -> APIRouter:
         console = _console(request)
         data_criteria = _data_driven_criteria(registry, version)
         cases_by_shape = _cases_by_shape(registry, version)
+        # 版の履歴（#319）。**戻したい版を選ぶには、何があるかが見えていな
+        # ければならない** ── 版は積まれているのに画面から読めなかった。
+        with console.database.unit_of_work() as uow:
+            history = uow.tasks.list_versions(task.id) if task is not None else ()
         course_kcs = _course_kcs(console, course)
         if chosen_kcs is None:
             with console.database.unit_of_work() as uow:
@@ -3862,10 +3879,20 @@ def register(templates) -> APIRouter:
                 "course_has_rubric": bool(course.rubric),
                 "rubric_is_course_default": bool(course.rubric) and rows == course_rows,
                 "deterministic": _evaluator_rows(registry, EvaluatorKind.DETERMINISTIC),
-                # **AI 評価器も選べるようにする**（#315）。空（「AI が段階を
-                # 判定する」）は `rubric_ai_judge` のことで、項目を積み上げる
+                # **AI 評価器も選べるようにする**（#315）。空（既定）は
+                # `rubric_ai_judge` のことで、項目を積み上げる
                 # `checklist_ai_judge` は指名しなければ走らない。
                 "ai_evaluators": _evaluator_rows(registry, EvaluatorKind.AI),
+                # 既定の選択肢に出す説明。**評価器から取る**（#318）── 画面に
+                # 書き写すと、docstring を直した日にここだけが古くなる。
+                "ai_default_about": next(
+                    (
+                        row["about"]
+                        for row in _evaluator_rows(registry, EvaluatorKind.AI)
+                        if row["name"] == "rubric_ai_judge"
+                    ),
+                    "",
+                ),
                 "suffix_groups": SUFFIX_GROUPS,
                 "course_suffixes": (
                     (task.accepted_suffixes if task is not None else ())
@@ -3917,6 +3944,8 @@ def register(templates) -> APIRouter:
                 "test_case_error": _test_case_error(request, course, task),
                 # 学習者に出ている版。教員が見ている版と違うことがある（#48）。
                 "published": published,
+                # 版の履歴（新しい順）。戻せる先を選ぶために出す（#319）。
+                "history": history,
                 # 提出の件数。**0 のときだけ削除を出す**（#51）。
                 "submissions": _submission_count(_console(request), task),
                 # 学習者に出る形（#105）。**保存済みの版を描いて出す。**
@@ -4323,31 +4352,43 @@ def register(templates) -> APIRouter:
     def _kc_candidates_for(console, course, statement: str) -> dict:
         """問題文から、その課題が問う知識要素の候補を AI に出させる（#292）。
 
+        **選ばせるのはコースが使っている知識要素だけ**（#318）。以前は科目の
+        名前空間にある語彙すべてから選ばせ、「このコースでは未使用のもの」も
+        候補に並べていた ── 課題に付けるとコースの範囲にも入るので、**課題を
+        直すつもりの操作でコースの設定が変わる**。コースに何を置くかは
+        `/manage/courses/{id}/kc` で決めることで、課題の編集の副作用にしない。
+
         シラバスから候補を出す経路（`SyllabusReader.propose`）をそのまま使う
         ── 関門を 1 つに保つため。候補は登録済みの語彙からだけ来る（2026-09-13
-        決定）。返ってきた候補を 2 つに分ける: **このコースが使うもの**（付ける
-        だけ）と、**語彙にはあるがこのコースでは未使用のもの**（付ければコースの
-        範囲にも入る）。どちらも教員が選んで初めて効く。
+        決定）。
         """
         profile = load_profile(console.profiles_dir / f"{course.subject_profile}.yaml")
         namespaces = allowed_namespaces(profile)
         vocabulary = list_for_namespaces(console.database, namespaces, include_deprecated=False)
-        existing = tuple(kc.key for kc in vocabulary)
+        # **このコースが使うものだけを見せる。** 語彙の全体を渡すと、その中から
+        # 選ばれてしまう。
+        in_course = {
+            kc.key: kc.label for kc in vocabulary if kc.key in set(course.knowledge_components)
+        }
         try:
             result = SyllabusReader().propose(
-                statement, namespaces=namespaces, existing_keys=existing
+                statement, namespaces=namespaces, existing_keys=tuple(in_course)
             )
         except Exception as exc:  # 生成の失敗は運用の事象。理由を画面に返す。
             raise HTTPException(status_code=502, detail=f"候補を作れませんでした: {exc}") from exc
-        labels = {kc.key: kc.label for kc in vocabulary}
-        chosen = set(course.knowledge_components)
-        in_course, in_vocabulary = [], []
-        for hint in result.proposal.knowledge_components:
-            entry = {"key": hint.key, "label": labels.get(hint.key, hint.label)}
-            (in_course if hint.key in chosen else in_vocabulary).append(entry)
+        suggested = [
+            {"key": hint.key, "label": in_course.get(hint.key, hint.label)}
+            for hint in result.proposal.knowledge_components
+            if hint.key in in_course
+        ]
+        # コースの外から出てきた候補は落とす。**黙って落とさない** ── 件数と
+        # 理由を出し、足したいならコースの知識要素で足す、と言えるようにする。
+        outside = [
+            hint.key for hint in result.proposal.knowledge_components if hint.key not in in_course
+        ]
         return {
-            "in_course": in_course,
-            "in_vocabulary": in_vocabulary,
+            "suggested": suggested,
+            "outside": outside,
             "discarded": result.discarded,
             "empty": not result.proposal.knowledge_components,
         }
@@ -4596,6 +4637,63 @@ def register(templates) -> APIRouter:
                 )
             )
         return tuple(out)
+
+    @router.post("/courses/{course_id}/tasks/{task_id}/restore")
+    def restore_task_version(
+        request: Request,
+        course_id: str,
+        task_id: str,
+        version_id: Annotated[str, Form()],
+    ) -> Response:
+        """古い版の中身で**新しい版を作る**（#319）。
+
+        **版は書き換えない**（P8）。戻すのは「あの中身をもう一度出す」ことで
+        あって、履歴を巻き戻すことではない ── 過去の採点はそれぞれ自分の版を
+        指したまま残り、どの版で付いた点かが辿れる。
+
+        **却下した版からも戻せる。** 却下は「その版を出さない」という判断で、
+        中身を二度と使えないという意味ではない ── 直して出し直すつもりの
+        却下もある。写すのは教員が明示的に押したときだけである。
+
+        できる版は**承認済み**。教員が版を選んで押した操作なので、そこに
+        承認の段をもう 1 つ置く理由が無い（生成物とはそこが違う・P5）。
+
+        **版の id は経路ではなくフォームで受け取る。** 3 つの id（コース・
+        課題・版）を経路に並べると 140 字になり、運用ログが識別子として
+        受け付ける長さ（128 字）を超える（`aijudge_telemetry.context`）。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+        task = _task_of(console, course, task_id)
+        with console.database.unit_of_work() as uow:
+            source = uow.tasks.get_version(TaskVersionId(version_id))
+            current = uow.tasks.latest_version(TaskId(task_id))
+            kcs = _kc_keys_of(uow, source) if source is not None else ()
+        if source is None or current is None or source.task_id != TaskId(task_id):
+            raise HTTPException(status_code=404, detail="課題版が見つかりません")
+
+        _save_revision(
+            console,
+            me,
+            course,
+            task,
+            current,
+            statement=source.statement,
+            criteria=rubric.from_criteria(source.criteria),
+            aggregation=source.aggregation,
+            position=task.position,
+            accepted=task.accepted_suffixes,
+            reference_solution=source.reference_solution,
+            test_cases=_kept_cases(source, editing=()),
+            knowledge_components=kcs,
+        )
+        return RedirectResponse(
+            f"/manage/courses/{course_id}/tasks/{task_id}/edit?saved=restored_version",
+            status_code=303,
+        )
 
     @router.post("/courses/{course_id}/tasks/{task_id}/revise-with-ai")
     def revise_task_with_ai(request: Request, course_id: str, task_id: str) -> Response:

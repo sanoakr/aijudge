@@ -192,7 +192,7 @@ def describe_prior(request: EvaluationRequest) -> str:
 
 
 class RubricAiJudge:
-    """ルーブリック観点を LLM に判定させる。"""
+    """AI が段階を判定する（観点の記述を読んで段階を選ぶ）。"""
 
     evaluator_id = EVALUATOR_ID
     kind = EvaluatorKind.AI

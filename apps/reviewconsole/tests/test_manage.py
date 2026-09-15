@@ -1737,6 +1737,65 @@ def test_data_no_criterion_uses_is_called_unused(world: World) -> None:
     assert "case1" in page
 
 
+def test_the_evaluator_choices_are_grouped_with_ai_first(world: World) -> None:
+    """**種類でまとめ、AI を上に置く**（#318）。
+
+    観点に割り当てるものを選ぶとき、まず決めるのは「AI に読ませるか・機械で
+    確定させるか・人が付けるか」で、評価器の名前はその次である。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    task_id = _import_example(world)
+
+    page = (
+        world.client("teacher").get(f"/manage/courses/{world.course.id}/tasks/{task_id}/edit").text
+    )
+    assert '<optgroup label="AI が判定する">' in page
+    assert page.index('label="AI が判定する"') < page.index('label="機械が確定させる（決定的）"')
+    assert page.index('label="機械が確定させる（決定的）"') < page.index('label="人が採点する"')
+    # 項目を積み上げる評価器は AI の組に居る。
+    ai_group = page[page.index('label="AI が判定する"') : page.index('label="機械が確定させる')]
+    assert "checklist_ai_judge" in ai_group
+    assert "AI が項目を判定する" in ai_group
+
+
+def test_kc_candidates_come_from_the_courses_own_components(world: World, monkeypatch) -> None:
+    """**候補はコースが使っている知識要素から出す**（#318）。
+
+    課題に付けるとコースの範囲にも入るので、コース外から選べると**課題を
+    直すつもりの操作でコースの設定が変わる**。コースに何を置くかは知識要素の
+    画面で決めることで、課題の編集の副作用にしない。
+
+    落としたものは黙って消さず、件数と行き先（コースの知識要素で足す）を言う。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    task_id = _import_example(world)
+    monkeypatch.setattr(
+        "aijudge_reviewconsole.manage.SyllabusReader.propose",
+        lambda self, text, *, namespaces, existing_keys: SimpleNamespace(
+            proposal=SimpleNamespace(
+                knowledge_components=(
+                    SimpleNamespace(key="cs.loops.termination", label="ループの停止"),
+                )
+            ),
+            discarded=(),
+        ),
+    )
+
+    page = (
+        world.client("teacher")
+        .post(
+            f"/manage/courses/{world.course.id}/tasks/{task_id}/kc-candidates",
+            data={"statement": "自然数 n を読み、1 から n まで足した値を出力しなさい。" * 2},
+        )
+        .text
+    )
+
+    # このコースは知識要素を使っていないので、候補は 1 つも選べない。
+    assert 'value="cs.loops.termination"' not in page
+    assert "このコースが使っていない知識要素を 1 件落としました" in page
+    assert "/kc" in page, "コースに足しに行く導線が無い"
+
+
 def test_every_installed_evaluator_can_be_picked_for_a_criterion(world: World) -> None:
     """**足した評価器は画面から選べること**（#315）。
 
@@ -4314,9 +4373,103 @@ def test_the_unit_page_marks_a_task_that_is_not_approved(world: World) -> None:
         uow.commit()
 
     body = client.get(f"/manage/courses/{world.course.id}/units/{unit}").text
-    assert "未承認 — 出題されません" in body
+    # **1 つ前の承認済みは出ている**（#319）。新しい版が未承認なだけで、
+    # 課題が出題されなくなったわけではない ── 「出題されません」と書くと、
+    # 画面が学習者の見え方と食い違う。
+    assert "新しい版が未承認" in body
+    assert "出題中" in body
+    assert "未承認 — 出題されません" not in body
     # そこから承認・却下へ行ける。
     assert f"/manage/courses/{world.course.id}/drafts" in body
+
+
+def test_rejecting_a_revision_leaves_the_published_version_alone(world: World, monkeypatch) -> None:
+    """**改訂を却下しても、出ている版は出続ける**（#319）。
+
+    却下するのは新しい版であって課題ではない。一覧は `latest_version` を
+    並べるので、その状態を課題そのものの状態として出していた ── 改訂を
+    却下しただけで「却下済み — 出題されません」と出るが、学習者には 1 つ前の
+    承認済みが出ている。画面が嘘をつく。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    task_id = _task_with_tests(world)
+    _revision(monkeypatch)
+    world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/tasks/{task_id}/revise-with-ai",
+        follow_redirects=False,
+    )
+    with world.database.unit_of_work() as uow:
+        queued = uow.tasks.latest_version(TaskId(task_id))
+        published_before = uow.tasks.latest_published_version(TaskId(task_id))
+
+    world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/drafts/{queued.id}",
+        data={"decision": "reject", "reason": "入力の範囲の書き方がまだ曖昧です。"},
+        follow_redirects=False,
+    )
+
+    with world.database.unit_of_work() as uow:
+        published_after = uow.tasks.latest_published_version(TaskId(task_id))
+    assert published_after is not None, "却下で出題が止まっている"
+    assert published_after.id == published_before.id
+
+    body = world.client("teacher").get(f"/manage/courses/{world.course.id}/units/ex01").text
+    assert "却下済み — 出題されません" not in body, "出ているのに出ないと書いている"
+    assert "出題中" in body
+
+
+def test_a_rejected_version_can_be_put_back_by_copying_it_forward(
+    world: World, monkeypatch
+) -> None:
+    """**却下した版からも戻せる**（#319）。
+
+    却下は「その版を出さない」という判断で、中身を二度と使えないという意味
+    ではない ── 直して出し直すつもりの却下もある。戻すのは履歴を巻き戻す
+    ことではなく、**その中身を写した新しい版を作る**こと（P8）。過去の採点は
+    それぞれ自分の版を指したまま残る。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    task_id = _task_with_tests(world)
+    _revision(monkeypatch)
+    world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/tasks/{task_id}/revise-with-ai",
+        follow_redirects=False,
+    )
+    with world.database.unit_of_work() as uow:
+        queued = uow.tasks.latest_version(TaskId(task_id))
+    world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/drafts/{queued.id}",
+        data={"decision": "reject", "reason": "入力の範囲の書き方がまだ曖昧です。"},
+        follow_redirects=False,
+    )
+
+    # 履歴は画面から読める。却下した版にも「戻す」が出る。
+    page = (
+        world.client("teacher").get(f"/manage/courses/{world.course.id}/tasks/{task_id}/edit").text
+    )
+    assert "版の履歴" in page
+    assert f'value="{queued.id}"' in page, "却下した版に戻す口が無い"
+
+    response = world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/tasks/{task_id}/restore",
+        data={"version_id": str(queued.id)},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+
+    with world.database.unit_of_work() as uow:
+        after = uow.tasks.latest_version(TaskId(task_id))
+        published = uow.tasks.latest_published_version(TaskId(task_id))
+        history = uow.tasks.list_versions(TaskId(task_id))
+    # 写した中身で、**承認済みの新しい版**ができる。
+    assert after.version == queued.version + 1
+    assert after.statement == queued.statement
+    assert published.id == after.id
+    # 却下した版は消えない（履歴は積み上げ・P8）。
+    assert queued.id in {v.id for v in history}
+    assert [v.version for v in history] == sorted((v.version for v in history), reverse=True), (
+        "新しい順に並んでいない"
+    )
 
 
 def test_the_unit_page_offers_generation_only_with_components(world: World) -> None:
@@ -5392,7 +5545,10 @@ def test_the_grading_settings_explain_each_evaluator(world: World) -> None:
     world.register("teacher", Role.INSTRUCTOR)
     body = world.client("teacher").get(f"/manage/courses/{world.course.id}").text
     assert "コンパイルして実行し" in body
-    assert "ルーブリック観点を LLM に判定させる" in body
+    # 説明は評価器の docstring の 1 行目。**選ぶときに読む言葉で書く**（#318）
+    # ── 種類（AI か決定的か）が先に来る。
+    assert "AI が段階を判定する" in body
+    assert "AI が項目を判定する" in body
 
 
 def test_the_grading_settings_say_where_the_rubric_lives(world: World) -> None:

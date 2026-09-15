@@ -102,8 +102,18 @@
       <label for="key_suffix">課題キー（この問題セットの中で重ならない名前）</label>
       <div class="keyline">
         <span class="fixed mono">{{ unit_key }}/</span>
-        <input id="key_suffix" name="key_suffix" required placeholder="p8" style="max-width:12rem">
+        <input id="key_suffix" name="key_suffix" required placeholder="nstring" style="max-width:12rem">
       </div>
+      {# **中身の分かる名前にする**（#319）。キーは変えられない同一性の鍵で、
+         提出物・採点結果・記録がこれで繋がる ── `p1` `p2` のような通し番号は、
+         並べ替えた日に意味を失い、記録を読む人にはどの問題のことか分からない。 #}
+      <p class="desc" style="margin:6px 0 0">
+        <strong>内容の分かる名前にしてください</strong>（例: <span class="mono">nstring</span>、
+        <span class="mono">http-client</span>）。英数字と <span class="mono">-</span>
+        <span class="mono">_</span> が使えます。
+        <strong>あとから変えられません</strong> — 提出も採点の記録もこの鍵で繋がります。
+        <span class="mono">p1</span> のような通し番号は、並べ替えると意味を失います。
+      </p>
     </div>
   {% endif %}
   </div>
@@ -361,26 +371,36 @@
   </div>
   {% endif %}
   {% if kc_candidates %}
+  {# **候補は、いま付いているものの下に並べる**（#318）。どれが足されるのかを
+     見て選べるようにするため ── 上の一覧に紛れ込ませると、AI が何を薦めたのか
+     区別できない。
+
+     **選べるのはコースが使っている知識要素だけ。** 課題に付けるとコースの
+     範囲にも入るので、コース外から選べると**課題を直すつもりの操作でコースの
+     設定が変わる**。 #}
   <div class="note" style="margin-top:12px">
     <strong>AI の候補</strong> ── 印を付けて「この問題を保存して更新する」で付きます。
     {% if kc_candidates.empty %}<br>候補はありませんでした（問題文が知識要素を 1 つも扱っていないと読まれました）。{% endif %}
-    {% if kc_candidates.in_course %}
-    <p style="margin:8px 0 4px"><strong>このコースが使っているもの</strong>（付けるだけ）</p>
-    <div class="kcpick">
-      {% for c in kc_candidates.in_course %}
-      <label><input type="checkbox" name="kc" value="{{ c.key }}" {{ 'checked' if c.key in chosen_kcs }}>
-        <span class="k">{{ c.key }}</span><span class="desc">{{ c.label }}</span></label>
+    {% if kc_candidates.suggested %}
+    <div class="kcpick" style="margin-top:8px">
+      {% for c in kc_candidates.suggested %}
+      <label>
+        <input type="checkbox" name="kc" value="{{ c.key }}" {{ 'checked' if c.key in chosen_kcs }}>
+        <span class="k">{{ c.key }}</span>
+        <span class="desc">{{ c.label }}{% if c.key in chosen_kcs %} · 既に付いています{% endif %}</span>
+      </label>
       {% endfor %}
     </div>
+    {% elif not kc_candidates.empty %}
+    <br>このコースが使っている知識要素の中には、当てはまるものがありませんでした。
     {% endif %}
-    {% if kc_candidates.in_vocabulary %}
-    <p style="margin:8px 0 4px"><strong>語彙にあるが、このコースでは未使用のもの</strong>（付けるとコースの範囲にも入ります）</p>
-    <div class="kcpick">
-      {% for c in kc_candidates.in_vocabulary %}
-      <label><input type="checkbox" name="kc" value="{{ c.key }}">
-        <span class="k">{{ c.key }}</span><span class="desc">{{ c.label }}</span></label>
-      {% endfor %}
-    </div>
+    {% if kc_candidates.outside %}
+    <p class="desc" style="margin:8px 0 0">
+      このコースが使っていない知識要素を {{ kc_candidates.outside | length }} 件落としました
+      （<a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/kc">知識要素</a>で
+      コースに足してから、もう一度候補を出してください）:
+      {% for key in kc_candidates.outside %}<span class="mono">{{ key }}</span>{% if not loop.last %}、{% endif %}{% endfor %}
+    </p>
     {% endif %}
     {% if kc_candidates.discarded %}
     <p class="desc" style="margin:8px 0 0">登録済みの語彙に無い候補を {{ kc_candidates.discarded | length }} 件落としました（新しい知識要素は作りません）:
@@ -467,6 +487,55 @@
    関係がない ── 見出しで分けないと、上の「保存して更新する」がこれらにも
    効くように見える。 #}
 <h2>この問題への操作</h2>
+
+{# 版の履歴と、戻す操作（#319）。**版は積まれている**（P8）のに画面から
+   読めなかった ── どの版が出ているのかも、前がどうだったのかも分からない。
+
+   戻すのは「あの中身をもう一度出す」ことで、履歴を巻き戻すことではない。
+   写した**新しい版**ができ、過去の採点はそれぞれ自分の版を指したまま残る。 #}
+{% if history and history | length > 1 %}
+<div class="card">
+  <h3 style="margin-top:0">版の履歴（{{ history | length }} 版）</h3>
+  <p class="desc" style="margin:0 0 10px">
+    学習者に出るのは<strong>承認済みのうち最も新しい版</strong>です。
+    「この版に戻す」を押すと、その中身を写した<strong>新しい版</strong>ができます
+    — 版は書き換えません（過去の採点はそれぞれ自分の版を指したまま残ります）。
+  </p>
+  <table>
+    <thead><tr>
+      <th class="fit">版</th><th class="fit">状態</th><th class="fit">作成</th>
+      <th class="grow">出所</th><th class="fit"></th>
+    </tr></thead>
+    <tbody>
+    {% for v in history %}
+      <tr>
+        <td class="fit">{{ v.version }}</td>
+        <td class="fit">
+          {%- if published and v.id == published.id %}<span class="pill">出題中</span>
+          {%- elif v.provenance.review_state.value == 'in_review' %}<span class="pill attn">未承認</span>
+          {%- elif v.provenance.review_state.value == 'rejected' %}<span class="pill no">却下</span>
+          {%- else %}<span class="desc">承認済み</span>{% endif %}
+        </td>
+        <td class="fit desc">{{ v.created_at | local('%Y-%m-%d %H:%M') }}</td>
+        <td class="grow desc">{{ v.provenance.generated_by or '教員が作成' }}
+          {%- if v.provenance.reject_reason %}<br>却下の理由: {{ v.provenance.reject_reason }}{% endif %}</td>
+        <td class="fit">
+          {% if not (published and v.id == published.id) %}
+          <form method="post"
+                action="{{ root_prefix() }}/manage/courses/{{ course.id }}/tasks/{{ task.id }}/restore"
+                data-confirm-title="この版に戻しますか"
+                data-confirm="{{ v.version }} 版の中身を写した新しい版ができ、学習者にはそれが出ます。いまの版は履歴に残ります。">
+            <input type="hidden" name="version_id" value="{{ v.id }}">
+            <button type="submit" class="minor">この版に戻す</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
 
 {# 既存の課題を現在の基準に合わせて書き直す（#306）。**必ず承認待ちになる** ──
    教員はまだ 1 文字も読んでいない（P5・ADR 0008）。 #}

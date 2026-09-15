@@ -214,11 +214,21 @@
         {# **承認済みと同じ見た目にしない。** 一覧はレビュー状態で絞らないので
            生成したままの課題もここに並ぶ。印が無いと、教員は並んでいる数を
            そのまま「この回の問題数」と読む。 #}
+        {# **出ているかどうかは、承認済みの版があるかどうかで決める**（#319）。
+           新しい版が承認待ちでも却下済みでも、1 つ前の承認済みは出ている ──
+           改訂を却下しただけで「出題されません」と出していたのは嘘だった。 #}
         {% if row.in_review %}
-        {# 承認するまで出題されない ── 教員が開かないと止まったまま。 #}
-        <a class="pill attn" href="{{ root_prefix() }}/manage/courses/{{ course.id }}/drafts">未承認 — 出題されません</a>
+          {% if row.published %}
+          <a class="pill attn" href="{{ root_prefix() }}/manage/courses/{{ course.id }}/drafts">新しい版が未承認（いまは {{ row.published.version }} 版が出題中）</a>
+          {% else %}
+          <a class="pill attn" href="{{ root_prefix() }}/manage/courses/{{ course.id }}/drafts">未承認 — 出題されません</a>
+          {% endif %}
         {% elif row.rejected %}
-        <span class="pill no">却下済み — 出題されません</span>
+          {% if row.published %}
+          <span class="pill">新しい版を却下（いまは {{ row.published.version }} 版が出題中）</span>
+          {% else %}
+          <span class="pill no">却下済み — 出題されません</span>
+          {% endif %}
         {% endif %}
         {% if not row.auto_graded %}<br><span class="pill">自動テストなし</span>{% endif %}
         {# **同じ題名が並んでいることを言う。** 別々の課題なので提出も採点も
@@ -392,7 +402,7 @@ p2/task.yaml</span></pre>
     <label for="g-key">課題キー</label>
     <div class="keyline">
       {% if unit.unit %}<span class="fixed mono">{{ unit.unit }}/</span>{% endif %}
-      <input id="g-key" name="key_suffix" required placeholder="p9" style="max-width:12rem">
+      <input id="g-key" name="key_suffix" required placeholder="nstring" style="max-width:12rem">
     </div>
   </div>
   <div class="field row-form">

@@ -19,31 +19,39 @@
   <textarea name="criterion_description" rows="2"
     placeholder="変数名が役割を表しているか、処理の流れが追えるか。出力の正しさはこの観点では評価しない。">{{ row.description }}</textarea>
   <label>判定する評価器</label>
-  {# **表記は「説明（評価器コード）」で揃える**（#315）。名前を先に置くと、
-     どれを選べばよいかを読むのに毎回コードを読み飛ばすことになる ── 選ぶ
-     ときに要るのは「何を見る評価器か」で、コードはその確認である。
+  {# **種類でまとめ、AI を上に置く**（#318）。観点に割り当てるものを選ぶとき、
+     まず決めるのは「AI に読ませるか・機械で確定させるか・人が付けるか」で、
+     評価器の名前はその次である。
 
-     **AI 評価器も並べる。** 空（「AI が判定する」）は `rubric_ai_judge` の
-     ことで、それ以外の AI 評価器 ── 項目を積み上げる `checklist_ai_judge`
-     （#302）── は指名しなければ走らない。並べていなかったので、足した
-     評価器が画面から選べなかった。 #}
+     表記は**説明（評価器コード）**で揃える（#315）── 選ぶときに要るのは
+     「何を見る評価器か」で、コードはその確認。説明は評価器が持つ
+     （docstring の 1 行目）ので、画面が名前ごとの表を持たない。
+
+     空（既定）は `rubric_ai_judge` のことなので、AI の組に入れて二重に
+     出さない。 #}
   <select name="criterion_evaluator">
-    <option value="">AI が段階を判定する（rubric_ai_judge）</option>
-    {% for ev in deterministic %}
-    <option value="{{ ev.name }}" {{ 'selected' if row.evaluator == ev.name }}>
-      {{ ev.about }}（{{ ev.name }}）</option>
-    {% endfor %}
-    {% for ev in ai_evaluators if ai_evaluators is defined %}
-    {% if ev.name != 'rubric_ai_judge' %}
-    <option value="{{ ev.name }}" {{ 'selected' if row.evaluator == ev.name }}>
-      {{ ev.about }}（{{ ev.name }}）</option>
-    {% endif %}
-    {% endfor %}
-    {# **空とは別の選択肢である。** 空は「どの AI 評価器からも対象」で、
-       画像のようにまだ機械が判定できない観点をそこへ入れると、AI が
-       見当違いの判定を返す（ADR 0015）。 #}
-    <option value="{{ HUMAN_SCORED }}" {{ 'selected' if row.evaluator == HUMAN_SCORED }}>
-      評価器を割り当てない（人が採点する）</option>
+    <optgroup label="AI が判定する">
+      <option value="">{{ ai_default_about or 'AI が段階を判定する' }}（rubric_ai_judge）</option>
+      {% for ev in ai_evaluators if ai_evaluators is defined %}
+      {% if ev.name != 'rubric_ai_judge' %}
+      <option value="{{ ev.name }}" {{ 'selected' if row.evaluator == ev.name }}>
+        {{ ev.about }}（{{ ev.name }}）</option>
+      {% endif %}
+      {% endfor %}
+    </optgroup>
+    <optgroup label="機械が確定させる（決定的）">
+      {% for ev in deterministic %}
+      <option value="{{ ev.name }}" {{ 'selected' if row.evaluator == ev.name }}>
+        {{ ev.about }}（{{ ev.name }}）</option>
+      {% endfor %}
+    </optgroup>
+    <optgroup label="人が採点する">
+      {# **空とは別の選択肢である。** 空は「どの AI 評価器からも対象」で、
+         画像のようにまだ機械が判定できない観点をそこへ入れると、AI が
+         見当違いの判定を返す（ADR 0015）。 #}
+      <option value="{{ HUMAN_SCORED }}" {{ 'selected' if row.evaluator == HUMAN_SCORED }}>
+        評価器を割り当てない（人が採点する）</option>
+    </optgroup>
   </select>
   <p class="desc">
     「人が採点する」にした観点は機械に渡りません。提出は必ずレビューに回り、
