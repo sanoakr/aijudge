@@ -7,13 +7,15 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 
-from aijudge_core import KnowledgeComponent, SkillState
+from aijudge_core import KnowledgeComponent, SkillPoint, SkillState, new_id
 from aijudge_core.ids import KcId, TenantId, UserId
 
-from .schema import KnowledgeComponentRow, SkillStateRow
+from .schema import KnowledgeComponentRow, SkillPointRow, SkillStateRow
 
 
 class SqlSkillRepository:
@@ -66,6 +68,75 @@ class SqlSkillRepository:
             .order_by(SkillStateRow.kc_id)
         ).scalars()
         return tuple(SkillState.model_validate(row.document) for row in rows)
+
+    def list_states_for(
+        self, tenant_id: TenantId, learner_ids: tuple[UserId, ...]
+    ) -> tuple[SkillState, ...]:
+        """**1 回の問い合わせで引く。** 人数ぶん `list_states` を呼ばせない。"""
+        if not learner_ids:
+            return ()
+        rows = self._session.execute(
+            select(SkillStateRow)
+            .where(
+                SkillStateRow.tenant_id == str(tenant_id),
+                SkillStateRow.learner_id.in_([str(x) for x in learner_ids]),
+            )
+            .order_by(SkillStateRow.learner_id, SkillStateRow.kc_id)
+        ).scalars()
+        return tuple(SkillState.model_validate(row.document) for row in rows)
+
+    # -- 推移 --------------------------------------------------------------
+
+    def append_point(self, point: SkillPoint) -> None:
+        """**追記のみ**（`SkillPoint`）。持ち替えない。"""
+        self._session.add(
+            SkillPointRow(
+                id=new_id("skp"),
+                tenant_id=str(point.tenant_id),
+                learner_id=str(point.learner_id),
+                kc_id=str(point.kc_id),
+                mastery=point.mastery,
+                observation_count=point.observation_count,
+                model=point.model.value,
+                recorded_at=point.recorded_at,
+            )
+        )
+        self._session.flush()
+
+    def history(
+        self,
+        tenant_id: TenantId,
+        learner_ids: tuple[UserId, ...],
+        *,
+        kc_ids: tuple[KcId, ...] = (),
+        since: datetime | None = None,
+    ) -> tuple[SkillPoint, ...]:
+        if not learner_ids:
+            return ()
+        query = select(SkillPointRow).where(
+            SkillPointRow.tenant_id == str(tenant_id),
+            SkillPointRow.learner_id.in_([str(x) for x in learner_ids]),
+        )
+        if kc_ids:
+            query = query.where(SkillPointRow.kc_id.in_([str(x) for x in kc_ids]))
+        if since is not None:
+            query = query.where(SkillPointRow.recorded_at >= since)
+        # 古い順。同着は観測数で解く（同じ日に何度も動く）。
+        rows = self._session.execute(
+            query.order_by(SkillPointRow.recorded_at, SkillPointRow.observation_count)
+        ).scalars()
+        return tuple(
+            SkillPoint(
+                tenant_id=TenantId(row.tenant_id),
+                learner_id=UserId(row.learner_id),
+                kc_id=KcId(row.kc_id),
+                mastery=row.mastery,
+                observation_count=row.observation_count,
+                model=row.model,
+                recorded_at=row.recorded_at,
+            )
+            for row in rows
+        )
 
     # -- 知識要素 ----------------------------------------------------------
 
