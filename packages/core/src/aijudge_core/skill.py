@@ -37,6 +37,31 @@ class SkillEvidence(BaseModel):
     observed_at: datetime
 
 
+class SkillPoint(BaseModel):
+    """習熟度が動いた瞬間の記録（1 点）。**追記のみ。**
+
+    `SkillState` は最新の 1 行を持ち替える推定値なので、**そこからは推移が
+    読めない**。学期の途中で「この KC は上がっているのか」を言うには、動いた
+    ときの値を残しておくしかない ── 根拠（`SkillEvidence`）は最新の 20 件に
+    切られており、しかも BKT は観測列を畳むので、後から遡って再現できない。
+
+    採点結果（P8）と同じ扱いで書き換えない。推定値そのものは後で手法を
+    差し替えうるが、**そのとき出した値が何だったか**は記録である。
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    tenant_id: TenantId
+    learner_id: UserId
+    kc_id: KcId
+    mastery: float = Field(ge=0.0, le=1.0)
+    #: この時点までに畳んだ観測の数。**同じ日に何度も動く**ので、点を
+    #: 間引くときの順序はこちらで決める（時刻だけだと同着が並ぶ）。
+    observation_count: int = Field(default=0, ge=0)
+    model: MasteryModel = MasteryModel.BKT
+    recorded_at: datetime
+
+
 class SkillState(BaseModel):
     """学習者 × KC の現在の習熟度。"""
 

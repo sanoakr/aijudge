@@ -571,6 +571,35 @@ class SkillStateRow(Base):
     )
 
 
+class SkillPointRow(Base):
+    """習熟度が動いた瞬間の記録（S7・#328）。**追記のみ。**
+
+    `skill_states` は最新の 1 行を持ち替えるので、そこからは推移が読めない。
+    学期の途中で「この KC は上がっているのか」を言うにはここが要る ── 根拠は
+    最新 20 件に切られ、BKT は観測列を畳むので、後から遡って再現できない。
+
+    **採点結果と同じで書き換えない。** 推定手法は後で差し替えうるが、そのとき
+    出した値が何だったかは記録である。
+    """
+
+    __tablename__ = "skill_points"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(64))
+    learner_id: Mapped[str] = mapped_column(String(64))
+    kc_id: Mapped[str] = mapped_column(String(64))
+    mastery: Mapped[float] = mapped_column(Float)
+    observation_count: Mapped[int] = mapped_column(Integer)
+    model: Mapped[str] = mapped_column(String(32))
+    recorded_at: Mapped[datetime] = mapped_column(Timestamp)
+
+    __table_args__ = (
+        # 「このコースの受講者の、この期間の推移」── 分布と推移の画面が使う。
+        # 学習者で絞ってから時刻で並べるので、この順序で引く。
+        Index("ix_skill_point_tenant_learner_at", "tenant_id", "learner_id", "recorded_at"),
+    )
+
+
 class TaskChecksRow(Base):
     """課題版に対して走らせた検査（門・解答可能性）の結果。
 
