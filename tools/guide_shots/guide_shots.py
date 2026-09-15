@@ -577,9 +577,14 @@ def capture(state: Path, playwright: Any, login_url: str) -> None:
     s.shot(
         "in-settings-rubric", between=("h2:has-text('共通ルーブリック')", "h2:has-text('採点設定')")
     )
+    # 採点設定の次の見出し。**「課題文に貼る画像」を待っていたが、それは
+    # 課題の画面の h3 であって、この画面には無い**（あったとしても h2 では
+    # ない）── 30 秒待って落ち、ここから先の 7 枚が撮られないまま
+    # 古い画像が残っていた。切り抜きが見つからなければ止まる作りは正しいが、
+    # 止まった先を直さなければ意味が無い。
     s.shot(
         "in-settings-grading",
-        between=("h2:has-text('採点設定')", "h2:has-text('課題文に貼る画像')"),
+        between=("h2:has-text('採点設定')", "h2:has-text('このコースを複製する')"),
     )
     page.goto(f"{CONSOLE}/manage/courses/{course}/basics")
     s.shot("in-basics", full=True)

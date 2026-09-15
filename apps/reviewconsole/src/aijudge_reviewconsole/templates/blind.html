@@ -67,7 +67,9 @@
             <input type="radio" name="level_{{ criterion.code }}" required
                    value="{{ level.level }}">
             <span class="lv">{{ level.level }}: {{ level.label }}</span>
-            <span>{{ level.descriptor }}</span>
+            {# 説明文の名前は `reveal.html` と揃える ── 同じ段階の並びが、画面に
+               よって違う折り返し方をしてはいけない。 #}
+            <span class="lv-text">{{ level.descriptor }}</span>
             <span class="desc">{{ '%.0f' | format(level.score_ratio * 100) }}%</span>
           </label>
           {% endfor %}

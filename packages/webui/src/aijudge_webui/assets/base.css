@@ -202,11 +202,25 @@ fieldset{border:1px solid var(--line-soft);border-radius:3px;padding:14px 18px;m
 legend{font-weight:700;font-size:.95rem;padding:0 6px}
 .desc{font-size:.85rem;color:var(--muted);margin:0 0 12px}
 .levels{display:flex;flex-direction:column;gap:6px}
-.levels label{display:flex;gap:10px;align-items:baseline;font-size:.88rem;
+/* **折り返させる。** 段階の行は 1 本の flex で、狭いと最後に縮むのは説明文
+   （`.lv-text`）である ── 日本語の min-content は 1 文字なので、**説明が
+   幅 14px・高さ 271px の縦書きになっていた**（実測。判定の画面は 2 面で、
+   右の面は画面の半分しかない）。いちばん起きるのが選ばれている段階で、
+   そこにだけ「システム判定」「あなたの blind 採点」の札が並んで幅を奪う。
+
+   縮めるのではなく**行を折る**。説明文には下限を持たせ、入らなければ次の
+   行へ送る ── 札と割合は縮まない（`white-space:nowrap`）。 */
+.levels label{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline;
+  font-size:.88rem;
   padding:7px 10px;border:1px solid var(--line-soft);border-radius:3px;cursor:pointer}
 .levels label:hover{background:var(--surface-2)}
 .levels input:checked + .lv{font-weight:700;color:var(--shu)}
-.lv{min-width:5.5em}
+.lv{flex:0 0 auto;min-width:5.5em}
+/* 説明文。**余った幅を取り、足りなければ行ごと下りる。** */
+.lv-text{flex:1 1 12em;min-width:8em}
+/* 割合と札は縮まない ── 「1 0 0 %」や「シ ス テ ム」になる側に回らせない。 */
+.levels label > .desc,
+.levels label > .pill{flex:0 0 auto;white-space:nowrap;margin:0}
 /* **語の途中で折らない。** 狭い幅で「ログア／ウト」と 2 行になっていた
    （携帯で実測）── 折れた押し釦は、押す場所にも文字にも見えない。入り
    きらないときは字の方を詰める（下の携帯向けの規則）。 */
