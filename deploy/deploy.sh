@@ -59,8 +59,23 @@ systemctl try-restart aijudge-finalize.timer
 # 疎通確認。落ちていたら非ゼロで終わり、timer のログに残る。
 # **ホスト名はここに書かない** — EnvironmentFile の AIJUDGE_LEARNER_URL を使う
 # （このリポジトリは公開物で、機関固有の値を含めない）。
+#
+# restart 直後は web がまだ listen しておらず、nginx が 502 を返す。1 発で
+# 判定すると **デプロイは成功しているのに timer が failed になる**（2026-09-15
+# に v1.0.20 / v1.0.21 で 5 回。checkout・migration・restart は全部通っていた）。
+# 数秒おきに何度か試し、最後の 1 回だけを結果にする。
+HEALTH_RETRIES=6
+HEALTH_INTERVAL_SEC=5
 if [ -n "${AIJUDGE_LEARNER_URL:-}" ]; then
-    curl -fsS --max-time 10 "${AIJUDGE_LEARNER_URL%/}/login" >/dev/null
+    i=1
+    until curl -fsS --max-time 10 "${AIJUDGE_LEARNER_URL%/}/login" >/dev/null; do
+        if [ "$i" -ge "$HEALTH_RETRIES" ]; then
+            echo "health check failed after ${HEALTH_RETRIES} attempts" >&2
+            exit 1
+        fi
+        i=$((i + 1))
+        sleep "$HEALTH_INTERVAL_SEC"
+    done
 fi
 systemctl is-active --quiet aijudge-web aijudge-review aijudge-worker-det
 
