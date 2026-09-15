@@ -214,6 +214,9 @@ TEMPLATES.env.globals["HUMAN_SCORED"] = HUMAN_SCORED
 # デモコースの帯を出すのに使う（#194）。環境変数を読むだけの純関数で、
 # DB は引かない ── ADR 0017 で引いた線の内側である。
 TEMPLATES.env.globals["is_demo_course"] = _is_demo_course
+# 利用ガイド（#327）。**索引へ送る** ── この画面は TA と教員の両方が使い、
+# どちらの頁を読むべきかは画面の側からは決められない。
+TEMPLATES.env.globals["guide_url"] = webui.guide_url
 
 # 画面に埋め込んでよい種別。それ以外はダウンロードさせる（#75）。
 INLINE_KINDS = (ArtifactKind.IMAGE, ArtifactKind.PDF, ArtifactKind.VIDEO)

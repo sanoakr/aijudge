@@ -23,11 +23,13 @@ __all__ = [
     "ASSETS_DIR",
     "DEFAULT_TIMEZONE",
     "ENV_TIMEZONE",
+    "GUIDE_URL",
     "STATIC_MOUNT",
     "TEMPLATES_DIR",
     "asset_url",
     "display_zone",
     "from_local",
+    "guide_url",
     "local_filter",
     "to_local",
 ]
@@ -39,6 +41,30 @@ TEMPLATES_DIR = Path(__file__).parent / "templates"
 #: 配信するパス。**両アプリで同じ**にする ── 違えると共有の断片
 #: （`_theme.html`）がどちらか片方でしか解決できない。
 STATIC_MOUNT = "/static"
+
+#: 利用ガイドの公開先（`mkdocs.yml` の `site_url`）。
+#:
+#: **ここに 1 つだけ持つ。** 両アプリのヘッダと 4 つの入口から指すので、
+#: 書き写すと出す場所を増やした日にどれかが古いままになる。公開先が変わる
+#: ときに直すのもここ 1 か所でよい。
+#:
+#: 機関固有の値ではない（この製品自身の文書の置き場）ので、`deploy.sh` の
+#: ホスト名と違って設定には出さない ── 読む人にとっては製品の一部である。
+GUIDE_URL = "https://sanoakr.github.io/aijudge/"
+
+
+def guide_url(page: str = "") -> str:
+    """利用ガイドの URL。`page` はガイドの中の頁（`mkdocs.yml` の `nav`）。
+
+    **読者に合わせた頁へ送る。** 学習者アプリから索引に落とすと、学生は
+    TA 向け・教員向けと並んだ一覧から自分の頁を選ぶことになる ── 入口の
+    案内としては 1 段遠い。教員コンソールは TA と教員の両方が使うので、
+    そちらは索引でよい。
+
+    `page` に知らない名前を渡しても止めない ── 壊れるのは行き先であって
+    画面ではなく、ここで例外を投げると案内を出そうとして画面が落ちる。
+    """
+    return f"{GUIDE_URL}{page}/" if page else GUIDE_URL
 
 
 def asset_url(name: str, *, version: str = "", prefix: str = "") -> str:

@@ -31,6 +31,10 @@
   <a class="brand" href="/">aiJudge</a>
   <span class="spacer"></span>
   <span>{{ me.display_name }} <span class="mono">{{ me.login }}</span></span>
+  {# 利用ガイド（#327）。**どの画面からも届く場所に置く** ── 使い方が分から
+     なくなるのは作業の途中で、入口に戻ってから探すものではない。別の場所
+     （GitHub Pages）なので新しいタブで開く。 #}
+  <a href="{{ guide_url() }}" target="_blank" rel="noopener">利用ガイド</a>
   <form method="post" action="/logout"><button type="submit">ログアウト</button></form>
 </div></header>
 {% if ctx_course is defined and ctx_course %}
