@@ -39,7 +39,7 @@
                設定した 0 が消えていた。 #}
              value="{{ unit.session if unit.session is not none else '' }}">
     </span>
-    {% if saved_key == 'number' %}<span class="flash">{{ saved }}</span>{% endif %}
+    {% if saved_key == 'number' %}<span class="flash" id="saved">{{ saved }}</span>{% endif %}
     <button type="submit">保存</button>
   </div>
 </form>
@@ -74,7 +74,7 @@
     <span><label for="grading_starts_at">採点開始</label>
       <input id="grading_starts_at" name="grading_starts_at" type="datetime-local"
              value="{{ unit.grading_starts_at | local('%Y-%m-%dT%H:%M') if unit.grading_starts_at else '' }}"></span>
-    {% if saved_key == 'schedule' %}<span class="flash">{{ saved }}</span>{% endif %}
+    {% if saved_key == 'schedule' %}<span class="flash" id="saved">{{ saved }}</span>{% endif %}
     <button type="submit">日程を保存</button>
   </div>
   <p class="desc" style="margin:10px 0 0">
@@ -112,7 +112,8 @@
         <strong>いま待機している提出は {{ waiting_jobs }} 件です。</strong>
         採点開始時刻を待たずに、ここまでの提出を採点に回せます。何度でも押せます。
       </span>
-      {% if saved_key == 'released' %}<span class="flash">{{ saved }}</span>{% endif %}
+      {% if saved_key in ['released', 'retried'] %}
+      <span class="flash" id="saved">{{ saved }}</span>{% endif %}
       <button type="submit" {{ 'disabled' if not waiting_jobs }}>いままでの提出を採点</button>
     </div>
     {% if last_release is not none %}
@@ -162,7 +163,7 @@
              placeholder="{{ course_grace if course_grace else '設定なし' }}"
              value="{{ unit.grace if unit.grace is not none and not unit.grace_from_course else '' }}">
     </span>
-    {% if saved_key == 'grace' %}<span class="flash">{{ saved }}</span>{% endif %}
+    {% if saved_key == 'grace' %}<span class="flash" id="saved">{{ saved }}</span>{% endif %}
     <button type="submit">保存</button>
   </div>
   <p class="desc" style="margin:10px 0 0">
@@ -178,9 +179,13 @@
 
 {% set hidden = tasks | selectattr('withdrawn') | list | length
               + tasks | selectattr('rejected') | list | length %}
-<h2>この問題セットの課題
+<h2 id="tasks">この問題セットの課題
   <span class="desc">{{ tasks | length }} 問{% if hidden %}（うち {{ hidden }} 問は学習者に出ていません）{% endif %}</span>
 </h2>
+{# 課題の一覧に着く知らせ（移動・削除・並べ替え）。**いままで出る場所が
+   無かった** ── 操作は効いていたが、教員には何も言わずに一覧が返っていた。 #}
+{% if saved_key in ['moved', 'task_deleted', 'order'] %}
+<p style="margin:0 0 10px"><span class="flash" id="saved">{{ saved }}</span></p>{% endif %}
 <table>
   <thead><tr>
     <th class="fit">順</th><th class="grow">課題</th><th class="fit">テスト</th>
@@ -339,6 +344,8 @@ p2/task.yaml</span></pre>
         既に取り下げてある {{ clear_plan.untouched }} 件はそのままです。
       {% endif %}
     </span>
+    {% if saved_key in ['unit_cleared'] %}
+    <span class="flash" id="saved">{{ saved }}</span>{% endif %}
     <button type="submit">問題セットの片付け</button>
   </div>
 </form>
@@ -420,9 +427,13 @@ p2/task.yaml</span></pre>
              value="0.3" style="max-width:8rem"></span>
   </div>
   <div class="field">
-    <label for="g-constraints">制約（1 行 1 件・課題文に必ず書かせたいこと）</label>
-    <textarea id="g-constraints" name="constraints" rows="3"
-      placeholder="標準入力から読むこと&#10;標準ライブラリの qsort を使わないこと"></textarea>
+    <label for="g-instructions">AI への指示（1 行 1 件・任意）</label>
+    <textarea id="g-instructions" name="instructions" rows="3"
+      placeholder="必ず標準入力から読むこと&#10;標準ライブラリの qsort は使わせないこと&#10;できれば配列の添字を扱う題材にしてほしい"></textarea>
+    <p class="desc" style="margin:4px 0 0">
+      外せない条件は「必ず」、希望は「できれば」と書いてください —
+      <strong>強さは書き方で伝わります</strong>。空でも生成できます。
+    </p>
   </div>
   <p class="desc">
     このコースの既存課題を「似せないための材料」として渡します。
@@ -431,7 +442,7 @@ p2/task.yaml</span></pre>
     <a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/drafts">未承認の課題（AI 作問）</a>に入り、承認するまで出題されません。
   </p>
   <div class="actions">
-    {% if saved_key == 'generated' %}<span class="flash">{{ saved }}</span>{% endif %}
+    {% if saved_key == 'generated' %}<span class="flash" id="saved">{{ saved }}</span>{% endif %}
     <button type="submit">生成</button>
   </div>
 </form>

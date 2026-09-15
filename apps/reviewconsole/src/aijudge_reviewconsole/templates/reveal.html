@@ -211,7 +211,9 @@
                value="{{ level.level }}"
                {% if (row.human_level if row.human_level is not none else row.ai_level) == level.level %}checked{% endif %}>
         <span class="lv">{{ level.level }}: {{ level.label }}</span>
-        <span>{{ level.descriptor }}</span>
+        {# **説明文には名前を付ける**（`.lv-text`）。無名の span だと、狭い幅で
+           縮む相手を CSS が名指しできず、日本語が 1 文字ずつの縦並びになる。 #}
+        <span class="lv-text">{{ level.descriptor }}</span>
         {# **この段階が何点か。** 段階の名前だけでは、動かしたときに点が
            どう動くか分からない（観点の配点に対する比率）。 #}
         <span class="desc">{{ '%.0f' | format(level.score_ratio * 100) }}%</span>

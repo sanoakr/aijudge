@@ -1620,6 +1620,10 @@ def test_saving_comes_back_to_the_place_you_pressed(world: World, monkeypatch) -
     JavaScript は位置と開いていた `<details>` を覚えて戻すが（`base.html`）、
     **無くても効くようにする** ── 保存の種類が分かっているなら、サーバが
     その場所を開いて返せる。ここで固定するのはそちら側である。
+
+    錨は `#saved` ── **知らせそのものに着ける**。節の頭（`#tests`）だと、
+    知らせが節の下の方にあるときは見えないままになる。節を開くのは錨ではなく
+    `saved_key` の仕事で、そちらは下の `id="io-edit"` で確かめている。
     """
     world.register("teacher", Role.INSTRUCTOR)
     task_id = _task_with_tests(world)
@@ -1637,11 +1641,11 @@ def test_saving_comes_back_to_the_place_you_pressed(world: World, monkeypatch) -
         data=_case_form(version, **{"0": {"expected": "9\n"}}),
         follow_redirects=False,
     )
-    # 行き先は入出力セットそのもの（観点の中にある）。
-    assert response.headers["location"].endswith("#tests")
+    # 行き先は知らせそのもの（入出力セットの保存ボタンの隣にある）。
+    assert response.headers["location"].endswith("#saved")
 
     page = world.client("teacher").get(response.headers["location"]).text
-    # その観点は開いて返す。畳んだまま返すと、`#tests` へも飛べない。
+    # その観点は開いて返す。畳んだまま返すと、`#saved` へも飛べない。
     assert 'class="criterion" id="criterion-correctness" open>' in page.replace("\n", "")
     # 直した欄も開いておく。
     assert 'id="io-edit"' in page and "io-edit" in page.split("テストケースを直す")[0]
@@ -1824,18 +1828,20 @@ def test_every_installed_evaluator_can_be_picked_for_a_criterion(world: World) -
 # --------------------------------------------------------------------------
 
 
-def _revision(monkeypatch, *, changes=("入力の範囲を明記した",), kcs=()) -> None:
-    monkeypatch.setattr(
-        "aijudge_reviewconsole.manage.TaskReviser.revise",
-        lambda self, statement, *, criteria, vocabulary, current_kcs=(): SimpleNamespace(
+def _revision(monkeypatch, *, changes=("入力の範囲を明記した",), kcs=(), seen=None) -> None:
+    def _revise(self, statement, *, criteria, vocabulary, current_kcs=(), instructions=()):
+        if seen is not None:
+            seen.append(instructions)
+        return SimpleNamespace(
             statement="## [必須] 合計 ##\n\n2 つの整数（各 0 以上 100 以下）の和を出力する。",
             changes=tuple(changes),
             knowledge_components=tuple(kcs),
-            prompt_id="task_revision_ja@1",
+            prompt_id="task_revision_ja@2",
             model="stub-model",
             unchanged=not changes,
-        ),
-    )
+        )
+
+    monkeypatch.setattr("aijudge_reviewconsole.manage.TaskReviser.revise", _revise)
 
 
 def test_an_ai_revision_waits_for_approval(world: World, monkeypatch) -> None:
@@ -1921,6 +1927,328 @@ def test_the_queue_tells_a_revision_from_a_new_task(world: World, monkeypatch) -
     assert "0 以上 100 以下" in page
     # 改訂はキーを変えられない（同じ課題の書き直し）。
     assert 'name="key_suffix"' not in page
+
+
+# --------------------------------------------------------------------------
+# 課題ごとの日程（#325）
+# --------------------------------------------------------------------------
+
+
+def _unit_schedule(world: World, unit: str, **fields) -> None:
+    world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/units/{unit}/schedule",
+        data={
+            "opens_at": "2026-09-18T09:00",
+            "submissions_open_at": "2026-09-18T13:00",
+            "due_at": "2026-09-25T23:59",
+            "accepts_until": "2026-10-02T23:59",
+            "grading_starts_at": "",
+            **fields,
+        },
+        follow_redirects=False,
+    )
+
+
+def test_revising_a_task_does_not_move_its_schedule(world: World) -> None:
+    """**揃えた日程が、課題を直しただけで崩れない**（#325）。
+
+    引き継いでいたのは公開と締切の 2 つだけで、提出開始・受付終了・採点開始・
+    猶予は版を上げるたびに空へ戻っていた ── 問題セットで揃えたあとに課題を
+    1 つ直すと、セットの画面が「日程が課題ごとにばらついています」と言い直す。
+    **教員は揃えたのに、揃えた操作が揃えたものを壊していた。**
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    task_id = _task_with_tests(world)
+    client = world.client("teacher")
+    from aijudge_reviewconsole.overview import unit_key
+
+    with world.database.unit_of_work() as uow:
+        unit = unit_key(uow.tasks.get_task(TaskId(task_id)))
+    _unit_schedule(world, unit)
+
+    with world.database.unit_of_work() as uow:
+        before = uow.tasks.get_task(TaskId(task_id))
+    assert before.submissions_open_at is not None, "前提が崩れている（日程が入っていない）"
+
+    client.post(
+        f"/manage/courses/{world.course.id}/tasks/{task_id}/revise",
+        data={"statement": "## [必須] 合計 ##\n\n誤字を直した本文", "readability_weight": "0.3"},
+        follow_redirects=False,
+    )
+
+    with world.database.unit_of_work() as uow:
+        after = uow.tasks.get_task(TaskId(task_id))
+    assert after.opens_at == before.opens_at
+    assert after.submissions_open_at == before.submissions_open_at, "提出開始が消えている"
+    assert after.due_at == before.due_at
+    assert after.accepts_until == before.accepts_until, "受付終了が消えている"
+    # 問題セットの画面も、揃っていないとは言わない。
+    page = client.get(f"/manage/courses/{world.course.id}/units/{unit}").text
+    assert "日程が課題ごとにばらついています" not in page
+
+
+def test_a_task_shows_and_fixes_its_own_schedule(world: World) -> None:
+    """**各課題でも日程を確認・修正できる**（#325）。
+
+    決めるのは問題セットだが、揃っていないものを直す口が要る ── セットの
+    日程を保存し直すと、当てたくない課題まで動く。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    task_id = _task_with_tests(world)
+    client = world.client("teacher")
+
+    page = client.get(f"/manage/courses/{world.course.id}/tasks/{task_id}/edit").text
+    assert 'name="submissions_open_at"' in page, "課題の画面に日程の欄が無い"
+    assert 'name="accepts_until"' in page
+
+    response = client.post(
+        f"/manage/courses/{world.course.id}/tasks/{task_id}/schedule",
+        data={
+            "opens_at": "2026-09-18T09:00",
+            "submissions_open_at": "2026-09-18T13:00",
+            "due_at": "2026-09-25T23:59",
+            "accepts_until": "2026-10-02T23:59",
+            "grading_starts_at": "",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert response.headers["location"].endswith("#saved")
+
+    with world.database.unit_of_work() as uow:
+        task = uow.tasks.get_task(TaskId(task_id))
+        versions = uow.tasks.latest_version(TaskId(task_id))
+    assert task.due_at is not None and task.accepts_until is not None
+    # **版は上がらない。** 日程は課題の内容ではない（P8 の対象外）。
+    assert versions.version == 1, "日程を直しただけで版が上がっている"
+
+
+def test_a_task_in_a_mixed_unit_says_so(world: World) -> None:
+    """ばらついていることを**課題の画面でも告げる**（#325）。
+
+    問題セットの画面は「ばらついている」と言うが、その課題自身の値は出さない
+    ── 1 件ずつ開いて見比べることになる。判定は問題セットのものをそのまま
+    使う（`UnitGroup.mixed`）── 違う理屈で書くと、片方が「ばらついている」と
+    言い、もう片方が「揃っている」と出る。
+    """
+    from aijudge_admin import save_task
+    from aijudge_authoring import TaskSpec
+    from aijudge_reviewconsole.overview import unit_key
+
+    world.register("teacher", Role.INSTRUCTOR)
+    first = _task_with_tests(world)
+    client = world.client("teacher")
+    # **同じセットに 2 問。** 1 問だけのセットでは、その課題の値がそのまま
+    # セットの代表値になるので、ずれようがない。
+    second = save_task(
+        world.database,
+        course_id=world.course.id,
+        spec=TaskSpec(
+            key="ex01/p2",
+            unit="ex01",
+            position=2,
+            statement="## [必須] 差 ##\n\n差を出力する。",
+        ),
+        subject_profile="cs_lang_c_intro",
+        authored_by=_user_id(world, "teacher"),
+    ).task.id
+    with world.database.unit_of_work() as uow:
+        unit = unit_key(uow.tasks.get_task(TaskId(first)))
+    _unit_schedule(world, unit)
+
+    page = client.get(f"/manage/courses/{world.course.id}/tasks/{second}/edit").text
+    assert "課題ごとにばらついています" not in page, "揃っているのに警告が出ている"
+
+    # この課題だけ締切を動かす。
+    client.post(
+        f"/manage/courses/{world.course.id}/tasks/{second}/schedule",
+        data={
+            "opens_at": "2026-09-18T09:00",
+            "submissions_open_at": "2026-09-18T13:00",
+            "due_at": "2026-09-30T23:59",
+            "accepts_until": "2026-10-02T23:59",
+            "grading_starts_at": "",
+        },
+        follow_redirects=False,
+    )
+
+    page = client.get(f"/manage/courses/{world.course.id}/tasks/{second}/edit").text
+    assert "課題ごとにばらついています" in page
+    # 動かさなかった側にも出る ── ばらついているのはセットであって、
+    # 「どちらが正しいか」は機械には決められない。
+    other = client.get(f"/manage/courses/{world.course.id}/tasks/{first}/edit").text
+    assert "課題ごとにばらついています" in other
+
+
+def test_a_broken_task_schedule_is_refused(world: World) -> None:
+    """**壊れた順序を保存させない**（`Task._check_schedule`）。
+
+    提出開始が締切より後の課題は、誰も提出できないまま締切を迎える。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    task_id = _task_with_tests(world)
+
+    response = world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/tasks/{task_id}/schedule",
+        data={
+            "opens_at": "2026-09-18T09:00",
+            "submissions_open_at": "2026-10-01T13:00",
+            "due_at": "2026-09-25T23:59",
+            "accepts_until": "",
+            "grading_starts_at": "",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 400
+
+
+# --------------------------------------------------------------------------
+# 更新の知らせは、押したボタンの近くに出る
+# --------------------------------------------------------------------------
+
+
+def test_the_save_notice_lands_next_to_the_button(world: World) -> None:
+    """**押したボタンの近くに出し、そこへ着地させる。**
+
+    知らせをページ先頭の帯だけに出していたとき、画面の下の方にあるボタンを
+    押した教員には見えなかった ── 送信のあと画面は先頭に戻るが、帯は 1 画面ぶん
+    上にあって視野に入らない。「押せたのかどうか分からない」は、押していないと
+    思ってもう一度押す形になる。
+
+    固定するのは 2 つ。**錨が知らせに着いていること**（`#saved`）と、
+    **知らせが保存ボタンと同じ箱にあること**。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    task_id = _task_with_tests(world)
+    client = world.client("teacher")
+
+    response = client.post(
+        f"/manage/courses/{world.course.id}/tasks/{task_id}/revise",
+        data={"statement": "## [必須] 合計 ##\n\n直した本文", "readability_weight": "0.3"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303, response.text
+    assert response.headers["location"].endswith("#saved"), "知らせへ着地させていない"
+
+    page = client.get(response.headers["location"]).text
+    assert page.count('id="saved"') == 1, "着地点が複数あると、どれに飛ぶか決まらない"
+    # 知らせは保存ボタンと同じ箱にある。**帯ではない。**
+    foot = page.split('<div class="taskform-foot">')[1].split("</div>")[0]
+    assert 'id="saved"' in foot, "知らせが保存ボタンの箱の外にある"
+    assert "課題を保存しました" in foot or "保存しました" in foot
+
+
+def test_no_save_notice_is_ever_lost(world: World, monkeypatch) -> None:
+    """**置き場所を作り忘れても知らせは消えない。**
+
+    課題の画面は、フォームの側に置き場所のある知らせ（`FLASH_HOMES`）だけを
+    そこに出し、**それ以外は上の帯に出す**。両方から漏れると、操作は効いた
+    のに画面は何も言わない ── 効いていないと読まれて、もう一度押される。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    task_id = _task_with_tests(world)
+    client = world.client("teacher")
+
+    # 課題の画面に着く知らせを、鍵ごとに全部通す。
+    landing = [
+        "task",
+        "tests_added",
+        "tests_failed",
+        "tests_revised",
+        "items_revised",
+        "regraded",
+        "restored_version",
+        "withdrawn",
+        "restored",
+        "revision_none",
+        "revision_failed",
+        "task_without_tests",
+        "task_generation_failed",
+    ]
+    for key in landing:
+        page = client.get(
+            f"/manage/courses/{world.course.id}/tasks/{task_id}/edit?saved={key}"
+        ).text
+        assert page.count('id="saved"') == 1, f"{key} の知らせが消えているか、二重に出ている"
+
+
+def test_the_reason_a_revision_failed_is_on_the_page(world: World, monkeypatch) -> None:
+    """**理由をそのまま出す**（決めつけない・#52）。
+
+    以前は理由を URL の錨に載せていたので、画面には「書き直せませんでした」
+    としか出なかった ── 錨は知らせの着地点に要るので、理由は問い合わせで渡して
+    画面に出す。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    task_id = _task_with_tests(world)
+
+    def _boom(self, statement, **kwargs):
+        raise RuntimeError("ollama に繋がりません")
+
+    monkeypatch.setattr("aijudge_reviewconsole.manage.TaskReviser.revise", _boom)
+    client = world.client("teacher")
+
+    response = client.post(
+        f"/manage/courses/{world.course.id}/tasks/{task_id}/revise-with-ai",
+        follow_redirects=False,
+    )
+    location = response.headers["location"]
+    assert location.endswith("#saved")
+
+    page = client.get(location).text
+    assert "ollama に繋がりません" in page, "理由が画面に出ていない"
+
+
+def test_the_teacher_can_tell_the_ai_what_to_fix(world: World, monkeypatch) -> None:
+    """**何を直してほしいかは、読んだ教員がいちばんよく知っている**（#306）。
+
+    観点との食い違いは機械的に見付かるが、「毎年ここで質問が来る」は教員しか
+    知らない ── 欄が無いと、そこは何度書き直させても直らない。作問の指示と
+    同じ扱いで、必須事項の列ではない（強さは書き方が表す）。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    task_id = _task_with_tests(world)
+    seen: list[tuple[str, ...]] = []
+    _revision(monkeypatch, seen=seen)
+
+    # 画面に欄がある（`name` が合っていなければ、書いても届かない）。
+    page = (
+        world.client("teacher").get(f"/manage/courses/{world.course.id}/tasks/{task_id}/edit").text
+    )
+    assert 'name="instructions"' in page, "書き直しに指示を渡す欄が無い"
+
+    world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/tasks/{task_id}/revise-with-ai",
+        data={
+            "instructions": "必ず入力の上限を明記すること\n\nできれば実行例を 2 つに増やしてほしい"
+        },
+        follow_redirects=False,
+    )
+
+    assert seen == [("必ず入力の上限を明記すること", "できれば実行例を 2 つに増やしてほしい")], (
+        "指示が書いたとおりに届いていない（空行が落ちていないか、順序が変わっていないか）"
+    )
+
+
+def test_a_revision_without_instructions_still_runs(world: World, monkeypatch) -> None:
+    """**指示は入口であって、前提ではない**（#306）。
+
+    空のまま押しても改訂は走る ── 観点との食い違いは指示が無くても見付かる。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    task_id = _task_with_tests(world)
+    seen: list[tuple[str, ...]] = []
+    _revision(monkeypatch, seen=seen)
+
+    response = world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/tasks/{task_id}/revise-with-ai",
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert seen == [()], "空欄が空の指示として渡っていない"
+    with world.database.unit_of_work() as uow:
+        assert len(uow.tasks.list_drafts(world.course.id)) == 1
 
 
 # --------------------------------------------------------------------------
@@ -3738,7 +4066,8 @@ def test_saving_the_schedule_says_so_on_the_next_screen(world: World) -> None:
         follow_redirects=False,
     )
     # **その場に戻す。** 錨が付いていないと、保存のたびに画面の先頭に飛ぶ。
-    assert response.headers["location"].endswith("?saved=schedule#schedule")
+    # 錨は知らせそのもの（`#saved`）── 節の頭では、知らせが視野の外に残る。
+    assert response.headers["location"].endswith("?saved=schedule#saved")
     assert "日程を保存しました" in client.get(response.headers["location"]).text
 
 
@@ -3750,7 +4079,7 @@ def test_saving_the_course_settings_says_so(world: World) -> None:
         data={"after_minutes": "60"},
         follow_redirects=False,
     )
-    assert response.headers["location"].endswith("?saved=course_grace#course_grace")
+    assert response.headers["location"].endswith("?saved=course_grace#saved")
     assert "保存しました" in client.get(response.headers["location"]).text
 
 

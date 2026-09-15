@@ -47,7 +47,9 @@ def cmd_task_draft(args: argparse.Namespace) -> int:
         subject_profile=args.profile_name,
         difficulty=Difficulty(args.difficulty),
         language=args.language,
-        constraints=tuple(args.constraint or ()),
+        # `--constraint` は `--instruction` の旧名。**同じ列に流す** ──
+        # 別々に持つと、どちらに書いたかでモデルへの渡り方が変わる。
+        instructions=tuple(args.instruction or ()) + tuple(args.constraint or ()),
         test_case_count=args.test_cases,
     )
 
@@ -275,7 +277,11 @@ def register(task_parser) -> None:
         default=Difficulty.STANDARD.value,
         choices=[d.value for d in Difficulty],
     )
-    draft.add_argument("--constraint", action="append", help="課題文に入れる制約（複数可）")
+    draft.add_argument(
+        "--instruction", action="append", help="AI への指示（複数可）。必須事項も希望も書ける"
+    )
+    # 旧名。台本に残っているので受け続ける（`--instruction` と同じ列に入る）。
+    draft.add_argument("--constraint", action="append", help=argparse.SUPPRESS)
     draft.add_argument("--test-cases", type=int, default=5)
     draft.add_argument("--model", default=None, help="下書きを作るモデル")
     draft.add_argument(

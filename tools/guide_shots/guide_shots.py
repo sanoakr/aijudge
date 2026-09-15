@@ -71,6 +71,20 @@ COURSE_TERM = "2026-後期"
 SUBJECT_PROFILE = "cs_lang_c_intro"
 SUBJECTS_DIR = REPO_ROOT / "subjects"
 BLIND_RATE_LINE = ("blind_sample_rate: 0.05", "blind_sample_rate: 1.0")
+# ガイド用コースの科目プロファイルが使える名前空間（`kc_namespaces`）。
+KC_NAMESPACE = "cs"
+# このコースが作問で選べる知識要素。**入門の授業が実際に問うものだけ**を挙げる
+# ── 骨格をまるごと入れると候補が数百件になり、作問の画面の説明にならない。
+COURSE_KCS = (
+    "cs.sdf.fundamentals.variable",
+    "cs.sdf.fundamentals.branching",
+    "cs.sdf.fundamentals.definite_loop",
+    "cs.sdf.fundamentals.indefinite_loop",
+    "cs.sdf.fundamentals.console_io",
+    "cs.sdf.fundamentals.function_definition",
+    "cs.sdf.data_structures.array",
+    "cs.sdf.data_structures.string",
+)
 INSTRUCTOR = ("sensei", "佐藤 花子")
 ASSISTANT = ("ta01", "鈴木 太郎")
 LEARNERS = (
@@ -160,6 +174,24 @@ def submission_id(state: Path, login: str, attempt: int) -> str:
     )
 
 
+def yaml_course_scope() -> str:
+    """`course apply` に渡す定義。**課題は書かない**（範囲だけを足す）。
+
+    `ensure_course` は既にあるコースを更新するので、`task import` で入れた
+    課題には触らない ── 同じコースを 2 度作ることにはならない。
+    """
+    keys = "\n".join(f"    - {key}" for key in COURSE_KCS)
+    return (
+        "course:\n"
+        f"  code: {COURSE_CODE}\n"
+        f"  title: {COURSE_TITLE}\n"
+        f"  term: {COURSE_TERM}\n"
+        f"  subject_profile: {SUBJECT_PROFILE}\n"
+        "  knowledge_components:\n"
+        f"{keys}\n"
+    )
+
+
 # ── seed ───────────────────────────────────────────────
 
 
@@ -218,6 +250,21 @@ def seed(state: Path) -> None:
     # `--role admin` を `--course` 無しで渡すとテナント単位の属性が付く（#128）。
     run([*admin, "staff", "--login", INSTRUCTOR[0], "--role", "admin"], env)
     run([*admin, "kc", "seed", "--namespace", "demo"], env)
+    # **ガイド用コースにも知識要素を入れる。** 骨格（`cs`）を投入し、そのうち
+    # 入門の授業が実際に問うものをこのコースの範囲に入れる。
+    #
+    # 入れていなかったので、知識要素の画面は「いま 0 件」、作問の画面は
+    # 「知識要素が登録されていないので生成できません」で撮れていた ──
+    # ガイドはどちらの画面も**読者が決して見られない姿**で説明していた。
+    # 範囲は `course apply` から入れる（画面の「名前空間から足す」と同じ
+    # ところに効く）。課題はここでは書かない ── 取り込み済みのものに触らない。
+    run([*admin, "kc", "seed", "--namespace", KC_NAMESPACE], env)
+    scope = state / "course-kc.yaml"
+    scope.write_text(
+        yaml_course_scope(),
+        encoding="utf-8",
+    )
+    run([*admin, "course", "apply", "--file", str(scope)], env)
     run([*admin, "--artifacts", env["AIJUDGE_ARTIFACT_DIR"], "demo", "seed"], env)
     (state / "demo_course_id").write_text(course_id(state, "demo"))
     print(f"seed: {state}")
@@ -577,9 +624,14 @@ def capture(state: Path, playwright: Any, login_url: str) -> None:
     s.shot(
         "in-settings-rubric", between=("h2:has-text('共通ルーブリック')", "h2:has-text('採点設定')")
     )
+    # 採点設定の次の見出し。**「課題文に貼る画像」を待っていたが、それは
+    # 課題の画面の h3 であって、この画面には無い**（あったとしても h2 では
+    # ない）── 30 秒待って落ち、ここから先の 7 枚が撮られないまま
+    # 古い画像が残っていた。切り抜きが見つからなければ止まる作りは正しいが、
+    # 止まった先を直さなければ意味が無い。
     s.shot(
         "in-settings-grading",
-        between=("h2:has-text('採点設定')", "h2:has-text('課題文に貼る画像')"),
+        between=("h2:has-text('採点設定')", "h2:has-text('このコースを複製する')"),
     )
     page.goto(f"{CONSOLE}/manage/courses/{course}/basics")
     s.shot("in-basics", full=True)

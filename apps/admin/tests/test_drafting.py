@@ -42,7 +42,7 @@ BLUEPRINT = Blueprint(
     knowledge_components=("cs.io.formatted_input", "cs.arithmetic.sum"),
     subject_profile="cs_lang_c_intro",
     difficulty=Difficulty.INTRODUCTORY,
-    constraints=("標準入力から読むこと",),
+    instructions=("必ず標準入力から読むこと",),
     test_case_count=3,
 )
 
@@ -138,7 +138,7 @@ def test_the_result_records_which_prompt_and_model_made_it() -> None:
     """再現性（P8）。どの版が出したものか分からない生成物は追跡できない。"""
     drafter, _ = _drafter(GOOD)
     result = drafter.draft(BLUEPRINT, key="gen/sum")
-    assert result.prompt_id == "task_draft_ja@2"
+    assert result.prompt_id == "task_draft_ja@3"
     assert result.model == "stub"
 
 
@@ -193,7 +193,7 @@ def test_a_generated_task_is_not_approved_by_being_generated() -> None:
     assert version.provenance.review_state is ReviewState.IN_REVIEW
     assert version.provenance.generated_by == "stub"
     # どの版のプロンプトが出したか（P8、承認率の測定に要る）。
-    assert version.provenance.generation_prompt_version == "task_draft_ja@2"
+    assert version.provenance.generation_prompt_version == "task_draft_ja@3"
 
 
 def test_a_hand_written_task_is_still_approved_on_the_spot() -> None:
@@ -223,6 +223,26 @@ def test_the_course_outline_reaches_the_prompt() -> None:
     )
     assert "プログラミング及び実習 II" in section
     assert "ポインタは扱わない" in section
+
+
+def test_the_instructions_reach_the_prompt() -> None:
+    """教員の指示がモデルに届く。
+
+    **必須事項の列ではない**（以前の「制約」）。外せない条件も方針の希望も
+    同じ列に入り、強さは教員の書き方が表す ── 欄を 2 つに割ると、どちらに
+    書くかを迷わせるだけで、モデルへの渡り方は変わらない。
+    """
+    drafter, provider = _drafter(GOOD)
+    drafter.draft(
+        BLUEPRINT.model_copy(
+            update={"instructions": ("必ず標準入力から読むこと", "できれば再帰を使わせたい")}
+        ),
+        key="gen/sum",
+    )
+
+    sent = "\n".join(m.content for m in provider.calls[0].messages)
+    assert "必ず標準入力から読むこと" in sent
+    assert "できれば再帰を使わせたい" in sent, "希望として書いた指示が落ちている"
 
 
 def test_a_course_without_an_outline_gets_no_section() -> None:

@@ -34,7 +34,9 @@ PROMPT = PromptTemplate(
     # 過去に生成した課題が何から出たのか追えなくなる。
     #
     # 2: コースの範囲（題名・到達目標）を渡すようにした。
-    version="2",
+    # 3: 「制約」を「指示」にした。必ず書かせたい条件だけでなく、方針の希望も
+    #    受ける ── 強さは教員の書き方（「必ず」「できれば」）が表す。
+    version="3",
     system=(
         "あなたは大学の理工系科目の課題を作る教員です。"
         "**問題文・参照解答・テストケースを必ず同時に作ります。**"
@@ -48,7 +50,9 @@ PROMPT = PromptTemplate(
         "## 問う知識要素\n{knowledge_components}\n\n"
         "## 難度\n{difficulty}\n\n"
         "## 言語\n{language}\n\n"
-        "## 制約\n{constraints}\n\n"
+        "## 教員からの指示\n{instructions}\n"
+        "**必ず従うこと。** 「必ず」と書かれたものは課題文に明記し、"
+        "希望として書かれたものは可能な範囲で汲みます。\n\n"
         "## 既存の課題（似せないこと）\n{avoid}\n\n"
         "## テストケース数\n{test_case_count} 件。"
         "うち少なくとも 1 件は境界値（最小の入力、値が等しい場合など）にすること。\n"
@@ -109,14 +113,14 @@ class TaskDrafter:
             PROMPT,
             TaskDraft,
             model=self._model,
-            # **個人データを含まない。** 渡すのは KC のキーと制約だけ。
+            # **個人データを含まない。** 渡すのは KC のキーと教員の指示だけ。
             data_class=DataClass.NON_PERSONAL,
             max_tokens=self._max_tokens,
             course=_course_section(blueprint),
             knowledge_components="\n".join(f"- {kc}" for kc in blueprint.knowledge_components),
             difficulty=blueprint.difficulty.value,
             language=blueprint.language,
-            constraints="\n".join(f"- {c}" for c in blueprint.constraints) or "（なし）",
+            instructions="\n".join(f"- {line}" for line in blueprint.instructions) or "（なし）",
             avoid="\n\n".join(blueprint.avoid_similar_to) or "（なし）",
             test_case_count=blueprint.test_case_count,
         )

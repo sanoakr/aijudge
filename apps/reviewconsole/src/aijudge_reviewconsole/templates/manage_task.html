@@ -8,7 +8,25 @@
   {% if version %}<span class="sep">·</span> {{ version.version }} 版{% endif %}
 </p>
 
-{% if note %}<div class="note saved">{{ note }}</div>{% endif %}
+{# 更新の知らせは、**押したボタンの近くに出す**。ここはその行き先が無い
+   知らせだけの場所である。
+
+   以前はすべての知らせをこの帯に出していた ── 送信のあと画面は先頭に戻るので、
+   下の方のボタン（テストケース・項目表・書き直し）を押した教員には、知らせが
+   1 画面ぶん上にあって見えなかった。「押せたのかどうか分からない」は、
+   押していないと思ってもう一度押す形になる。
+
+   `FLASH_HOMES` はフォームの側に置き場所がある知らせ。**ここから漏れた鍵は
+   この帯に出る** ── 置き場所を作り忘れても知らせが消えることはない
+   （`test_manage.py` の「知らせは必ずどこかに出る」が両方を数える）。 #}
+{% set FLASH_HOMES = ['task', 'tests_added', 'tests_revised', 'items_revised',
+                      'regraded', 'restored_version', 'withdrawn', 'restored',
+                      'revision_none', 'revision_failed', 'task_schedule'] %}
+{% set flash = namespace(shown=false) %}
+{% if note and saved_key not in FLASH_HOMES %}
+{% set flash.shown = true %}
+<div class="note saved" id="saved">{{ note }}</div>
+{% endif %}
 {# **原因をそのまま出す。** 決めつけた文面を書くと、言われたとおり確かめた
    教員は何も見つけられない（#52・#30 と同じ誤り）。 #}
 {% if test_case_error %}
@@ -428,6 +446,7 @@
     <span class="desc">
       {%- if task %}上の 4 つをまとめて保存します（入出力セットと項目表は観点の中の欄から別に保存します）
       {%- else %}書いた内容で課題を作ります{% endif %}</span>
+    {% if saved_key in ['task'] %}{% set flash.shown = true %}<span class="flash" id="saved">{{ note }}</span>{% endif %}
     <button type="submit">{{ 'この問題を保存して更新する' if task else '保存' }}</button>
   </div>
   </section>
@@ -501,6 +520,8 @@
     「この版に戻す」を押すと、その中身を写した<strong>新しい版</strong>ができます
     — 版は書き換えません（過去の採点はそれぞれ自分の版を指したまま残ります）。
   </p>
+  {% if saved_key in ['restored_version'] %}{% set flash.shown = true %}
+  <p style="margin:0 0 10px"><span class="flash" id="saved">{{ note }}</span></p>{% endif %}
   <table>
     <thead><tr>
       <th class="fit">版</th><th class="fit">状態</th><th class="fit">作成</th>
@@ -537,6 +558,66 @@
 </div>
 {% endif %}
 
+{# この課題 1 件の日程（#325）。**決めるのは問題セット**（`manage_unit.html`）
+   だが、揃っていないものを直す口がここに要る ── 取り込んだ課題は 1 件ずつ
+   日程を持っていることがあり、あとから足した課題はセットの日程を持っていない。
+   「セットの日程を保存し直して全部に当てる」は、当てたくない課題まで動かす。
+
+   **版は上がらない。** 日程は課題の内容ではないので、直しても過去の採点基準は
+   変わらない（ADR 0013・P8 の対象外）。 #}
+{% if task %}
+<h2 id="schedule">日程</h2>
+{% if unit_schedule_mixed %}
+{# 問題セットの画面と**同じ判定**（`UnitGroup.mixed`）。違う理屈で書くと、
+   片方が「ばらついている」と言い、もう片方が「揃っている」と出る。 #}
+<div class="note warn">
+  <strong>この問題セットの日程が課題ごとにばらついています。</strong>
+  この課題の値は下のとおりです。
+  {% if own_unit %}
+  問題セット
+  <a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/units/{{ own_unit.key }}#schedule">{{ own_unit.label }}</a>
+  の「日程」を保存すると、セット内のすべての課題に同じ値が入ります。
+  この課題だけを直すなら下の欄を使ってください。
+  {% endif %}
+</div>
+{% endif %}
+<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/tasks/{{ task.id }}/schedule"
+      class="card">
+  <div class="field row-form">
+    <span><label for="t-opens_at">公開</label>
+      <input id="t-opens_at" name="opens_at" type="datetime-local"
+             value="{{ task.opens_at | local('%Y-%m-%dT%H:%M') if task.opens_at else '' }}"></span>
+    <span><label for="t-submissions_open_at">提出開始</label>
+      <input id="t-submissions_open_at" name="submissions_open_at" type="datetime-local"
+             value="{{ task.submissions_open_at | local('%Y-%m-%dT%H:%M') if task.submissions_open_at else '' }}"></span>
+    <span><label for="t-due_at">提出締切</label>
+      <input id="t-due_at" name="due_at" type="datetime-local"
+             value="{{ task.due_at | local('%Y-%m-%dT%H:%M') if task.due_at else '' }}"></span>
+    <span><label for="t-accepts_until">受付終了</label>
+      <input id="t-accepts_until" name="accepts_until" type="datetime-local"
+             value="{{ task.accepts_until | local('%Y-%m-%dT%H:%M') if task.accepts_until else '' }}"></span>
+    <span><label for="t-grading_starts_at">採点開始</label>
+      <input id="t-grading_starts_at" name="grading_starts_at" type="datetime-local"
+             value="{{ task.grading_starts_at | local('%Y-%m-%dT%H:%M') if task.grading_starts_at else '' }}"></span>
+    {% if saved_key in ['task_schedule'] %}{% set flash.shown = true %}<span class="flash" id="saved">{{ note }}</span>{% endif %}
+    <button type="submit">この課題の日程を保存</button>
+  </div>
+  <p class="desc" style="margin:10px 0 0">
+    <strong>日程を決めるのは問題セットです。</strong>
+    ここは揃っていないものを直すための欄で、ふつうは
+    {% if own_unit %}<a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/units/{{ own_unit.key }}#schedule">問題セットの「日程」</a>{% else %}問題セットの「日程」{% endif %}
+    から保存してください。
+    <br>
+    <strong>提出開始が空なら、公開と同時に受け付けます。</strong>
+    <strong>受付終了が空なら、締切を過ぎても無期限に受け付けます</strong>（減点は付きます）。
+    <strong>採点開始が空なら、提出と同時に採点します</strong>（試験ではここに時刻を入れます）。
+    <br>
+    <strong>この保存で版は上がりません</strong> — 日程は課題の内容ではないので、
+    過去の採点がどの基準で付いたかは変わりません。
+  </p>
+</form>
+{% endif %}
+
 {# 既存の課題を現在の基準に合わせて書き直す（#306）。**必ず承認待ちになる** ──
    教員はまだ 1 文字も読んでいない（P5・ADR 0008）。 #}
 <form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/tasks/{{ task.id }}/revise-with-ai"
@@ -553,7 +634,26 @@
     未承認の課題（AI 作問）の一覧で<strong>差分を読んでから</strong>承認してください。
     直すところが無ければ版は増やしません。
   </p>
+  {# **指示を渡せる。** 何を直してほしいかは、読んだ教員がいちばんよく知って
+     いる ── 観点との食い違いは機械的に見付かるが、「毎年ここで質問が来る」は
+     教員しか知らない。作問の指示（`manage_unit.html`）と同じ扱いで、必須事項の
+     列ではない。 #}
+  <div class="field">
+    <label for="r-instructions">AI への指示（1 行 1 件・任意）</label>
+    <textarea id="r-instructions" name="instructions" rows="3"
+      placeholder="必ず入力の上限を明記すること&#10;できれば実行例を 2 つに増やしてほしい&#10;「配列」という語を使わずに説明してほしい"></textarea>
+    <p class="desc" style="margin:4px 0 0">
+      外せない条件は「必ず」、希望は「できれば」と書いてください —
+      <strong>強さは書き方で伝わります</strong>。
+      空のままでも、観点との食い違いは書き直します。
+    </p>
+  </div>
+  {# **理由をそのまま出す**（決めつけない・#52）。以前は URL の錨に載せていた
+     ので、画面には「書き直せませんでした」としか出なかった。 #}
+  {% if saved_key == 'revision_failed' and why %}
+  <p class="desc mono" style="margin:0 0 8px">{{ why }}</p>{% endif %}
   <div class="actions">
+    {% if saved_key in ['revision_none', 'revision_failed'] %}{% set flash.shown = true %}<span class="flash" id="saved">{{ note }}</span>{% endif %}
     <button type="submit">いまの基準に合わせて書き直す</button>
   </div>
 </form>
@@ -577,6 +677,7 @@
     新しい版で採点し直すかどうかは、承認したあとに選べます。
   </p>
   <div class="actions">
+    {% if saved_key in ['tests_added'] %}{% set flash.shown = true %}<span class="flash" id="saved">{{ note }}</span>{% endif %}
     <button type="submit">テストケースを生成して新しい版を作成</button>
   </div>
 </form>
@@ -597,6 +698,7 @@
     過去の採点も消えません — 新しい採点が終わると、古い採点に「置き換わった」印が付きます（P8）。
   </p>
   <div class="actions">
+    {% if saved_key in ['regraded'] %}{% set flash.shown = true %}<span class="flash" id="saved">{{ note }}</span>{% endif %}
     <button type="submit">いまの版で再採点（{{ regradable }} 件）</button>
   </div>
 </form>
@@ -647,6 +749,7 @@
     （提出・採点・Q-matrix は残っています）。
   </p>
   <div class="actions">
+    {% if saved_key in ['restored'] %}{% set flash.shown = true %}<span class="flash" id="saved">{{ note }}</span>{% endif %}
     <button type="submit">取り下げの取り消し</button>
   </div>
   {% else %}
@@ -656,6 +759,7 @@
     （提出・採点・Q-matrix は残り、ここには印付きで並びます）。いつでも取り消せます。
   </p>
   <div class="actions">
+    {% if saved_key in ['withdrawn'] %}{% set flash.shown = true %}<span class="flash" id="saved">{{ note }}</span>{% endif %}
     <button type="submit">出題の取り下げ</button>
   </div>
   {% endif %}
@@ -677,5 +781,10 @@
   </div>
 </form>
 {% endif %}
+{% endif %}
+{# **最後の受け皿**（知らせを落とさない）。上のどの箱も描かれなかったときだけ
+   出る ── `#saved` が着地させるので、位置が末尾でも見落とされない。 #}
+{% if note and not flash.shown %}
+<div class="note saved" id="saved">{{ note }}</div>
 {% endif %}
 {% endblock %}
