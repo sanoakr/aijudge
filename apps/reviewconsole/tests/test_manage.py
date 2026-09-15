@@ -1863,16 +1863,20 @@ def test_an_ai_revision_waits_for_approval(world: World, monkeypatch) -> None:
     with world.database.unit_of_work() as uow:
         after = uow.tasks.latest_version(TaskId(task_id))
         published_after = uow.tasks.latest_published_version(TaskId(task_id))
-    assert after.version == before.version + 1
-    assert "0 以上 100 以下" in after.statement
-    # **学習者に出ているものは動かない。**
+        drafts = uow.tasks.list_drafts(world.course.id)
+    # **版は増えない**（#321）。増えるのは採用したとき ── 未承認の版が
+    # 課題の履歴に積まれると、それが課題の状態として読まれる（#319）。
+    assert after.id == before.id
     assert published_after.id == published_before.id
-    assert after.provenance.review_state is not ReviewState.APPROVED
-    assert after.provenance.generated_by == "stub-model"
+    assert len(drafts) == 1
+    draft = drafts[0]
+    assert draft.task_id == TaskId(task_id), "どの課題の改訂か分からない"
+    assert "0 以上 100 以下" in draft.spec.statement
+    assert draft.generated_by == "stub-model"
     # 観点・入出力セット・参照解答は触らない。
-    assert [c.code for c in after.criteria] == [c.code for c in before.criteria]
-    assert [c.name for c in after.test_cases] == [c.name for c in before.test_cases]
-    assert after.reference_solution == before.reference_solution
+    assert [c.code for c in draft.spec.criteria] == [c.code for c in before.criteria]
+    assert [c.name for c in draft.spec.test_cases] == [c.name for c in before.test_cases]
+    assert draft.spec.reference_solution == before.reference_solution
 
 
 def test_a_revision_with_nothing_to_change_is_not_queued(world: World, monkeypatch) -> None:
@@ -1915,6 +1919,8 @@ def test_the_queue_tells_a_revision_from_a_new_task(world: World, monkeypatch) -
     assert 'class="code diff"' in page
     # 足した行と消した行が読める形で出ている。
     assert "0 以上 100 以下" in page
+    # 改訂はキーを変えられない（同じ課題の書き直し）。
+    assert 'name="key_suffix"' not in page
 
 
 # --------------------------------------------------------------------------
@@ -4259,15 +4265,14 @@ def test_a_failed_generation_still_saves_the_task_and_says_so(monkeypatch, world
 
 
 def test_a_generated_task_is_saved_awaiting_approval(monkeypatch, world: World) -> None:
-    """**生成物は承認まで出題されない**（P5）。
+    """**生成物は下書きになる。課題にはならない**（#321・P5）。
 
-    出所（`generated_by`）が版に載らないと `Provenance` は「教員が書いた」に
-    なり、承認を経ずにそのまま出題可能になる。この経路は一度も通されて
-    おらず、`save_task` が出所を受け取らないまま呼ばれていた。
+    課題にすると、そこで同一性（課題キー → 課題 ID）が決まってしまう ──
+    生成物は提案であって確定ではないので、名前を含めて採用のときに決められる
+    必要がある。出所（`generated_by`）は下書きが持ち、採用した版へ引き継ぐ。
     """
     _seed(world)
     from aijudge_authoring.drafting import DraftTestCase, TaskDraft
-    from aijudge_core import ReviewState
 
     world.register("boss", Role.ADMIN)
     world.register("teacher", Role.INSTRUCTOR)
@@ -4308,16 +4313,15 @@ def test_a_generated_task_is_saved_awaiting_approval(monkeypatch, world: World) 
     assert response.status_code == 303, response.text
 
     with world.database.unit_of_work() as uow:
-        made = next(
-            uow.tasks.latest_version(task.id)
-            for task in uow.tasks.list_for_course(world.course.id)
-            if uow.tasks.latest_version(task.id).provenance.generated_by
-        )
-    assert made.provenance.generated_by == "stub-model"
-    assert made.provenance.generation_prompt_version == "task_draft_ja@2"
-    # **承認まで出題されない。**
-    assert made.provenance.review_state is ReviewState.IN_REVIEW
-    assert not made.is_published
+        drafts = uow.tasks.list_drafts(world.course.id)
+        tasks_now = uow.tasks.list_for_course(world.course.id)
+    # **課題にはならない**（#321）。下書きが 1 件できるだけで、採用するまで
+    # 課題は存在しない ── だから採用のときにキーを含めて直せる。
+    assert len(drafts) == 1
+    assert drafts[0].generated_by == "stub-model"
+    assert drafts[0].generation_prompt_version == "task_draft_ja@2"
+    # 取り込んだ課題（1 件）以外は増えていない。
+    assert len(tasks_now) == 1
 
 
 def test_generation_needs_a_registered_component(world: World) -> None:
@@ -4383,13 +4387,13 @@ def test_the_unit_page_marks_a_task_that_is_not_approved(world: World) -> None:
     assert f"/manage/courses/{world.course.id}/drafts" in body
 
 
-def test_rejecting_a_revision_leaves_the_published_version_alone(world: World, monkeypatch) -> None:
-    """**改訂を却下しても、出ている版は出続ける**（#319）。
+def test_dropping_a_revision_leaves_the_published_version_alone(world: World, monkeypatch) -> None:
+    """**改訂を捨てても、出ている版は出続ける**（#319・#321）。
 
-    却下するのは新しい版であって課題ではない。一覧は `latest_version` を
-    並べるので、その状態を課題そのものの状態として出していた ── 改訂を
-    却下しただけで「却下済み — 出題されません」と出るが、学習者には 1 つ前の
-    承認済みが出ている。画面が嘘をつく。
+    捨てるのは下書きであって課題ではない。以前は改訂が版として積まれていた
+    ので、却下すると「最新版が却下」になり、一覧が「却下済み — 出題されません」
+    と出た ── 学習者には 1 つ前の承認済みが出ているのに、である。下書きを
+    課題表の外に置いた（ADR 0019）ので、この読み違いは土台から消えた。
     """
     world.register("teacher", Role.INSTRUCTOR)
     task_id = _task_with_tests(world)
@@ -4399,35 +4403,28 @@ def test_rejecting_a_revision_leaves_the_published_version_alone(world: World, m
         follow_redirects=False,
     )
     with world.database.unit_of_work() as uow:
-        queued = uow.tasks.latest_version(TaskId(task_id))
+        draft = uow.tasks.list_drafts(world.course.id)[0]
         published_before = uow.tasks.latest_published_version(TaskId(task_id))
 
     world.client("teacher").post(
-        f"/manage/courses/{world.course.id}/drafts/{queued.id}",
-        data={"decision": "reject", "reason": "入力の範囲の書き方がまだ曖昧です。"},
+        f"/manage/courses/{world.course.id}/drafts/{draft.id}",
+        data={"decision": "drop"},
         follow_redirects=False,
     )
 
     with world.database.unit_of_work() as uow:
         published_after = uow.tasks.latest_published_version(TaskId(task_id))
-    assert published_after is not None, "却下で出題が止まっている"
+        assert uow.tasks.list_drafts(world.course.id) == ()
+    assert published_after is not None, "捨てただけで出題が止まっている"
     assert published_after.id == published_before.id
 
     body = world.client("teacher").get(f"/manage/courses/{world.course.id}/units/ex01").text
-    assert "却下済み — 出題されません" not in body, "出ているのに出ないと書いている"
-    assert "出題中" in body
+    assert "却下済み — 出題されません" not in body
+    assert "未承認 — 出題されません" not in body
 
 
-def test_a_rejected_version_can_be_put_back_by_copying_it_forward(
-    world: World, monkeypatch
-) -> None:
-    """**却下した版からも戻せる**（#319）。
-
-    却下は「その版を出さない」という判断で、中身を二度と使えないという意味
-    ではない ── 直して出し直すつもりの却下もある。戻すのは履歴を巻き戻す
-    ことではなく、**その中身を写した新しい版を作る**こと（P8）。過去の採点は
-    それぞれ自分の版を指したまま残る。
-    """
+def test_taking_a_revision_becomes_a_new_version(world: World, monkeypatch) -> None:
+    """**採用すると新しい版になる**（#321）。キーは変えない（同じ課題の書き直し）。"""
     world.register("teacher", Role.INSTRUCTOR)
     task_id = _task_with_tests(world)
     _revision(monkeypatch)
@@ -4436,23 +4433,12 @@ def test_a_rejected_version_can_be_put_back_by_copying_it_forward(
         follow_redirects=False,
     )
     with world.database.unit_of_work() as uow:
-        queued = uow.tasks.latest_version(TaskId(task_id))
-    world.client("teacher").post(
-        f"/manage/courses/{world.course.id}/drafts/{queued.id}",
-        data={"decision": "reject", "reason": "入力の範囲の書き方がまだ曖昧です。"},
-        follow_redirects=False,
-    )
-
-    # 履歴は画面から読める。却下した版にも「戻す」が出る。
-    page = (
-        world.client("teacher").get(f"/manage/courses/{world.course.id}/tasks/{task_id}/edit").text
-    )
-    assert "版の履歴" in page
-    assert f'value="{queued.id}"' in page, "却下した版に戻す口が無い"
+        draft = uow.tasks.list_drafts(world.course.id)[0]
+        before = uow.tasks.latest_version(TaskId(task_id))
 
     response = world.client("teacher").post(
-        f"/manage/courses/{world.course.id}/tasks/{task_id}/restore",
-        data={"version_id": str(queued.id)},
+        f"/manage/courses/{world.course.id}/drafts/{draft.id}",
+        data={"decision": "approve"},
         follow_redirects=False,
     )
     assert response.status_code == 303
@@ -4460,16 +4446,14 @@ def test_a_rejected_version_can_be_put_back_by_copying_it_forward(
     with world.database.unit_of_work() as uow:
         after = uow.tasks.latest_version(TaskId(task_id))
         published = uow.tasks.latest_published_version(TaskId(task_id))
-        history = uow.tasks.list_versions(TaskId(task_id))
-    # 写した中身で、**承認済みの新しい版**ができる。
-    assert after.version == queued.version + 1
-    assert after.statement == queued.statement
+        tasks = uow.tasks.list_for_course(world.course.id)
+    assert after.version == before.version + 1
+    assert "0 以上 100 以下" in after.statement
+    # **採用した時点で出題される**（承認の段はここ 1 つ）。
     assert published.id == after.id
-    # 却下した版は消えない（履歴は積み上げ・P8）。
-    assert queued.id in {v.id for v in history}
-    assert [v.version for v in history] == sorted((v.version for v in history), reverse=True), (
-        "新しい順に並んでいない"
-    )
+    # 課題は増えない（同じ課題の新しい版である）。
+    assert len(tasks) == 1
+    assert after.source_key == before.source_key
 
 
 def test_the_unit_page_offers_generation_only_with_components(world: World) -> None:

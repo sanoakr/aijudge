@@ -56,6 +56,18 @@ class ApprovalRate:
 
     @property
     def verdict(self) -> str:
+        """**常に `NOT_MEASURED`**（ADR 0019）。
+
+        却下した下書きは残さないと決めた（2026-09-15）ので、分母が揃わない
+        ── 承認だけを数えれば必ず 100% になり、**それがいちばん悪い**。
+        正当化できない数値を報告しないのは、この設計全体の約束である。
+
+        判定の形は残す。プロンプト版ごとに比べたくなったときに、承認と却下を
+        集めて渡せば同じ規則で読める ── それはその時の実験であって、常時
+        掲げておく指標ではない（ADR 0019 の理由）。
+        """
+        if self.rejected == 0:
+            return "NOT_MEASURED"
         if self.decided < self.min_sample_size:
             return "NOT_MEASURED"
         rate = self.rate
@@ -102,6 +114,10 @@ def approval_rate(versions: tuple[TaskVersion, ...]) -> ApprovalRate:
 
     **手で書いた課題を分母に入れない。** 教員が自分で書いた課題は当然
     承認されるので、混ぜると承認率がいくらでも高く出る。
+
+    **却下は数えられない**（ADR 0019）。承認待ちは課題版ではなく下書きになり、
+    捨てた下書きは残らない ── ここに届くのは承認された版だけである。だから
+    `verdict` は `NOT_MEASURED` を返す（`ApprovalRate.verdict`）。
     """
     generated = [v for v in versions if v.provenance.generated_by is not None]
     return ApprovalRate(

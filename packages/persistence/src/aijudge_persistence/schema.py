@@ -586,6 +586,29 @@ class TaskChecksRow(Base):
     document: Mapped[dict] = mapped_column(JsonType)
 
 
+class TaskDraftRow(Base):
+    """承認待ちの課題（下書き・#321）。**課題表の外に置く。**
+
+    生成物は以前その場で課題として保存し、版を `IN_REVIEW` にして承認を待って
+    いた。それだと**承認より前に同一性が決まる** ── 課題キーから課題 ID が
+    決まり、提出も採点もそこにぶら下がる。生成物は提案であって確定ではない
+    （P5）ので、名前を含めて承認のときに決められる必要がある。
+
+    **版は積まない。** 下書きは承認するまで何度でも直せるもので、履歴を残す
+    対象ではない（積むのは課題版だけ・P8）。同じ ID に上書きする。
+    """
+
+    __tablename__ = "task_drafts"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    course_id: Mapped[str] = mapped_column(String(64), index=True)
+    #: "new" か "revision"。改訂なら `task_id` が入る。
+    kind: Mapped[str] = mapped_column(String(16), index=True)
+    task_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(Timestamp, index=True)
+    document: Mapped[dict] = mapped_column(JsonType)
+
+
 class TaskEmbeddingRow(Base):
     """課題文の埋め込み。重複検出に使う。
 

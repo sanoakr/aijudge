@@ -22,6 +22,7 @@ from sqlalchemy import and_, case, delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from aijudge_authoring.draft_store import TaskDraftRecord
 from aijudge_authoring.repository import (
     TaskImmutabilityViolation,
     TaskStoreError,
@@ -74,6 +75,7 @@ from .schema import (
     SubmissionKeyRow,
     SubmissionRow,
     TaskChecksRow,
+    TaskDraftRow,
     TaskEmbeddingRow,
     TaskRow,
     TaskVersionRow,
@@ -1405,6 +1407,53 @@ class SqlTaskRepository:
                 delete(TaskVersionRow).where(TaskVersionRow.task_id == str(task_id))
             )
         self._session.execute(delete(TaskRow).where(TaskRow.id == str(task_id)))
+        self._session.flush()
+
+    # -- 承認待ちの下書き（#321）------------------------------------------
+
+    def save_draft(self, draft: TaskDraftRecord) -> None:
+        """**同じ ID なら上書きする。** 下書きは承認まで何度でも直せるもので、
+        版を積む対象ではない（積むのは課題版だけ・P8）。
+        """
+        row = self._session.get(TaskDraftRow, str(draft.id))
+        if row is None:
+            self._session.add(
+                TaskDraftRow(
+                    id=str(draft.id),
+                    course_id=str(draft.course_id),
+                    kind=draft.kind.value,
+                    task_id=None if draft.task_id is None else str(draft.task_id),
+                    created_at=draft.created_at,
+                    document=_dump(draft),
+                )
+            )
+        else:
+            row.course_id = str(draft.course_id)
+            row.kind = draft.kind.value
+            row.task_id = None if draft.task_id is None else str(draft.task_id)
+            row.document = _dump(draft)
+        self._session.flush()
+
+    def get_draft(self, draft_id: str) -> TaskDraftRecord | None:
+        row = self._session.get(TaskDraftRow, str(draft_id))
+        return None if row is None else TaskDraftRecord.model_validate(row.document)
+
+    def list_drafts(self, course_id: CourseId) -> tuple[TaskDraftRecord, ...]:
+        """このコースの承認待ち。**古い順** ── 溜まった順に片付ける。"""
+        rows = (
+            self._session.execute(
+                select(TaskDraftRow)
+                .where(TaskDraftRow.course_id == str(course_id))
+                .order_by(TaskDraftRow.created_at, TaskDraftRow.id)
+            )
+            .scalars()
+            .all()
+        )
+        return tuple(TaskDraftRecord.model_validate(row.document) for row in rows)
+
+    def delete_draft(self, draft_id: str) -> None:
+        """**無い ID でも落とさない**（二度押しは普通に起きる）。"""
+        self._session.execute(delete(TaskDraftRow).where(TaskDraftRow.id == str(draft_id)))
         self._session.flush()
 
     def list_versions(self, task_id: TaskId) -> tuple[TaskVersion, ...]:

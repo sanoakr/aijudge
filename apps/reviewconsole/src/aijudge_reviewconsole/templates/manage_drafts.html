@@ -14,20 +14,26 @@
 </div>
 
 {% for row in rows %}
-{% set revision = row.published and row.published.id != row.version.id %}
+{% set revision = row.revision %}
 <div class="card">
-  {# **新規か改訂かを行に出す**（#306）。同じ一覧に混ざるので、いま何を承認
+  {# **新規か改訂かを行に出す**（#306）。同じ一覧に混ざるので、いま何を採用
      しようとしているのかが読めないと困る ── 新規は「出すかどうか」、改訂は
      「置き換えるかどうか」で、判断そのものが違う。 #}
-  <h2>{{ row.task.title }}
+  <h2>{{ row.draft.spec.title or row.draft.spec.key }}
     <span class="pill {{ 'attn' if revision }}">{{ '改訂' if revision else '新規' }}</span></h2>
   <p class="desc" style="margin:0 0 12px">
-    課題版 <code>{{ row.version.id }}</code><br>
-    出所: {{ row.version.provenance.generated_by or "教員が作成" }}
-    （{{ row.version.provenance.generation_prompt_version or "—" }}）
-    {% if revision %}<br>いま学習者に出ているのは <strong>{{ row.published.version }} 版</strong>
+    {# **課題はまだ無い**（#321）。あるのは下書きで、採用したときに初めて
+       課題になる ── だからキーも中身もここで直せる。 #}
+    下書き <code>{{ row.draft.id }}</code><br>
+    出所: {{ row.draft.generated_by or "教員が作成" }}
+    （{{ row.draft.generation_prompt_version or "—" }}）
+    {% if revision and row.published %}<br>いま学習者に出ているのは <strong>{{ row.published.version }} 版</strong>
     （{{ row.published.created_at | local('%Y-%m-%d %H:%M') }} 作成）{% endif %}
   </p>
+  {% if row.draft.changes %}
+  <p class="desc" style="margin:0 0 12px"><strong>AI が直したと言っていること</strong>
+    {% for line in row.draft.changes %}<br>· {{ line }}{% endfor %}</p>
+  {% endif %}
 
   {% if revision and row.submissions %}
   {# **提出済みであることを言う**（#306）。出題済みの課題の問題文を書き換えると、
@@ -172,38 +178,44 @@
   <div class="statement">{{ row.statement_html | safe }}</div>
   <details style="margin-top:8px">
     <summary class="desc">Markdown の原文</summary>
-    <pre class="statement">{{ row.version.statement }}</pre>
+    <pre class="statement">{{ row.draft.spec.statement }}</pre>
   </details>
-  {# **直してから承認できるようにする。** 却下は理由を書いて作問の改善に
-     還流させる操作で、「少し直せば使える」課題まで却下に回すと、その理由が
-     プロンプトの改善材料として役に立たない。 #}
-  <p class="desc">
-    <a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/tasks/{{ row.task.id }}/edit">問題文・ルーブリックの修正 →</a>
-    直したうえで承認できます（直すと版が上がります）。
-  </p>
-
-  <form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/drafts/{{ row.version.id }}">
-    <fieldset>
-      <legend>却下の理由（却下するなら {{ min_reason }} 文字以上・必須）</legend>
-      <p class="desc">
-        <strong>作問の改善に使います。</strong> 何が落ちたかではなく
-        なぜ落ちたかが、次の生成を良くします。承認するなら空で構いません。
-      </p>
-      <textarea name="reason" rows="3"
-        placeholder="例: 入力の形式が課題文に書かれておらず、解答者によって読みが分かれます。"></textarea>
-    </fieldset>
-    {# **出題先はここで決める**（#84）。作問の時点では決めない ── 使えるか
-       どうかは作ってみないと分からず、決めてから却下すると、そのセットの
-       一覧に残骸が並ぶ。セットの中から作ったものはそこに仮に置いてあり、
-       ここで別のセットへ移せる。 #}
+  {# **採用の瞬間まで何でも直せる**（#321）。課題はまだ無いので、直しても
+     版は増えない ── 直してから採用すると、その中身で課題ができる。 #}
+  <form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/drafts/{{ row.draft.id }}">
+    {% if not revision %}
     <div class="inline-field">
       <span class="body">
-        <label for="unit-{{ row.version.id }}">出題する問題セット</label>
-        <select id="unit-{{ row.version.id }}" name="unit">
-          <option value="">
-            {% if row.task.unit %}いまのまま（{{ row.task.unit }}）{% else %}決めない（どのセットにも出しません）{% endif %}
+        <label for="key-{{ row.draft.id }}">課題キー（採用のときに確定します）</label>
+        <input id="key-{{ row.draft.id }}" name="key_suffix"
+               value="{{ row.draft.spec.key.rsplit('/', 1)[-1] }}" style="max-width:16rem">
+      </span>
+    </div>
+    <p class="desc" style="margin:6px 0 12px">
+      <strong>内容の分かる名前にしてください</strong>（例: <span class="mono">nstring</span>）。
+      採用すると<strong>あとから変えられません</strong> — 提出も採点の記録もこの鍵で繋がります。
+    </p>
+    <div class="inline-field">
+      <span class="body">
+        <label for="title-{{ row.draft.id }}">題名</label>
+        <input id="title-{{ row.draft.id }}" name="title" value="{{ row.draft.spec.title or '' }}">
+      </span>
+    </div>
+    {% endif %}
+    <label for="statement-{{ row.draft.id }}">問題文（直してから採用できます）</label>
+    <textarea id="statement-{{ row.draft.id }}" name="statement" rows="12">{{ row.draft.spec.statement }}</textarea>
+
+    {# **出題先はここで決める**（#84）。作問の時点では決めない ── 使えるか
+       どうかは作ってみないと分からない。捨てた下書きはどのセットにも入らない
+       （そもそも課題にならない）。 #}
+    <div class="inline-field">
+      <span class="body">
+        <label for="unit-{{ row.draft.id }}">出題する問題セット</label>
+        <select id="unit-{{ row.draft.id }}" name="unit">
+          <option value="{{ row.draft.unit }}">
+            {% if row.draft.unit %}いまのまま（{{ row.draft.unit }}）{% else %}決めない（どのセットにも出しません）{% endif %}
           </option>
-          {% for u in units if u.unit != row.task.unit %}
+          {% for u in units if u.unit != row.draft.unit %}
           <option value="{{ u.unit }}">{{ u.unit }}{% if u.label != u.unit %} — {{ u.label }}{% endif %}</option>
           {% endfor %}
         </select>
@@ -211,11 +223,16 @@
     </div>
     <p class="desc" style="margin:6px 0 0">
       <strong>日程は選んだセットに揃います</strong>（公開・提出開始・締切・自動確定の猶予）。
-      並びはそのセットの末尾に入ります。却下したものはどのセットにも入りません。
+      並びはそのセットの末尾に入ります。
     </p>
     <div class="actions">
-      <button type="submit" name="decision" value="reject">却下</button>
-      <button type="submit" name="decision" value="approve">承認して出題可能化</button>
+      {# **捨てるのは取り消せない**（ADR 0019）。却下の理由は聞かない ──
+         記録しないのだから、書かせる意味が無い。 #}
+      <button type="submit" name="decision" value="drop" class="danger"
+              data-confirm-title="この下書きを捨てますか"
+              data-confirm-danger="1"
+              data-confirm="下書きは消えます。取り消せません（課題にはなっていないので、学習者には何も影響しません）。">捨てる</button>
+      <button type="submit" name="decision" value="approve">採用して出題可能にする</button>
     </div>
   </form>
 </div>

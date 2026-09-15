@@ -104,7 +104,15 @@ from aijudge_admin.tasks import delete as delete_task
 from aijudge_admin.tasks import withdraw as withdraw_task
 from aijudge_admin.test_cases import InputProposer, SolutionWriter, TestCaseWriter
 from aijudge_audit import AuditAction
-from aijudge_authoring import TaskChecks, TaskSpec, images, render_markdown, render_statement
+from aijudge_authoring import (
+    DraftKind,
+    TaskChecks,
+    TaskDraftRecord,
+    TaskSpec,
+    images,
+    render_markdown,
+    render_statement,
+)
 from aijudge_authoring.drafting import Blueprint, Difficulty
 from aijudge_authoring.spec import AI_EVALUATOR, TestCaseSpec
 from aijudge_core import (
@@ -121,6 +129,7 @@ from aijudge_core import (
     Task,
     TestCase,
     format_term,
+    new_id,
     normalize_suffixes,
     offered_years,
 )
@@ -626,6 +635,34 @@ def _kc_keys_of(uow, version) -> tuple[str, ...]:
     return tuple(keys)
 
 
+def _gate_report(profile, spec, course, authored_by):
+    """下書きに門をかけ、結果を返す（#321・ADR 0008）。
+
+    **保存はしない。** 下書きは課題ではないので、検査の記録を課題版に紐づける
+    場所が無い ── 結果は下書きそのものが持つ（`TaskDraftRecord.checks`）。
+
+    仮の課題版を組んで検査に渡す。**採点と同じ経路で走らせる**ためで、
+    ここだけ別の検査を書くと、門を通ったのに採点で落ちる下書きができる
+    （`TaskVerifier` の冒頭と同じ判断）。
+
+    検査そのものが動かないことはある（サンドボックス不在）。**そのときは
+    None。** 「検査していない」は「合格」ではない（`VerificationReport`）。
+    """
+    from aijudge_authoring import build_task_version
+
+    try:
+        candidate = build_task_version(
+            spec,
+            course_id=course.id,
+            subject_profile=course.subject_profile,
+            authored_by=authored_by,
+        )
+        verifier = TaskVerifier(EvaluatorRegistry().load_installed(), profile)
+        return TaskChecks(verification=verifier.verify(candidate), checked_at=datetime.now(UTC))
+    except Exception:
+        return None
+
+
 def _record_gates(console, profile, version) -> None:
     """門 1・門 2 を通して結果を残す。**残さないと教員に何も示せない。**
 
@@ -762,6 +799,8 @@ SAVED_MESSAGES: dict[str, str] = {
     "revision_none": "直すところはありませんでした（版は増やしていません）",
     "revision_failed": "書き直せませんでした",
     "restored_version": "選んだ版の中身で新しい版を作りました（この版が学習者に出ます）",
+    "draft_approved": "採用しました。課題になり、出題できます",
+    "draft_dropped": "下書きを捨てました（課題にはなっていません）",
     "kc_added": "知識要素を追加しました",
     "kc_retired": "知識要素を引退させました",
     "kc_restored": "引退を取り消しました",
@@ -3625,66 +3664,58 @@ def register(templates) -> APIRouter:
         spec = result.spec.model_copy(
             update={"readability_weight": float(readability_weight or 0.0)}
         )
-        try:
-            saved = save_task(
-                console.database,
-                course_id=course.id,
-                spec=spec,
-                subject_profile=course.subject_profile,
-                authored_by=me.user_id,
-                generated_by=result.model,
-                generation_prompt_version=result.prompt_id,
-            )
-        except AdminError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        # **課題にはしない。下書きとして置く**（#321）。課題にすると、そこで
+        # 同一性（課題キー → 課題 ID）が決まってしまう ── 生成物は提案であって
+        # 確定ではないので、名前を含めて承認のときに決められる必要がある（P5）。
+        draft = TaskDraftRecord(
+            id=new_id("dft"),
+            course_id=course.id,
+            kind=DraftKind.NEW,
+            spec=spec,
+            unit=unit.strip() or (head.unit if head is not None else ""),
+            generated_by=result.model,
+            generation_prompt_version=result.prompt_id,
+            created_by=me.user_id,
+            created_at=datetime.now(UTC),
+            # **門を通して記録する**（ADR 0008・#267）。判断材料が無いまま
+            # 承認を求めない。走らせられない環境では None のままになる。
+            checks=_gate_report(profile, spec, course, me.user_id),
+            subject_profile=course.subject_profile,
+            readability_weight=float(readability_weight or 0.0),
+        )
+        with console.database.unit_of_work() as uow:
+            uow.tasks.save_draft(draft)
+            uow.commit()
 
-        # **門を通して記録する**（ADR 0008・#267）。手で足した課題と
-        # テストの生成では記録していたのに、**作問だけ記録していなかった** ──
-        # 未承認の一覧が確認するためにある対象そのものが、検査記録の無い
-        # 状態で並んでいた（画面は「検査の記録がありません」と正しく言うが、
-        # 教員には判断材料が無い）。
-        _record_gates(console, profile, saved.version)
-
-        # 日程と提出形式は問題セットから引き継ぐ（手で足した課題と同じ）。
-        if head is not None:
-            with console.database.unit_of_work() as uow:
-                uow.tasks.save_task(
-                    saved.task.model_copy(
-                        update={
-                            "session": head.session,
-                            "opens_at": head.opens_at,
-                            "submissions_open_at": head.submissions_open_at,
-                            "due_at": head.due_at,
-                            "auto_finalize_after_minutes": head.auto_finalize_after_minutes,
-                            "accepted_suffixes": head.accepted_suffixes,
-                        }
-                    )
-                )
-                uow.commit()
-
-        console.last_task = (str(course.id), saved)
-        # **どこから作ったかへ戻す。** 問題セットから作ったならそのセット、
-        # 作問から作ったなら未承認の一覧（そこで出題先を決める・#84）。
-        if not unit.strip():
-            return RedirectResponse(
-                f"/manage/courses/{course_id}/drafts?saved=generated", status_code=303
-            )
+        # **承認する場所へ送る。** 課題はまだ無いので、問題セットへ戻しても
+        # そこには何も増えていない（増えるのは承認したとき・#84）。
         return RedirectResponse(
-            f"/manage/courses/{course_id}/units/{key}?saved=generated#generate", status_code=303
+            f"/manage/courses/{course_id}/drafts?saved=generated", status_code=303
         )
 
     def _kcs_from_form(console, course, form) -> tuple[str, ...]:
-        """フォームの知識要素（#292）。**課題に付けるものは、コースの範囲にも入れる。**
+        """フォームの知識要素（#292）。**コースが使うものからしか選べない**（#322）。
+
+        以前は、課題に付けた知識要素をコースの範囲にも足していた（付ける＝
+        このコースが使う）。それは**コースの設計を課題の側から膨らませる**
+        ことになる ── コースが何を教えるかは知識要素の画面で決めることで、
+        1 問ずつの編集の副産物にしてよいものではない。範囲の外のキーが来たら
+        断る（画面は範囲内しか出さないので、来るのは API か古い画面である）。
 
         キーは登録済みの語彙のものだけ（2026-09-13 決定: 画面から語彙は
-        増やさない）。コースの範囲に無ければ足す（付ける＝このコースが使う）。
+        増やさない）。
         """
         chosen = tuple(dict.fromkeys(str(v).strip() for v in form.getlist("kc") if str(v).strip()))
         try:
-            assert_registered(console.database, chosen)
+            assert_registered(
+                console.database,
+                chosen,
+                # **範囲の検査も同じ関門に通す**（`aijudge_admin.kc`）── 画面で
+                # 絞るだけにすると、API 経由の投入が素通りする。
+                course_keys=course.knowledge_components,
+            )
         except AdminError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        _scope_in(console, course, chosen)
         return chosen
 
     def _save_revision(
@@ -3704,6 +3735,7 @@ def register(templates) -> APIRouter:
         generated_by=None,
         generation_prompt_version=None,
         knowledge_components=None,
+        review_state=None,
     ):
         """課題を直して新しい版を作る。訂正と「共通に戻す」で共有する。
 
@@ -3760,6 +3792,10 @@ def register(templates) -> APIRouter:
                 # 1 つ前の承認済みが出続ける（#48）。
                 generated_by=generated_by,
                 generation_prompt_version=generation_prompt_version,
+                # **出所と承認は別のこと**（#321）。下書きを採用した版は、
+                # 書いたのはモデルだが承認は済んでいる ── `generated_by` だけで
+                # 承認待ちにすると、採用した瞬間にまた承認待ちになる。
+                review_state=review_state,
             )
         except AdminError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -4746,27 +4782,41 @@ def register(templates) -> APIRouter:
                 status_code=303,
             )
 
-        _save_revision(
-            console,
-            me,
-            course,
-            task,
-            version,
-            statement=revised.statement,
-            # **観点はそのまま。** 変えるのは問題文と知識要素だけ。
-            criteria=rubric.from_criteria(version.criteria),
-            aggregation=version.aggregation,
-            position=task.position,
-            accepted=task.accepted_suffixes,
-            # 参照解答と検証データは持ち越す（触らない）。
-            reference_solution=version.reference_solution,
-            test_cases=_kept_cases(version, editing=()),
-            knowledge_components=revised.knowledge_components or None,
-            # **これが承認待ちにする印である**（`_provenance`）。
+        # **版にはしない。下書きとして置く**（#321）。承認するまで課題版を
+        # 増やさない ── 却下しただけで「最新版が却下」になり、一覧が
+        # 「出題されません」と嘘をつく形（#319）が根から消える。
+        draft = TaskDraftRecord(
+            id=new_id("dft"),
+            course_id=course.id,
+            kind=DraftKind.REVISION,
+            task_id=task.id,
+            spec=TaskSpec(
+                key=_key_of(task, version),
+                title=task.title,
+                statement=revised.statement,
+                unit=task.unit,
+                session=task.session,
+                position=task.position,
+                # **観点はそのまま。** 変えるのは問題文と知識要素だけ。
+                criteria=rubric.from_criteria(version.criteria),
+                aggregation=version.aggregation,
+                reference_solution=version.reference_solution,
+                test_cases=_kept_cases(version, editing=()),
+                knowledge_components=tuple(revised.knowledge_components or current_kcs),
+                accepted_suffixes=task.accepted_suffixes,
+            ),
+            unit=task.unit or "",
+            changes=revised.changes,
             generated_by=revised.model,
             generation_prompt_version=revised.prompt_id,
+            created_by=me.user_id,
+            created_at=datetime.now(UTC),
+            subject_profile=version.subject_profile,
+            accepted_suffixes=task.accepted_suffixes,
         )
-        console.last_revision = (str(course.id), task_id, revised.changes)
+        with console.database.unit_of_work() as uow:
+            uow.tasks.save_draft(draft)
+            uow.commit()
         return RedirectResponse(
             f"/manage/courses/{course_id}/drafts?saved=revision_queued", status_code=303
         )
@@ -5838,50 +5888,43 @@ def register(templates) -> APIRouter:
 
         rows = []
         with console.database.unit_of_work() as uow:
-            tasks = {task.id: task for task in uow.tasks.list_for_course(course.id)}
-            for version in uow.tasks.list_versions_in_review():
-                if version.task_id not in tasks:
-                    continue
-                checks = uow.tasks.get_checks(version.id)
-                published = uow.tasks.latest_published_version(version.task_id)
+            for draft in uow.tasks.list_drafts(course.id):
+                # 改訂なら、いま学習者に出ている版と比べる（#306）。
+                published = (
+                    uow.tasks.latest_published_version(draft.task_id)
+                    if draft.task_id is not None
+                    else None
+                )
                 rows.append(
                     {
-                        "version": version,
-                        "task": tasks[version.task_id],
-                        "checks": checks,
-                        # **知識要素は課題版から出す**（#267）。検査の記録から
-                        # 出していたので、記録が無いだけで「登録なし（習熟度が
-                        # 付きません）」と出ていた ── 実際には Q-matrix に
-                        # 入っており、習熟度は付く。教員が承認を判断する瞬間に
-                        # 事実でないことを伝えていた（P5）。
-                        #
-                        # 検査が失敗した下書き・古い下書きでも同じことが起きる
-                        # ので、記録の有無とは別に扱う。
-                        "kc_keys": _kc_keys_of(uow, version),
-                        # **新規か改訂か**（#306）。同じ一覧に混ざるので、いま
-                        # 何を承認しようとしているのかが読めないと困る ──
-                        # 新規は「出すかどうか」、改訂は「置き換えるかどうか」
-                        # で、判断そのものが違う。
+                        "draft": draft,
+                        "revision": draft.kind is DraftKind.REVISION,
                         "published": published,
                         # 改訂の差分。**承認は差分を見て決めるもの**で、
                         # 書き換わった問題文を頭から読み直させない。
                         "diff": (
-                            _statement_diff(published.statement, version.statement)
-                            if published is not None and published.id != version.id
+                            _statement_diff(published.statement, draft.spec.statement)
+                            if published is not None
                             else ()
                         ),
                         # **提出済みであることを言う。** 出題済みの課題の問題文を
                         # 書き換えると、既に提出した学習者と後から提出する学習者で
                         # 違う問題になる。過去の採点は自分の版を指したまま残る
                         # （P8）ので壊れないが、承認するかどうかの判断材料である。
-                        "submissions": uow.tasks.submission_count(version.task_id),
-                        # 検査していない課題も並べる。**隠さない** ── 見えない
+                        "submissions": (
+                            uow.tasks.submission_count(draft.task_id)
+                            if draft.task_id is not None
+                            else 0
+                        ),
+                        "kc_keys": draft.spec.knowledge_components,
+                        # 検査していない下書きも並べる。**隠さない** ── 見えない
                         # ものは承認も却下もされず、待ち行列に溜まり続ける。
-                        "clean": bool(checks and checks.verification.usable),
+                        "checks": draft.checks,
+                        "clean": bool(draft.checks and draft.checks.verification.usable),
                         # 学習者に出る形（#105 と同じ関数）。承認は「学生が読む
                         # 画面」を見て決めるもので、Markdown の生文だけでは
                         # 数式・コードの囲み・画像が意図どおりかが分からない。
-                        "statement_html": render_statement(version.statement),
+                        "statement_html": render_statement(draft.spec.statement),
                     }
                 )
         return templates.TemplateResponse(
@@ -5940,25 +5983,21 @@ def register(templates) -> APIRouter:
             readability_weight=readability_weight,
         )
 
-    @router.post("/courses/{course_id}/drafts/{version_id}")
-    def decide_draft(
-        request: Request,
-        course_id: str,
-        version_id: str,
-        decision: Annotated[str, Form()],
-        reason: Annotated[str, Form()] = "",
-        unit: Annotated[str, Form()] = "",
-    ) -> Response:
-        """承認または却下する。**却下には理由が要る。**
+    @router.post("/courses/{course_id}/drafts/{draft_id}")
+    async def decide_draft(request: Request, course_id: str, draft_id: str) -> Response:
+        """下書きを**採用**するか**捨てる**（#321）。
 
-        理由は作問の改善に還流する材料であり、承認率の分母でもある
-        （設計方針 §5）。「見た」だけでは何も残らない。
+        採用したときに初めて課題になる ── それまで課題は存在しない
+        （`aijudge_authoring.draft_store` の冒頭）。だから**採用の瞬間まで
+        何でも直せる**: 課題キー、題名、問題文、出題する問題セット。
 
-        **出題する問題セットはここで決める**（#84）。作問の時点では決めない
-        ── 生成した課題が使えるかどうかは作ってみないと分からないので、
-        使えると分かる前に「第 6 回の問題」にしてしまうと、却下したときに
-        第 6 回の一覧に残骸が並ぶ。セットの中から作ったものはそこに仮に
-        置いてあり、ここで別のセットへ移せる。
+        **捨てるのは即時の削除である**（ADR 0019）。却下した下書きは残さない
+        ── 承認率を測るための記録も残らないが、その数は「生成の質」ではなく
+        「いまのプロンプト × この教員の好み」を測っており、単一の合格基準に
+        する意味が無いと判断した（2026-09-15）。
+
+        改訂の下書き（#306）は**キーを変えられない** ── 同じ課題の書き直しで
+        あって別の課題ではない。採用すると新しい版になる。
         """
         from .app import require_principal
 
@@ -5966,40 +6005,108 @@ def register(templates) -> APIRouter:
         course = _require_instructor(request, me, CourseId(course_id))
         console = _console(request)
 
-        approved = decision == "approve"
-        text = reason.strip()
-        if not approved and len(text) < MIN_JUSTIFICATION_LENGTH:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    f"却下の理由を {MIN_JUSTIFICATION_LENGTH} 文字以上で書いてください"
-                    "（作問の改善に使います）"
-                ),
+        form = await request.form()
+        decision = str(form.get("decision") or "")
+        with console.database.unit_of_work() as uow:
+            draft = uow.tasks.get_draft(draft_id)
+        if draft is None or draft.course_id != course.id:
+            # 存在と権限を区別しない（他コースの下書きを探らせない）。
+            raise HTTPException(status_code=404, detail="下書きが見つかりません")
+
+        if decision != "approve":
+            # **捨てる。** 理由は聞かない（記録しないのだから聞く意味が無い）。
+            with console.database.unit_of_work() as uow:
+                uow.tasks.delete_draft(draft_id)
+                uow.commit()
+            return RedirectResponse(
+                f"/manage/courses/{course_id}/drafts?saved=draft_dropped", status_code=303
             )
 
-        with console.database.unit_of_work() as uow:
-            version = uow.tasks.get_version(TaskVersionId(version_id))
-            task = None if version is None else uow.tasks.get_task(version.task_id)
-            if version is None or task is None or task.course_id != course.id:
-                # 存在と権限を区別しない（他コースの課題を探らせない）。
-                raise HTTPException(status_code=404, detail="課題版が見つかりません")
+        statement = str(form.get("statement") or draft.spec.statement)
+        title = str(form.get("title") or draft.spec.title or "").strip() or None
+        unit = str(form.get("unit") or draft.unit).strip()
+        if draft.kind is DraftKind.REVISION:
+            # 改訂はキーを変えない（同じ課題の書き直し）。
+            key = draft.spec.key
+        else:
+            suffix = str(form.get("key_suffix") or "").strip()
+            key = _compose_key(unit, suffix) or draft.spec.key
+        if not key:
+            raise HTTPException(status_code=400, detail="課題キーを入力してください")
+
+        try:
+            spec = draft.spec.model_copy(
+                update={
+                    "key": key,
+                    "title": title,
+                    "statement": statement,
+                    "unit": unit or draft.spec.unit,
+                }
+            )
+        except (ValidationError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=f"課題の指定が不正です: {exc}") from None
+
+        if draft.kind is DraftKind.REVISION:
+            # **既にある課題の新しい版にする。** `save_task` は第 1 版を作る
+            # 経路なので、同じ鍵で呼ぶと「内容が違う」と断られる（P8）。
+            task = _task_of(console, course, str(draft.task_id))
+            with console.database.unit_of_work() as uow:
+                current = uow.tasks.latest_version(draft.task_id)
+            if current is None:
+                raise HTTPException(status_code=404, detail="課題が見つかりません")
+            saved = _save_revision(
+                console,
+                me,
+                course,
+                task,
+                current,
+                statement=statement,
+                criteria=rubric.from_criteria(current.criteria),
+                aggregation=current.aggregation,
+                position=task.position,
+                accepted=task.accepted_suffixes,
+                reference_solution=current.reference_solution,
+                test_cases=_kept_cases(current, editing=()),
+                knowledge_components=draft.spec.knowledge_components or None,
+                generated_by=draft.generated_by or None,
+                generation_prompt_version=draft.generation_prompt_version or None,
+                # **採用した時点で承認済み。** 承認の段はここ 1 つで足りる。
+                review_state=ReviewState.APPROVED,
+            )
+        else:
             try:
-                uow.tasks.record_review(
-                    version.id,
-                    approved=approved,
-                    reviewer=me.user_id,
-                    reason=None if approved else text,
+                saved = save_task(
+                    console.database,
+                    course_id=course.id,
+                    spec=spec,
+                    subject_profile=draft.subject_profile or course.subject_profile,
+                    authored_by=me.user_id,
+                    # **出所は残す**（P8）。承認したのは人だが、書いたのは
+                    # モデルである ── どのプロンプト版が出したものかを辿れる。
+                    generated_by=draft.generated_by or None,
+                    generation_prompt_version=draft.generation_prompt_version or None,
+                    review_state=ReviewState.APPROVED,
                 )
-            except ValueError as exc:
-                # 二度目のレビュー。やり直しは新しい版から（P8）。
+            except AdminError as exc:
                 raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+        # 検査の記録は課題版に紐づけ直す（下書きは消える）。
+        if draft.checks is not None:
+            with console.database.unit_of_work() as uow:
+                uow.tasks.save_checks(saved.version.id, draft.checks)
+                uow.commit()
+
+        # 日程と提出形式は問題セットから引き継ぐ（手で足した課題と同じ）。
+        if unit:
+            _place_in_unit(console, course, saved.task, unit)
+
+        with console.database.unit_of_work() as uow:
+            uow.tasks.delete_draft(draft_id)
             uow.commit()
 
-        # **承認したものだけ動かす。** 却下したものはどのセットにも入れない。
-        # 日程は移動先に揃う（課題の移動と同じ経路・`move_task_to_unit`）。
-        if approved and unit.strip():
-            _place_in_unit(console, course, task, unit.strip())
-
-        return RedirectResponse(f"/manage/courses/{course_id}/drafts", status_code=303)
+        console.last_task = (str(course.id), saved)
+        return RedirectResponse(
+            f"/manage/courses/{course_id}/drafts?saved=draft_approved", status_code=303
+        )
 
     return router
