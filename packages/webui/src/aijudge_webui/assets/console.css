@@ -249,6 +249,19 @@ h2[id]{scroll-margin-top:16px}
    貼り付いた帯（`.topbar`）の下に潜らないよう余白を取る ── 取らないと、
    着地した知らせが帯に隠れて「何も出なかった」と読まれる。 */
 #saved{scroll-margin-top:84px}
+/* 1 行ぶんの分布（#328）。表の中に入るので、目盛りも数字も持たない ──
+   **読み比べるためのもの**で、値そのものは隣の列に出ている。
+
+   段の並びは大きい図と同じ（低い方が左）。違う順に並べると読み比べられない。
+   件数 0 の段は `flex:0` で潰れる ── 幅を持たせると、居ない段が居るように
+   見える。 */
+.bands{display:flex;gap:2px;width:8rem;height:.9rem;
+  background:var(--surface-2);border-radius:2px;overflow:hidden}
+.bands .band{background:var(--ai);opacity:.25;border-radius:1px}
+.bands .band:nth-child(2){opacity:.4}
+.bands .band:nth-child(3){opacity:.55}
+.bands .band:nth-child(4){opacity:.75}
+.bands .band:nth-child(5){opacity:1}
 form[data-working] button[disabled]{opacity:.55;cursor:progress}
 
 /* ==========================================================================

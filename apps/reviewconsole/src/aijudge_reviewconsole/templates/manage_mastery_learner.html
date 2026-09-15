@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}{{ learner.display_name if learner else '受講者' }} の習熟度 — {{ course.title }}{% endblock %}
+{% block body %}
+<h1>{{ learner.display_name if learner else '受講者' }} の習熟度</h1>
+<p class="subtitle">
+  {{ course.title }}
+  {% if learner %}<span class="sep">·</span> <span class="mono">{{ learner.login }}</span>{% endif %}
+</p>
+
+<div class="note">
+  <strong>これは推定値です。</strong>
+  予測の妥当性はまだ測っていません。学習者には出していません。
+  <br>
+  習熟度は<strong>コースをまたいで積み上がります</strong>。
+  下の根拠は<strong>このコースの提出だけ</strong>を開いています —
+  他の科目から来たぶんは件数だけ出します。
+</div>
+
+{% if not rows %}
+<div class="note warn">
+  <strong>この受講者にはまだ記録がありません。</strong>
+  知識要素の付いた課題が採点されると出ます。
+</div>
+{% endif %}
+
+{% for row in rows %}
+<h2>{{ row.label }} <span class="desc mono">{{ row.key }}</span></h2>
+<div class="card">
+  <p style="margin:0 0 10px">
+    習熟度 <strong>{{ '%.0f' | format(row.mastery * 100) }}%</strong>
+    <span class="desc">
+      · 観測 {{ row.observation_count }} 回
+      · 最終更新 {{ row.updated_at | local('%Y-%m-%d %H:%M') }}
+    </span>
+  </p>
+
+  {% if row.here %}
+  <table>
+    <thead><tr>
+      <th class="fit">日時</th><th class="grow">課題</th>
+      <th class="fit">得点</th><th class="fit">確認</th>
+    </tr></thead>
+    <tbody>
+    {% for item in row.here %}
+      <tr>
+        <td class="fit desc">{{ item.observed_at | local('%Y-%m-%d %H:%M') }}</td>
+        <td class="grow">{{ item.task_title or '（課題が見つかりません）' }}</td>
+        <td class="fit">{{ '%.0f' | format(item.score_ratio * 100) }}%</td>
+        {# **誰も読んでいない採点を「確認済み」と書かない**（ADR 0005 / 0010）。
+           自動確定は人が読んだ記録を作らない。 #}
+        <td class="fit">
+          {%- if item.human_verified %}<span class="pill ok">教員確認済み</span>
+          {%- else %}<span class="desc">自動</span>{% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="desc" style="margin:0">このコースの提出から来た根拠はありません。</p>
+  {% endif %}
+
+  {% if row.elsewhere %}
+  {# **件数だけ。** 担当していないコースの課題名は成績に近い情報である。 #}
+  <p class="desc" style="margin:10px 0 0">
+    ほかに<strong>このコース以外から {{ row.elsewhere }} 件</strong>の根拠がこの値に効いています
+    （課題名は出しません）。
+  </p>
+  {% endif %}
+</div>
+{% endfor %}
+
+<p class="subtitle">
+  <a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/mastery">コース全体の分布と推移</a>
+</p>
+{% endblock %}
