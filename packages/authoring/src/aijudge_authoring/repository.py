@@ -51,6 +51,15 @@ class TaskRepository(Protocol):
         """**学習者に出してよい**最新版。承認済みが 1 つも無ければ None。"""
         ...
 
+    def list_versions(self, task_id: TaskId) -> tuple[TaskVersion, ...]:
+        """この課題の版を、**新しい順**に全部（#319）。
+
+        版は上書きせず積む（P8）ので、履歴はそのまま残っている ── 画面から
+        読めなかっただけである。戻したい版を選ぶには、何があるかが見えて
+        いなければならない。
+        """
+        ...
+
     def list_for_course(self, course_id: CourseId) -> tuple[Task, ...]:
         """コースの課題一覧。学生 UI と教員 UI が使う。"""
         ...
@@ -151,6 +160,12 @@ class InMemoryTaskRepository:
         if not versions:
             return None
         return max(versions, key=lambda v: v.version)
+
+    def list_versions(self, task_id: TaskId) -> tuple[TaskVersion, ...]:
+        versions = [
+            self._versions[vid] for vid in self._order if self._versions[vid].task_id == task_id
+        ]
+        return tuple(sorted(versions, key=lambda v: v.version, reverse=True))
 
     def latest_published_version(self, task_id: TaskId) -> TaskVersion | None:
         versions = [

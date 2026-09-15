@@ -1407,6 +1407,23 @@ class SqlTaskRepository:
         self._session.execute(delete(TaskRow).where(TaskRow.id == str(task_id)))
         self._session.flush()
 
+    def list_versions(self, task_id: TaskId) -> tuple[TaskVersion, ...]:
+        """この課題の版を、**新しい順**に全部（#319）。
+
+        版は上書きせず積む（P8）ので履歴は残っている ── 画面から読めなかった
+        だけである。戻したい版を選ぶには、何があるかが見えていなければならない。
+        """
+        rows = (
+            self._session.execute(
+                select(TaskVersionRow)
+                .where(TaskVersionRow.task_id == str(task_id))
+                .order_by(TaskVersionRow.version.desc())
+            )
+            .scalars()
+            .all()
+        )
+        return tuple(TaskVersion.model_validate(row.document) for row in rows)
+
     def latest_published_version(self, task_id: TaskId) -> TaskVersion | None:
         """**学習者に出してよい**最新版。承認済みが 1 つも無ければ None。
 

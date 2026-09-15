@@ -268,7 +268,7 @@ def _items_from(options: dict[str, object]) -> tuple[ChecklistItem, ...]:
 
 
 class ChecklistAiJudge:
-    """課題が求める項目が提出物に含まれているかを LLM に判定させる。"""
+    """AI が項目を判定する（求める項目が含まれているかを 1 つずつ見る）。"""
 
     evaluator_id = EVALUATOR_ID
     kind = EvaluatorKind.AI
