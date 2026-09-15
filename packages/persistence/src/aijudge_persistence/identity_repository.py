@@ -381,6 +381,22 @@ class SqlIdentityRepository:
         ).scalars()
         return tuple(user for row in rows if (user := _user(row)) is not None)
 
+    def roles_by_user(self, tenant_id: TenantId) -> dict[UserId, frozenset[Role]]:
+        """利用者ごとの役割（#326）。**1 回の問い合わせで引く。**
+
+        コースを 1 つずつ数えると、コース数ぶんの往復になる ── 学期が進むほど
+        管理画面だけが遅くなる形で、件数からは気づきにくい。
+        """
+        rows = self._session.execute(
+            select(EnrollmentRow.user_id, EnrollmentRow.role).where(
+                EnrollmentRow.tenant_id == str(tenant_id)
+            )
+        ).all()
+        found: dict[UserId, set[Role]] = {}
+        for user_id, role in rows:
+            found.setdefault(UserId(user_id), set()).add(Role(role))
+        return {user_id: frozenset(roles) for user_id, roles in found.items()}
+
     def list_enrollments(self, course_id: CourseId) -> tuple[Enrollment, ...]:
         rows = self._session.execute(
             select(EnrollmentRow)

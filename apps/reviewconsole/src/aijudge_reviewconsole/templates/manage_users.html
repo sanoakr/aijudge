@@ -3,7 +3,7 @@
 {% block body %}
 <h1>利用者の一覧</h1>
 <p class="subtitle">
-  {{ users | length }} 名{% if q or local_only %}（絞り込み後）{% endif %}。
+  {{ users | length }} 名{% if filtered %}（絞り込み後）{% endif %}。
   ここに出るのはこのテナントの利用者です。大学アカウント（SSO）でログインした人も
   初回に利用者が作られるので並びます。
 </p>
@@ -11,25 +11,40 @@
 {% if saved %}<div class="note saved">{{ saved }}</div>{% endif %}
 
 {# 規模が大きくなると一覧を読むより ID を打つ方が速い（受講者一覧と同じ作法）。
-   ログイン方式でも絞れる ── パスワードの再発行や無効化の対象になるのは
-   ローカル利用者だけなので、その一覧を出せると運用の単位に合う。 #}
+
+   **ログイン方式と役割でも絞れる**（#326）。パスワードの再発行や無効化の対象に
+   なるのはローカル利用者だけなので、その一覧は運用の単位に合う ── 逆向き
+   （大学アカウントだけ）も要るので、札ではなく選択にした。片側しか選べないと
+   「SSO で入った人が何人いるか」が数えられない。
+
+   役割は受講者一覧と同じ語彙で、**いずれかのコースでその役割を持つ人**を出す
+   ── 1 人が教員と TA の両方であることは普通にある（`roles_by_user`）。 #}
 <form method="get" action="{{ root_prefix() }}/manage/users" class="addline">
-  <label for="q" class="desc">ログイン ID で絞り込む（前方一致）</label>
-  <input id="q" name="q" value="{{ q }}" placeholder="s2400" style="max-width:12rem"
+  <label for="q" class="desc">ログイン ID（前方一致）</label>
+  <input id="q" name="q" value="{{ q }}" placeholder="s2400" style="max-width:10rem"
          {{ 'autofocus' if q }}
          onfocus="this.setSelectionRange(this.value.length, this.value.length)">
-  <label class="desc">
-    <input type="checkbox" name="local" value="1" {{ 'checked' if local_only }}>
-    ローカル利用者だけ
-  </label>
+  <label for="login-kind" class="desc">ログイン方法</label>
+  <select id="login-kind" name="login_kind">
+    <option value="">すべて</option>
+    <option value="sso" {{ 'selected' if login_kind == 'sso' }}>大学アカウント</option>
+    <option value="local" {{ 'selected' if login_kind == 'local' }}>ローカル</option>
+  </select>
+  <label for="role-filter" class="desc">役割</label>
+  <select id="role-filter" name="role">
+    <option value="">すべて</option>
+    {% for r in roles_vocabulary %}
+    <option value="{{ r.value }}" {{ 'selected' if r.value == role }}>{{ r.value }}</option>
+    {% endfor %}
+  </select>
   <button type="submit">絞り込み</button>
-  {% if q or local_only %}<a href="{{ root_prefix() }}/manage/users" class="desc">解除</a>{% endif %}
+  {% if filtered %}<a href="{{ root_prefix() }}/manage/users" class="desc">解除</a>{% endif %}
 </form>
 
 <table>
   <thead><tr>
     <th class="fit">ログイン ID</th><th class="grow">表示名</th>
-    <th class="fit">ログイン方式</th><th class="fit">権限</th>
+    <th class="fit">ログイン方式</th><th class="fit">役割</th><th class="fit">権限</th>
     <th class="fit">状態</th><th class="fit">作成</th>
   </tr></thead>
   <tbody>
@@ -41,6 +56,13 @@
         {% if user.external_id %}<span class="pill">大学アカウント</span>
         {% else %}<span class="pill">ローカル</span>{% endif %}
       </td>
+      {# **絞り込んだ結果が読めるように、役割を列に出す。** 出さないと、
+         絞り込みが効いたのかどうかが行からは分からない。受講が無い人は
+         「—」── 役割を持たないのではなく、どのコースにも入っていない。 #}
+      <td class="fit">
+        {% for r in roles.get(user.id, ()) %}<span class="pill">{{ r.value }}</span>
+        {% else %}<span class="desc">—</span>{% endfor %}
+      </td>
       <td class="fit">
         {% if user.is_tenant_admin %}<span class="pill attn">管理者</span>{% else %}<span class="desc">—</span>{% endif %}
       </td>
@@ -50,7 +72,7 @@
       <td class="fit desc">{{ user.created_at | local('%Y-%m-%d') }}</td>
     </tr>
   {% else %}
-    <tr><td colspan="6" class="desc">条件に合う利用者がいません。</td></tr>
+    <tr><td colspan="7" class="desc">条件に合う利用者がいません。</td></tr>
   {% endfor %}
   </tbody>
 </table>

@@ -1501,15 +1501,33 @@ def register(templates) -> APIRouter:
         )
 
     @router.get("/users", response_class=HTMLResponse)
-    def user_list(request: Request, q: str = "", local: str = "", saved: str = "") -> Response:
+    def user_list(
+        request: Request,
+        q: str = "",
+        local: str = "",
+        login_kind: str = "",
+        role: str = "",
+        saved: str = "",
+    ) -> Response:
         """利用者の一覧（#144）。
 
         絞り込みは前方一致（受講者一覧と同じ作法）。テナントの規模が
         大きくなると、一覧をそのまま読むより ID を打つ方が速くなる。
 
-        **ログイン方式でも絞れる。** パスワードの再発行や無効化の対象に
+        **ログイン方式で絞れる**（#326）。パスワードの再発行や無効化の対象に
         なるのはローカル利用者だけなので、その一覧を出せると運用の単位に合う
-        （大学アカウントの利用者は Google 側が本人確認を持っている）。
+        （大学アカウントの利用者は Google 側が本人確認を持っている）。逆向き
+        ── 大学アカウントだけ ── も要る。片側しか選べない札だったので、
+        「SSO で入った人が何人いるか」が数えられなかった。
+
+        **役割でも絞れる**（#326・受講者一覧と同じ）。TA だけ・教員だけを
+        見たいとき、学生の中から探すことになっていた。役割はコースごとに
+        付くので、ここで見るのは「**いずれかのコースで**その役割を持つ人」で
+        ある ── 1 人が教員と TA の両方であることは普通にあり、丸めない
+        （`roles_by_user` の注記）。
+
+        `local=1` は `login_kind=local` の旧名。**受け続ける** ── 運用の
+        手元に残った URL が黙って全件に戻ると、絞ったつもりの一覧を読む。
         """
         from .app import require_principal
 
@@ -1518,13 +1536,27 @@ def register(templates) -> APIRouter:
         console = _console(request)
 
         prefix = q.strip()
-        local_only = bool(local)
+        kind = login_kind.strip()
+        if not kind and local:
+            kind = "local"
+        if kind not in {"local", "sso"}:
+            kind = ""
+        # 値は役割の語彙にあるものだけ（無ければ絞らない・受講者一覧と同じ）。
+        wanted = role.strip() if role.strip() in {r.value for r in Role} else ""
+
         with console.database.unit_of_work() as uow:
             users = uow.identity.list_all_users(me.tenant_id)
+            roles = uow.identity.roles_by_user(me.tenant_id)
         if prefix:
             users = tuple(user for user in users if user.login.startswith(prefix))
-        if local_only:
+        if kind == "local":
             users = tuple(user for user in users if user.external_id is None)
+        elif kind == "sso":
+            users = tuple(user for user in users if user.external_id is not None)
+        if wanted:
+            users = tuple(
+                user for user in users if any(r.value == wanted for r in roles.get(user.id, ()))
+            )
         return templates.TemplateResponse(
             request,
             "manage_users.html",
@@ -1532,8 +1564,17 @@ def register(templates) -> APIRouter:
                 "me": me,
                 "trail": _trail(("利用者の一覧", None)),
                 "users": users,
+                # 行ごとの役割。**役割の語彙の順に並べる** ── 人ごとに順番が
+                # 変わると、列を縦に読み比べられない。
+                "roles": {
+                    user.id: tuple(r for r in Role if r in roles.get(user.id, frozenset()))
+                    for user in users
+                },
                 "q": prefix,
-                "local_only": local_only,
+                "login_kind": kind,
+                "role": wanted,
+                "roles_vocabulary": tuple(Role),
+                "filtered": bool(prefix or kind or wanted),
                 "saved": SAVED_MESSAGES.get(saved),
             },
         )
