@@ -790,6 +790,9 @@ SAVED_MESSAGES: dict[str, str] = {
     ),
     "withdrawn": "出題を取り下げました（学習者に出なくなります。記録は残ります）",
     "restored": "出題の取り下げを取り消しました",
+    # **版は上がらない。** 日程は課題の内容ではないので、直しても過去の
+    # 採点基準は変わらない（ADR 0013・P8 の対象外）。
+    "task_schedule": "この課題の日程を保存しました（版は上がりません）",
     "task_deleted": "課題を削除しました（提出が 1 件も無いもの）",
     "unit_cleared": "問題セットを片付けました",
     "released": "いままでの提出を採点に回しました（以後の提出はまた採点開始時刻まで待ちます）",
@@ -1007,7 +1010,7 @@ def _update_unit(
         )
         uow.commit()
     return RedirectResponse(
-        f"/manage/courses/{course_id}/units/{key}?saved={saved}#{saved}", status_code=303
+        f"/manage/courses/{course_id}/units/{key}?saved={saved}#saved", status_code=303
     )
 
 
@@ -1618,7 +1621,7 @@ def register(templates) -> APIRouter:
             )
             uow.commit()
         saved = "tenant_admin_granted" if admin else "tenant_admin_revoked"
-        return RedirectResponse(f"/manage/users/{user_id}?saved={saved}", status_code=303)
+        return RedirectResponse(f"/manage/users/{user_id}?saved={saved}#saved", status_code=303)
 
     @router.post("/users/{user_id}/courses/{course_id}/role")
     def set_user_course_role(
@@ -1668,7 +1671,7 @@ def register(templates) -> APIRouter:
                 },
             )
             uow.commit()
-        return RedirectResponse(f"/manage/users/{user_id}?saved=role", status_code=303)
+        return RedirectResponse(f"/manage/users/{user_id}?saved=role#saved", status_code=303)
 
     @router.post("/users/{user_id}/disable")
     def disable_user(request: Request, user_id: str) -> Response:
@@ -1697,7 +1700,7 @@ def register(templates) -> APIRouter:
                 detail={"login": user.login},
             )
             uow.commit()
-        return RedirectResponse(f"/manage/users/{user_id}?saved=disabled", status_code=303)
+        return RedirectResponse(f"/manage/users/{user_id}?saved=disabled#saved", status_code=303)
 
     @router.post("/users/{user_id}/password", response_class=HTMLResponse)
     def reissue_user_password(request: Request, user_id: str) -> Response:
@@ -1852,7 +1855,7 @@ def register(templates) -> APIRouter:
                 )
             )
             uow.commit()
-        return RedirectResponse("/manage/oidc-settings?saved=1", status_code=303)
+        return RedirectResponse("/manage/oidc-settings?saved=1#saved", status_code=303)
 
     # -- 科目プロファイル（管理者専用、#146）--------------------------------
     #
@@ -1970,7 +1973,9 @@ def register(templates) -> APIRouter:
             summary=f"科目プロファイル {name} を書き換えた",
             detail={"sha256": _digest(text), "bytes": len(text.encode())},
         )
-        return RedirectResponse(f"/manage/subjects/{name}?saved=profile_saved", status_code=303)
+        return RedirectResponse(
+            f"/manage/subjects/{name}?saved=profile_saved#saved", status_code=303
+        )
 
     @router.post("/subjects/{name}/duplicate")
     def duplicate_subject(
@@ -2005,7 +2010,7 @@ def register(templates) -> APIRouter:
             detail={"source": name},
         )
         return RedirectResponse(
-            f"/manage/subjects/{new_name.strip()}?saved=profile_duplicated", status_code=303
+            f"/manage/subjects/{new_name.strip()}?saved=profile_duplicated#saved", status_code=303
         )
 
     @router.post("/subjects/{name}/rename")
@@ -2036,7 +2041,7 @@ def register(templates) -> APIRouter:
             detail={"renamed_from": name},
         )
         return RedirectResponse(
-            f"/manage/subjects/{new_name.strip()}?saved=profile_renamed", status_code=303
+            f"/manage/subjects/{new_name.strip()}?saved=profile_renamed#saved", status_code=303
         )
 
     # -- 自分のパスワードを変える --------------------------------------------
@@ -2458,7 +2463,7 @@ def register(templates) -> APIRouter:
 
         console.last_release = (str(course.id), len(failed))
         return RedirectResponse(
-            f"/manage/courses/{course_id}/units/{group.key}?saved=retried#exam",
+            f"/manage/courses/{course_id}/units/{group.key}?saved=retried#saved",
             status_code=303,
         )
 
@@ -2494,7 +2499,7 @@ def register(templates) -> APIRouter:
 
         console.last_release = (str(course.id), released)
         return RedirectResponse(
-            f"/manage/courses/{course_id}/units/{group.key}?saved=released#schedule",
+            f"/manage/courses/{course_id}/units/{group.key}?saved=released#saved",
             status_code=303,
         )
 
@@ -2768,7 +2773,8 @@ def register(templates) -> APIRouter:
 
         saved_key = "bundle_saved" if review_state is ReviewState.APPROVED else "bundle_in_review"
         return RedirectResponse(
-            f"/manage/courses/{course.id}/units/{group.key}?saved={saved_key}", status_code=303
+            f"/manage/courses/{course.id}/units/{group.key}?saved={saved_key}#saved",
+            status_code=303,
         )
 
     @router.post("/courses/{course_id}/units/{unit}/clear")
@@ -2800,7 +2806,8 @@ def register(templates) -> APIRouter:
             # 「このコースに何が残っているか」であって、設定ではない。
             return RedirectResponse(f"/courses/{course_id}", status_code=303)
         return RedirectResponse(
-            f"/manage/courses/{course_id}/units/{group.key}?saved=unit_cleared", status_code=303
+            f"/manage/courses/{course_id}/units/{group.key}?saved=unit_cleared#saved",
+            status_code=303,
         )
 
     @router.post("/courses/{course_id}/units/{unit}/schedule")
@@ -2914,7 +2921,7 @@ def register(templates) -> APIRouter:
             )
             uow.commit()
         return RedirectResponse(
-            f"/manage/courses/{course_id}?saved=course_grace#course_grace", status_code=303
+            f"/manage/courses/{course_id}?saved=course_grace#saved", status_code=303
         )
 
     def _read_body(text: str, upload: UploadFile | None, payload: bytes | None) -> str:
@@ -3065,7 +3072,9 @@ def register(templates) -> APIRouter:
                 )
             )
             uow.commit()
-        return RedirectResponse(f"/manage/courses/{course_id}/basics?saved=basics", status_code=303)
+        return RedirectResponse(
+            f"/manage/courses/{course_id}/basics?saved=basics#saved", status_code=303
+        )
 
     # -- 知識要素の候補 ----------------------------------------------------
 
@@ -3145,7 +3154,7 @@ def register(templates) -> APIRouter:
             # **なぜ消せないかをその場に出す**（提出が何件あるか）。
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         # 消したコースの画面はもう無いので、担当コースの一覧へ戻す。
-        return RedirectResponse("/?saved=course_deleted", status_code=303)
+        return RedirectResponse("/?saved=course_deleted#saved", status_code=303)
 
     @router.post("/courses/{course_id}/duplicate")
     def duplicate_course_route(
@@ -3217,7 +3226,7 @@ def register(templates) -> APIRouter:
         # 複製後にすることは日程の入力と設定の確認なので、その入口に落とす。
         return RedirectResponse(
             f"/manage/courses/{copied.course.id}"
-            f"?saved=course_duplicated&tasks={copied.tasks}&skipped={len(copied.skipped)}",
+            f"?saved=course_duplicated&tasks={copied.tasks}&skipped={len(copied.skipped)}#saved",
             status_code=303,
         )
 
@@ -3267,7 +3276,7 @@ def register(templates) -> APIRouter:
                 },
             )
             uow.commit()
-        return RedirectResponse(f"/manage/courses/{course_id}?saved=rubric#rubric", status_code=303)
+        return RedirectResponse(f"/manage/courses/{course_id}?saved=rubric#saved", status_code=303)
 
     @router.post("/courses/{course_id}/upload-formats")
     def set_upload_formats(
@@ -3292,9 +3301,7 @@ def register(templates) -> APIRouter:
         with console.database.unit_of_work() as uow:
             uow.identity.save_course(course.model_copy(update={"upload_suffixes": suffixes}))
             uow.commit()
-        return RedirectResponse(
-            f"/manage/courses/{course_id}?saved=formats#formats", status_code=303
-        )
+        return RedirectResponse(f"/manage/courses/{course_id}?saved=formats#saved", status_code=303)
 
     @router.post("/courses/{course_id}/tasks/{task_id}/finalize")
     def finalize_remaining(
@@ -3568,7 +3575,7 @@ def register(templates) -> APIRouter:
         else:
             landed = "task_without_tests"
         return RedirectResponse(
-            f"/manage/courses/{course_id}/tasks/{saved.task.id}/edit?saved={landed}",
+            f"/manage/courses/{course_id}/tasks/{saved.task.id}/edit?saved={landed}#saved",
             status_code=303,
         )
 
@@ -3580,7 +3587,7 @@ def register(templates) -> APIRouter:
         key_suffix: Annotated[str, Form()],
         kc: Annotated[list[str], Form()] = [],  # noqa: B006 - FastAPI の複数値
         difficulty: Annotated[str, Form()] = "standard",
-        constraints: Annotated[str, Form()] = "",
+        instructions: Annotated[str, Form()] = "",
         test_cases: Annotated[str, Form()] = "5",
         readability_weight: Annotated[str, Form()] = "0.3",
     ) -> Response:
@@ -3644,8 +3651,8 @@ def register(templates) -> APIRouter:
                 course_outline=course.description or "",
                 difficulty=Difficulty(difficulty),
                 language=_language_of(profile),
-                constraints=tuple(
-                    line.strip() for line in constraints.splitlines() if line.strip()
+                instructions=tuple(
+                    line.strip() for line in instructions.splitlines() if line.strip()
                 ),
                 avoid_similar_to=tuple(avoid[:20]),
                 test_case_count=int(test_cases or 5),
@@ -3690,7 +3697,7 @@ def register(templates) -> APIRouter:
         # **承認する場所へ送る。** 課題はまだ無いので、問題セットへ戻しても
         # そこには何も増えていない（増えるのは承認したとき・#84）。
         return RedirectResponse(
-            f"/manage/courses/{course_id}/drafts?saved=generated", status_code=303
+            f"/manage/courses/{course_id}/drafts?saved=generated#saved", status_code=303
         )
 
     def _kcs_from_form(console, course, form) -> tuple[str, ...]:
@@ -3834,6 +3841,7 @@ def register(templates) -> APIRouter:
         version=None,
         note=None,
         saved="",
+        why="",
         statement=None,
         chosen_kcs=None,
         kc_candidates=None,
@@ -3859,6 +3867,9 @@ def register(templates) -> APIRouter:
         # 含むと、押してから何も起きないことになる）。追加のときは移動できる
         # 課題がまだ無いので数えない。
         others: list[dict[str, object]] = []
+        # この課題が属する問題セット。**日程を並べて見せるために要る**（#325）──
+        # 課題の日程だけを出すと、それがセットと揃っているのかが読めない。
+        own_unit = None
         if task is not None:
             console = _console(request)
             with console.database.unit_of_work() as uow:
@@ -3868,6 +3879,7 @@ def register(templates) -> APIRouter:
                 for group in units
                 if group.key != unit_key_value
             ]
+            own_unit = next((g for g in units if g.key == unit_key_value), None)
         # 知識要素（#292）。候補はコースが使うもの、印はこの版が問うもの。
         # `chosen_kcs` は候補を出したときにフォームで選ばれていたもの（書き
         # かけを失わない）。
@@ -3940,7 +3952,18 @@ def register(templates) -> APIRouter:
                 # 観点の中の欄から保存したのに畳まれた画面が返ると、直した
                 # ものがどこへ行ったのか分からない。JavaScript が無くても効く。
                 "saved_key": saved,
+                # 書き直せなかった理由（`?why=`）。知らせの隣に出す。
+                "why": why,
                 "other_units": others,
+                # 属する問題セットと、そこと日程が揃っているか（#325）。
+                "own_unit": own_unit,
+                # **ばらつきの判定は問題セットのものを使う**（`UnitGroup.mixed`）。
+                # ここで「代表値と較べる」を書いたところ、代表は最も早い公開と
+                # 最も遅い締切の包絡線なので、**締切を後ろへ動かした課題自身は
+                # 常に代表と一致する**（ずれているのは動かさなかった側になる）。
+                # 2 つの画面が違う理屈でばらつきを言うと、片方が「ばらついて
+                # いる」と言い、もう片方が「揃っている」と出る。
+                "unit_schedule_mixed": bool(own_unit and own_unit.mixed),
                 # テストで確定できる科目か。宣言していない科目（レポートなど）
                 # には出さない ── 選べない選択肢を見せない。
                 "wants_tests": _wants_tests(request, course, version),
@@ -4056,7 +4079,7 @@ def register(templates) -> APIRouter:
                 f"{type(exc).__name__}: {exc}",
             )
             return RedirectResponse(
-                f"/manage/courses/{course_id}/tasks/{task_id}/edit?saved=tests_failed",
+                f"/manage/courses/{course_id}/tasks/{task_id}/edit?saved=tests_failed#saved",
                 status_code=303,
             )
 
@@ -4082,7 +4105,7 @@ def register(templates) -> APIRouter:
         # 門 1・門 2 を通し、結果を残す（生成課題と同じ・ADR 0008）。
         _record_gates(console, profile, saved.version)
         return RedirectResponse(
-            f"/manage/courses/{course_id}/tasks/{task_id}/edit?saved=tests_added",
+            f"/manage/courses/{course_id}/tasks/{task_id}/edit?saved=tests_added#saved",
             status_code=303,
         )
 
@@ -4141,7 +4164,8 @@ def register(templates) -> APIRouter:
             queued += 1
         console.last_regrade = (str(course.id), queued)
         return RedirectResponse(
-            f"/manage/courses/{course_id}/tasks/{task_id}/edit?saved=regraded", status_code=303
+            f"/manage/courses/{course_id}/tasks/{task_id}/edit?saved=regraded#saved",
+            status_code=303,
         )
 
     @router.post("/courses/{course_id}/tasks/{task_id}/withdraw")
@@ -4171,7 +4195,7 @@ def register(templates) -> APIRouter:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         saved = "restored" if restore.strip() else "withdrawn"
         return RedirectResponse(
-            f"/manage/courses/{course_id}/tasks/{task_id}/edit?saved={saved}", status_code=303
+            f"/manage/courses/{course_id}/tasks/{task_id}/edit?saved={saved}#saved", status_code=303
         )
 
     @router.post("/courses/{course_id}/tasks/{task_id}/delete")
@@ -4193,11 +4217,13 @@ def register(templates) -> APIRouter:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         unit = unit_key(task)
         return RedirectResponse(
-            f"/manage/courses/{course_id}/units/{unit}?saved=task_deleted", status_code=303
+            f"/manage/courses/{course_id}/units/{unit}?saved=task_deleted#saved", status_code=303
         )
 
     @router.get("/courses/{course_id}/tasks/{task_id}/edit", response_class=HTMLResponse)
-    def edit_task(request: Request, course_id: str, task_id: str, saved: str = "") -> Response:
+    def edit_task(
+        request: Request, course_id: str, task_id: str, saved: str = "", why: str = ""
+    ) -> Response:
         """既にある課題を直す画面。**問題セットのページには展開しない。**
 
         ルーブリックと問題文は横幅いっぱいで読むものなので、一覧の中に
@@ -4258,6 +4284,10 @@ def register(templates) -> APIRouter:
             task=task,
             version=version,
             saved=saved,
+            # **理由をそのまま出す**（決めつけない・#52）。以前は錨に載せて
+            # いたので URL の欄にしか出ず、画面には「書き直せませんでした」
+            # としか出なかった ── 錨は知らせの着地点に要る。
+            why=why,
         )
 
     @router.get("/courses/{course_id}/units/{unit}/tasks/new", response_class=HTMLResponse)
@@ -4309,7 +4339,7 @@ def register(templates) -> APIRouter:
                 uow.commit()
             key = unit_key(ordered[index])
         return RedirectResponse(
-            f"/manage/courses/{course_id}/units/{key}?saved=order", status_code=303
+            f"/manage/courses/{course_id}/units/{key}?saved=order#saved", status_code=303
         )
 
     @router.post("/courses/{course_id}/tasks/{task_id}/unit")
@@ -4381,7 +4411,7 @@ def register(templates) -> APIRouter:
             uow.commit()
 
         return RedirectResponse(
-            f"/manage/courses/{course_id}/units/{quote(target, safe='')}?saved=moved#tasks",
+            f"/manage/courses/{course_id}/units/{quote(target, safe='')}?saved=moved#saved",
             status_code=303,
         )
 
@@ -4631,7 +4661,7 @@ def register(templates) -> APIRouter:
             + _kept_cases(version, editing=_io_evaluator_ids(EvaluatorRegistry().load_installed())),
         )
         return RedirectResponse(
-            f"/manage/courses/{course_id}/tasks/{task_id}/edit?saved=tests_revised#tests",
+            f"/manage/courses/{course_id}/tasks/{task_id}/edit?saved=tests_revised#saved",
             status_code=303,
         )
 
@@ -4727,12 +4757,17 @@ def register(templates) -> APIRouter:
             knowledge_components=kcs,
         )
         return RedirectResponse(
-            f"/manage/courses/{course_id}/tasks/{task_id}/edit?saved=restored_version",
+            f"/manage/courses/{course_id}/tasks/{task_id}/edit?saved=restored_version#saved",
             status_code=303,
         )
 
     @router.post("/courses/{course_id}/tasks/{task_id}/revise-with-ai")
-    def revise_task_with_ai(request: Request, course_id: str, task_id: str) -> Response:
+    def revise_task_with_ai(
+        request: Request,
+        course_id: str,
+        task_id: str,
+        instructions: Annotated[str, Form()] = "",
+    ) -> Response:
         """課題をいまの基準に合わせて書き直させ、**承認待ちの版**として積む（#306）。
 
         **必ず承認待ちである。** 教員はまだ 1 文字も読んでいない ── 生成物は
@@ -4747,6 +4782,11 @@ def register(templates) -> APIRouter:
 
         **直すところが無ければ積まない。** 差分の無い版を承認待ちに置くと、
         教員は中身の無い版を 1 件ずつ開いて確かめることになる。
+
+        `instructions` は教員からの指示（1 行 1 件・任意）。**何を直してほしい
+        かは、読んだ教員がいちばんよく知っている** ── 観点との食い違いは機械的に
+        見付かるが、「毎年ここで質問が来る」は教員しか知らない。作問の指示と
+        同じ扱いで、必須事項の列ではない（`aijudge_admin.revision` の冒頭）。
         """
         from .app import require_principal
 
@@ -4767,18 +4807,21 @@ def register(templates) -> APIRouter:
                 criteria=tuple((row["title"], row["description"]) for row in rows),
                 vocabulary=tuple((kc.key, kc.label) for kc in _course_kcs(console, course)),
                 current_kcs=tuple(current_kcs),
+                instructions=tuple(
+                    line.strip() for line in instructions.splitlines() if line.strip()
+                ),
             )
         except Exception as exc:
             # **理由をそのまま出す**（決めつけない・#52）。
             return RedirectResponse(
                 f"/manage/courses/{course_id}/tasks/{task_id}/edit"
-                f"?saved=revision_failed#{quote(str(exc)[:80], safe='')}",
+                f"?saved=revision_failed&why={quote(str(exc)[:200], safe='')}#saved",
                 status_code=303,
             )
 
         if revised.unchanged:
             return RedirectResponse(
-                f"/manage/courses/{course_id}/tasks/{task_id}/edit?saved=revision_none",
+                f"/manage/courses/{course_id}/tasks/{task_id}/edit?saved=revision_none#saved",
                 status_code=303,
             )
 
@@ -4818,7 +4861,78 @@ def register(templates) -> APIRouter:
             uow.tasks.save_draft(draft)
             uow.commit()
         return RedirectResponse(
-            f"/manage/courses/{course_id}/drafts?saved=revision_queued", status_code=303
+            f"/manage/courses/{course_id}/drafts?saved=revision_queued#saved", status_code=303
+        )
+
+    @router.post("/courses/{course_id}/tasks/{task_id}/schedule")
+    def set_task_schedule(
+        request: Request,
+        course_id: str,
+        task_id: str,
+        opens_at: Annotated[str, Form()] = "",
+        submissions_open_at: Annotated[str, Form()] = "",
+        due_at: Annotated[str, Form()] = "",
+        grading_starts_at: Annotated[str, Form()] = "",
+        accepts_until: Annotated[str, Form()] = "",
+    ) -> Response:
+        """**この課題 1 件の日程**を直す。
+
+        日程を決めるのは問題セットである（`set_unit_schedule`）── ここは
+        **揃っていないものを直すための口**であって、課題ごとに違う締切を
+        置くための機能ではない。画面もそう書いてある。
+
+        それでも 1 件ずつ直せる必要があるのは、ばらつきが実際に起きるから
+        である ── 取り込んだ課題は 1 件ずつ日程を持っていることがあり、
+        あとから足した課題はセットの日程を持っていない。「セットの日程を
+        保存し直して全部に当てる」は、**当てたくない課題まで動かす**
+        （試験の回を含むセットで採点開始が揃っていない、など）。
+
+        版は上がらない。**日程は課題の内容ではない**ので、直しても過去の
+        採点基準は変わらない（P8 の対象外）。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+        task = _task_of(console, course, task_id)
+
+        update = {
+            "opens_at": _parse_when(opens_at),
+            "submissions_open_at": _parse_when(submissions_open_at),
+            "due_at": _parse_when(due_at),
+            "grading_starts_at": _parse_when(grading_starts_at),
+            "accepts_until": _parse_when(accepts_until),
+        }
+        try:
+            # **`model_copy` を使わない。** 検証を走らせないので、締切が公開より
+            # 前の課題がそのまま保存される（`_update_unit` と同じ理由）。
+            updated = Task.model_validate(task.model_dump() | update)
+        except ValidationError as exc:
+            raise HTTPException(status_code=400, detail=_first_error(exc)) from None
+
+        with console.database.unit_of_work() as uow:
+            uow.tasks.save_task(updated)
+            # **締切は誰がいつ動かしたかを言えないといけない**（ADR 0013）。
+            # セット単位の記録（`_update_unit`）と同じ理由で、1 件の操作も残す。
+            recorder_for(uow, request, me).record(
+                AuditAction.TASK_UPDATED,
+                target_type="task",
+                target_id=str(task.id),
+                summary="課題の日程を変えた",
+                detail={
+                    "course_id": course_id,
+                    "field": "task_schedule",
+                    "changed": {
+                        name: {"before": _plain(getattr(task, name, None)), "after": _plain(value)}
+                        for name, value in update.items()
+                    },
+                },
+            )
+            uow.commit()
+        return RedirectResponse(
+            f"/manage/courses/{course_id}/tasks/{task_id}/edit?saved=task_schedule#saved",
+            status_code=303,
         )
 
     @router.post("/courses/{course_id}/tasks/{task_id}/reference-solution")
@@ -5067,7 +5181,7 @@ def register(templates) -> APIRouter:
             test_cases=tuple(items) + _kept_cases(version, editing=named),
         )
         return RedirectResponse(
-            f"/manage/courses/{course_id}/tasks/{task_id}/edit?saved=items_revised#items",
+            f"/manage/courses/{course_id}/tasks/{task_id}/edit?saved=items_revised#saved",
             status_code=303,
         )
 
@@ -5151,7 +5265,7 @@ def register(templates) -> APIRouter:
             ),
         )
         return RedirectResponse(
-            f"/manage/courses/{course_id}/tasks/{task_id}/edit?saved=task", status_code=303
+            f"/manage/courses/{course_id}/tasks/{task_id}/edit?saved=task#saved", status_code=303
         )
 
     @router.get("/courses/{course_id}/enrolments", response_class=HTMLResponse)
@@ -5286,7 +5400,7 @@ def register(templates) -> APIRouter:
             uow.identity.save_enrollment(existing.model_copy(update={"role": new_role}))
             uow.commit()
         return RedirectResponse(
-            f"/manage/courses/{course_id}/enrolments?saved=role", status_code=303
+            f"/manage/courses/{course_id}/enrolments?saved=role#saved", status_code=303
         )
 
     @router.post("/courses/{course_id}/enrolments")
@@ -5381,7 +5495,7 @@ def register(templates) -> APIRouter:
             uow.identity.remove_enrollment(CourseId(course_id), UserId(user_id))
             uow.commit()
         return RedirectResponse(
-            f"/manage/courses/{course_id}/enrolments?saved=removed", status_code=303
+            f"/manage/courses/{course_id}/enrolments?saved=removed#saved", status_code=303
         )
 
     # ------------------------------------------------------------------
@@ -5428,9 +5542,7 @@ def register(templates) -> APIRouter:
             )
         except AdminError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from None
-        return RedirectResponse(
-            f"/manage/courses/{course_id}?saved=grading#grading", status_code=303
-        )
+        return RedirectResponse(f"/manage/courses/{course_id}?saved=grading#saved", status_code=303)
 
     # ------------------------------------------------------------------
     # 知識要素（KC）の体系（設計原則 P6）
@@ -5662,7 +5774,9 @@ def register(templates) -> APIRouter:
         except AdminError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         saved = "kc_restored" if restore else "kc_retired"
-        return RedirectResponse(f"/manage/courses/{course_id}/kc?saved={saved}#kc", status_code=303)
+        return RedirectResponse(
+            f"/manage/courses/{course_id}/kc?saved={saved}#saved", status_code=303
+        )
 
     def _scope_targets(console, course, kc: list[str], prefix: str) -> tuple[str, ...]:
         """足す・外す対象のキー。個別のチェックと、階層の接頭辞の両方から。
@@ -5724,7 +5838,7 @@ def register(templates) -> APIRouter:
         added = _scope_in(console, course, keys)
         console.last_kc_scope = (str(course.id), "added", added, 0)
         return RedirectResponse(
-            f"/manage/courses/{course_id}/kc?saved=kc_scoped#kc", status_code=303
+            f"/manage/courses/{course_id}/kc?saved=kc_scoped#saved", status_code=303
         )
 
     @router.post("/courses/{course_id}/kc/scope/add")
@@ -5756,7 +5870,7 @@ def register(templates) -> APIRouter:
         added = _scope_in(console, course, keys)
         console.last_kc_scope = (str(course.id), "added", added, 0)
         return RedirectResponse(
-            f"/manage/courses/{course_id}/kc?saved=kc_scoped#kc", status_code=303
+            f"/manage/courses/{course_id}/kc?saved=kc_scoped#saved", status_code=303
         )
 
     @router.post("/courses/{course_id}/kc/scope/remove")
@@ -5795,7 +5909,7 @@ def register(templates) -> APIRouter:
                 uow.commit()
         console.last_kc_scope = (str(course.id), "removed", removed, len(kept))
         return RedirectResponse(
-            f"/manage/courses/{course_id}/kc?saved=kc_scoped#kc", status_code=303
+            f"/manage/courses/{course_id}/kc?saved=kc_scoped#saved", status_code=303
         )
 
     @router.post("/courses/{course_id}/kc/edit")
@@ -5829,7 +5943,7 @@ def register(templates) -> APIRouter:
         except AdminError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return RedirectResponse(
-            f"/manage/courses/{course_id}/kc?saved=kc_edited#kc", status_code=303
+            f"/manage/courses/{course_id}/kc?saved=kc_edited#saved", status_code=303
         )
 
     @router.post("/courses/{course_id}/kc/delete")
@@ -5865,7 +5979,7 @@ def register(templates) -> APIRouter:
         except AdminError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return RedirectResponse(
-            f"/manage/courses/{course_id}/kc?saved=kc_deleted#kc", status_code=303
+            f"/manage/courses/{course_id}/kc?saved=kc_deleted#saved", status_code=303
         )
 
     # ------------------------------------------------------------------
@@ -5960,7 +6074,7 @@ def register(templates) -> APIRouter:
         key_suffix: Annotated[str, Form()],
         kc: Annotated[list[str], Form()] = [],  # noqa: B006 - FastAPI の複数値
         difficulty: Annotated[str, Form()] = "standard",
-        constraints: Annotated[str, Form()] = "",
+        instructions: Annotated[str, Form()] = "",
         test_cases: Annotated[str, Form()] = "5",
         readability_weight: Annotated[str, Form()] = "0.3",
     ) -> Response:
@@ -5978,7 +6092,7 @@ def register(templates) -> APIRouter:
             key_suffix=key_suffix,
             kc=kc,
             difficulty=difficulty,
-            constraints=constraints,
+            instructions=instructions,
             test_cases=test_cases,
             readability_weight=readability_weight,
         )
@@ -6019,7 +6133,7 @@ def register(templates) -> APIRouter:
                 uow.tasks.delete_draft(draft_id)
                 uow.commit()
             return RedirectResponse(
-                f"/manage/courses/{course_id}/drafts?saved=draft_dropped", status_code=303
+                f"/manage/courses/{course_id}/drafts?saved=draft_dropped#saved", status_code=303
             )
 
         statement = str(form.get("statement") or draft.spec.statement)
@@ -6106,7 +6220,7 @@ def register(templates) -> APIRouter:
 
         console.last_task = (str(course.id), saved)
         return RedirectResponse(
-            f"/manage/courses/{course_id}/drafts?saved=draft_approved", status_code=303
+            f"/manage/courses/{course_id}/drafts?saved=draft_approved#saved", status_code=303
         )
 
     return router

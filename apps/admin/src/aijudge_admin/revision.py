@@ -29,6 +29,16 @@
 
 **題名も変えない。** 同じ課題の改訂であって別の課題ではない ── 題名が変わると
 一覧で別物に見え、学習者は「前に見た問題が消えた」と読む。
+
+## 教員からの指示
+
+**何を直してほしいかは、読んだ教員がいちばんよく知っている。** 観点との
+食い違いは機械的に見付かるが、「この問題は毎年ここで質問が来る」は教員しか
+知らない ── 指示を渡せないと、そこは何度書き直させても直らない。
+
+作問の指示（`Blueprint.instructions`）と**同じ扱いにする**。必須事項の列では
+なく、強さは教員の書き方が表す（「必ず」「できれば」）。渡さなくても改訂は
+成立する ── 指示は入口であって、前提ではない。
 """
 
 from __future__ import annotations
@@ -47,7 +57,8 @@ from aijudge_llm_gateway import (
 PROMPT = PromptTemplate(
     name="task_revision_ja",
     # 文面を変えたら必ず版を上げる（P8）。
-    version="1",
+    # 2: 教員からの指示を渡せるようにした（節ごと出し入れする）。
+    version="2",
     system=(
         "あなたは大学の理工系科目の課題を、現在の採点基準に合わせて書き直す教員です。"
         "**同じ課題を書き直します。別の課題にはしません** ── 問うている内容と"
@@ -61,20 +72,43 @@ PROMPT = PromptTemplate(
     ),
     template=(
         "## いまの問題文\n{statement}\n\n"
+        "{instructions}"
         "## この課題の採点の観点（変更しません）\n{criteria}\n\n"
         "## 選べる知識要素（この中からだけ選ぶ）\n{vocabulary}\n\n"
         "## いま付いている知識要素\n{current_kcs}\n\n"
         "## 直すこと\n"
+        "- **教員からの指示があれば、それを最優先で反映する**\n"
         "- 仕様の曖昧さ（入力の範囲、出力の形式、端の場合の扱い）\n"
         "- 例と本文の食い違い\n"
         "- **観点が求めていることが問題文から読み取れない箇所**\n"
         "- 誤字と、読みにくい言い回し\n\n"
-        "直すところが無ければ、問題文はそのまま返し changes を空にします。\n\n"
+        "直すところが無ければ、問題文はそのまま返し changes を空にします"
+        "（**教員からの指示があるときは、それに応えたかどうかを changes に"
+        "書きます**）。\n\n"
         '出力する JSON の形: {{"statement": "書き直した問題文全体", '
         '"changes": ["直した点を 1 行ずつ"], '
         '"knowledge_components": ["cs.loops.termination"]}}\n'
     ),
 )
+
+
+def _instructions_section(instructions: tuple[str, ...]) -> str:
+    """教員からの指示の節。**無ければ節ごと出さない。**
+
+    空の節を渡すと、モデルは「指示が無い」ではなく「指示は空」と読む余地が
+    ある。書かれていない条件は、書かないことで伝える
+    （`aijudge_admin.drafting._course_section` と同じ作法）。
+    """
+    lines = [line.strip() for line in instructions if line.strip()]
+    if not lines:
+        return ""
+    body = "\n".join(f"- {line}" for line in lines)
+    return (
+        "## 教員からの指示\n"
+        f"{body}\n"
+        "**この指示を最優先で反映してください。** 「必ず」と書かれたものは"
+        "問題文に明記し、希望として書かれたものは可能な範囲で汲みます。\n\n"
+    )
 
 
 @dataclass(frozen=True)
@@ -119,8 +153,13 @@ class TaskReviser:
         criteria: tuple[tuple[str, str], ...],
         vocabulary: tuple[tuple[str, str], ...],
         current_kcs: tuple[str, ...] = (),
+        instructions: tuple[str, ...] = (),
     ) -> RevisionResult:
-        """`criteria` は (題名, 説明)、`vocabulary` は (正準キー, 説明)。"""
+        """`criteria` は (題名, 説明)、`vocabulary` は (正準キー, 説明)。
+
+        `instructions` は教員からの指示（1 行 1 件）。**既定は空** ── 指示が
+        無くても改訂は成立する（観点との食い違いは指示が無くても見付かる）。
+        """
         result = self._gateway.complete_structured(
             PROMPT,
             RevisedTask,
@@ -130,6 +169,7 @@ class TaskReviser:
             timeout_seconds=300.0,
             max_tokens=self._max_tokens,
             statement=statement[:8000],
+            instructions=_instructions_section(instructions),
             criteria="\n".join(f"- {title}: {description}" for title, description in criteria)
             or "（観点の宣言がありません）",
             vocabulary="\n".join(f"- {key}: {label}" for key, label in vocabulary)

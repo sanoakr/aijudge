@@ -142,6 +142,28 @@ def save_task(
             # 再実行が黙って消すと成績の期限が飛ぶ。明示された場合だけ上書きする。
             opens_at=spec.opens_at or (existing.opens_at if existing else None),
             due_at=spec.due_at or (existing.due_at if existing else None),
+            # **`TaskSpec` が持たない日程も引き継ぐ。**
+            #
+            # 引き継いでいたのは公開と締切の 2 つだけだった。残り 4 つは
+            # 作り直しのたびに既定（空）へ戻っていたので、問題セットで日程を
+            # 揃えたあとに課題を 1 つ直すと、その課題だけ提出開始・受付終了・
+            # 採点開始・猶予が抜け、問題セットの画面が「日程が課題ごとに
+            # ばらついています」と言い続けた。**教員は揃えたのに、揃えた
+            # 操作が揃えたものを壊していた。**
+            #
+            # ここに並ぶのは「課題が持つが、課題の内容ではない」値である
+            # （日程は問題セットで決める・`aijudge_core.task.Task`）。
+            # `spec` に欄が無い以上、既存の値を運ぶ以外に正しい既定は無い。
+            submissions_open_at=existing.submissions_open_at if existing else None,
+            grading_starts_at=existing.grading_starts_at if existing else None,
+            accepts_until=existing.accepts_until if existing else None,
+            auto_finalize_after_minutes=(
+                existing.auto_finalize_after_minutes if existing else None
+            ),
+            # **取り下げも引き継ぐ。** 同じ取りこぼしで、こちらは結果が重い ──
+            # 取り下げた課題の誤字を直すと、`withdrawn` が既定に戻って
+            # 学習者に出直していた（取り下げは削除ではない・#83）。
+            withdrawn=existing.withdrawn if existing else False,
             # 締切と同じ理由で、**明示された場合だけ上書きする**（#234）。
             # 教員が画面で広げた拡張子を、定義の流し込みが黙って狭めない。
             accepted_suffixes=normalize_suffixes(spec.accepted_suffixes)

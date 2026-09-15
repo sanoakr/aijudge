@@ -156,6 +156,8 @@
       </div>
       {% endif %}
       <div class="actions">
+        {% if saved_key is defined and saved_key in ['tests_revised'] %}{% if flash is defined %}{% set flash.shown = true %}{% endif %}
+        <span class="flash" id="saved">{{ note }}</span>{% endif %}
         <button form="io-form" type="submit">テストケースを保存して新しい版にする</button>
       </div>
     </div>

@@ -282,9 +282,13 @@
              value="0.3" style="max-width:8rem"></span>
   </div>
   <div class="field">
-    <label for="g-constraints">制約（1 行 1 件・課題文に必ず書かせたいこと）</label>
-    <textarea id="g-constraints" name="constraints" rows="3"
-      placeholder="標準入力から読むこと&#10;標準ライブラリの qsort を使わないこと"></textarea>
+    <label for="g-instructions">AI への指示（1 行 1 件・任意）</label>
+    <textarea id="g-instructions" name="instructions" rows="3"
+      placeholder="必ず標準入力から読むこと&#10;標準ライブラリの qsort は使わせないこと&#10;できれば配列の添字を扱う題材にしてほしい"></textarea>
+    <p class="desc" style="margin:4px 0 0">
+      外せない条件は「必ず」、希望は「できれば」と書いてください —
+      <strong>強さは書き方で伝わります</strong>。空でも生成できます。
+    </p>
   </div>
   <p class="desc">
     このコースの既存課題を「似せないための材料」として渡します。
@@ -295,7 +299,7 @@
     作ってみないと分からないので、先に決めると、却下したときにそのセットに残骸が並びます。
   </p>
   <div class="actions">
-    {% if saved_key == 'generated' %}<span class="flash">{{ saved }}</span>{% endif %}
+    {% if saved_key == 'generated' %}<span class="flash" id="saved">{{ saved }}</span>{% endif %}
     <button type="submit">生成</button>
   </div>
 </form>
