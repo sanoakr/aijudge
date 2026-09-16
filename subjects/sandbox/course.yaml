@@ -1,0 +1,153 @@
+# 習熟度を見るための砂場（#328）。`aijudge-admin course apply --file` で入れる。
+#
+# ## なぜ専用のコースが要るか
+#
+# 習熟度は「知識要素の付いた課題に、学習者が提出して、採点が完了する」まで
+# 1 件も積まれない。今学期の課題にはまだ知識要素が付いていないので、
+# **画面を開いても永久に空**である。かといって本番のコースに試しの提出を
+# 入れると、精度と一致度の標本に混ざる。
+#
+# ## 何と分けてあるか
+#
+# **科目プロファイル**が `cs_sandbox_kc`（`subjects/cs_sandbox_kc.yaml`）。
+# 観測レコードは科目ごとのディレクトリに貯まり、`aijudge-eval --subject` は
+# その 1 つしか読まない ── この名前で採点したぶんは `cs_lang_c_intro` の
+# 標本に 1 件も入らない。採点の中身は写しなので、動きは本物と同じである。
+#
+# **お試しコース（demo）では代わりにならない。** あちらへの提出は `is_trial`
+# で、習熟度から意図的に除外されている（`skill_subscriber`・#108/#197）。
+#
+# ## 学習者
+#
+# 提出するのは**学習者として登録した砂場用の利用者**である
+# （`is_trial` は「学習者でないか、お試しコースか」で決まる・
+# `Submission.is_trial`）。教員が自分で出すと試行になり、習熟度は動かない。
+# 本物の学籍番号とまぎれない login にしておくこと（`docs/RUNNING.md`）。
+#
+# ## 知識要素
+#
+# **2 問で意図的にずらしてある。** 同じ組を問う課題ばかりだと、どの知識要素も
+# 同じ値になり、図が「知識要素ごとに割れる」ことを示さない。p1 は繰り返しの
+# 中で大小を比べ 0 以下の入力を弾く（条件によるくりかえし・分岐）。p2 は
+# 合計なので比較も分岐も要らない。
+
+course:
+  code: sandbox-kc
+  title: 習熟度の砂場
+  term: 2026-後期
+  subject_profile: cs_sandbox_kc
+  description: |
+    習熟度の画面を確かめるための砂場です。ここでの提出は精度・一致度の測定に
+    入りません（観測は別の科目名で貯まります）。本番のコースではありません。
+  upload_suffixes: [.c]
+  knowledge_components:
+    - cs.sdf.fundamentals.variable
+    - cs.sdf.fundamentals.branching
+    - cs.sdf.fundamentals.definite_loop
+    - cs.sdf.fundamentals.indefinite_loop
+    - cs.sdf.fundamentals.console_io
+
+units:
+  ex01:
+    opens_at: 2026-09-01T09:00:00+09:00
+    due_at: 2027-03-31T23:59:00+09:00
+
+tasks:
+  - key: ex01/p1
+    unit: ex01
+    session: 1
+    position: 1
+    readability_weight: 0.3
+    knowledge_components:
+      - cs.sdf.fundamentals.console_io
+      - cs.sdf.fundamentals.definite_loop
+      - cs.sdf.fundamentals.indefinite_loop
+      - cs.sdf.fundamentals.branching
+      - cs.sdf.fundamentals.variable
+    statement: |
+      ## [必須] 最大値を求める ##
+
+      整数の並びを読み込み、その**最大値**を出力してください。
+
+      ### 入力
+
+      1 行目に要素数 `n`、2 行目に `n` 個の整数が空白区切りで与えられます。
+      `n` に 0 以下が来たら、1 以上が入力されるまで読み直してください。
+
+      ### 出力
+
+      最大値を 1 行で出力してください。
+
+      ```
+      5
+      3 -1 12 8 12
+      ```
+
+      に対して
+
+      ```
+      12
+      ```
+    reference_solution: |
+      #include <stdio.h>
+
+      int main(void) {
+          int n = 0;
+          while (n < 1) {
+              if (scanf("%d", &n) != 1) return 1;
+          }
+          int max = 0;
+          for (int i = 0; i < n; i++) {
+              int value;
+              if (scanf("%d", &value) != 1) return 1;
+              if (i == 0 || value > max) max = value;
+          }
+          printf("%d\n", max);
+          return 0;
+      }
+    test_cases:
+      - {name: example, input: "5\n3 -1 12 8 12\n", expected: "12\n"}
+      - {name: single, input: "1\n7\n", expected: "7\n"}
+      - {name: negative, input: "3\n-5 -2 -9\n", expected: "-2\n"}
+      - {name: retry, input: "0\n4\n2 9 4 9\n", expected: "9\n"}
+
+  - key: ex01/p2
+    unit: ex01
+    session: 1
+    position: 2
+    readability_weight: 0.3
+    knowledge_components:
+      - cs.sdf.fundamentals.console_io
+      - cs.sdf.fundamentals.definite_loop
+      - cs.sdf.fundamentals.variable
+    statement: |
+      ## [必須] 合計を求める ##
+
+      整数の並びを読み込み、その**合計**を出力してください。
+
+      ### 入力
+
+      1 行目に要素数 `n`、2 行目に `n` 個の整数が空白区切りで与えられます。
+
+      ### 出力
+
+      合計を 1 行で出力してください。
+    reference_solution: |
+      #include <stdio.h>
+
+      int main(void) {
+          int n;
+          if (scanf("%d", &n) != 1) return 1;
+          int sum = 0;
+          for (int i = 0; i < n; i++) {
+              int value;
+              if (scanf("%d", &value) != 1) return 1;
+              sum += value;
+          }
+          printf("%d\n", sum);
+          return 0;
+      }
+    test_cases:
+      - {name: example, input: "5\n3 -1 12 8 12\n", expected: "34\n"}
+      - {name: single, input: "1\n7\n", expected: "7\n"}
+      - {name: negative, input: "3\n-5 -2 -9\n", expected: "-16\n"}
