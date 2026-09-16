@@ -72,6 +72,12 @@ class UnitGroup:
     grace: int | None
     # セット内で日程がばらついているか。
     mixed: bool
+    # 学内からだけ受け付けるか（#333）。**全課題がそうなら真。**
+    campus_only: bool
+    # 一部の課題だけ制限されているか。**混ざりを黙らせない** ── 画面は
+    # セット単位で切り替えるので、混ざっているのは取り込みか移動の結果で
+    # あり、教員はそれを知らないまま「このセットは制限してある」と読む。
+    campus_mixed: bool
     # この問題セットで未確定のまま残っている提出の件数。
     unfinalized: int
     # いまどの段階か。**期限経過なのに未確定が残っていることが見えるようにする。**
@@ -180,6 +186,9 @@ def load_units(
                     if task.withdrawn or version.provenance.review_state is ReviewState.REJECTED
                 ),
                 mixed=_mixed(tasks),
+                campus_only=bool(tasks) and all(task.campus_only for task in tasks),
+                campus_mixed=any(task.campus_only for task in tasks)
+                and not all(task.campus_only for task in tasks),
                 unfinalized=sum(counts.get(task.id, 0) for task, _ in items),
                 deadline_passed=due_at is not None and moment >= due_at,
             )
@@ -237,6 +246,8 @@ def empty_unit(key: str, course: Course, *, now: datetime | None = None) -> Unit
         grace=course.auto_finalize_after_minutes,
         hidden=0,
         mixed=False,
+        campus_only=False,
+        campus_mixed=False,
         unfinalized=0,
         deadline_passed=False,
     )

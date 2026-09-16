@@ -37,6 +37,7 @@ from aijudge_core import (
     MIN_JUSTIFICATION_LENGTH,
     STREAMED_SUFFIXES,
     ArtifactKind,
+    CampusAccess,
     Course,
     GradingPhase,
     ReviewRequest,
@@ -46,6 +47,7 @@ from aijudge_core import (
     Task,
     TaskVersion,
     allowed_suffixes,
+    campus_access,
     content_type_for,
     grace_minutes,
     kind_for,
@@ -659,6 +661,15 @@ def create_app(app_state: StudentApp) -> FastAPI:
                 # 除くと、教員は自分の提出が採点一覧に無いことを不具合として
                 # 追いかけることになる。
                 "submitting_as": _role_in(app_state, course_obj.id, me.user_id),
+                # 学内限定の課題か、そしていまの接続元がそれを満たすか（#333）。
+                # **先に言う。** 出そうとして断られてから知るのでは、試験の
+                # 最中に場所を移すことになる。
+                "campus_only": task_obj.campus_only,
+                "campus_access": (
+                    campus_access_for(app_state, request, me.tenant_id)
+                    if task_obj.campus_only
+                    else None
+                ),
                 **build_context(course_obj, task_obj, version),
             },
         )
@@ -680,6 +691,10 @@ def create_app(app_state: StudentApp) -> FastAPI:
         ソースを走らせるので、2 つ出されても何を走らせるか決められない。
         """
         version, course_obj, _task = _task_and_course(app_state, me, TaskVersionId(task_version_id))
+
+        # **学内限定の課題は、学外から受け取らない**（#333）。画面にも出すが、
+        # 断るのはここである ── 隠すのは表示の都合であって制限ではない。
+        _require_campus(app_state, request, _task, me.tenant_id)
 
         # **受付の外では受け取らない。** 画面で隠すだけでは、URL を知って
         # いれば出せてしまう（隠すのは表示の都合であって制限ではない）。
@@ -1313,6 +1328,44 @@ def counterpart_url(request: Request, *, configured: str, port: int) -> str:
         if not _HOSTNAME.match(host):
             host = "localhost"
     return f"{scheme}://{host}:{port}"
+
+
+def campus_access_for(app_state: StudentApp, request: Request, tenant_id) -> CampusAccess:
+    """この要求が学内から来ているか（#333）。
+
+    **接続元は `X-Forwarded-For` の右端**（逆プロキシが書いた値）を採る
+    （`aijudge_telemetry.client_ip`）── 左端はクライアントが自由に書けるので、
+    そこで判定すると名乗るだけで通れる。
+    """
+    with app_state.database.unit_of_work() as uow:
+        settings = uow.identity.get_campus_networks(tenant_id)
+    return campus_access(source_ip_of(request), () if settings is None else settings.cidrs)
+
+
+def _require_campus(app_state: StudentApp, request: Request, task, tenant_id) -> None:
+    """学内限定の課題を、学外から出させない（#333）。
+
+    **断る理由を分ける**（受付の窓と同じ作法・#73）。「学外から」と「判定
+    できない」は学習者にとって意味が違う ── 前者は場所を移せば出せるが、
+    後者は移しても直らない（設定か経路の問題で、教員に言うしかない）。
+    """
+    if not getattr(task, "campus_only", False):
+        return
+    access = campus_access_for(app_state, request, tenant_id)
+    if access.allows_submission:
+        return
+    if access is CampusAccess.UNKNOWN:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "この課題は学内からのみ提出できますが、接続元を判定できませんでした。"
+                "担当の教員にお知らせください。"
+            ),
+        )
+    raise HTTPException(
+        status_code=409,
+        detail="この課題は学内からのみ提出できます（いまは学外から接続しています）。",
+    )
 
 
 def _role_in(app_state: StudentApp, course_id: CourseId, user_id: UserId) -> Role:

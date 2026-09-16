@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}学内ネットワーク — aiJudge{% endblock %}
+{% block body %}
+<h1>学内ネットワーク</h1>
+<p class="subtitle">
+  ここで決めた範囲から来た接続だけが、<strong>学内限定にした問題セット</strong>に提出できます。
+</p>
+
+{# **いまの接続元をその場で出す**（#333）。範囲は人が調べて書き写す値で、
+   書き写しは間違う ── しかも間違いは「試験当日に全員が提出できない」という
+   形でしか現れない。学内の端末でこの画面を開けば、登録すべき値がそのまま
+   読めて、保存した設定が自分に効くかも見える。 #}
+<div class="note">
+  <strong>いまあなたが接続しているアドレスは
+  <span class="mono">{{ source_ip or '（判定できません）' }}</span> です。</strong>
+  <br>
+  {% if access.value == 'inside' %}
+  この設定では<strong>学内と判定されます</strong>。
+  {% elif access.value == 'outside' %}
+  この設定では<strong>学外と判定されます</strong>。学内の端末からこの画面を開くと、
+  登録すべきアドレスがここに出ます。
+  {% elif access.value == 'not_configured' %}
+  範囲がまだ 1 件も設定されていないので、<strong>制限は効いていません</strong>
+  （学内限定にした問題セットにも誰でも提出できます）。
+  {% else %}
+  接続元が読めないため<strong>判定できません</strong>。逆プロキシの設定
+  （<span class="mono">X-Forwarded-For</span>）を確かめてください。
+  {% endif %}
+  <br>
+  <span class="desc">
+    判定に使うのは <span class="mono">X-Forwarded-For</span> の<strong>右端</strong>、
+    つまり逆プロキシが書いた値です。左端は接続してきた側が自由に書けるので使いません。
+  </span>
+</div>
+
+{# **NAT に注意する。** 無線 LAN の内側のアドレス（10.x など）をそのまま
+   書いても、変換されて届くなら 1 件も一致しない。上の「いまのアドレス」で
+   確かめられるようにしてある。 #}
+<div class="note warn">
+  <strong>無線 LAN の内側のアドレスをそのまま書かないでください。</strong>
+  端末に割り当てられるアドレス（<span class="mono">10.</span> で始まるものなど）と、
+  ここに届くアドレスは、間に NAT があると<strong>別のもの</strong>になります。
+  <strong>学内の端末でこの画面を開き、上に出るアドレスを登録してください。</strong>
+</div>
+
+<form method="post" action="{{ root_prefix() }}/manage/campus-networks" class="card">
+  <div class="field">
+    <label for="cidrs">学内と見なす範囲（1 行 1 件・CIDR）</label>
+    <textarea id="cidrs" name="cidrs" rows="10" class="mono"
+      placeholder="133.83.80.0/24&#10;133.83.82.0/25">{{ text }}</textarea>
+    <p class="desc" style="margin:4px 0 0">
+      1 台だけなら <span class="mono">/32</span>（IPv6 は <span class="mono">/128</span>）と書きます。
+      <strong>読めない行があると保存できません</strong> ── 黙って無視すると、
+      抜けたことに気づかないまま試験を迎えることになります。
+      空にすると制限は効かなくなります。
+    </p>
+  </div>
+  <div class="actions">
+    {% if saved_key == 'campus_networks' %}<span class="flash" id="saved">{{ saved }}</span>{% endif %}
+    <button type="submit">保存</button>
+  </div>
+</form>
+
+{% if cidrs %}
+<h2>いま設定されている範囲（{{ cidrs | length }} 件）</h2>
+<table>
+  <thead><tr><th class="grow">範囲</th></tr></thead>
+  <tbody>
+  {% for cidr in cidrs %}<tr><td class="grow mono">{{ cidr }}</td></tr>{% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+<p class="subtitle">
+  問題セットごとの制限は、コースの<strong>問題セットの画面</strong>で切り替えます。
+</p>
+{% endblock %}

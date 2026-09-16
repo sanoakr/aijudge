@@ -20,6 +20,7 @@ from .demo import (
 )
 from .errors import AuthenticationFailed, PermissionDenied
 from .models import ApiToken, Principal, Session, User, UserState
+from .network import MAX_CIDRS, CampusNetworkSettings
 from .oidc import (
     DEFAULT_LOGIN_LABEL,
     LOGIN_LABEL_MAX,
@@ -50,11 +51,13 @@ __all__ = [
     "ENV_DEMO_INSTRUCTOR_PREFIX",
     "ENV_SECURE_COOKIES",
     "LOGIN_LABEL_MAX",
+    "MAX_CIDRS",
     "MIN_PASSWORD_LENGTH",
     "TOKEN_PREFIX",
     "ApiToken",
     "AuthService",
     "AuthenticationFailed",
+    "CampusNetworkSettings",
     "DemoCourse",
     "GoogleOidcIdentity",
     "GoogleOidcProvider",

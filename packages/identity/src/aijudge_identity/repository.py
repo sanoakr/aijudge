@@ -13,6 +13,7 @@ from aijudge_core import Course, Enrollment, Role, term_sort_key
 from aijudge_core.ids import ApiTokenId, CourseId, TenantId, UserId
 
 from .models import ApiToken, Session, User
+from .network import CampusNetworkSettings
 from .oidc import OidcSettings
 
 
@@ -42,6 +43,18 @@ class IdentityRepository(Protocol):
 
     def get_oidc_settings(self, tenant_id: TenantId) -> OidcSettings | None:
         """未設定なら None ── ログイン画面はこれで Google ボタンの出し分けをする。"""
+        ...
+
+    # -- 学内ネットワーク（#333）--
+    def save_campus_networks(self, settings: CampusNetworkSettings) -> None: ...
+
+    def get_campus_networks(self, tenant_id: TenantId) -> CampusNetworkSettings | None:
+        """未設定なら None。
+
+        **空の設定と未設定を区別しない側で使う** ── どちらも範囲が無い状態で、
+        制限は効かない（`CampusAccess.NOT_CONFIGURED`）。区別が要るのは
+        設定画面だけで、そこは「保存したことがあるか」を別に訊かない。
+        """
         ...
 
     # -- セッション --
@@ -157,6 +170,7 @@ class InMemoryIdentityRepository:
         self._enrollments: dict[tuple[CourseId, UserId], Enrollment] = {}
         self._by_external_id: dict[tuple[TenantId, str], UserId] = {}
         self._oidc_settings: dict[TenantId, OidcSettings] = {}
+        self._campus: dict[str, CampusNetworkSettings] = {}
 
     def save_user(self, user: User) -> None:
         self._users[user.id] = user
@@ -279,6 +293,12 @@ class InMemoryIdentityRepository:
                 key=lambda course: (term_sort_key(course.term), course.code),
             )
         )
+
+    def save_campus_networks(self, settings: CampusNetworkSettings) -> None:
+        self._campus[str(settings.tenant_id)] = settings
+
+    def get_campus_networks(self, tenant_id: TenantId) -> CampusNetworkSettings | None:
+        return self._campus.get(str(tenant_id))
 
     def list_enrollments(self, course_id: CourseId) -> tuple[Enrollment, ...]:
         return tuple(

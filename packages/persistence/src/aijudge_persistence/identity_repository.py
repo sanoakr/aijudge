@@ -26,9 +26,18 @@ from aijudge_core import (
 )
 from aijudge_core.ids import ApiTokenId, CourseId, SessionId, TenantId, UserId
 from aijudge_identity.models import ApiToken, Session, User, UserState
+from aijudge_identity.network import CampusNetworkSettings
 from aijudge_identity.oidc import DEFAULT_LOGIN_LABEL, OidcSettings
 
-from .schema import ApiTokenRow, CourseRow, EnrollmentRow, OidcSettingsRow, SessionRow, UserRow
+from .schema import (
+    ApiTokenRow,
+    CampusNetworkRow,
+    CourseRow,
+    EnrollmentRow,
+    OidcSettingsRow,
+    SessionRow,
+    UserRow,
+)
 
 # OIDC の client_secret を暗号化する鍵（#124）。DB が漏れても secret が
 # そのまま読めないようにする ── パスワード・トークンをハッシュで持つのと
@@ -396,6 +405,32 @@ class SqlIdentityRepository:
         for user_id, role in rows:
             found.setdefault(UserId(user_id), set()).add(Role(role))
         return {user_id: frozenset(roles) for user_id, roles in found.items()}
+
+    # -- 学内ネットワーク（#333）--
+
+    def save_campus_networks(self, settings: CampusNetworkSettings) -> None:
+        """**持ち替える。** 1 テナントにつき 1 設定（`oidc_settings` と同じ）。"""
+        row = self._session.get(CampusNetworkRow, str(settings.tenant_id))
+        payload = {"cidrs": list(settings.cidrs)}
+        if row is None:
+            self._session.add(
+                CampusNetworkRow(
+                    tenant_id=str(settings.tenant_id),
+                    cidrs=payload,
+                    updated_at=datetime.now(UTC),
+                )
+            )
+        else:
+            row.cidrs = payload
+            row.updated_at = datetime.now(UTC)
+        self._session.flush()
+
+    def get_campus_networks(self, tenant_id: TenantId) -> CampusNetworkSettings | None:
+        row = self._session.get(CampusNetworkRow, str(tenant_id))
+        if row is None:
+            return None
+        stored = row.cidrs or {}
+        return CampusNetworkSettings(tenant_id=tenant_id, cidrs=tuple(stored.get("cidrs") or ()))
 
     def list_enrollments(self, course_id: CourseId) -> tuple[Enrollment, ...]:
         rows = self._session.execute(

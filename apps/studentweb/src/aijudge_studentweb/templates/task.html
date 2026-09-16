@@ -23,6 +23,33 @@
 <div class="statement">{{ statement_html | safe }}</div>
 
 <h2>提出する</h2>
+{# 学内限定（#333）。**出そうとして断られる前に言う** ── 試験の最中に場所を
+   移すことになるのを避ける。いまの接続元でどうなるかまで出す。 #}
+{% if campus_only %}
+{% if campus_access and campus_access.value == 'inside' %}
+<div class="note">
+  <strong>この課題は学内からのみ提出できます。</strong>
+  いまは<strong>学内から接続しています</strong>ので提出できます。
+</div>
+{% elif campus_access and campus_access.value == 'outside' %}
+<div class="note warn">
+  <strong>この課題は学内からのみ提出できます。</strong>
+  いまは<strong>学外から接続しています</strong>ので提出できません。
+  学内のネットワークに接続してから、この画面を開き直してください。
+</div>
+{% elif campus_access and campus_access.value == 'unknown' %}
+<div class="note warn">
+  <strong>この課題は学内からのみ提出できます。</strong>
+  いまの接続元を<strong>判定できませんでした</strong>ので提出できません。
+  場所を移しても直らないことがあります ── 担当の教員にお知らせください。
+</div>
+{% else %}
+<div class="note">
+  <strong>この課題は学内からのみ提出できる設定です。</strong>
+  （受付の範囲がまだ設定されていないため、いまは制限が効いていません。）
+</div>
+{% endif %}
+{% endif %}
 {% if open_for_submission %}
 {% if plain_accepts %}
 <form method="post" action="/tasks/{{ task.id }}/submit" enctype="multipart/form-data" class="card"

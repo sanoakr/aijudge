@@ -73,6 +73,9 @@ class AuditAction(StrEnum):
     COURSE_UPDATED = "course.updated"
     TASK_UPDATED = "task.updated"
     PROFILE_UPDATED = "profile.updated"
+    # 学内ネットワークの設定（#333）。**誰が提出できるかが変わる値**なので、
+    # 締切（`TASK_UPDATED`）と同じく誰がいつ動かしたかを残す。
+    CAMPUS_NETWORKS_UPDATED = "campus_networks.updated"
     PROFILE_DUPLICATED = "profile.duplicated"
 
 
