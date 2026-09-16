@@ -9,6 +9,9 @@ dependencies = [
     "aijudge-submission",
     "aijudge-authoring",
     "aijudge-persistence",
+    # 習熟度の読み出し形（#335）。**推定は呼ばない** ── 使うのは
+    # `portfolio`（保存されている状態を画面が読める形に畳むだけ）。
+    "aijudge-skill",
     "aijudge-telemetry",
     "aijudge-webui",
     "fastapi>=0.115",
@@ -33,3 +36,4 @@ aijudge-identity = { workspace = true }
 aijudge-submission = { workspace = true }
 aijudge-authoring = { workspace = true }
 aijudge-persistence = { workspace = true }
+aijudge-skill = { workspace = true }

@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 
 from aijudge_core import SkillPoint, SkillState
+from aijudge_skill.portfolio import Evidence, LearnerKc, confidence_of, split_evidence
 
 #: 分布の段数。5 段（0–20 / …／80–100%）。
 #:
@@ -200,86 +201,6 @@ def polyline(points: tuple[TrendPoint, ...], *, width: int, height: int) -> str:
     )
 
 
-@dataclass(frozen=True)
-class Evidence:
-    """1 件の根拠。**どのコースの提出かを解決してある**（#328）。"""
-
-    grading_run_id: str
-    course_id: str | None
-    task_title: str | None
-    score_ratio: float
-    human_verified: bool
-    observed_at: datetime
-
-    @property
-    def resolved(self) -> bool:
-        """由来を辿れたか。**辿れないものを「他コース」と書かない。**"""
-        return self.course_id is not None
-
-
-@dataclass(frozen=True)
-class LearnerKc:
-    key: str
-    label: str
-    mastery: float
-    observation_count: int
-    updated_at: datetime
-    #: このコースの提出から来た根拠。
-    here: tuple[Evidence, ...]
-    #: 他のコース（または辿れないもの）から来た根拠の件数。
-    #: **件数だけ出す** ── 担当していないコースの課題名を見せない。
-    elsewhere: int
-
-
-def split_evidence(
-    state: SkillState,
-    *,
-    course_of: dict[str, str | None],
-    title_of: dict[str, str | None],
-    course_id: str,
-    key: str,
-    label: str,
-) -> LearnerKc:
-    """根拠を「このコース」と「それ以外」に割る。
-
-    **習熟度はコースを跨いで動く。** 1 つの値に、担当していない科目の観測も
-    入っている ── そこを黙って混ぜると、教員は自分の課題で説明できない値を
-    説明しようとすることになる。
-
-    それ以外は**件数だけ**にする。担当していないコースの課題名は、成績に
-    近い情報である。辿れなかったものもこちらに数える（`resolved`）。
-    """
-    here: list[Evidence] = []
-    elsewhere = 0
-    for item in state.evidence:
-        run_id = str(item.grading_run_id)
-        where = course_of.get(run_id)
-        if where == course_id:
-            here.append(
-                Evidence(
-                    grading_run_id=run_id,
-                    course_id=where,
-                    task_title=title_of.get(run_id),
-                    score_ratio=item.score_ratio,
-                    human_verified=item.human_verified,
-                    observed_at=item.observed_at,
-                )
-            )
-        else:
-            elsewhere += 1
-    # 新しい順。根拠は「最近どうだったか」から読む。
-    here.sort(key=lambda item: item.observed_at, reverse=True)
-    return LearnerKc(
-        key=key,
-        label=label,
-        mastery=state.mastery,
-        observation_count=state.observation_count,
-        updated_at=state.updated_at,
-        here=tuple(here),
-        elsewhere=elsewhere,
-    )
-
-
 __all__ = [
     "BANDS",
     "Evidence",
@@ -288,6 +209,7 @@ __all__ = [
     "Overview",
     "TrendPoint",
     "band_label",
+    "confidence_of",
     "overview",
     "polyline",
     "split_evidence",

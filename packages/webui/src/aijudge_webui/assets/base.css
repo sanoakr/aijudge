@@ -218,6 +218,43 @@ legend{font-weight:700;font-size:.95rem;padding:0 6px}
 .lv{flex:0 0 auto;min-width:5.5em}
 /* 説明文。**余った幅を取り、足りなければ行ごと下りる。** */
 .lv-text{flex:1 1 12em;min-width:8em}
+/* 知識要素の並び（#327）。**札を折り返す** ── 課題によっては 5 つ以上
+   並ぶので、1 行に押し込めると読めない。 */
+.kcs{display:flex;flex-wrap:wrap;gap:6px;margin:0}
+/* 別の画面へ渡る導線（#328/#335）。**押す場所に見せる** ── 文字のリンクを
+   行の値（ログイン ID など）に貼ると、行き先が読めないうえに、値そのものが
+   リンクなのだと読まれる。
+
+   地は持たない。**押し釦は 1 画面に 1 つの主役**で、朱の釦が並ぶとどれが
+   本筋の操作なのか分からなくなる ── 枠だけで「押せる」を示し、色は移動の藍。
+
+   **学生と教員の両方が使う**ので共有の側に置く（`console.css` ではない）。 */
+.button-link{display:inline-block;font-size:.82rem;line-height:1.2;
+  padding:5px 10px;border:1px solid var(--line);border-radius:3px;
+  color:var(--ai);text-decoration:none;white-space:nowrap}
+.button-link:hover{background:var(--surface-2);border-color:var(--ai)}
+/* 知識要素ごとの行（#335）。**学生と教員で同じ部品**（`_mastery_rows.html`）。
+
+   数値と図を並べる ── 図だけだと 62% と 64% が読み分けられず、数値だけだと
+   知識要素どうしを見比べるのに読み上げが要る。 */
+.kcrow{padding:14px 16px}
+.kcrow-head{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:baseline;
+  justify-content:space-between}
+.kcrow-name{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline}
+.kcrow-nums{font-size:.9rem;white-space:nowrap}
+/* 帯は 2 本とも同じ物差し（0〜100%）。**縦に並べる** ── 知識要素をまたいで
+   長さを見比べられるようにする。 */
+.kcbars{display:flex;flex-direction:column;gap:3px;margin:10px 0 0}
+.kcbar{display:block;height:.55rem;background:var(--surface-2);
+  border-radius:99px;overflow:hidden}
+.kcbar-fill{display:block;height:100%;border-radius:99px;min-width:2px}
+/* 習熟度は藍（移動でも判定でもない、推定の値）。確信度は同じ色の薄い側 ──
+   **別の色にしない**：判定の三色（朱・琥珀・緑青）と混ざると、推定値が
+   判定として読まれる。 */
+.kcbar-fill.mastery{background:var(--ai)}
+.kcbar-fill.confidence{background:var(--ai);opacity:.4}
+.kcev{margin:12px 0 0}
+.kcev summary{cursor:pointer;font-size:.85rem;color:var(--ai)}
 /* 割合と札は縮まない ── 「1 0 0 %」や「シ ス テ ム」になる側に回らせない。 */
 .levels label > .desc,
 .levels label > .pill{flex:0 0 auto;white-space:nowrap;margin:0}

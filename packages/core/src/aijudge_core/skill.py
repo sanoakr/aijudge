@@ -33,6 +33,15 @@ class SkillEvidence(BaseModel):
     grading_run_id: GradingRunId
     criterion_score_id: CriterionScoreId
     score_ratio: float = Field(ge=0.0, le=1.0)
+    #: この判定をどれだけ確からしいと言えたか（`KcOutcome.confidence`・#335）。
+    #:
+    #: **`None` は 0 ではない。** この欄より前に積まれた根拠は値を持たない
+    #: ── 0 として数えると、古い記録ほど自信が無かったことになる。画面は
+    #: 「記録が無い」として扱う（根拠を示せない数字は出さない）。
+    #:
+    #: 採点が持っていた値をそのまま運ぶ。**ここで作らない** ── 確信度は
+    #: 評価器が自己一貫性から測るもので、推定の側で足せる情報ではない。
+    confidence: float | None = Field(default=None, ge=0.0, le=1.0)
     human_verified: bool = False
     observed_at: datetime
 

@@ -99,6 +99,18 @@
 {% endif %}
 </div>
 
+{# この提出が問われた知識要素（#327）。**観点の隣に置く** ── 観点は「何で
+   採点したか」、知識要素は「何を問われたか」で、読む人にとっては続きの話
+   である。習熟度（推定）は出さない。 #}
+{% if knowledge_components %}
+<h2>問われたこと</h2>
+<p class="kcs">
+  {%- for key, label in knowledge_components %}
+  <span class="pill" title="{{ key }}">{{ label }}</span>
+  {%- endfor %}
+</p>
+{% endif %}
+
 <h2>観点ごとの結果</h2>
 {# 携帯では行を積む（`table.stack`）。**観点の題は見出し無し** ── 塊の
    先頭に立つので、それが何かは題そのものが言う。 #}

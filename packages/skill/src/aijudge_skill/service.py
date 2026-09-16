@@ -110,6 +110,11 @@ class SkillService:
             grading_run_id=event.grading_run_id,
             criterion_score_id=outcome.criterion_score_ids[0],
             score_ratio=outcome.score_ratio,
+            # 採点が持っていた確信度をそのまま運ぶ（#335）。**捨てない** ──
+            # 「この値はどれだけ確からしいか」は、値そのものと同じくらい
+            # 読む人に要る（`MIN_CONFIDENCE` はここを下回ると習熟度を
+            # 動かさない閾値であって、残すかどうかの判断ではない）。
+            confidence=outcome.confidence,
             # **誰も読んでいない採点を「確認済み」と書かない**（ADR 0005 /
             # ADR 0010）。自動確定は人が読んだ記録を作らない。
             human_verified=False,

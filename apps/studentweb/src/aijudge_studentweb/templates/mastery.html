@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}身についたこと — {{ course.title }}{% endblock %}
+{% block body %}
+<h1>身についたこと</h1>
+<p class="subtitle">{{ course.title }}</p>
+
+{# **これは推定値である**（#327）。予測の妥当性（次の課題の正誤をどれだけ
+   当てるか）はまだ測っていない ── 黙って数字を出すと、学習者は確定した
+   評価として読む。成績ではないことも書く。 #}
+<div class="note">
+  <strong>これは推定値です。成績ではありません。</strong>
+  提出の採点結果から、知識要素ごとに「どれくらい身についていそうか」を
+  見積もったものです。
+  <strong>この見積もりがどれだけ当たるかは、まだ測っていません。</strong>
+  成績は課題ごとの点で決まります。
+  <br>
+  <span class="desc">
+    <strong>習熟度</strong>は身についていそうな度合い、
+    <strong>確信度</strong>はその判定をどれだけ確からしいと言えたかです。
+    確信度が低いときは、提出を重ねると見積もりが落ち着きます。
+  </span>
+</div>
+
+{% if not rows %}
+<div class="note warn">
+  <strong>まだ記録がありません。</strong>
+  知識要素が設定された課題を提出して採点が終わると、ここに出ます。
+</div>
+{% else %}
+{# 教員が受講者 1 人を見る画面と**同じ部品**（`_mastery_rows.html`）。 #}
+{% include "_mastery_rows.html" %}
+{% endif %}
+
+<p class="subtitle"><a href="/courses/{{ course.id }}">課題の一覧に戻る</a></p>
+{% endblock %}

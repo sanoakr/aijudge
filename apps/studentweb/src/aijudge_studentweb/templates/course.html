@@ -2,6 +2,11 @@
 {% block title %}{{ course.title }} — aiJudge{% endblock %}
 {% block body %}
 <h1>{{ course.title }}</h1>
+{# 自分の習熟度（#335）。**課題の一覧の邪魔をしない** ── 学習者が最初に
+   知りたいのは「いま出せるのはどれか」なので、導線だけ置く。 #}
+<p class="subtitle">
+  <a class="button-link" href="/courses/{{ course.id }}/mastery">身についたこと</a>
+</p>
 
 {# **段階で分けて、新しい順に並べる。** 学期が進むと課題が数十件になり、
    平らな一覧では「いま出せるのはどれか」が読み取れない（app.py の

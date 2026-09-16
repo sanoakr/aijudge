@@ -1,0 +1,82 @@
+{# 知識要素ごとの習熟度（#335）。**学生と教員で同じものを描く。**
+
+   教員が受講者 1 人を見る画面と、学習者が自分を見る画面は、同じ問いに
+   答える ── 「どの知識要素がどれだけ身に付いているか、その根拠は何か」。
+   別々に書くと、片方を直した日にもう片方だけが古くなる。
+
+   渡すもの:
+     rows        `aijudge_reviewconsole.mastery.LearnerKc` の並び
+     evidence_of 根拠を出すか（学習者には自分の提出、教員には担当コースの分）
+
+   **数値と図を並べる。** 図だけだと 62% と 64% が読み分けられず、数値だけ
+   だと知識要素どうしを見比べるのに読み上げが要る。
+
+   **根拠は畳んでおく。** 概観が目当ての人に、提出の一覧を先に読ませない
+   （`<details>` なので JavaScript が無くても開く）。 #}
+{% for row in rows %}
+<div class="card kcrow">
+  <div class="kcrow-head">
+    <span class="kcrow-name"><strong>{{ row.label }}</strong>
+      <span class="desc mono">{{ row.key }}</span></span>
+    <span class="kcrow-nums">
+      習熟度 <strong>{{ '%.0f' | format(row.mastery * 100) }}%</strong>
+      {# **確信度が無いことを 0% と書かない**（#335）。この欄より前に積まれた
+         根拠は値を持たない ── 根拠を示せない数字は出さず、そう言う。 #}
+      <span class="sep">·</span>
+      確信度
+      {%- if row.confidence is none %} <span class="desc">記録なし</span>
+      {%- else %} <strong>{{ '%.0f' | format(row.confidence * 100) }}%</strong>{% endif %}
+      <span class="sep">·</span>
+      <span class="desc">観測 {{ row.observation_count }} 回</span>
+    </span>
+  </div>
+
+  {# 2 本の帯。**同じ物差し（0〜100%）で重ねる** ── 縦に並べると、知識要素
+     をまたいで長さを見比べられる。 #}
+  <div class="kcbars" role="img"
+       aria-label="習熟度 {{ '%.0f' | format(row.mastery * 100) }}%{% if row.confidence is not none %}・確信度 {{ '%.0f' | format(row.confidence * 100) }}%{% endif %}">
+    <span class="kcbar"><span class="kcbar-fill mastery"
+      style="width:{{ '%.1f' | format(row.mastery * 100) }}%"></span></span>
+    {% if row.confidence is not none %}
+    <span class="kcbar"><span class="kcbar-fill confidence"
+      style="width:{{ '%.1f' | format(row.confidence * 100) }}%"></span></span>
+    {% endif %}
+  </div>
+
+  {% if evidence_of %}
+  <details class="kcev">
+    <summary>根拠となった提出（{{ row.here | length }} 件{% if row.elsewhere %}・ほか {{ row.elsewhere }} 件{% endif %}）</summary>
+    {% if row.here %}
+    <table class="stack">
+      <thead><tr>
+        <th class="fit">日時</th><th class="grow">課題</th>
+        <th class="fit">得点</th><th class="fit">確認</th>
+      </tr></thead>
+      <tbody>
+      {% for item in row.here %}
+        <tr>
+          <td class="fit desc" data-label="日時">{{ item.observed_at | local('%Y-%m-%d %H:%M') }}</td>
+          <td class="grow" data-label="課題">{{ item.task_title or '（課題が見つかりません）' }}</td>
+          <td class="fit" data-label="得点">{{ '%.0f' | format(item.score_ratio * 100) }}%</td>
+          {# **誰も読んでいない採点を「確認済み」と書かない**（ADR 0005 / 0010）。 #}
+          <td class="fit" data-label="確認">
+            {%- if item.human_verified %}<span class="pill ok">教員確認済み</span>
+            {%- else %}<span class="desc">自動</span>{% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="desc" style="margin:8px 0 0">ここに出せる提出はありません。</p>
+    {% endif %}
+    {% if row.elsewhere %}
+    <p class="desc" style="margin:8px 0 0">
+      ほかに<strong>このコース以外から {{ row.elsewhere }} 件</strong>の根拠がこの値に効いています
+      （課題名は出しません）。
+    </p>
+    {% endif %}
+  </details>
+  {% endif %}
+</div>
+{% endfor %}
