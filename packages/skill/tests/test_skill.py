@@ -220,3 +220,66 @@ def test_the_settled_grading_of_the_same_submission_does_count() -> None:
     state = repository.get_state(TENANT, LEARNER, KC)
     assert state is not None
     assert state.observation_count == 1
+
+
+# -- 推移の記録（#328）-----------------------------------------------------
+
+
+def test_every_move_leaves_a_point() -> None:
+    """**動いた瞬間を残す。** `SkillState` は最新の 1 行を持ち替えるので、
+    ここで残さないと推移は二度と読めない（根拠は 20 件で切られ、BKT は観測列を
+    畳むので遡れない）。
+    """
+    service, repository = _service()
+    service.apply(_event(run="a"))
+    service.apply(_event(run="b", ratio=0.0))
+
+    points = repository.history(TENANT, (LEARNER,))
+
+    assert [p.observation_count for p in points] == [1, 2], "観測数が積み上がっていない"
+    assert points[0].mastery > points[1].mastery, "誤答のあとが下がっていない"
+    assert all(p.kc_id == KC for p in points)
+    assert all(p.model is MasteryModel.BKT for p in points)
+
+
+def test_a_move_that_did_not_happen_leaves_no_point() -> None:
+    """**呼ぶのは実際に動いたときだけ。**
+
+    再送（冪等）と確信度不足では習熟度が動かない。そこで点を残すと、推移の
+    図に「同じ採点を二度受け取った」という配信の都合が出てしまう。
+    """
+    service, repository = _service()
+    service.apply(_event(run="a"))
+    service.apply(_event(run="a"))  # 同じ採点の再送
+    service.apply(_event(run="c", confidence=0.1))  # 確信度が足りない
+
+    assert len(repository.history(TENANT, (LEARNER,))) == 1
+
+
+def test_history_needs_a_learner() -> None:
+    """**空は「全員」ではない。** 取り違えると、テナント全員の推移が
+    1 コースの画面に並ぶ。
+    """
+    service, repository = _service()
+    service.apply(_event(run="a"))
+
+    assert repository.history(TENANT, ()) == ()
+    assert repository.list_states_for(TENANT, ()) == ()
+
+
+def test_history_can_be_narrowed_to_one_kc() -> None:
+    service, repository = _service()
+    service.apply(_event(run="a", kcs=(KC, OTHER_KC)))
+
+    only = repository.history(TENANT, (LEARNER,), kc_ids=(OTHER_KC,))
+
+    assert [p.kc_id for p in only] == [OTHER_KC]
+
+
+def test_states_can_be_read_for_several_learners_at_once() -> None:
+    """人数ぶん `list_states` を呼ばせない（コースの画面が N+1 になる）。"""
+    service, repository = _service()
+    service.apply(_event(run="a"))
+
+    assert len(repository.list_states_for(TENANT, (LEARNER,))) == 1
+    assert repository.list_states_for(TENANT, (UserId("usr_" + "9" * 32),)) == ()

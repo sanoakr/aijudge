@@ -1,0 +1,36 @@
+# outbox のイベントを購読者へ流す（#328）。習熟度の更新はここを通る。
+#
+# **ワーカーとは別のプロセスにしてある。** 採点結果とイベントは同じ
+# トランザクションで書かれるので失われないが、書いただけでは届かない ──
+# 未送信を読んで購読者を呼ぶ人が要る。ワーカーの中に埋めると、動いて
+# いないことに気づく手段が無くなる（実際そうなっていた: 購読者は書かれて
+# いたのに誰も呼んでおらず、`grading.completed` が未送信のまま積み上がり、
+# 習熟度は 0 件のままだった）。
+#
+# **1 プロセスだけ立てる。** 複数でも壊れない（購読側は冪等）が、重複配信を
+# 平常にする理由が無い。サンドボックスは使わないので docker には依存しない。
+[Unit]
+Description=aiJudge event relay (outbox -> subscribers)
+PartOf=aijudge.target
+After=network-online.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=aijudge
+Group=aijudge
+WorkingDirectory=/opt/aijudge
+EnvironmentFile=/srv/aijudge/config/aijudge.env
+ExecStart=/opt/aijudge/.venv/bin/aijudge-relay
+# journald でこのサービスの行を引くための名札（ADR 0016）。
+SyslogIdentifier=aijudge-relay
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/srv/aijudge /var/lib/aijudge
+PrivateTmp=yes
+
+[Install]
+WantedBy=aijudge.target

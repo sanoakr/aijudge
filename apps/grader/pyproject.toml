@@ -19,6 +19,7 @@ dependencies = [
 
 [project.scripts]
 aijudge-worker = "aijudge_grader.cli:main"
+aijudge-relay = "aijudge_grader.relay_cli:main"
 
 [build-system]
 requires = ["hatchling"]

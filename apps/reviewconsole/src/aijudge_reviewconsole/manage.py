@@ -149,6 +149,7 @@ from aijudge_identity import AuthenticationFailed, AuthService, PermissionDenied
 from aijudge_identity.oidc import DEFAULT_LOGIN_LABEL, LOGIN_LABEL_MAX, OidcSettings
 from aijudge_submission import SubmissionService
 
+from . import mastery
 from .audit_context import recorder_for
 from .overview import empty_unit, find_unit, load_units, unit_key
 from .urls import RedirectResponse
@@ -5308,6 +5309,150 @@ def register(templates) -> APIRouter:
         return RedirectResponse(
             f"/manage/courses/{course_id}/tasks/{task_id}/edit?saved=task#saved", status_code=303
         )
+
+    @router.get("/courses/{course_id}/mastery", response_class=HTMLResponse)
+    def mastery_overview(request: Request, course_id: str) -> Response:
+        """コースの習熟度 ── 分布と推移（#328）。
+
+        **教員とテナント管理者だけ**（`_require_enrolment_manager`）。TA は
+        採点を分担するが履修の管理はしない ── 習熟度は成績から積み上がる値で、
+        締切や受講の変更と同じ側にある。
+
+        **母数を偽らない。** 受講者の数と、記録のある受講者の数は別に出す。
+        まだ誰も問われていない KC は 0 点として数えない ── 数えると「この科目は
+        全然できていない」という読みになる（`mastery.overview`）。
+
+        **これは断面である。** 習熟度は学習者 × KC で 1 つの値で、コース別には
+        持っていない。ここで「コースの分布」と呼んでいるのは、このコースの
+        受講者を、このコースが使う KC で切ったものにすぎない ── 値そのものには
+        担当外の科目で得た観測も入っている。画面にそう書く。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        course, _ = _require_enrolment_manager(request, me, CourseId(course_id))
+        console = _console(request)
+
+        with console.database.unit_of_work() as uow:
+            learners = tuple(
+                enrollment.user_id
+                for enrollment in uow.identity.list_enrollments(course.id)
+                if enrollment.role is Role.LEARNER
+            )
+            kcs = tuple((str(kc.id), kc.key, kc.label) for kc in _course_kcs(console, course))
+            # **まとめて引く**（#328）。1 人ずつ引くと受講者数ぶんの往復になる。
+            states = uow.skills.list_states_for(me.tenant_id, learners)
+            points = uow.skills.history(me.tenant_id, learners)
+
+        view = mastery.overview(states, points, kcs=kcs, learners=len(learners))
+        return templates.TemplateResponse(
+            request,
+            "manage_mastery.html",
+            {
+                "me": me,
+                "course": course,
+                "section": {
+                    "label": "習熟度",
+                    "href": f"/manage/courses/{course.id}/mastery",
+                },
+                "view": view,
+                "band_label": mastery.band_label,
+                # 図の寸法はテンプレートに書かない ── 点の座標を作るのが
+                # サーバ側なので、同じ値を 2 か所に置くと片方だけずれる。
+                "chart": {"width": 640, "height": 140},
+                "line": mastery.polyline(view.trend, width=640, height=140),
+            },
+        )
+
+    @router.get("/courses/{course_id}/mastery/{user_id}", response_class=HTMLResponse)
+    def mastery_for_learner(request: Request, course_id: str, user_id: str) -> Response:
+        """1 人の習熟度と、その根拠（#328）。
+
+        **根拠はこのコースのものだけを開く。** 習熟度はコースを跨いで動くので、
+        1 つの値に担当外の科目の観測が入っている ── 黙って混ぜると、教員は
+        自分の課題では説明できない値を説明しようとすることになる。外から来た
+        ぶんは**件数だけ**出す（担当していないコースの課題名は成績に近い）。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        course, _ = _require_enrolment_manager(request, me, CourseId(course_id))
+        console = _console(request)
+
+        learner_id = UserId(user_id)
+        with console.database.unit_of_work() as uow:
+            if uow.identity.find_enrollment(course.id, learner_id) is None:
+                # 存在と権限を区別しない（他コースの受講者を列挙させない）。
+                raise HTTPException(status_code=404, detail="この受講者は見つかりません")
+            learner = uow.identity.get_user(learner_id)
+            labels = {str(kc.id): (kc.key, kc.label) for kc in _course_kcs(console, course)}
+            states = [
+                state
+                for state in uow.skills.list_states(me.tenant_id, learner_id)
+                if str(state.kc_id) in labels
+            ]
+            course_of, title_of = _where_evidence_came_from(uow, states)
+
+        rows = [
+            mastery.split_evidence(
+                state,
+                course_of=course_of,
+                title_of=title_of,
+                course_id=str(course.id),
+                key=labels[str(state.kc_id)][0],
+                label=labels[str(state.kc_id)][1],
+            )
+            for state in states
+        ]
+        rows.sort(key=lambda row: row.key)
+        return templates.TemplateResponse(
+            request,
+            "manage_mastery_learner.html",
+            {
+                "me": me,
+                "course": course,
+                "section": {
+                    "label": "習熟度",
+                    "href": f"/manage/courses/{course.id}/mastery",
+                },
+                "learner": learner,
+                "rows": rows,
+            },
+        )
+
+    def _where_evidence_came_from(uow, states) -> tuple[dict, dict]:
+        """根拠の採点がどのコースの、どの課題から来たかを解決する。
+
+        **`packages/skill` にコースを持ち込まない。** 習熟度はテナント単位で
+        積み上がる値で、コースを知る必要が無い（P6）── 知る必要があるのは
+        この画面だけなので、composition root であるここで辿る。
+
+        辿りは 採点 → 課題版 → 課題 → コース の 3 段。**同じ版を二度引かない**
+        ── 根拠は 1 KC あたり最大 20 件あり、同じ課題から来ることが多い。
+        """
+        course_of: dict[str, str | None] = {}
+        title_of: dict[str, str | None] = {}
+        version_cache: dict[str, tuple[str | None, str | None]] = {}
+        for state in states:
+            for item in state.evidence:
+                run_id = str(item.grading_run_id)
+                if run_id in course_of:
+                    continue
+                run = uow.runs.get(item.grading_run_id)
+                if run is None:
+                    course_of[run_id] = None
+                    title_of[run_id] = None
+                    continue
+                version_id = str(run.context.task_version_id)
+                if version_id not in version_cache:
+                    version = uow.tasks.get_version(run.context.task_version_id)
+                    task = None if version is None else uow.tasks.get_task(version.task_id)
+                    version_cache[version_id] = (
+                        None if task is None else str(task.course_id),
+                        None if task is None else task.title,
+                    )
+                course_of[run_id], title_of[run_id] = version_cache[version_id]
+        return course_of, title_of
 
     @router.get("/courses/{course_id}/enrolments", response_class=HTMLResponse)
     def enrolments(

@@ -6,6 +6,10 @@
 [Unit]
 Description=aiJudge (web, instructor console, workers)
 Wants=aijudge-web.service aijudge-review.service aijudge-worker-det.service
+# イベントのリレー（#328）。**採点が完了しても、これが動いていないと
+# 習熟度は 1 件も更新されない。** target に入れておけば、止まっていることが
+# `systemctl --failed` に出る。
+Wants=aijudge-relay.service
 Wants=aijudge-worker-ai@1.service aijudge-worker-ai@2.service
 Wants=aijudge-worker-ai@3.service aijudge-worker-ai@4.service
 Wants=aijudge-finalize.timer

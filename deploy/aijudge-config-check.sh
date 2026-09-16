@@ -42,6 +42,16 @@ if [ "${declared}" != "0" ] && [ "${running}" != "${declared}" ]; then
     problems+=("AI ワーカーが ${running} 本（宣言は ${declared} 本）")
 fi
 
+# 2.5 イベントのリレーが動いているか（#328）
+#
+# **止まっていても採点は完了する。** だから気づけない ── 実際、購読者は
+# 書かれていたのに誰も呼んでおらず、`grading.completed` が未送信のまま
+# 積み上がって習熟度は 0 件のままだった。動いていないことが画面にも
+# ログにも出ない種類の停止なので、ここで訊く。
+if ! systemctl is-active --quiet aijudge-relay.service; then
+    problems+=("イベントのリレーが動いていない（習熟度が更新されません）")
+fi
+
 # 3. 待ち時間の目安が、実際の本数と合っているか
 #
 # `AIJUDGE_AI_WORKERS` は学習者に出す「あと何分」の計算にしか使わない

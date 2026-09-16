@@ -93,8 +93,8 @@ LEARNERS = (
     ("y230003", "高橋 健"),
     ("y230004", "伊藤 美咲"),
 )
-# `task import` で AI 評価器（読みやすさ）に渡す重み。0.3 だと決定的評価器
-# 0.7 との配点が画面で「70% / 30%」と読める。
+# AI 評価器（読みやすさ）に渡す重み。0.3 だと決定的評価器 0.7 との配点が
+# 画面で「70% / 30%」と読める。
 READABILITY_WEIGHT = "0.3"
 
 CORRECT_SOURCE = TASKS_DIR / "p1" / "maxmin.c"
@@ -102,6 +102,17 @@ WRONG_SOURCE = SOURCES_DIR / "wrong.c"
 # y230004 の「AI 待ち」画面用。正解だが y230001 と同じ内容ではない（同じ内容は
 # 重複提出として弾かれ、新しい提出が作られない）。
 WAITING_SOURCE = SOURCES_DIR / "maxmin2.c"
+# お試しコースの「最大値を求める」（`subjects/demo/course.yaml` の `d2-code`）
+# に出す解答。**習熟度の画面はここから撮る**（#328）── ガイドのコースの課題は
+# お試しコースの課題は知識要素を宣言しているが、**提出は習熟度に積まれない**
+# ── あちらの提出は `is_trial` で、教員の試した 1 件が学習者の習熟度を動かさ
+# ないよう意図的に除外されている（`skill_subscriber`・#108/#197）。だから
+# 習熟度の画面はガイドのコースから撮り、ここへの提出は「お試しコースの画面」を
+# 撮るためだけに使う。
+DEMO_SOURCE = SOURCES_DIR / "demo_max.c"
+# 負の数で落ちる解答。**全員が同じ値にならないようにする** ── 分布が 1 本の
+# 棒になると、分布の図であることが読み取れない。
+DEMO_PARTIAL_SOURCE = SOURCES_DIR / "demo_max_partial.c"
 
 # 撮影時の見た目。学生画面は 1100 幅、コンソールは 1200 幅（サイドバー分）。
 STUDENT_VIEWPORT = {"width": 1100, "height": 760}
@@ -164,23 +175,52 @@ def course_id(state: Path, code: str) -> str:
     return query_one(state, "select id from courses where code = ?", code)
 
 
-def submission_id(state: Path, login: str, attempt: int) -> str:
+def submission_id(state: Path, login: str, attempt: int, *, course: str | None = None) -> str:
+    """学生の n 回目の提出。
+
+    `course` を渡すと、そのコースの提出に絞る。**同じ学生が 2 つのコースに
+    出す**ようになったので（お試しコースにも出す・#328）、絞らないと
+    「1 回目」が 2 件見つかる。
+    """
+    if course is None:
+        return query_one(
+            state,
+            "select s.id from submissions s join users u on u.id = s.learner_id"
+            " where u.login = ? and s.attempt = ?",
+            login,
+            attempt,
+        )
     return query_one(
         state,
-        "select s.id from submissions s join users u on u.id = s.learner_id"
-        " where u.login = ? and s.attempt = ?",
+        "select s.id from submissions s"
+        " join users u on u.id = s.learner_id"
+        " join task_versions v on v.id = s.task_version_id"
+        " join tasks t on t.id = v.task_id"
+        " where u.login = ? and s.attempt = ? and t.course_id = ?",
         login,
         attempt,
+        course,
     )
 
 
-def yaml_course_scope() -> str:
-    """`course apply` に渡す定義。**課題は書かない**（範囲だけを足す）。
+def yaml_course() -> str:
+    """`course apply` に渡す定義。コースの範囲と、課題とその知識要素。
 
-    `ensure_course` は既にあるコースを更新するので、`task import` で入れた
-    課題には触らない ── 同じコースを 2 度作ることにはならない。
+    **`task import` ではなくこちらで入れる**（#328）。取り込みは問題ディレクトリを
+    課題にするだけで、**知識要素を付けられない** ── 付いていない課題は採点しても
+    習熟度を動かさないので、習熟度の画面が永久に空のままになる。
+
+    お試しコースでは撮れない。あちらの提出は `is_trial` で、**習熟度から
+    意図的に除外されている**（`skill_subscriber`・#108/#197）── 教員が試した
+    1 件が学習者の習熟度を動かさないための仕組みなので、そこを迂回しては
+    いけない。だからガイドのコースの課題に知識要素を付ける。
+
+    知識要素は**問題文が実際に問うているもの**を挙げる。p1 は繰り返しの中で
+    大小を比べ、0 以下の入力を弾く（条件によるくりかえし）。p2 は合計なので
+    比較が要らない。**2 問で違える**のは、知識要素ごとに値が割れる様子が
+    画面に出るようにするためである。
     """
-    keys = "\n".join(f"    - {key}" for key in COURSE_KCS)
+    scope = "\n".join(f"    - {key}" for key in COURSE_KCS)
     return (
         "course:\n"
         f"  code: {COURSE_CODE}\n"
@@ -188,7 +228,21 @@ def yaml_course_scope() -> str:
         f"  term: {COURSE_TERM}\n"
         f"  subject_profile: {SUBJECT_PROFILE}\n"
         "  knowledge_components:\n"
-        f"{keys}\n"
+        f"{scope}\n"
+        "tasks:\n"
+        "  - problem_dir: ex01/p1\n"
+        f"    readability_weight: {READABILITY_WEIGHT}\n"
+        "    knowledge_components:\n"
+        "      - cs.sdf.fundamentals.console_io\n"
+        "      - cs.sdf.fundamentals.definite_loop\n"
+        "      - cs.sdf.fundamentals.indefinite_loop\n"
+        "      - cs.sdf.fundamentals.variable\n"
+        "  - problem_dir: ex01/p2\n"
+        f"    readability_weight: {READABILITY_WEIGHT}\n"
+        "    knowledge_components:\n"
+        "      - cs.sdf.fundamentals.console_io\n"
+        "      - cs.sdf.fundamentals.definite_loop\n"
+        "      - cs.sdf.fundamentals.variable\n"
     )
 
 
@@ -225,20 +279,6 @@ def seed(state: Path) -> None:
         env,
     )
     course = course_id(state, COURSE_CODE)
-    run(
-        [
-            *admin,
-            "task",
-            "import",
-            "--course",
-            course,
-            "--dir",
-            str(TASKS_DIR),
-            "--readability-weight",
-            READABILITY_WEIGHT,
-        ],
-        env,
-    )
     staff = [(INSTRUCTOR, "instructor"), (ASSISTANT, "assistant")]
     staff += [(learner, "learner") for learner in LEARNERS]
     for (login, name), role in staff:
@@ -257,16 +297,24 @@ def seed(state: Path) -> None:
     # 「知識要素が登録されていないので生成できません」で撮れていた ──
     # ガイドはどちらの画面も**読者が決して見られない姿**で説明していた。
     # 範囲は `course apply` から入れる（画面の「名前空間から足す」と同じ
-    # ところに効く）。課題はここでは書かない ── 取り込み済みのものに触らない。
+    # ところに効く）。
     run([*admin, "kc", "seed", "--namespace", KC_NAMESPACE], env)
-    scope = state / "course-kc.yaml"
-    scope.write_text(
-        yaml_course_scope(),
-        encoding="utf-8",
-    )
-    run([*admin, "course", "apply", "--file", str(scope)], env)
+    # **課題もここで入れる**（#328）。`problem_dir` は定義ファイルからの相対で
+    # 解決されるので、問題ディレクトリごと使い捨て環境へ写してから組み立てる
+    # ── 生成した定義をリポジトリの木に書かない（科目プロファイルと同じ作法）。
+    tasks = state / "tasks"
+    shutil.copytree(TASKS_DIR.parent, tasks)
+    definition = tasks / "course.yaml"
+    definition.write_text(yaml_course(), encoding="utf-8")
+    run([*admin, "course", "apply", "--file", str(definition)], env)
     run([*admin, "--artifacts", env["AIJUDGE_ARTIFACT_DIR"], "demo", "seed"], env)
-    (state / "demo_course_id").write_text(course_id(state, "demo"))
+    demo = course_id(state, "demo")
+    (state / "demo_course_id").write_text(demo)
+    # **お試しコースにも同じ学生を入れる**（#328）。習熟度の画面はここから撮る
+    # ── ガイドのコースの課題は取り込み元に知識要素が無く、採点しても習熟度が
+    # 動かない。教員も入れる（自分が担当していないコースの画面は開けない）。
+    for (login, _), role in ((INSTRUCTOR, "instructor"), *[(x, "learner") for x in LEARNERS]):
+        run([*admin, "staff", "--login", login, "--course", demo, "--role", role], env)
     print(f"seed: {state}")
 
 
@@ -288,7 +336,13 @@ def _wait_http(url: str) -> None:
 
 @contextmanager
 def serve(state: Path) -> Iterator[None]:
-    """Web・コンソール・2 レーンのワーカーを起動し、抜けるときに止める。"""
+    """Web・コンソール・2 レーンのワーカー・イベントのリレーを起動し、
+    抜けるときに止める。
+
+    **リレーも立てる**（#328）── これが動いていないと習熟度が 1 件も更新
+    されず、習熟度の画面が永久に空のままになる。運用の構成（`deploy/systemd/`）
+    と同じ顔ぶれにしておく。
+    """
     env = state_env(state)
     logs = state / "logs"
     logs.mkdir(exist_ok=True)
@@ -297,6 +351,7 @@ def serve(state: Path) -> Iterator[None]:
         "review": ["aijudge-review", "--port", str(CONSOLE_PORT)],
         "worker-det": ["aijudge-worker", "--phase", "deterministic", "--name", "det"],
         "worker-ai": ["aijudge-worker", "--phase", "ai", "--name", "ai1"],
+        "relay": ["aijudge-relay"],
     }
     procs = []
     for name, args in commands.items():
@@ -334,6 +389,23 @@ def first_task_url(page: Any, course: str) -> str:
     """コース画面の最初の課題（ex01 p1）。課題版 ID はここから拾う。"""
     page.goto(f"{WEB}/courses/{course}")
     href = page.locator("a[href^='/tasks/']").first.get_attribute("href")
+    return f"{WEB}{href}"
+
+
+def demo_task_url(page: Any, course: str, title_fragment: str) -> str:
+    """コースの中から題名で課題を選ぶ。
+
+    **最初の課題では駄目**（`first_task_url`）── お試しコースの 1 問目は画像の
+    提出で、コードを出しても課題が違う。題名で選ぶのは、キーが画面に出ない
+    ためである。見つからなければ止まる（黙って別の課題に出すより良い）。
+    """
+    page.goto(f"{WEB}/courses/{course}")
+    # **行から拾う。** 課題へのリンクの文字は「開く」で、題名は同じ行の別の
+    # セルにある（`course.html`）── リンクの文字で探すと永久に見つからない。
+    row = page.locator("tr.row-link", has_text=title_fragment).first
+    href = row.get_attribute("data-href")
+    if not href:
+        raise SystemExit(f"お試しコースに「{title_fragment}」の課題が無い")
     return f"{WEB}{href}"
 
 
@@ -400,7 +472,28 @@ def scenario(state: Path, playwright: Any) -> None:
         submit(page, task_url, source)
         page.context.close()
     for user, _ in submissions:
-        wait_graded(state, submission_id(state, user, 1))
+        wait_graded(state, submission_id(state, user, 1, course=course))
+
+    # **お試しコースにも出す**（#328）。習熟度の画面はここから撮る ── この
+    # コースの課題は知識要素を宣言しているので、採点が習熟度を動かす。
+    #
+    # 解答を 2 種類に分けるのは**分布の図が 1 本の棒にならないようにする**ため
+    # ── 全員が同じ点を取ると、それが分布の図であることが読み取れない。
+    demo = course_id(state, "demo")
+    demo_answers = (
+        ("y230001", DEMO_SOURCE),
+        ("y230002", DEMO_PARTIAL_SOURCE),
+        ("y230003", DEMO_SOURCE),
+        ("y230004", DEMO_PARTIAL_SOURCE),
+    )
+    demo_url = ""
+    for user, source in demo_answers:
+        page = page_as(WEB, user)
+        demo_url = demo_url or demo_task_url(page, demo, "最大値")
+        submit(page, demo_url, source)
+        page.context.close()
+    for user, _ in demo_answers:
+        wait_graded(state, submission_id(state, user, 1, course=demo))
 
     # 教員が日程を入れる。撮影日を基準にした相対日付（絶対日付は撮るたびに古びる）。
     today = datetime.now().replace(second=0, microsecond=0)
@@ -414,7 +507,7 @@ def scenario(state: Path, playwright: Any) -> None:
 
     # y230003 が再確認を依頼し、y230002 は正解を出し直す。
     page = page_as(WEB, "y230003")
-    page.goto(f"{WEB}/submissions/{submission_id(state, 'y230003', 1)}")
+    page.goto(f"{WEB}/submissions/{submission_id(state, 'y230003', 1, course=course)}")
     page.fill(
         "#reason",
         "出力の正しさが「未達」になっていますが、入力例 1 と 2 は手元では正しく出力"
@@ -425,15 +518,17 @@ def scenario(state: Path, playwright: Any) -> None:
     page = page_as(WEB, "y230002")
     submit(page, task_url, CORRECT_SOURCE)
     page.context.close()
-    wait_graded(state, submission_id(state, "y230002", 2))
+    wait_graded(state, submission_id(state, "y230002", 2, course=course))
 
     # 抽出率 1.0 なので、開示する提出はどれも先に blind 採点が要る。
     # TA が y230001 を blind 採点してから確定（AI の判定どおり）。y230002 の
     # 1 回目はガイドの「確認の画面」で開示だけして見せる提出で、確定はしない。
     page = page_as(CONSOLE, ASSISTANT[0], width=1200, height=1600)
-    first = submission_id(state, "y230001", 1)
+    first = submission_id(state, "y230001", 1, course=course)
     blind_mark(page, first, correctness=3, readability=2)
-    blind_mark(page, submission_id(state, "y230002", 1), correctness=0, readability=0)
+    blind_mark(
+        page, submission_id(state, "y230002", 1, course=course), correctness=0, readability=0
+    )
     page.goto(f"{CONSOLE}/review/{first}/reveal")
     page.fill(
         "#comment",
@@ -444,7 +539,7 @@ def scenario(state: Path, playwright: Any) -> None:
 
     # 教員が y230003 の再確認の依頼に答える（判定は据え置き）。
     page = page_as(CONSOLE, INSTRUCTOR[0], width=1200, height=1600)
-    questioned = submission_id(state, "y230003", 1)
+    questioned = submission_id(state, "y230003", 1, course=course)
     blind_mark(page, questioned, correctness=0, readability=0)
     page.goto(f"{CONSOLE}/review/{questioned}/reveal")
     page.fill(
@@ -519,9 +614,12 @@ def capture(state: Path, playwright: Any, login_url: str) -> None:
 
     course = course_id(state, COURSE_CODE)
     demo = course_id(state, "demo")
-    sub_ng = submission_id(state, "y230002", 1)
-    sub_q = submission_id(state, "y230003", 1)
-    sub_retry = submission_id(state, "y230002", 2)
+    # 習熟度を 1 人ぶん見せる相手（#328）。**誤答と正答の両方を出した側**を選ぶ
+    # ── 満点だけの人の画面では、観点ごとに値が割れる様子が出ない。
+    mastery_learner = query_one(state, "select id from users where login = ?", "y230002")
+    sub_ng = submission_id(state, "y230002", 1, course=course)
+    sub_q = submission_id(state, "y230003", 1, course=course)
+    sub_retry = submission_id(state, "y230002", 2, course=course)
 
     # ── 学生 ──
     page = new_page(LOGIN_VIEWPORT)
@@ -639,6 +737,14 @@ def capture(state: Path, playwright: Any, login_url: str) -> None:
     s.shot("in-enrolments", full=True)
     page.goto(f"{CONSOLE}/manage/courses/{course}/kc")
     s.shot("in-kc", full=True)
+    # 習熟度（#328）。**お試しコースからは撮れない** ── あちらの提出は
+    # `is_trial` で、習熟度から意図的に除外されている（`skill_subscriber`）。
+    # ガイドのコースの課題に知識要素を付けてあるので（`yaml_course`）、
+    # ここには本物の経路で積まれた記録が出る。
+    page.goto(f"{CONSOLE}/manage/courses/{course}/mastery")
+    s.shot("in-mastery", full=True)
+    page.goto(f"{CONSOLE}/manage/courses/{course}/mastery/{mastery_learner}")
+    s.shot("in-mastery-learner", full=True)
     page.goto(f"{CONSOLE}/courses/{course}/finalize")
     page.click("summary")
     page.wait_for_timeout(300)
