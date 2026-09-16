@@ -571,6 +571,22 @@ class SkillStateRow(Base):
     )
 
 
+class CampusNetworkRow(Base):
+    """テナント単位の学内アドレス範囲（#333）。
+
+    1 テナントにつき 1 設定（`oidc_settings` と同じ形）。**特定機関の範囲は
+    このリポジトリに書かない** ── 管理者が `/manage` から設定する値が入る。
+    """
+
+    __tablename__ = "campus_networks"
+
+    tenant_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    #: CIDR の並び。JSON で持つ ── 行に割ると順序の維持だけのために
+    #: 連番が要り、設定の読み書きが 1 件の更新で済まなくなる。
+    cidrs: Mapped[dict] = mapped_column(JsonType)
+    updated_at: Mapped[datetime] = mapped_column(Timestamp)
+
+
 class SkillPointRow(Base):
     """習熟度が動いた瞬間の記録（S7・#328）。**追記のみ。**
 

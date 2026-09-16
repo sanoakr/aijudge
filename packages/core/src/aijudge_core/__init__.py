@@ -74,6 +74,7 @@ from .knowledge import (
     kc_id_for,
     parse_kc_key,
 )
+from .network import CampusAccess, campus_access, parse_cidrs
 from .skill import (
     Credential,
     CredentialExport,
@@ -157,6 +158,7 @@ __all__ = [
     "ArtifactRole",
     "ArtifactSpan",
     "BlindMark",
+    "CampusAccess",
     "CharSpan",
     "Course",
     "Credential",
@@ -217,6 +219,7 @@ __all__ = [
     "auto_finalizable",
     "blocks_finalization",
     "bulk_finalizable",
+    "campus_access",
     "can_transition",
     "content_type_for",
     "derived_id",
@@ -234,6 +237,7 @@ __all__ = [
     "new_id",
     "normalize_suffixes",
     "offered_years",
+    "parse_cidrs",
     "parse_kc_key",
     "parse_term",
     "penalty_crosses_boundary",

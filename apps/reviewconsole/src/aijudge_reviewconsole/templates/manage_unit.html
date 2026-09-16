@@ -91,6 +91,46 @@
   </p>
 </form>
 
+{# 学内限定（#333）。**日程の隣に置く** ── どちらも「いつ・どこから出せるか」
+   を決める値で、セット単位で決まる。 #}
+<h2 id="campus">受け付ける場所</h2>
+<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/units/{{ unit.key }}/campus-only"
+      class="card">
+  <div class="inline-field">
+    <span class="body desc">
+      <label class="check">
+        <input type="checkbox" name="campus_only" value="1" {{ 'checked' if unit.campus_only }}>
+        <strong>学内からだけ受け付ける</strong>
+      </label>
+      <br>
+      この問題セットの<strong>すべての課題</strong>に効きます。
+      学外からは提出できず、学習者の画面にもそう出ます。
+      <strong>採点や確定には影響しません</strong>（既に出された提出はそのまま扱われます）。
+    </span>
+    {% if saved_key == 'campus_only' %}
+    <span class="flash" id="saved">{{ saved }}</span>{% endif %}
+    <button type="submit">保存</button>
+  </div>
+
+  {% if unit.campus_mixed %}
+  {# **混ざりを黙らせない。** 画面はセット単位で切り替えるので、混ざって
+     いるのは取り込みか移動の結果である。 #}
+  <p class="note warn" style="margin:10px 0 0">
+    <strong>このセットの中で設定がばらついています。</strong>
+    上のチェックを保存すると、セット内のすべての課題に同じ値が入ります。
+  </p>
+  {% endif %}
+
+  {% if unit.campus_only and not campus_configured %}
+  {# 切り替えただけで守られていると読まれるのが、いちばん高くつく誤解。 #}
+  <p class="note warn" style="margin:10px 0 0">
+    <strong>学内の範囲がまだ設定されていないので、この制限は効いていません。</strong>
+    テナント管理者が<a href="{{ root_prefix() }}/manage/campus-networks">学内ネットワーク</a>で
+    範囲を設定するまで、学外からも提出できます。
+  </p>
+  {% endif %}
+</form>
+
 {# 試験の一括採点（#67）。**試験モードを解除しない** ── 押したあとに出された
    提出はまた採点開始時刻まで待つ。試験中に「ここまでの提出が採点を通るか」を
    確かめられ、延長しても勝手に始まらない、の両方が要る。 #}

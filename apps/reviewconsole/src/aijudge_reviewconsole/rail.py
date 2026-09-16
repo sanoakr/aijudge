@@ -169,6 +169,9 @@ def tenant_rail(*, is_admin: bool) -> Rail:
                     RailItem("利用者の一覧", "/manage/users"),
                     RailItem("科目プロファイル", "/manage/subjects"),
                     RailItem("Google ログイン設定", "/manage/oidc-settings"),
+                    # 学内ネットワーク（#333）。**ログイン設定の隣** ── どちらも
+                    # 「誰が入れるか」をテナント単位で決める設定である。
+                    RailItem("学内ネットワーク", "/manage/campus-networks"),
                 ),
             )
         )

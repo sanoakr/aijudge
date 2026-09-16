@@ -128,10 +128,12 @@ from aijudge_core import (
     Role,
     Task,
     TestCase,
+    campus_access,
     format_term,
     new_id,
     normalize_suffixes,
     offered_years,
+    parse_cidrs,
 )
 from aijudge_core.ids import CourseId, TaskId, TaskVersionId, UserId, derived_id
 from aijudge_eval_code_test_runner import EVALUATOR_ID as CODE_TEST_RUNNER
@@ -146,11 +148,12 @@ from aijudge_grading import (
 )
 from aijudge_grading.overrides import diff
 from aijudge_identity import AuthenticationFailed, AuthService, PermissionDenied, Principal
+from aijudge_identity.network import MAX_CIDRS, CampusNetworkSettings
 from aijudge_identity.oidc import DEFAULT_LOGIN_LABEL, LOGIN_LABEL_MAX, OidcSettings
 from aijudge_submission import SubmissionService
 
 from . import mastery
-from .audit_context import recorder_for
+from .audit_context import recorder_for, source_ip_of
 from .overview import empty_unit, find_unit, load_units, unit_key
 from .urls import RedirectResponse
 
@@ -791,6 +794,8 @@ SAVED_MESSAGES: dict[str, str] = {
     ),
     "withdrawn": "出題を取り下げました（学習者に出なくなります。記録は残ります）",
     "restored": "出題の取り下げを取り消しました",
+    "campus_networks": "学内ネットワークを保存しました",
+    "campus_only": "この問題セットの受付範囲を変えました（セット内の全課題に反映）",
     # **版は上がらない。** 日程は課題の内容ではないので、直しても過去の
     # 採点基準は変わらない（ADR 0013・P8 の対象外）。
     "task_schedule": "この課題の日程を保存しました（版は上がりません）",
@@ -1806,6 +1811,88 @@ def register(templates) -> APIRouter:
     # は公開物なので、特定機関のドメインや値はどこにもハードコードしない**
     # ── 未設定テナントでは #125 のログイン画面が Google ボタンを出さない。
 
+    @router.get("/campus-networks", response_class=HTMLResponse)
+    def campus_networks_form(request: Request, saved: str = "") -> Response:
+        """学内と見なすアドレス範囲（#333）。**テナント管理者だけ。**
+
+        **いまの接続元と、その判定を一緒に出す。** 範囲は人が調べて書き写す
+        値で、書き写しは間違う ── しかも間違いは「試験当日に全員が提出でき
+        ない」という形でしか現れない。学内の端末でこの画面を開けば、登録
+        すべき値がその場で読めて、保存した設定が自分に効くかも見える。
+
+        **判定は保存済みの値で行う。** 入力欄の中身で判定すると、保存前の
+        文字列で「学内です」と出して、保存に失敗しても気づけない。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        _require_admin(request, me)
+        console = _console(request)
+        with console.database.unit_of_work() as uow:
+            settings = uow.identity.get_campus_networks(me.tenant_id)
+        cidrs = () if settings is None else settings.cidrs
+        source = source_ip_of(request)
+        return templates.TemplateResponse(
+            request,
+            "manage_campus_networks.html",
+            {
+                "me": me,
+                "cidrs": cidrs,
+                "text": "\n".join(cidrs),
+                "source_ip": source,
+                "access": campus_access(source, cidrs),
+                "saved": SAVED_MESSAGES.get(saved),
+                "saved_key": saved,
+                "trail": _trail(("学内ネットワーク", None)),
+            },
+        )
+
+    @router.post("/campus-networks")
+    def save_campus_networks(request: Request, cidrs: Annotated[str, Form()] = "") -> Response:
+        """範囲を保存する。**読めない行はその場で突き返す。**
+
+        保存してから「読めないものは無視されました」と言うより、書き直して
+        もらうほうがよい ── 無視された行があることに気づかないまま試験を
+        迎えるのが、いちばん高くつく形である。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        _require_admin(request, me)
+        console = _console(request)
+
+        lines = [line.strip() for line in cidrs.splitlines() if line.strip()]
+        if len(lines) > MAX_CIDRS:
+            raise HTTPException(status_code=400, detail=f"範囲は {MAX_CIDRS} 件までです")
+        # **1 行ずつ確かめる。** `parse_cidrs` は読めるものだけを返す設計
+        # なので、ここで数を比べても「どれが読めなかったか」は言えない。
+        bad = [line for line in lines if not parse_cidrs([line])]
+        if bad:
+            raise HTTPException(
+                status_code=400,
+                detail="範囲として読めない行があります: " + "、".join(bad[:5]),
+            )
+
+        with console.database.unit_of_work() as uow:
+            before = uow.identity.get_campus_networks(me.tenant_id)
+            uow.identity.save_campus_networks(
+                CampusNetworkSettings(tenant_id=me.tenant_id, cidrs=tuple(lines))
+            )
+            # **誰がいつ変えたかを残す。** ここを変えると、誰が提出できるかが
+            # 変わる ── 締切と同じ性質の値である（ADR 0013 と同じ理由）。
+            recorder_for(uow, request, me).record(
+                AuditAction.CAMPUS_NETWORKS_UPDATED,
+                target_type="tenant",
+                target_id=str(me.tenant_id),
+                summary=f"学内ネットワークを変えた（{len(lines)} 件）",
+                detail={
+                    "before": list(() if before is None else before.cidrs),
+                    "after": lines,
+                },
+            )
+            uow.commit()
+        return RedirectResponse("/manage/campus-networks?saved=campus_networks#saved", 303)
+
     @router.get("/oidc-settings", response_class=HTMLResponse)
     def oidc_settings_form(request: Request, saved: str = "") -> Response:
         from .app import require_principal
@@ -2431,6 +2518,10 @@ def register(templates) -> APIRouter:
                 # でないと分からないのでは確認にならない** ── 1 回の操作で
                 # 課題ごとに削除か取り下げかが変わる。
                 "clear_plan": _clear_plan(console, course, group),
+                # 学内限定の表示に要る（#333）。**範囲が未設定なら効いて
+                # いない**ので、そう書く ── 切り替えただけで守られていると
+                # 読まれるのが、いちばん高くつく誤解である。
+                "campus_configured": _campus_configured(console, me),
                 # 試験の一括採点（#67）。待機中の件数と、落ちたジョブ。
                 **_exam_state(console, course, group, now),
                 "min_reason": MIN_JUSTIFICATION_LENGTH,
@@ -2850,6 +2941,31 @@ def register(templates) -> APIRouter:
         return RedirectResponse(
             f"/manage/courses/{course_id}/units/{group.key}?saved=unit_cleared#saved",
             status_code=303,
+        )
+
+    @router.post("/courses/{course_id}/units/{unit}/campus-only")
+    def set_unit_campus_only(
+        request: Request,
+        course_id: str,
+        unit: str,
+        campus_only: Annotated[str, Form()] = "",
+    ) -> Response:
+        """**問題セットを学内からだけ受け付けるかを切り替える**（#333）。
+
+        日程と同じで、値はセット単位で決めてその中の全課題に入れる
+        （`_update_unit`）── 課題ごとに違うと、同じ回の中で「出せる課題と
+        出せない課題」が混ざり、学習者にはその理由が読めない。
+
+        **何を学内と見なすかはここでは決めない。** 範囲はテナント管理者が
+        設定する（`/manage/campus-networks`）── 機関の属性であって、
+        コースごとに違うものではない。
+        """
+        return _update_unit(
+            request,
+            course_id,
+            unit,
+            update={"campus_only": bool(campus_only.strip())},
+            saved="campus_only",
         )
 
     @router.post("/courses/{course_id}/units/{unit}/schedule")
@@ -5746,6 +5862,12 @@ def register(templates) -> APIRouter:
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
         return _kc_page(request, me, course, saved=saved)
+
+    def _campus_configured(console, me) -> bool:
+        """テナントに学内の範囲が 1 件でも入っているか（#333）。"""
+        with console.database.unit_of_work() as uow:
+            settings = uow.identity.get_campus_networks(me.tenant_id)
+        return bool(settings and parse_cidrs(settings.cidrs))
 
     def _course_kcs(console, course):
         """このコースが作問で選べる知識要素 ── **コースに足したものだけ**（#289）。

@@ -63,7 +63,10 @@
        操作とスクリーンリーダーはリンクを辿るため。 #}
     <tr class="row-link" data-href="/tasks/{{ version.id }}">
       <td class="fit mono" data-label="問">{{ 'p%d' | format(task.position) if task.position else '—' }}</td>
-      <td class="grow"><strong>{{ task.title }}</strong></td>
+      <td class="grow"><strong>{{ task.title }}</strong>
+        {# 学内限定（#333）。**一覧にも出す** ── 開くまで分からないと、
+           学外に居るときに何が出せるのかが読み取れない。 #}
+        {%- if task.campus_only %} <span class="pill attn">学内のみ</span>{% endif %}</td>
       <td class="fit" data-label="提出">
         {% if p.count %}{{ p.count }} 回{% else %}<span class="desc">未提出</span>{% endif %}
       </td>
