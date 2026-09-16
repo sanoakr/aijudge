@@ -52,18 +52,13 @@
    位置から推測させない。 #}
 <table class="stack">
   <thead><tr>
-    <th class="fit">アカウント</th><th class="grow">氏名</th><th class="fit">役割</th><th class="fit"></th>
+    <th class="fit">アカウント</th><th class="grow">氏名</th><th class="fit">役割</th>
+    <th class="fit">習熟度</th><th class="fit"></th>
   </tr></thead>
   <tbody>
   {% for row in people %}
     <tr>
-      {# 習熟度（#328）。**学習者だけ** ── 教員と TA の習熟度は、この画面が
-         答える問いではない。 #}
-      <td class="fit mono" data-label="アカウント">
-        {%- if row.enrollment.role.value == 'learner' -%}
-        <a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/mastery/{{ row.enrollment.user_id }}">{{ row.login }}</a>
-        {%- else -%}{{ row.login }}{%- endif -%}
-      </td>
+      <td class="fit mono" data-label="アカウント">{{ row.login }}</td>
       <td class="grow" data-label="氏名">{{ row.user.display_name if row.user else '—' }}</td>
       <td class="fit" data-label="役割">
         {% if row.enrollment.user_id == me.user_id %}
@@ -88,6 +83,17 @@
         </form>
         {% endif %}
       </td>
+      {# 習熟度（#328）。**独立した列にする** ── 以前はアカウントの文字に
+         リンクを貼っていたが、それでは行き先が読めない。ログイン ID は
+         メールアドレスのこともあり、リンクだと連絡先に見える。
+
+         **学習者だけ。** 教員と TA の習熟度は、この画面が答える問いではない。 #}
+      <td class="fit" data-label="習熟度">
+        {% if row.enrollment.role.value == 'learner' %}
+        <a class="button-link"
+           href="{{ root_prefix() }}/manage/courses/{{ course.id }}/mastery/{{ row.enrollment.user_id }}">習熟度を見る</a>
+        {% else %}<span class="desc">—</span>{% endif %}
+      </td>
       <td class="fit">
         {% if row.enrollment.user_id != me.user_id %}
         <form method="post"
@@ -99,7 +105,7 @@
       </td>
     </tr>
   {% else %}
-    <tr><td colspan="4" class="desc">
+    <tr><td colspan="5" class="desc">
       {% if q %}この条件の受講者はいません。{% else %}受講者がいません。{% endif %}
     </td></tr>
   {% endfor %}

@@ -201,3 +201,20 @@ def test_the_enrolment_list_links_only_learners(world: World) -> None:
 
     assert f"/mastery/{learner}" in page
     assert page.count("/mastery/") == 1, "学習者以外にも習熟度のリンクが出ている"
+
+
+def test_the_mastery_link_is_its_own_column_not_the_login(world: World) -> None:
+    """**行き先が読める形で置く。**
+
+    以前はアカウントの文字にリンクを貼っていた ── ログイン ID はメール
+    アドレスのこともあり、リンクだと連絡先に見える。何より、押した先が
+    何の画面なのかが読めない。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    learner = world.register("s1", Role.LEARNER).user_id
+
+    page = world.client("teacher").get(f"/manage/courses/{world.course.id}/enrolments").text
+
+    assert "習熟度を見る" in page, "行き先を名乗るリンクになっていない"
+    # ログイン ID そのものはリンクにしない。
+    assert f'/mastery/{learner}">s1</a>' not in page
