@@ -73,6 +73,7 @@ from aijudge_identity import (
     session_cookie_kwargs,
 )
 from aijudge_persistence import Database
+from aijudge_skill.portfolio import split_evidence
 from aijudge_submission import (
     ArtifactStore,
     IncomingFile,
@@ -579,6 +580,32 @@ def create_app(app_state: StudentApp) -> FastAPI:
             },
         )
 
+    @app.get("/courses/{course_id}/mastery", response_class=HTMLResponse)
+    def my_mastery(request: Request, course_id: str, me: Me) -> HTMLResponse:
+        """自分の知識要素ごとの習熟度（#335）。
+
+        **教員が受講者 1 人を見る画面と同じものを描く**（`_mastery_rows.html`）
+        ── 同じ問いに答える画面を 2 つ書くと、片方を直した日にもう片方だけが
+        古くなる。違うのは「誰のものか」と、根拠に出せる範囲だけである。
+
+        **これは推定値である。** 予測の妥当性（次の課題の正誤をどれだけ
+        当てるか）はまだ測っていない ── 画面がそう言う（#327）。黙って数字を
+        出すと、学習者は確定した評価として読む。
+        """
+        course_obj, _tasks = _course_and_tasks(app_state, me, CourseId(course_id))
+        rows = my_mastery_rows(app_state, me, course_obj)
+        return TEMPLATES.TemplateResponse(
+            request,
+            "mastery.html",
+            {
+                "me": me,
+                "course": course_obj,
+                "rows": rows,
+                "evidence_of": True,
+                **build_context(course_obj),
+            },
+        )
+
     @app.get("/courses/{course_id}", response_class=HTMLResponse)
     def course(request: Request, course_id: str, me: Me) -> HTMLResponse:
         course_obj, tasks = _course_and_tasks(app_state, me, CourseId(course_id))
@@ -664,6 +691,10 @@ def create_app(app_state: StudentApp) -> FastAPI:
                 # 学内限定の課題か、そしていまの接続元がそれを満たすか（#333）。
                 # **先に言う。** 出そうとして断られてから知るのでは、試験の
                 # 最中に場所を移すことになる。
+                # この課題が問う知識要素（#327）。**事実だけ** ── 習熟度の
+                # 推定値は出さない（妥当性が未測定・学習者は確定した評価と
+                # して読む）。
+                "knowledge_components": knowledge_components_of(app_state, version),
                 "campus_only": task_obj.campus_only,
                 "campus_access": (
                     campus_access_for(app_state, request, me.tenant_id)
@@ -990,6 +1021,10 @@ def create_app(app_state: StudentApp) -> FastAPI:
                 "grading_held": loaded.grading_held,
                 "grading_in_progress": loaded.grading_in_progress,
                 "min_reason": MIN_JUSTIFICATION_LENGTH,
+                # この提出が関わる知識要素（#327）。**課題の宣言をそのまま
+                # 出す** ── 「この提出で何点だったか」ではなく「何を問われた
+                # 提出か」である。習熟度の推定値は出さない。
+                "knowledge_components": knowledge_components_of(app_state, loaded.version),
                 **build_context(loaded.course, loaded.task, loaded.version, loaded.submission),
             },
         )
@@ -1328,6 +1363,97 @@ def counterpart_url(request: Request, *, configured: str, port: int) -> str:
         if not _HOSTNAME.match(host):
             host = "localhost"
     return f"{scheme}://{host}:{port}"
+
+
+def my_mastery_rows(app_state: StudentApp, me, course) -> tuple:
+    """この学習者の、このコースが使う知識要素ぶんの習熟度（#335）。
+
+    **根拠はこのコースの提出だけを開く。** 習熟度はコースをまたいで積み
+    上がるので、1 つの値に他の科目の観測も入っている ── 他の科目の課題名を
+    ここに出すのは、その科目の成績に近い情報を出すことになる。教員の画面と
+    同じ規則である（`mastery.split_evidence`）。
+    """
+    scope = set(course.knowledge_components)
+    with app_state.database.unit_of_work() as uow:
+        labels = {}
+        for kc_id in {state.kc_id for state in uow.skills.list_states(me.tenant_id, me.user_id)}:
+            kc = uow.skills.get_kc(kc_id)
+            if kc is not None and kc.key in scope:
+                labels[str(kc_id)] = (kc.key, kc.label)
+        states = [
+            state
+            for state in uow.skills.list_states(me.tenant_id, me.user_id)
+            if str(state.kc_id) in labels
+        ]
+        course_of, title_of = _evidence_origins(uow, states)
+
+    rows = [
+        split_evidence(
+            state,
+            course_of=course_of,
+            title_of=title_of,
+            course_id=str(course.id),
+            key=labels[str(state.kc_id)][0],
+            label=labels[str(state.kc_id)][1],
+        )
+        for state in states
+    ]
+    rows.sort(key=lambda row: row.label)
+    return tuple(rows)
+
+
+def _evidence_origins(uow, states) -> tuple[dict, dict]:
+    """根拠の採点がどのコースの、どの課題から来たかを解決する（#335）。
+
+    **同じ版を二度引かない** ── 根拠は 1 KC あたり最大 20 件あり、同じ課題
+    から来ることが多い。
+    """
+    course_of: dict[str, str | None] = {}
+    title_of: dict[str, str | None] = {}
+    seen: dict[str, tuple[str | None, str | None]] = {}
+    for state in states:
+        for item in state.evidence:
+            run_id = str(item.grading_run_id)
+            if run_id in course_of:
+                continue
+            run = uow.runs.get(item.grading_run_id)
+            if run is None:
+                course_of[run_id] = title_of[run_id] = None
+                continue
+            version_id = str(run.context.task_version_id)
+            if version_id not in seen:
+                version = uow.tasks.get_version(run.context.task_version_id)
+                task = None if version is None else uow.tasks.get_task(version.task_id)
+                seen[version_id] = (
+                    None if task is None else str(task.course_id),
+                    None if task is None else task.title,
+                )
+            course_of[run_id], title_of[run_id] = seen[version_id]
+    return course_of, title_of
+
+
+def knowledge_components_of(app_state: StudentApp, version) -> tuple[tuple[str, str], ...]:
+    """この課題が問う知識要素（#327）。`(キー, 表示名)` の並び。
+
+    **これは事実であって推定ではない。** 出しているのは Q-matrix そのもの
+    ── 課題に付けた宣言で、採点にも作問にも使われている同じ値である。
+    習熟度（推定）は出さない：予測の妥当性がまだ測れておらず、学習者は
+    数字を確定した評価として読む（#327 の段階分け）。
+
+    **語彙に無いものは出さない。** 引けなかった KC を鍵のまま出すと、
+    学習者には意味の無い文字列が並ぶ。
+
+    表示名で並べる ── 課題ごとに順序が変わると、読み比べられない。
+    """
+    if not version.q_matrix:
+        return ()
+    found = []
+    with app_state.database.unit_of_work() as uow:
+        for entry in version.q_matrix:
+            kc = uow.skills.get_kc(entry.kc_id)
+            if kc is not None:
+                found.append((kc.key, kc.label))
+    return tuple(sorted(found, key=lambda pair: pair[1]))
 
 
 def campus_access_for(app_state: StudentApp, request: Request, tenant_id) -> CampusAccess:
