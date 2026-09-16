@@ -932,6 +932,48 @@ TA には出さない ── 採点は分担するが、習熟度は成績から
 
 **採点と確定には効かない。** 既に出された提出はそのまま扱われる。
 
+### 習熟度を確かめる砂場（#328）
+
+習熟度は「**知識要素の付いた課題に、学習者として提出し、採点が完了する**」まで
+1 件も積まれない。学期の初めはどれも欠けているので、画面を開いても空である。
+かといって本番のコースに試しの提出を入れると、精度と一致度の標本に混ざる。
+
+そのための砂場を同梱してある。
+
+```fish
+# 1. 砂場用の科目プロファイルを運用の置き場所へ（測定を分ける鍵）
+sudo -u aijudge cp /opt/aijudge/subjects/cs_sandbox_kc.yaml /srv/aijudge/subjects/
+
+# 2. コースと課題（知識要素つき）を入れる
+sudo -u aijudge sh -c 'set -a; . /srv/aijudge/config/aijudge.env; set +a; \
+  exec /opt/aijudge/.venv/bin/aijudge-admin course apply \
+  --file /opt/aijudge/subjects/sandbox/course.yaml'
+
+# 3. 砂場用の学習者を作る（本物の学籍番号とまぎれない login にする）
+sudo -u aijudge sh -c 'set -a; . /srv/aijudge/config/aijudge.env; set +a; \
+  exec /opt/aijudge/.venv/bin/aijudge-admin staff \
+  --login sandbox-a --name "砂場 A" --course <コース ID> --role learner'
+```
+
+あとはその利用者でログインして `.c` を数回出せば、リレーが拾って習熟度が積まれる。
+
+**なぜ測定に混ざらないか。** 観測レコードは科目プロファイルごとのディレクトリに
+貯まり、`aijudge-eval --subject <名前>` はその 1 つしか読まない
+（`evalrunner.observations.iter_observations`）。砂場は `cs_sandbox_kc` という
+別の名前を持つので、`cs_lang_c_intro` や `cs_network_python` の標本には 1 件も
+入らない。**採点の中身は写し**なので、見える図は本物と同じ規則で描かれる。
+
+**お試しコース（demo）では代わりにならない。** あちらへの提出は `is_trial` で、
+習熟度からも意図的に除外されている（`skill_subscriber`・#108/#197）── 教員が
+自分の課題を試した 1 件が学習者の記録を動かさないための仕組みで、迂回しない。
+
+**教員が自分で出しても積まれない。** `is_trial` は「学習者でないか、お試し
+コースか」で決まる（`Submission.is_trial`）。砂場でも**学習者として登録した
+利用者**で提出すること。
+
+用が済んだらコースごと消せる（提出があるので `course delete` は拒む ── 画面の
+「このコースを削除する」も同じ）。残しておいても本番の数字には効かない。
+
 ### 既存の DB に入れるとき
 
 **スキーマの更新は Alembic が持つ**（v0.10.0 から）。運用の DB では
