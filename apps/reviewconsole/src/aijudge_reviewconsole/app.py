@@ -65,6 +65,7 @@ from aijudge_core import (
     Submission,
     TaskVersion,
     blocks_finalization,
+    content_disposition,
     content_type_for,
     effective_aggregation,
     new_id,
@@ -230,14 +231,14 @@ def _serve_video(
     if store is None:
         raise HTTPException(status_code=404, detail="提出物が見つかりません")
     key = artifact.storage_key  # type: ignore[attr-defined]
-    filename = artifact.filename or artifact_id  # type: ignore[attr-defined]
+    filename = artifact.filename  # type: ignore[attr-defined]
     try:
         size = store.size(key)
     except Exception as exc:
         raise HTTPException(status_code=404, detail="提出物が見つかりません") from exc
     headers = {
         "Accept-Ranges": "bytes",
-        "Content-Disposition": f'inline; filename="{filename}"',
+        "Content-Disposition": content_disposition("inline", filename, artifact_id),
         "X-Content-Type-Options": "nosniff",
         "Cache-Control": "private, max-age=300",
     }
@@ -1201,8 +1202,13 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
             media_type=content_type_for(artifact.filename),
             headers={
                 "Cache-Control": "private, max-age=300",
-                "Content-Disposition": ("inline" if artifact.kind in INLINE_KINDS else "attachment")
-                + f'; filename="{artifact.filename or artifact_id}"',
+                # 非 ASCII の名前（macOS の日本語スクリーンショット）は
+                # そのままヘッダに入らない ── `content_disposition` が畳む。
+                "Content-Disposition": content_disposition(
+                    "inline" if artifact.kind in INLINE_KINDS else "attachment",
+                    artifact.filename,
+                    artifact_id,
+                ),
                 "X-Content-Type-Options": "nosniff",
             },
         )

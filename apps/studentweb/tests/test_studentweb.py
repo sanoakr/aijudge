@@ -1603,6 +1603,36 @@ def test_the_submitted_file_is_served_to_its_owner(world: World) -> None:
     assert served.headers["x-content-type-options"] == "nosniff"
 
 
+def test_a_file_with_a_non_ascii_name_is_still_served(world: World) -> None:
+    """**ファイル名がヘッダを壊さない。**
+
+    macOS の日本語環境のスクリーンショットは「スクリーンショット 2026-09-17
+    10.00.00.png」という名前で出てくる。`Content-Disposition` にそのまま
+    埋めると latin-1 に収まらず、応答を組み立てる段で 500 になっていた ──
+    画像提出の課題で、一部の提出だけが採点画面に出なかった原因。
+    """
+    world.register("s2400001")
+    world.login("s2400001")
+    _set_task(world, accepted_suffixes=(".png",))
+    name = "スクリーンショット 2026-09-17 10.00.00.png"
+    response = world.client.post(
+        f"/tasks/{world.task_version.id}/submit",
+        files={"upload": (name, b"fake png bytes", "image/png")},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303, response.text
+    location = response.headers["location"]
+    submission_id = location.split("/")[-1].split("?")[0]
+
+    body = world.client.get(location).text
+    assert name in body
+    href = body.split(f"/submissions/{submission_id}/artifacts/")[1].split('"')[0]
+    served = world.client.get(f"/submissions/{submission_id}/artifacts/{href}")
+    assert served.status_code == 200
+    assert served.content == b"fake png bytes"
+    assert "filename*=UTF-8''%E3%82%B9" in served.headers["content-disposition"]
+
+
 def test_someone_elses_submission_is_not_served(world: World) -> None:
     """**存在と権限を区別しない。** 提出 ID の存在自体を漏らさない。"""
     world.register("s2400001")
