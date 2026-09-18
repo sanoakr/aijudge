@@ -48,6 +48,7 @@ from aijudge_core import (
     TaskVersion,
     allowed_suffixes,
     campus_access,
+    content_disposition,
     content_type_for,
     grace_minutes,
     kind_for,
@@ -1107,10 +1108,13 @@ def create_app(app_state: StudentApp) -> FastAPI:
                 "Cache-Control": "private, max-age=300",
                 # **画面に埋め込むのは画像と PDF だけ。** それ以外を
                 # インラインにすると、ブラウザが中身を解釈しうる。
-                "Content-Disposition": (
-                    "inline" if artifact.kind in _INLINE_KINDS else "attachment"
-                )
-                + f'; filename="{artifact.filename or artifact_id}"',
+                # 非 ASCII の名前（macOS の日本語スクリーンショット）は
+                # そのままヘッダに入らない ── `content_disposition` が畳む。
+                "Content-Disposition": content_disposition(
+                    "inline" if artifact.kind in _INLINE_KINDS else "attachment",
+                    artifact.filename,
+                    artifact_id,
+                ),
                 # 提出物は学習者が出したファイルである。
                 "X-Content-Type-Options": "nosniff",
             },
@@ -1673,14 +1677,14 @@ def _serve_video(
     if store is None:
         raise HTTPException(status_code=404, detail="提出物が見つかりません")
     key = artifact.storage_key  # type: ignore[attr-defined]
-    filename = artifact.filename or artifact_id  # type: ignore[attr-defined]
+    filename = artifact.filename  # type: ignore[attr-defined]
     try:
         size = store.size(key)
     except Exception as exc:
         raise HTTPException(status_code=404, detail="提出物が見つかりません") from exc
     headers = {
         "Accept-Ranges": "bytes",
-        "Content-Disposition": f'inline; filename="{filename}"',
+        "Content-Disposition": content_disposition("inline", filename, artifact_id),
         "X-Content-Type-Options": "nosniff",
         "Cache-Control": "private, max-age=300",
     }

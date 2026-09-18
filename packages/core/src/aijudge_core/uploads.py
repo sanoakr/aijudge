@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from urllib.parse import quote
 
 from .submission import ArtifactKind
 
@@ -79,6 +80,33 @@ def content_type_for(filename: str | None) -> str:
         if lowered.endswith(suffix):
             return mime
     return "application/octet-stream"
+
+
+def content_disposition(disposition: str, filename: str | None, fallback: str) -> str:
+    """提出物を返すときの `Content-Disposition`（RFC 6266）。
+
+    **ファイル名をそのままヘッダに埋めない。** HTTP ヘッダは latin-1 でしか
+    送れず、`filename="スクリーンショット 2026-09-17 10.00.00.png"` と書くと
+    Starlette がエンコードに失敗して 500 になる ── macOS の日本語環境の
+    スクリーンショットがまさにこの名前で、画像提出の課題で採点画面に
+    出ない提出が出た。空白は quoted-string の中なら問題ないが、`"` と
+    `\\` は引用を壊す。
+
+    ASCII に収まる名前はそのまま `filename=` に出す。収まらない名前は
+    `filename*=UTF-8''...`（RFC 8187）で出し、`filename=` には ASCII に
+    落とした名前を置く ── 拡張形式を読まないクライアントへの後退先で、
+    それも空なら `fallback`（artifact id）に落とす。
+    """
+    name = (filename or "").replace("\r", "").replace("\n", "") or fallback
+    ascii_name = name.encode("ascii", "ignore").decode("ascii").replace('"', "").replace("\\", "")
+    if ascii_name == name:
+        return f'{disposition}; filename="{ascii_name}"'
+    # 拡張子だけ残っても名前にならない（`.png` は名前ではない）── id に
+    # 拡張子を付けて後退先にする。
+    stem, dot, ext = ascii_name.rpartition(".")
+    if not stem.strip():
+        ascii_name = f"{fallback}.{ext}" if dot and ext.strip() else fallback
+    return f"{disposition}; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(name)}"
 
 
 # 画面で並べるときの区切り。**性質が違うものを混ぜない** ── コードとテキストは
@@ -177,6 +205,7 @@ __all__ = [
     "SUFFIX_GROUPS",
     "SUFFIX_KINDS",
     "allowed_suffixes",
+    "content_disposition",
     "content_type_for",
     "kind_for",
     "normalize_suffixes",
