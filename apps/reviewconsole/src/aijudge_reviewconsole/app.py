@@ -949,6 +949,21 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
         # SQL で頁を切れたときは既に絞れている（`load_rows`）。切れなかった
         # ときも `load_rows` の中で絞って頁にしてある。
         shown = listing.rows
+        # **blind 抽出に当たった提出は隠さずに印を付ける**。一覧の
+        # 「確認する」は `reveal` へ飛ぶが、抽出済みで blind 採点がまだ無い
+        # 提出は `/blind` へ回されるので、印が無いと TA には「なぜか AI の
+        # 判定が無い別の画面に飛ばされた」と見える。一覧から外す案は取らない
+        # ── 一覧は「実際に何が出ているか」を見る場所で、抽出は提出 ID の
+        # ハッシュで決まるので、消えた行の理由を誰にも説明できない。しかも
+        # blind は任意の作業なので、誰も付けなければその提出は永久に出ない。
+        # 判定は表示する頁ぶんだけ（1 頁の行数は `PAGE_SIZE`）。
+        with console.database.unit_of_work() as uow:
+            blind_pending = {
+                str(row.submission.id)
+                for row in shown
+                if console.needs_blind_mark(row.submission, course.subject_profile)
+                and uow.reviews.find_blind_mark(row.submission.id) is None
+            }
         return TEMPLATES.TemplateResponse(
             request,
             "submissions.html",
@@ -983,6 +998,7 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 # 作るので、母数が全部でないことは図の側にも要る。
                 "truncated": listing.truncated,
                 "listing_limit": listing.limit,
+                "blind_pending": blind_pending,
             },
         )
 

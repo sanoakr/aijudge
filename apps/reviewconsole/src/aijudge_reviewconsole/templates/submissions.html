@@ -177,13 +177,21 @@
       <td class="fit" data-label="状態">
         {# 異議申立は教員が読むまで閉じない ── 対応待ちであって、悪い状態ではない。 #}
         <span class="pill {{ 'attn' if row.contested }}">{{ row.state_label }}</span>
+        {# blind 抽出に当たり、まだ段階が付いていない提出（ADR 0005）。
+           **隠さずに印を付ける** ── 開くと AI の判定を見る前に採点する画面に
+           回されるので、その理由が行の側に無いと TA は面食らう（app.py）。 #}
+        {% if row.submission.id|string in blind_pending %}
+        <br><span class="pill">blind 採点待ち</span>
+        {% endif %}
         {# **誰が閉じたかを出す**（#102）。状態だけでは「誰の判断で成績が
            閉じたのか」に答えられない。自動確定には人が居ないので出さない。 #}
         {% if row.finalized_by_login %}
         <br><span class="desc mono">{{ row.finalized_by_login }}</span>
         {% endif %}
       </td>
-      <td class="fit"><a href="{{ root_prefix() }}/review/{{ row.submission.id }}/reveal">確認する</a></td>
+      <td class="fit"><a href="{{ root_prefix() }}/review/{{ row.submission.id }}/reveal">
+        {# 行き先を正直に書く。抽出済みの行は `reveal` が `/blind` へ回す。 #}
+        {{ 'blind 採点する' if row.submission.id|string in blind_pending else '確認する' }}</a></td>
     </tr>
   {% else %}
     <tr><td colspan="7" class="desc">条件に合う提出がありません。</td></tr>

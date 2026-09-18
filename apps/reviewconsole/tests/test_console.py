@@ -1024,6 +1024,43 @@ def test_the_submissions_page_lists_every_submission(world: World) -> None:
 
 
 @needs_c_compiler
+def test_the_submissions_page_marks_a_sampled_submission(blind_world: World) -> None:
+    """blind 抽出に当たった行は**隠さずに印を付ける**。
+
+    「確認する」を押すと `/blind` へ回されるので、行の側に理由が無いと
+    TA には別の画面に飛ばされたように見える。一覧から外す案は取らない ──
+    抽出は提出 ID のハッシュで決まり、消えた行の理由を説明できない。
+    """
+    _, accepted = _instructor_and_submission(blind_world)
+    blind_world.worker.run_until_empty()
+
+    body = blind_world.client.get(f"/courses/{COURSE}/submissions").text
+    assert "blind 採点待ち" in body
+    assert "blind 採点する" in body
+    assert "確認する" not in body
+
+    # 段階を付けたら通常の行に戻る。
+    blind_world.client.post(
+        f"/review/{accepted.submission.id}/blind",
+        data={"level_correctness": "3", "level_readability": "1", "notes": ""},
+        follow_redirects=False,
+    )
+    body = blind_world.client.get(f"/courses/{COURSE}/submissions").text
+    assert "blind 採点待ち" not in body
+    assert "確認する" in body
+
+
+@needs_c_compiler
+def test_an_unsampled_submission_is_not_marked(world: World) -> None:
+    """抽出率 0 の世界では印が出ない。"""
+    _instructor_and_submission(world)
+    world.worker.run_until_empty()
+    body = world.client.get(f"/courses/{COURSE}/submissions").text
+    assert "blind 採点待ち" not in body
+    assert "確認する" in body
+
+
+@needs_c_compiler
 def test_the_submissions_page_filters_by_learner_prefix(world: World) -> None:
     """受講 91 名の学籍番号を選択肢に並べても選べない。前方一致で絞る。"""
     _instructor_and_submission(world)
