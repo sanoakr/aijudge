@@ -332,7 +332,16 @@ class ImageTextCheck:
     kind = EvaluatorKind.AI
     # 読む項目を課題から受け取る。**画面はこの宣言で欄を出す。**
     uses_test_cases = True
-    test_case_shape = "items"
+    # **`items` を名乗らない。** 項目表の編集欄（`checklist_ai_judge` 用）は
+    # `description` と `aliases` しか持たず、保存のたびに payload を作り直す
+    # ── そこで保存されると `where` も `pattern` も `expect` も消え、観点は
+    # 「宣言が無い」として採点されなくなる。例外は出ないので、気づくのは
+    # 採点されなかったことに誰かが気づいたときである（`_kept_cases` と
+    # `test_case_shape` の docstring が言っているのと同じ事故）。
+    #
+    # 知らない形を名乗れば、画面は編集欄を出さない（`_criterion_fields.html`）。
+    # **編集できないことは、黙って壊されることよりましである。**
+    test_case_shape = "fields"
 
     def __init__(
         self,

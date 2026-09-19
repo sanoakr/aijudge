@@ -431,3 +431,22 @@ def test_everything_satisfied_reaches_the_top_level() -> None:
         _request(cases=_certificate_cases(), criterion=_criterion("certificate", levels=3))
     )
     assert outcome.scores[0].level == 2
+
+
+# --------------------------------------------------------------------------
+# 画面との関係
+# --------------------------------------------------------------------------
+
+
+def test_the_declaration_is_not_offered_to_the_item_set_editor() -> None:
+    """**`items` を名乗らない。**
+
+    項目表の編集欄は `description` と `aliases` しか持たず、保存のたびに
+    payload を作り直す。そこで保存されると `where` も `pattern` も `expect`
+    も消え、観点は「宣言が無い」として採点されなくなる ── 例外は出ない。
+    """
+    from aijudge_grading.protocol import test_case_shape
+
+    judge = ImageTextCheck(LlmGateway(ScriptedProvider([], vision=True)), model="vl")
+    assert test_case_shape(judge) == "fields"
+    assert test_case_shape(judge) != "items"
