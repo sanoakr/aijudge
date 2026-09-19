@@ -5,12 +5,13 @@
 # 「無視する癖」がつく ── それが最大の害である
 # （`aijudge-llm-primary-check.sh` と同じ作法）。
 #
-# 見るのは 4 つ。
+# 見るのは 5 つ。
 #
 #   1. unit がチェックアウトと同じか（届いているか）
 #   2. AI ワーカーが `aijudge.target` の宣言どおり動いているか
 #   3. 待ち時間の目安（`AIJUDGE_AI_WORKERS`）が実際の本数と合っているか
 #   4. DB の `max_connections` が、いまのプロセス数の最悪値を上回るか
+#   5. `/srv/aijudge` が `aijudge` から全部読めるか（バックアップの前提）
 #
 # 4 を見るのは、**プロセス数だけ上げて DB を忘れる**のが最も起きやすい
 # 壊し方だからである。混んだときに接続が取れずに落ちるので、落ちる瞬間は
@@ -78,9 +79,31 @@ if [ "${limit}" != "0" ] && [ "${limit}" -lt "${needed}" ]; then
     problems+=("max_connections=${limit} が ${processes} プロセスの最悪値 ${needed} を下回る")
 fi
 
+# 5. バックアップが読めないファイルが無いか（#344）
+#
+# **restic は 1 ファイル読めないだけで exit 3 で終わる。** スナップショット
+# 自体は保存されるので気づきにくいが、`aijudge-restic-backup.sh` は
+# `set -e` なので**後段の `restic forget --prune` に到達しない** ── 世代整理が
+# 止まったままリポジトリが増え続ける。しかも failed が常態化すると、
+# 本物の失敗が埋もれる。
+#
+# 2026-09-20 に 3 系統が同時に failed になった。原因は環境ファイルの控えが
+# 1 つだけ `root:root` で置かれたこと（他は `root:aijudge`）。**置き方が
+# 1 回違っただけ**で、バックアップの世代整理が止まっていた。
+#
+# `find` の `-readable` は**実行中のユーザで判定する**ので、root で走る
+# このスクリプトではすべて読めてしまう。`aijudge` に成り代わって訊く。
+if [ -d /srv/aijudge ]; then
+    unreadable=$(sudo -u aijudge find /srv/aijudge -type f ! -readable -printf '%p\n' \
+                 2>/dev/null | head -5)
+    if [ -n "${unreadable}" ]; then
+        problems+=("aijudge が読めないファイルがある（restic が exit 3 で failed になります）: $(echo "${unreadable}" | tr '\n' ' ')")
+    fi
+fi
+
 if [ "${#problems[@]}" -eq 0 ]; then
     NOW=OK
-    detail="unit 一致・AI ワーカー ${running} 本・目安 ${hint}・max_connections ${limit}（要 ${needed}）"
+    detail="unit 一致・AI ワーカー ${running} 本・目安 ${hint}・max_connections ${limit}（要 ${needed}）・/srv/aijudge は全部読める"
 else
     NOW=NG
     detail=$(printf '%s\n' "${problems[@]}")

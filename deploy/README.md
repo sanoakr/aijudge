@@ -60,9 +60,15 @@ sudo -E deploy/bootstrap.sh
 
 ## 通常運用
 
+**手で流すときは環境を先に読ませる**（#345）。unit は
+`EnvironmentFile=/srv/aijudge/config/aijudge.env` を読むが、直接叩くと誰も
+読まない ── `AIJUDGE_DATABASE_URL` が無いまま `alembic upgrade head` が走ると、
+**意図しない DB に当たりうる**。読ませずに叩いた場合は `deploy.sh` が冒頭で断る。
+
 ```fish
 # 手動デプロイ（CI が緑になったタグで）
-sudo -u aijudge /opt/aijudge/deploy/deploy.sh v1.2.3
+sudo -u aijudge sh -c 'set -a; . /srv/aijudge/config/aijudge.env; set +a; \
+    exec /opt/aijudge/deploy/deploy.sh v1.2.3'
 
 # CD を有効化（5 分ごとに origin の v* タグを見に行く）
 sudo systemctl enable --now aijudge-autodeploy.timer
@@ -108,7 +114,8 @@ git ls-remote --tags --refs origin 'v*' | sed 's#.*/##' | sort -V | tail -1
 
 ```fish
 sudo -u aijudge git -C /opt/aijudge checkout -- uv.lock
-sudo -u aijudge /opt/aijudge/deploy/deploy.sh v0.44.0
+sudo -u aijudge sh -c 'set -a; . /srv/aijudge/config/aijudge.env; set +a; \
+    exec /opt/aijudge/deploy/deploy.sh v0.44.0'
 ```
 
 ### ログを読む（ADR 0016）
