@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 
 from aijudge_core import (
     VIDEO_RETENTION_MONTHS,
+    VIDEO_RETENTION_MONTHS_WITHOUT_DEADLINE,
     video_retention_expires_at,
     video_retention_has_expired,
 )
@@ -37,9 +38,30 @@ def test_a_month_end_deadline_lands_on_a_real_day() -> None:
     assert video_retention_expires_at(_at(2027, 8, 31)) == _at(2028, 2, 29)
 
 
-def test_a_task_without_a_deadline_never_expires() -> None:
-    # 砂場・自習用の課題（`Task.due_at` が `None`）。起点が無いので期限も
-    # 無い ── 消し過ぎは取り返せず、消し残しは次に消せる。
+def test_a_task_without_a_deadline_counts_from_the_submission() -> None:
+    """砂場・自習用の課題（`Task.due_at` が `None`）は**提出から 1 年**。
+
+    共通の起点が無いので提出日から数える。期間が長いのは、6 ヶ月という値が
+    疑義までの暦から決まっているのに対し、こちらにはその暦が無いため。
+    """
+    assert VIDEO_RETENTION_MONTHS_WITHOUT_DEADLINE == 12
+    submitted_at = _at(2026, 10, 1, hour=9, minute=0)
+    assert video_retention_expires_at(None, submitted_at=submitted_at) == _at(
+        2027, 10, 1, hour=9, minute=0
+    )
+
+
+def test_the_deadline_wins_when_there_is_one() -> None:
+    """締切があれば提出日は見ない ── 学生ごとに消える日がばらつかない。"""
+    due_at = _at(2026, 10, 1)
+    early = _at(2026, 9, 1)
+    late = _at(2026, 10, 20)
+    assert video_retention_expires_at(due_at, submitted_at=early) == _at(2027, 4, 1)
+    assert video_retention_expires_at(due_at, submitted_at=late) == _at(2027, 4, 1)
+
+
+def test_without_either_anchor_nothing_expires() -> None:
+    # 提出が成立していない下書きなど。**起点が無いものは消さない。**
     assert video_retention_expires_at(None) is None
     assert video_retention_has_expired(None, now=_at(2099, 1, 1)) is False
 

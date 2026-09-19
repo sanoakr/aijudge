@@ -245,6 +245,11 @@ file only: the `Artifact` row and the grading run stay, so what a grade was
 based on remains readable, and anyone opening a deleted video is told why
 rather than given a 404.
 
+A task without a deadline has no shared anchor, so its videos are counted from
+the submission instead and kept for a year — and, because they are kept longer
+and cannot be cleared unit by unit, such a task accepts at most 256 MiB per
+video rather than 5 GiB. The limit and the window are a pair.
+
 ```fish
 uv run aijudge-admin video purge            # a dry run: how many, how many GB
 uv run aijudge-admin video purge --apply    # actually delete

@@ -379,6 +379,7 @@ JavaScript を切っていると切り替えは出ず、端末の設定に従う
 | `AIJUDGE_ARTIFACT_DIR` | 提出物の置き場所 | `~/.aijudge/artifacts` |
 | `AIJUDGE_VIDEO_DIR` | 動画の置き場所（提出物とは**別のディレクトリ**）。**未設定なら動画提出は 501 で断る** ── 設定した人だけが持つ機能である。**web・review・admin が同じ場所を指すこと**（消すのは admin） | 未設定（機能ごと無い） |
 | `AIJUDGE_MAX_VIDEO_BYTES` / `AIJUDGE_MAX_CONCURRENT_VIDEO` | 動画 1 件の上限と、同時アップロードの数 | 5 GiB / 4 |
+| `AIJUDGE_MAX_VIDEO_BYTES_WITHOUT_DEADLINE` | **締切の無い課題だけ**の上限（ADR 0020）。あちらは提出から 1 年残り、回ごとにまとめて消せないので小さく絞る | 256 MiB |
 | `AIJUDGE_OBSERVATION_DIR` | 観測レコード（測定用・任意） | `~/.aijudge/observations` |
 | `AIJUDGE_SANDBOX` | 隔離バックエンド（`auto`/`docker`/`gvisor`/`seatbelt`） | `auto` |
 | `AIJUDGE_SANDBOX_WORKDIR` | 作業域の置き場所。コンテナがマウントするパスであること | `~/.aijudge/work` |
@@ -957,8 +958,11 @@ uv run aijudge-admin video purge --apply             # 実際に消す
 学習者にも教員にも「保存期間を過ぎたため消去されました」と出る ── 404 では
 不具合と区別が付かない。
 
-**締切の無い課題は消さない。** 起点が無いので期限も決まらない（砂場・自習用が
-該当する）。放置すると積み上がるので、要らなくなったらコースごと消すこと。
+**締切の無い課題は提出から 1 年**である（砂場・自習用が該当する）。共通の起点
+が無いので提出日から数え、回ごとにまとまっては消えない。長く置くぶん、
+**受け付ける大きさを 256 MiB に絞ってある**（通常は 5 GiB・
+`AIJUDGE_MAX_VIDEO_BYTES_WITHOUT_DEADLINE`）── 上限と期間は一対なので、
+片方だけを変えないこと。長い録画を出させたい課題には締切を入れる。
 
 **バックアップと揃っているか確かめること。** `/work/aijudge/restic` の保持
 期間が 6 ヶ月より長いと、本体を消してもその差の期間は復元できる状態が残る

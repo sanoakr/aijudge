@@ -362,8 +362,8 @@ def _gib(byte_size: int) -> str:
 def cmd_video_purge(args: argparse.Namespace) -> int:
     """保存期間を過ぎた動画を消す（ADR 0020）。**既定は下見。**
 
-    起点は課題の締切で 6 ヶ月。締切の無い課題は対象にしない ── 起点が
-    無いものは期限も決まらないので、消さない側へ倒す。
+    起点は課題の締切で 6 ヶ月。**締切の無い課題は提出から 1 年**で、
+    こちらは提出ごとに期限が決まるので回ごとにまとまらない。
 
     実際に消すには `--apply` が要る。**cron には載せない**（#194 と同じ
     判断）── 提出物を消す操作を定期実行すると、本物のコースに向く事故の
@@ -387,8 +387,8 @@ def cmd_video_purge(args: argparse.Namespace) -> int:
     print(f"保存期間を過ぎた動画: {len(plan.candidates)} 件（{_gib(plan.total_bytes)}）")
     for label, count, byte_size in plan.by_unit():
         print(f"  {label:32s} {count:4d} 件  {_gib(byte_size)}")
-    if plan.tasks_without_deadline:
-        print(f"  締切が無いので対象外の課題: {plan.tasks_without_deadline} 件")
+    if plan.without_deadline:
+        print(f"  うち締切の無い課題（提出から 1 年）: {plan.without_deadline} 件")
     if plan.next_expires_at is not None:
         print(f"  次に期限が来るのは {plan.next_expires_at.date().isoformat()}")
 

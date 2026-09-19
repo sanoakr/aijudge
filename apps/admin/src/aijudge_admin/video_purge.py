@@ -1,8 +1,12 @@
 """保存期間を過ぎた動画を消す（ADR 0020）。
 
-**起点は課題の締切で、6 ヶ月。** 期限の計算はコアにある
-（`aijudge_core.video_retention_expires_at`）。ここが持つのは「どれが対象か」
-を集める手順と、ファイルを消して印を付ける順序である。
+**起点は課題の締切で、6 ヶ月。締切が無ければ提出から 1 年。** 期限の計算は
+コアにある（`aijudge_core.video_retention_expires_at`）。ここが持つのは
+「どれが対象か」を集める手順と、ファイルを消して印を付ける順序である。
+
+締切のある課題は**回ごとにまとまって消える**（同じ問題セットの締切は揃って
+いる）。締切の無い課題は提出ごとに期限が決まるので、まとまりはしない ──
+起点が他に無く、それでも消さないと砂場・自習用に数 GB が積み上がる。
 
 **2 段になっているのは、途中で落ちても続けられるようにするため。**
 先にファイルを消し、消せたものにだけ印を付ける。逆にすると、印が付いたのに
@@ -40,7 +44,8 @@ class PurgeCandidate:
     #: 問題セットの名前（`ex03`）。無ければ `None`。**まとまりの単位**である。
     unit: str | None
     task_title: str
-    due_at: datetime
+    #: 課題の締切。**`None` なら提出日から数えている**（1 年）。
+    due_at: datetime | None
     expires_at: datetime
     submission_id: SubmissionId
     artifact_id: ArtifactId
@@ -58,8 +63,8 @@ class PurgePlan:
 
     now: datetime
     candidates: tuple[PurgeCandidate, ...] = ()
-    #: 締切が無いので対象にしなかった課題の数（砂場・自習用）。
-    tasks_without_deadline: int = 0
+    #: そのうち、締切が無いので提出日から数えたもの（砂場・自習用）。
+    without_deadline: int = 0
     #: まだ保存期間の中にある課題のうち、最も早く期限が来る時刻。
     next_expires_at: datetime | None = None
 
@@ -99,9 +104,9 @@ def plan_video_purge(
 ) -> PurgePlan:
     """保存期間を過ぎた動画を集める。**何も消さない。**
 
-    **締切の無い課題は対象にしない。** 起点が無いので期限も決まらない
-    （`video_retention_expires_at` が `None` を返す）── 消し過ぎは取り返せず、
-    消し残しは次に消せるので安全側に倒す。数だけ数えて呼び手に返す。
+    **締切の無い課題も対象になる**（提出から 1 年）。ただし期限は提出ごとに
+    決まるので、回ごとにまとまりはしない ── 課題を先に落とせず、提出を
+    1 件ずつ見ることになる。
     """
     candidates: list[PurgeCandidate] = []
     without_deadline = 0
@@ -121,24 +126,36 @@ def plan_video_purge(
 
         for course in courses:
             for task in uow.tasks.list_for_course(course.id):
-                expires_at = video_retention_expires_at(task.due_at)
-                if expires_at is None:
-                    without_deadline += 1
-                    continue
-                if now < expires_at:
-                    if next_expires_at is None or expires_at < next_expires_at:
-                        next_expires_at = expires_at
-                    continue
+                # **締切のある課題は、提出を読む前に落とせる。** 期限が課題で
+                # 決まるので、まだ来ていなければ中を見る必要が無い。
+                if task.due_at is not None:
+                    task_expires_at = video_retention_expires_at(task.due_at)
+                    assert task_expires_at is not None
+                    if now < task_expires_at:
+                        if next_expires_at is None or task_expires_at < next_expires_at:
+                            next_expires_at = task_expires_at
+                        continue
                 # **提出は課題版ごとに引く**（#230）。コース全件を引いてから
                 # 絞ると、`list_for_course` の上限の後ろに絞り込みが来る。
                 version_ids = [version.id for version in uow.tasks.list_versions(task.id)]
                 if not version_ids:
                     continue
                 for submission in uow.submissions.list_for_versions(version_ids):
+                    expires_at = video_retention_expires_at(
+                        task.due_at, submitted_at=submission.submitted_at
+                    )
+                    if expires_at is None:
+                        # 締切も提出日も無い（提出が成立していない下書き）。
+                        continue
+                    if now < expires_at:
+                        if next_expires_at is None or expires_at < next_expires_at:
+                            next_expires_at = expires_at
+                        continue
                     for artifact in submission.artifacts:
                         if artifact.kind is not ArtifactKind.VIDEO or artifact.is_purged:
                             continue
-                        assert task.due_at is not None  # expires_at があるなら締切もある
+                        if task.due_at is None:
+                            without_deadline += 1
                         candidates.append(
                             PurgeCandidate(
                                 course_code=course.code,
@@ -156,7 +173,7 @@ def plan_video_purge(
     return PurgePlan(
         now=now,
         candidates=tuple(candidates),
-        tasks_without_deadline=without_deadline,
+        without_deadline=without_deadline,
         next_expires_at=next_expires_at,
     )
 

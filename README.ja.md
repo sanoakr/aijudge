@@ -204,6 +204,10 @@ uv run aijudge-admin course apply --file network/2026/course.yaml
 採点結果も残ります ── その採点が何を見て付いたかは読めるままです。消した
 動画を開いた人には、404 ではなく理由が出ます。
 
+締切の無い課題には共通の起点が無いので、**提出から 1 年**で数えます。長く置く
+ぶん、受け付ける大きさは 1 件 256 MiB に絞ってあります（通常は 5 GiB）──
+上限と保存期間は一対です。
+
 ```fish
 uv run aijudge-admin video purge            # 下見。何件・何 GB か出す
 uv run aijudge-admin video purge --apply    # 実際に消す

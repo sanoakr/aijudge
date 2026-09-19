@@ -78,6 +78,7 @@ from .network import CampusAccess, campus_access, parse_cidrs
 from .retention import (
     PURGED_MESSAGE,
     VIDEO_RETENTION_MONTHS,
+    VIDEO_RETENTION_MONTHS_WITHOUT_DEADLINE,
     video_retention_expires_at,
     video_retention_has_expired,
 )
@@ -160,6 +161,7 @@ __all__ = [
     "SUFFIX_GROUPS",
     "SUFFIX_KINDS",
     "VIDEO_RETENTION_MONTHS",
+    "VIDEO_RETENTION_MONTHS_WITHOUT_DEADLINE",
     "YEARS_OFFERED",
     "Aggregation",
     "Artifact",

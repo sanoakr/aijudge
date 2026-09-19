@@ -3,8 +3,9 @@
 固定したいこと:
 
 起点   締切から 6 ヶ月。**提出日でも成績確定でもない。**
+締切なし 締切の無い課題だけは提出から 1 年（共通の起点が他に無い）。
 まとまり 同じ問題セットの動画は同じ日に期限を迎える（締切が揃っているため）。
-安全   締切の無い課題は対象にしない。期限の来ていない回にも触らない。
+安全   期限の来ていない回には触らない。起点が無いもの（未提出）は消さない。
 順序   ファイルを消してから印を付ける ── 途中で落ちても次の実行が続けられる。
 記録   消した件数と容量が監査ログに残る（ADR 0016）。
 """
@@ -198,13 +199,21 @@ def test_only_the_units_past_their_window_are_picked_up(database, video_store, c
     assert plan.next_expires_at == datetime(2027, 7, 14, 23, 59, tzinfo=JST)
 
 
-def test_a_task_without_a_deadline_is_never_picked_up(database, video_store, course) -> None:
+def test_a_task_without_a_deadline_counts_from_the_submission(
+    database, video_store, course
+) -> None:
+    """提出（2026-09-30）から 1 年。**6 ヶ月では消えない。**"""
     a_video(database, video_store, course, unit="ex99", marker="9")
 
-    plan = plan_video_purge(database, tenant_id=TENANT, now=datetime(2099, 1, 1, tzinfo=UTC))
+    half_a_year = plan_video_purge(database, tenant_id=TENANT, now=datetime(2027, 4, 2, tzinfo=UTC))
+    a_year = plan_video_purge(database, tenant_id=TENANT, now=datetime(2027, 10, 1, tzinfo=UTC))
 
-    assert plan.candidates == ()
-    assert plan.tasks_without_deadline == 1
+    assert half_a_year.candidates == ()
+    assert [candidate.unit for candidate in a_year.candidates] == ["ex99"]
+    # **締切のあるものと区別して数える** ── 下見を読む人に、なぜこれが
+    # 挙がっているのかが分かる必要がある。
+    assert a_year.without_deadline == 1
+    assert a_year.candidates[0].due_at is None
 
 
 def test_purging_removes_the_file_and_leaves_the_record(database, video_store, course) -> None:

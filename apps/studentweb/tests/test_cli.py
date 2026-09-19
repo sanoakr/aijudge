@@ -19,6 +19,7 @@ _ENV_KEYS = (
     cli.ENV_VIDEO_DIR,
     cli.ENV_MAX_UPLOAD_BYTES,
     cli.ENV_MAX_VIDEO_BYTES,
+    cli.ENV_MAX_VIDEO_BYTES_WITHOUT_DEADLINE,
     cli.ENV_MAX_CONCURRENT_VIDEO,
     cli.ENV_AI_WORKERS,
     cli.ENV_PROFILES_DIR,
@@ -34,12 +35,14 @@ def test_make_app_builds_from_env(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv(cli.ENV_ARTIFACT_DIR, str(tmp_path / "artifacts"))
     monkeypatch.setenv(cli.ENV_VIDEO_DIR, str(tmp_path / "video"))
     monkeypatch.setenv(cli.ENV_MAX_VIDEO_BYTES, "123456")
+    monkeypatch.setenv(cli.ENV_MAX_VIDEO_BYTES_WITHOUT_DEADLINE, "654")
     monkeypatch.setenv("AIJUDGE_CONSOLE_PORT", "9765")
 
     app = cli.make_app()
     assert isinstance(app, FastAPI)
     state = app.state.aijudge
     assert state.max_video_bytes == 123456
+    assert state.max_video_bytes_without_deadline == 654
     assert state.video_store is not None
     assert state.console_port == 9765
 
@@ -55,6 +58,7 @@ def test_export_env_reflects_resolved_args(monkeypatch, tmp_path: Path) -> None:
         video_dir=tmp_path / "v",
         max_upload_bytes=1,
         max_video_bytes=2,
+        max_video_bytes_without_deadline=4,
         max_concurrent_video=3,
         ai_workers=5,
         profiles=tmp_path / "subjects",
@@ -66,6 +70,9 @@ def test_export_env_reflects_resolved_args(monkeypatch, tmp_path: Path) -> None:
 
     assert os.environ[cli.ENV_VIDEO_DIR] == str(tmp_path / "v")
     assert os.environ[cli.ENV_MAX_VIDEO_BYTES] == "2"
+    # 締切の無い課題の上限も子プロセスへ渡す（ADR 0020）── ここが落ちると、
+    # `--workers 2` のときだけ 256 MiB の既定に戻る。
+    assert os.environ[cli.ENV_MAX_VIDEO_BYTES_WITHOUT_DEADLINE] == "4"
     assert os.environ[cli.ENV_MAX_CONCURRENT_VIDEO] == "3"
     assert os.environ[cli.ENV_AI_WORKERS] == "5"
     assert os.environ["AIJUDGE_CONSOLE_PORT"] == "8443"
