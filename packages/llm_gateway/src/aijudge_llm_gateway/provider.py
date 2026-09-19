@@ -218,6 +218,29 @@ class OllamaProvider:
             raise LlmError(f"{self.name}: cannot list models: {exc}") from exc
         return tuple(sorted(model["name"] for model in data.get("models", [])))
 
+    def model_capabilities(self, model: str) -> frozenset[str]:
+        """このホストが名乗る、そのモデルの能力（`completion` / `vision` / …）。
+
+        **宣言ではなく実測である。** `ProviderCapabilities.vision` は
+        プロバイダの構成値でしかなく、指したモデルが実際に画像を読めるかは
+        見ていない ── `gemma4:e4b` を指したまま `vision=True` のプロバイダを
+        作れてしまう。そのとき画像は**黙って捨てられ**、本文だけで答えが返る。
+
+        **PAIR のような proxy の後ろでは、これだけでは足りない。** 複数ノード
+        の前段では、答えたノードの一覧しか返らないことがある ── 一部のノード
+        にしかモデルが無い構成は、振り分け先によって成否が変わる。各ノードを
+        直接指して確かめること（`deploy/aijudge-vision-check.sh`）。
+        """
+        try:
+            with urllib.request.urlopen(f"{self._base_url}/api/tags", timeout=10) as response:
+                data = json.load(response)
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+            raise LlmError(f"{self.name}: cannot list models: {exc}") from exc
+        for entry in data.get("models", []):
+            if entry.get("name") == model or entry.get("model") == model:
+                return frozenset(str(name) for name in (entry.get("capabilities") or ()))
+        raise LlmError(f"{self.name}: モデル {model!r} がこのホストにありません")
+
     def embed(self, request: EmbeddingRequest) -> EmbeddingResponse:
         """ollama の `/api/embed`。
 
@@ -274,7 +297,25 @@ class FallbackProvider:
             )
         self._primary = primary
         self._secondary = secondary
-        self.capabilities = primary.capabilities
+        # **できることは両者の共通部分。** 主系の能力をそのまま名乗るのは、
+        # 従系がそれを持たないときに嘘になる ── どちらが応答するかは
+        # 呼んでみるまで決まらないので、「主系ならできる」は保証にならない。
+        #
+        # 画像でこれが効く。vision を持たない従系に画像が渡ると、モデルは
+        # **画像を無視して本文だけで答える** ── 応答は返り、スキーマにも
+        # 合い、内容だけが根拠のない作り話になる。主系が落ちている間だけ
+        # そうなるので、気づくのは採点記録を誰かが読み返したときである。
+        #
+        # `local` だけは共通部分ではなく**一致**を要求する（上）。あちらは
+        # 能力ではなく方針で、「片方が学外」は縮退させて済む話ではない。
+        self.capabilities = ProviderCapabilities(
+            constrained_decoding=(
+                primary.capabilities.constrained_decoding
+                and secondary.capabilities.constrained_decoding
+            ),
+            vision=primary.capabilities.vision and secondary.capabilities.vision,
+            local=primary.capabilities.local,
+        )
         self.name = primary.name
 
     def complete(self, request: LlmRequest) -> LlmResponse:
