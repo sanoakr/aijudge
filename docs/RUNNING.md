@@ -531,6 +531,41 @@ GPU を使う科目と使わない科目でキューを分けたい場合は `--
 uv run aijudge-worker --subject cs_network_python --name py1
 ```
 
+### 手でデプロイする（#345）
+
+**デプロイはタグで起きる。** 運用機の `aijudge-autodeploy.timer` が 5 分ごとに
+origin の `v*` を見て、新しければ `deploy.sh` を呼ぶ。手で流す必要があるのは、
+タグを待たずに入れ直したいときだけである。
+
+**そのとき環境を先に読ませること。** unit は
+`EnvironmentFile=/srv/aijudge/config/aijudge.env` を持つが、ssh から
+スクリプトを直接叩くと誰もそれを読まない。
+
+```fish
+ssh <host> "sudo -u aijudge sh -c 'set -a; . /srv/aijudge/config/aijudge.env; set +a; exec /opt/aijudge/deploy/deploy.sh v1.2.3'"
+```
+
+読ませずに叩くと `deploy.sh` が冒頭で止まる（2026-09-20 に `AIJUDGE_DATABASE_URL`
+が無いまま走り、alembic が既定値で接続して認証に失敗した。**落ちたから気づけた**
+ので、落ちない場合に備えて先に断るようにした）。
+
+### 設定の控えはバックアップの中に置かない（#344）
+
+`/srv/aijudge/config/` を編集する前に控えを取るなら、**`/srv/aijudge` の外**
+（`/root/aijudge-env-history/` など）に置く。理由は 2 つある。
+
+- **バックアップが止まる。** restic は `aijudge` ユーザで走るので、控えを
+  `root:root` で置くと読めず **exit 3** で終わる。スナップショット自体は
+  保存されるので気づきにくいが、`set -e` によって後段の
+  `restic forget --prune` に到達しない ── 世代整理が止まったままになる。
+  2026-09-20 に 3 系統が同時に failed になったのはこれで、
+  原因は控え 7 つのうち 1 つだけ所有者が違ったことだった
+- **認証情報の写しが増える。** `/srv/aijudge/config/` はバックアップ対象なので、
+  控えを置けばその数だけ全スナップショットに入る
+
+日次の `aijudge-config-check` が、`aijudge` から読めないファイルを見つけたら
+知らせる（状態が変わったときだけ送る）。
+
 ## 成績を閉じる
 
 教員の待ち行列は**学習者が異議を申し立てた提出だけ**である（ADR 0009）。

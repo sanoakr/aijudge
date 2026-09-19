@@ -12,6 +12,19 @@ TAG="${1:?tag required}"
 REPO_DIR="${AIJUDGE_REPO_DIR:-/opt/aijudge}"
 cd "${REPO_DIR}"
 
+# **環境が無いまま走らせない**（#345）。同じスクリプトを手動と CD で共有して
+# いても、**環境まで同じとは限らない** ── systemd の unit は
+# `EnvironmentFile=/srv/aijudge/config/aijudge.env` を読むが、ssh から
+# `sudo -u aijudge deploy.sh v1.2.3` と叩くと誰もそれを読まない。
+#
+# 2026-09-20 にこれを踏んだ。alembic が既定値で接続して認証に失敗し、
+# **気づけたのは落ちたからである**。落ちない場合のほうが危ない ──
+# `AIJUDGE_DATABASE_URL` が別の値で解決すれば、`alembic upgrade head` が
+# 意図しない DB に当たり、そのまま restart まで進む。
+#
+# 断り方は `aijudge-restic-backup.sh` と同じ形にする（前例に合わせる）。
+: "${AIJUDGE_DATABASE_URL:?AIJUDGE_DATABASE_URL not set -- 手で流すときは先に環境を読むこと: sudo -u aijudge sh -c 'set -a; . /srv/aijudge/config/aijudge.env; set +a; exec /opt/aijudge/deploy/deploy.sh <tag>'}"
+
 # 二重起動・手動実行との衝突を防ぐ。
 exec 9>/run/lock/aijudge-deploy.lock
 flock -n 9 || { echo "deploy already running"; exit 0; }
