@@ -59,6 +59,8 @@ ENV_BASE_URL = "AIJUDGE_LLM_BASE_URL"
 ENV_MODEL = "AIJUDGE_LLM_MODEL"
 ENV_VISION_BASE_URL = "AIJUDGE_LLM_VISION_BASE_URL"
 ENV_VISION_MODEL = "AIJUDGE_LLM_VISION_MODEL"
+# 画像経路の従系。**主系と同じく、落ちている間だけ回す**（#341）。
+ENV_VISION_FALLBACK_BASE_URL = "AIJUDGE_LLM_VISION_FALLBACK_BASE_URL"
 # 未設定なら平常運転（フォールバックなし）。プライマリが落ちている間だけ
 # ここが指すホストに切り替える。**学外を指してはならない**（P7）。
 ENV_FALLBACK_BASE_URL = "AIJUDGE_LLM_FALLBACK_BASE_URL"
@@ -95,16 +97,30 @@ def default_vision_model() -> str:
 def default_vision_gateway() -> LlmGateway:
     """画像を渡す呼び出し用のゲートウェイ。
 
-    `AIJUDGE_LLM_VISION_BASE_URL` があればそのホストだけを見る。**フォール
-    バックは持たない** ── 主系・従系の両方に vision モデルがある保証は無く、
-    落ちている間の代替が「画像を読めない相手」では、断られるか（よい方）
-    根拠のない答えが返る（悪い方）。読めないときは採点せず人へ回す方が
-    この製品の建て付けに合う（P5）。
+    `AIJUDGE_LLM_VISION_BASE_URL` が主系、`AIJUDGE_LLM_VISION_FALLBACK_BASE_URL`
+    があれば従系（#341）。どちらも未設定なら通常の経路をそのまま使う。
+
+    **かつてフォールバックを持たせていなかった**（ADR 0021 §3）。理由は
+    「従系に vision がある保証が無く、画像を読めない相手に回すと、断られるか
+    （よい方）根拠のない答えが返る（悪い方）」である。いまは
+    `FallbackProvider` が**両者の共通部分**を能力として名乗るので、従系が
+    vision を持たなければ合成した側も持たず、画像を渡す呼び出しは
+    `CapabilityMismatch` で呼ぶ前に落ちる ── 危ない方（黙って本文だけで
+    答える）には倒れない。
+
+    **ただし「名乗り」までしか見ていない。** 指したモデルが実際に画像を
+    読めるかは `OllamaProvider.model_capabilities` で実測すること。
+    proxy の後ろに複数ノードがある構成では、それでもまだ足りない。
     """
     vision_url = os.environ.get(ENV_VISION_BASE_URL)
     if not vision_url:
         return default_gateway()
-    return LlmGateway(OllamaProvider(vision_url, name="vision"))
+    primary = OllamaProvider(vision_url, name="vision")
+    fallback_url = os.environ.get(ENV_VISION_FALLBACK_BASE_URL)
+    if not fallback_url:
+        return LlmGateway(primary)
+    secondary = OllamaProvider(fallback_url, name="vision-fallback")
+    return LlmGateway(FallbackProvider(primary, secondary))
 
 
 __all__ = [
@@ -115,6 +131,7 @@ __all__ = [
     "ENV_FALLBACK_BASE_URL",
     "ENV_MODEL",
     "ENV_VISION_BASE_URL",
+    "ENV_VISION_FALLBACK_BASE_URL",
     "ENV_VISION_MODEL",
     "CapabilityMismatch",
     "ChatMessage",

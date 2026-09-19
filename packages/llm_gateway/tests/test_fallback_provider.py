@@ -7,6 +7,7 @@ P7（フォールバック先も学習者データを受け取ってよい前提
 from __future__ import annotations
 
 import pytest
+from pydantic import BaseModel
 
 from aijudge_llm_gateway import (
     ChatMessage,
@@ -95,3 +96,63 @@ def test_a_fallback_to_a_non_local_provider_is_rejected_up_front() -> None:
 
     with pytest.raises(ValueError, match="P7"):
         FallbackProvider(primary, cloud)
+
+
+# --------------------------------------------------------------------------
+# できることは両者の共通部分（#341）
+# --------------------------------------------------------------------------
+
+
+def test_the_pair_can_only_do_what_both_can_do() -> None:
+    """**主系の能力をそのまま名乗らない。**
+
+    どちらが応答するかは呼んでみるまで決まらないので、「主系ならできる」は
+    保証にならない。画像でこれが効く ── vision を持たない従系に画像が渡ると、
+    モデルは画像を無視して本文だけで答える。応答は返り、スキーマにも合い、
+    内容だけが根拠のない作り話になる。
+    """
+    seeing = ScriptedProvider(["{}"], name="primary", vision=True)
+    blind = ScriptedProvider(["{}"], name="secondary", vision=False)
+
+    assert FallbackProvider(seeing, blind).capabilities.vision is False
+    assert FallbackProvider(seeing, seeing).capabilities.vision is True
+
+
+def test_constrained_decoding_is_combined_the_same_way() -> None:
+    """同じ理由。片方が文法を効かせられないなら、組にして当てにはできない。"""
+    strict = ScriptedProvider(["{}"], name="p", constrained_decoding=True)
+    loose = ScriptedProvider(["{}"], name="s", constrained_decoding=False)
+
+    assert FallbackProvider(strict, loose).capabilities.constrained_decoding is False
+
+
+def test_an_image_is_refused_when_the_fallback_cannot_read_it() -> None:
+    """合成した側が vision を名乗らないので、Gateway が呼ぶ前に断る。
+
+    **危ない方には倒れない** ── 主系が生きている間だけ通って、落ちた瞬間に
+    根拠のない答えが混ざる、という壊れ方をしない。
+    """
+    from aijudge_llm_gateway import (
+        CapabilityMismatch,
+        DataClass,
+        LlmGateway,
+        PromptTemplate,
+    )
+
+    seeing = ScriptedProvider(['{"ok": true}'], name="primary", vision=True)
+    blind = ScriptedProvider(['{"ok": true}'], name="secondary", vision=False)
+    gateway = LlmGateway(FallbackProvider(seeing, blind))
+
+    class _Answer(BaseModel):
+        ok: bool
+
+    with pytest.raises(CapabilityMismatch):
+        gateway.complete_structured(
+            PromptTemplate(name="t", version="1", template="read {thing}"),
+            _Answer,
+            model="m",
+            data_class=DataClass.PERSONAL,
+            images=("QUJD",),
+            thing="this",
+        )
+    assert seeing.calls == [], "断ったのにプロバイダを呼んでいる"
