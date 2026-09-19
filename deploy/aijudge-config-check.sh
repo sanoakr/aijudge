@@ -26,6 +26,31 @@ PER_PROCESS=30
 
 problems=()
 
+# unit が**実際に持っている**環境変数を読む（#347）。
+#
+# `systemctl show -p Environment` は **unit の `Environment=` 行しか返さない**
+# ── `EnvironmentFile=` で読み込まれた値は含まれず、そちらは
+# `EnvironmentFiles` にファイル名が出るだけである。この配備の値はすべて
+# `/srv/aijudge/config/aijudge.env` 側にあるので、**全部空として取れていた。**
+# 既定値に落ちて 3 番目の検査が永久に NG を出し、4 番目は web を 1 プロセスと
+# 数えて接続数を**少なく**見積もっていた（2026-09-20 に判明）。
+#
+# **動いているプロセスの環境を読む。** ファイルを読むのでは、
+# 「書き換えたが再起動していない」を見逃す ── それはまさに、この検査が
+# 見つけたい種類のずれである。
+_unit_env() {
+    local unit="$1" name="$2" pid="" value=""
+    pid=$(systemctl show "${unit}" -p MainPID --value 2>/dev/null)
+    if [ -n "${pid}" ] && [ "${pid}" != "0" ] && [ -r "/proc/${pid}/environ" ]; then
+        value=$(tr '\0' '\n' < "/proc/${pid}/environ" | sed -n "s/^${name}=//p" | tail -1)
+    fi
+    if [ -z "${value}" ]; then
+        value=$(systemctl show "${unit}" -p Environment --value 2>/dev/null \
+                | tr ' ' '\n' | sed -n "s/^${name}=//p" | tail -1)
+    fi
+    printf '%s' "${value}"
+}
+
 # 1. unit が届いているか
 for unit in "${REPO_DIR}"/deploy/systemd/*.service "${REPO_DIR}"/deploy/systemd/*.target \
             "${REPO_DIR}"/deploy/systemd/*.timer; do
@@ -59,16 +84,14 @@ fi
 # （`position // ai_workers`）が、**本数の 2 つ目の写し**である。ずれると
 # 目安が本数の比だけ狂う ── 4 本動いているのに 1 と伝えると 4 倍になる。
 # 数値を 1 か所にできない以上、**ずれたことに気づけるようにしておく。**
-hint=$(systemctl show aijudge-web.service -p Environment --value 2>/dev/null \
-       | tr ' ' '\n' | sed -n 's/^AIJUDGE_AI_WORKERS=//p')
+hint=$(_unit_env aijudge-web.service AIJUDGE_AI_WORKERS)
 hint="${hint:-1}"
 if [ "${running}" != "0" ] && [ "${hint}" != "${running}" ]; then
     problems+=("AIJUDGE_AI_WORKERS=${hint} が実際の ${running} 本と違う（待ち時間の目安がずれる）")
 fi
 
 # 4. 接続数が足りるか
-web=$(systemctl show aijudge-web.service -p Environment --value 2>/dev/null \
-      | tr ' ' '\n' | sed -n 's/^AIJUDGE_WEB_WORKERS=//p')
+web=$(_unit_env aijudge-web.service AIJUDGE_WEB_WORKERS)
 web="${web:-1}"
 # web + review 1 + det 1 + ai N + finalize 1
 processes=$(( web + 1 + 1 + running + 1 ))
