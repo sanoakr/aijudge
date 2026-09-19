@@ -649,7 +649,14 @@ def create_app(app_state: StudentApp) -> FastAPI:
             {
                 "me": me,
                 "course": course_obj,
-                "sections": _group_by_unit(tasks, progress=progress),
+                # 公開前の問題セットは学習者には出さない。**教員・TA には
+                # 出す**（#340）── 出せるのに一覧に無いと、URL を直接
+                # 叩くしかない。
+                "sections": _group_by_unit(
+                    tasks,
+                    progress=progress,
+                    preview=_may_submit_before_open(_role_in(app_state, course_obj.id, me.user_id)),
+                ),
                 "progress": progress,
                 "no_progress": EMPTY,
                 **build_context(course_obj),
@@ -676,6 +683,10 @@ def create_app(app_state: StudentApp) -> FastAPI:
         multi_file = bool(plain_accepts) and all(
             kind_for(suffix) is not ArtifactKind.CODE for suffix in plain_accepts
         )
+        # 役割と受付の状態は**この 1 か所で求める**。提出欄を出すかどうかも、
+        # 動作確認である旨の断りも、同じ 2 つの値から決まる（#108・#340）。
+        role = _role_in(app_state, course_obj.id, me.user_id)
+        window = task_obj.submission_window_at(now())
         with app_state.database.unit_of_work() as uow:
             # 一覧と個別画面で同じ規則の点・状態を出すため、
             # ここも `load_progress` を通す（`progress.py`）。
@@ -706,15 +717,25 @@ def create_app(app_state: StudentApp) -> FastAPI:
                 # 送ってから 413 で断られることになる。
                 "max_video_bytes": app_state.video_limit_for(task_obj),
                 # 提出開始を過ぎているか。**過ぎるまで受け付けない**
-                # （`Task.accepts_submissions_at`）。
-                "open_for_submission": task_obj.accepts_submissions_at(now()),
+                # （`Task.accepts_submissions_at`）。ただし教員・TA は
+                # 提出開始前でも出せる（#340）── 判定は受付と同じ述語で
+                # 行う。画面と受付が違う答えを出すと、欄が出ているのに
+                # 送ると断られる、が起きる。
+                "open_for_submission": (
+                    window is not SubmissionWindow.CLOSED
+                    and (window is not SubmissionWindow.NOT_OPEN or _may_submit_before_open(role))
+                ),
+                # まだ学習者には出せない課題を開いているか（#340）。
+                # **そう書く** ── 書かないと、教員は「もう公開されている」
+                # と読む。
+                "before_open": window is SubmissionWindow.NOT_OPEN,
                 # 課題文は Markdown。生のまま出すと `##` や ``` が見える。
                 "statement_html": render_statement(version.statement),
                 # 教員・TA が自分のコースを開いているか（#108）。**出せる**が、
                 # 出したものは成績にも統計にもならない。**先に言う** ── 言わずに
                 # 除くと、教員は自分の提出が採点一覧に無いことを不具合として
                 # 追いかけることになる。
-                "submitting_as": _role_in(app_state, course_obj.id, me.user_id),
+                "submitting_as": role,
                 # 学内限定の課題か、そしていまの接続元がそれを満たすか（#333）。
                 # **先に言う。** 出そうとして断られてから知るのでは、試験の
                 # 最中に場所を移すことになる。
@@ -759,8 +780,13 @@ def create_app(app_state: StudentApp) -> FastAPI:
         #
         # 断る理由を分ける（#73）。「まだ」と「もう」を同じ文言にすると、
         # 学習者は待てば出せるのか、間に合わなかったのかが分からない。
+        #
+        # **「まだ」の側は教員・TA に開ける**（#340・`_may_submit_before_open`）。
+        # 役割はここで 1 度だけ引き、下の `submitted_as` にも同じ値を渡す ──
+        # 2 度引くと、許可した役割と記録する役割が食い違いうる。
+        role = _role_in(app_state, course_obj.id, me.user_id)
         window = _task.submission_window_at(now())
-        if window is SubmissionWindow.NOT_OPEN:
+        if window is SubmissionWindow.NOT_OPEN and not _may_submit_before_open(role):
             opens = _task.submissions_open_at or _task.opens_at
             raise HTTPException(
                 status_code=409,
@@ -849,7 +875,7 @@ def create_app(app_state: StudentApp) -> FastAPI:
                 # 通すが、成績にも測定にも数えない。**ここで焼き付ける** ──
                 # 測定時に現在の受講から引くと、学生が TA になった瞬間に
                 # 過去の提出が測定から消える（ADR 0013 と同じ罠）。
-                submitted_as=_role_in(app_state, course_obj.id, me.user_id),
+                submitted_as=role,
                 is_demo=_is_demo_course(course_obj.id),
             )
         except SubmissionRejected as exc:
@@ -880,8 +906,11 @@ def create_app(app_state: StudentApp) -> FastAPI:
             raise HTTPException(status_code=501, detail="この配備は動画提出に対応していません")
         version, course_obj, _task = _task_and_course(app_state, me, TaskVersionId(task_version_id))
 
+        # 「まだ」の側は教員・TA に開ける（#340）。通常の提出と同じ判定で
+        # あること ── 経路ごとに違う答えを出すと、動画だけ出せないが起きる。
+        role = _role_in(app_state, course_obj.id, me.user_id)
         window = _task.submission_window_at(now())
-        if window is SubmissionWindow.NOT_OPEN:
+        if window is SubmissionWindow.NOT_OPEN and not _may_submit_before_open(role):
             opens = _task.submissions_open_at or _task.opens_at
             raise HTTPException(
                 status_code=409,
@@ -977,7 +1006,7 @@ def create_app(app_state: StudentApp) -> FastAPI:
                 sha256=blob.sha256,
                 idempotency_key=idem,
                 grading_starts_at=_task.grading_starts_at,
-                submitted_as=_role_in(app_state, course_obj.id, me.user_id),
+                submitted_as=role,
                 is_demo=_is_demo_course(course_obj.id),
             )
         except SubmissionRejected as exc:
@@ -1222,6 +1251,11 @@ class SetState(StrEnum):
     CLOSED = "closed"
 
 
+# 教員・TA の一覧では、この見出しの下に**まだ公開していないセットも並ぶ**
+# （#340）。「公開された問題セット」のままでは、公開前のものをそう呼ぶことに
+# なる。並ぶのが提出開始前である点は同じなので、見出しはそこだけを言う。
+PREVIEW_ANNOUNCED_LABEL = "提出開始前の問題セット（公開前のものを含む）"
+
 SET_LABELS: dict[SetState, str] = {
     SetState.OPEN: "提出できる問題セット",
     SetState.LATE: "締切を過ぎた問題セット（減点して提出できます）",
@@ -1231,7 +1265,11 @@ SET_LABELS: dict[SetState, str] = {
 
 
 def _group_by_unit(
-    rows: tuple, *, progress: dict | None = None, now: datetime | None = None
+    rows: tuple,
+    *,
+    progress: dict | None = None,
+    now: datetime | None = None,
+    preview: bool = False,
 ) -> list[dict[str, object]]:
     """課題を問題セットでまとめ、段階ごとに分けて新しい順に並べる。
 
@@ -1239,14 +1277,18 @@ def _group_by_unit(
     さらに学期が進むと数十件になるので、**段階で分けたうえで新しい順**に
     出す ── 学習者が最初に知りたいのは「いま出せるのはどれか」である。
 
-    **公開前の問題セットは出さない。** 公開日時を持たせておいて何も
+    **公開前の問題セットは学習者には出さない。** 公開日時を持たせておいて何も
     起きないなら、その日付は嘘になる。日程を入れていない課題（`opens_at`
     が空）は今までどおり出る。
+
+    `preview` は教員・TA のとき真（#340）。**公開前のセットも出す** ──
+    公開前でも出せる相手なのに一覧に無いと、URL を直接叩くしかない。
+    出したセットには `before_open` が立ち、画面が「公開前」と明示する。
     """
     moment = now or datetime.now(UTC)
     groups: dict[tuple, dict[str, object]] = {}
     for task, version in sorted(rows, key=lambda row: row[0].sort_key):
-        if task.opens_at and moment < task.opens_at:
+        if task.opens_at and moment < task.opens_at and not preview:
             continue
         key = (task.session, task.unit)
         group = groups.setdefault(
@@ -1282,6 +1324,9 @@ def _group_by_unit(
 
     for group in groups.values():
         group["state"] = _set_state(group, moment)
+        # まだ学習者に出ていないセットか（#340）。`preview` のときだけ
+        # 真になりうる ── 学習者の一覧には、そもそも並んでいない。
+        group["before_open"] = bool(group["opens_at"] and moment < group["opens_at"])
         # **残り秒数はサーバが数える**（#73）。画面が締切と自分の時計を
         # 比べると、時計のずれがそのまま表示のずれになる。締切前は正、
         # 過ぎていれば負（＝経過時間）。
@@ -1313,7 +1358,12 @@ def _group_by_unit(
         members = [group for group in groups.values() if group["state"] is state]
         # 新しい日付順。日付の無いセットは後ろに置く（並べる根拠が無い）。
         members.sort(key=lambda g: (g["sort_at"] is None, g["sort_at"] or MIN_TIME), reverse=True)
-        ordered.append({"state": state, "label": SET_LABELS[state], "groups": members})
+        label = (
+            PREVIEW_ANNOUNCED_LABEL
+            if preview and state is SetState.ANNOUNCED
+            else SET_LABELS[state]
+        )
+        ordered.append({"state": state, "label": label, "groups": members})
     return ordered
 
 
@@ -1527,6 +1577,23 @@ def _require_campus(app_state: StudentApp, request: Request, task, tenant_id) ->
         status_code=409,
         detail="この課題は学内からのみ提出できます（いまは学外から接続しています）。",
     )
+
+
+def _may_submit_before_open(role: Role) -> bool:
+    """提出開始前でも出せる相手か（#340）。**教員・TA だけ。**
+
+    この 2 つの役割の提出は `Submission.is_trial` が真になり、成績にも
+    得点分布にも難易度の推定にも一致度の測定にも入らない（#108）。つまり
+    **公開前に出せて困る相手ではない**。むしろ公開前こそ実物で確かめたい
+    ── 確かめられないと、最初の学習者の提出がそのまま最初の動作確認になる。
+
+    **広げるのは「まだ」の側だけ。** 受付終了（`CLOSED`）は誰にも開けない。
+    過去の回に後から出せてしまうのは別の判断である（#73 の区分は壊さない）。
+
+    テナント管理者は含めない ── コースの `Enrollment` を持たない相手まで
+    広げるかは、この issue とは別に決める。
+    """
+    return role in (Role.INSTRUCTOR, Role.ASSISTANT)
 
 
 def _role_in(app_state: StudentApp, course_id: CourseId, user_id: UserId) -> Role:

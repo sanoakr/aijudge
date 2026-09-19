@@ -27,6 +27,9 @@
 <summary>
 <h3>{{ unit.label }}
   {% if unit.unit %}<span class="mono desc">{{ unit.unit }}</span>{% endif %}
+  {# **公開前と書く**（#340）。教員・TA にだけ並ぶセットで、学習者はまだ
+     見ていない。書かないと「もう公開されている」と読まれる。 #}
+  {%- if unit.before_open %} <span class="pill attn">公開前（動作確認）</span>{% endif %}
   <span class="dates desc">
     <span>公開 {% if unit.opens_at %}{{ unit.opens_at | local('%m-%d %H:%M') }}{% else %}<em>未設定</em>{% endif %}</span>
     <span>提出開始 {% if unit.submissions_open_at %}{{ unit.submissions_open_at | local('%m-%d %H:%M') }}{% elif unit.opens_at %}公開と同時{% else %}<em>未設定</em>{% endif %}</span>

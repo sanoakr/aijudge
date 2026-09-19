@@ -9,6 +9,14 @@
   <strong>これは動作確認の提出です（{{ submitting_as.value }}として開いています）。</strong>
   採点は学習者と同じように行われますが、<strong>成績・得点分布・難易度の推定・
   一致度の測定には数えません</strong>。教員の一覧には「試行」として並びます。
+  {# 提出開始前でも出せる（#340）。**学習者にはまだ出ていない**ことを言う ──
+     言わないと、開けたことをもって「公開済み」と読む。 #}
+  {% if before_open %}
+  <br><strong>この課題はまだ提出開始前です。</strong>
+  学習者はまだ提出できません（
+  {%- set opens = ctx_task.submissions_open_at or ctx_task.opens_at -%}
+  {{ opens | local('%Y-%m-%d %H:%M') }} から）。動作確認として先に出せます。
+  {% endif %}
 </div>
 {% endif %}
 
