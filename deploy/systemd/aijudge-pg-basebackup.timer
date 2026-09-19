@@ -1,0 +1,10 @@
+[Unit]
+Description=aiJudge PostgreSQL base backup, weekly
+
+[Timer]
+OnCalendar=Sun *-*-* 03:10:00
+Persistent=true
+RandomizedDelaySec=600
+
+[Install]
+WantedBy=timers.target

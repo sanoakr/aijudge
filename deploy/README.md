@@ -19,8 +19,20 @@
 | `nginx/aijudge.conf.template` | リバースプロキシの雛形。`AIJUDGE_HOSTNAME` を置換して使う |
 | `polkit/49-aijudge.rules` | `aijudge` グループが sudo なしで unit を起動停止できるようにする |
 | `aijudge.env.example` | `EnvironmentFile` の雛形。値を埋めて `/srv/aijudge/config/aijudge.env` に置く |
-| `aijudge-restic-backup.sh` | `/srv/aijudge` を restic でバックアップするスクリプト（`/usr/local/sbin/` に置く） |
+| `aijudge-restic-backup.sh` | `/srv/aijudge` を restic でバックアップする（target 1・オンボックス） |
+| `aijudge-restic-offbox.sh` | 同じものをオフボックスの受け先へ（`@target2` / `@target3`。月次を 12 本残す） |
 | `aijudge-restic.env.example` | restic 専用の `EnvironmentFile` の雛形。パスワードを本体の env から隔離する |
+| `aijudge-db-backup.sh` | `pg_dump -Fc`（論理・日次）。**`deploy.sh` もデプロイ直前に呼ぶ** |
+| `aijudge-pg-basebackup.sh` | 物理ベースバックアップ（PITR の土台・週次）と、不要になった WAL の掃除 |
+| `aijudge-storage-check.sh` | 空き容量と WAL アーカイブの健全性（毎時・遷移時のみ通知） |
+| `aijudge-llm-primary-check.sh` | プライマリ LLM が確定モデルを出しているか（30 分ごと・遷移時のみ通知） |
+| `lib/llm-primary-check.py` | 上の判定本体。**どちらのプロバイダが答えたか**で見る（`/usr/local/lib/aijudge/`） |
+| `aijudge-notify` | 日本語のメールを文字化けさせずに送る。上記の検査はすべてこれを通す |
+
+**スクリプトは `/usr/local/sbin/` に置く**（`lib/` のものは `/usr/local/lib/aijudge/`）。
+`bootstrap.sh` が初回に配置する。**デプロイ時の配布（`install-units.sh`）は unit だけ**
+── スクリプトの中身が変わるとバックアップの挙動が変わるので、配布に載せるのは
+機械側との一致を確かめてからにする（#344）。
 | `journald/aijudge.conf` | 運用ログの保存期間とディスク上限（`/etc/systemd/journald.conf.d/` に置く） |
 
 ## 前提（`docs/RUNNING.md` と共通）

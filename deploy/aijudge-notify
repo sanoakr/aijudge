@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# 日本語を含む通知メールを文字化けさせずに送る。
+#
+# なぜ要るか: GNU mailutils の `mail` は Content-Type を付けないので、UTF-8 の
+# 本文が受信側で Latin-1 と解釈されて文字化けする（2026-09-10 実地確認:
+# 「2026å¹´ 9æœˆ」）。`sendmail -t` に自分でヘッダを組んで渡せば確実。
+#
+# **Subject は ASCII に保つ**（RFC 2047 のエンコードを避ける）。本文だけ日本語にする。
+#
+# 使い方: printf "..." | aijudge-notify "[host] ASCII subject"
+set -euo pipefail
+SUBJECT=${1:?usage: aijudge-notify <ascii-subject> (body on stdin)}
+FQDN=$(hostname -f)
+{
+  echo "To: root"
+  echo "From: aijudge@$FQDN"
+  echo "Subject: $SUBJECT"
+  echo "MIME-Version: 1.0"
+  echo "Content-Type: text/plain; charset=UTF-8"
+  echo "Content-Transfer-Encoding: 8bit"
+  echo
+  cat
+} | /usr/sbin/sendmail -t
