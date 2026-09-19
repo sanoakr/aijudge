@@ -455,6 +455,71 @@ def test_a_published_event_is_not_returned_again(database: Database) -> None:
         assert uow.outbox.unpublished() == ()
 
 
+def test_purging_a_video_keeps_the_row_and_survives_a_commit(database: Database) -> None:
+    """保存期間の消去は**保管の事実**として残る（ADR 0020）。
+
+    JSON の入れ子を書き換えるので、**コミットを跨いで残ることを確かめる**
+    ── その場で辞書を書き換えても SQLAlchemy は変更を検知せず、同じ
+    UnitOfWork の中では正しく見えて次のトランザクションで消える。
+    """
+    service = a_service(database)
+    result = service.accept(
+        tenant_id=TENANT,
+        task_version_id=TASK_VERSION,
+        learner_id=LEARNER,
+        subject_profile="cs_lang_c_intro",
+        files=code(),
+    )
+    (artifact,) = result.submission.artifacts
+    purged_at = NOW + timedelta(days=183)
+
+    with database.unit_of_work() as uow:
+        marked = uow.submissions.mark_artifacts_purged(
+            [(result.submission.id, artifact.id)], purged_at=purged_at
+        )
+        uow.commit()
+    assert marked == 1
+
+    with database.unit_of_work() as uow:
+        loaded = uow.submissions.get(result.submission.id)
+    assert loaded is not None
+    (after,) = loaded.artifacts
+    assert after.purged_at == purged_at
+    # 行は残る ── その採点が何を見て付いたかは読めるまま。
+    assert after.storage_key == artifact.storage_key
+    assert after.content_hash == artifact.content_hash
+
+
+def test_purging_a_video_twice_keeps_the_first_time(database: Database) -> None:
+    service = a_service(database)
+    result = service.accept(
+        tenant_id=TENANT,
+        task_version_id=TASK_VERSION,
+        learner_id=LEARNER,
+        subject_profile="cs_lang_c_intro",
+        files=code(),
+    )
+    (artifact,) = result.submission.artifacts
+    first_time = NOW + timedelta(days=183)
+    with database.unit_of_work() as uow:
+        uow.submissions.mark_artifacts_purged(
+            [(result.submission.id, artifact.id)], purged_at=first_time
+        )
+        uow.commit()
+
+    with database.unit_of_work() as uow:
+        marked = uow.submissions.mark_artifacts_purged(
+            [(result.submission.id, artifact.id)], purged_at=NOW + timedelta(days=365)
+        )
+        uow.commit()
+
+    assert marked == 0
+    with database.unit_of_work() as uow:
+        loaded = uow.submissions.get(result.submission.id)
+    assert loaded is not None
+    assert loaded.artifacts[0].purged_at == first_time
+
+
 # --------------------------------------------------------------------------
 # 課題 — 公開後は不変（P8）
 # --------------------------------------------------------------------------

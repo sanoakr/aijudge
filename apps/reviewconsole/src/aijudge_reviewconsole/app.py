@@ -52,6 +52,7 @@ from aijudge_core import (
     DIVISIONS,
     HUMAN_SCORED,
     MIN_JUSTIFICATION_LENGTH,
+    PURGED_MESSAGE,
     ArtifactKind,
     BlindMark,
     Course,
@@ -215,6 +216,8 @@ TEMPLATES.env.globals["HUMAN_SCORED"] = HUMAN_SCORED
 # デモコースの帯を出すのに使う（#194）。環境変数を読むだけの純関数で、
 # DB は引かない ── ADR 0017 で引いた線の内側である。
 TEMPLATES.env.globals["is_demo_course"] = _is_demo_course
+# 学習者側と同じ文面（ADR 0020）。
+TEMPLATES.env.globals["purged_message"] = lambda: PURGED_MESSAGE
 # 利用ガイド（#327）。**索引へ送る** ── この画面は TA と教員の両方が使い、
 # どちらの頁を読むべきかは画面の側からは決められない。
 TEMPLATES.env.globals["guide_url"] = webui.guide_url
@@ -425,6 +428,10 @@ class Console:
                 "is_image": artifact.kind is ArtifactKind.IMAGE,
                 "is_pdf": artifact.kind is ArtifactKind.PDF,
                 "is_video": artifact.kind is ArtifactKind.VIDEO,
+                # 保存期間を過ぎて消した動画（ADR 0020）。**教員にも同じ事実を
+                # 出す。** 学生と違うことを言われると、どちらが本当か確かめる
+                # ことになる（デモの帯と同じ理由）。
+                "is_purged": artifact.is_purged,
             }
             for artifact in submission.gradable_artifacts
         )
@@ -1207,6 +1214,9 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
         artifact = next((a for a in context.submission.artifacts if str(a.id) == artifact_id), None)
         if artifact is None:
             raise HTTPException(status_code=404, detail="提出物が見つかりません")
+        if artifact.is_purged:
+            # 学習者側と同じ文面・同じ状態コード（ADR 0020）。
+            raise HTTPException(status_code=410, detail=PURGED_MESSAGE)
         if artifact.kind is ArtifactKind.VIDEO:
             return _serve_video(console, request, artifact, artifact_id)
         try:

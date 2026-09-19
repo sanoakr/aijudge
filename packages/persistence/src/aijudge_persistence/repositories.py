@@ -44,6 +44,7 @@ from aijudge_core import (
 )
 from aijudge_core.events import EVENT_TYPES, DomainEvent
 from aijudge_core.ids import (
+    ArtifactId,
     CourseId,
     GradingJobId,
     GradingRunId,
@@ -419,6 +420,44 @@ class SqlSubmissionRepository:
             self._session.execute(delete(table).where(column.in_(keys)))
         self._session.execute(delete(SubmissionRow).where(SubmissionRow.id.in_(keys)))
         self._session.flush()
+
+    def mark_artifacts_purged(
+        self, artifacts: Sequence[tuple[SubmissionId, ArtifactId]], *, purged_at: datetime
+    ) -> int:
+        """保存期間を過ぎて消した成果物に印を付ける（ADR 0020）。
+
+        **`save` を通さない。** あちらが守るのは提出の中身の不変性で、ここが
+        書くのは保管の事実である。通せば `ImmutabilityViolation` になる ──
+        提出済みの提出にしか起きない操作なので、必ずそうなる。
+
+        文書は**丸ごと入れ替える**。`document` は JSON の列で、入れ子の辞書を
+        その場で書き換えても SQLAlchemy は変更を検知しない（`JsonType` に
+        変更追跡は付いていない）。読んで、模型に通して、書き戻す。
+        """
+        wanted: dict[str, set[str]] = {}
+        for submission_id, artifact_id in artifacts:
+            wanted.setdefault(str(submission_id), set()).add(str(artifact_id))
+        if not wanted:
+            return 0
+        marked = 0
+        for key, artifact_ids in wanted.items():
+            row = self._session.get(SubmissionRow, key)
+            if row is None:
+                continue
+            submission = Submission.model_validate(row.document)
+            kept = []
+            changed = False
+            for artifact in submission.artifacts:
+                if str(artifact.id) in artifact_ids and artifact.purged_at is None:
+                    kept.append(artifact.model_copy(update={"purged_at": purged_at}))
+                    changed = True
+                    marked += 1
+                else:
+                    kept.append(artifact)
+            if changed:
+                row.document = _dump(submission.model_copy(update={"artifacts": tuple(kept)}))
+        self._session.flush()
+        return marked
 
 
 def _final_ratio(session: Session, run: GradingRun, review: HumanReview | None) -> float | None:

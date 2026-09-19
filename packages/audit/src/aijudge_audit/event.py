@@ -77,6 +77,10 @@ class AuditAction(StrEnum):
     # 締切（`TASK_UPDATED`）と同じく誰がいつ動かしたかを残す。
     CAMPUS_NETWORKS_UPDATED = "campus_networks.updated"
     PROFILE_DUPLICATED = "profile.duplicated"
+    # -- 保管 --
+    # 保存期間を過ぎた動画の消去（ADR 0020）。**成績には現れない操作だが、
+    # 学習者の提出物が消える**ので、いつ何件消えたかは残す。
+    VIDEO_PURGED = "video.purged"
 
 
 # `detail` に入れてよい大きさの上限。差分の前後の値を持つための欄であって、

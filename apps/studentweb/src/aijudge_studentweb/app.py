@@ -35,6 +35,7 @@ import aijudge_webui as webui
 from aijudge_authoring import images, render_statement
 from aijudge_core import (
     MIN_JUSTIFICATION_LENGTH,
+    PURGED_MESSAGE,
     STREAMED_SUFFIXES,
     ArtifactKind,
     CampusAccess,
@@ -171,6 +172,9 @@ TEMPLATES.env.filters["local"] = webui.local_filter
 TEMPLATES.env.globals["copyright_notice"] = _read_copyright_notice()
 # デモコースの帯を出すのに使う（#194）。環境変数を読むだけの純関数。
 TEMPLATES.env.globals["is_demo_course"] = _is_demo_course
+# 消した動画の文面（ADR 0020）。**両アプリで同じ値を使う**ので、テンプレートに
+# 文字列を直接書かない ── 片方だけ直る形にしない。
+TEMPLATES.env.globals["purged_message"] = lambda: PURGED_MESSAGE
 # 利用ガイド（#327）。**学生向けの頁へ直に送る** ── 索引に落とすと、学生は
 # TA 向け・教員向けと並んだ一覧から自分の頁を選ぶことになる。
 TEMPLATES.env.globals["guide_url"] = lambda: webui.guide_url("student")
@@ -1095,6 +1099,11 @@ def create_app(app_state: StudentApp) -> FastAPI:
         artifact = next((a for a in loaded.submission.artifacts if str(a.id) == artifact_id), None)
         if artifact is None:
             raise HTTPException(status_code=404, detail="提出物が見つかりません")
+        if artifact.is_purged:
+            # **404 にしない。** 消去は運用の結果であって不具合ではない
+            # （ADR 0020）。同じ顔で出すと、学習者は区別できず問い合わせ先も
+            # 違う。410 は「あったが、もう無い」である。
+            raise HTTPException(status_code=410, detail=PURGED_MESSAGE)
         if artifact.kind is ArtifactKind.VIDEO:
             return _serve_video(app_state, request, artifact, artifact_id)
         try:
@@ -1723,6 +1732,9 @@ def _submitted_files(submission: Submission) -> tuple[dict[str, object], ...]:
             "is_image": artifact.kind is ArtifactKind.IMAGE,
             "is_pdf": artifact.kind is ArtifactKind.PDF,
             "is_video": artifact.kind is ArtifactKind.VIDEO,
+            # 保存期間を過ぎて実体を消したもの（ADR 0020）。**画面で言う。**
+            # 出し分けずに埋め込むと、壊れた再生器が出るだけで理由が出ない。
+            "is_purged": artifact.is_purged,
             "byte_size": artifact.byte_size,
         }
         for artifact in submission.gradable_artifacts
