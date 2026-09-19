@@ -31,10 +31,16 @@ from .types import (
     EmbeddingRequest,
     LlmError,
     LlmRequest,
+    OutputTruncated,
     PolicyViolation,
     StructuredOutputError,
     Usage,
 )
+
+#: 出力が上限に達して切れたことを表す終了理由。ollama も OpenAI 互換も
+#: この名前を使う。**知らない名前は「切れていない」として扱う** ── 知らない
+#: 理由で採点を止めるより、スキーマ検証に落とした方が安全側である。
+TRUNCATED_FINISH_REASONS = frozenset({"length"})
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -240,6 +246,16 @@ class LlmGateway:
             prompt_tokens += response.usage.prompt_tokens
             completion_tokens += response.usage.completion_tokens
             duration_ms += response.usage.duration_ms
+
+            if response.finish_reason in TRUNCATED_FINISH_REASONS:
+                # **やり直さない。** 同じ予算では同じところで切れる。壊れた
+                # 本文を会話に足すとプロンプトが伸び、次はより早く切れる
+                # （`OutputTruncated` の説明）。
+                raise OutputTruncated(
+                    f"{self._provider.name}/{model} hit its output budget of "
+                    f"{max_tokens} tokens before finishing; "
+                    f"the answer is incomplete, not malformed"
+                )
 
             try:
                 value = schema.model_validate_json(extract_json(response.text))

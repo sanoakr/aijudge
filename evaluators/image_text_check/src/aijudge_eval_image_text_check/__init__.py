@@ -399,7 +399,27 @@ class ImageTextCheck:
                 samples=samples,
                 key="transcribed",
                 timeout_seconds=request.timeout_seconds,
-                max_tokens=1200,
+                # **上限を高めに取る。ローカルモデルなので費用はかからない。**
+                #
+                # 実測（slab-llm・qwen3-vl:8b・2026-09-19）: 上限は目標では
+                # ないので、正常に終わる呼び出しの時間は上限に依存しない
+                # ── 1,200 / 4,000 / 8,000 / 16,000 のいずれでも同じ 111
+                # トークンを 2.8 秒で返した。
+                #
+                # 代償が出るのは 1 か所だけで、モデルが縮退ループに入って
+                # 上限まで生成しきるときである。生成速度は 35〜40 tok/s
+                # なので、**上限 N トークン ≒ 最悪 N ÷ 37 秒**。
+                #
+                #   1,200 →  32 秒   4,000 → 108 秒   8,000 → 225 秒
+                #
+                # 4,000 にしてあるのは、観点ごとに 3 サンプル引くため
+                # （科目プロファイルの `timeout_seconds` は 1 呼び出しあたり
+                # 120 秒）。8,000 にすると 1 回でその予算を超える。
+                #
+                # **切れたら諦める**（`OutputTruncated`）。この上限で足りない
+                # 画像が出てきたら、上限を上げるのではなく画像を分割すること
+                # ── 上限を上げても、抜けないループは上限まで回るだけである。
+                max_tokens=4000,
                 images=(base64.b64encode(payload).decode(),),
                 statement=request.task_version.statement,
                 fields=describe_fields(specs),

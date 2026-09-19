@@ -12,6 +12,7 @@ from aijudge_llm_gateway import (
     CapabilityMismatch,
     DataClass,
     LlmGateway,
+    OutputTruncated,
     PolicyViolation,
     PromptTemplate,
     ProviderCapabilities,
@@ -289,3 +290,48 @@ def test_no_images_means_no_vision_requirement() -> None:
         PROMPT, Verdict, model="m", data_class=DataClass.PERSONAL, thing="code"
     )
     assert result.value.level == 0
+
+
+# --------------------------------------------------------------------------
+# 出力が切れたとき — 同じ予算で言い直させても同じところで切れる
+# --------------------------------------------------------------------------
+
+
+def test_a_truncated_answer_is_not_treated_as_a_malformed_one() -> None:
+    """**予算切れは形の誤りではない。**
+
+    実測（2026-09-19）: 画像の書き起こしが縮退ループに入り、上限まで
+    生成して壊れた JSON が返った。これを形の誤りとして扱うと、Gateway は
+    3,666 文字の壊れた本文を会話に足してから直せと言う ── プロンプトが
+    伸びるので次はより早く切れる。3 回とも失敗する。
+    """
+    provider = ScriptedProvider(['{"level": 2, "rationale": "切れ'], finish_reason="length")
+    with pytest.raises(OutputTruncated):
+        LlmGateway(provider).complete_structured(
+            PROMPT, Verdict, model="m", data_class=DataClass.PERSONAL, thing="code"
+        )
+
+
+def test_a_truncated_answer_is_not_retried() -> None:
+    """やり直しても同じところで切れる。計算資源を 3 倍捨てない。"""
+    provider = ScriptedProvider(['{"level": 2, "rationale": "切れ'] * 3, finish_reason="length")
+    with pytest.raises(OutputTruncated):
+        LlmGateway(provider).complete_structured(
+            PROMPT, Verdict, model="m", data_class=DataClass.PERSONAL, thing="code"
+        )
+    assert len(provider.calls) == 1, "切れた応答をやり直している"
+
+
+def test_truncation_is_told_apart_from_a_schema_failure() -> None:
+    """評価器が理由を書き分けられること。直し方が違う（予算 / 文面）。"""
+    assert not issubclass(OutputTruncated, StructuredOutputError)
+    assert not issubclass(StructuredOutputError, OutputTruncated)
+
+
+def test_an_unknown_finish_reason_does_not_stop_the_grading() -> None:
+    """知らない終了理由で採点を止めない。**安全側はスキーマ検証に落とすこと。**"""
+    provider = ScriptedProvider(['{"level": 1, "rationale": "ok"}'], finish_reason="stop")
+    result = LlmGateway(provider).complete_structured(
+        PROMPT, Verdict, model="m", data_class=DataClass.PERSONAL, thing="code"
+    )
+    assert result.value.level == 1

@@ -315,8 +315,12 @@ class ScriptedProvider:
         local: bool = True,
         constrained_decoding: bool = False,
         vision: bool = False,
+        finish_reason: str | None = None,
     ) -> None:
         self.name = name
+        # 応答の終了理由。**切れた応答を模すために要る**（`"length"`）。
+        # 既定は None ── 正常終了を装って余計な分岐を踏ませない。
+        self._finish_reason = finish_reason
         # **vision は既定で False。** 画像を渡す試験は明示的に有効にさせる
         # ── 既定で True にすると、画像を読めない相手に渡す設定ミスを
         # 落とすテストが書けなくなる。
@@ -349,4 +353,5 @@ class ScriptedProvider:
             text=self._responses.pop(0),
             model=request.model,
             usage=Usage(duration_ms=1),
+            finish_reason=self._finish_reason,
         )
