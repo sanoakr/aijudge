@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from aijudge_core import EvaluatorKind, ReviewPolicy
 
@@ -19,7 +19,19 @@ from .registry import EvaluatorRegistry
 
 
 class InputPolicy(BaseModel):
-    """提出の受け付け方。手書き画像を許すかどうかはここで決まる。"""
+    """提出の受け付け方。
+
+    `transcription` が**この科目の抽出器**（`aijudge.extractors`）。提出物から
+    採点が読む本文を取り出す手段で、対象が PDF でも画像でも同じ枠に入る
+    （`aijudge_core.extraction`）。
+
+        transcription: document_text   PDF / DOCX → 本文
+        transcription: image_text      画像 → 本文
+
+    **旧 `normalizers:` はここに統合した。** 名前が 2 つあったのは、変換が
+    採点パイプラインの途中にあった頃の名残で、同じ仕事が「変換」と「書き
+    起こし」の 2 語で呼ばれていた（ADR 0022）。
+    """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -53,6 +65,38 @@ class SubjectProfile(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_the_old_normalizers_key(cls, data: object) -> object:
+        """旧 `normalizers:` を `input.transcription` として読む。
+
+        **運用のプロファイルはリポジトリの外にある**（`AIJUDGE_PROFILES_DIR`）。
+        配備はそれを上書きしないので、古い書き方のまま置かれている。
+        `extra="forbid"` のまま鍵を消すと、**配備した瞬間に全科目の読み込みが
+        失敗して採点が止まる** ── 新しい名前に揃えるのはこちらの都合であって、
+        運用中のファイルがそれに合わせて書き換わる保証はどこにも無い。
+
+        1 つだけ拾う。旧形式は配列だったが、実際に宣言されていたのは
+        多くて 1 つで、抽出は提出物 1 件につき 1 回である。2 つ以上あれば
+        順序に意味があったことになるので、**黙って捨てずに落とす。**
+        """
+        if not isinstance(data, dict) or "normalizers" not in data:
+            return data
+        data = dict(data)
+        declared = data.pop("normalizers") or []
+        if isinstance(declared, str):
+            declared = [declared]
+        if len(declared) > 1:
+            raise ValueError(
+                f"profile {data.get('name')!r} declares several normalizers "
+                f"({declared}); name one extractor in input.transcription instead"
+            )
+        if declared:
+            given = dict(data.get("input") or {})
+            given.setdefault("transcription", declared[0])
+            data["input"] = given
+        return data
+
     name: str = Field(min_length=1)
     description: str | None = None
     # この科目が使う KC の名前空間（分野）。**教員はここを増やせない。**
@@ -65,7 +109,6 @@ class SubjectProfile(BaseModel):
     # よい（数値計算のように分野をまたぐ科目は実在する）。
     kc_namespaces: tuple[str, ...] = ()
     input: InputPolicy = InputPolicy()
-    normalizers: tuple[str, ...] = ()
     deterministic: tuple[str, ...] = ()
     ai_evaluators: tuple[str, ...] = ()
     aggregation: Literal["weighted_sum"] = "weighted_sum"

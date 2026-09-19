@@ -226,12 +226,47 @@ class TaskVersion(BaseModel):
     q_matrix: tuple[QMatrixEntry, ...] = ()
     max_score: float = Field(gt=0.0)
     allow_handwriting: bool = False
+    # 書き起こしを**学習者に確認させるか**（ADR 0018: 採点のされ方は課題が決める）。
+    #
+    # **既定は False。** 確認を求めるのは、学習者が直せるもの ── 手書き答案を
+    # 撮って出す流れ（Phase 6）である。そこでは学習者が確定させた時点で内容の
+    # 責任が移り、「OCR が間違えたせいで減点された」という異議の構造が消える。
+    #
+    # 認定証の画像のように**学習者が直しようのないもの**では求めない。出しても
+    # 押させるだけの儀式になり、しかも「確認した」という記録だけが残って
+    # 責任の所在を偽る。
+    #
+    # **True にする経路はまだ無い**（確認画面が未実装）。画面には出すが変更
+    # させない ── 値の意味と置き場所を先に決めておかないと、画面を作る日に
+    # 課題の版を作り直すことになる。
+    confirm_transcription: bool = False
     # この版を作った `TaskSpec.key`。**訂正のときに要る** ── ID は鍵から
     # 導いてあり（`derived_id`）、鍵が無いと次の版の ID も観点の ID も
     # 作れない。古い版には入っていないので None を許す。
     source_key: str | None = None
     provenance: Provenance
     created_at: datetime
+
+    @model_validator(mode="after")
+    def _check_transcription_confirmation(self) -> Self:
+        """**確認画面が無いうちは True を受け付けない。**
+
+        画面で灰色にしただけでは境界にならない（#146 の教訓 ── 参照されて
+        いるプロファイルを編集できないようにした画面と同じで、**保存の側でも
+        checks を通す**）。ここで塞ぐのは、課題を作る経路が 3 つあるため
+        （`course apply`・教員コンソール・取り込み）で、画面だけを直しても
+        残り 2 つが素通りする。
+
+        True で保存できてしまうと、その課題の提出は確認待ちのまま進めず、
+        **誰も採点できない提出が溜まる。**
+        """
+        if self.confirm_transcription:
+            raise ValueError(
+                "confirm_transcription is not supported yet: "
+                "the learner-facing confirmation screen does not exist, "
+                "so submissions would wait for a confirmation that cannot happen"
+            )
+        return self
 
     @model_validator(mode="after")
     def _check_weights(self) -> Self:

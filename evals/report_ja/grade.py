@@ -45,7 +45,7 @@ from aijudge_core.ids import (
     TaskVersionId,
     UserId,
 )
-from aijudge_grading import GradingPipeline, SubjectProfile, default_normalizers, default_registry
+from aijudge_grading import GradingPipeline, SubjectProfile, default_extractors, default_registry
 from aijudge_grading.profile import InputPolicy, MeasurementPolicy
 
 
@@ -98,8 +98,7 @@ def build_profile(samples: int) -> SubjectProfile:
     return SubjectProfile(
         name="report_ja",
         description="実験レポート（教員の採点表に合わせたルーブリック）",
-        input=InputPolicy(allow_handwriting=False),
-        normalizers=("document_text",),
+        input=InputPolicy(allow_handwriting=False, transcription="document_text"),
         # **どの決定的評価器を使うかはルーブリックが決める**（rubric.py 参照）。
         deterministic=rubric.DETERMINISTIC,
         # **AI 評価器は観点の指名から決める**（#302）。書き写すと、観点が
@@ -202,7 +201,7 @@ def main() -> int:
 
     task_version = build_task_version()
     pipeline = GradingPipeline(
-        default_registry(), build_profile(args.samples), default_normalizers()
+        default_registry(), build_profile(args.samples), default_extractors()
     )
 
     started = time.monotonic()

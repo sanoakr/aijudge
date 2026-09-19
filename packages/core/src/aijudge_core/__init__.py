@@ -26,6 +26,10 @@ from .events import (
     SubmissionCreated,
     TaskPublished,
 )
+from .extraction import (
+    Extraction,
+    Extractor,
+)
 from .finalization import (
     AUTOMATIC_JUSTIFICATION,
     Finalization,
@@ -183,6 +187,8 @@ __all__ = [
     "EvaluatorResult",
     "EvaluatorStatus",
     "Evidence",
+    "Extraction",
+    "Extractor",
     "FinalScore",
     "Finalization",
     "FinalizationSource",

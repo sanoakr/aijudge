@@ -25,15 +25,22 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from .provider import EmbeddingProvider, Provider
 from .types import (
+    CapabilityMismatch,
     ChatMessage,
     DataClass,
     EmbeddingRequest,
     LlmError,
     LlmRequest,
+    OutputTruncated,
     PolicyViolation,
     StructuredOutputError,
     Usage,
 )
+
+#: 出力が上限に達して切れたことを表す終了理由。ollama も OpenAI 互換も
+#: この名前を使う。**知らない名前は「切れていない」として扱う** ── 知らない
+#: 理由で採点を止めるより、スキーマ検証に落とした方が安全側である。
+TRUNCATED_FINISH_REASONS = frozenset({"length"})
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -151,6 +158,21 @@ class LlmGateway:
                 f"{self._provider.name!r}; see design principle P7"
             )
 
+    def _check_vision(self, images: tuple[str, ...]) -> None:
+        """画像を読めない相手に画像を渡そうとしていないか。
+
+        **呼ぶ前に落とす。** 渡してしまうと、モデルは画像を無視して本文だけで
+        答えを作る ── 応答は返り、スキーマにも合い、内容だけが根拠のない
+        作り話になる。運用機の主系は `gemma4:e4b`（vision なし）なので、
+        画像を使う評価器の設定を間違えるとこれが起きる。
+        """
+        if images and not self._provider.capabilities.vision:
+            raise CapabilityMismatch(
+                f"provider {self._provider.name!r} cannot read images; "
+                f"point the image path at a vision model "
+                f"(AIJUDGE_LLM_VISION_BASE_URL / AIJUDGE_LLM_VISION_MODEL)"
+            )
+
     def embed(
         self,
         texts: tuple[str, ...],
@@ -190,12 +212,22 @@ class LlmGateway:
         temperature: float = 0.0,
         max_tokens: int = 1024,
         timeout_seconds: float = 120.0,
+        images: tuple[str, ...] = (),
         **values: object,
     ) -> StructuredResult[TModel]:
-        """スキーマに合う応答を得るまで、上限回数まで再試行する。"""
+        """スキーマに合う応答を得るまで、上限回数まで再試行する。
+
+        `images` は base64 の PNG / JPEG。**利用者の発言に付く**（プロンプト
+        テンプレートは文面だけを持ち、画像を知らない）。再試行で会話が伸びても
+        画像は最初の発言に付いたままなので、送り直しにはならない。
+        """
         self._check_policy(data_class)
+        self._check_vision(images)
 
         messages = list(prompt.render(**values))
+        if images:
+            # テンプレートが作る最後の発言＝利用者の発言に添える。
+            messages[-1] = messages[-1].model_copy(update={"images": images})
         json_schema = schema.model_json_schema()
         prompt_tokens = completion_tokens = duration_ms = 0
         last_error = ""
@@ -214,6 +246,16 @@ class LlmGateway:
             prompt_tokens += response.usage.prompt_tokens
             completion_tokens += response.usage.completion_tokens
             duration_ms += response.usage.duration_ms
+
+            if response.finish_reason in TRUNCATED_FINISH_REASONS:
+                # **やり直さない。** 同じ予算では同じところで切れる。壊れた
+                # 本文を会話に足すとプロンプトが伸び、次はより早く切れる
+                # （`OutputTruncated` の説明）。
+                raise OutputTruncated(
+                    f"{self._provider.name}/{model} hit its output budget of "
+                    f"{max_tokens} tokens before finishing; "
+                    f"the answer is incomplete, not malformed"
+                )
 
             try:
                 value = schema.model_validate_json(extract_json(response.text))

@@ -23,6 +23,7 @@ from .provider import (
     ScriptedProvider,
 )
 from .types import (
+    CapabilityMismatch,
     ChatMessage,
     DataClass,
     EmbeddingRequest,
@@ -30,6 +31,7 @@ from .types import (
     LlmError,
     LlmRequest,
     LlmResponse,
+    OutputTruncated,
     PolicyViolation,
     ProviderCapabilities,
     StructuredOutputError,
@@ -46,8 +48,17 @@ DEFAULT_BASE_URL = "http://localhost:11434"
 # 構造化出力が安定しなかった。より大きいモデルが常に良いとは限らない。
 DEFAULT_MODEL = "gemma4:e4b"
 
+# 画像を読むモデル。**主系と同じとは限らない。** 運用機の主系は
+# `gemma4:e4b` で vision を持たないため、画像を使う評価器だけを別のホスト・
+# 別のモデルへ回せるようにしてある。未設定なら通常の経路をそのまま使う
+# （繋がらないより、設定が 1 か所で済む方が運用しやすい。画像を読めない
+# 相手に渡そうとすれば Gateway が `CapabilityMismatch` で断る）。
+DEFAULT_VISION_MODEL = "qwen3-vl:8b"
+
 ENV_BASE_URL = "AIJUDGE_LLM_BASE_URL"
 ENV_MODEL = "AIJUDGE_LLM_MODEL"
+ENV_VISION_BASE_URL = "AIJUDGE_LLM_VISION_BASE_URL"
+ENV_VISION_MODEL = "AIJUDGE_LLM_VISION_MODEL"
 # 未設定なら平常運転（フォールバックなし）。プライマリが落ちている間だけ
 # ここが指すホストに切り替える。**学外を指してはならない**（P7）。
 ENV_FALLBACK_BASE_URL = "AIJUDGE_LLM_FALLBACK_BASE_URL"
@@ -71,12 +82,41 @@ def default_gateway() -> LlmGateway:
     return LlmGateway(FallbackProvider(primary, secondary))
 
 
+def default_vision_model() -> str:
+    """画像を読むモデル。未設定なら `DEFAULT_VISION_MODEL`。
+
+    **通常のモデル設定（`AIJUDGE_LLM_MODEL`）へは落とさない。** 落とすと、
+    vision を持たないモデルが既定で画像を受け取ることになる ── 断られるなら
+    まだよいが、プロバイダによっては画像を黙って捨てて本文だけで答える。
+    """
+    return os.environ.get(ENV_VISION_MODEL, DEFAULT_VISION_MODEL)
+
+
+def default_vision_gateway() -> LlmGateway:
+    """画像を渡す呼び出し用のゲートウェイ。
+
+    `AIJUDGE_LLM_VISION_BASE_URL` があればそのホストだけを見る。**フォール
+    バックは持たない** ── 主系・従系の両方に vision モデルがある保証は無く、
+    落ちている間の代替が「画像を読めない相手」では、断られるか（よい方）
+    根拠のない答えが返る（悪い方）。読めないときは採点せず人へ回す方が
+    この製品の建て付けに合う（P5）。
+    """
+    vision_url = os.environ.get(ENV_VISION_BASE_URL)
+    if not vision_url:
+        return default_gateway()
+    return LlmGateway(OllamaProvider(vision_url, name="vision"))
+
+
 __all__ = [
     "DEFAULT_BASE_URL",
     "DEFAULT_MODEL",
+    "DEFAULT_VISION_MODEL",
     "ENV_BASE_URL",
     "ENV_FALLBACK_BASE_URL",
     "ENV_MODEL",
+    "ENV_VISION_BASE_URL",
+    "ENV_VISION_MODEL",
+    "CapabilityMismatch",
     "ChatMessage",
     "DataClass",
     "EmbeddingProvider",
@@ -88,6 +128,7 @@ __all__ = [
     "LlmRequest",
     "LlmResponse",
     "OllamaProvider",
+    "OutputTruncated",
     "PolicyViolation",
     "PromptTemplate",
     "Provider",
@@ -98,5 +139,7 @@ __all__ = [
     "Usage",
     "default_gateway",
     "default_model",
+    "default_vision_gateway",
+    "default_vision_model",
     "extract_json",
 ]

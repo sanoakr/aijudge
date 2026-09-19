@@ -15,8 +15,6 @@ from typing import Protocol, runtime_checkable
 from pydantic import BaseModel, ConfigDict, Field
 
 from aijudge_core import (
-    Artifact,
-    ArtifactKind,
     CriterionScore,
     EvaluatorKind,
     EvaluatorStatus,
@@ -43,6 +41,19 @@ class EvaluationRequest(BaseModel):
     artifact_contents: dict[ArtifactId, bytes] = Field(default_factory=dict)
     # AI 評価器はルーブリック観点 1 つにつき 1 回呼ばれる。決定的評価器では None。
     criterion: RubricCriterion | None = None
+    # 提出者を**人が識別する記号**（学籍番号・ログイン ID）。`Submission` が
+    # 持つのは内部 ID だけなので、これが要る観点は他に手が無い。
+    #
+    # **要るのは「提出物に本人の学籍番号が書いてあるか」を見る観点である。**
+    # 実例: paiza の認定証のニックネームに学籍番号を入れさせる課題
+    # （`text_pattern_check`）。これは提出物の中身と提出者の対応を見る採点で
+    # あって、締切や遅延のような運用値ではない ── だから ADR 0013 が
+    # `due_at` を締め出したのとは扱いが違う。
+    #
+    # **解決するのは合成ルートである。** パイプラインは利用者表を引かない
+    # （`aggregation` と同じ形）。埋まっていなければ、それを要る評価器は
+    # 「満たした」と言わない ── 分からないまま通すと誰の認定証でも通る。
+    learner_reference: str | None = None
     test_cases: tuple[TestCase, ...] = ()
     prior_results: tuple[CriterionScore, ...] = ()
     timeout_seconds: float = Field(default=10.0, gt=0.0)
@@ -94,8 +105,9 @@ class Evaluator(Protocol):
 
 
 #: 検証データの形。画面はこれで編集の仕方を選ぶ（#302）。
-#: `io` は入力と期待出力の組、`items` は項目の並び。
-TEST_CASE_SHAPES = ("io", "items")
+#: `io` は入力と期待出力の組、`items` は項目の並び、`patterns` は
+#: 本文と照合する文字列の並び。
+TEST_CASE_SHAPES = ("io", "items", "patterns")
 
 
 def test_case_shape(evaluator: object) -> str | None:
@@ -126,28 +138,9 @@ def reads_test_cases(evaluator: object) -> bool:
     return bool(getattr(evaluator, "uses_test_cases", False))
 
 
-@runtime_checkable
-class Normalizer(Protocol):
-    """提出物を評価器が読める形に直すプラグイン（設計方針 §4 の step 1）。
-
-    評価器の前に走る。**ここで変換しておかないと、同じ変換を評価器ごとに
-    書くことになる** ── レポート課題では構造チェッカーと AI 評価器の両方が
-    同じ本文を要る。PDF を 2 回開くのは無駄なだけでなく、2 つの実装が
-    食い違えば「構造は満たすのに AI には空に見える」が起きる。
-
-    entry point のグループは `aijudge.normalizers`。科目プロファイルの
-    `normalizers` が名前で指名する（評価器と同じ仕組み、ADR 0002）。
-
-    **失敗は例外にしない。** 1 件の壊れた PDF で全員の採点を止めない。
-    変換できなければ元の内容をそのまま返し、下流が「読めない」と判定する。
-    """
-
-    normalizer_id: str
-
-    def applies_to(self, kind: ArtifactKind) -> bool:
-        """この種類の提出物を扱うか。"""
-        ...
-
-    def normalize(self, artifact: Artifact, payload: bytes) -> bytes:
-        """変換後の内容を返す。変換できなければ `payload` をそのまま返す。"""
-        ...
+# 抽出プラグイン（PDF / 画像 → 本文）の契約は **core にある**
+# （`aijudge_core.extraction`）。抽出を走らせるのは受付（S3）で、結果を読むのは
+# 採点（S5）── 2 つのサブシステムが同じ型を見る必要があり、サブシステムどうしは
+# 直接 import しないため（ADR 0001）。ここから再輸出しているのは、採点側の
+# 呼び出し元が 1 か所から取れるようにするためだけである。
+__all_extraction__ = ("Extractor", "Extraction")

@@ -28,7 +28,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 # 本番系。ここに測定用ハーネスへの参照があってはならない。
-PRODUCTION_TREES = ("packages", "evaluators", "normalizers", "apps")
+PRODUCTION_TREES = ("packages", "evaluators", "extractors", "apps")
 
 # `evals` 配下を指す import の書き方。
 FORBIDDEN = (

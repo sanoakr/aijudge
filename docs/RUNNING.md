@@ -391,6 +391,7 @@ JavaScript を切っていると切り替えは出ず、端末の設定に従う
 | `AIJUDGE_CONSOLE_ROOT_PREFIX` | コンソールを接頭辞の下に出す（`/console` など）。逆プロキシで 1 つのホストにまとめるときに使う。**Google の承認済みリダイレクト URI にもこの接頭辞が入る** | 未設定（ルート直下） |
 | `AIJUDGE_ALLOWED_HOSTS` | 受け付ける `Host`（コンマ区切り・#116）。**逆プロキシを前に立てるなら設定する** | `*`（素通し） |
 | `AIJUDGE_LLM_BASE_URL` / `AIJUDGE_LLM_MODEL` | ローカル LLM | — |
+| `AIJUDGE_LLM_VISION_BASE_URL` / `AIJUDGE_LLM_VISION_MODEL` | **画像を読むモデル**（`image_text_check`）。主系が vision を持たないときに、この評価器だけを別ホスト・別モデルへ回す。未設定なら通常の経路をそのまま使う ── そこが画像を読めなければ Gateway が断り、その観点は人へ回る | 未設定 / `qwen3-vl:8b` |
 | `AIJUDGE_FEEDBACK_MODEL` | フィードバック生成のモデル。未設定なら要約に落ちる | — |
 | `AIJUDGE_OIDC_SECRET_KEY` | Google OIDC 設定の `client_secret` を暗号化する鍵（#124）。`Fernet.generate_key()` の値。**Google ログインを使うなら必須**（未設定だと `/manage/oidc-settings` での保存が失敗する） | — |
 | `AIJUDGE_LOG_FORMAT` | 運用ログの形（`json` / `text`）。**運用では `json`** ── 1 行 1 イベントで `jq` で絞れる | `text` |

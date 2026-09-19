@@ -113,6 +113,19 @@ class TranscriptionMeta(BaseModel):
     engine: str = Field(min_length=1)
     model_id: str = Field(min_length=1)
     prompt_version: str | None = None
+    # **この書き起こしは学習者の確認を求めるものだったか。**
+    #
+    # そのときの事実として焼き付ける（`Submission.submitted_as` と同じ理由）
+    # ── 課題の設定を後から引き直すと、設定を変えた瞬間に過去の提出の意味が
+    # 変わる。「確認を求めていなかった」という事実は、その提出のものである。
+    #
+    # **False を「確認済み」の代わりにしてはならない。** 確認したかどうかは
+    # `confirmed_at` / `confirmed_by` が語り、機械が起こしただけのものは
+    # 両方とも空のままである ── 誰も確認していないことを、記録は隠さない。
+    # 手書き答案（Phase 6）はこれを True にして学習者に確認させ、そこで
+    # 内容の責任が学習者へ移る。認定証のように学習者が直しようのないものは
+    # False で、教員が原本を見て判断する余地を残す。
+    confirmation_required: bool = True
     # 領域キー -> 確信度。低確信度の箇所を UI がハイライトするのに使う。
     confidence_map: dict[str, float] = Field(default_factory=dict)
     learner_edited: bool = False
@@ -134,6 +147,16 @@ class TranscriptionMeta(BaseModel):
     @property
     def is_confirmed(self) -> bool:
         return self.confirmed_at is not None
+
+    @property
+    def is_settled(self) -> bool:
+        """採点に使ってよい状態か。
+
+        **「確認済み」とは別の問い。** 確認を求める書き起こしは確認されるまで
+        使えないが、求めないものは起こした時点で使える。`is_confirmed` を
+        そのまま採点の可否に使うと、確認を求めない課題では永久に採点できない。
+        """
+        return self.is_confirmed or not self.confirmation_required
 
 
 class Artifact(BaseModel):
@@ -185,7 +208,7 @@ class Artifact(BaseModel):
         原本画像は採点対象ではないが、図の解釈のために評価器へ併せて渡す。
         """
         if self.role is ArtifactRole.TRANSCRIPTION:
-            return self.transcription is not None and self.transcription.is_confirmed
+            return self.transcription is not None and self.transcription.is_settled
         return self.role is ArtifactRole.ORIGINAL
 
     @property
@@ -242,10 +265,16 @@ class Submission(BaseModel):
                 artifact
                 for artifact in self.artifacts
                 if artifact.role is ArtifactRole.TRANSCRIPTION
-                and not (artifact.transcription and artifact.transcription.is_confirmed)
+                and not (artifact.transcription and artifact.transcription.is_settled)
             ]
             if unconfirmed:
                 # 確認ステップを迂回して提出できる抜け道を型で塞ぐ（PoC-3.5 の合格基準）。
+                #
+                # **塞ぐのは「求めたのに確認していない」だけ**（`is_settled`）。
+                # 確認を求めない書き起こし（`confirmation_required=False`）は
+                # ここを素通りする ── 学習者が直しようのないもの（認定証の
+                # 画像など）に確認画面を出しても、押させるだけの儀式になる。
+                # 確認していない事実は `confirmed_at` が空のまま残る。
                 raise ValueError("every transcription must be confirmed before submitting")
         elif self.submitted_at is not None:
             raise ValueError("submitted_at is only valid in the submitted state")

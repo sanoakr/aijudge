@@ -14,6 +14,7 @@ import urllib.request
 from typing import Protocol, runtime_checkable
 
 from .types import (
+    ChatMessage,
     EmbeddingRequest,
     EmbeddingResponse,
     LlmError,
@@ -76,6 +77,42 @@ def simplify_schema(schema: dict[str, object]) -> dict[str, object]:
     return resolved if isinstance(resolved, dict) else schema
 
 
+def _ollama_message(message: ChatMessage) -> dict[str, object]:
+    """ollama の `/api/chat` が受け取る形にする。
+
+    画像は `images`（base64 の配列）に載せる。**空なら鍵ごと落とす** ──
+    画像を扱わないモデルに `images: []` を送る意味は無く、送れば
+    プロバイダ側の差で弾かれうる。
+    """
+    body: dict[str, object] = {"role": message.role, "content": message.content}
+    if message.images:
+        body["images"] = list(message.images)
+    return body
+
+
+def _text_of(message: dict[str, object]) -> str:
+    """応答本文を取り出す。**`content` が空なら `thinking` を読む。**
+
+    `qwen3-vl:8b` は `format`（JSON スキーマ）を渡すと、答えを `content` では
+    なく `thinking` に入れて `content` を空で返す。`think: false` を指定しても
+    起こり、画像の有無とも無関係である（2026-09-19 の実測。同じホストの
+    `gemma4:e4b` では起きない）。
+
+    `content` だけを読んでいると、応答は返っているのに空文字として扱われ、
+    Gateway が 3 回再試行してすべて失敗する ── 実測で 17 件すべてが
+    そうなった。ここは ADR 0004 が言う「`format` の扱いはランナーごとに
+    違うので信用しない」の続きであり、**プロバイダ側で吸収する**のが筋である
+    （Gateway に漏らすと、ollama の事情が構造化出力の検証に混ざる）。
+    """
+    content = message.get("content")
+    if isinstance(content, str) and content.strip():
+        return content
+    thinking = message.get("thinking")
+    if isinstance(thinking, str):
+        return thinking
+    return ""
+
+
 @runtime_checkable
 class Provider(Protocol):
     name: str
@@ -131,7 +168,7 @@ class OllamaProvider:
     def complete(self, request: LlmRequest) -> LlmResponse:
         body: dict[str, object] = {
             "model": request.model,
-            "messages": [message.model_dump() for message in request.messages],
+            "messages": [_ollama_message(message) for message in request.messages],
             "think": request.thinking,
             "stream": False,
             "options": {
@@ -162,7 +199,7 @@ class OllamaProvider:
         duration_ms = int((time.monotonic() - started) * 1000)
         message = data.get("message") or {}
         return LlmResponse(
-            text=message.get("content", ""),
+            text=_text_of(message),
             model=data.get("model", request.model),
             usage=Usage(
                 prompt_tokens=int(data.get("prompt_eval_count") or 0),
@@ -277,10 +314,18 @@ class ScriptedProvider:
         name: str = "scripted",
         local: bool = True,
         constrained_decoding: bool = False,
+        vision: bool = False,
+        finish_reason: str | None = None,
     ) -> None:
         self.name = name
+        # 応答の終了理由。**切れた応答を模すために要る**（`"length"`）。
+        # 既定は None ── 正常終了を装って余計な分岐を踏ませない。
+        self._finish_reason = finish_reason
+        # **vision は既定で False。** 画像を渡す試験は明示的に有効にさせる
+        # ── 既定で True にすると、画像を読めない相手に渡す設定ミスを
+        # 落とすテストが書けなくなる。
         self.capabilities = ProviderCapabilities(
-            constrained_decoding=constrained_decoding, local=local
+            constrained_decoding=constrained_decoding, local=local, vision=vision
         )
         self._responses = list(responses)
         self.calls: list[LlmRequest] = []
@@ -308,4 +353,5 @@ class ScriptedProvider:
             text=self._responses.pop(0),
             model=request.model,
             usage=Usage(duration_ms=1),
+            finish_reason=self._finish_reason,
         )

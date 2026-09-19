@@ -143,6 +143,7 @@ def cmd_course_apply(args: argparse.Namespace) -> int:
             tenant_id=_tenant(args),
             profiles_dir=args.profiles,
             authored_by=_IMPORTER,
+            revise=args.revise,
         )
     except AdminError as exc:
         print(str(exc), file=sys.stderr)
@@ -837,6 +838,14 @@ def build_parser() -> argparse.ArgumentParser:
     create.set_defaults(func=cmd_course_create)
     apply_ = course.add_parser("apply", help="定義（YAML）から作る（冪等。課題と日程も入る）")
     apply_.add_argument("--file", required=True, help="コースの定義ファイル（course.yaml）")
+    apply_.add_argument(
+        "--revise",
+        action="store_true",
+        help=(
+            "出題済みの課題の内容を直す（版を 1 つ上げる）。"
+            "既存の提出と採点はそのまま ── 新しい版はそれ以降の提出にだけ効く"
+        ),
+    )
     apply_.set_defaults(func=cmd_course_apply)
     course.add_parser("list", help="一覧").set_defaults(func=cmd_course_list)
     # 削除は**課題があっても消えるが、学習者の提出があれば消えない**

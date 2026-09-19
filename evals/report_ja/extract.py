@@ -1,7 +1,7 @@
 """19 件のレポートを本文に直して置く。**採点はしない。**
 
 以降の反復（ルーブリックを直して測り直す）で毎回 PDF を開き直さないための
-下ごしらえ。抽出そのものは normalizers/document_text がやる ── ここで
+下ごしらえ。抽出そのものは extractors/document_text がやる ── ここで
 別の抽出を書くと、採点が見る本文と測定が見る本文がずれる。
 """
 
@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from datetime import UTC, datetime
 
 import rubric
-from aijudge_norm_document_text import DocumentText
+from aijudge_ext_document_text import DocumentText
 
 from aijudge_core import Artifact, ArtifactKind, ArtifactRole
 from aijudge_core.ids import ArtifactId, SubmissionId, new_id
@@ -32,7 +32,7 @@ STUDENT_RE = re.compile(rubric.STUDENT_RE)
 def main() -> int:
     rubric.ensure_dirs()
     graded = rubric.load_human(rubric.HUMAN_CSV)
-    normalizer = DocumentText()
+    extractor = DocumentText()
     index = []
 
     for path in sorted(rubric.SOURCE_DIR.iterdir()):
@@ -53,7 +53,9 @@ def main() -> int:
             byte_size=len(payload),
             created_at=datetime.now(UTC),
         )
-        body = normalizer.normalize(artifact, payload)
+        extraction = extractor.extract(artifact, payload)
+        # 取り出せなければ原本のまま（旧 `normalize` の戻り値と同じ扱い）。
+        body = extraction.text if extraction.succeeded else payload
         try:
             text = body.decode("utf-8")
             readable = True

@@ -580,3 +580,44 @@ def test_an_end_before_the_deadline_is_refused() -> None:
             due_at=due,
             accepts_until=due - timedelta(hours=1),
         )
+
+
+def test_the_transcription_confirmation_cannot_be_turned_on_yet() -> None:
+    """**画面で灰色にしただけでは境界にならない**（#146）。
+
+    課題を作る経路は 3 つある（`course apply`・教員コンソール・取り込み）。
+    画面だけを直しても残り 2 つが素通りするので、型で塞ぐ。True で保存
+    できてしまうと、その課題の提出は確認待ちのまま進めず、誰も採点できない
+    提出が溜まる。
+    """
+    import pytest
+
+    from aijudge_core import Provenance, RubricCriterion, RubricLevel, TaskVersion
+    from aijudge_core.ids import CriterionId, TaskId, TaskVersionId, UserId
+
+    criterion = RubricCriterion(
+        id=CriterionId("crt_" + "1" * 32),
+        code="c",
+        title="t",
+        description="d",
+        weight=1.0,
+        levels=(
+            RubricLevel(level=0, label="x", descriptor="y", score_ratio=0.0),
+            RubricLevel(level=1, label="z", descriptor="w", score_ratio=1.0),
+        ),
+        evaluator_id="__human__",
+    )
+    fields = {
+        "id": TaskVersionId("tsv_" + "2" * 32),
+        "task_id": TaskId("tsk_" + "3" * 32),
+        "version": 1,
+        "subject_profile": "demo_image",
+        "statement": "s",
+        "criteria": (criterion,),
+        "max_score": 100.0,
+        "provenance": Provenance(authored_by=UserId("usr_" + "4" * 32)),
+        "created_at": datetime(2026, 9, 19, tzinfo=UTC),
+    }
+    assert TaskVersion(**fields).confirm_transcription is False
+    with pytest.raises(ValueError, match="confirm_transcription"):
+        TaskVersion(**fields, confirm_transcription=True)

@@ -25,7 +25,6 @@ kc_namespaces: [cs]
 input:
   allow_handwriting: false
 
-normalizers: []
 
 # 決定的評価が先。ここで確定した観点は AI に問い合わせない（設計原則 P3）。
 deterministic:

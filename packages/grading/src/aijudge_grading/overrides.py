@@ -38,7 +38,6 @@ from .registry import EvaluatorRegistry
 ALLOWED_KEYS: tuple[str, ...] = (
     "deterministic",
     "ai_evaluators",
-    "normalizers",
     "timeout_seconds",
     "evaluator_options",
     "measurement",

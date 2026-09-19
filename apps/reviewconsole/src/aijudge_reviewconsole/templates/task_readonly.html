@@ -84,6 +84,25 @@
             の観点は判定できません（担当教員が入れるまで総点は出ません）</span>
           {% else %}<span class="desc">なし ── 正しさの観点は AI が判定し、教員が確定させます</span>{% endif %}
         </td></tr>
+      {# 書き起こしの確認（ADR 0022）。**変更できない。**
+
+         画面に出すのは、値の意味と置き場所を先に決めておくためである
+         ── 確認画面を作る日にこの設定を足すと、その時点で全課題の版を
+         作り直すことになる。**灰色にしただけでは境界にならない**ので
+         （#146）、保存の側でも False 以外を拒む。 #}
+      <tr><td class="fit">書き起こしの確認</td>
+        <td class="grow">
+          <label class="desc" style="display:flex;gap:6px;align-items:center">
+            <input type="checkbox" disabled
+              {{ 'checked' if version and version.confirm_transcription }}
+              style="width:auto">
+            学習者に書き起こしを確認させてから採点する
+          </label>
+          <span class="desc">
+            画像や PDF から起こした本文は、いまは<strong>確認を挟まずに</strong>採点へ回ります。
+            誰も確認していないことは記録に残ります（手書き答案の確認画面は未実装）。
+          </span>
+        </td></tr>
       <tr><td class="fit">締切</td>
         <td class="grow">{% if task.due_at %}{{ task.due_at | local('%Y-%m-%d %H:%M') }}{% else %}<span class="desc">未設定</span>{% endif %}</td></tr>
     </tbody>

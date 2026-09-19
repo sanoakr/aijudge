@@ -1,0 +1,22 @@
+[project]
+name = "aijudge-ext-document-text"
+version = "0.0.1"
+description = "Extractor: turn a submitted PDF or DOCX into the text the graders read."
+requires-python = ">=3.12"
+dependencies = [
+    "aijudge-core",
+    "pypdf>=5.0",
+]
+
+[project.entry-points."aijudge.extractors"]
+document_text = "aijudge_ext_document_text:DocumentText"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/aijudge_ext_document_text"]
+
+[tool.uv.sources]
+aijudge-core = { workspace = true }

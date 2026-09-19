@@ -22,11 +22,11 @@ input:
   # 手書きは扱わない。PDF/DOCX は文字が埋め込まれたものだけで、
   # スキャン画像の書き起こしは Phase 6（学習者が提出前に確認する流れ）。
   allow_handwriting: false
+  # PDF / DOCX から本文を取り出す（受付のときに 1 回・ADR 0022）。
+  transcription: document_text
 
 # **採点の前に本文へ直す**（設計方針 §4 step 1）。しないと AI にバイナリが
 # 渡り、字数や節の判定も成立しない。
-normalizers:
-  - document_text
 
 # 読めば機械的に分かることは決定的側で確定させる（P3）。
 #

@@ -15,10 +15,17 @@ kc_namespaces: [cs]
 
 input:
   allow_handwriting: false
+  # 画像の提出（認定証）から文字を読む（受付のときに 1 回・ADR 0022）。
+  # **書き起こすだけで採点はしない** ── 段階を決めるのは決定的な照合
+  # （`text_pattern_check`）で、そこに LLM は入らない（P3）。
+  transcription: image_text
 
-normalizers: []
 
 deterministic:
+  # 画像提出の課題（認定証）。抽出器が起こした本文と、課題が宣言した文字列を
+  # **決定的に**照合する（ADR 0021・ADR 0022）── LLM は呼ばない。
+  # **観点が名指ししたときだけ動く**ので、プログラムの課題には効かない。
+  - text_pattern_check
   # 標準入出力で完結する課題（ex1–ex3）。
   - code_test_runner
   # クライアント／サーバ課題（ex4 以降）。伴走プロセスを立てる（ADR 0008）。

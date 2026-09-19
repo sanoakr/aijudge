@@ -28,6 +28,9 @@ root_packages =
     aijudge_toolchain
     aijudge_skill
     aijudge_eval_network_test_runner
+    aijudge_eval_text_pattern_check
+    aijudge_ext_document_text
+    aijudge_ext_image_text
     aijudge_telemetry
     aijudge_audit
     aijudge_webui
@@ -178,6 +181,9 @@ source_modules =
     aijudge_eval_code_test_runner
     aijudge_eval_rubric_ai_judge
     aijudge_eval_network_test_runner
+    aijudge_eval_text_pattern_check
+    aijudge_ext_document_text
+    aijudge_ext_image_text
     aijudge_reviewconsole
 forbidden_modules =
     aijudge_analytics
@@ -225,6 +231,9 @@ source_modules =
     aijudge_eval_code_test_runner
     aijudge_eval_rubric_ai_judge
     aijudge_eval_network_test_runner
+    aijudge_eval_text_pattern_check
+    aijudge_ext_document_text
+    aijudge_ext_image_text
 forbidden_modules =
     aijudge_persistence
     sqlalchemy
@@ -299,6 +308,9 @@ forbidden_modules =
     aijudge_eval_code_test_runner
     aijudge_eval_rubric_ai_judge
     aijudge_eval_network_test_runner
+    aijudge_eval_text_pattern_check
+    aijudge_ext_document_text
+    aijudge_ext_image_text
     aijudge_sandbox
 
 ; Evaluator が依存してよいのは core・採点プロトコル・LLM ゲートウェイ・S4 の 4 つ。
@@ -311,6 +323,9 @@ source_modules =
     aijudge_eval_code_test_runner
     aijudge_eval_rubric_ai_judge
     aijudge_eval_network_test_runner
+    aijudge_eval_text_pattern_check
+    aijudge_ext_document_text
+    aijudge_ext_image_text
 forbidden_modules =
     aijudge_authoring
     aijudge_identity
@@ -371,6 +386,9 @@ source_modules =
     aijudge_eval_code_test_runner
     aijudge_eval_rubric_ai_judge
     aijudge_eval_network_test_runner
+    aijudge_eval_text_pattern_check
+    aijudge_ext_document_text
+    aijudge_ext_image_text
 forbidden_modules =
     aijudge_telemetry
 
