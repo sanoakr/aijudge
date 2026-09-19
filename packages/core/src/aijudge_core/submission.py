@@ -157,6 +157,14 @@ class Artifact(BaseModel):
     derived_from: ArtifactId | None = None
     transcription: TranscriptionMeta | None = None
     created_at: datetime
+    # 保存期間を過ぎて**実体を消した**時刻（ADR 0020）。行そのものは残る ──
+    # 消したのはファイルであって、その採点が何を見て付いたかという記録では
+    # ない（P8）。`byte_size` も `content_hash` もそのまま残す。
+    #
+    # **ファイルの有無で判断しない。** ディスクの故障で読めないのと、
+    # 保存期間が過ぎて消したのは別の事実で、学習者に出す文面も問い合わせ先も
+    # 違う。記録が無ければこの 2 つは同じ画面になる。
+    purged_at: datetime | None = None
 
     @model_validator(mode="after")
     def _check_role(self) -> Self:
@@ -179,6 +187,11 @@ class Artifact(BaseModel):
         if self.role is ArtifactRole.TRANSCRIPTION:
             return self.transcription is not None and self.transcription.is_confirmed
         return self.role is ArtifactRole.ORIGINAL
+
+    @property
+    def is_purged(self) -> bool:
+        """保存期間を過ぎて実体が消されたか（ADR 0020）。"""
+        return self.purged_at is not None
 
 
 class Submission(BaseModel):

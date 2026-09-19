@@ -318,6 +318,27 @@ class SubmissionRepository(Protocol):
         """
         ...
 
+    def mark_artifacts_purged(
+        self, artifacts: Sequence[tuple[SubmissionId, ArtifactId]], *, purged_at: datetime
+    ) -> int:
+        """保存期間を過ぎて実体を消した成果物に、その時刻を書く（ADR 0020）。
+
+        **提出は SUBMITTED 以降不変という規則の例外ではない。** 変えるのは
+        提出の内容ではなく、**保管の事実**である ── `storage_key` も
+        `content_hash` も `byte_size` もそのまま残り、その採点が何を見て
+        付いたかは読めるままになる。`save` が不変を守る相手は提出の中身で、
+        ここはそこを触らない。
+
+        **既に印の付いたものは書き換えない。** 二度目の消去で時刻が後ろに
+        ずれると、いつ消したかが分からなくなる。戻り値は実際に印を付けた数。
+
+        提出 ID を一緒に受けるのは、**成果物が提出の JSON の中にいる**ため
+        である（`submissions.document`）。ID だけで受けると、保存実装は
+        JSON を検索することになり、SQLite と PostgreSQL で書き方が割れる。
+        呼び手は提出を辿って成果物に着いているので、組で渡せる。
+        """
+        ...
+
     def remember_idempotency_key(
         self, tenant_id: TenantId, key: str, submission_id: SubmissionId
     ) -> None:

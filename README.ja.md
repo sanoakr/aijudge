@@ -198,6 +198,21 @@ uv run aijudge-admin course apply --file network/2026/course.yaml
 形式は `apps/admin/src/aijudge_admin/course_definition.py` の冒頭と
 `subjects/demo/course.yaml`（お試しコースの定義。同じ形式）にあります。
 
+**動画の提出は課題の締切から 6 ヶ月で消します**（ADR 0020）。起点が提出でも
+成績確定でもなく締切なので、**問題セット単位でまとまって消え**、最も早い回でも
+その学期の疑義より後になります。消えるのはファイルだけで、`Artifact` の行も
+採点結果も残ります ── その採点が何を見て付いたかは読めるままです。消した
+動画を開いた人には、404 ではなく理由が出ます。
+
+締切の無い課題には共通の起点が無いので、**提出から 1 年**で数えます。長く置く
+ぶん、受け付ける大きさは 1 件 256 MiB に絞ってあります（通常は 5 GiB）──
+上限と保存期間は一対です。
+
+```fish
+uv run aijudge-admin video purge            # 下見。何件・何 GB か出す
+uv run aijudge-admin video purge --apply    # 実際に消す
+```
+
 ---
 
 ## いまどこまで動くか

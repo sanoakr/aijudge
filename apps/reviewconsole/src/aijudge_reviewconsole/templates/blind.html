@@ -30,7 +30,10 @@
    中身が見られないと採点そのものができない。 #}
 {% for file in files %}
   <p class="desc" style="margin:0 0 6px">{{ file.filename }}</p>
-  {% if file.is_image %}
+  {# 消した動画は学習者側と同じ文面で出す（ADR 0020）。 #}
+  {% if file.is_purged %}
+  <div class="note">{{ purged_message() }}</div>
+  {% elif file.is_image %}
   <a href="{{ root_prefix() }}/review/{{ submission.id }}/artifacts/{{ file.id }}">
     <img src="{{ root_prefix() }}/review/{{ submission.id }}/artifacts/{{ file.id }}" alt="{{ file.filename }}"
          class="embed"></a>

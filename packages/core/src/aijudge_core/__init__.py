@@ -75,6 +75,13 @@ from .knowledge import (
     parse_kc_key,
 )
 from .network import CampusAccess, campus_access, parse_cidrs
+from .retention import (
+    PURGED_MESSAGE,
+    VIDEO_RETENTION_MONTHS,
+    VIDEO_RETENTION_MONTHS_WITHOUT_DEADLINE,
+    video_retention_expires_at,
+    video_retention_has_expired,
+)
 from .skill import (
     Credential,
     CredentialExport,
@@ -148,10 +155,13 @@ __all__ = [
     "GATE_ZERO",
     "HUMAN_SCORED",
     "MIN_JUSTIFICATION_LENGTH",
+    "PURGED_MESSAGE",
     "SCHEMA_VERSION",
     "STREAMED_SUFFIXES",
     "SUFFIX_GROUPS",
     "SUFFIX_KINDS",
+    "VIDEO_RETENTION_MONTHS",
+    "VIDEO_RETENTION_MONTHS_WITHOUT_DEADLINE",
     "YEARS_OFFERED",
     "Aggregation",
     "Artifact",
@@ -249,4 +259,6 @@ __all__ = [
     "score_withheld",
     "settles_at",
     "term_sort_key",
+    "video_retention_expires_at",
+    "video_retention_has_expired",
 ]

@@ -237,6 +237,24 @@ The format is described at the top of
 `apps/admin/src/aijudge_admin/course_definition.py`; `subjects/demo/course.yaml`
 (the try-it course) is written in it.
 
+**Video submissions are kept for six months after the task's deadline** and are
+then deleted by hand (ADR 0020). The anchor is the deadline, not the submission
+or the finalisation, so a whole unit expires on one day — and even the earliest
+unit of a term expires after that term's appeals window. Deleting removes the
+file only: the `Artifact` row and the grading run stay, so what a grade was
+based on remains readable, and anyone opening a deleted video is told why
+rather than given a 404.
+
+A task without a deadline has no shared anchor, so its videos are counted from
+the submission instead and kept for a year — and, because they are kept longer
+and cannot be cleared unit by unit, such a task accepts at most 256 MiB per
+video rather than 5 GiB. The limit and the window are a pair.
+
+```fish
+uv run aijudge-admin video purge            # a dry run: how many, how many GB
+uv run aijudge-admin video purge --apply    # actually delete
+```
+
 ---
 
 ## Where it stands

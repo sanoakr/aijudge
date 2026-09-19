@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 from aijudge_audit import AuditAction, AuditRecorder
@@ -53,6 +54,7 @@ from .operations import (
 )
 from .roster import RosterError, load_roster, write_credentials
 from .tasks import clear_unit
+from .video_purge import plan_video_purge, purge_videos
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 DEFAULT_TENANT = "ten_" + "0" * 32
@@ -78,6 +80,17 @@ def _artifact_store(args: argparse.Namespace):
     from aijudge_submission import FilesystemArtifactStore
 
     return FilesystemArtifactStore(args.artifacts)
+
+
+def _video_store(args: argparse.Namespace):
+    """動画の置き場所。**提出物とは別のディレクトリである**（`AIJUDGE_VIDEO_DIR`）。
+
+    動画は数 GB になるので別のディスクに置く運用がある ── `--artifacts` で
+    代用すると、消しに行く先が空で「0 件消えました」と言う。
+    """
+    from aijudge_submission import FilesystemArtifactStore
+
+    return FilesystemArtifactStore(args.video_dir)
 
 
 def _tenant(args: argparse.Namespace) -> TenantId:
@@ -334,6 +347,80 @@ def cmd_demo_seed(args: argparse.Namespace) -> int:
     print(f"    set -gx AIJUDGE_DEMO_COURSE {result.course.id}")
     print("知識要素の骨格もまだなら:")
     print("    uv run aijudge-admin kc seed --namespace demo")
+    return 0
+
+
+# --------------------------------------------------------------------------
+# 動画
+# --------------------------------------------------------------------------
+
+
+def _gib(byte_size: int) -> str:
+    return f"{byte_size / 1024 / 1024 / 1024:.2f} GiB"
+
+
+def cmd_video_purge(args: argparse.Namespace) -> int:
+    """保存期間を過ぎた動画を消す（ADR 0020）。**既定は下見。**
+
+    起点は課題の締切で 6 ヶ月。**締切の無い課題は提出から 1 年**で、
+    こちらは提出ごとに期限が決まるので回ごとにまとまらない。
+
+    実際に消すには `--apply` が要る。**cron には載せない**（#194 と同じ
+    判断）── 提出物を消す操作を定期実行すると、本物のコースに向く事故の
+    余地が残る。年に 2 回、人が見て叩けば足りる。
+    """
+    database = _database(args)
+    now = datetime.now(UTC)
+    try:
+        plan = plan_video_purge(
+            database,
+            tenant_id=_tenant(args),
+            now=now,
+            course_id=CourseId(args.course) if args.course else None,
+        )
+    except AdminError as exc:
+        print(str(exc), file=sys.stderr)
+        database.dispose()
+        return 2
+
+    # **規模を先に出す。** 空振りと 300 件の消去が同じ顔で終わらないように。
+    print(f"保存期間を過ぎた動画: {len(plan.candidates)} 件（{_gib(plan.total_bytes)}）")
+    for label, count, byte_size in plan.by_unit():
+        print(f"  {label:32s} {count:4d} 件  {_gib(byte_size)}")
+    if plan.without_deadline:
+        print(f"  うち締切の無い課題（提出から 1 年）: {plan.without_deadline} 件")
+    if plan.next_expires_at is not None:
+        print(f"  次に期限が来るのは {plan.next_expires_at.date().isoformat()}")
+
+    if not plan.candidates:
+        database.dispose()
+        return 0
+    if not args.apply:
+        print()
+        print("下見です。実際に消すには --apply を付けてください")
+        database.dispose()
+        return 0
+    if not args.yes and not _confirmed("消します。よろしいですか [y/N]: "):
+        print("中止しました")
+        database.dispose()
+        return 1
+
+    try:
+        outcome = purge_videos(
+            database,
+            plan,
+            video_store=_video_store(args),
+            tenant_id=_tenant(args),
+        )
+    finally:
+        database.dispose()
+
+    print(f"消しました: {outcome.deleted} 件（{_gib(outcome.freed_bytes)}）")
+    if outcome.failed:
+        # **失敗は黙らせない。** 印を付けていないので次の実行が拾うが、
+        # ストアが落ちているならそちらを直さないと何度でも同じ数が残る。
+        print(f"消せなかったもの: {len(outcome.failed)} 件", file=sys.stderr)
+        return 1
     return 0
 
 
@@ -722,6 +809,14 @@ def build_parser() -> argparse.ArgumentParser:
         ).expanduser(),
         help="提出物の置き場所（デモコースのリセットで消すのに要る）",
     )
+    parser.add_argument(
+        "--video-dir",
+        type=Path,
+        default=Path(
+            os.environ.get("AIJUDGE_VIDEO_DIR", Path.home() / ".aijudge" / "video")
+        ).expanduser(),
+        help="動画の置き場所（web / review の --video-dir と同じ場所を指すこと）",
+    )
     parser.add_argument("--create-schema", action="store_true", help="開発用")
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -802,6 +897,17 @@ def build_parser() -> argparse.ArgumentParser:
     # 作るのは CLI だけなので、**止めるのも CLI からできる必要がある**
     # （#237）。画面の側はテナント管理者専用で、サーバに入れる人はその
     # 権限の外側にいる。
+    video = sub.add_parser("video", help="動画").add_subparsers(dest="video_command", required=True)
+    video_purge = video.add_parser(
+        "purge", help="保存期間（締切から 6 ヶ月）を過ぎた動画を消す。既定は下見"
+    )
+    video_purge.add_argument("--course", help="このコースだけを見る（既定は全コース）")
+    video_purge.add_argument(
+        "--apply", action="store_true", help="実際に消す（付けなければ下見だけ）"
+    )
+    video_purge.add_argument("--yes", action="store_true", help="確認を省く")
+    video_purge.set_defaults(func=cmd_video_purge)
+
     user = sub.add_parser("user", help="利用者").add_subparsers(dest="user_command", required=True)
     user_disable = user.add_parser("disable", help="無効化する（削除ではない。記録は残る）")
     user_disable.add_argument("--login", required=True)

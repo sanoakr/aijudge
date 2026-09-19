@@ -35,6 +35,7 @@ import aijudge_webui as webui
 from aijudge_authoring import images, render_statement
 from aijudge_core import (
     MIN_JUSTIFICATION_LENGTH,
+    PURGED_MESSAGE,
     STREAMED_SUFFIXES,
     ArtifactKind,
     CampusAccess,
@@ -171,6 +172,9 @@ TEMPLATES.env.filters["local"] = webui.local_filter
 TEMPLATES.env.globals["copyright_notice"] = _read_copyright_notice()
 # デモコースの帯を出すのに使う（#194）。環境変数を読むだけの純関数。
 TEMPLATES.env.globals["is_demo_course"] = _is_demo_course
+# 消した動画の文面（ADR 0020）。**両アプリで同じ値を使う**ので、テンプレートに
+# 文字列を直接書かない ── 片方だけ直る形にしない。
+TEMPLATES.env.globals["purged_message"] = lambda: PURGED_MESSAGE
 # 利用ガイド（#327）。**学生向けの頁へ直に送る** ── 索引に落とすと、学生は
 # TA 向け・教員向けと並んだ一覧から自分の頁を選ぶことになる。
 TEMPLATES.env.globals["guide_url"] = lambda: webui.guide_url("student")
@@ -245,6 +249,13 @@ MAX_FILES_PER_SUBMISSION = 10
 MAX_TOTAL_UPLOAD_FACTOR = 4
 # 動画 1 ファイルの上限（既定 5 GiB）。`AIJUDGE_MAX_VIDEO_BYTES` で変えられる。
 MAX_VIDEO_BYTES = 5 * 1024 * 1024 * 1024
+# **締切の無い課題だけは小さく絞る**（既定 256 MiB・ADR 0020）。
+#
+# あちらの動画は提出から 1 年残る（締切という共通の起点が無いので、回ごとに
+# まとめて消せない）。砂場・自習用に数 GB を長く置く理由は無く、絞らないと
+# 置き場所が先に尽きる ── 保存期間を延ばすのと引き換えに、受け付ける大きさを
+# 下げて釣り合わせている。`AIJUDGE_MAX_VIDEO_BYTES_WITHOUT_DEADLINE` で変える。
+MAX_VIDEO_BYTES_WITHOUT_DEADLINE = 256 * 1024 * 1024
 # AI 評価 1 観点の目安秒数（RUNNING.md の実測 ≈ 17s を丸めた値）。待ち時間の
 # 概算に使うだけ。約束はしない（画面側もレンジ表示にする）。
 AVG_AI_SECONDS = 20
@@ -270,6 +281,7 @@ class StudentApp:
         video_store: StreamingArtifactStore | None = None,
         max_upload_bytes: int = MAX_UPLOAD_BYTES,
         max_video_bytes: int = MAX_VIDEO_BYTES,
+        max_video_bytes_without_deadline: int = MAX_VIDEO_BYTES_WITHOUT_DEADLINE,
         max_concurrent_video: int = DEFAULT_MAX_CONCURRENT_VIDEO,
         ai_workers: int = DEFAULT_AI_WORKERS,
         console_url: str = "",
@@ -283,6 +295,7 @@ class StudentApp:
         self.profiles_dir = profiles_dir
         self.max_upload_bytes = max_upload_bytes
         self.max_video_bytes = max_video_bytes
+        self.max_video_bytes_without_deadline = max_video_bytes_without_deadline
         self.max_concurrent_video = max(1, max_concurrent_video)
         self.ai_workers = max(1, ai_workers)
         self.active_video_uploads = 0
@@ -295,6 +308,16 @@ class StudentApp:
         self.submissions = SubmissionService(
             database.unit_of_work, artifact_store, stream_store=video_store
         )
+
+    def video_limit_for(self, task: Task) -> int:
+        """この課題で受け付ける動画の大きさ（ADR 0020）。
+
+        **締切の無い課題は小さい**。保存期間が 1 年と長く、しかも回ごとに
+        まとめて消せないためで、上限と期間は一対で決まっている。
+        """
+        if task.due_at is None:
+            return self.max_video_bytes_without_deadline
+        return self.max_video_bytes
 
     @contextlib.contextmanager
     def video_slot(self) -> Iterator[None]:
@@ -678,7 +701,10 @@ def create_app(app_state: StudentApp) -> FastAPI:
                 "multi_file": multi_file,
                 "max_files": MAX_FILES_PER_SUBMISSION,
                 "video_accepts": video_accepts,
-                "max_video_bytes": app_state.max_video_bytes,
+                # **課題ごとの上限を出す**（ADR 0020）。締切の無い課題は小さい
+                # ので、一律の値を書くと「上げられる」と読んだ学生が数 GB を
+                # 送ってから 413 で断られることになる。
+                "max_video_bytes": app_state.video_limit_for(task_obj),
                 # 提出開始を過ぎているか。**過ぎるまで受け付けない**
                 # （`Task.accepts_submissions_at`）。
                 "open_for_submission": task_obj.accepts_submissions_at(now()),
@@ -911,6 +937,8 @@ def create_app(app_state: StudentApp) -> FastAPI:
         # ストリームをストアへ流す。**書き込み・fsync はブロッキング**なので
         # スレッドプールへ逃がす ── 同時アップロードが多いとき、1 本の fsync
         # （SMR HDD で数 GB flush = 数秒）でイベントループ全体が止まるのを防ぐ。
+        # 上限は課題で決まる（締切の無い課題は小さい・ADR 0020）。
+        max_bytes = app_state.video_limit_for(_task)
         submission_id = SubmissionId(new_id("sub"))
         artifact_id = ArtifactId(new_id("art"))
         storage_key = artifact_storage_key(me.tenant_id, submission_id, artifact_id, name)
@@ -920,13 +948,11 @@ def create_app(app_state: StudentApp) -> FastAPI:
                 async for chunk in request.stream():
                     if not chunk:
                         continue
-                    if handle.size + len(chunk) > app_state.max_video_bytes:
+                    if handle.size + len(chunk) > max_bytes:
                         await run_in_threadpool(handle.abort)
                         raise HTTPException(
                             status_code=413,
-                            detail=(
-                                f"ファイルが大きすぎます（上限 {app_state.max_video_bytes} バイト）"
-                            ),
+                            detail=f"ファイルが大きすぎます（上限 {max_bytes} バイト）",
                         )
                     await run_in_threadpool(handle.write, chunk)
                 blob = await run_in_threadpool(handle.commit)
@@ -1095,6 +1121,11 @@ def create_app(app_state: StudentApp) -> FastAPI:
         artifact = next((a for a in loaded.submission.artifacts if str(a.id) == artifact_id), None)
         if artifact is None:
             raise HTTPException(status_code=404, detail="提出物が見つかりません")
+        if artifact.is_purged:
+            # **404 にしない。** 消去は運用の結果であって不具合ではない
+            # （ADR 0020）。同じ顔で出すと、学習者は区別できず問い合わせ先も
+            # 違う。410 は「あったが、もう無い」である。
+            raise HTTPException(status_code=410, detail=PURGED_MESSAGE)
         if artifact.kind is ArtifactKind.VIDEO:
             return _serve_video(app_state, request, artifact, artifact_id)
         try:
@@ -1723,6 +1754,9 @@ def _submitted_files(submission: Submission) -> tuple[dict[str, object], ...]:
             "is_image": artifact.kind is ArtifactKind.IMAGE,
             "is_pdf": artifact.kind is ArtifactKind.PDF,
             "is_video": artifact.kind is ArtifactKind.VIDEO,
+            # 保存期間を過ぎて実体を消したもの（ADR 0020）。**画面で言う。**
+            # 出し分けずに埋め込むと、壊れた再生器が出るだけで理由が出ない。
+            "is_purged": artifact.is_purged,
             "byte_size": artifact.byte_size,
         }
         for artifact in submission.gradable_artifacts

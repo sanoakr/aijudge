@@ -37,6 +37,8 @@ ENV_ARTIFACT_DIR = "AIJUDGE_ARTIFACT_DIR"
 ENV_VIDEO_DIR = "AIJUDGE_VIDEO_DIR"
 ENV_MAX_UPLOAD_BYTES = "AIJUDGE_MAX_UPLOAD_BYTES"
 ENV_MAX_VIDEO_BYTES = "AIJUDGE_MAX_VIDEO_BYTES"
+# 締切の無い課題だけの上限（ADR 0020）。保存期間が 1 年と長いので小さく絞る。
+ENV_MAX_VIDEO_BYTES_WITHOUT_DEADLINE = "AIJUDGE_MAX_VIDEO_BYTES_WITHOUT_DEADLINE"
 ENV_MAX_CONCURRENT_VIDEO = "AIJUDGE_MAX_CONCURRENT_VIDEO"
 # 待ち時間の概算に使う AI ワーカー数のヒント（採点を止める値ではない）。
 ENV_AI_WORKERS = "AIJUDGE_AI_WORKERS"
@@ -48,6 +50,7 @@ ENV_CONSOLE_URL = "AIJUDGE_CONSOLE_URL"
 DEFAULT_ARTIFACT_DIR = Path.home() / ".aijudge" / "artifacts"
 DEFAULT_MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 DEFAULT_MAX_VIDEO_BYTES = 5 * 1024 * 1024 * 1024
+DEFAULT_MAX_VIDEO_BYTES_WITHOUT_DEADLINE = 256 * 1024 * 1024
 DEFAULT_MAX_CONCURRENT_VIDEO = 4
 DEFAULT_AI_WORKERS = 1
 
@@ -66,6 +69,7 @@ def build_app(args: argparse.Namespace):
             video_store=video_store,
             max_upload_bytes=args.max_upload_bytes,
             max_video_bytes=args.max_video_bytes,
+            max_video_bytes_without_deadline=args.max_video_bytes_without_deadline,
             max_concurrent_video=args.max_concurrent_video,
             ai_workers=args.ai_workers,
             console_url=args.console_url,
@@ -87,6 +91,11 @@ def make_app():
         video_dir=Path(video).expanduser() if video else None,
         max_upload_bytes=int(os.environ.get(ENV_MAX_UPLOAD_BYTES, DEFAULT_MAX_UPLOAD_BYTES)),
         max_video_bytes=int(os.environ.get(ENV_MAX_VIDEO_BYTES, DEFAULT_MAX_VIDEO_BYTES)),
+        max_video_bytes_without_deadline=int(
+            os.environ.get(
+                ENV_MAX_VIDEO_BYTES_WITHOUT_DEADLINE, DEFAULT_MAX_VIDEO_BYTES_WITHOUT_DEADLINE
+            )
+        ),
         max_concurrent_video=int(
             os.environ.get(ENV_MAX_CONCURRENT_VIDEO, DEFAULT_MAX_CONCURRENT_VIDEO)
         ),
@@ -108,6 +117,7 @@ def _export_env(args: argparse.Namespace) -> None:
         os.environ[ENV_VIDEO_DIR] = str(args.video_dir)
     os.environ[ENV_MAX_UPLOAD_BYTES] = str(args.max_upload_bytes)
     os.environ[ENV_MAX_VIDEO_BYTES] = str(args.max_video_bytes)
+    os.environ[ENV_MAX_VIDEO_BYTES_WITHOUT_DEADLINE] = str(args.max_video_bytes_without_deadline)
     os.environ[ENV_MAX_CONCURRENT_VIDEO] = str(args.max_concurrent_video)
     os.environ[ENV_AI_WORKERS] = str(args.ai_workers)
     os.environ[ENV_PROFILES_DIR] = str(args.profiles)
@@ -143,6 +153,16 @@ def main(argv: list[str] | None = None) -> int:
         type=int,
         default=int(os.environ.get(ENV_MAX_VIDEO_BYTES, DEFAULT_MAX_VIDEO_BYTES)),
         help="動画 1 ファイルの上限（既定 5 GiB）",
+    )
+    parser.add_argument(
+        "--max-video-bytes-without-deadline",
+        type=int,
+        default=int(
+            os.environ.get(
+                ENV_MAX_VIDEO_BYTES_WITHOUT_DEADLINE, DEFAULT_MAX_VIDEO_BYTES_WITHOUT_DEADLINE
+            )
+        ),
+        help="締切の無い課題での動画の上限（既定 256 MiB）。保存期間が 1 年と長いので絞る",
     )
     parser.add_argument(
         "--max-concurrent-video",

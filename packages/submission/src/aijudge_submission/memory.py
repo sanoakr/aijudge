@@ -27,6 +27,7 @@ from aijudge_core import (
 )
 from aijudge_core.events import DomainEvent
 from aijudge_core.ids import (
+    ArtifactId,
     CourseId,
     GradingJobId,
     GradingRunId,
@@ -180,6 +181,32 @@ class InMemorySubmissionRepository:
         for key, value in list(self._keys.items()):
             if value in wanted:
                 del self._keys[key]
+
+    def mark_artifacts_purged(
+        self, artifacts: Sequence[tuple[SubmissionId, ArtifactId]], *, purged_at: datetime
+    ) -> int:
+        wanted = {(submission_id, artifact_id) for submission_id, artifact_id in artifacts}
+        touched = {submission_id for submission_id, _ in wanted}
+        marked = 0
+        for submission_id, submission in list(self._items.items()):
+            if submission_id not in touched:
+                continue
+            kept = []
+            changed = False
+            for artifact in submission.artifacts:
+                if (submission_id, artifact.id) in wanted and artifact.purged_at is None:
+                    kept.append(artifact.model_copy(update={"purged_at": purged_at}))
+                    changed = True
+                    marked += 1
+                else:
+                    kept.append(artifact)
+            if changed:
+                # `save` は通さない。提出後は不変を守るのが `save` の役目で、
+                # ここが書くのは保管の事実である（ADR 0020）。
+                self._items[submission_id] = submission.model_copy(
+                    update={"artifacts": tuple(kept)}
+                )
+        return marked
 
 
 class InMemoryGradingRunRepository:

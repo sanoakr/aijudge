@@ -99,7 +99,17 @@ class World:
             created_at=datetime(2026, 9, 4, tzinfo=UTC),
         )
         with self.database.unit_of_work() as uow:
-            uow.tasks.save_task(Task(id=self.task_version.task_id, course_id=COURSE, title="デモ"))
+            # **締切を入れておく。** 締切の無い課題は上限が別（小さい）ので
+            # （ADR 0020・`video_limit_for`）、ここで省くと `max_video_bytes`
+            # を確かめているテストが別の値を見ることになる。
+            uow.tasks.save_task(
+                Task(
+                    id=self.task_version.task_id,
+                    course_id=COURSE,
+                    title="デモ",
+                    due_at=datetime(2027, 1, 31, tzinfo=UTC),
+                )
+            )
             uow.tasks.save_version(self.task_version)
             uow.commit()
 
