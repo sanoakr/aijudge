@@ -1,0 +1,11 @@
+# 毎時。**`/` が埋まると DB が止まる**ので、日次では遅い。
+[Unit]
+Description=aiJudge storage health check, hourly
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

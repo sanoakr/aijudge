@@ -33,6 +33,28 @@ echo "  （sites-enabled への symlink・証明書取得・nginx -t は導入�
 echo "== polkit ルールを配置 =="
 install -m 644 "${DEPLOY_DIR}/polkit/49-aijudge.rules" /etc/polkit-1/rules.d/
 
+# **unit から呼ばれるスクリプトも配る**（#344）。unit だけ配っても
+# `ExecStart` の先が無ければ何も動かない ── 運用機ではこれらが手で置かれた
+# まま**リポジトリに無かった**ので、機械を再構築しても復元できなかった。
+#
+# デプロイ時の配布（`install-units.sh`）は unit だけを見ている。ここで配るのは
+# 初回構築のぶんで、既存機の更新は別に判断する（中身が変わるとバックアップの
+# 挙動が変わるので、一致を確かめてから配布に載せること）。
+echo "== /usr/local/sbin のスクリプトを配置 =="
+install -m 755 \
+    "${DEPLOY_DIR}/aijudge-restic-backup.sh" \
+    "${DEPLOY_DIR}/aijudge-restic-offbox.sh" \
+    "${DEPLOY_DIR}/aijudge-db-backup.sh" \
+    "${DEPLOY_DIR}/aijudge-pg-basebackup.sh" \
+    "${DEPLOY_DIR}/aijudge-storage-check.sh" \
+    "${DEPLOY_DIR}/aijudge-llm-primary-check.sh" \
+    "${DEPLOY_DIR}/aijudge-notify" \
+    /usr/local/sbin/
+install -d -m 755 /usr/local/lib/aijudge
+install -m 644 "${DEPLOY_DIR}/lib/llm-primary-check.py" /usr/local/lib/aijudge/
+# 検査が書く状態ファイルの置き場所（無いと遷移が毎回 UNKNOWN になる）。
+install -d -m 755 -o aijudge -g aijudge /var/lib/aijudge
+
 echo "== aijudge.target を enable（start はしない） =="
 systemctl enable aijudge.target
 

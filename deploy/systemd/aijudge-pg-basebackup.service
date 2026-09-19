@@ -1,0 +1,16 @@
+# PITR の土台となる物理ベースバックアップ。
+#
+# **WAL アーカイブだけでは復旧できない。** 再生の土台は物理バックアップで
+# あり、`pg_dump`（論理）は土台にならない。両方を残す理由は
+# `aijudge-pg-basebackup.sh` の冒頭にある。
+[Unit]
+Description=aiJudge PostgreSQL base backup for PITR (weekly)
+After=postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/local/sbin/aijudge-pg-basebackup.sh
+Nice=10
+IOSchedulingClass=idle

@@ -1,0 +1,12 @@
+# **restic より先に走らせる。** バックアップの中に、その日のダンプが
+# 入っている状態にする。
+[Unit]
+Description=Nightly aiJudge PostgreSQL dump
+
+[Timer]
+OnCalendar=*-*-* 02:30:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

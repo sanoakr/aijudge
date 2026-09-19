@@ -1,0 +1,16 @@
+# オフボックスの restic target（`%i` = target2 / target3）。
+# **受け先は EnvironmentFile が決める** ── このリポジトリは公開物なので、
+# 実際のホスト名は `/srv/aijudge/config/aijudge-restic-%i.env` 側に置く。
+[Unit]
+Description=aiJudge restic backup of /srv/aijudge (offbox %i)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=aijudge
+Group=aijudge
+EnvironmentFile=/srv/aijudge/config/aijudge-restic-%i.env
+ExecStart=/usr/local/sbin/aijudge-restic-offbox.sh
+Nice=10
+IOSchedulingClass=idle

@@ -1,0 +1,15 @@
+# target 2（オフボックスの本命）: 1 日 2 回。
+# **target 1 のダンプ（02:30）と同時刻に始める** ── 取りに行く先が違うので
+# 競合せず、同じ日の同じ状態が両方に残る。
+[Unit]
+Description=aiJudge restic offbox backup (target 2), twice daily
+
+[Timer]
+Unit=aijudge-restic-offbox@target2.service
+OnCalendar=*-*-* 02:30:00
+OnCalendar=*-*-* 14:30:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

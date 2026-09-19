@@ -1,0 +1,14 @@
+# target 3（2 ノード目への分散）: 1 日 1 回。
+# target 2 の 1 時間後に置く ── 同時に同じ元データを 2 か所へ送ると、
+# 読み出しが重なって提出の受付に影響する。
+[Unit]
+Description=aiJudge restic offbox backup (target 3), daily
+
+[Timer]
+Unit=aijudge-restic-offbox@target3.service
+OnCalendar=*-*-* 03:30:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,17 @@
+# プライマリ LLM が確定モデルを提供しているかの定期確認。
+#
+# **フォールバックが効いていると、プライマリの死は採点の成功として現れる。**
+# だから別に訊く（`llm-primary-check.py` の docstring に経緯）。
+[Unit]
+Description=aiJudge LLM primary health check (notifies on state change)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=aijudge
+Group=aijudge
+WorkingDirectory=/opt/aijudge
+EnvironmentFile=/srv/aijudge/config/aijudge.env
+ExecStart=/usr/local/sbin/aijudge-llm-primary-check.sh
+Nice=10
