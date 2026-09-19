@@ -219,6 +219,10 @@ class GradingWorker:
             # 締切を知らないままにする（評価は遅延と独立、ADR 0013）。
             task = uow.tasks.get_task(task_version.task_id)
             course = None if task is None else uow.identity.get_course(task.course_id)
+            # 提出者の学籍番号。**「提出物に本人の学籍番号が書いてあるか」を
+            # 見る観点にだけ要る**（`image_text_check`）。解決はここでやる ──
+            # パイプラインは利用者表を引かない（集約の指定と同じ形）。
+            learner = uow.identity.get_user(submission.learner_id)
 
         base: GradingRun | None = None
         if job.phase is GradingPhase.AI:
@@ -249,6 +253,7 @@ class GradingWorker:
             phase=job.phase,
             base=base,
             aggregation=aggregation,
+            learner_reference=None if learner is None else learner.login,
         )
         run = self._with_feedback(run, task_version, contents)
         run = self._with_justification_draft(run, task_version)

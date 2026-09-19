@@ -27,6 +27,10 @@ deterministic:
 
 ai_evaluators:
   - rubric_ai_judge
+  # 画像提出の課題（認定証）。**観点が名指ししたときだけ動く** ── 名指しの
+  # 無い観点には LLM を呼ぶ前に SKIP を返すので、プログラムの課題には効かない。
+  # どこを読むかは課題が宣言する（ADR 0018・ADR 0021）。
+  - image_text_check
 
 evaluator_options:
   rubric_ai_judge:

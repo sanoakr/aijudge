@@ -16,6 +16,7 @@ members = [
     "aijudge-core",
     "aijudge-eval-checklist-ai-judge",
     "aijudge-eval-code-test-runner",
+    "aijudge-eval-image-text-check",
     "aijudge-eval-network-test-runner",
     "aijudge-eval-rubric-ai-judge",
     "aijudge-eval-submission-compliance",
@@ -50,6 +51,7 @@ dependencies = [
     { name = "aijudge-core" },
     { name = "aijudge-eval-checklist-ai-judge" },
     { name = "aijudge-eval-code-test-runner" },
+    { name = "aijudge-eval-image-text-check" },
     { name = "aijudge-eval-network-test-runner" },
     { name = "aijudge-eval-rubric-ai-judge" },
     { name = "aijudge-eval-submission-compliance" },
@@ -102,6 +104,7 @@ requires-dist = [
     { name = "aijudge-core", editable = "packages/core" },
     { name = "aijudge-eval-checklist-ai-judge", editable = "evaluators/checklist_ai_judge" },
     { name = "aijudge-eval-code-test-runner", editable = "evaluators/code_test_runner" },
+    { name = "aijudge-eval-image-text-check", editable = "evaluators/image_text_check" },
     { name = "aijudge-eval-network-test-runner", editable = "evaluators/network_test_runner" },
     { name = "aijudge-eval-rubric-ai-judge", editable = "evaluators/rubric_ai_judge" },
     { name = "aijudge-eval-submission-compliance", editable = "evaluators/submission_compliance" },
@@ -263,6 +266,23 @@ requires-dist = [
     { name = "aijudge-grading", editable = "packages/grading" },
     { name = "aijudge-sandbox", editable = "packages/sandbox" },
     { name = "aijudge-toolchain", editable = "packages/toolchain" },
+]
+
+[[package]]
+name = "aijudge-eval-image-text-check"
+version = "0.0.1"
+source = { editable = "evaluators/image_text_check" }
+dependencies = [
+    { name = "aijudge-core" },
+    { name = "aijudge-grading" },
+    { name = "aijudge-llm-gateway" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aijudge-core", editable = "packages/core" },
+    { name = "aijudge-grading", editable = "packages/grading" },
+    { name = "aijudge-llm-gateway", editable = "packages/llm_gateway" },
 ]
 
 [[package]]

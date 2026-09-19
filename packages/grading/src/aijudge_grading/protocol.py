@@ -43,6 +43,19 @@ class EvaluationRequest(BaseModel):
     artifact_contents: dict[ArtifactId, bytes] = Field(default_factory=dict)
     # AI 評価器はルーブリック観点 1 つにつき 1 回呼ばれる。決定的評価器では None。
     criterion: RubricCriterion | None = None
+    # 提出者を**人が識別する記号**（学籍番号・ログイン ID）。`Submission` が
+    # 持つのは内部 ID だけなので、これが要る観点は他に手が無い。
+    #
+    # **要るのは「提出物に本人の学籍番号が書いてあるか」を見る観点である。**
+    # 実例: paiza の認定証のニックネームに学籍番号を入れさせる課題
+    # （`image_text_check`）。これは提出物の中身と提出者の対応を見る採点で
+    # あって、締切や遅延のような運用値ではない ── だから ADR 0013 が
+    # `due_at` を締め出したのとは扱いが違う。
+    #
+    # **解決するのは合成ルートである。** パイプラインは利用者表を引かない
+    # （`aggregation` と同じ形）。埋まっていなければ、それを要る評価器は
+    # 「満たした」と言わない ── 分からないまま通すと誰の認定証でも通る。
+    learner_reference: str | None = None
     test_cases: tuple[TestCase, ...] = ()
     prior_results: tuple[CriterionScore, ...] = ()
     timeout_seconds: float = Field(default=10.0, gt=0.0)

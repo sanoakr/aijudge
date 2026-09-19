@@ -170,6 +170,7 @@ class GradingPipeline:
         phase: GradingPhase | None = None,
         base: GradingRun | None = None,
         aggregation: Aggregation = Aggregation.OR,
+        learner_reference: str | None = None,
     ) -> GradingRun:
         """採点を走らせる。
 
@@ -181,6 +182,11 @@ class GradingPipeline:
         `phase=AI` では `base`（決定的評価の結果）の上に積む。**サンドボックス
         を二度回さない** ── 回すと費用が倍になるうえ、二度目の結果が一度目と
         違いうる（タイムアウト境界の提出）。
+
+        `learner_reference` は提出者の学籍番号。**解決するのは呼ぶ側である**
+        ── パイプラインは利用者表を引かない（`aggregation` と同じ形）。
+        要るのは「提出物に本人の学籍番号が書いてあるか」を見る観点だけで、
+        渡さなければその観点は満たされない（`EvaluationRequest` の説明）。
         """
         if phase is GradingPhase.AI and base is None:
             raise ValueError("the ai phase needs the deterministic run it builds on")
@@ -231,6 +237,7 @@ class GradingPipeline:
                     submission=submission,
                     artifact_contents=contents,
                     test_cases=self._test_cases_for(task_version, evaluator_id),
+                    learner_reference=learner_reference,
                     timeout_seconds=self._profile.timeout_seconds,
                     options=self._profile.evaluator_options.get(evaluator_id, {}),
                 ),
@@ -279,6 +286,7 @@ class GradingPipeline:
                         artifact_contents=contents,
                         criterion=criterion,
                         prior_results=tuple(scores),
+                        learner_reference=learner_reference,
                         timeout_seconds=self._profile.timeout_seconds,
                         options=self._profile.evaluator_options.get(evaluator_id, {}),
                     ),

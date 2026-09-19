@@ -9,6 +9,7 @@ import pytest
 from pydantic import BaseModel, Field
 
 from aijudge_llm_gateway import (
+    CapabilityMismatch,
     DataClass,
     LlmGateway,
     PolicyViolation,
@@ -213,3 +214,78 @@ def test_the_first_sample_is_deterministic_and_later_ones_vary() -> None:
     temperatures = [call.temperature for call in provider.calls]
     assert temperatures[0] == 0.0
     assert all(temperature > 0.0 for temperature in temperatures[1:])
+
+
+# --------------------------------------------------------------------------
+# 画像 — 見られない相手に渡さない、渡したものは動かない
+# --------------------------------------------------------------------------
+
+
+def test_images_ride_on_the_user_message() -> None:
+    """画像は利用者の発言に付く。テンプレートは文面だけを持つ。"""
+    provider = ScriptedProvider(['{"level": 1, "rationale": "ok"}'], vision=True)
+    LlmGateway(provider).complete_structured(
+        PROMPT,
+        Verdict,
+        model="m",
+        data_class=DataClass.PERSONAL,
+        images=("QUJD",),
+        thing="この画像",
+    )
+    sent = provider.calls[0].messages
+    assert sent[-1].role == "user"
+    assert sent[-1].images == ("QUJD",)
+
+
+def test_a_provider_without_vision_is_refused_before_the_call() -> None:
+    """**呼ぶ前に落とす。**
+
+    画像を捨てて本文だけで答えるプロバイダがあるため、通してしまうと
+    「スキーマに合う、根拠のない答え」が返る。運用機の主系は vision を
+    持たない `gemma4:e4b` なので、設定を誤るとこれが起きる。
+    """
+    provider = ScriptedProvider(['{"level": 1, "rationale": "ok"}'])
+    with pytest.raises(CapabilityMismatch):
+        LlmGateway(provider).complete_structured(
+            PROMPT,
+            Verdict,
+            model="m",
+            data_class=DataClass.PERSONAL,
+            images=("QUJD",),
+            thing="この画像",
+        )
+    assert provider.calls == [], "断ったのにプロバイダを呼んでいる"
+
+
+def test_refusing_an_image_is_not_reported_as_a_policy_violation() -> None:
+    """機微度の違反（P7）と能力の不足は別の誤りで、直し方も違う。"""
+    assert not issubclass(CapabilityMismatch, PolicyViolation)
+
+
+def test_the_image_stays_on_the_first_turn_when_the_schema_fails() -> None:
+    """再試行で会話が伸びても画像を送り直さない。"""
+    provider = ScriptedProvider(
+        ["これは JSON ではありません", '{"level": 2, "rationale": "ok"}'],
+        vision=True,
+    )
+    LlmGateway(provider).complete_structured(
+        PROMPT,
+        Verdict,
+        model="m",
+        data_class=DataClass.PERSONAL,
+        images=("QUJD",),
+        thing="この画像",
+    )
+    retried = provider.calls[1].messages
+    with_images = [message for message in retried if message.images]
+    assert len(with_images) == 1
+    assert with_images[0] is retried[0] or with_images[0].role == "user"
+
+
+def test_no_images_means_no_vision_requirement() -> None:
+    """画像を渡さない呼び出しは、これまでどおり vision なしで通る。"""
+    provider = ScriptedProvider(['{"level": 0, "rationale": "ok"}'])
+    result = LlmGateway(provider).complete_structured(
+        PROMPT, Verdict, model="m", data_class=DataClass.PERSONAL, thing="code"
+    )
+    assert result.value.level == 0

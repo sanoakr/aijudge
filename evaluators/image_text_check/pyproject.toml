@@ -1,0 +1,25 @@
+[project]
+name = "aijudge-eval-image-text-check"
+version = "0.0.1"
+description = "AI evaluator: transcribe declared fields of a submitted image, then match them deterministically"
+requires-python = ">=3.12"
+dependencies = [
+    "aijudge-core",
+    "aijudge-grading",
+    "aijudge-llm-gateway",
+]
+
+[project.entry-points."aijudge.evaluators"]
+image_text_check = "aijudge_eval_image_text_check:build"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/aijudge_eval_image_text_check"]
+
+[tool.uv.sources]
+aijudge-core = { workspace = true }
+aijudge-grading = { workspace = true }
+aijudge-llm-gateway = { workspace = true }

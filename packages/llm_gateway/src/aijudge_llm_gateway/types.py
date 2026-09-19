@@ -28,6 +28,16 @@ class ChatMessage(BaseModel):
 
     role: Literal["system", "user", "assistant"]
     content: str
+    #: 添付する画像（base64 で符号化した PNG / JPEG のそのままのバイト列）。
+    #:
+    #: **本文と同じ型に載せる。** 画像用の呼び出しを別に作ると、ポリシー
+    #: 検査・スキーマ検証・再試行・プロンプト版の記録を 2 回書くことになり、
+    #: 片方が必ず遅れる。載せる先はメッセージなので、再試行で会話が伸びても
+    #: 画像は最初の発言に付いたまま動かない。
+    #:
+    #: 画像を渡せるかはプロバイダの性質（`ProviderCapabilities.vision`）で、
+    #: 渡せない相手に渡すのは設定の誤りである。Gateway が呼ぶ前に断る。
+    images: tuple[str, ...] = ()
 
 
 class ProviderCapabilities(BaseModel):
@@ -105,6 +115,17 @@ class LlmError(Exception):
 
 class PolicyViolation(LlmError):
     """データ機微度とプロバイダの組み合わせがポリシーに反する。"""
+
+
+class CapabilityMismatch(LlmError):
+    """プロバイダができないことを要求した（画像を見られないモデルへの画像など）。
+
+    **`PolicyViolation` と分ける。** 片方は「送ってはいけない相手に送ろうとした」
+    で、直し方は経路を変えることである。こちらは「送ってもよいが相手が読めない」
+    で、直し方はモデルを変えることである。同じ例外にすると、運用機で
+    `gemma4:e4b`（vision なし）に画像を渡した設定ミスが、個人情報の流出未遂と
+    同じ文言で報告される。
+    """
 
 
 class StructuredOutputError(LlmError):
