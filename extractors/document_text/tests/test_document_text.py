@@ -15,7 +15,7 @@ import io
 import zipfile
 from datetime import UTC, datetime
 
-from aijudge_norm_document_text import MIN_TEXT_LENGTH, DocumentText, _brokenness
+from aijudge_ext_document_text import MIN_TEXT_LENGTH, DocumentText, _brokenness
 
 from aijudge_core import Artifact, ArtifactKind, ArtifactRole
 from aijudge_core.ids import ArtifactId, SubmissionId
@@ -50,22 +50,28 @@ def _docx(paragraphs: list[str]) -> bytes:
 
 def test_a_docx_body_becomes_text() -> None:
     paragraphs = ["1. 目的", "本実験の目的は性能を評価することである。" * 3]
-    out = DocumentText().normalize(_artifact(ArtifactKind.DOCX, "r.docx"), _docx(paragraphs))
+    out = DocumentText().extract(_artifact(ArtifactKind.DOCX, "r.docx"), _docx(paragraphs))
 
-    text = out.decode("utf-8")
+    assert out.succeeded
+    assert out.engine == "document_text"
+    # **決定的な抽出は出所を持たない。** 模型を使わないので記録すべき版が無い。
+    assert out.model_id is None
+    text = out.text.decode("utf-8")
     assert "1. 目的" in text
     assert "性能を評価する" in text
 
 
-def test_a_docx_that_is_not_a_zip_is_returned_untouched() -> None:
-    """**変換できなくても採点は続ける。** 例外にすると 1 件で全員が止まる。"""
-    payload = b"this is not a docx"
-    assert DocumentText().normalize(_artifact(ArtifactKind.DOCX, "r.docx"), payload) == payload
+def test_a_docx_that_is_not_a_zip_reports_why() -> None:
+    """**変換できなくても受付は続ける。** 例外にすると 1 件で全員が止まる。"""
+    out = DocumentText().extract(_artifact(ArtifactKind.DOCX, "r.docx"), b"this is not a docx")
+    assert not out.succeeded
+    assert out.failed_reason
 
 
-def test_a_pdf_that_is_not_a_pdf_is_returned_untouched() -> None:
-    payload = b"%not a pdf at all"
-    assert DocumentText().normalize(_artifact(ArtifactKind.PDF), payload) == payload
+def test_a_pdf_that_is_not_a_pdf_reports_why() -> None:
+    out = DocumentText().extract(_artifact(ArtifactKind.PDF), b"%not a pdf at all")
+    assert not out.succeeded
+    assert out.failed_reason
 
 
 def test_a_document_with_almost_no_text_is_treated_as_not_extractable() -> None:
@@ -75,17 +81,25 @@ def test_a_document_with_almost_no_text_is_treated_as_not_extractable() -> None:
     だけで、そこは人間が見る話である。
     """
     payload = _docx(["短い"])
-    out = DocumentText().normalize(_artifact(ArtifactKind.DOCX, "r.docx"), payload)
+    out = DocumentText().extract(_artifact(ArtifactKind.DOCX, "r.docx"), payload)
 
-    assert out == payload, "空に近い本文をそのまま通している"
+    assert not out.succeeded, "空に近い本文を取り出せたことにしている"
+    assert "字しかありません" in (out.failed_reason or "")
     assert len("短い") < MIN_TEXT_LENGTH
 
 
 def test_code_submissions_are_left_alone() -> None:
-    normalizer = DocumentText()
-    assert not normalizer.applies_to(ArtifactKind.CODE)
-    assert normalizer.applies_to(ArtifactKind.PDF)
-    assert normalizer.applies_to(ArtifactKind.DOCX)
+    extractor = DocumentText()
+    assert not extractor.applies_to(ArtifactKind.CODE)
+    assert extractor.applies_to(ArtifactKind.PDF)
+    assert extractor.applies_to(ArtifactKind.DOCX)
+
+
+def test_it_satisfies_the_shared_extractor_contract() -> None:
+    """**画像の抽出器と同じ契約に載る。** 対象が違うだけで仕事は同じ。"""
+    from aijudge_core import Extractor
+
+    assert isinstance(DocumentText(), Extractor)
 
 
 def test_brokenness_prefers_whole_lines_over_single_characters() -> None:

@@ -17,6 +17,7 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .extraction import Extraction
 from .ids import (
     CriterionId,
     CriterionScoreId,
@@ -367,6 +368,20 @@ class GradingRun(BaseModel):
     id: GradingRunId
     submission_id: SubmissionId
     context: GradingContext
+    # 提出物から取り出した本文（`aijudge_core.extraction`）。**採点が何を
+    # 読んだか**そのものなので、run に残す（P8）。
+    #
+    # **決定的フェーズで 1 回だけ取り出し、AI フェーズはここから読む**
+    # （ADR 0022）。フェーズごとに取り出すと、模型を使う抽出では 2 回の結果が
+    # 一致せず、「決定的評価が見た本文」と「AI 評価器が見た本文」が違うものに
+    # なる。
+    #
+    # **提出物には足さない。** `Submission` は SUBMITTED 後に不変で、そこへ
+    # 成果物を足すことはできない。学習者に見せて直させる流れ（Phase 6）では、
+    # 書き起こしは受付のときに `TRANSCRIPTION` の成果物として作られ、この欄は
+    # 使われなくなる ── そのときここに残るのは「その run が読んだ本文」と
+    # いう同じ意味の記録である。
+    extractions: tuple[Extraction, ...] = ()
     evaluator_results: tuple[EvaluatorResult, ...] = ()
     # **空になりうる。** 全観点を人が採点する課題（画像提出など）では、
     # 機械は 1 件も点を付けない。そのとき空を拒むと、そういう課題を

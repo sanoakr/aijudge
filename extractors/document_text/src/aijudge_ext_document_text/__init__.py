@@ -21,7 +21,7 @@ import re
 import xml.etree.ElementTree as ET
 import zipfile
 
-from aijudge_core import Artifact, ArtifactKind
+from aijudge_core import Artifact, ArtifactKind, Extraction
 
 logger = logging.getLogger(__name__)
 
@@ -44,35 +44,50 @@ class DocumentTextError(Exception):
 
 
 class DocumentText:
-    normalizer_id = "document_text"
+    """文書から本文を取り出す抽出器。**決定的で、模型を使わない。**
+
+    `image_text`（画像 → 本文）と同じ契約に載る ── 対象が違うだけで仕事は
+    同じである（`aijudge_core.extraction`）。こちらは出所を持たない
+    （`model_id` も `prompt_version` も無い）。pypdf が同じ PDF に対して
+    毎回同じ本文を返すので、記録すべき「どれで起こしたか」が engine 以外に
+    無いためである。
+    """
+
+    extractor_id = "document_text"
 
     def applies_to(self, kind: ArtifactKind) -> bool:
         return kind.is_document
 
-    def normalize(self, artifact: Artifact, payload: bytes) -> bytes:
-        """本文を UTF-8 で返す。読めなければ元の内容を返す。"""
+    def extract(self, artifact: Artifact, payload: bytes) -> Extraction:
+        """本文を返す。読めなければ理由を添えて返す（例外にしない）。"""
         try:
             if artifact.kind is ArtifactKind.PDF:
                 text = _from_pdf(payload)
             elif artifact.kind is ArtifactKind.DOCX:
                 text = _from_docx(payload)
             else:  # pragma: no cover - applies_to で弾いている
-                return payload
+                return self._failed(f"{artifact.kind.value} は本文を取り出せる形式ではありません")
         except DocumentTextError as exc:
             logger.warning("could not read %s (%s): %s", artifact.id, artifact.kind.value, exc)
-            return payload
+            return self._failed(str(exc))
 
         cleaned = _BLANK_RUN.sub("\n\n", text).strip()
         if len(cleaned) < MIN_TEXT_LENGTH:
-            # 文字が埋め込まれていない。**変換しなかったことにする**
+            # 文字が埋め込まれていない。**取り出せなかったことにする**
             # （空を「白紙のレポート」と読ませない）。
             logger.warning(
                 "%s yielded only %d characters; treating it as not extractable",
                 artifact.id,
                 len(cleaned),
             )
-            return payload
-        return cleaned.encode("utf-8")
+            return self._failed(
+                f"取り出せた文字が {len(cleaned)} 字しかありません"
+                "（文字が埋め込まれていない PDF の可能性があります）"
+            )
+        return Extraction(text=cleaned.encode("utf-8"), engine=self.extractor_id)
+
+    def _failed(self, reason: str) -> Extraction:
+        return Extraction(engine=self.extractor_id, failed_reason=reason)
 
 
 def text_of(payload: bytes, kind: ArtifactKind) -> str:

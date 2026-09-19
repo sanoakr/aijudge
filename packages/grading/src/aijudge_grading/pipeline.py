@@ -24,6 +24,7 @@ from aijudge_core import (
     EvaluatorKind,
     EvaluatorResult,
     EvaluatorStatus,
+    Extraction,
     GradingCompleted,
     GradingContext,
     GradingPhase,
@@ -48,7 +49,7 @@ from aijudge_core.ids import (
 
 from .profile import SubjectProfile
 from .protocol import EvaluationOutcome, EvaluationRequest
-from .registry import EvaluatorRegistry, NormalizerRegistry
+from .registry import EvaluatorRegistry, ExtractorRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +109,24 @@ def derive_kc_outcomes(
     )
 
 
+def _apply(
+    contents: dict[ArtifactId, bytes], extractions: tuple[Extraction, ...]
+) -> dict[ArtifactId, bytes]:
+    """取り出した本文を、原本の中身と差し替える。
+
+    **原本を残さない。** 評価器は「いま渡っているもの」を読む設計で、
+    種類（`kind`）は学習者が何を出したかの記録でしかない
+    （`checklist_ai_judge._source` の判断と同じ）。取り出せなかったものは
+    差し替えないので、原本のまま下流へ渡る。
+    """
+    out = dict(contents)
+    for extraction in extractions:
+        if not extraction.succeeded or not extraction.artifact_id:
+            continue
+        out[ArtifactId(extraction.artifact_id)] = extraction.text
+    return out
+
+
 class GradingPipeline:
     """科目非依存の採点実行器。"""
 
@@ -115,19 +134,19 @@ class GradingPipeline:
         self,
         registry: EvaluatorRegistry,
         profile: SubjectProfile,
-        normalizers: NormalizerRegistry | None = None,
+        extractors: ExtractorRegistry | None = None,
     ) -> None:
         profile.validate_against(registry)
         self._registry = registry
         self._profile = profile
-        # 宣言された正規化器だけを解決する。宣言していない科目では
-        # レジストリを読みに行かない（起動時の副作用を増やさない）。
-        self._normalizers = normalizers
-        if profile.normalizers and normalizers is None:
-            self._normalizers = NormalizerRegistry().load_installed()
-        if profile.normalizers and self._normalizers is not None:
-            for name in profile.normalizers:
-                self._normalizers.get(name)  # 実在しなければここで落とす
+        # 宣言された抽出器だけを解決する。宣言していない科目ではレジストリを
+        # 読みに行かない（起動時の副作用を増やさない）。
+        self._extractors = extractors
+        declared = profile.input.transcription
+        if declared and extractors is None:
+            self._extractors = ExtractorRegistry().load_installed()
+        if declared and self._extractors is not None:
+            self._extractors.get(declared)  # 実在しなければここで落とす
 
     @property
     def profile(self) -> SubjectProfile:
@@ -194,12 +213,27 @@ class GradingPipeline:
         contents = {
             artifact.id: load_content(artifact) for artifact in submission.gradable_artifacts
         }
-        # --- 1. Normalize（設計方針 §4 step 1）---------------------------
+        # --- 1. 本文の取り出し（設計方針 §4 step 1・ADR 0022）--------------
         #
-        # **評価器の前に本文へ直す。** PDF や DOCX をそのまま渡すと、AI には
-        # バイナリが渡り、字数や節の判定も成立しない。ここで 1 回変換して
-        # おけば、構造チェッカーと AI 評価器が同じ本文を見る。
-        contents = self._normalize(submission, contents)
+        # **決定的フェーズで 1 回だけ取り出し、AI フェーズは土台から読む。**
+        # 以前はフェーズ分岐より前にあり、両方のフェーズで走っていた ──
+        # pypdf なら同じ結果が返るので害は無かったが、模型を使う抽出では
+        # 2 回の結果が一致せず、「決定的評価が見た本文」と「AI 評価器が見た
+        # 本文」が違うものになる。
+        #
+        # 取り出した本文は run に残る（`GradingRun.extractions`）── 採点が
+        # 何を読んだかそのものだからである（P8）。
+        #
+        # **土台が空なら取り直す。** 配備の前に作られた土台には
+        # `extractions` が無い（既定の空で読める）。空をそのまま信じると、
+        # 配備をまたいだ AI フェーズだけが本文の代わりに原本を読むことに
+        # なり、その提出だけ静かに採点が変わる。取り直しは、抽出器を宣言
+        # していない科目では何もしないので安い。
+        if base is not None and base.extractions:
+            extractions = base.extractions
+            contents = _apply(contents, extractions)
+        else:
+            extractions, contents = self._extract(task_version, submission, contents)
 
         results: list[EvaluatorResult] = []
         scores: list[CriterionScore] = []
@@ -368,6 +402,7 @@ class GradingPipeline:
         return GradingRun(
             id=GradingRunId(new_id("grn")),
             submission_id=submission.id,
+            extractions=extractions,
             context=GradingContext(
                 task_version_id=task_version.id,
                 subject_profile=self._profile.name,
@@ -389,34 +424,47 @@ class GradingPipeline:
             created_at=datetime.now(UTC),
         )
 
-    def _normalize(
-        self, submission: Submission, contents: dict[ArtifactId, bytes]
-    ) -> dict[ArtifactId, bytes]:
-        """宣言された正規化器を順に当てる。
+    def _extract(
+        self,
+        task_version: TaskVersion,
+        submission: Submission,
+        contents: dict[ArtifactId, bytes],
+    ) -> tuple[tuple[Extraction, ...], dict[ArtifactId, bytes]]:
+        """宣言された抽出器を当て、取り出した本文を返す。
 
-        **1 件の失敗で採点を止めない。** 壊れた PDF が 1 つあっても、
-        他の提出の採点は続く（失敗した提出は本文が空のまま下流に渡り、
-        構造チェッカーが「読めない」と判定して人間に回る）。
+        **誰も読まないなら取り出さない。** 全観点を人が採点する課題では、
+        機械は 1 点も付けない（人採点の観点に付いた判定は捨てられる・
+        ADR 0015）ので、書き起こしても行き先が無い。それでも走らせると、
+        画像 1 枚あたり 20〜40 秒を捨てることになる ── ゲートが「LLM を
+        呼ばないために」あるのと同じ理由でここも塞ぐ（ADR 0011）。
+
+        科目プロファイルは複数の課題で共有されるので、これは実際に起きる
+        ── 同じコースに、画像を機械が読む課題と、教員が目で見る課題が
+        並ぶ（認定証の回とプログラムの回）。
+
+        **1 件の失敗で採点を止めない。** 取り出せなければ原本のまま下流へ
+        渡り、評価器が「読めない」と判定して人へ回る（0 点にはしない）。
         """
-        if not self._profile.normalizers or self._normalizers is None:
-            return contents
-        out = dict(contents)
+        declared = self._profile.input.transcription
+        if not declared or self._extractors is None:
+            return (), contents
+        if all(criterion.scored_by_human for criterion in task_version.criteria):
+            return (), contents
+        extractor = self._extractors.get(declared)
+        found: list[Extraction] = []
         for artifact in submission.gradable_artifacts:
-            payload = out.get(artifact.id)
-            if payload is None:
+            payload = contents.get(artifact.id)
+            if not payload or not extractor.applies_to(artifact.kind):
                 continue
-            for name in self._profile.normalizers:
-                normalizer = self._normalizers.get(name)
-                if not normalizer.applies_to(artifact.kind):
-                    continue
-                try:
-                    payload = normalizer.normalize(artifact, payload)
-                except Exception:
-                    logger.warning(
-                        "normalizer %s failed on artifact %s", name, artifact.id, exc_info=True
-                    )
-            out[artifact.id] = payload
-        return out
+            try:
+                extraction = extractor.extract(artifact, payload)
+            except Exception:
+                logger.warning(
+                    "extractor %s failed on artifact %s", declared, artifact.id, exc_info=True
+                )
+                continue
+            found.append(extraction.model_copy(update={"artifact_id": str(artifact.id)}))
+        return tuple(found), _apply(contents, tuple(found))
 
     # -- internals ---------------------------------------------------------
 

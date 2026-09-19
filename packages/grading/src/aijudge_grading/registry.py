@@ -9,12 +9,12 @@ from __future__ import annotations
 
 from importlib.metadata import entry_points
 
-from aijudge_core import EvaluatorKind
+from aijudge_core import EvaluatorKind, Extractor
 
-from .protocol import Evaluator, Normalizer
+from .protocol import Evaluator
 
 ENTRY_POINT_GROUP = "aijudge.evaluators"
-NORMALIZER_ENTRY_POINT_GROUP = "aijudge.normalizers"
+EXTRACTOR_ENTRY_POINT_GROUP = "aijudge.extractors"
 
 
 class EvaluatorRegistry:
@@ -76,53 +76,57 @@ def default_registry() -> EvaluatorRegistry:
     return EvaluatorRegistry().load_installed()
 
 
-class NormalizerRegistry:
-    """正規化プラグインの名前解決。
+class ExtractorRegistry:
+    """抽出プラグインの名前解決。
 
-    評価器と同じ仕組みにしてある（ADR 0002）。**採点エンジンは個々の
-    Normalizer を import しない** ので、レポート課題を足す作業が
+    評価器と同じ仕組みにしてある（ADR 0002）。**採点エンジンも受付も個々の
+    Extractor を import しない** ので、扱える提出物の種類を増やす作業が
     「パッケージを 1 つ足して YAML に名前を書く」で済む。
+
+    PDF から本文を抜く実装（`document_text`）と、画像を読む実装
+    （`image_text`）が同じ名前空間に並ぶ ── 対象が違うだけで仕事は同じ
+    である（`aijudge_core.extraction`）。
     """
 
     def __init__(self) -> None:
-        self._normalizers: dict[str, Normalizer] = {}
+        self._extractors: dict[str, Extractor] = {}
 
-    def register(self, normalizer: Normalizer) -> None:
-        existing = self._normalizers.get(normalizer.normalizer_id)
-        if existing is not None and existing is not normalizer:
-            raise ValueError(f"duplicate normalizer id: {normalizer.normalizer_id!r}")
-        self._normalizers[normalizer.normalizer_id] = normalizer
+    def register(self, extractor: Extractor) -> None:
+        existing = self._extractors.get(extractor.extractor_id)
+        if existing is not None and existing is not extractor:
+            raise ValueError(f"duplicate extractor id: {extractor.extractor_id!r}")
+        self._extractors[extractor.extractor_id] = extractor
 
-    def replace(self, normalizer: Normalizer) -> None:
+    def replace(self, extractor: Extractor) -> None:
         """登録済みを差し替える（テストでスタブを挿す口）。"""
-        self._normalizers[normalizer.normalizer_id] = normalizer
+        self._extractors[extractor.extractor_id] = extractor
 
-    def get(self, normalizer_id: str) -> Normalizer:
+    def get(self, extractor_id: str) -> Extractor:
         try:
-            return self._normalizers[normalizer_id]
+            return self._extractors[extractor_id]
         except KeyError:
-            known = ", ".join(sorted(self._normalizers)) or "(none)"
-            raise KeyError(f"unknown normalizer {normalizer_id!r}; registered: {known}") from None
+            known = ", ".join(sorted(self._extractors)) or "(none)"
+            raise KeyError(f"unknown extractor {extractor_id!r}; registered: {known}") from None
 
-    def __contains__(self, normalizer_id: object) -> bool:
-        return normalizer_id in self._normalizers
+    def __contains__(self, extractor_id: object) -> bool:
+        return extractor_id in self._extractors
 
     def ids(self) -> tuple[str, ...]:
-        return tuple(sorted(self._normalizers))
+        return tuple(sorted(self._extractors))
 
-    def load_installed(self) -> NormalizerRegistry:
-        for entry_point in entry_points(group=NORMALIZER_ENTRY_POINT_GROUP):
-            normalizer = entry_point.load()()
-            if not isinstance(normalizer, Normalizer):
-                raise TypeError(f"entry point {entry_point.name!r} did not produce a Normalizer")
-            if normalizer.normalizer_id != entry_point.name:
+    def load_installed(self) -> ExtractorRegistry:
+        for entry_point in entry_points(group=EXTRACTOR_ENTRY_POINT_GROUP):
+            extractor = entry_point.load()()
+            if not isinstance(extractor, Extractor):
+                raise TypeError(f"entry point {entry_point.name!r} did not produce a Extractor")
+            if extractor.extractor_id != entry_point.name:
                 raise ValueError(
                     f"entry point name {entry_point.name!r} does not match "
-                    f"normalizer_id {normalizer.normalizer_id!r}"
+                    f"extractor_id {extractor.extractor_id!r}"
                 )
-            self.register(normalizer)
+            self.register(extractor)
         return self
 
 
-def default_normalizers() -> NormalizerRegistry:
-    return NormalizerRegistry().load_installed()
+def default_extractors() -> ExtractorRegistry:
+    return ExtractorRegistry().load_installed()

@@ -31,7 +31,6 @@ input:
   # 教員が見る（Phase 6 の書き起こしの流れとは別物）。
   allow_handwriting: false
 
-normalizers: []
 
 # **空にする。** 決定的評価器も AI 評価器も無い。
 #

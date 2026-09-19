@@ -16,17 +16,18 @@ members = [
     "aijudge-core",
     "aijudge-eval-checklist-ai-judge",
     "aijudge-eval-code-test-runner",
-    "aijudge-eval-image-text-check",
     "aijudge-eval-network-test-runner",
     "aijudge-eval-rubric-ai-judge",
     "aijudge-eval-submission-compliance",
+    "aijudge-eval-text-pattern-check",
     "aijudge-evalrunner",
+    "aijudge-ext-document-text",
+    "aijudge-ext-image-text",
     "aijudge-feedback",
     "aijudge-grader",
     "aijudge-grading",
     "aijudge-identity",
     "aijudge-llm-gateway",
-    "aijudge-norm-document-text",
     "aijudge-observation",
     "aijudge-persistence",
     "aijudge-reviewconsole",
@@ -51,17 +52,18 @@ dependencies = [
     { name = "aijudge-core" },
     { name = "aijudge-eval-checklist-ai-judge" },
     { name = "aijudge-eval-code-test-runner" },
-    { name = "aijudge-eval-image-text-check" },
     { name = "aijudge-eval-network-test-runner" },
     { name = "aijudge-eval-rubric-ai-judge" },
     { name = "aijudge-eval-submission-compliance" },
+    { name = "aijudge-eval-text-pattern-check" },
     { name = "aijudge-evalrunner" },
+    { name = "aijudge-ext-document-text" },
+    { name = "aijudge-ext-image-text" },
     { name = "aijudge-feedback" },
     { name = "aijudge-grader" },
     { name = "aijudge-grading" },
     { name = "aijudge-identity" },
     { name = "aijudge-llm-gateway" },
-    { name = "aijudge-norm-document-text" },
     { name = "aijudge-observation" },
     { name = "aijudge-persistence" },
     { name = "aijudge-reviewconsole" },
@@ -104,17 +106,18 @@ requires-dist = [
     { name = "aijudge-core", editable = "packages/core" },
     { name = "aijudge-eval-checklist-ai-judge", editable = "evaluators/checklist_ai_judge" },
     { name = "aijudge-eval-code-test-runner", editable = "evaluators/code_test_runner" },
-    { name = "aijudge-eval-image-text-check", editable = "evaluators/image_text_check" },
     { name = "aijudge-eval-network-test-runner", editable = "evaluators/network_test_runner" },
     { name = "aijudge-eval-rubric-ai-judge", editable = "evaluators/rubric_ai_judge" },
     { name = "aijudge-eval-submission-compliance", editable = "evaluators/submission_compliance" },
+    { name = "aijudge-eval-text-pattern-check", editable = "evaluators/text_pattern_check" },
     { name = "aijudge-evalrunner", editable = "apps/evalrunner" },
+    { name = "aijudge-ext-document-text", editable = "extractors/document_text" },
+    { name = "aijudge-ext-image-text", editable = "extractors/image_text" },
     { name = "aijudge-feedback", editable = "packages/feedback" },
     { name = "aijudge-grader", editable = "apps/grader" },
     { name = "aijudge-grading", editable = "packages/grading" },
     { name = "aijudge-identity", editable = "packages/identity" },
     { name = "aijudge-llm-gateway", editable = "packages/llm_gateway" },
-    { name = "aijudge-norm-document-text", editable = "normalizers/document_text" },
     { name = "aijudge-observation", editable = "packages/observation" },
     { name = "aijudge-persistence", editable = "packages/persistence" },
     { name = "aijudge-reviewconsole", editable = "apps/reviewconsole" },
@@ -149,10 +152,10 @@ dependencies = [
     { name = "aijudge-audit" },
     { name = "aijudge-authoring" },
     { name = "aijudge-core" },
+    { name = "aijudge-ext-document-text" },
     { name = "aijudge-grading" },
     { name = "aijudge-identity" },
     { name = "aijudge-llm-gateway" },
-    { name = "aijudge-norm-document-text" },
     { name = "aijudge-persistence" },
     { name = "aijudge-submission" },
     { name = "aijudge-telemetry" },
@@ -163,10 +166,10 @@ requires-dist = [
     { name = "aijudge-audit", editable = "packages/audit" },
     { name = "aijudge-authoring", editable = "packages/authoring" },
     { name = "aijudge-core", editable = "packages/core" },
+    { name = "aijudge-ext-document-text", editable = "extractors/document_text" },
     { name = "aijudge-grading", editable = "packages/grading" },
     { name = "aijudge-identity", editable = "packages/identity" },
     { name = "aijudge-llm-gateway", editable = "packages/llm_gateway" },
-    { name = "aijudge-norm-document-text", editable = "normalizers/document_text" },
     { name = "aijudge-persistence", editable = "packages/persistence" },
     { name = "aijudge-submission", editable = "packages/submission" },
     { name = "aijudge-telemetry", editable = "packages/telemetry" },
@@ -269,23 +272,6 @@ requires-dist = [
 ]
 
 [[package]]
-name = "aijudge-eval-image-text-check"
-version = "0.0.1"
-source = { editable = "evaluators/image_text_check" }
-dependencies = [
-    { name = "aijudge-core" },
-    { name = "aijudge-grading" },
-    { name = "aijudge-llm-gateway" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "aijudge-core", editable = "packages/core" },
-    { name = "aijudge-grading", editable = "packages/grading" },
-    { name = "aijudge-llm-gateway", editable = "packages/llm_gateway" },
-]
-
-[[package]]
 name = "aijudge-eval-network-test-runner"
 version = "0.0.1"
 source = { editable = "evaluators/network_test_runner" }
@@ -337,6 +323,21 @@ requires-dist = [
 ]
 
 [[package]]
+name = "aijudge-eval-text-pattern-check"
+version = "0.0.1"
+source = { editable = "evaluators/text_pattern_check" }
+dependencies = [
+    { name = "aijudge-core" },
+    { name = "aijudge-grading" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aijudge-core", editable = "packages/core" },
+    { name = "aijudge-grading", editable = "packages/grading" },
+]
+
+[[package]]
 name = "aijudge-evalrunner"
 version = "0.0.1"
 source = { editable = "apps/evalrunner" }
@@ -353,6 +354,36 @@ requires-dist = [
     { name = "aijudge-observation", editable = "packages/observation" },
     { name = "aijudge-telemetry", editable = "packages/telemetry" },
     { name = "pyyaml", specifier = ">=6.0" },
+]
+
+[[package]]
+name = "aijudge-ext-document-text"
+version = "0.0.1"
+source = { editable = "extractors/document_text" }
+dependencies = [
+    { name = "aijudge-core" },
+    { name = "pypdf" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aijudge-core", editable = "packages/core" },
+    { name = "pypdf", specifier = ">=5.0" },
+]
+
+[[package]]
+name = "aijudge-ext-image-text"
+version = "0.0.1"
+source = { editable = "extractors/image_text" }
+dependencies = [
+    { name = "aijudge-core" },
+    { name = "aijudge-llm-gateway" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aijudge-core", editable = "packages/core" },
+    { name = "aijudge-llm-gateway", editable = "packages/llm_gateway" },
 ]
 
 [[package]]
@@ -447,23 +478,6 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [{ name = "pydantic", specifier = ">=2.8" }]
-
-[[package]]
-name = "aijudge-norm-document-text"
-version = "0.0.1"
-source = { editable = "normalizers/document_text" }
-dependencies = [
-    { name = "aijudge-core" },
-    { name = "aijudge-grading" },
-    { name = "pypdf" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "aijudge-core", editable = "packages/core" },
-    { name = "aijudge-grading", editable = "packages/grading" },
-    { name = "pypdf", specifier = ">=5.0" },
-]
 
 [[package]]
 name = "aijudge-observation"

@@ -303,7 +303,7 @@ uv run aijudge-admin video purge --apply    # 実際に消す
 | `apps/grader` | 採点ワーカー。 |
 | `apps/admin` | 学期頭の一括操作と作問（CLI）。 |
 | `apps/evalrunner` | 一致率を測る。採点はしない。 |
-| `evaluators/`, `normalizers/` | 採点プラグインと入力の変換器。 |
+| `evaluators/`, `extractors/` | 採点プラグインと入力の変換器。 |
 | `subjects/` | 科目プロファイル ── どの評価器がどの順で走るか。 |
 
 開発するには [`docs/DEVELOPING.ja.md`](docs/DEVELOPING.ja.md) に、コマンドとモジュール境界の規則、各設計判断の理由があります。短い版はこれです。
@@ -334,7 +334,7 @@ uv run lint-imports
 flowchart TB
     APPS["apps/* — 合成の中心<br/>studentweb · reviewconsole · grader<br/>admin · evalrunner<br/>サブシステムを束ねてよい唯一の層"]
     INFRA["packages/persistence — 基盤<br/>Protocol の実装<br/>どのサブシステムも import しない"]
-    PLUG["evaluators/* · normalizers/* — プラグイン<br/>import してよいのは core・採点プロトコル・<br/>llm_gateway・sandbox だけ"]
+    PLUG["evaluators/* · extractors/* — プラグイン<br/>import してよいのは core・採点プロトコル・<br/>llm_gateway・sandbox だけ"]
     SUBS["packages/* — サブシステム<br/>authoring · grading · submission · identity<br/>skill · analytics · llm_gateway<br/>互いに独立<br/>連携は aijudge_core.events を通す"]
     CORE["packages/core — ドメイン模型とイベント契約<br/>何にも依存せず、I/O もしない"]
 
@@ -411,7 +411,7 @@ flowchart LR
 ## 何の上に作っているか
 
 Python 3.12 以降、**uv のワークスペース** 1 つ。`packages/*`・`apps/*`・
-`evaluators/*`・`normalizers/*` はそれぞれ独立した配布物で、だからこそ境界を
+`evaluators/*`・`extractors/*` はそれぞれ独立した配布物で、だからこそ境界を
 越えた import を `import-linter` が**ビルドとして落とせます**（レビューに
 任せません）。
 

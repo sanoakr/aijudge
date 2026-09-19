@@ -206,8 +206,18 @@ def apply_course_definition(
     tenant_id: TenantId,
     profiles_dir: Path,
     authored_by: UserId,
+    revise: bool = False,
 ) -> AppliedCourse:
-    """定義を読んでコースと課題を作る。**何度走らせても増えない。**"""
+    """定義を読んでコースと課題を作る。**何度走らせても増えない。**
+
+    `revise` は**訂正**。出題済みの課題の内容を変えるときに要る ── 既定では
+    保存済みと内容が違えば拒む（過去の採点がどの基準で付いたか辿れなくなる
+    ため・P8）。訂正では版を 1 つ上げた `TaskVersion` を作る。
+
+    **既存の提出と採点は動かない。** 提出は自分が出された版を指しており、
+    新しい版はそれ以降の提出にだけ効く。内容が変わっていない課題は版を
+    上げないので、`--revise` を付けても増えるのは実際に直した課題だけである。
+    """
     definition = load_course_definition(path)
     spec = definition.course
 
@@ -253,5 +263,6 @@ def apply_course_definition(
             # 定義が `subject_profile` を書いていればそちらが勝つ。
             subject_profile=course.subject_profile,
             authored_by=authored_by,
+            revise=revise,
         )
     return AppliedCourse(course=course, tasks=len(definition.tasks), created=created)

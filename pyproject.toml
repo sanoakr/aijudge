@@ -28,9 +28,10 @@ dependencies = [
     "aijudge-admin",
     "aijudge-toolchain",
     "aijudge-eval-network-test-runner",
-    "aijudge-norm-document-text",
+    "aijudge-ext-document-text",
     "aijudge-eval-checklist-ai-judge",
-    "aijudge-eval-image-text-check",
+    "aijudge-eval-text-pattern-check",
+    "aijudge-ext-image-text",
     "aijudge-eval-submission-compliance",
     "aijudge-skill",
     "aijudge-telemetry",
@@ -48,7 +49,7 @@ dev = [
 ]
 
 [tool.uv.workspace]
-members = ["packages/*", "evaluators/*", "normalizers/*", "apps/*"]
+members = ["packages/*", "evaluators/*", "extractors/*", "apps/*"]
 
 [tool.uv.sources]
 aijudge-core = { workspace = true }
@@ -71,9 +72,10 @@ aijudge-feedback = { workspace = true }
 aijudge-admin = { workspace = true }
 aijudge-toolchain = { workspace = true }
 aijudge-eval-network-test-runner = { workspace = true }
-aijudge-norm-document-text = { workspace = true }
+aijudge-ext-document-text = { workspace = true }
 aijudge-eval-checklist-ai-judge = { workspace = true }
-aijudge-eval-image-text-check = { workspace = true }
+aijudge-eval-text-pattern-check = { workspace = true }
+aijudge-ext-image-text = { workspace = true }
 aijudge-eval-submission-compliance = { workspace = true }
 aijudge-skill = { workspace = true }
 aijudge-telemetry = { workspace = true }
@@ -121,7 +123,7 @@ known-first-party = [
 [tool.pytest.ini_options]
 # `tests` はどのパッケージにも属さない結合検証。**入れ忘れると走らない。**
 # 実際に走っておらず、ADR 0009 で古くなったテストが 2 件気づかれずに残っていた。
-testpaths = ["packages", "evaluators", "normalizers", "apps", "evals", "tests"]
+testpaths = ["packages", "evaluators", "extractors", "apps", "evals", "tests"]
 addopts = "-q"
 
 [tool.mypy]

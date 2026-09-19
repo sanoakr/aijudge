@@ -11,7 +11,7 @@
 持ち込む価値は無いので、**本文そのものを受け取る** ── 貼り付けか、
 PDF / DOCX の添付。読めない URL を保存しても意味が無いので、URL は持たない。
 
-PDF の抽出は採点側と同じもの（`aijudge_norm_document_text.text_of`）を使う。
+PDF の抽出は採点側と同じもの（`aijudge_ext_document_text.text_of`）を使う。
 別に実装すると、片方だけが壊れた PDF を読めるという差が出て、教員が
 「なぜ読めないのか」を切り分けられなくなる。
 
@@ -126,7 +126,7 @@ def read_document(payload: bytes, suffix: str) -> str:
     if kind == "txt":
         return payload.decode("utf-8", "replace").strip()
 
-    from aijudge_norm_document_text import DocumentTextError, text_of
+    from aijudge_ext_document_text import DocumentTextError, text_of
 
     from aijudge_core import ArtifactKind
 

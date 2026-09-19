@@ -363,7 +363,7 @@ are enforced by `import-linter` and fail the build, not the review.
 | `apps/grader` | The grading worker. |
 | `apps/admin` | Start-of-term bulk operations and authoring (CLI). |
 | `apps/evalrunner` | Measures agreement. Never grades. |
-| `evaluators/`, `normalizers/` | Grading plugins and input converters. |
+| `evaluators/`, `extractors/` | Grading plugins and input converters. |
 | `subjects/` | Subject profiles — which evaluators run, in what order. |
 
 Working on it: [`docs/DEVELOPING.md`](docs/DEVELOPING.md) has the commands,
@@ -396,7 +396,7 @@ deployment shares, and the mastery estimates, which it does not.
 flowchart TB
     APPS["apps/* — composition roots<br/>studentweb · reviewconsole · grader<br/>admin · evalrunner<br/>the only layer that may combine subsystems"]
     INFRA["packages/persistence — infrastructure<br/>implements the Protocols<br/>no subsystem may import it"]
-    PLUG["evaluators/* · normalizers/* — plug-ins<br/>may import core, the grading protocol,<br/>llm_gateway and sandbox — nothing else"]
+    PLUG["evaluators/* · extractors/* — plug-ins<br/>may import core, the grading protocol,<br/>llm_gateway and sandbox — nothing else"]
     SUBS["packages/* — subsystems<br/>authoring · grading · submission · identity<br/>skill · analytics · llm_gateway<br/>independent of one another —<br/>they meet through aijudge_core.events"]
     CORE["packages/core — domain model, event contracts<br/>depends on nothing, performs no I/O"]
 
@@ -478,7 +478,7 @@ that table.
 ## Built on
 
 Python 3.12 or newer, one **uv workspace**: every `packages/*`, `apps/*`,
-`evaluators/*` and `normalizers/*` is its own distribution, which is what lets
+`evaluators/*` and `extractors/*` is its own distribution, which is what lets
 `import-linter` fail the build on a boundary crossing rather than leaving it to
 review.
 
