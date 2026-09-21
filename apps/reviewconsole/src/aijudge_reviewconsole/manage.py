@@ -1217,13 +1217,13 @@ def _artifact_kind_rows() -> list[dict[str, str]]:
     ]
 
 
-def _transcription_note(profile, accepted: tuple[str, ...] = ()) -> dict[str, str] | None:
-    """この科目では、何が受付のときに本文へ書き起こされるか（#351）。
+def _transcription_note(profile, accepted: tuple[str, ...] = ()) -> dict[str, object] | None:
+    """この科目では、何が採点のときに本文へ書き起こされるか（#351）。
 
     **画面が黙っていると、教員は画像の観点を「人が採点する」に倒す。** 実際
-    には画像は受付のときに 1 回書き起こされ（ADR 0022）、観点が読むのはその
-    本文なので、決定的な照合も AI 評価器もそのまま使える。それを知らせる
-    場所は、観点に評価器を割り当てるまさにその画面しかない。
+    には書き起こされた本文を観点が読むので、決定的な照合も AI 評価器もその
+    まま使える。それを知らせる場所は、観点に評価器を割り当てるまさにその
+    画面しかない。
 
     **上書きを当てた後のプロファイルを渡すこと。** 書き起こすかどうかは
     コースの上書きで変わりうるので、ファイルの値で書くと画面が嘘をつく。
@@ -1234,34 +1234,40 @@ def _transcription_note(profile, accepted: tuple[str, ...] = ()) -> dict[str, st
     from aijudge_core import SUFFIX_KINDS, ArtifactKind
     from aijudge_grading.registry import ExtractorRegistry
 
-    extractor_id = profile.input.transcription if profile is not None else None
-    if not extractor_id:
+    declared = profile.input.transcription if profile is not None else ()
+    if not declared:
         return None
-    try:
-        extractor = ExtractorRegistry().load_installed().get(extractor_id)
-    except KeyError:
-        # **名前が解決できないことをここで騒がない。** この注記は補助で
-        # あって、編集を止める理由ではない（起動時と採点時には落ちる）。
+    registry = ExtractorRegistry().load_installed()
+    rows: list[dict[str, str]] = []
+    covered: set[ArtifactKind] = set()
+    for name in declared:
+        try:
+            extractor = registry.get(name)
+        except KeyError:
+            # **名前が解決できないことをここで騒がない。** この注記は補助で
+            # あって、編集を止める理由ではない（起動時と採点時には落ちる）。
+            continue
+        kinds = [kind for kind in ArtifactKind if extractor.applies_to(kind)]
+        covered.update(kinds)
+        suffixes = sorted(suffix for suffix, kind in SUFFIX_KINDS.items() if kind in kinds)
+        if suffixes:
+            rows.append({"extractor": name, "suffixes": " ".join(suffixes)})
+    if not rows:
         return None
-    kinds = [kind for kind in ArtifactKind if extractor.applies_to(kind)]
-    suffixes = sorted(suffix for suffix, kind in SUFFIX_KINDS.items() if kind in kinds)
-    if not suffixes:
-        return None
-    # **読まれない受付形式を名指しする。** 科目が指名できる抽出器は 1 つで
-    # （`input.transcription`）、画像を読む `image_text` は PDF を扱わない
-    # （PyMuPDF が AGPL なので同梱できない）。両方を受け付ける課題では片方が
-    # 原本のまま評価器に渡り、「読めない」と判定されて人に回る ── 採点は
-    # 止まらないぶん、**設定の誤りが結果に出ない。**
+    # **読まれない受付形式を名指しする。** 宣言した抽出器のどれも扱わない
+    # 種類は、原本のまま評価器に渡り「読めない」と判定されて人に回る ──
+    # 採点は止まらないぶん、**設定の誤りが結果に出ない。**
     unread = sorted(
         suffix
         for suffix in accepted
-        if SUFFIX_KINDS.get(suffix) is not None
-        and SUFFIX_KINDS[suffix] not in kinds
-        and (SUFFIX_KINDS[suffix].is_document or SUFFIX_KINDS[suffix] is ArtifactKind.IMAGE)
+        if (kind := SUFFIX_KINDS.get(suffix)) is not None
+        and kind not in covered
+        and (kind.is_document or kind is ArtifactKind.IMAGE)
     )
     return {
-        "extractor": extractor_id,
-        "suffixes": " ".join(suffixes),
+        "rows": rows,
+        "suffixes": " ".join(sorted({s for row in rows for s in row["suffixes"].split()})),
+        "extractors": " ".join(row["extractor"] for row in rows),
         "unread": " ".join(unread),
     }
 

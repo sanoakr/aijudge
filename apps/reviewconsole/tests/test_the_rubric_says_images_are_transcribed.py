@@ -117,12 +117,41 @@ def test_the_note_names_the_suffixes_that_will_not_be_read(world: World) -> None
     world.register("teacher", Role.INSTRUCTOR, course.id)
     with world.database.unit_of_work() as uow:
         stored = uow.identity.get_course(course.id)
-        uow.identity.save_course(
-            stored.model_copy(update={"upload_suffixes": (".png", ".pdf")})
-        )
+        uow.identity.save_course(stored.model_copy(update={"upload_suffixes": (".png", ".pdf")}))
         uow.commit()
 
     note = _note_of(world.client("teacher").get(f"/manage/courses/{course.id}").text)
 
     assert ".pdf は書き起こされません" in note
     assert "レビューに回ります" in note
+
+
+def test_a_subject_that_reads_both_says_which_reads_which(world: World, tmp_path) -> None:
+    """画像と PDF が同じ科目に並ぶとき、**どれが何を読むか**を出す（#352）。
+
+    片方しか読まない構成のほうが危ないので（読まれない側は黙って人に回る）、
+    両方読む構成では「読まれません」を出さないことまで見る。
+    """
+    profiles = tmp_path / "subjects"
+    profiles.mkdir()
+    (profiles / "mixed.yaml").write_text(
+        "name: mixed\ninput:\n  transcription: [image_text, document_text]\n",
+        encoding="utf-8",
+    )
+    world.console.profiles_dir = profiles
+    course = _image_course(world)
+    world.register("teacher", Role.INSTRUCTOR, course.id)
+    with world.database.unit_of_work() as uow:
+        stored = uow.identity.get_course(course.id)
+        uow.identity.save_course(
+            stored.model_copy(
+                update={"subject_profile": "mixed", "upload_suffixes": (".png", ".pdf")}
+            )
+        )
+        uow.commit()
+
+    note = _note_of(world.client("teacher").get(f"/manage/courses/{course.id}").text)
+
+    assert "image_text" in note
+    assert "document_text" in note
+    assert "書き起こされません" not in note
