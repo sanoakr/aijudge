@@ -60,10 +60,7 @@ def build_app(args: argparse.Namespace):
     # main だけで呼ぶと、fork した子は素の root ロガーのまま動く。
     configure_logging("learner-web")
     database = Database.connect(args.database_url, create=args.create_schema)
-    video_store = FilesystemArtifactStore(args.video_dir) if args.video_dir else None
-    # 受け皿は動画ストアと同じ根の下（`_incomplete/`）。確定の `os.replace` が
-    # 同一ファイルシステムを要求する（#119）。
-    upload_sessions = FilesystemUploadSessions(args.video_dir) if args.video_dir else None
+    video_store, upload_sessions = _open_video_dir(args.video_dir)
     return create_app(
         StudentApp(
             database,
@@ -80,6 +77,34 @@ def build_app(args: argparse.Namespace):
             console_port=args.console_port,
         )
     )
+
+
+def _open_video_dir(
+    video_dir: Path | None,
+) -> tuple[FilesystemArtifactStore | None, FilesystemUploadSessions | None]:
+    """動画ストアと受け皿を開く。書けない場所なら **変数名を名指しして** 落とす。
+
+    受け皿は動画ストアと同じ根の下（`_incomplete/`）。確定の `os.replace` が
+    同一ファイルシステムを要求する（#119）。
+
+    受け皿は起動時に `_incomplete/` を作るので、`AIJUDGE_VIDEO_DIR` が書けない
+    場所だと**起動そのものが失敗する**。v1.12.0 で運用機がこれを踏んだ ──
+    systemd の `ProtectSystem=strict` は `ReadWritePaths` の外を読み取り専用に
+    するが、動画置き場（`/work/aijudge/video`）はその外だった。uvicorn の親は
+    生き残るので `systemctl` は `active` を返し、子だけが 40 行の traceback を
+    残して死に続け、502 が 4 時間続いた。原因は traceback の最後の 1 行
+    （`Read-only file system`）にしか無かったので、ここで拾って 1 行で言う。
+    """
+    if video_dir is None:
+        return None, None
+    try:
+        return FilesystemArtifactStore(video_dir), FilesystemUploadSessions(video_dir)
+    except OSError as exc:
+        raise SystemExit(
+            f"{ENV_VIDEO_DIR}={video_dir} に書けない（{exc.strerror}）。"
+            "systemd なら unit の ReadWritePaths にこの場所が含まれているか確認する"
+            "（docs/RUNNING.md の AIJUDGE_VIDEO_DIR）"
+        ) from exc
 
 
 def make_app():

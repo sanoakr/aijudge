@@ -377,7 +377,7 @@ JavaScript を切っていると切り替えは出ず、端末の設定に従う
 |---|---|---|
 | `AIJUDGE_DATABASE_URL` | 接続先 | ローカル PostgreSQL |
 | `AIJUDGE_ARTIFACT_DIR` | 提出物の置き場所 | `~/.aijudge/artifacts` |
-| `AIJUDGE_VIDEO_DIR` | 動画の置き場所（提出物とは**別のディレクトリ**）。**未設定なら動画提出は 501 で断る** ── 設定した人だけが持つ機能である。**web・review・admin が同じ場所を指すこと**（消すのは admin） | 未設定（機能ごと無い） |
+| `AIJUDGE_VIDEO_DIR` | 動画の置き場所（提出物とは**別のディレクトリ**）。**未設定なら動画提出は 501 で断る** ── 設定した人だけが持つ機能である。**web・review・admin が同じ場所を指すこと**（消すのは admin）。**systemd で動かすなら unit の `ReadWritePaths` の中に置くこと**（下記） | 未設定（機能ごと無い） |
 | `AIJUDGE_MAX_VIDEO_BYTES` / `AIJUDGE_MAX_CONCURRENT_VIDEO` | 動画 1 件の上限と、同時アップロードの数 | 5 GiB / 4 |
 | `AIJUDGE_MAX_VIDEO_BYTES_WITHOUT_DEADLINE` | **締切の無い課題だけ**の上限（ADR 0020）。あちらは提出から 1 年残り、回ごとにまとめて消せないので小さく絞る | 256 MiB |
 | `AIJUDGE_OBSERVATION_DIR` | 観測レコード（測定用・任意） | `~/.aijudge/observations` |
@@ -971,6 +971,32 @@ TA には出さない ── 採点は分担するが、習熟度は成績から
 ようにしておくこと** ── 現構成では `127.0.0.1:8080` に閉じている。
 
 **採点と確定には効かない。** 既に出された提出はそのまま扱われる。
+
+### 動画置き場は unit の `ReadWritePaths` の中に
+
+`deploy/systemd/*.service` は `ProtectSystem=strict` で、書けるのは
+`ReadWritePaths=/srv/aijudge /var/lib/aijudge` だけである。`AIJUDGE_VIDEO_DIR`
+を別ディスク（例: `/work/aijudge/video`）に置くなら、**web の unit に drop-in で
+許可を足す**。unit 本体は deploy が配り直す（#261）ので、機械ごとのパスは
+本体ではなく drop-in に書く:
+
+```sh
+sudo mkdir -p /etc/systemd/system/aijudge-web.service.d
+printf '[Service]\nReadWritePaths=/work/aijudge\n' \
+  | sudo tee /etc/systemd/system/aijudge-web.service.d/video.conf
+sudo systemctl daemon-reload && sudo systemctl restart aijudge-web
+```
+
+書くのは **web だけ**である。review は動画を読むだけで、消す `video purge` は
+admin CLI（サンドボックス外）で走る。
+
+**これを忘れると web が起動しない。** 受け皿（下記）は起動時に `_incomplete/`
+を作るので、v1.12.0 からは動画提出のときではなく**起動時に**
+`Read-only file system` で落ちる。しかも uvicorn の親プロセスは生き残るので
+`systemctl is-active` は `active` を返し、子だけが死に続けて nginx が 502 を
+返す ── 2026-09-21 にこれで 4 時間止まった。起動時に `AIJUDGE_VIDEO_DIR` を
+名指しした 1 行で落ちるようにしてあるので、`journalctl -u aijudge-web` の
+末尾を見る。
 
 ### 切れても続きから送れる（#119）
 

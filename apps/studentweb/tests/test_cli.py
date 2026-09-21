@@ -84,3 +84,29 @@ def test_workers_gt_1_with_create_schema_is_rejected(capsys) -> None:
     )
     assert rc == 2
     assert "併用できません" in capsys.readouterr().err
+
+
+def test_unwritable_video_dir_names_the_variable(monkeypatch, tmp_path: Path) -> None:
+    """`AIJUDGE_VIDEO_DIR` に書けないとき、traceback ではなく変数名で落ちる。
+
+    v1.12.0 で運用機が踏んだ ── systemd の `ReadWritePaths` の外に動画置き場が
+    あり、起動時の `_incomplete/` 作成が `Read-only file system` で死んだ。
+    原因は 40 行の traceback の最後の 1 行にしか無かった。
+    """
+    import pytest
+
+    def refuse(self, *args, **kwargs):
+        raise OSError(30, "Read-only file system")
+
+    monkeypatch.setattr(Path, "mkdir", refuse)
+    with pytest.raises(SystemExit) as info:
+        cli._open_video_dir(tmp_path / "video")
+    message = str(info.value)
+    assert cli.ENV_VIDEO_DIR in message
+    assert str(tmp_path / "video") in message
+    assert "Read-only file system" in message
+    assert "ReadWritePaths" in message
+
+
+def test_no_video_dir_means_no_store() -> None:
+    assert cli._open_video_dir(None) == (None, None)
