@@ -30,9 +30,14 @@
 | `aijudge-notify` | 日本語のメールを文字化けさせずに送る。上記の検査はすべてこれを通す |
 
 **スクリプトは `/usr/local/sbin/` に置く**（`lib/` のものは `/usr/local/lib/aijudge/`）。
-`bootstrap.sh` が初回に配置する。**デプロイ時の配布（`install-units.sh`）は unit だけ**
-── スクリプトの中身が変わるとバックアップの挙動が変わるので、配布に載せるのは
-機械側との一致を確かめてからにする（#344）。
+`bootstrap.sh` が初回に、`install-units.sh` がデプロイのたびに配る ── unit と同じく、
+**中身が同じなら触らない**（#344）。`aijudge-config-check` が両方の一致を見ている。
+
+**チェックアウトから直接走るものは配らない。** `aijudge-autodeploy.sh` と
+`aijudge-config-check.sh` は unit が `/opt/aijudge/deploy/` を指しており、
+`aijudge-vision-check.sh` は unit を持たない**手で走らせる診断**である
+（画像モデルが「名乗るが実際には読めない」構成を見つける。ADR 0021）。
+写しを増やすと、どちらが動いているのか分からなくなる。
 | `journald/aijudge.conf` | 運用ログの保存期間とディスク上限（`/etc/systemd/journald.conf.d/` に置く） |
 
 ## 前提（`docs/RUNNING.md` と共通）

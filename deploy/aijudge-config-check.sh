@@ -12,6 +12,7 @@
 #   3. 待ち時間の目安（`AIJUDGE_AI_WORKERS`）が実際の本数と合っているか
 #   4. DB の `max_connections` が、いまのプロセス数の最悪値を上回るか
 #   5. `/srv/aijudge` が `aijudge` から全部読めるか（バックアップの前提）
+#   6. `/usr/local/sbin` のスクリプトがチェックアウトと同じか（届いているか）
 #
 # 4 を見るのは、**プロセス数だけ上げて DB を忘れる**のが最も起きやすい
 # 壊し方だからである。混んだときに接続が取れずに落ちるので、落ちる瞬間は
@@ -124,9 +125,27 @@ if [ -d /srv/aijudge ]; then
     fi
 fi
 
+# 6. unit の先のスクリプトが届いているか（#344）
+#
+# **unit だけ見ても足りない。** `ExecStart` が指す先は `/usr/local/sbin` の
+# 写しで、配るようになった（`install-units.sh`）後も、機械を直接触れば
+# ずれる ── 1 の検査が unit に対してやっていることを、その先にもやる。
+for name in aijudge-restic-backup.sh aijudge-restic-offbox.sh aijudge-db-backup.sh \
+            aijudge-pg-basebackup.sh aijudge-storage-check.sh aijudge-llm-primary-check.sh \
+            aijudge-notify; do
+    src="${REPO_DIR}/deploy/${name}"
+    [ -e "${src}" ] || continue
+    cmp -s "${src}" "/usr/local/sbin/${name}" || problems+=("スクリプトがずれている: ${name}")
+done
+if [ -e "${REPO_DIR}/deploy/lib/llm-primary-check.py" ]; then
+    cmp -s "${REPO_DIR}/deploy/lib/llm-primary-check.py" \
+        /usr/local/lib/aijudge/llm-primary-check.py \
+        || problems+=("スクリプトがずれている: lib/llm-primary-check.py")
+fi
+
 if [ "${#problems[@]}" -eq 0 ]; then
     NOW=OK
-    detail="unit 一致・AI ワーカー ${running} 本・目安 ${hint}・max_connections ${limit}（要 ${needed}）・/srv/aijudge は全部読める"
+    detail="unit 一致・AI ワーカー ${running} 本・目安 ${hint}・max_connections ${limit}（要 ${needed}）・/srv/aijudge は全部読める・スクリプト一致"
 else
     NOW=NG
     detail=$(printf '%s\n' "${problems[@]}")
