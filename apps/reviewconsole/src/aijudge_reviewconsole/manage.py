@@ -1217,7 +1217,7 @@ def _artifact_kind_rows() -> list[dict[str, str]]:
     ]
 
 
-def _transcription_note(profile) -> dict[str, str] | None:
+def _transcription_note(profile, accepted: tuple[str, ...] = ()) -> dict[str, str] | None:
     """この科目では、何が受付のときに本文へ書き起こされるか（#351）。
 
     **画面が黙っていると、教員は画像の観点を「人が採点する」に倒す。** 実際
@@ -1247,7 +1247,23 @@ def _transcription_note(profile) -> dict[str, str] | None:
     suffixes = sorted(suffix for suffix, kind in SUFFIX_KINDS.items() if kind in kinds)
     if not suffixes:
         return None
-    return {"extractor": extractor_id, "suffixes": " ".join(suffixes)}
+    # **読まれない受付形式を名指しする。** 科目が指名できる抽出器は 1 つで
+    # （`input.transcription`）、画像を読む `image_text` は PDF を扱わない
+    # （PyMuPDF が AGPL なので同梱できない）。両方を受け付ける課題では片方が
+    # 原本のまま評価器に渡り、「読めない」と判定されて人に回る ── 採点は
+    # 止まらないぶん、**設定の誤りが結果に出ない。**
+    unread = sorted(
+        suffix
+        for suffix in accepted
+        if SUFFIX_KINDS.get(suffix) is not None
+        and SUFFIX_KINDS[suffix] not in kinds
+        and (SUFFIX_KINDS[suffix].is_document or SUFFIX_KINDS[suffix] is ArtifactKind.IMAGE)
+    )
+    return {
+        "extractor": extractor_id,
+        "suffixes": " ".join(suffixes),
+        "unread": " ".join(unread),
+    }
 
 
 def _effective_profile_of(console, course, version):
@@ -2381,7 +2397,9 @@ def register(templates) -> APIRouter:
                 # その本文である**ことを、評価器を割り当てる画面で言う。
                 # 上書きを当てた後の `applied` で見る ── 書き起こすかどうかは
                 # コースの上書きで変わりうる。
-                "transcription": _transcription_note(applied),
+                "transcription": _transcription_note(
+                    applied, course.upload_suffixes or DEFAULT_UPLOAD_SUFFIXES
+                ),
                 "people_count": people_count,
                 "role_counts": _role_counts(enrollments),
                 # シラバスの本文は Markdown。素のまま出すと見出しも箇条書きも
@@ -4148,7 +4166,10 @@ def register(templates) -> APIRouter:
                 # で見る** ── 混在コースではコースの値と食い違う（#195・#264
                 # で `_graded_by_tests` が同じ理由でこうなっている）。
                 "transcription": _transcription_note(
-                    _effective_profile_of(_console(request), course, version)
+                    _effective_profile_of(_console(request), course, version),
+                    (task.accepted_suffixes if task is not None else ())
+                    or course.upload_suffixes
+                    or DEFAULT_UPLOAD_SUFFIXES,
                 ),
                 # **AI 評価器も選べるようにする**（#315）。空（既定）は
                 # `rubric_ai_judge` のことで、項目を積み上げる

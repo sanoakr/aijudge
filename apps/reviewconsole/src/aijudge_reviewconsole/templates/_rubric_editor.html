@@ -11,14 +11,28 @@
    書き起こしと採点は別である（ADR 0021）。読む模型は段階を決めない。 #}
 {% if transcription is defined and transcription %}
 <div class="note">
-  <strong>{{ transcription.suffixes }} の提出は、受付のときに本文へ自動で書き起こされます</strong>
+  <strong>{{ transcription.suffixes }} の提出は、採点のときに本文へ自動で書き起こされます</strong>
   （{{ transcription.extractor }}）。
   <strong>観点が読むのはその本文です</strong> ── 下の評価器はどれも、書き起こした
   文字に対して走ります。画像だから「人が採点する」にする必要はありません。
   <br>
-  書き起こす模型は<strong>段階を決めません</strong>（ADR 0021）。決めるのは、
-  観点が指名した決定的な照合（<span class="mono">text_pattern_check</span>）か
-  AI 評価器のほうです。
+  書き起こしは<strong>1 回だけ</strong>で、決定的な照合も AI 評価器も同じ本文を
+  読みます（ADR 0022）。書き起こす模型は<strong>段階を決めません</strong>（ADR 0021）
+  ── 決めるのは、観点が指名した決定的な照合
+  （<span class="mono">text_pattern_check</span>）か AI 評価器のほうです。
+  {# **読まれない受付形式は名指しする**（#351）。科目が指名できる抽出器は 1 つで、
+     画像を読む `image_text` は PDF を扱わない。両方を受け付ける課題では片方が
+     原本のまま渡り、「読めない」と判定されて人に回る ── 採点が止まらないので、
+     設定の誤りが結果に出ない。 #}
+  {% if transcription.unread %}
+  <br>
+  <strong>ただし {{ transcription.unread }} は書き起こされません。</strong>
+  この科目が指名している抽出器は <span class="mono">{{ transcription.extractor }}</span>
+  の 1 つだけで、科目に指名できる抽出器は 1 つです。これらの提出は原本のまま
+  評価器へ渡り、「読めない」と判定されて<strong>レビューに回ります</strong>
+  （0 点にはなりません）。
+  {% endif %}
+  {# 全観点が人採点なら、そもそも書き起こさない（費用の門・ADR 0011）。 #}
 </div>
 {% endif %}
 {% for row in rows %}
