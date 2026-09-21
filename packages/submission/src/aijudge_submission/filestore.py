@@ -14,8 +14,10 @@ MinIO（S3 互換）に移すまでの実装。プロトコルが同じなので
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import os
+import shutil
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -121,6 +123,40 @@ class FilesystemArtifactStore:
             handle.abort()
             raise
         return handle.commit()
+
+    def adopt(self, key: str, source: Path) -> StoredBlob:
+        """既にあるファイルを、そのままストアの中身にする（#119）。
+
+        **3 GB を読み直して書き直さない。** 分割アップロードの受け皿は
+        同じストアの中（`_incomplete/`）に置くので、確定は `os.replace` で
+        済む ── コピーすると、いちばん混んでいる時間に HDD の書き込みが
+        倍になる。
+
+        ハッシュはここで計算する。**途中状態は保存できない**（`hashlib` の
+        オブジェクトは直列化できない）ので、リクエストをまたいで積み上げる
+        道が無い ── 確定の 1 回だけ読み直す。
+
+        別のファイルシステムに跨る場合だけ、明示的にコピーして落とす
+        （`os.replace` は同一 FS が要る）。
+        """
+        target = self._path(key)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        digest = hashlib.sha256()
+        size = 0
+        with source.open("rb") as handle:
+            while chunk := handle.read(1024 * 1024):
+                digest.update(chunk)
+                size += len(chunk)
+        try:
+            os.replace(source, target)
+        except OSError as exc:
+            if exc.errno != errno.EXDEV:
+                raise
+            # 跨いでいる。**コピーしてから消す** ── 消してからコピーすると、
+            # 途中で落ちたときに提出が消える。
+            shutil.copyfile(source, target)
+            source.unlink(missing_ok=True)
+        return StoredBlob(byte_size=size, sha256=digest.hexdigest())
 
     def get(self, key: str) -> bytes:
         path = self._path(key)

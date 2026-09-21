@@ -55,6 +55,26 @@ server {
         proxy_read_timeout 600s;
     }
 
+    # 動画の分割アップロード（#119）。**1 分割ぶんだけ通ればよい。**
+    #
+    # 分割は 8 MiB（`UPLOAD_CHUNK_BYTES`）で、受け側は 32 MiB を超える分割を
+    # 断る。ここはその上限に合わせる ── 上の 25M のままだと、分割 1 つが
+    # 通らずアップロードが始まらない。**全体の大きさ（数 GB）は関係ない**の
+    # が、1 回の PUT で送っていた頃との違いである。
+    location ~ ^/(uploads|tasks/[^/]+/(uploads|submit-video)) {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        client_max_body_size 64M;
+        # **受け取りながら渡す。** 溜めてから渡すと、nginx が分割ぶんを
+        # ディスクに書いてからアプリへ送る ── いちばん混んでいる時間に
+        # 書き込みが倍になる。1 発送信（`submit-video`）では数 GB になる。
+        proxy_request_buffering off;
+        proxy_buffering off;
+        proxy_read_timeout 600s;
+    }
+
     location / {
         proxy_pass http://127.0.0.1:8080;
         proxy_set_header Host $host;

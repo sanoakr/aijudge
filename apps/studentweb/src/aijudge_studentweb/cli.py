@@ -26,7 +26,7 @@ from pathlib import Path
 import uvicorn
 
 from aijudge_persistence import ENV_DATABASE_URL, Database
-from aijudge_submission import FilesystemArtifactStore
+from aijudge_submission import FilesystemArtifactStore, FilesystemUploadSessions
 from aijudge_telemetry import configure_logging, uvicorn_log_config
 
 from .app import StudentApp, create_app
@@ -61,12 +61,16 @@ def build_app(args: argparse.Namespace):
     configure_logging("learner-web")
     database = Database.connect(args.database_url, create=args.create_schema)
     video_store = FilesystemArtifactStore(args.video_dir) if args.video_dir else None
+    # 受け皿は動画ストアと同じ根の下（`_incomplete/`）。確定の `os.replace` が
+    # 同一ファイルシステムを要求する（#119）。
+    upload_sessions = FilesystemUploadSessions(args.video_dir) if args.video_dir else None
     return create_app(
         StudentApp(
             database,
             FilesystemArtifactStore(args.artifacts),
             profiles_dir=args.profiles,
             video_store=video_store,
+            upload_sessions=upload_sessions,
             max_upload_bytes=args.max_upload_bytes,
             max_video_bytes=args.max_video_bytes,
             max_video_bytes_without_deadline=args.max_video_bytes_without_deadline,

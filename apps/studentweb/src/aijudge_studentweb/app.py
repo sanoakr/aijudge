@@ -78,10 +78,14 @@ from aijudge_persistence import Database
 from aijudge_skill.portfolio import split_evidence
 from aijudge_submission import (
     ArtifactStore,
+    FilesystemUploadSessions,
     IncomingFile,
+    OffsetMismatch,
     StreamingArtifactStore,
     SubmissionRejected,
     SubmissionService,
+    TooLarge,
+    UploadSessionError,
     artifact_storage_key,
     iter_file,
     parse_range,
@@ -268,6 +272,15 @@ DEFAULT_MAX_CONCURRENT_VIDEO = 4
 # 429 のときに返す Retry-After（秒）。
 VIDEO_RETRY_AFTER = 20
 
+#: 分割 1 つの大きさ（#119）。**サーバが決めてクライアントに渡す** ── 回線と
+#: ディスクで妥当な値が違い、画面に書くと配備ごとに直せない。
+#:
+#: 8 MiB は「切れたときに捨てる量」と「往復の回数」の釣り合い。学内 Wi-Fi で
+#: 3 GB なら 384 回の往復で、1 回失敗しても 8 MiB しか捨てない。
+UPLOAD_CHUNK_BYTES = 8 * 1024 * 1024
+#: 受け取る分割の上限。**同時に何本も来たとき、載る量は本数ぶん積み上がる。**
+UPLOAD_MAX_CHUNK_BYTES = 32 * 1024 * 1024
+
 
 class StudentApp:
     """アプリの状態。DB とストアを持つ。"""
@@ -279,6 +292,7 @@ class StudentApp:
         *,
         profiles_dir: Path,
         video_store: StreamingArtifactStore | None = None,
+        upload_sessions: FilesystemUploadSessions | None = None,
         max_upload_bytes: int = MAX_UPLOAD_BYTES,
         max_video_bytes: int = MAX_VIDEO_BYTES,
         max_video_bytes_without_deadline: int = MAX_VIDEO_BYTES_WITHOUT_DEADLINE,
@@ -292,6 +306,10 @@ class StudentApp:
         # 動画の置き場所。通常の提出物とは別ディスクに置ける（elite では
         # `/work/aijudge/video`）。未設定なら動画提出は 501 で断る。
         self.video_store = video_store
+        # 中断から続けられるアップロードの受け皿（#119）。**動画ストアと同じ
+        # 根の下**に置くこと ── 確定が `os.replace` で済む（別の場所だと、
+        # いちばん混んでいる時間に 3 GB のコピーが増える）。
+        self.upload_sessions = upload_sessions
         self.profiles_dir = profiles_dir
         self.max_upload_bytes = max_upload_bytes
         self.max_video_bytes = max_video_bytes
@@ -716,6 +734,9 @@ def create_app(app_state: StudentApp) -> FastAPI:
                 # ので、一律の値を書くと「上げられる」と読んだ学生が数 GB を
                 # 送ってから 413 で断られることになる。
                 "max_video_bytes": app_state.video_limit_for(task_obj),
+                # 分割の大きさ（#119）。**再開のときはサーバに訊き直せない**
+                # ので（受け皿を作り直さない）、画面が持っておく必要がある。
+                "upload_chunk_bytes": UPLOAD_CHUNK_BYTES,
                 # 提出開始を過ぎているか。**過ぎるまで受け付けない**
                 # （`Task.accepts_submissions_at`）。ただし教員・TA は
                 # 提出開始前でも出せる（#340）── 判定は受付と同じ述語で
@@ -884,6 +905,202 @@ def create_app(app_state: StudentApp) -> FastAPI:
         return RedirectResponse(
             f"/submissions/{result.submission.id}" + ("?again=1" if result.deduplicated else ""),
             status_code=303,
+        )
+
+    def _video_gate(request: Request, me, task_version_id: str, filename: str):
+        """動画を受け付けてよいかを、**1 か所で**判定する（#119）。
+
+        分割アップロードと 1 発の送信は**同じ関門を通る**こと ── 別々に書くと、
+        片方でしか効かない制限が必ず生まれる（学内限定・受付期間・拡張子・
+        上限のどれか 1 つが漏れれば、そちらの経路が抜け道になる）。
+        """
+        if app_state.video_store is None or app_state.upload_sessions is None:
+            raise HTTPException(status_code=501, detail="この配備は動画提出に対応していません")
+        version, course_obj, task_obj = _task_and_course(
+            app_state, me, TaskVersionId(task_version_id)
+        )
+        _require_campus(app_state, request, task_obj, me.tenant_id)
+        role = _role_in(app_state, course_obj.id, me.user_id)
+        window = task_obj.submission_window_at(now())
+        if window is SubmissionWindow.NOT_OPEN and not _may_submit_before_open(role):
+            opens = task_obj.submissions_open_at or task_obj.opens_at
+            raise HTTPException(
+                status_code=409,
+                detail=f"まだ提出できません（{webui.local_filter(opens)} から受け付けます）",
+            )
+        if window is SubmissionWindow.CLOSED:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "提出の受付は終了しました"
+                    f"（{webui.local_filter(task_obj.accepts_until)} まででした）"
+                ),
+            )
+        accepts = allowed_suffixes(task_obj.accepted_suffixes, course_obj.upload_suffixes)
+        name = Path(filename or "video").name
+        suffix = Path(name).suffix.lower()
+        kind = kind_for(suffix) if suffix in accepts else None
+        if kind is None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"この形式は提出できません（受付: {', '.join(accepts)}）",
+            )
+        if suffix not in STREAMED_SUFFIXES:
+            raise HTTPException(
+                status_code=400, detail="この形式は通常の提出（/submit）で送ってください"
+            )
+        return version, course_obj, task_obj, role, kind, name
+
+    @app.post("/tasks/{task_version_id}/uploads")
+    def create_upload(request: Request, task_version_id: str, me: Me, filename: str) -> Response:
+        """分割アップロードを始める（#119）。**受け皿を 1 つ作るだけ。**
+
+        数 GB を 1 回の PUT で送ると、90% で切れたときに全部やり直しになる。
+        学内 Wi-Fi 越しの試験提出では、それが「間に合わなかった」になる。
+        """
+        version, _course, task_obj, _role, _kind, name = _video_gate(
+            request, me, task_version_id, filename
+        )
+        sessions = app_state.upload_sessions
+        assert sessions is not None  # `_video_gate` が確かめている
+        # **掃除はここで 1 回**。専用のタイマーを足すと、その停止に誰も
+        # 気づかない（`FilesystemUploadSessions.sweep` の説明を参照）。
+        sessions.sweep()
+        session = sessions.create(
+            upload_id=new_id("upl"),
+            tenant_id=str(me.tenant_id),
+            learner_id=str(me.user_id),
+            task_version_id=str(version.id),
+            filename=name,
+            max_bytes=app_state.video_limit_for(task_obj),
+        )
+        return JSONResponse(
+            {
+                "upload_id": session.id,
+                "offset": 0,
+                "max_bytes": session.max_bytes,
+                # 分割の大きさはサーバが決める。**画面に書かない** ──
+                # 配備ごとの回線とディスクで妥当な値が違う。
+                "chunk_size": UPLOAD_CHUNK_BYTES,
+            }
+        )
+
+    def _own_session(upload_id: str, me) -> object:
+        sessions = app_state.upload_sessions
+        if sessions is None:
+            raise HTTPException(status_code=501, detail="この配備は動画提出に対応していません")
+        try:
+            session = sessions.get(upload_id)
+        except UploadSessionError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        if not session.belongs_to(tenant_id=str(me.tenant_id), learner_id=str(me.user_id)):
+            # **他人のものは「無い」と答える。** 在ることを知らせると、
+            # 誰かがアップロード中かどうかが漏れる（受講の有無と同じ扱い）。
+            raise HTTPException(status_code=404, detail="このアップロードは見つかりません")
+        return session
+
+    @app.get("/uploads/{upload_id}")
+    def upload_status(upload_id: str, me: Me) -> Response:
+        """いま何バイト届いているか。**再開はここから始まる。**"""
+        session = _own_session(upload_id, me)
+        return JSONResponse({"upload_id": upload_id, "offset": session.offset})
+
+    @app.patch("/uploads/{upload_id}")
+    async def append_upload(request: Request, upload_id: str, me: Me, offset: int) -> Response:
+        """続きを書く。本文は生バイト列（multipart で包まない）。
+
+        **1 チャンクぶんだけメモリに載る。** それが分割の目的でもある
+        （全体を載せない・R7）。大きすぎるチャンクは断る ── 同時に何本も
+        来たときに、載る量が本数ぶん積み上がる。
+        """
+        session = _own_session(upload_id, me)
+        sessions = app_state.upload_sessions
+        assert sessions is not None
+        if app_state.active_video_uploads >= app_state.max_concurrent_video:
+            raise HTTPException(
+                status_code=429,
+                detail="いま混み合っています。しばらくして自動で再試行します。",
+                headers={"Retry-After": str(VIDEO_RETRY_AFTER)},
+            )
+        payload = await request.body()
+        if len(payload) > UPLOAD_MAX_CHUNK_BYTES:
+            raise HTTPException(status_code=413, detail="分割が大きすぎます")
+        with app_state.video_slot():
+            try:
+                written = await run_in_threadpool(
+                    sessions.append, upload_id, [payload], offset=offset
+                )
+            except OffsetMismatch as exc:
+                # **サーバの位置を返す。** クライアントはそこから続ければよく、
+                # やり直す必要は無い（それがこの仕組みの目的である）。
+                return JSONResponse(
+                    {"offset": exc.offset, "detail": "位置がずれています"}, status_code=409
+                )
+            except TooLarge as exc:
+                raise HTTPException(status_code=413, detail=str(exc)) from exc
+            except UploadSessionError as exc:
+                raise HTTPException(status_code=404, detail=str(exc)) from exc
+        del session
+        return JSONResponse({"upload_id": upload_id, "offset": written})
+
+    @app.post("/uploads/{upload_id}/finish")
+    async def finish_upload(request: Request, upload_id: str, me: Me) -> Response:
+        """受け皿を提出に変える。
+
+        **受付の判定をここでもう一度行う。** 始めたときに開いていても、
+        送っている間に受付が終わることがある ── 判定は「提出が成立した
+        時刻」で行うべきで、それはこの瞬間である。
+        """
+        session = _own_session(upload_id, me)
+        sessions = app_state.upload_sessions
+        store = app_state.video_store
+        assert sessions is not None and store is not None
+        version, course_obj, task_obj, role, kind, name = _video_gate(
+            request, me, session.task_version_id, session.filename
+        )
+        submission_id = SubmissionId(new_id("sub"))
+        artifact_id = ArtifactId(new_id("art"))
+        storage_key = artifact_storage_key(me.tenant_id, submission_id, artifact_id, name)
+        try:
+            source = sessions.path_of(upload_id)
+        except UploadSessionError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        if source.stat().st_size == 0:
+            raise HTTPException(status_code=400, detail="ファイルが空です")
+        # **移すだけ**（同じファイルシステム）。ハッシュはここで 1 回計算する。
+        blob = await run_in_threadpool(store.adopt, storage_key, source)
+        try:
+            result = app_state.submissions.record_streamed(
+                tenant_id=me.tenant_id,
+                task_version_id=version.id,
+                learner_id=me.user_id,
+                subject_profile=version.subject_profile,
+                filename=name,
+                kind=kind,
+                submission_id=submission_id,
+                artifact_id=artifact_id,
+                storage_key=storage_key,
+                byte_size=blob.byte_size,
+                sha256=blob.sha256,
+                # **受け皿の id をそのまま使う。** 確定を 2 回押しても、
+                # 提出は 1 つである（`Idempotency-Key` と同じ役目）。
+                idempotency_key=upload_id,
+                grading_starts_at=task_obj.grading_starts_at,
+                submitted_as=role,
+                is_demo=_is_demo_course(course_obj.id),
+            )
+        except SubmissionRejected as exc:
+            store.delete(storage_key)
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except BaseException:
+            store.delete(storage_key)
+            raise
+        sessions.discard(upload_id)
+        return JSONResponse(
+            {
+                "submission_id": str(result.submission.id),
+                "location": f"/submissions/{result.submission.id}",
+            }
         )
 
     @app.post("/tasks/{task_version_id}/submit-video")
