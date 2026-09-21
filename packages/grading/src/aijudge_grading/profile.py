@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from aijudge_core import EvaluatorKind, ReviewPolicy
 
@@ -25,8 +25,17 @@ class InputPolicy(BaseModel):
     採点が読む本文を取り出す手段で、対象が PDF でも画像でも同じ枠に入る
     （`aijudge_core.extraction`）。
 
-        transcription: document_text   PDF / DOCX → 本文
-        transcription: image_text      画像 → 本文
+        transcription: document_text          PDF / DOCX → 本文
+        transcription: image_text             画像 → 本文
+        transcription: [image_text, document_text]   両方（種類で振り分ける）
+
+    **複数を宣言できる**（#352）。1 つの科目に認定証（画像）とレポート（PDF）が
+    並ぶのは実際の運用そのもので、単数だと片方が書き起こされないまま評価器へ
+    渡り、「読めない」と判定されて人に回る ── **採点は止まらないので、設定の
+    誤りが結果に現れない。** 振り分けは提出物の種類で行い（`applies_to`）、
+    同じ種類を 2 つが名乗るときは**先に書いたほうが勝つ**。
+
+    1 つしか書かないときは文字列のままでよい（既存のプロファイルは無改修）。
 
     **旧 `normalizers:` はここに統合した。** 名前が 2 つあったのは、変換が
     採点パイプラインの途中にあった頃の名残で、同じ仕事が「変換」と「書き
@@ -36,7 +45,22 @@ class InputPolicy(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     allow_handwriting: bool = False
-    transcription: str | None = None
+    transcription: tuple[str, ...] = ()
+
+    @field_validator("transcription", mode="before")
+    @classmethod
+    def _one_name_is_a_list_of_one(cls, value: object) -> object:
+        """`transcription: image_text` をそのまま受ける。
+
+        **運用のプロファイルはリポジトリの外にある**（`AIJUDGE_PROFILES_DIR`）。
+        配備はそれを上書きしないので、複数を許すために書式を変えると、
+        古い書き方のファイルが読めなくなって採点が止まる。
+        """
+        if value is None:
+            return ()
+        if isinstance(value, str):
+            return (value,)
+        return value
 
 
 class MeasurementPolicy(BaseModel):
@@ -76,9 +100,9 @@ class SubjectProfile(BaseModel):
         失敗して採点が止まる** ── 新しい名前に揃えるのはこちらの都合であって、
         運用中のファイルがそれに合わせて書き換わる保証はどこにも無い。
 
-        1 つだけ拾う。旧形式は配列だったが、実際に宣言されていたのは
-        多くて 1 つで、抽出は提出物 1 件につき 1 回である。2 つ以上あれば
-        順序に意味があったことになるので、**黙って捨てずに落とす。**
+        **全部拾う。** 以前はここで 2 つ以上を拒んでいた ── 抽出が提出物 1 件に
+        つき 1 回で、科目が指名できる抽出器も 1 つだったからである。種類で
+        振り分けるようになった（#352）ので、並んでいた順序がそのまま意味を持つ。
         """
         if not isinstance(data, dict) or "normalizers" not in data:
             return data
@@ -86,14 +110,9 @@ class SubjectProfile(BaseModel):
         declared = data.pop("normalizers") or []
         if isinstance(declared, str):
             declared = [declared]
-        if len(declared) > 1:
-            raise ValueError(
-                f"profile {data.get('name')!r} declares several normalizers "
-                f"({declared}); name one extractor in input.transcription instead"
-            )
         if declared:
             given = dict(data.get("input") or {})
-            given.setdefault("transcription", declared[0])
+            given.setdefault("transcription", list(declared))
             data["input"] = given
         return data
 

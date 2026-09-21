@@ -59,14 +59,14 @@ def test_a_profile_still_written_the_old_way_loads() -> None:
     profile = SubjectProfile.model_validate(
         {"name": "cs_network_python", "normalizers": [], "deterministic": ["code_test_runner"]}
     )
-    assert profile.input.transcription is None
+    assert profile.input.transcription == ()
     assert profile.deterministic == ("code_test_runner",)
 
 
 def test_the_old_key_becomes_the_new_one() -> None:
     """古い宣言は、新しい置き場所の宣言として読む。意味は同じである。"""
     profile = SubjectProfile.model_validate({"name": "report_ja", "normalizers": ["document_text"]})
-    assert profile.input.transcription == "document_text"
+    assert profile.input.transcription == ("document_text",)
 
 
 def test_the_new_key_wins_when_both_are_written() -> None:
@@ -78,7 +78,7 @@ def test_the_new_key_wins_when_both_are_written() -> None:
             "input": {"transcription": "image_text"},
         }
     )
-    assert profile.input.transcription == "image_text"
+    assert profile.input.transcription == ("image_text",)
 
 
 # --------------------------------------------------------------------------
@@ -324,3 +324,38 @@ def test_a_task_scored_only_by_people_is_not_transcribed() -> None:
     )
     assert extractor.calls == 0, "誰も読まない本文を取り出している"
     assert run.extractions == ()
+
+
+# --------------------------------------------------------------------------
+# 5. 1 つの科目に、画像の課題と PDF の課題が並ぶ（#352）
+# --------------------------------------------------------------------------
+
+
+def test_a_subject_can_name_several_extractors() -> None:
+    """**認定証（画像）とレポート（PDF）は同じ科目に並ぶ。**
+
+    単数だと片方が書き起こされないまま評価器へ渡り、「読めない」と判定されて
+    人に回る ── 採点が止まらないので、設定の誤りが結果に出ない。
+    """
+    profile = SubjectProfile.model_validate(
+        {"name": "x", "input": {"transcription": ["image_text", "document_text"]}}
+    )
+    assert profile.input.transcription == ("image_text", "document_text")
+
+
+def test_one_name_is_still_written_as_a_string() -> None:
+    """既存のプロファイルは無改修で読めること（配備は運用のファイルを触らない）。"""
+    profile = SubjectProfile.model_validate({"name": "x", "input": {"transcription": "image_text"}})
+    assert profile.input.transcription == ("image_text",)
+
+
+def test_the_old_key_keeps_every_name_it_listed() -> None:
+    """旧 `normalizers:` は配列だった。**2 つ以上でも落とさない。**
+
+    以前はここで拒んでいた（抽出器を 1 つしか当てられなかったため）。
+    種類で振り分けるようになったので、並んでいた順序がそのまま意味を持つ。
+    """
+    profile = SubjectProfile.model_validate(
+        {"name": "x", "normalizers": ["image_text", "document_text"]}
+    )
+    assert profile.input.transcription == ("image_text", "document_text")

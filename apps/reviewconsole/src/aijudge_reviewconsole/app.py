@@ -436,6 +436,38 @@ class Console:
             for artifact in submission.gradable_artifacts
         )
 
+    def transcripts_of(
+        self, submission: Submission, run: GradingRun | None
+    ) -> dict[str, dict[str, object]]:
+        """原本ごとの書き起こし（#354）。**原本の隣に出すために要る。**
+
+        画像も PDF も、採点が読んだのは**書き起こした本文**であって原本では
+        ない（`_apply` が中身を差し替える）。教員が見ているのは原本なので、
+        **採点の根拠と目の前のものが別物**になる ── 名前を読み違えた、図の
+        キャプションが落ちた、といった食い違いは、両方を並べない限り見つけ
+        ようがない。
+
+        出所も添える（`engine` と `model_id`）。どの模型のどの版が起こした
+        本文かは再現性の一部である（P8）。
+
+        **取り出せなかったものも出す。** 失敗は `failed_reason` に入って
+        いるので、空欄ではなく理由が読める。
+        """
+        if run is None:
+            return {}
+        known = {str(artifact.id) for artifact in submission.artifacts}
+        rows: dict[str, dict[str, object]] = {}
+        for extraction in run.extractions:
+            if extraction.artifact_id not in known:
+                continue
+            rows[extraction.artifact_id] = {
+                "text": extraction.text.decode("utf-8", "replace"),
+                "engine": extraction.engine,
+                "model_id": extraction.model_id,
+                "failed_reason": extraction.failed_reason,
+            }
+        return rows
+
     def refresh_observations(
         self,
         submission: Submission,
@@ -1107,6 +1139,18 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 # 提出物そのもの（#75）。**人が採点する画像・PDF 課題では、
                 # これが見えないと採点できない。**
                 "files": console.files_of(context.submission),
+                # 採点が読んだ本文（#354）。**原本の隣に出す** ── 採点が
+                # 読んだのは書き起こしで、教員が見ているのは原本なので、
+                # 両方を並べない限り食い違いに気づけない。
+                # 判定は出さない（この画面の性質・盲検）。
+                "transcripts": console.transcripts_of(context.submission, context.run),
+                # 全観点が人採点なら、そもそも書き起こさない（費用の門・
+                # ADR 0011）。**無いことの理由を出す** ── 何も書かないと、
+                # 書き起こしに失敗したのか、初めから走っていないのかが
+                # 読み取れない。
+                "transcription_skipped": all(
+                    criterion.scored_by_human for criterion in context.task_version.criteria
+                ),
                 "criteria": context.task_version.criteria,
                 "course": context.course,
                 "section": {
@@ -1274,6 +1318,11 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 "run": context.run,
                 "lines": _numbered(source),
                 "files": console.files_of(context.submission),
+                # 採点が読んだ本文（#354）。原本と並べて出す。
+                "transcripts": console.transcripts_of(context.submission, context.run),
+                "transcription_skipped": all(
+                    criterion.scored_by_human for criterion in context.task_version.criteria
+                ),
                 "rows": _comparison_rows(context.task_version, context.run, context.mark),
                 "highlights": _highlighted_lines(context.run),
                 "review": context.review,

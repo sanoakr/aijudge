@@ -146,7 +146,8 @@ class GradingPipeline:
         if declared and extractors is None:
             self._extractors = ExtractorRegistry().load_installed()
         if declared and self._extractors is not None:
-            self._extractors.get(declared)  # 実在しなければここで落とす
+            for name in declared:
+                self._extractors.get(name)  # 実在しなければここで落とす
 
     @property
     def profile(self) -> SubjectProfile:
@@ -444,23 +445,37 @@ class GradingPipeline:
 
         **1 件の失敗で採点を止めない。** 取り出せなければ原本のまま下流へ
         渡り、評価器が「読めない」と判定して人へ回る（0 点にはしない）。
+
+        **提出物の種類で振り分ける**（#352）。科目は抽出器を複数宣言でき、
+        1 件ごとに `applies_to` が真の最初のものを使う ── 認定証（画像）と
+        レポート（PDF）が同じ科目に並ぶのは実際の運用そのもので、1 つしか
+        当てられないと片方が黙って書き起こされないまま人へ回る。
         """
         declared = self._profile.input.transcription
         if not declared or self._extractors is None:
             return (), contents
         if all(criterion.scored_by_human for criterion in task_version.criteria):
             return (), contents
-        extractor = self._extractors.get(declared)
+        chosen = [self._extractors.get(name) for name in declared]
         found: list[Extraction] = []
         for artifact in submission.gradable_artifacts:
             payload = contents.get(artifact.id)
-            if not payload or not extractor.applies_to(artifact.kind):
+            if not payload:
+                continue
+            # 先に書いたほうが勝つ。**順序は宣言の順序である** ── 同じ種類を
+            # 2 つが名乗る構成（将来の OCR と VL など）で、どちらが動くかを
+            # 科目が決められる。
+            extractor = next((e for e in chosen if e.applies_to(artifact.kind)), None)
+            if extractor is None:
                 continue
             try:
                 extraction = extractor.extract(artifact, payload)
             except Exception:
                 logger.warning(
-                    "extractor %s failed on artifact %s", declared, artifact.id, exc_info=True
+                    "extractor %s failed on artifact %s",
+                    extractor.extractor_id,
+                    artifact.id,
+                    exc_info=True,
                 )
                 continue
             found.append(extraction.model_copy(update={"artifact_id": str(artifact.id)}))
