@@ -166,9 +166,16 @@
 {% endif %}
 {% endif %}
 {% if video_accepts %}
-{# 動画は取り込み経路が別（`submit-video`）。生バイト列を送るので multipart
-   では包まない。大きいので **XMLHttpRequest で進捗**を出し、混雑時（429）は
-   Retry-After に従って自動で再試行する（順番待ち表示つき）。 #}
+{# 動画は取り込み経路が別。分割して送り、**切れたら続きから**再開する（#119）。
+   学内 Wi-Fi 越しに数 GB を 1 回の PUT で送ると、90% での切断が全部やり直しに
+   なる ── 試験のように時間窓が決まっている場面では「間に合わなかった」に
+   直結する。
+
+   サーバが受け皿を作り、分割の大きさを返す（配備ごとに妥当な値が違うので、
+   画面には書かない）。切れたら位置を訊いて、その続きから送る。
+
+   **中断は残る。** 受け皿の id を `localStorage` に置くので、ページを閉じて
+   開き直しても「続きから再開」が押せる。 #}
 <div class="card">
   <div class="inline-field">
     <span class="body">
@@ -176,20 +183,26 @@
       <input id="video-upload" type="file" accept="{{ video_accepts | join(',') }}">
     </span>
     <button type="button" id="video-submit">動画を提出</button>
+    {# 中断したアップロードがあるときだけ出る（JavaScript が足す）。 #}
+    <button type="button" id="video-resume" hidden class="minor">続きから再開</button>
   </div>
   <progress id="video-progress" value="0" max="100" hidden style="width:100%;margin-top:10px"></progress>
   <p class="desc" id="video-status" style="margin:12px 0 0">
     動画は視聴のうえ担当教員が採点します。上限 {{ (max_video_bytes / 1024 / 1024) | round | int }} MB。
+    通信が切れても、<strong>同じファイルを選び直せば続きから</strong>送れます。
   </p>
 </div>
 <script>
 (function () {
   var input = document.getElementById("video-upload");
   var button = document.getElementById("video-submit");
+  var resumeButton = document.getElementById("video-resume");
   var status = document.getElementById("video-status");
   var bar = document.getElementById("video-progress");
-  var url = "/tasks/{{ task.id }}/submit-video?filename=";
+  var startUrl = "/tasks/{{ task.id }}/uploads?filename=";
   var MB = 1048576;
+  // 中断を覚えておく鍵。**課題ごと**に分ける（別の課題の受け皿を再開しない）。
+  var KEY = "aijudge.upload.{{ task.id }}";
 
   function mb(n) { return (n / MB).toFixed(n < MB ? 1 : 0); }
   function fmtEta(sec) {
@@ -197,55 +210,155 @@
     if (sec < 90) return " ・ 残り約 " + Math.round(sec) + " 秒";
     return " ・ 残り約 " + Math.round(sec / 60) + " 分";
   }
+  function remember(id, name, size) {
+    try { localStorage.setItem(KEY, JSON.stringify({id: id, name: name, size: size})); } catch (e) {}
+  }
+  function forget() { try { localStorage.removeItem(KEY); } catch (e) {} }
+  function recall() {
+    try { return JSON.parse(localStorage.getItem(KEY) || "null"); } catch (e) { return null; }
+  }
 
-  function upload(file, key, attempt) {
+  // 1 分割を送る。**返ってきたオフセットを信じる** ── こちらが数えた値では
+  // なくサーバの実サイズなので、途中で落ちてもずれない。
+  function sendChunk(id, file, offset, chunkSize, started, attempt, done, fail) {
+    var slice = file.slice(offset, Math.min(offset + chunkSize, file.size));
     var xhr = new XMLHttpRequest();
-    var started = Date.now();
-    xhr.open("POST", url + encodeURIComponent(file.name));
-    xhr.setRequestHeader("Idempotency-Key", key);
-    xhr.upload.addEventListener("progress", function (e) {
-      if (!e.lengthComputable) return;
-      var pct = e.loaded / e.total * 100;
-      bar.hidden = false; bar.value = pct;
-      var rate = e.loaded / Math.max(0.001, (Date.now() - started) / 1000);  // bytes/s
-      status.textContent = "アップロード中… " + Math.round(pct) + "% ("
-        + mb(e.loaded) + " / " + mb(e.total) + " MB ・ " + mb(rate) + " MB/s"
-        + fmtEta((e.total - e.loaded) / rate) + ")";
-    });
+    xhr.open("PATCH", "/uploads/" + id + "?offset=" + offset);
+    xhr.setRequestHeader("Content-Type", "application/octet-stream");
     xhr.addEventListener("load", function () {
       if (xhr.status >= 200 && xhr.status < 300) {
-        status.textContent = "アップロード完了。結果ページへ移動します…";
-        window.location = xhr.responseURL || "/";
+        var next = JSON.parse(xhr.responseText).offset;
+        var pct = next / file.size * 100;
+        bar.hidden = false; bar.value = pct;
+        var rate = (next - started.from) / Math.max(0.001, (Date.now() - started.at) / 1000);
+        status.textContent = "アップロード中… " + Math.round(pct) + "% ("
+          + mb(next) + " / " + mb(file.size) + " MB ・ " + mb(rate) + " MB/s"
+          + fmtEta((file.size - next) / rate) + ")";
+        if (next >= file.size) { done(); return; }
+        sendChunk(id, file, next, chunkSize, started, 0, done, fail);
+        return;
+      }
+      if (xhr.status === 409) {
+        // 位置がずれた。**サーバの位置から続ける**（やり直さない）。
+        var where = JSON.parse(xhr.responseText).offset;
+        sendChunk(id, file, where, chunkSize, started, 0, done, fail);
         return;
       }
       if (xhr.status === 429) {
         var after = parseInt(xhr.getResponseHeader("Retry-After") || "20", 10);
-        bar.hidden = true;
-        status.textContent = "いま混み合っています。約 " + after + " 秒後に自動で再試行します…（"
-          + (attempt + 1) + " 回目）";
-        window.setTimeout(function () { upload(file, key, attempt + 1); }, after * 1000);
+        status.textContent = "いま混み合っています。約 " + after + " 秒後に自動で再開します…";
+        window.setTimeout(function () {
+          sendChunk(id, file, offset, chunkSize, started, attempt, done, fail);
+        }, after * 1000);
         return;
       }
-      bar.hidden = true;
-      status.textContent = "失敗しました (" + xhr.status + "): " + xhr.responseText;
-      button.disabled = false;
+      fail(xhr.status + ": " + xhr.responseText);
     });
     xhr.addEventListener("error", function () {
-      bar.hidden = true;
-      status.textContent = "通信が切れました。もう一度お試しください。";
-      button.disabled = false;
+      // 切断。**少し待って同じ位置から**。3 回続けて駄目なら手動に委ねる
+      // （受け皿は残っているので、あとから「続きから再開」で拾える）。
+      if (attempt >= 3) {
+        fail("通信が切れました。「続きから再開」でいつでも続けられます。");
+        return;
+      }
+      status.textContent = "通信が切れました。再接続しています…（" + (attempt + 1) + " 回目）";
+      window.setTimeout(function () {
+        askOffset(id, function (where) {
+          sendChunk(id, file, where, chunkSize, started, attempt + 1, done, fail);
+        }, fail);
+      }, 3000);
     });
-    xhr.send(file);
+    xhr.send(slice);
+  }
+
+  function askOffset(id, then, fail) {
+    var xhr = new XMLHttpRequest();
+    xhr.open("GET", "/uploads/" + id);
+    xhr.addEventListener("load", function () {
+      if (xhr.status === 200) { then(JSON.parse(xhr.responseText).offset); return; }
+      fail("このアップロードはもう続けられません（" + xhr.status + "）。選び直してください。");
+    });
+    xhr.addEventListener("error", function () { fail("位置を確認できませんでした。"); });
+    xhr.send();
+  }
+
+  function finish(id) {
+    var xhr = new XMLHttpRequest();
+    xhr.open("POST", "/uploads/" + id + "/finish");
+    xhr.addEventListener("load", function () {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        forget();
+        status.textContent = "アップロード完了。結果ページへ移動します…";
+        window.location = JSON.parse(xhr.responseText).location;
+        return;
+      }
+      failWith("確定できませんでした (" + xhr.status + "): " + xhr.responseText);
+    });
+    xhr.addEventListener("error", function () { failWith("確定できませんでした。"); });
+    xhr.send();
+  }
+
+  function failWith(message) {
+    bar.hidden = true;
+    status.textContent = message;
+    button.disabled = false;
+    showResume();
+  }
+
+  function showResume() {
+    var saved = recall();
+    resumeButton.hidden = !saved;
+    if (saved) { resumeButton.textContent = "「" + saved.name + "」を続きから再開"; }
+  }
+
+  function run(id, file, chunkSize, from) {
+    remember(id, file.name, file.size);
+    sendChunk(id, file, from, chunkSize, {at: Date.now(), from: from}, 0,
+      function () { finish(id); }, failWith);
   }
 
   button.addEventListener("click", function () {
     var file = input.files[0];
     if (!file) { status.textContent = "ファイルを選んでください。"; return; }
     button.disabled = true;
-    var key = (crypto.randomUUID && crypto.randomUUID()) || String(Date.now());
+    resumeButton.hidden = true;
     status.textContent = "アップロードを開始します…";
-    upload(file, key, 0);
+    var xhr = new XMLHttpRequest();
+    xhr.open("POST", startUrl + encodeURIComponent(file.name));
+    xhr.addEventListener("load", function () {
+      if (xhr.status !== 200) {
+        var detail = xhr.responseText;
+        try { detail = JSON.parse(xhr.responseText).detail || detail; } catch (e) {}
+        failWith("始められませんでした (" + xhr.status + "): " + detail);
+        return;
+      }
+      var got = JSON.parse(xhr.responseText);
+      run(got.upload_id, file, got.chunk_size, 0);
+    });
+    xhr.addEventListener("error", function () { failWith("始められませんでした。"); });
+    xhr.send();
   });
+
+  // **同じファイルを選び直してもらう。** ブラウザは前回のファイルを保持
+  // できない（`File` は再読込をまたげない）ので、続きから送るには選択が要る。
+  resumeButton.addEventListener("click", function () {
+    var saved = recall();
+    var file = input.files[0];
+    if (!saved) { showResume(); return; }
+    if (!file) { status.textContent = "同じ動画をもう一度選んでください（続きから送ります）。"; return; }
+    if (file.name !== saved.name || file.size !== saved.size) {
+      status.textContent = "前回と違うファイルです。同じ動画を選んでください。";
+      return;
+    }
+    button.disabled = true;
+    resumeButton.hidden = true;
+    askOffset(saved.id, function (where) {
+      status.textContent = "続きから再開します（" + mb(where) + " MB まで届いています）…";
+      run(saved.id, file, {{ upload_chunk_bytes }}, where);
+    }, failWith);
+  });
+
+  showResume();
 })();
 </script>
 {% endif %}

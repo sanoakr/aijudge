@@ -33,7 +33,7 @@ from aijudge_core.ids import CourseId, CriterionId, TaskId, TaskVersionId, Tenan
 from aijudge_identity import AuthService
 from aijudge_persistence import Database
 from aijudge_studentweb import SESSION_COOKIE, StudentApp, create_app
-from aijudge_submission import FilesystemArtifactStore
+from aijudge_submission import FilesystemArtifactStore, FilesystemUploadSessions
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PROFILES = REPO_ROOT / "subjects"
@@ -48,11 +48,13 @@ class World:
         self.store = FilesystemArtifactStore(tmp_path / "artifacts")
         self.video_dir = tmp_path / "video"
         video_store = FilesystemArtifactStore(self.video_dir) if with_video else None
+        sessions = FilesystemUploadSessions(self.video_dir) if with_video else None
         self.app = StudentApp(
             self.database,
             self.store,
             profiles_dir=PROFILES,
             video_store=video_store,
+            upload_sessions=sessions,
             max_video_bytes=2000,
         )
         self.client = TestClient(create_app(self.app))
