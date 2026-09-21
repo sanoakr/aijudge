@@ -30,6 +30,13 @@ Restart=on-failure
 RestartSec=5
 LimitNOFILE=65536
 # サンドボックス化。書き込みを許すのはデータ・作業域だけに絞る。
+#
+# **`AIJUDGE_VIDEO_DIR` を別ディスクに置くなら、その場所も書けなければ
+# ならない。** ここには足さず（この unit は deploy が配り直す ── #261）、
+# 機械ごとの drop-in `aijudge-web.service.d/video.conf` で
+# `ReadWritePaths=` を追加する（`docs/RUNNING.md` の「動画置き場は unit の
+# ReadWritePaths の中に」）。忘れると起動時の `_incomplete/` 作成で落ち、
+# 親プロセスは残るので `active` のまま 502 を返し続ける（2026-09-21・4 時間）。
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
