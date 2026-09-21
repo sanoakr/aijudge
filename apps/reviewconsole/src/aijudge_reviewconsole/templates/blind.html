@@ -51,6 +51,8 @@
   {% else %}
   <p class="desc"><a href="{{ root_prefix() }}/review/{{ submission.id }}/artifacts/{{ file.id }}">元のファイル</a></p>
   {% endif %}
+  {# 原本のすぐ下に、採点が読んだ本文（#354）。 #}
+  {% include "_transcript.html" %}
 {% endfor %}
 {% if lines %}
 <pre class="code">{% for n, line in lines %}<span class="ln"><span class="n">{{ n }}</span>{{ line }}</span>{% endfor %}</pre>

@@ -1,0 +1,42 @@
+{# 採点が読んだ本文（#354）。**原本のすぐ下に置く。**
+
+   画像も PDF も、評価器に渡ったのは書き起こした本文であって原本ではない
+   （`GradingPipeline._apply` が中身を差し替える）。教員が見ているのは原本
+   なので、並べない限り食い違いに気づけない ── 名前を 1 文字読み違えた、
+   図のキャプションが落ちた、PDF の 2 段組が交互に混ざった、はどれも
+   「採点がおかしい」ではなく「読んだものが違う」として現れる。
+
+   **畳んで置く。** 採点の根拠ではあるが、まず見るのは原本である。
+
+   `file` と `transcripts` が呼び出し側にあること。 #}
+{% set transcript = transcripts.get(file.id) if transcripts is defined and transcripts else none %}
+{% if not transcript and transcription_skipped is defined and transcription_skipped
+      and (file.is_image or file.is_pdf) %}
+{# **無いことの理由を出す。** 全観点が人採点の課題では書き起こしを走らせない
+   （画像 1 枚 20〜40 秒を捨てないため・ADR 0011）。書かないと、失敗したのか
+   初めから走っていないのかが読み取れない。 #}
+<p class="desc">
+  この課題は全ての観点を人が採点するため、<strong>書き起こしは行っていません</strong>。
+  上の原本をそのままご覧ください。
+</p>
+{% endif %}
+{% if transcript %}
+<details class="card transcript">
+  <summary>
+    <b>採点が読んだ本文</b>
+    <span class="desc">
+      {{ transcript.engine or '書き起こし' }}
+      {%- if transcript.model_id %} ／ {{ transcript.model_id }}{% endif %}
+    </span>
+  </summary>
+  {% if transcript.failed_reason %}
+  {# 取り出せなかったものも出す。**空欄と失敗を同じ顔にしない。** #}
+  <div class="note warn" style="margin-top:8px">
+    <strong>読み取れませんでした。</strong>{{ transcript.failed_reason }}
+    <br>この提出は原本のまま評価器へ渡っています（0 点ではありません）。
+  </div>
+  {% else %}
+  <pre class="code" style="margin-top:8px">{{ transcript.text }}</pre>
+  {% endif %}
+</details>
+{% endif %}
