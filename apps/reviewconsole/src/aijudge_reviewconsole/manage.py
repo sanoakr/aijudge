@@ -1217,6 +1217,60 @@ def _artifact_kind_rows() -> list[dict[str, str]]:
     ]
 
 
+def _transcription_note(profile) -> dict[str, str] | None:
+    """この科目では、何が受付のときに本文へ書き起こされるか（#351）。
+
+    **画面が黙っていると、教員は画像の観点を「人が採点する」に倒す。** 実際
+    には画像は受付のときに 1 回書き起こされ（ADR 0022）、観点が読むのはその
+    本文なので、決定的な照合も AI 評価器もそのまま使える。それを知らせる
+    場所は、観点に評価器を割り当てるまさにその画面しかない。
+
+    **上書きを当てた後のプロファイルを渡すこと。** 書き起こすかどうかは
+    コースの上書きで変わりうるので、ファイルの値で書くと画面が嘘をつく。
+
+    **扱える種類は抽出器に訊く**（`applies_to`）。画面に対応表を書くと、
+    抽出器を足した日にそこだけが古くなる（`_artifact_kind_rows` と同じ理由）。
+    """
+    from aijudge_core import SUFFIX_KINDS, ArtifactKind
+    from aijudge_grading.registry import ExtractorRegistry
+
+    extractor_id = profile.input.transcription if profile is not None else None
+    if not extractor_id:
+        return None
+    try:
+        extractor = ExtractorRegistry().load_installed().get(extractor_id)
+    except KeyError:
+        # **名前が解決できないことをここで騒がない。** この注記は補助で
+        # あって、編集を止める理由ではない（起動時と採点時には落ちる）。
+        return None
+    kinds = [kind for kind in ArtifactKind if extractor.applies_to(kind)]
+    suffixes = sorted(suffix for suffix, kind in SUFFIX_KINDS.items() if kind in kinds)
+    if not suffixes:
+        return None
+    return {"extractor": extractor_id, "suffixes": " ".join(suffixes)}
+
+
+def _effective_profile_of(console, course, version):
+    """この課題（無ければこのコース）に効いているプロファイル。
+
+    **課題のプロファイルで見る**（#195・#264）── 混在コースではコースの値と
+    食い違う。上書きは当てる（`effective_profile`）。読めなければ None。
+    """
+    name = version.subject_profile if version is not None else course.subject_profile
+    try:
+        base = load_profile(console.profiles_dir / f"{name}.yaml")
+    except Exception:
+        return None
+    if not course.grading_overrides:
+        return base
+    try:
+        return effective_profile(
+            base, course.grading_overrides, EvaluatorRegistry().load_installed()
+        )
+    except OverrideError:
+        return base
+
+
 def _evaluator_rows(registry, kind) -> list[dict[str, str]]:
     """評価器の名前と 1 行説明。
 
@@ -2323,6 +2377,11 @@ def register(templates) -> APIRouter:
                 # 担当教員には出さない ── 押せないものを見せない。
                 "is_admin": _is_admin(request, me),
                 "learner_submissions": learner_submissions,
+                # 受付のときに書き起こされるもの（#351）。**観点が読むのは
+                # その本文である**ことを、評価器を割り当てる画面で言う。
+                # 上書きを当てた後の `applied` で見る ── 書き起こすかどうかは
+                # コースの上書きで変わりうる。
+                "transcription": _transcription_note(applied),
                 "people_count": people_count,
                 "role_counts": _role_counts(enrollments),
                 # シラバスの本文は Markdown。素のまま出すと見出しも箇条書きも
@@ -4085,6 +4144,12 @@ def register(templates) -> APIRouter:
                 "course_has_rubric": bool(course.rubric),
                 "rubric_is_course_default": bool(course.rubric) and rows == course_rows,
                 "deterministic": _evaluator_rows(registry, EvaluatorKind.DETERMINISTIC),
+                # 受付のときに書き起こされるもの（#351）。**課題のプロファイル
+                # で見る** ── 混在コースではコースの値と食い違う（#195・#264
+                # で `_graded_by_tests` が同じ理由でこうなっている）。
+                "transcription": _transcription_note(
+                    _effective_profile_of(_console(request), course, version)
+                ),
                 # **AI 評価器も選べるようにする**（#315）。空（既定）は
                 # `rubric_ai_judge` のことで、項目を積み上げる
                 # `checklist_ai_judge` は指名しなければ走らない。
