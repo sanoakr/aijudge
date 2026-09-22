@@ -45,6 +45,14 @@
         {{ ev.about }}（{{ ev.name }}）</option>
       {% endfor %}
     </optgroup>
+    {# **科目が宣言していない評価器が選択中なら、そのまま出して警告する。**
+       選択肢から消すだけだと、保存した瞬間に黙って別のものに変わる。
+       保存は `_refuse_undeclared` が断るので、教員は先に宣言を直すことになる。 #}
+    {% if undeclared is defined and row.code in undeclared %}
+    <optgroup label="科目プロファイルが宣言していない（このままでは保存できません）">
+      <option value="{{ undeclared[row.code] }}" selected>{{ undeclared[row.code] }} — 科目が宣言していないため採点されません</option>
+    </optgroup>
+    {% endif %}
     <optgroup label="人が採点する">
       {# **空とは別の選択肢である。** 空は「どの AI 評価器からも対象」で、
          画像のようにまだ機械が判定できない観点をそこへ入れると、AI が

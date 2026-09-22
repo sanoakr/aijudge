@@ -141,7 +141,7 @@
   個別に直すには、問題セットのページで課題を開いて「問題文・ルーブリックを直す」から変えてください。
 </div>
 <form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/rubric" class="card">
-  {% with rows = rubric_rows %}{% include "_rubric_editor.html" %}{% endwith %}
+  {% with rows = rubric_rows, deterministic = rubric_deterministic, ai_evaluators = rubric_ai_evaluators %}{% include "_rubric_editor.html" %}{% endwith %}
   {% with inherits = false, aggregation = course.rubric_aggregation %}
     {% include "_aggregation_field.html" %}
   {% endwith %}

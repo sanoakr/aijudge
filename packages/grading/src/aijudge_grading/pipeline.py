@@ -354,7 +354,7 @@ class GradingPipeline:
         if not scores and expected and not all_human:
             raise RuntimeError(
                 f"no evaluator produced a score for submission {submission.id!r}; "
-                f"check the '{self._profile.name}' profile"
+                + self._explain_no_score(task_version, results)
             )
         # --- 4. 集約 / 5. 振り分け ------------------------------------------
         # 評価器が落ちた観点があると、残りの重みは 1.0 に満たない。
@@ -498,6 +498,43 @@ class GradingPipeline:
             criterion.evaluator_id in self._profile.deterministic
             for criterion in task_version.criteria
         )
+
+    def _explain_no_score(self, task_version, results) -> str:
+        """「点が 1 つも出なかった」の理由を、直す人が読める形で言う。
+
+        以前は「プロファイルを確認せよ」としか言わなかった。実際に起きたのは
+        **観点が指名した評価器を科目が宣言していない**（prog2 ex01-2、
+        2026-09-22）で、ログからはそれが読めず、DB を引いて突き止めることに
+        なった。観点ごとに、誰が担当のはずで、その評価器がどうなったかを並べる。
+        """
+        declared = set(self._profile.deterministic) | set(self._profile.ai_evaluators)
+        outcome_of = {result.evaluator_id: result for result in results}
+        notes = []
+        for criterion in task_version.criteria:
+            if criterion.scored_by_human:
+                continue
+            name = criterion.evaluator_id
+            if name is None:
+                notes.append(f"criterion {criterion.code!r} is left to the AI evaluators")
+                continue
+            if name not in declared:
+                notes.append(
+                    f"criterion {criterion.code!r} names evaluator {name!r}, which profile "
+                    f"{self._profile.name!r} does not declare"
+                )
+                continue
+            result = outcome_of.get(name)
+            if result is None:
+                notes.append(f"criterion {criterion.code!r}: evaluator {name!r} was not run")
+            elif result.error:
+                notes.append(f"criterion {criterion.code!r}: {name!r} failed: {result.error}")
+            else:
+                reason = (result.raw_output or {}).get("reason", "")
+                notes.append(
+                    f"criterion {criterion.code!r}: {name!r} returned no score"
+                    + (f" ({reason})" if reason else "")
+                )
+        return "; ".join(notes) or f"check the {self._profile.name!r} profile"
 
     def _invoke(self, evaluator_id: str, request: EvaluationRequest) -> EvaluationOutcome:
         """評価器 1 個を呼ぶ。落ちても採点全体は落とさない（§04 step 2）。"""

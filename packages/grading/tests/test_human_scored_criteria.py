@@ -224,3 +224,18 @@ def test_a_task_with_nothing_to_score_and_no_human_criterion_still_fails() -> No
     pipeline, _ = _pipeline(deterministic=False)
     with pytest.raises(RuntimeError, match="no evaluator produced a score"):
         pipeline.run(task, _submission(), lambda _artifact: b"")
+
+
+def test_the_no_score_error_names_the_undeclared_evaluator() -> None:
+    """**誰が担当のはずで何が起きたかを言う。** 「プロファイルを確認せよ」
+    だけでは、観点が科目に無い評価器を指名しているのか、評価器が走って何も
+    返さなかったのかが読めない（prog2 ex01-2、2026-09-22 は前者だった）。
+    """
+    task = _task_version(_criterion(CORRECTNESS, "certificate", 1.0, "text_pattern_check"))
+    pipeline, _ = _pipeline(deterministic=False)
+    with pytest.raises(RuntimeError) as caught:
+        pipeline.run(task, _submission(), lambda _artifact: b"")
+    message = str(caught.value)
+    assert "criterion 'certificate' names evaluator 'text_pattern_check'" in message
+    assert "does not declare" in message
+    assert "'test_subject'" in message
