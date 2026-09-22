@@ -507,6 +507,30 @@
    効くように見える。 #}
 <h2>この問題への操作</h2>
 
+{# **訂正しただけでは、既に出ている提出は古い版のままである。** 自動で積み
+   直すと誰も押していない再採点で成績が動くので、明示的な操作にする（P5）。
+
+   **操作の先頭に置く。** 訂正の直後に押すものなのに、日程・AI 書き直し・
+   テスト生成の下（画面の底近く）にあって見つからなかった（2026-09-22）。 #}
+{% if regradable %}
+<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/tasks/{{ task.id }}/regrade"
+      class="card">
+  <h3 style="margin-top:0">いまの版で採点し直す</h3>
+  <p class="desc" style="margin:0 0 8px">
+    <strong>採点し直せる提出が {{ regradable }} 件あります。</strong>
+    訂正より前に出されたもので、古い版の基準で点が付いています。
+  </p>
+  <p class="desc" style="margin:0 0 10px">
+    <strong>確定済みの提出は動かしません</strong>（閉じた成績を機械が開け直さないため）。
+    過去の採点も消えません — 新しい採点が終わると、古い採点に「置き換わった」印が付きます（P8）。
+  </p>
+  <div class="actions">
+    {% if saved_key in ['regraded'] %}{% set flash.shown = true %}<span class="flash" id="saved">{{ note }}</span>{% endif %}
+    <button type="submit">いまの版で再採点（{{ regradable }} 件）</button>
+  </div>
+</form>
+{% endif %}
+
 {# 版の履歴と、戻す操作（#319）。**版は積まれている**（P8）のに画面から
    読めなかった ── どの版が出ているのかも、前がどうだったのかも分からない。
 
@@ -679,27 +703,6 @@
   <div class="actions">
     {% if saved_key in ['tests_added'] %}{% set flash.shown = true %}<span class="flash" id="saved">{{ note }}</span>{% endif %}
     <button type="submit">テストケースを生成して新しい版を作成</button>
-  </div>
-</form>
-{% endif %}
-
-{# **訂正しただけでは、既に出ている提出は古い版のままである。** 自動で積み
-   直すと誰も押していない再採点で成績が動くので、明示的な操作にする（P5）。 #}
-{% if regradable %}
-<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/tasks/{{ task.id }}/regrade"
-      class="card">
-  <h3 style="margin-top:0">いまの版で採点し直す</h3>
-  <p class="desc" style="margin:0 0 8px">
-    <strong>採点し直せる提出が {{ regradable }} 件あります。</strong>
-    訂正より前に出されたもので、古い版の基準で点が付いています。
-  </p>
-  <p class="desc" style="margin:0 0 10px">
-    <strong>確定済みの提出は動かしません</strong>（閉じた成績を機械が開け直さないため）。
-    過去の採点も消えません — 新しい採点が終わると、古い採点に「置き換わった」印が付きます（P8）。
-  </p>
-  <div class="actions">
-    {% if saved_key in ['regraded'] %}{% set flash.shown = true %}<span class="flash" id="saved">{{ note }}</span>{% endif %}
-    <button type="submit">いまの版で再採点（{{ regradable }} 件）</button>
   </div>
 </form>
 {% endif %}

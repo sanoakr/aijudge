@@ -8047,3 +8047,51 @@ def test_a_branch_button_leaves_checks_in_other_branches_alone(world: World) -> 
         assert uow.identity.get_course(world.course.id).knowledge_components == (
             "cs.loops.control.basic",
         )
+
+
+def test_the_regrade_card_comes_first_among_the_operations(world: World) -> None:
+    """訂正の直後に押すものなので、「この問題への操作」の先頭に置く。
+    日程や AI 書き直しの下にあって見つからなかった（2026-09-22）。"""
+    from datetime import UTC, datetime
+
+    from aijudge_core import ArtifactKind, GradingPhase
+    from aijudge_submission import IncomingFile, SubmissionService
+
+    world.register("teacher", Role.INSTRUCTOR)
+    learner = world.register("s2400001", Role.LEARNER)
+    client = world.client("teacher")
+    client.post(
+        f"/manage/courses/{world.course.id}/tasks",
+        data={
+            "key_suffix": "cert",
+            "unit": "ex01",
+            "statement": "## [必須] 修了証 ##\n\n画像を出す。",
+            "position": "1",
+            "readability_weight": "0.3",
+        },
+    )
+    with world.database.unit_of_work() as uow:
+        (task,) = uow.tasks.list_for_course(world.course.id)
+        first = uow.tasks.latest_version(task.id)
+    service = SubmissionService(world.database.unit_of_work, world.console.store)
+    service.accept(
+        tenant_id=TENANT,
+        task_version_id=first.id,
+        learner_id=learner.user_id,
+        subject_profile="cs_lang_c_intro",
+        files=[IncomingFile(filename="main.c", kind=ArtifactKind.CODE, payload=b"int main(){}")],
+    )
+    now = datetime.now(UTC)
+    with world.database.unit_of_work() as uow:
+        job = uow.jobs.reserve(now, worker="t", lease_seconds=60, phase=GradingPhase.DETERMINISTIC)
+        uow.jobs.update(job.failed(now, "x", permanent=True))
+        uow.commit()
+    client.post(
+        f"/manage/courses/{world.course.id}/tasks/{task.id}/revise",
+        data={"statement": "## [必須] 直した ##\n\n本文", "readability_weight": "0.3"},
+    )
+
+    page = client.get(f"/manage/courses/{world.course.id}/tasks/{task.id}/edit").text
+    operations = page[page.index("この問題への操作") :]
+    assert operations.index("いまの版で採点し直す") < operations.index("版の履歴")
+    assert operations.index("いまの版で採点し直す") < operations.index('id="schedule"')
