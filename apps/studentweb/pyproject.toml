@@ -9,6 +9,9 @@ dependencies = [
     "aijudge-submission",
     "aijudge-authoring",
     "aijudge-persistence",
+    # 科目プロファイルを読むためだけ（画像が書き起こされる課題かを提出画面に
+    # 出す）。採点は呼ばない ── 採点はワーカーの仕事で、ここは読むだけ。
+    "aijudge-grading",
     # 習熟度の読み出し形（#335）。**推定は呼ばない** ── 使うのは
     # `portfolio`（保存されている状態を画面が読める形に畳むだけ）。
     "aijudge-skill",
@@ -36,4 +39,5 @@ aijudge-identity = { workspace = true }
 aijudge-submission = { workspace = true }
 aijudge-authoring = { workspace = true }
 aijudge-persistence = { workspace = true }
+aijudge-grading = { workspace = true }
 aijudge-skill = { workspace = true }

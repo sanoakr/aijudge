@@ -600,6 +600,7 @@ source = { editable = "apps/studentweb" }
 dependencies = [
     { name = "aijudge-authoring" },
     { name = "aijudge-core" },
+    { name = "aijudge-grading" },
     { name = "aijudge-identity" },
     { name = "aijudge-persistence" },
     { name = "aijudge-skill" },
@@ -616,6 +617,7 @@ dependencies = [
 requires-dist = [
     { name = "aijudge-authoring", editable = "packages/authoring" },
     { name = "aijudge-core", editable = "packages/core" },
+    { name = "aijudge-grading", editable = "packages/grading" },
     { name = "aijudge-identity", editable = "packages/identity" },
     { name = "aijudge-persistence", editable = "packages/persistence" },
     { name = "aijudge-skill", editable = "packages/skill" },

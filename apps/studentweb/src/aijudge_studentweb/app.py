@@ -64,6 +64,7 @@ from aijudge_core.ids import (
     UserId,
     new_id,
 )
+from aijudge_grading import load_profile
 from aijudge_identity import (
     DEFAULT_LOGIN_LABEL,
     AuthenticationFailed,
@@ -271,6 +272,10 @@ DEFAULT_AI_WORKERS = 1
 DEFAULT_MAX_CONCURRENT_VIDEO = 4
 # 429 のときに返す Retry-After（秒）。
 VIDEO_RETRY_AFTER = 20
+#: 画像を本文に書き起こす抽出器の名前（`input.transcription` に書かれる値）。
+#: 提出画面が「画像は自動で文字に起こされる」と断るかどうかを、この名前の
+#: 有無で決める。
+IMAGE_TRANSCRIBER = "image_text"
 
 #: 分割 1 つの大きさ（#119）。**サーバが決めてクライアントに渡す** ── 回線と
 #: ディスクで妥当な値が違い、画面に書くと配備ごとに直せない。
@@ -311,6 +316,9 @@ class StudentApp:
         # いちばん混んでいる時間に 3 GB のコピーが増える）。
         self.upload_sessions = upload_sessions
         self.profiles_dir = profiles_dir
+        # プロファイルごとの「画像を書き起こすか」。雛形はファイルなので
+        # キャッシュしてよい（`GradingWorker._profile` と同じ判断）。
+        self._transcribes_images: dict[str, bool] = {}
         self.max_upload_bytes = max_upload_bytes
         self.max_video_bytes = max_video_bytes
         self.max_video_bytes_without_deadline = max_video_bytes_without_deadline
@@ -326,6 +334,22 @@ class StudentApp:
         self.submissions = SubmissionService(
             database.unit_of_work, artifact_store, stream_store=video_store
         )
+
+    def transcribes_images(self, subject_profile: str) -> bool:
+        """この科目は画像を本文に書き起こすか（`input.transcription`）。
+
+        提出画面の断り書きに使うだけ。**読めなければ False** ── 断りが出ない
+        だけで提出は止めない（採点側の誤りは採点側で出る）。コースの上書きは
+        見ない: `input` は上書きできる項目に無い（`overrides.ALLOWED_KEYS`）。
+        """
+        if subject_profile not in self._transcribes_images:
+            try:
+                profile = load_profile(self.profiles_dir / f"{subject_profile}.yaml")
+                answer = IMAGE_TRANSCRIBER in profile.input.transcription
+            except Exception:
+                answer = False
+            self._transcribes_images[subject_profile] = answer
+        return self._transcribes_images[subject_profile]
 
     def video_limit_for(self, task: Task) -> int:
         """この課題で受け付ける動画の大きさ（ADR 0020）。
@@ -701,6 +725,11 @@ def create_app(app_state: StudentApp) -> FastAPI:
         multi_file = bool(plain_accepts) and all(
             kind_for(suffix) is not ArtifactKind.CODE for suffix in plain_accepts
         )
+        # 画像を受け、かつ科目が画像を書き起こすなら、そのことを断る。学習者
+        # には「写真を出したのに文字で照合された」が見えないので、先に言う。
+        image_transcribed = any(
+            kind_for(suffix) is ArtifactKind.IMAGE for suffix in plain_accepts
+        ) and app_state.transcribes_images(version.subject_profile)
         # 役割と受付の状態は**この 1 か所で求める**。提出欄を出すかどうかも、
         # 動作確認である旨の断りも、同じ 2 つの値から決まる（#108・#340）。
         role = _role_in(app_state, course_obj.id, me.user_id)
@@ -728,6 +757,7 @@ def create_app(app_state: StudentApp) -> FastAPI:
                 "accepts": accepts,
                 "plain_accepts": plain_accepts,
                 "multi_file": multi_file,
+                "image_transcribed": image_transcribed,
                 "max_files": MAX_FILES_PER_SUBMISSION,
                 "video_accepts": video_accepts,
                 # **課題ごとの上限を出す**（ADR 0020）。締切の無い課題は小さい
