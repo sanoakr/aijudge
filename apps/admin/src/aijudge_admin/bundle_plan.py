@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 
-from aijudge_authoring import TaskSpec, build_task_version, substantive
+from aijudge_authoring import TaskSpec, build_task_version, content
 from aijudge_core.ids import CourseId, UserId
 from aijudge_persistence import Database
 
@@ -48,10 +48,10 @@ def plan_bundle(
 ) -> tuple[PlannedTask, ...]:
     """保存したらどうなるかを数える。**何も書かない。**
 
-    判定は `save_task` と同じ規則（`substantive` の比較）に揃える ──
+    判定は `save_task` と同じ規則（`content` の比較）に揃える ──
     別の規則で数えると、「変化なし」と出したものが保存で版を上げる。
 
-    **`authored_by` は保存で使う値をそのまま渡すこと。** `substantive` は
+    **`authored_by` は保存で使う値をそのまま渡すこと。** `content` は
     `provenance.authored_by` を含むので、別の値で数えると、同じ束なのに
     全件が「版が上がる」に見える（実際にそうなり、テストが捕まえた）。
     """
@@ -67,7 +67,7 @@ def plan_bundle(
             existing = uow.tasks.latest_version(candidate.task_id)
             if existing is None:
                 change = PlannedChange.NEW
-            elif substantive(existing) == substantive(candidate):
+            elif content(existing) == content(candidate):
                 change = PlannedChange.UNCHANGED
             else:
                 change = PlannedChange.REVISED

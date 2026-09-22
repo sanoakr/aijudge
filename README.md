@@ -237,6 +237,27 @@ The format is described at the top of
 `apps/admin/src/aijudge_admin/course_definition.py`; `subjects/demo/course.yaml`
 (the try-it course) is written in it.
 
+The same tree can be written back out, so that the file — not the database —
+can be the source of truth. `export` reverses `apply`, and `diff` says whether
+the two have drifted apart; a task edited in the console reaches the file this
+way, and one that exists only in the console is otherwise recorded nowhere.
+
+```fish
+uv run aijudge-admin course export --course <id> --out network/2026/assignments
+uv run aijudge-admin course diff --file network/2026/assignments/course.yaml
+```
+
+`export` verifies every task by rebuilding it from what it is about to write,
+and **reports the ones it cannot write faithfully instead of writing them** — a
+tree with a task missing would change that task the next time it is applied. It
+refuses to write into a checkout of this (public) repository: what it writes is
+statements, test cases and reference solutions, for unpublished units too.
+
+`diff` exits `0` when the file and the database agree, `1` when they differ, and
+`2` when it cannot tell (the definition does not parse, or the course has never
+been applied) — **"cannot tell" is not a pass**, because a publishing step gates
+on it.
+
 **Video submissions are kept for six months after the task's deadline** and are
 then deleted by hand (ADR 0020). The anchor is the deadline, not the submission
 or the finalisation, so a whole unit expires on one day — and even the earliest

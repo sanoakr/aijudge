@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from aijudge_authoring import TaskSpec, build_task_version
-from aijudge_authoring.repository import TaskStoreError, substantive
+from aijudge_authoring.repository import TaskStoreError, content
 from aijudge_core import ReviewState, Task, TaskVersion, normalize_suffixes
 from aijudge_core.ids import CourseId, UserId
 from aijudge_persistence import Database
@@ -109,8 +109,13 @@ def save_task(
         with database.unit_of_work() as uow:
             latest = uow.tasks.latest_version(version.task_id)
         if latest is not None:
-            if substantive(latest) == substantive(version):
+            if content(latest) == content(version):
                 # 直すつもりで何も変えなかった場合。版を増やさない。
+                #
+                # **`substantive` では比べられない**（`content` の docstring）。
+                # 候補は版 1 として組まれ、`latest` は版 2 以上なので、ID と
+                # 版番号が必ず食い違う ── 比較は常に「内容が違う」を返し、
+                # 何も直していない訂正が版を増やしていた。
                 with database.unit_of_work() as uow:
                     task = uow.tasks.get_task(version.task_id)
                 assert task is not None

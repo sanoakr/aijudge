@@ -20,6 +20,7 @@ from .repository import (
     TaskImmutabilityViolation,
     TaskRepository,
     TaskStoreError,
+    content,
     substantive,
 )
 from .revision import RevisedTask
@@ -82,6 +83,7 @@ __all__ = [
     "TestCaseSpec",
     "VerificationReport",
     "build_task_version",
+    "content",
     "mutate",
     "render_markdown",
     "render_statement",
