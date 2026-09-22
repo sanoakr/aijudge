@@ -63,6 +63,9 @@ server {
     # が、1 回の PUT で送っていた頃との違いである。
     location ~ ^/(uploads|tasks/[^/]+/(uploads|submit-video)) {
         proxy_pass http://127.0.0.1:8080;
+        # **keep-alive を効かせる**（既定は HTTP/1.0）。分割は 3 GB で 384 回
+        # 送るので、毎回つなぎ直すと接続の確立だけが積み上がる。
+        proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
