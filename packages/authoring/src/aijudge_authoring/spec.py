@@ -16,7 +16,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Self
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from aijudge_core import (
     HUMAN_SCORED,
@@ -127,6 +127,7 @@ class TaskSpec(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     key: str = Field(min_length=1, max_length=128)
+    # 改行は `\n` に揃える（下の `_normalize_line_endings`）。
     statement: str = Field(min_length=1)
     title: str | None = None
     # 何回目のまとまりか（例 "ex02"）と、その中の順序。一覧の階層化に使う。
@@ -170,6 +171,31 @@ class TaskSpec(BaseModel):
     # 見積もらせる前に、**まず対応があるかどうかだけを集める。** 重みが要ると
     # 分かってから `QMatrixEntry.weight` を開ける。
     knowledge_components: tuple[str, ...] = ()
+
+    @field_validator("statement", mode="before")
+    @classmethod
+    def _normalize_line_endings(cls, value: object) -> object:
+        """`\\r\\n` / 孤立した `\\r` を `\\n` に揃える。
+
+        課題文は 3 つの経路から来る ── `desc.md`（Unix 改行）、教員コンソールの
+        `<textarea>`（ブラウザは慣習的に `\\r\\n` を送る）、AI 作問。経路ごとに
+        改行コードが違うと、**同じ文面のはずの 2 つの `TaskVersion` が別物に
+        見える**。
+
+        実測（2026-09-22）で、コンソールから保存した課題文が DB に `\\r\\n`
+        のまま入っており、`desc.md`（`\\n`）と比べる側（`course export` /
+        `course diff`）が「内容が違う」と報告した。書き出しの自己検算
+        （`course_export._verify_written_tree`）も、`Path.write_text` が
+        `\\r\\n` をそのまま書く一方で `Path.read_text` が universal newlines で
+        `\\n` に潰すため、素通りしていた `\\r` に足を取られて落ちていた。
+
+        **入口をここ 1 か所にする。** `TaskSpec` が課題を足す唯一の入口である
+        以上（モジュール docstring）、正規化もここで行えば、画面・API・CLI・
+        取り込みのどの経路を通っても同じ結果になる。
+        """
+        if isinstance(value, str):
+            return value.replace("\r\n", "\n").replace("\r", "\n")
+        return value
 
     @model_validator(mode="after")
     def _check(self) -> Self:

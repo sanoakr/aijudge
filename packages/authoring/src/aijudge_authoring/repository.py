@@ -173,8 +173,30 @@ def content(version: TaskVersion) -> dict:
     ではないが、比較の両辺で作者を揃えずに数えると全件が「変わった」に
     見えるため、呼び出し側には保存で使う値をそのまま渡させる
     （`plan_bundle` の docstring）。ここで外すと、その約束が緩む。
+
+    **`q_matrix` の中の `task_version_id` も外す。** ここに `id` と同じ
+    素材（`task_version_id`）が埋め込まれており、`exclude=IDENTITY_FIELDS`
+    はトップレベルしか外さないので素通りしていた ── 知識要素を 1 つでも
+    宣言した課題は、`q_matrix` が非空になった時点でこの関数の存在理由その
+    ものが壊れる。実測（2026-09-22）で、`network` コースの知識要素つき課題
+    9 件中 7 件が、`statement` も `criteria` も一字一句同じなのに
+    `q_matrix[].task_version_id` だけで「内容が違う」と判定された。KC は
+    この基盤の中核機能なので、実運用の課題のほとんどがここを通る。
+    `q_matrix` の中身のうち内容なのは `kc_id` / `weight` / `required` で、
+    `task_version_id` は版番号から機械的に導かれる外部キーでしかない。
     """
-    return {key: value for key, value in substantive(version).items() if key not in IDENTITY_FIELDS}
+    dumped = {
+        key: value for key, value in substantive(version).items() if key not in IDENTITY_FIELDS
+    }
+    q_matrix = dumped.get("q_matrix")
+    if isinstance(q_matrix, list):
+        dumped["q_matrix"] = [
+            {key: value for key, value in entry.items() if key != "task_version_id"}
+            if isinstance(entry, dict)
+            else entry
+            for entry in q_matrix
+        ]
+    return dumped
 
 
 class InMemoryTaskRepository:
