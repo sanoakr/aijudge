@@ -1852,10 +1852,105 @@ def test_the_evaluator_choices_are_grouped_with_ai_first(world: World) -> None:
     assert '<optgroup label="AI が判定する">' in page
     assert page.index('label="AI が判定する"') < page.index('label="機械が確定させる（決定的）"')
     assert page.index('label="機械が確定させる（決定的）"') < page.index('label="人が採点する"')
-    # 項目を積み上げる評価器は AI の組に居る。
+    # **科目が宣言している評価器だけが並ぶ。** cs_lang_c_intro は
+    # rubric_ai_judge と code_test_runner しか宣言していないので、項目を
+    # 積み上げる評価器はここには出ない（出せば付けられ、付けても誰も採点しない）。
+    ai_group = page[page.index('label="AI が判定する"') : page.index('label="機械が確定させる')]
+    assert "checklist_ai_judge" not in ai_group
+    det_group = page[page.index('label="機械が確定させる') : page.index('label="人が採点する"')]
+    assert "code_test_runner" in det_group
+    assert "text_pattern_check" not in det_group
+
+    # 宣言している科目（report_ja）の課題では AI の組に居る。
+    from aijudge_core.ids import TaskVersionId
+
+    with world.database.unit_of_work() as uow:
+        first = uow.tasks.latest_version(TaskId(task_id))
+        uow.tasks.save_version(
+            first.model_copy(
+                update={
+                    "id": TaskVersionId("tsv_" + "d" * 32),
+                    "version": first.version + 1,
+                    "subject_profile": "report_ja",
+                }
+            )
+        )
+        uow.commit()
+    page = (
+        world.client("teacher").get(f"/manage/courses/{world.course.id}/tasks/{task_id}/edit").text
+    )
     ai_group = page[page.index('label="AI が判定する"') : page.index('label="機械が確定させる')]
     assert "checklist_ai_judge" in ai_group
     assert "AI が項目を判定する" in ai_group
+
+
+def test_an_evaluator_the_profile_does_not_declare_is_refused(world: World) -> None:
+    """**科目が宣言していない評価器は観点に付けられない。**
+
+    付けても採点パイプラインはその評価器を呼ばず（ADR 0002）、観点は誰も
+    担当しないまま提出が「点が 1 つも出ない」で落ちる。prog2 ex01-2 で
+    実際に起きた（2026-09-22）: cs_lang_c_intro に無い text_pattern_check を
+    画面から選べた。選択肢を絞るだけでなく保存でも断る（#146 と同じ理由）。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    task_id = _import_example(world)
+    client = world.client("teacher")
+    rows = {
+        "statement": "## [必須] 修了証 ##\n\n画像を出す。",
+        "criterion_code": ["certificate"],
+        "criterion_title": ["修了証"],
+        "criterion_description": ["読み取れるか"],
+        "criterion_weight": ["1.0"],
+        "criterion_evaluator": ["text_pattern_check"],
+        "criterion_levels": [""],
+    }
+    response = client.post(f"/manage/courses/{world.course.id}/tasks/{task_id}/revise", data=rows)
+    assert response.status_code == 400, response.text
+    detail = response.json()["detail"]
+    assert "text_pattern_check" in detail
+    assert "cs_lang_c_intro" in detail
+    assert "/grading" in detail
+
+    # 共通ルーブリックも同じ境界。
+    response = client.post(f"/manage/courses/{world.course.id}/rubric", data=rows)
+    assert response.status_code == 400, response.text
+
+    # 既に付いてしまっている版は、選択中のまま警告が出る（黙って差し替えない）。
+    from aijudge_core import RubricCriterion, RubricLevel
+    from aijudge_core.ids import CriterionId, TaskVersionId
+
+    with world.database.unit_of_work() as uow:
+        first = uow.tasks.latest_version(TaskId(task_id))
+        uow.tasks.save_version(
+            first.model_copy(
+                update={
+                    "id": TaskVersionId("tsv_" + "b" * 32),
+                    "version": first.version + 1,
+                    "criteria": (
+                        RubricCriterion(
+                            id=CriterionId("crt_" + "b" * 32),
+                            code="certificate",
+                            title="修了証",
+                            description="読み取れるか",
+                            weight=1.0,
+                            evaluator_id="text_pattern_check",
+                            levels=(
+                                RubricLevel(
+                                    level=0, label="未達", descriptor="無い", score_ratio=0.0
+                                ),
+                                RubricLevel(
+                                    level=1, label="達成", descriptor="ある", score_ratio=1.0
+                                ),
+                            ),
+                        ),
+                    ),
+                }
+            )
+        )
+        uow.commit()
+    page = client.get(f"/manage/courses/{world.course.id}/tasks/{task_id}/edit").text
+    assert "科目プロファイルが宣言していない" in page
+    assert 'value="text_pattern_check" selected' in page
 
 
 def test_kc_candidates_come_from_the_courses_own_components(world: World, monkeypatch) -> None:
@@ -1905,15 +2000,33 @@ def test_every_installed_evaluator_can_be_picked_for_a_criterion(world: World) -
 
     表記は**説明（評価器コード）**で揃える。選ぶときに要るのは「何を見る
     評価器か」で、コードはその確認である。
+
+    **並ぶのは科目が宣言しているもの**（2026-09-22）。インストール済みの全部を
+    出すと、科目に無い評価器を観点に付けられ、その観点は誰も採点しない。
+    `checklist_ai_judge` を宣言している `report_ja` の課題で見る。
     """
+    from aijudge_core.ids import TaskVersionId
+
     world.register("teacher", Role.INSTRUCTOR)
     task_id = _import_example(world)
+    with world.database.unit_of_work() as uow:
+        first = uow.tasks.latest_version(TaskId(task_id))
+        uow.tasks.save_version(
+            first.model_copy(
+                update={
+                    "id": TaskVersionId("tsv_" + "a" * 32),
+                    "version": first.version + 1,
+                    "subject_profile": "report_ja",
+                }
+            )
+        )
+        uow.commit()
 
     page = (
         world.client("teacher").get(f"/manage/courses/{world.course.id}/tasks/{task_id}/edit").text
     )
     assert 'value="checklist_ai_judge"' in page, "足した AI 評価器が選べない"
-    assert 'value="code_test_runner"' in page
+    assert 'value="submission_compliance"' in page
     assert "（checklist_ai_judge）" in page, "表記が説明（コード）の順でない"
     # 空は `rubric_ai_judge` のことなので、選択肢として二重に並べない。
     assert 'value="rubric_ai_judge"' not in page
@@ -3921,6 +4034,72 @@ def test_revising_a_task_keeps_its_tests_and_reference_solution(world: World) ->
     assert latest.reference_solution == "int main(void){return 0;}"
 
 
+def test_revising_a_task_keeps_data_meant_for_other_evaluators(world: World) -> None:
+    """**入出力以外の検証データも、評価器と中身ごと持ち越す。**
+
+    #262 で入出力は残るようになったが、写していたのは `input` / `expected`
+    の 2 欄だけだった。項目表・パターン表・伴走プロセスの宣言はここを通ると
+    **課題の既定の評価器あての空の入出力に書き換わる** ── 例外は出ず、次の
+    提出が「照合する項目が無い」として落ちる。
+
+    本番で踏んだ（prog2 ex01-2、2026-09-22）: `text_pattern_check` の 3 項目が
+    問題文を保存しただけで `code_test_runner` の空ケースになり、修了証の
+    提出が採点できなかった。
+    """
+    from aijudge_core import TestCase
+    from aijudge_core.ids import TaskVersionId
+
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    client.post(
+        f"/manage/courses/{world.course.id}/tasks",
+        data={
+            "key_suffix": "cert",
+            "unit": "ex01",
+            "statement": "## [必須] 修了証 ##\n\n修了証の画像を出してください。",
+            "position": "2",
+            "readability_weight": "0.3",
+        },
+    )
+    pattern_case = TestCase(
+        name="コース名",
+        evaluator_id="text_pattern_check",
+        payload={"criterion": "certificate", "pattern": "terminal", "required": True},
+        hidden=False,
+    )
+    with world.database.unit_of_work() as uow:
+        (task,) = uow.tasks.list_for_course(world.course.id)
+        first = uow.tasks.latest_version(task.id)
+        uow.tasks.save_version(
+            first.model_copy(
+                update={
+                    "id": TaskVersionId("tsv_" + "f" * 32),
+                    "version": first.version + 1,
+                    "test_cases": (pattern_case,),
+                }
+            )
+        )
+        uow.commit()
+
+    response = client.post(
+        f"/manage/courses/{world.course.id}/tasks/{task.id}/revise",
+        data={
+            "statement": "## [必須] 修了証 ##\n\n誤字を直しました。",
+            "readability_weight": "0.3",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303, response.text
+
+    with world.database.unit_of_work() as uow:
+        latest = uow.tasks.latest_version(task.id)
+    assert len(latest.test_cases) == 1
+    kept = latest.test_cases[0]
+    assert kept.evaluator_id == "text_pattern_check", "別の評価器あてに書き換わった"
+    assert kept.payload == pattern_case.payload, "payload が入出力の空欄に置き換わった"
+    assert kept.hidden is False
+
+
 def test_revising_a_task_creates_a_new_version(world: World) -> None:
     """出題済みの版は書き換えない。過去の採点がどの基準で付いたか辿れなくなる。"""
     world.register("teacher", Role.INSTRUCTOR)
@@ -5525,6 +5704,80 @@ def test_a_regrade_is_offered_only_when_something_is_on_an_older_version(world: 
     # 提出も採点も無いので、採点し直すものは無い。
     page = client.get(f"/manage/courses/{world.course.id}/tasks/{task_id}/edit").text
     assert "いまの版で再採点" not in page
+
+
+def test_a_submission_whose_grading_failed_is_regraded_on_the_current_version(
+    world: World,
+) -> None:
+    """**採点が失敗した提出も「いまの版で再採点」に拾う。**
+
+    結果（`GradingRun`）のある提出しか数えていなかったので、採点自体が
+    落ちた提出は課題を訂正しても再採点の対象に出ず、問題セットの「流し直す」
+    は古い版に固定されたまま ── どちらからも直せなかった（prog2 ex01-2、
+    2026-09-22）。
+    """
+    from datetime import UTC, datetime
+
+    from aijudge_core import ArtifactKind, GradingPhase
+    from aijudge_submission import IncomingFile, SubmissionService
+
+    world.register("teacher", Role.INSTRUCTOR)
+    learner = world.register("s2400001", Role.LEARNER)
+    client = world.client("teacher")
+    client.post(
+        f"/manage/courses/{world.course.id}/tasks",
+        data={
+            "key_suffix": "cert",
+            "unit": "ex01",
+            "statement": "## [必須] 修了証 ##\n\n画像を出す。",
+            "position": "1",
+            "readability_weight": "0.3",
+        },
+    )
+    with world.database.unit_of_work() as uow:
+        (task,) = uow.tasks.list_for_course(world.course.id)
+        first = uow.tasks.latest_version(task.id)
+    task_id = str(task.id)
+
+    service = SubmissionService(world.database.unit_of_work, world.console.store)
+    accepted = service.accept(
+        tenant_id=TENANT,
+        task_version_id=first.id,
+        learner_id=learner.user_id,
+        subject_profile="cs_lang_c_intro",
+        files=[IncomingFile(filename="main.c", kind=ArtifactKind.CODE, payload=b"int main(){}")],
+    )
+    # ジョブを上限まで落とす（ワーカーが 3 回失敗したのと同じ状態）。
+    now = datetime.now(UTC)
+    with world.database.unit_of_work() as uow:
+        job = uow.jobs.reserve(now, worker="t", lease_seconds=60, phase=GradingPhase.DETERMINISTIC)
+        assert job is not None and job.submission_id == accepted.submission.id
+        uow.jobs.update(job.failed(now, "no evaluator produced a score", permanent=True))
+        uow.commit()
+
+    # 訂正して版を上げる。
+    response = client.post(
+        f"/manage/courses/{world.course.id}/tasks/{task_id}/revise",
+        data={"statement": "## [必須] 直した ##\n\n本文", "readability_weight": "0.3"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303, response.text
+
+    page = client.get(f"/manage/courses/{world.course.id}/tasks/{task_id}/edit").text
+    assert "いまの版で再採点（1 件）" in page, "失敗した提出が再採点の対象に出ていない"
+
+    response = client.post(
+        f"/manage/courses/{world.course.id}/tasks/{task_id}/regrade", follow_redirects=False
+    )
+    assert response.status_code == 303, response.text
+    with world.database.unit_of_work() as uow:
+        latest = uow.tasks.latest_version(TaskId(task_id))
+        queued = uow.jobs.reserve(
+            datetime.now(UTC), worker="t", lease_seconds=60, phase=GradingPhase.DETERMINISTIC
+        )
+    assert queued is not None, "再採点のジョブが積まれていない"
+    assert queued.submission_id == accepted.submission.id
+    assert queued.task_version_id == latest.id, "古い版のままで再実行している"
 
 
 # --------------------------------------------------------------------------

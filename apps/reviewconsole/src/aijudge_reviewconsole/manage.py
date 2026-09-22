@@ -118,6 +118,7 @@ from aijudge_authoring.spec import AI_EVALUATOR, TestCaseSpec
 from aijudge_core import (
     DEFAULT_UPLOAD_SUFFIXES,
     DIVISIONS,
+    HUMAN_SCORED,
     MIN_JUSTIFICATION_LENGTH,
     SUFFIX_GROUPS,
     Aggregation,
@@ -544,8 +545,32 @@ def _regradable(console, task, version) -> int:
         return 0
     with console.database.unit_of_work() as uow:
         rows = uow.reviews.unfinalized_for_task(task.id)
-    return sum(
+        failed = _failed_without_run(uow, task)
+    on_old_version = sum(
         1 for _submission, run, _request in rows if run.context.task_version_id != version.id
+    )
+    return on_old_version + len(failed)
+
+
+def _failed_without_run(uow, task):
+    """この課題で、**採点が上限まで落ちて結果を持たない**提出。
+
+    `unfinalized_for_task` は採点結果（`GradingRun`）のある提出しか返さない
+    ので、採点自体が失敗した提出は「いまの版で再採点」に数えられなかった。
+    一方、問題セットの「流し直す」は同じジョブを再実行するだけで、提出が
+    指す古い版に固定される ── 課題を訂正して直したケースがどちらからも
+    届かなかった（prog2 ex01-2、2026-09-22）。訂正後の版で採点し直す対象に
+    含める。結果を持つものは含めない（それは上の経路が扱う）。
+    """
+    version_ids = [version.id for version in uow.tasks.list_versions(task.id)]
+    if not version_ids:
+        return ()
+    submissions = uow.submissions.list_for_versions(version_ids)
+    failed = {job.submission_id for job in uow.jobs.failed_for([s.id for s in submissions])}
+    return tuple(
+        submission
+        for submission in submissions
+        if submission.id in failed and uow.runs.latest_for(submission.id) is None
     )
 
 
@@ -1304,6 +1329,65 @@ def _evaluator_rows(registry, kind) -> list[dict[str, str]]:
         doc = (registry.get(name).__doc__ or "").strip()
         rows.append({"name": name, "about": doc.splitlines()[0] if doc else ""})
     return rows
+
+
+def _declared_rows(rows: list[dict[str, str]], profile) -> list[dict[str, str]]:
+    """観点に指名できる評価器を、**科目が宣言しているもの**に絞る。
+
+    インストール済みの全部を出していたので、科目プロファイルに無い評価器を
+    観点に付けられた。付けても採点パイプラインはその評価器を呼ばず（呼ぶのは
+    プロファイルの `deterministic` / `ai_evaluators` だけ・ADR 0002）、観点は
+    誰も担当しないまま「点が 1 つも出ない」で提出が落ちる（prog2 ex01-2、
+    2026-09-22）。プロファイルが読めなければ絞らない（画面を止めない）。
+    """
+    if profile is None:
+        return rows
+    declared = set(profile.deterministic) | set(profile.ai_evaluators)
+    return [row for row in rows if row["name"] in declared]
+
+
+def _undeclared_evaluators(profile, criteria) -> tuple[tuple[str, str], ...]:
+    """観点が指名した評価器のうち、科目が宣言していないもの（観点コード, 評価器）。
+
+    空（既定の AI）と `HUMAN_SCORED` は評価器の指名ではないので除く。
+    `CriterionSpec` と画面の行（`rubric.to_rows` の dict）の両方を受ける。
+    """
+    if profile is None:
+        return ()
+    declared = set(profile.deterministic) | set(profile.ai_evaluators)
+    found = []
+    for criterion in criteria:
+        if isinstance(criterion, dict):
+            code, name = str(criterion.get("code", "")), str(criterion.get("evaluator") or "")
+        else:
+            code, name = criterion.code, getattr(criterion, "evaluator", None) or ""
+        if name and name != HUMAN_SCORED and name not in declared:
+            found.append((code, name))
+    return tuple(found)
+
+
+def _refuse_undeclared(profile, criteria, *, course_id: str) -> None:
+    """科目が宣言していない評価器を観点に付けようとしたら**保存しない**。
+
+    選択肢を絞る（`_declared_rows`）だけでは境界にならない（#146 と同じ
+    理由）── 画面を経ない POST でも来る。呼ぶのは**観点を編集した保存**
+    （課題の訂正で観点欄を送ったとき・共通ルーブリック）だけで、観点を引き
+    継ぐだけの経路は止めない（`revise_task` の注記）。
+    """
+    missing = _undeclared_evaluators(profile, criteria)
+    if not missing:
+        return
+    named = "、".join(f"観点「{code}」の {name}" for code, name in missing)
+    raise HTTPException(
+        status_code=400,
+        detail=(
+            f"{named} は科目プロファイル {profile.name} が宣言していない評価器です。"
+            "このまま保存すると、その観点は誰も採点せず提出が失敗します。"
+            f"決定的評価器はコースの採点設定（/manage/courses/{course_id}/grading）の "
+            "deterministic で足せます。画像や PDF を本文に起こす抽出器は"
+            "プロファイルの input.transcription に書きます。"
+        ),
+    )
 
 
 def _positive_number(raw: str, label: str, *, allow_zero: bool = False) -> float:
@@ -2454,6 +2538,16 @@ def register(templates) -> APIRouter:
                 # 名前を書けると、その科目の採点が恒久的に失敗する。
                 "deterministic": _evaluator_rows(registry, EvaluatorKind.DETERMINISTIC),
                 "ai_evaluators": _evaluator_rows(registry, EvaluatorKind.AI),
+                # 共通ルーブリックの編集欄に出す選択肢は、**科目が宣言している
+                # ものに絞る**（`_declared_rows`）。上の「使う評価器」は全部を
+                # 出す ── そこで宣言を増やす。
+                "rubric_deterministic": _declared_rows(
+                    _evaluator_rows(registry, EvaluatorKind.DETERMINISTIC), applied
+                ),
+                "rubric_ai_evaluators": _declared_rows(
+                    _evaluator_rows(registry, EvaluatorKind.AI), applied
+                ),
+                "undeclared": dict(_undeclared_evaluators(applied, _course_rubric_rows(course))),
                 # 提出の遵守が見る値（#316）。選択肢は拡張子の表から作る。
                 "artifact_kinds": _artifact_kind_rows(),
                 "languages": sorted(LANGUAGES),
@@ -3490,6 +3584,9 @@ def register(templates) -> APIRouter:
             aggregation = _aggregation_from_form(form) or Aggregation.OR
         except AdminError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from None
+        _refuse_undeclared(
+            _effective_profile_of(console, course, None), criteria, course_id=course_id
+        )
 
         with console.database.unit_of_work() as uow:
             uow.identity.save_course(
@@ -4098,6 +4195,8 @@ def register(templates) -> APIRouter:
         registry = EvaluatorRegistry().load_installed()
         course_rows = _course_rubric_rows(course)
         rows = rubric.to_rows(version.criteria) if version is not None else course_rows
+        # この課題に効いている科目（上書き込み）。選択肢と警告の基準。
+        effective = _effective_profile_of(_console(request), course, version)
         # **学習者に出ている版。** 教員が見ているのは最新版（承認待ちを含む）
         # なので、採点し直す対象は別に引く（#48）。
         published = None
@@ -4167,12 +4266,15 @@ def register(templates) -> APIRouter:
                 # 「同じ」と言い切れない。
                 "course_has_rubric": bool(course.rubric),
                 "rubric_is_course_default": bool(course.rubric) and rows == course_rows,
-                "deterministic": _evaluator_rows(registry, EvaluatorKind.DETERMINISTIC),
+                # **科目が宣言している評価器だけ出す**（`_declared_rows`）。
+                "deterministic": _declared_rows(
+                    _evaluator_rows(registry, EvaluatorKind.DETERMINISTIC), effective
+                ),
                 # 受付のときに書き起こされるもの（#351）。**課題のプロファイル
                 # で見る** ── 混在コースではコースの値と食い違う（#195・#264
                 # で `_graded_by_tests` が同じ理由でこうなっている）。
                 "transcription": _transcription_note(
-                    _effective_profile_of(_console(request), course, version),
+                    effective,
                     (task.accepted_suffixes if task is not None else ())
                     or course.upload_suffixes
                     or DEFAULT_UPLOAD_SUFFIXES,
@@ -4180,7 +4282,9 @@ def register(templates) -> APIRouter:
                 # **AI 評価器も選べるようにする**（#315）。空（既定）は
                 # `rubric_ai_judge` のことで、項目を積み上げる
                 # `checklist_ai_judge` は指名しなければ走らない。
-                "ai_evaluators": _evaluator_rows(registry, EvaluatorKind.AI),
+                "ai_evaluators": _declared_rows(
+                    _evaluator_rows(registry, EvaluatorKind.AI), effective
+                ),
                 # 既定の選択肢に出す説明。**評価器から取る**（#318）── 画面に
                 # 書き写すと、docstring を直した日にここだけが古くなる。
                 "ai_default_about": next(
@@ -4191,6 +4295,10 @@ def register(templates) -> APIRouter:
                     ),
                     "",
                 ),
+                # いまの観点が指名しているのに科目が宣言していない評価器。
+                # **選択肢から消すだけでは、保存した瞬間に黙って別のものに
+                # 変わる**ので、選択中のまま出して警告する。
+                "undeclared": dict(_undeclared_evaluators(effective, rows)),
                 "suffix_groups": SUFFIX_GROUPS,
                 "course_suffixes": (
                     (task.accepted_suffixes if task is not None else ())
@@ -4397,10 +4505,14 @@ def register(templates) -> APIRouter:
         service = SubmissionService(console.database.unit_of_work, console.store)
         with console.database.unit_of_work() as uow:
             rows = uow.reviews.unfinalized_for_task(task.id)
+            failed = _failed_without_run(uow, task)
         queued = 0
-        for submission, run, _request in rows:
-            if run.context.task_version_id == version.id:
-                continue
+        targets = [
+            submission
+            for submission, run, _request in rows
+            if run.context.task_version_id != version.id
+        ] + list(failed)
+        for submission in targets:
             service.request_regrade(
                 tenant_id=course.tenant_id,
                 submission_id=submission.id,
@@ -5468,6 +5580,14 @@ def register(templates) -> APIRouter:
         if task is None or version is None or task.course_id != CourseId(course_id):
             raise HTTPException(status_code=404, detail="課題が見つかりません")
 
+        # **画面で観点を編集したときだけ**、科目が宣言していない評価器を断る。
+        # 引き継ぐだけの経路（入出力や項目表の編集、問題文の訂正）は、既に
+        # 付いている食い違いを理由に止めない ── 直す前に検証データを触れなく
+        # なる。食い違いは編集画面が選択中のまま警告する（`undeclared`）。
+        if criteria:
+            _refuse_undeclared(
+                _effective_profile_of(console, course, version), criteria, course_id=course_id
+            )
         # 観点を送ってこない経路（問題文だけ直す等）では、**いまの観点を
         # そのまま引き継ぐ**。空で作り直すと、読みやすさの観点が黙って消えて
         # 次の版から採点されなくなる。
@@ -5498,21 +5618,14 @@ def register(templates) -> APIRouter:
             # テストを捨てる意図は無い。捨てたいときは、テストを作り直す
             # 経路（`/test-cases`）がある。
             reference_solution=version.reference_solution,
-            # **版が持つのはドメインの `TestCase`**（`payload` の中に入力と
-            # 期待出力がある）で、生成経路が渡す `TestCaseSpec` とは形が違う。
-            # キー名は評価器が読むものと一致していなければならない
-            # （`spec.build_task_version` の注記）── 違う名前で書くと既定値の
-            # 空文字と比較され、**全ケースが黙って不合格になる**。
-            test_cases=tuple(
-                TestCaseSpec(
-                    name=case.name,
-                    input=str(case.payload.get("input", "")),
-                    expected=str(case.payload.get("expected", "")),
-                    hidden=case.hidden,
-                    weight=case.weight,
-                )
-                for case in version.test_cases
-            ),
+            # **評価器と payload ごと持ち越す**（`_kept_cases`・#302）。以前は
+            # 入出力の 2 欄だけを写していたので、入出力以外の検証データ
+            # （項目表・パターン表・伴走プロセス）は**課題の既定の評価器あての
+            # 空の入出力に書き換わった** ── 例外は出ず、次の提出が「照合する
+            # 項目が無い」として落ちる。実際に prog2 ex01-2 で、問題文を保存
+            # しただけで `text_pattern_check` の 3 項目が `code_test_runner`
+            # の空ケースになった（2026-09-22）。
+            test_cases=_kept_cases(version, editing=()),
         )
         return RedirectResponse(
             f"/manage/courses/{course_id}/tasks/{task_id}/edit?saved=task#saved", status_code=303
