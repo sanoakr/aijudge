@@ -6179,13 +6179,18 @@ def register(templates) -> APIRouter:
         )
 
     def _scope_targets(console, course, kc: list[str], prefix: str) -> tuple[str, ...]:
-        """足す・外す対象のキー。個別のチェックと、階層の接頭辞の両方から。
+        """足す・外す対象のキー。個別のチェックか、階層の接頭辞か。
 
         接頭辞は `cs.loops` のように**区切りまで一致**させる（`cs.loop` で
         `cs.loops` を巻き込まない）。引退した知識要素は対象にしない。
+
+        **接頭辞が来たらチェックは見ない。** 画面は全分野のチェックを 1 つの
+        form に持ち、分野ごとの「この階層をすべて足す／外す」も同じ form の
+        送信ボタンなので、押したときに他の分野で付けたチェックも一緒に届く。
+        「この階層を」と書いたボタンが別の分野のものを動かしてはいけない。
         """
-        keys = {key.strip() for key in kc if key.strip()}
         prefix = prefix.strip()
+        keys = set() if prefix else {key.strip() for key in kc if key.strip()}
         if prefix:
             namespaces = allowed_namespaces(
                 load_profile(console.profiles_dir / f"{course.subject_profile}.yaml")

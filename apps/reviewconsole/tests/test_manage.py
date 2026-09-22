@@ -7735,3 +7735,62 @@ def test_bulk_grading_does_not_read_the_capped_listing(world: World, monkeypatch
 
     # 件数を出す側（押す前に読む数）も同じ経路であること。
     assert client.get(f"/manage/courses/{world.course.id}/units/{unit}").status_code == 200
+
+
+def test_checks_across_branches_are_added_together(world: World) -> None:
+    """**チェックは分野をまたいで 1 つの選択。** 以前は分野ごとに form が分かれ、
+    2 つの分野でチェックして押すと押した分野の分しか届かなかった。いまは
+    全分野が 1 つの form で、送るボタンは底の 1 つだけ。"""
+    _seed(world)
+    world.register("boss", Role.ADMIN)
+    client = world.client("boss")
+    from aijudge_admin import register_kc
+
+    for key in ("cs.io", "cs.io.formatted"):
+        register_kc(world.database, key=key, label=key, namespaces=("cs",), seeding=True)
+    for key in ("cs.loops.control.basic", "cs.io.formatted.printf"):
+        register_kc(world.database, key=key, label=key, namespaces=("cs",))
+
+    page = client.get(f"/manage/courses/{world.course.id}/kc").text
+    vocabulary = page.split('id="vocabulary"')[1].split('id="candidates"')[0]
+    assert vocabulary.count(">選択したものをこのコースに足す<") == 1
+    # 2 つの分野のチェックが同じ form に入っている（form の開始は 1 回）。
+    assert vocabulary.count("<form ") == 1
+    assert 'value="cs.loops.control.basic"' in vocabulary
+    assert 'value="cs.io.formatted.printf"' in vocabulary
+
+    response = client.post(
+        f"/manage/courses/{world.course.id}/kc/scope/add",
+        data={"kc": ["cs.loops.control.basic", "cs.io.formatted.printf"]},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    with world.database.unit_of_work() as uow:
+        assert uow.identity.get_course(world.course.id).knowledge_components == (
+            "cs.io.formatted.printf",
+            "cs.loops.control.basic",
+        )
+
+
+def test_a_branch_button_leaves_checks_in_other_branches_alone(world: World) -> None:
+    """「この階層をすべて足す」は同じ form の送信ボタンなので、他の分野で付けた
+    チェックも一緒に届く。**接頭辞が来たらチェックは見ない** ── 「この階層を」
+    と書いたボタンが別の分野のものを動かしてはいけない。"""
+    _seed(world)
+    world.register("boss", Role.ADMIN)
+    client = world.client("boss")
+    from aijudge_admin import register_kc
+
+    for key in ("cs.io", "cs.io.formatted"):
+        register_kc(world.database, key=key, label=key, namespaces=("cs",), seeding=True)
+    for key in ("cs.loops.control.basic", "cs.io.formatted.printf"):
+        register_kc(world.database, key=key, label=key, namespaces=("cs",))
+
+    client.post(
+        f"/manage/courses/{world.course.id}/kc/scope/add",
+        data={"prefix": "cs.loops", "kc": ["cs.io.formatted.printf"]},
+    )
+    with world.database.unit_of_work() as uow:
+        assert uow.identity.get_course(world.course.id).knowledge_components == (
+            "cs.loops.control.basic",
+        )

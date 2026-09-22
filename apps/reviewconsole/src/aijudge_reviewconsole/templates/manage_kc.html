@@ -169,51 +169,101 @@
 
 <h2 id="vocabulary">名前空間から足す</h2>
 {# **階層ごとに畳む。** 987 件を平らに並べても選べない。分野（`cs.loops`）ごとに
-   開き、まとめて足す・外すか、個別にチェックして足す。 #}
+   開き、まとめて足す・外すか、個別にチェックして足す。
+
+   **チェックは分野をまたいで 1 つの選択である。** 以前は分野ごとに form と
+   「足す」ボタンがあり、複数の分野でチェックして押すと押した分野の分しか
+   登録されなかった（他の分野のチェックは別の form なので送られない）。
+   いまは全分野を 1 つの form に入れ、送るボタンは底に貼った 1 つだけ
+   （`.deskbar`・#185 と同じ「押す場所を探させない」）。分野ごとの
+   「この階層をすべて足す／外す」は `formaction` と `name="prefix"` を持つ
+   送信ボタンで、押したボタンの値だけが送られる ── 接頭辞が付いた送信は
+   サーバ側でチェックを無視する（`_scope_targets`）ので、他の分野で付けた
+   チェックを巻き込まない。 #}
 <p class="desc">
-  分野ごとに開いて、まとめて足す・外すか、個別にチェックして足します。
-  数字は「このコースに入っている件数／その分野の件数」です。
+  分野ごとに開いて、まとめて足す・外すか、個別にチェックします。チェックは
+  分野をまたいで持ち越され、底の「選択したものをこのコースに足す」でまとめて
+  登録します。数字は「このコースに入っている件数／その分野の件数」です。
 </p>
+<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/kc/scope/add" id="scope-add">
 {% for group in groups %}
 <details class="criterion kc-group">
   <summary>
     <b class="mono">{{ group.prefix }}</b>
     {% if group.label %}<span>{{ group.label }}</span>{% endif %}
     <span class="desc">{{ group.in_course }} / {{ group.total }}</span>
+    {# 閉じていても、この分野で何件チェックしたかが見える（JS が数える）。 #}
+    <span class="pill attn kc-picked" hidden></span>
     <span class="open-hint">
       {% if group.in_course < group.total %}
-      <form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/kc/scope/add" style="display:inline">
-        <input type="hidden" name="prefix" value="{{ group.prefix }}">
-        <button type="submit" class="minor">この階層をすべて足す</button>
-      </form>
+      <button type="submit" class="minor" name="prefix" value="{{ group.prefix }}"
+              formaction="{{ root_prefix() }}/manage/courses/{{ course.id }}/kc/scope/add">この階層をすべて足す</button>
       {% endif %}
       {% if group.in_course %}
-      <form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/kc/scope/remove" style="display:inline">
-        <input type="hidden" name="prefix" value="{{ group.prefix }}">
-        <button type="submit" class="minor">この階層をすべて外す</button>
-      </form>
+      <button type="submit" class="minor" name="prefix" value="{{ group.prefix }}"
+              formaction="{{ root_prefix() }}/manage/courses/{{ course.id }}/kc/scope/remove">この階層をすべて外す</button>
       {% endif %}
     </span>
   </summary>
-  <form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/kc/scope/add" class="criterion-fields">
+  <div class="criterion-fields">
     <table class="stack">
       <tbody>
       {% for kc in group.kcs %}
         <tr>
           <td class="fit">
             {% if kc.key in chosen_keys %}<span class="pill">このコースで使用中</span>
-            {% else %}<input type="checkbox" name="kc" value="{{ kc.key }}">{% endif %}
+            {% else %}<input type="checkbox" name="kc" value="{{ kc.key }}" id="kc-{{ kc.key }}">{% endif %}
           </td>
-          <td class="grow mono">{{ kc.key }}</td>
+          <td class="grow mono"><label for="kc-{{ kc.key }}">{{ kc.key }}</label></td>
           <td class="fit">{{ kc.label }}</td>
         </tr>
       {% endfor %}
       </tbody>
     </table>
-    <div class="actions"><button type="submit" class="minor">選択したものをこのコースに足す</button></div>
-  </form>
+  </div>
 </details>
 {% endfor %}
+{# **送るボタンは 1 つ。画面の底に貼る。** 分野が多く、上でチェックしたあと
+   下までスクロールしてもボタンが視界に残る。JS があるときは何件選んだかを
+   出し、0 件なら押せなくする。JS が無くても form は素のまま送れる。 #}
+<div class="deskbar" id="scope-bar">
+  <span class="spacer" id="scope-count">チェックした知識要素をまとめてこのコースに足します</span>
+  <button type="button" class="minor" id="scope-clear" hidden>選択を解除</button>
+  <button type="submit" id="scope-submit">選択したものをこのコースに足す</button>
+</div>
+</form>
+<script>
+(function () {
+  var form = document.getElementById("scope-add");
+  if (!form) return;
+  var boxes = form.querySelectorAll('input[type="checkbox"][name="kc"]');
+  var count = document.getElementById("scope-count");
+  var submit = document.getElementById("scope-submit");
+  var clear = document.getElementById("scope-clear");
+  clear.hidden = false;
+  function refresh() {
+    var total = 0;
+    form.querySelectorAll("details.kc-group").forEach(function (group) {
+      var n = group.querySelectorAll('input[name="kc"]:checked').length;
+      var pill = group.querySelector(".kc-picked");
+      pill.hidden = n === 0;
+      pill.textContent = n ? "選択 " + n : "";
+      total += n;
+    });
+    submit.disabled = total === 0;
+    clear.hidden = total === 0;
+    count.textContent = total
+      ? total + " 件をチェック中（分野をまたいでまとめて足します）"
+      : "チェックした知識要素をまとめてこのコースに足します";
+  }
+  boxes.forEach(function (box) { box.addEventListener("change", refresh); });
+  clear.addEventListener("click", function () {
+    boxes.forEach(function (box) { box.checked = false; });
+    refresh();
+  });
+  refresh();
+})();
+</script>
 
 {# **材料はコースが既に持っている。** 基本情報でシラバスから読み取って保存した
    本文（`Course.description`）をそのまま使う。ここで貼り直させると、2 つの
