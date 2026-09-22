@@ -198,6 +198,25 @@ uv run aijudge-admin course apply --file network/2026/course.yaml
 形式は `apps/admin/src/aijudge_admin/course_definition.py` の冒頭と
 `subjects/demo/course.yaml`（お試しコースの定義。同じ形式）にあります。
 
+同じ木を**書き出す**こともできます。正本を DB ではなくファイルの側に置く
+ための経路で、`export` が `apply` の逆、`diff` が両者のずれを見ます。
+コンソールで直した課題がファイルに戻るのはこの経路だけで、コンソールでしか
+作っていない課題は、そのままではどこにも記録が残りません。
+
+```fish
+uv run aijudge-admin course export --course <id> --out network/2026/assignments
+uv run aijudge-admin course diff --file network/2026/assignments/course.yaml
+```
+
+`export` は書く直前に 1 件ずつ組み立て直して確かめ、**忠実に書けない課題は
+書かずに報告します** ── 欠けた木を正本にすると、次に流した日にその課題が
+静かに変わります。このリポジトリ（公開）のチェックアウトへの書き出しは
+断ります。書き出すのは問題文・テストケース・参照解答で、未公開の回も含むためです。
+
+`diff` の終了コードは、一致なら `0`、差があれば `1`、判定できなければ `2`
+（定義が読めない・まだ流していない）です。**「判定できない」を成功にしません**
+── 公開の手順がこれを門に使うためです。
+
 **動画の提出は課題の締切から 6 ヶ月で消します**（ADR 0020）。起点が提出でも
 成績確定でもなく締切なので、**問題セット単位でまとまって消え**、最も早い回でも
 その学期の疑義より後になります。消えるのはファイルだけで、`Artifact` の行も

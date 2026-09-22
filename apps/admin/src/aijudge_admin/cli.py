@@ -37,6 +37,7 @@ from aijudge_telemetry import configure_logging
 
 from . import authoring_cli
 from .course_definition import apply_course_definition
+from .course_export import DiffState, diff_course, export_course
 from .courses import delete_course
 from .demo_reset import reset_demo_course
 from .demo_seed import seed_demo_course
@@ -157,6 +158,84 @@ def cmd_course_apply(args: argparse.Namespace) -> int:
     )
     print(f"  課題 {result.tasks} 件")
     return 0
+
+
+def cmd_course_export(args: argparse.Namespace) -> int:
+    """コースを定義ファイルの木へ書き出す（#363）。**DB は変えない。**
+
+    書き出せなかった課題があるときは `1` を返す ── 木は不完全なので、
+    それを正本として `apply` し直すと課題が欠ける。
+    """
+    database = _database(args)
+    try:
+        result = export_course(
+            database,
+            course_id=CourseId(args.course),
+            out_dir=Path(args.out).expanduser(),
+            force=args.force,
+        )
+    except AdminError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    finally:
+        database.dispose()
+
+    print(f"書き出し: {result.path}")
+    print(f"  課題 {len(result.tasks)} 件")
+    if result.skipped:
+        print(f"  書き出せなかった課題 {len(result.skipped)} 件:", file=sys.stderr)
+        for skipped in result.skipped:
+            print(f"    {skipped.key}: {skipped.reason}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def cmd_course_diff(args: argparse.Namespace) -> int:
+    """定義ファイルと DB の差を見る（#363）。**何も書かない。**
+
+    終了コードは 3 つに分ける。**「判定できなかった」を成功にしない** ──
+    公開の手順がこれを門に使うので、読めなかったファイルが「一致」として
+    通ると、ずれたまま公開される。
+
+        0  一致
+        1  差がある
+        2  判定できない（定義が読めない・コースが無い）
+    """
+    database = _database(args)
+    try:
+        result = diff_course(database, Path(args.file).expanduser(), tenant_id=_tenant(args))
+    except AdminError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    finally:
+        database.dispose()
+
+    if not result.course_exists:
+        print(
+            f"コース {result.course_id} がまだありません（course apply を先に流してください）",
+            file=sys.stderr,
+        )
+        return 2
+    if result.in_sync:
+        print(f"一致しています: {result.course_id}")
+        return 0
+
+    print(f"差があります: {result.course_id}", file=sys.stderr)
+    for difference in result.differences:
+        print(f"  {_DIFF_LABELS[difference.state]}  {difference.key}", file=sys.stderr)
+    print(
+        "  DB にしか無い課題は `course export` でファイルに取り込み、"
+        "ファイルにしか無い課題は `course apply` で流してください",
+        file=sys.stderr,
+    )
+    return 1
+
+
+_DIFF_LABELS = {
+    DiffState.ONLY_FILE: "ファイルのみ",
+    DiffState.ONLY_DB: "DB のみ    ",
+    DiffState.CHANGED: "内容が違う ",
+}
 
 
 def cmd_course_list(args: argparse.Namespace) -> int:
@@ -847,6 +926,27 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     apply_.set_defaults(func=cmd_course_apply)
+
+    # 書き出しと突き合わせ（#363）。**正本は講義リポジトリ（private）側**で、
+    # コンソールで直した課題をそこへ戻す経路がこれである。
+    export = course.add_parser(
+        "export", help="定義（YAML）と問題ディレクトリへ書き出す（DB は変えない）"
+    )
+    export.add_argument("--course", required=True, help="コース ID")
+    export.add_argument(
+        "--out",
+        required=True,
+        help="書き出し先（講義リポジトリの <科目>/<年度>/assignments。公開リポジトリは拒否する）",
+    )
+    export.add_argument(
+        "--force", action="store_true", help="空でないディレクトリへ書き出す（上書き）"
+    )
+    export.set_defaults(func=cmd_course_export)
+
+    diff = course.add_parser("diff", help="定義（YAML）と DB の差を見る（何も書かない）")
+    diff.add_argument("--file", required=True, help="コースの定義ファイル（course.yaml）")
+    diff.set_defaults(func=cmd_course_diff)
+
     course.add_parser("list", help="一覧").set_defaults(func=cmd_course_list)
     # 削除は**課題があっても消えるが、学習者の提出があれば消えない**
     # （`aijudge_admin.courses`）。画面にも同じ操作がある（#156）。

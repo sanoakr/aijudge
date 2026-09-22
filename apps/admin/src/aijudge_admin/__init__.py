@@ -15,6 +15,16 @@ from .authoring import SavedTask, save_task
 from .bundle_plan import PlannedChange, PlannedTask, plan_bundle
 from .bundles import BundledTask, read_bundle, template_bundle
 from .course_copy import DuplicatedCourse, duplicate_course
+from .course_export import (
+    CourseDifference,
+    DiffState,
+    ExportedCourse,
+    ExportedTask,
+    SkippedTask,
+    TaskDifference,
+    diff_course,
+    export_course,
+)
 from .courses import DeletedCourse, delete_course
 from .duplicates import DuplicateChecker
 from .finalization import (
@@ -107,10 +117,14 @@ __all__ = [
     "ApprovalRate",
     "BundledTask",
     "CaseRun",
+    "CourseDifference",
     "DeletedCourse",
+    "DiffState",
     "DuplicateChecker",
     "DuplicatedCourse",
     "EnrolReport",
+    "ExportedCourse",
+    "ExportedTask",
     "FinalizeReport",
     "ImportReport",
     "ImportedTask",
@@ -126,7 +140,9 @@ __all__ = [
     "SavedTask",
     "SeedReport",
     "Skeleton",
+    "SkippedTask",
     "SolvabilityChecker",
+    "TaskDifference",
     "TaskOutcome",
     "TaskReviser",
     "TaskVerifier",
@@ -140,11 +156,13 @@ __all__ = [
     "create_staff",
     "delete_course",
     "delete_kc",
+    "diff_course",
     "duplicate_course",
     "duplicate_profile",
     "edit_kc",
     "enrol_roster",
     "ensure_course",
+    "export_course",
     "finalize_task",
     "finalize_tasks",
     "gate_advice",
