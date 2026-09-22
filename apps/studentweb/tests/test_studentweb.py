@@ -2245,3 +2245,35 @@ def test_no_template_formats_a_datetime_without_the_local_filter() -> None:
         if ".strftime(" in line
     ]
     assert guilty == []
+
+
+def test_the_image_task_form_says_the_text_is_transcribed(world: World) -> None:
+    """画像を受け、科目が `image_text` で書き起こす課題では、提出欄にそう断る。
+
+    学習者には「写真を出したのに文字で照合された」が見えない（ADR 0021）。
+    書き起こさない科目・画像を受けない課題では出さない ── 出すと嘘になる。
+    """
+    world.register("s2400001")
+    world.login("s2400001")
+    notice = "画像内の文字が自動的に読み取られ"
+
+    # コースの既定（cs_lang_c_intro）は書き起こさない。画像を受けても出さない。
+    _set_task(world, accepted_suffixes=(".png", ".jpg"))
+    assert notice not in world.client.get(f"/tasks/{world.task_version.id}").text
+
+    # 書き起こす科目の課題を 1 件足す。
+    version = world.task_version.model_copy(
+        update={
+            "id": TaskVersionId("tsv_" + "8" * 32),
+            "version": world.task_version.version + 1,
+            "subject_profile": "cs_network_python",
+        }
+    )
+    with world.database.unit_of_work() as uow:
+        uow.tasks.save_version(version)
+        uow.commit()
+    assert notice in world.client.get(f"/tasks/{version.id}").text
+
+    # 同じ科目でも、画像を受けない課題には出さない。
+    _set_task(world, accepted_suffixes=(".py",))
+    assert notice not in world.client.get(f"/tasks/{version.id}").text
