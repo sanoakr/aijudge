@@ -402,16 +402,23 @@ def _reference_name(task_dir: Path, spec: TaskSpec, course: Course) -> str | Non
     `sorted(glob)` の先頭を採るので、`hello.c` がある所へ `solution.c` を
     足すと、読み直したときに拾われるのは `hello.c` のままになる。
     """
-    existing = [
-        path.name for suffix in REFERENCE_SUFFIXES for path in sorted(task_dir.glob(f"*{suffix}"))
-    ]
+    existing = _reference_files(task_dir)
     if existing:
-        return existing[0]
+        return existing[0].name
     suffixes = tuple(spec.accepted_suffixes) or tuple(course.upload_suffixes)
     for suffix in REFERENCE_SUFFIXES:
         if suffix in suffixes:
             return f"{DEFAULT_REFERENCE_STEM}{suffix}"
     return None
+
+
+def _reference_files(task_dir: Path) -> list[Path]:
+    """この課題ディレクトリで参照解答として拾われうるファイル。
+
+    **取り込み器と同じ順で返す**（`find_reference_solution`）。先頭が実際に
+    拾われるもので、残りは書き出しが消す対象である。
+    """
+    return [path for suffix in REFERENCE_SUFFIXES for path in sorted(task_dir.glob(f"*{suffix}"))]
 
 
 def _plain_cases(spec: TaskSpec) -> bool:
@@ -474,14 +481,22 @@ def _write_task(
     elif spec.test_cases:
         entry["test_cases"] = _test_case_specs_from(spec)
 
-    if spec.reference_solution is not None:
-        name = _reference_name(task_dir, spec, course)
-        if name is None:
-            entry["reference_solution"] = spec.reference_solution
-        else:
-            path = task_dir / name
-            path.write_text(spec.reference_solution, encoding="utf-8")
-            written.append(path)
+    name = _reference_name(task_dir, spec, course) if spec.reference_solution is not None else None
+    # **拾われうる参照解答を 1 つに絞る。** `find_reference_solution` は
+    # 拡張子ごとに `sorted(glob)` の先頭を採るので、書いたもの以外が同じ
+    # ディレクトリに残っていると、読み直しで拾われるのはそちらになる ──
+    # 参照解答を消した課題では、消したはずのものが生き返る。
+    # 実測（2026-09-22）で、2 度目の書き出しが自己検算で止まった。
+    for stale in _reference_files(task_dir):
+        if stale.name != name:
+            stale.unlink()
+    if name is not None:
+        path = task_dir / name
+        path.write_text(str(spec.reference_solution), encoding="utf-8")
+        written.append(path)
+    elif spec.reference_solution is not None:
+        # 拡張子が決まらない（コードで出す課題ではない）。YAML に直接書く。
+        entry["reference_solution"] = spec.reference_solution
 
     if spec.title is not None:
         entry["title"] = spec.title

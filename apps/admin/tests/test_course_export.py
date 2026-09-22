@@ -395,3 +395,41 @@ def test_re_exporting_into_the_lecture_repository_keeps_the_existing_layout(
     assert (out / "ex02" / "p1" / "echo.c").is_file()
     assert not (out / "ex02" / "p1" / "solution.c").exists()
     assert diff_course(database, exported.path, tenant_id=TENANT).in_sync
+
+
+def test_re_export_drops_a_reference_solution_that_was_removed(applied, tmp_path: Path) -> None:
+    """参照解答を消した課題を書き戻すと、ファイルも消える。
+
+    `find_reference_solution` は拡張子ごとに `sorted(glob)` の先頭を拾うので、
+    書き出しが古いファイルを残すと、**消したはずの参照解答が読み直しで
+    生き返る**。実測（2026-09-22）で 2 度目の書き出しが自己検算で止まった。
+    """
+    from aijudge_admin import save_task
+
+    database, _ = applied
+    course_id = course_id_for(TENANT, "prog2", "2026-後期")
+    out = tmp_path / "exported"
+    export_course(database, course_id=course_id, out_dir=out)
+    assert (out / "ex02" / "p1" / "solution.c").is_file()
+
+    # コンソールで問題文だけを直すと、参照解答もテストケースも持たない版になる。
+    save_task(
+        database,
+        course_id=course_id,
+        spec=TaskSpec(
+            key="ex02/p1",
+            statement="## [必須] 整数の入出力 ##\n\n画面で直した。\n",
+            unit="ex02",
+            session=2,
+            position=1,
+            readability_weight=0.3,
+        ),
+        subject_profile="cs_lang_c_intro",
+        authored_by=_IMPORTER,
+        revise=True,
+    )
+
+    exported = export_course(database, course_id=course_id, out_dir=out, force=True)
+    assert not (out / "ex02" / "p1" / "solution.c").exists()
+    assert not (out / "ex02" / "p1" / "in").exists()
+    assert diff_course(database, exported.path, tenant_id=TENANT).in_sync
