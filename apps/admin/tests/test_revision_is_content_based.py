@@ -29,7 +29,7 @@ from pathlib import Path
 
 import pytest
 
-from aijudge_admin import PlannedChange, ensure_course, plan_bundle, save_task
+from aijudge_admin import PlannedChange, ensure_course, plan_bundle, register_kc, save_task
 from aijudge_authoring import TaskSpec
 from aijudge_core.ids import TenantId, UserId
 from aijudge_persistence import Database
@@ -121,3 +121,54 @@ def test_planning_a_bundle_counts_a_revised_task_as_unchanged(world) -> None:
         specs=(_spec("## 問題 ##\nさらに直した"),),
     )
     assert [item.change for item in planned] == [PlannedChange.REVISED]
+
+
+def test_revising_a_task_with_knowledge_components_still_keeps_the_version(world) -> None:
+    """`content()` の比較は、知識要素（KC）を宣言した課題でも同じ規則で効く。
+
+    KC を宣言すると `TaskVersion.q_matrix` が非空になる。その各行は
+    `task_version_id`（版番号から導かれる ID）を自分の中に持っており、
+    `content()` がトップレベルの `id`/`version` しか外さなければ、比較は
+    版番号が変わるたびに必ず「違う」に戻る ── これが `content()` を導入した
+    直後に実際に起きた（repository.py の `content` docstring 参照）。
+
+    **版が 1 のままでは検出できない。** 訂正のたびに毎回 version=1 の候補を
+    組むので（既定引数）、版が一度も 2 以上に上がっていない限り、比較の両辺は
+    たまたま同じ版番号を指して一致してしまう。壊れるのは「一度版を上げた後、
+    その内容のまま再訂正する」ときなので、先に 1 回だけ本文を変えてから
+    確かめる（`test_revising_the_statement_raises_the_version_once_per_change`
+    と同じ形）。
+    """
+    database, course = world
+    register_kc(database, key="cs.loops", label="ループ", namespaces=("cs",), seeding=True)
+    register_kc(database, key="cs.loops.control", label="制御", namespaces=("cs",), seeding=True)
+    with database.unit_of_work() as uow:
+        stored = uow.identity.get_course(course.id)
+        uow.identity.save_course(
+            stored.model_copy(update={"knowledge_components": ("cs.loops.control",)})
+        )
+        uow.commit()
+
+    def save(statement: str, *, revise: bool) -> object:
+        return save_task(
+            database,
+            course_id=course.id,
+            spec=TaskSpec(
+                key="ex1/p1",
+                statement=statement,
+                unit="ex1",
+                knowledge_components=("cs.loops.control",),
+            ),
+            subject_profile=course.subject_profile,
+            authored_by=TEACHER,
+            revise=revise,
+        )
+
+    save("## 問題 ##\n本文", revise=False)
+    revised = save("## 問題 ##\n書き直した本文", revise=True)
+    unchanged = save("## 問題 ##\n書き直した本文", revise=True)
+
+    assert revised.version.q_matrix  # 前提: この課題は KC を宣言している
+    assert revised.version.version == 2
+    assert unchanged.version.version == 2
+    assert unchanged.version.id == revised.version.id

@@ -433,3 +433,37 @@ def test_re_export_drops_a_reference_solution_that_was_removed(applied, tmp_path
     assert not (out / "ex02" / "p1" / "solution.c").exists()
     assert not (out / "ex02" / "p1" / "in").exists()
     assert diff_course(database, exported.path, tenant_id=TENANT).in_sync
+
+
+def test_export_reports_a_task_whose_stored_statement_has_crlf(applied, tmp_path: Path) -> None:
+    """`\\r\\n` を含む版は、書けたことにしない ── 書けば必ず内容が変わる。
+
+    `TaskSpec.statement` は改行を `\\n` に正規化するので（実測 2026-09-22:
+    教員コンソールの `<textarea>` は `\\r\\n` を送る）、正規化後の宣言は
+    `\\r\\n` を保ったままの DB の版と一致しない。ここでは正規化より前の
+    経路（直接 `model_copy`）で疑似的に再現する。
+    """
+    database, _ = applied
+    course_id = course_id_for(TENANT, "prog2", "2026-後期")
+    task_id = build_task_version(
+        TaskSpec(key="ex02/p2", statement="x", unit="ex02"),
+        course_id=course_id,
+        subject_profile="cs_lang_c_intro",
+        authored_by=_IMPORTER,
+    ).task_id
+
+    with database.unit_of_work() as uow:
+        version = uow.tasks.latest_version(task_id)
+        crlf = build_task_version(
+            TaskSpec(key="ex02/p2", statement=version.statement, unit="ex02"),
+            course_id=course_id,
+            subject_profile=version.subject_profile,
+            authored_by=_IMPORTER,
+            version=version.version + 1,
+        ).model_copy(update={"statement": "## 問題 ##\r\n\r\n本文\r\n"})
+        uow.tasks.save_version(crlf)
+        uow.commit()
+
+    result = export_course(database, course_id=course_id, out_dir=tmp_path / "exported")
+    assert [skipped.key for skipped in result.skipped] == ["ex02/p2"]
+    assert "\\r\\n" in result.skipped[0].reason
