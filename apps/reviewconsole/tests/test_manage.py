@@ -8095,3 +8095,23 @@ def test_the_regrade_card_comes_first_among_the_operations(world: World) -> None
     operations = page[page.index("この問題への操作") :]
     assert operations.index("いまの版で採点し直す") < operations.index("版の履歴")
     assert operations.index("いまの版で採点し直す") < operations.index('id="schedule"')
+
+
+def test_the_remembered_place_is_restored_after_the_anchor_jump(world: World) -> None:
+    """**頁を移らない操作では表示位置を動かさない**（2026-09-22）。
+
+    保存は POST → 303 → GET なので戻りは別の読み込みで、経路は JavaScript の
+    無い人のために `#saved` のような飛び先を付ける。覚えた位置を 1 回置き直す
+    だけでは、その飛び先への移動が**あとから**効いて上書きされる ── 再採点の
+    ように頁を移らない操作でも表示位置が飛んでいた。
+
+    位置そのものは画面の中でしか確かめられないので、ここでは**置き直しが
+    読み込み後にも走ること**を固定する（消えると同じ壊れ方に戻る）。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    page = world.client("teacher").get(f"/manage/courses/{world.course.id}").text
+
+    script = page[page.index("aijudge:place:") :]
+    assert "history.replaceState" in script, "飛び先の指定を消していない"
+    assert "requestAnimationFrame" in script, "描画後に置き直していない"
+    assert 'addEventListener("load"' in script, "読み込み後に置き直していない"

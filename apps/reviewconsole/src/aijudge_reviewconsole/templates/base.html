@@ -196,6 +196,26 @@ document.querySelectorAll(".js-only").forEach(function (el) { el.hidden = false;
       sessionStorage.setItem("aijudge:place:" + target.pathname, place);
     } catch (e) { /* 読めない行き先は覚えない */ }
   }, true);
+  // **覚えた位置を優先する**（#314）。経路は `#saved` や `#schedule` のような
+  // 行き先を付けて戻すが、それは**JavaScript が無い人のための案内**である ──
+  // 指定された見出しは画面のいちばん上に来るので、読んでいた位置からは
+  // やはり動く。覚えがあるなら、押す前に見ていた場所へ戻す方が近い。
+  //
+  // **1 回置き直すだけでは足りない**（2026-09-22）。指定された飛び先への
+  // 移動は、この処理より後 ── 解析の続き・画像で高さが決まったあと・`load`
+  // ── にも効くので、置いた位置がそのたびに上書きされ、再採点のような
+  // 「頁を移らない操作」でも表示位置が飛んでいた。指定そのものを消してから、
+  // 描画が落ち着くまで置き直す。
+  function restore(y) {
+    if (location.hash) {
+      try {
+        history.replaceState(null, "", location.pathname + location.search);
+      } catch (e) { /* 履歴を触れないなら指定は残る（位置は下で戻す） */ }
+    }
+    window.scrollTo(0, y);
+    requestAnimationFrame(function () { window.scrollTo(0, y); });
+    window.addEventListener("load", function () { window.scrollTo(0, y); });
+  }
   try {
     var saved = sessionStorage.getItem(key);
     if (saved) {
@@ -205,11 +225,7 @@ document.querySelectorAll(".js-only").forEach(function (el) { el.hidden = false;
         var el = document.getElementById(id);
         if (el && el.tagName === "DETAILS") el.open = true;
       });
-      // **覚えた位置を優先する**（#314）。経路は `#schedule` のような行き先を
-      // 付けて戻すが、それは**JavaScript が無い人のための案内**である ──
-      // 指定された見出しは画面のいちばん上に来るので、読んでいた位置からは
-      // やはり動く。覚えがあるなら、押す前に見ていた場所へ戻す方が近い。
-      window.scrollTo(0, place.y || 0);
+      restore(place.y || 0);
     }
   } catch (e) { /* 壊れた記録は無視する */ }
 })();
