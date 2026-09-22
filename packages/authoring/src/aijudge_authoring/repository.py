@@ -114,6 +114,13 @@ class TaskRepository(Protocol):
 # 不変性の比較から外す項目。採点の基準ではないもの。
 VOLATILE_FIELDS = frozenset({"created_at"})
 
+# **同一性**の項目。`content` が外し、`substantive` が残すもの。
+#
+# ID は課題キーと版番号から導かれる（`build_task_version`）ので、**内容が
+# 同じでも版が違えば違う値になる。**「この版とあの版は同じ内容か」を訊く
+# 側がここを見ると、答えは常に「違う」になる。
+IDENTITY_FIELDS = frozenset({"id", "version"})
+
 # 出所のうち、レビューで動いてよい項目。
 #
 # **動いてよいのはここだけである。** `authored_by` / `generated_by` /
@@ -139,6 +146,35 @@ def substantive(version: TaskVersion) -> dict:
             key: value for key, value in provenance.items() if key not in REVIEW_FIELDS
         }
     return dumped
+
+
+def content(version: TaskVersion) -> dict:
+    """**同じ内容か**を訊くための取り出し。`substantive` から同一性を外す。
+
+    区別が要るのは、この 2 つが別のことを訊いているからである。
+
+    `substantive`  この ID の版は、保存済みのものと同じか（**不変性**）。
+                   比較の両辺は同じ ID を指しているので、ID も版番号も等しい。
+                   `save_version` が使う。
+    `content`      いまの版と、これから作ろうとしている版は同じ内容か
+                   （**訂正するに値するか**）。両辺の ID は必ず違う ──
+                   ID は課題キーと版番号から導かれるので、版 2 の隣に置く
+                   候補は版 1 として組まれ、ID が一致しない。
+
+    区別が無かったあいだ、`substantive` が両方に使われていた。後者では
+    `id` と `version` が必ず食い違うので、**比較は常に「内容が違う」を
+    返していた** ── 実測（2026-09-22）で、同じ内容の訂正を 3 回流すと版が
+    1 → 2 → 3 と増えた。`course apply --revise` を流し直すたびに全課題の
+    版が 1 つ増え、教員コンソールの「この問題を保存して更新する」も、
+    何も直さずに押しただけで版を作っていた。束の取り込み前に変化を数える
+    `plan_bundle` も、版 2 以上の課題を全部「訂正される」と数えていた。
+
+    **出所（`provenance.authored_by`）は残す。** 誰が書いたかは内容の一部
+    ではないが、比較の両辺で作者を揃えずに数えると全件が「変わった」に
+    見えるため、呼び出し側には保存で使う値をそのまま渡させる
+    （`plan_bundle` の docstring）。ここで外すと、その約束が緩む。
+    """
+    return {key: value for key, value in substantive(version).items() if key not in IDENTITY_FIELDS}
 
 
 class InMemoryTaskRepository:
