@@ -2257,15 +2257,28 @@ def test_the_image_task_form_says_the_text_is_transcribed(world: World) -> None:
     world.login("s2400001")
     notice = "画像内の文字が自動的に読み取られ"
 
-    # コースの既定（cs_lang_c_intro）は書き起こさない。画像を受けても出さない。
+    # 書き起こさない科目（cs_sandbox_kc）は画像を受けても出さない。
+    # コースの既定は cs_lang_c_intro だが、prog2 ex01-3 の一件
+    # （2026-09-23）で image_text を書き起こすようになったので、ここでは
+    # それを持たない科目に差し替える。
+    no_transcription = world.task_version.model_copy(
+        update={
+            "id": TaskVersionId("tsv_" + "7" * 32),
+            "version": world.task_version.version + 1,
+            "subject_profile": "cs_sandbox_kc",
+        }
+    )
+    with world.database.unit_of_work() as uow:
+        uow.tasks.save_version(no_transcription)
+        uow.commit()
     _set_task(world, accepted_suffixes=(".png", ".jpg"))
-    assert notice not in world.client.get(f"/tasks/{world.task_version.id}").text
+    assert notice not in world.client.get(f"/tasks/{no_transcription.id}").text
 
     # 書き起こす科目の課題を 1 件足す。
-    version = world.task_version.model_copy(
+    version = no_transcription.model_copy(
         update={
             "id": TaskVersionId("tsv_" + "8" * 32),
-            "version": world.task_version.version + 1,
+            "version": no_transcription.version + 1,
             "subject_profile": "cs_network_python",
         }
     )
