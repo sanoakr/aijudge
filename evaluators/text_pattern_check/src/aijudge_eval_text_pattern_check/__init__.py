@@ -30,6 +30,11 @@
 - `required` — 満たさなければ**最低段階にする**。比例配分では「0 にすべき
   提出」を表せない ── 別の講座の認定証にも修了文は書いてあるので、項目の
   一部が満たされて段階 1 になってしまう。
+- `expected_count` — 「何本の提出物で満たしていれば全量か」。複数の認定証を
+  まとめて提出する課題（ex01-3 など）向け。省略（0）だと今までどおり
+  「どれか1本で満たせば OK」の真偽値になる。宣言すると、満たした提出物の
+  **本数**を `expected_count` に対する割合として重みに割り当てる ── 3 枚中
+  2 枚しか認定証が無ければ、その項目は 2/3 の重みしか稼がない。
 
 ## 段階はこちらが決める
 
@@ -78,6 +83,8 @@ class PatternSpec(BaseModel):
     line_matches: str = ""
     required: bool = False
     weight: float = 1.0
+    #: 満たすべき提出物の本数。0 は「真偽値（どれか1本で可）」のまま。
+    expected_count: int = Field(default=0, ge=0)
 
 
 def normalise(text: str) -> str:
@@ -137,6 +144,30 @@ def satisfies(spec: PatternSpec, body: str, learner_reference: str | None) -> bo
     return any(expression.search(line) for line in haystack)
 
 
+def _matching_artifacts(
+    spec: PatternSpec,
+    bodies: tuple[tuple[ArtifactId, str], ...],
+    learner_reference: str | None,
+) -> tuple[ArtifactId, ...]:
+    """この項目を満たした提出物（本文ごとに独立して判定する）。"""
+    return tuple(
+        artifact_id for artifact_id, body in bodies if satisfies(spec, body, learner_reference)
+    )
+
+
+def _is_met(spec: PatternSpec, hits: tuple[ArtifactId, ...]) -> bool:
+    if spec.expected_count > 0:
+        return len(hits) >= spec.expected_count
+    return bool(hits)
+
+
+def _weight_satisfied(spec: PatternSpec, hits: tuple[ArtifactId, ...]) -> float:
+    """この項目が稼ぐ重み。`expected_count` があれば本数に比例させる。"""
+    if spec.expected_count > 0:
+        return spec.weight * min(len(hits), spec.expected_count) / spec.expected_count
+    return spec.weight if hits else 0.0
+
+
 def level_for(satisfied: float, total: float, criterion: RubricCriterion) -> int:
     """満たした項目の重みを、その観点が持つ段階に割り当てる。
 
@@ -178,6 +209,7 @@ def _spec_of(case: object) -> PatternSpec:
         line_matches=str(payload.get("line_matches") or ""),
         required=bool(payload.get("required") or False),
         weight=float(getattr(case, "weight", 1.0)),
+        expected_count=int(payload.get("expected_count") or 0),
     )
 
 
@@ -193,8 +225,8 @@ class TextPatternCheck:
     test_case_shape = "patterns"
 
     def evaluate(self, request: EvaluationRequest) -> EvaluationOutcome:
-        body, artifact_id = self._body(request)
-        if body is None or artifact_id is None:
+        bodies = self._bodies(request)
+        if not bodies:
             # 本文が無い。**0 点にしない** ── 読めなかったのか白紙なのかは
             # ここでは分からない（抽出器の記録が理由を持っている）。
             return EvaluationOutcome(
@@ -204,6 +236,7 @@ class TextPatternCheck:
 
         scores: list[CriterionScore] = []
         matched: dict[str, dict[str, bool]] = {}
+        counts: dict[str, dict[str, int]] = {}
         for criterion in request.task_version.criteria:
             if criterion.evaluator_id != EVALUATOR_ID:
                 continue
@@ -211,14 +244,19 @@ class TextPatternCheck:
             if not specs:
                 # **当て推量の既定を持たない。** 何を照合するかは課題ごとに違う。
                 continue
-            met = {spec.name: satisfies(spec, body, request.learner_reference) for spec in specs}
+            hits = {
+                spec.name: _matching_artifacts(spec, bodies, request.learner_reference)
+                for spec in specs
+            }
+            met = {spec.name: _is_met(spec, hits[spec.name]) for spec in specs}
             matched[criterion.code] = met
+            counts[criterion.code] = {name: len(ids) for name, ids in hits.items()}
             unmet_required = [spec.name for spec in specs if spec.required and not met[spec.name]]
             if unmet_required:
                 level = min(level.level for level in criterion.levels)
             else:
                 level = level_for(
-                    sum(spec.weight for spec in specs if met[spec.name]),
+                    sum(_weight_satisfied(spec, hits[spec.name]) for spec in specs),
                     sum(spec.weight for spec in specs),
                     criterion,
                 )
@@ -234,8 +272,8 @@ class TextPatternCheck:
                     confidence=1.0,
                     # **確定させる。** 決定的な照合に迷いは無い（P3）。
                     conclusive=True,
-                    evidence=self._evidence(request, artifact_id, specs, body),
-                    rationale=self._rationale(met, unmet_required),
+                    evidence=self._evidence(request, bodies, specs, hits),
+                    rationale=self._rationale(specs, hits, met, unmet_required),
                 )
             )
 
@@ -247,18 +285,31 @@ class TextPatternCheck:
         return EvaluationOutcome(
             status=EvaluatorStatus.OK,
             scores=tuple(scores),
-            raw_output={"matched": matched, "characters": len(body)},
+            raw_output={
+                "matched": matched,
+                "counts": counts,
+                # **何本の提出物が読めたか**。「いくつ提出されたか」に、
+                # パターンの一致不一致に関係なく答えられる値（#356 相当の質問）。
+                "submitted_images": len(bodies),
+                "characters": sum(len(body) for _, body in bodies),
+            },
         )
 
     # -- internals ---------------------------------------------------------
 
-    def _body(self, request: EvaluationRequest) -> tuple[str | None, ArtifactId | None]:
-        """照合する本文を選ぶ。
+    def _bodies(self, request: EvaluationRequest) -> tuple[tuple[ArtifactId, str], ...]:
+        """照合する本文。**提出物の数だけある。**
+
+        複数の認定証をまとめて提出する課題（ex01-3 など）では、抽出器
+        （`image_text`）が画像 1 枚につき 1 本の本文を作る。最初の1本だけを
+        見ると、2 枚目以降に書いてある学籍番号や講座名が採点に映らない
+        ── 先頭で打ち切らず、読めた本文をすべて対象にする。
 
         **提出時の種類では選ばない。** 抽出器が既に本文へ直しているので、
         `kind` は「学習者が何を出したか」の記録であって「いま何が渡っている
         か」ではない（`checklist_ai_judge` と同じ判断）。
         """
+        bodies: list[tuple[ArtifactId, str]] = []
         for artifact in request.submission.gradable_artifacts:
             content = request.artifact_contents.get(artifact.id)
             if not content:
@@ -268,37 +319,57 @@ class TextPatternCheck:
             except UnicodeDecodeError:
                 continue
             if text.strip():
-                return text, artifact.id
-        return None, None
+                bodies.append((artifact.id, text))
+        return tuple(bodies)
 
     def _evidence(
         self,
         request: EvaluationRequest,
-        artifact_id: ArtifactId,
+        bodies: tuple[tuple[ArtifactId, str], ...],
         specs: tuple[PatternSpec, ...],
-        body: str,
+        hits: dict[str, tuple[ArtifactId, ...]],
     ) -> tuple[Evidence, ...]:
-        """照合に使った行を根拠にする（P4）。"""
-        content_hash = next(
-            (a.content_hash for a in request.submission.artifacts if a.id == artifact_id),
-            "unknown",
-        )
-        return tuple(
-            Evidence(
-                artifact_id=artifact_id,
-                artifact_content_hash=content_hash,
-                span=WholeSpan(),
-                quote="\n".join(lines_to_search(body, spec))[:500] or None,
-                note=f"「{spec.name}」",
-            )
-            for spec in specs
-        )
+        """照合に使った行を根拠にする（P4）。
 
-    def _rationale(self, met: dict[str, bool], unmet_required: list[str]) -> str:
-        parts = [
-            f"{name}は{'見つかりました' if hit else '見つかりませんでした'}"
-            for name, hit in met.items()
-        ]
+        満たした提出物**ごと**に根拠を積む ── 1 本にまとめると、実際には
+        2 枚目の画像に書いてあった行が 1 枚目の artifact の根拠として記録
+        され、見た人が違う画像を確認することになる。満たさなかった項目は、
+        何を探したか分かるように先頭の本文を根拠にする。
+        """
+        content_hash = {a.id: a.content_hash for a in request.submission.artifacts}
+        body_of = dict(bodies)
+        evidence: list[Evidence] = []
+        for spec in specs:
+            targets = hits[spec.name] or (bodies[0][0],)
+            for artifact_id in targets:
+                evidence.append(
+                    Evidence(
+                        artifact_id=artifact_id,
+                        artifact_content_hash=content_hash.get(artifact_id, "unknown"),
+                        span=WholeSpan(),
+                        quote="\n".join(lines_to_search(body_of[artifact_id], spec))[:500] or None,
+                        note=f"「{spec.name}」",
+                    )
+                )
+        return tuple(evidence)
+
+    def _rationale(
+        self,
+        specs: tuple[PatternSpec, ...],
+        hits: dict[str, tuple[ArtifactId, ...]],
+        met: dict[str, bool],
+        unmet_required: list[str],
+    ) -> str:
+        parts = []
+        for spec in specs:
+            if spec.expected_count > 0:
+                parts.append(
+                    f"{spec.name}は{len(hits[spec.name])}/{spec.expected_count}件見つかりました"
+                )
+            else:
+                parts.append(
+                    f"{spec.name}は{'見つかりました' if met[spec.name] else '見つかりませんでした'}"
+                )
         if unmet_required:
             parts.append(f"必須の項目を満たしていません: {'・'.join(unmet_required)}")
         return "。".join(parts) + "。"
