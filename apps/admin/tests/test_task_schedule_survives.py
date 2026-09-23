@@ -138,3 +138,40 @@ def test_a_new_task_starts_with_an_empty_schedule(world) -> None:
     assert other.task.due_at is None
     assert other.task.accepts_until is None
     assert other.task.withdrawn is False
+
+
+def test_a_schedule_only_change_still_takes_effect(world) -> None:
+    """**本文を直さずに日程だけ直しても反映される。**
+
+    `TaskVersion` の中身（本文・観点・テストケース）が変わっていなければ
+    版は上げない。だが、それは「日程も含めて何もしない」という意味では
+    ない ── 以前は `content` が同じというだけで `save_task` がここで
+    そのまま抜け、下の `Task` の組み立て（日程を含む）が一度も走らなかった。
+
+    `course.yaml` で `opens_at` だけ直して流し直しても、課題の観点や
+    テストケースを一緒に直していなければ何も反映されなかった（実際に
+    起きた。network の ex2、2026-09-24。小テストの時間帯と演習課題の
+    開放が重なった）。
+    """
+    database, course = world
+    first = save_task(
+        database,
+        course_id=course.id,
+        spec=TaskSpec(key="ex1/p1", statement="本文", title="課題", unit="ex1"),
+        subject_profile=course.subject_profile,
+        authored_by=TEACHER,
+        revise=True,
+    )
+    assert first.task.opens_at is None
+
+    second = save_task(
+        database,
+        course_id=course.id,
+        spec=TaskSpec(key="ex1/p1", statement="本文", title="課題", unit="ex1", opens_at=OPENS),
+        subject_profile=course.subject_profile,
+        authored_by=TEACHER,
+        revise=True,
+    )
+
+    assert second.task.opens_at == OPENS, "本文を変えていないので opens_at が反映されない"
+    assert second.version.version == first.version.version, "本文が同じなのに版が増えている"
