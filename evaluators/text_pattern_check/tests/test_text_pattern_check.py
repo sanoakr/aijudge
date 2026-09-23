@@ -45,7 +45,6 @@ from aijudge_core.ids import (
 from aijudge_grading import EvaluationRequest
 
 NOW = datetime(2026, 9, 18, 9, 0, tzinfo=UTC)
-ARTIFACT = ArtifactId("art_" + "3" * 32)
 SUBMISSION = SubmissionId("sub_" + "4" * 32)
 VERSION = TaskVersionId("tsv_" + "2" * 32)
 
@@ -97,19 +96,39 @@ def _request(
     body: str = BODY,
     learner_reference: str | None = "y240040@mail.example.ac.jp",
 ) -> EvaluationRequest:
-    criteria = criteria or (_criterion(),)
-    payload = body.encode("utf-8")
-    artifact = Artifact(
-        id=ARTIFACT,
-        submission_id=SUBMISSION,
-        role=ArtifactRole.ORIGINAL,
-        kind=ArtifactKind.IMAGE,
-        storage_key="k",
-        content_hash="sha256:x",
-        byte_size=len(payload),
-        filename="認定証.png",
-        created_at=NOW,
+    return _request_multi(
+        cases=cases, criteria=criteria, bodies=(body,), learner_reference=learner_reference
     )
+
+
+def _request_multi(
+    *,
+    cases: tuple[TestCase, ...],
+    criteria: tuple[RubricCriterion, ...] | None = None,
+    bodies: tuple[str, ...],
+    learner_reference: str | None = "y240040@mail.example.ac.jp",
+) -> EvaluationRequest:
+    """`bodies` の本数だけ画像を提出したことにする（ex01-3 相当）。"""
+    criteria = criteria or (_criterion(),)
+    artifacts = []
+    contents = {}
+    for index, body in enumerate(bodies):
+        artifact_id = ArtifactId(f"art_{index}" + "3" * 30)
+        payload = body.encode("utf-8")
+        artifacts.append(
+            Artifact(
+                id=artifact_id,
+                submission_id=SUBMISSION,
+                role=ArtifactRole.ORIGINAL,
+                kind=ArtifactKind.IMAGE,
+                storage_key="k",
+                content_hash=f"sha256:{index}",
+                byte_size=len(payload),
+                filename=f"認定証{index}.png",
+                created_at=NOW,
+            )
+        )
+        contents[artifact_id] = payload
     version = TaskVersion(
         id=VERSION,
         task_id=TaskId("tsk_" + "5" * 32),
@@ -127,7 +146,7 @@ def _request(
         task_version_id=VERSION,
         learner_id=UserId("usr_" + "7" * 32),
         state=SubmissionState.SUBMITTED,
-        artifacts=(artifact,),
+        artifacts=tuple(artifacts),
         submitted_at=NOW,
         created_at=NOW,
     )
@@ -135,7 +154,7 @@ def _request(
         task_version=version,
         submission=submission,
         # **抽出器が起こした本文が渡る**（原本のバイト列ではない）。
-        artifact_contents={ARTIFACT: payload},
+        artifact_contents=contents,
         test_cases=cases,
         learner_reference=learner_reference,
     )
@@ -334,3 +353,79 @@ def test_the_declaration_is_not_offered_to_the_item_set_editor() -> None:
     from aijudge_grading.protocol import test_case_shape
 
     assert test_case_shape(TextPatternCheck()) == "patterns"
+
+
+# --------------------------------------------------------------------------
+# 複数の提出物 — ex01-3 のようにまとめて提出する課題
+# --------------------------------------------------------------------------
+
+
+def test_a_match_on_the_second_image_is_not_missed() -> None:
+    """**先頭の1本で打ち切らない。** 2枚目にしか書いてない受講者欄も見る。"""
+    outcome = TextPatternCheck().evaluate(
+        _request_multi(cases=(NICKNAME,), bodies=("よそのタブの文字列だけ", BODY))
+    )
+    assert outcome.scores[0].level == 1
+
+
+def test_submitted_images_reports_how_many_bodies_were_readable() -> None:
+    """**「いくつ提出されたか」に、パターンの一致不一致と関係なく答える。**"""
+    outcome = TextPatternCheck().evaluate(
+        _request_multi(cases=(NICKNAME,), bodies=(BODY, "Java入門編の認定証"))
+    )
+    assert outcome.raw_output["submitted_images"] == 2
+
+
+def test_counts_report_how_many_images_matched_each_item() -> None:
+    outcome = TextPatternCheck().evaluate(
+        _request_multi(cases=(NICKNAME,), bodies=(BODY, BODY, "無関係な画像"))
+    )
+    assert outcome.raw_output["counts"]["nickname"]["受講者欄"] == 2
+
+
+def test_expected_count_scores_proportionally_to_how_many_matched() -> None:
+    """**3枚出すべき認定証のうち2枚しか無い。** 比例で2/3の重みにする。"""
+    case = _case(
+        "認定証",
+        criterion="nickname",
+        pattern=r"認定証",
+        expected_count=3,
+    )
+    outcome = TextPatternCheck().evaluate(
+        _request_multi(
+            cases=(case,),
+            criteria=(_criterion(levels=3),),
+            bodies=("認定証その1", "認定証その2", "証明書ではない画像"),
+        )
+    )
+    assert outcome.raw_output["counts"]["nickname"]["認定証"] == 2
+    assert outcome.scores[0].level == 1
+
+
+def test_expected_count_reaching_the_full_amount_scores_top() -> None:
+    case = _case("認定証", criterion="nickname", pattern=r"認定証", expected_count=2)
+    outcome = TextPatternCheck().evaluate(
+        _request_multi(cases=(case,), bodies=("認定証A", "認定証B"))
+    )
+    assert outcome.scores[0].level == 1
+
+
+def test_expected_count_can_still_be_required() -> None:
+    """**必須のまま数を数えられる。** 本数が足りなければ最低段階にする。"""
+    case = _case("認定証", criterion="nickname", pattern=r"認定証", expected_count=3, required=True)
+    outcome = TextPatternCheck().evaluate(
+        _request_multi(cases=(case,), bodies=("認定証A", "認定証B"))
+    )
+    assert outcome.scores[0].level == 0
+    assert "必須の項目" in outcome.scores[0].rationale
+
+
+def test_evidence_is_attributed_to_the_image_that_actually_matched() -> None:
+    """**根拠の取り違えを起こさない。** 1枚目には無い文字列を1枚目の根拠にしない。"""
+    outcome = TextPatternCheck().evaluate(
+        _request_multi(cases=(NICKNAME,), bodies=("よそのタブの文字列だけ", BODY))
+    )
+    evidence = outcome.scores[0].evidence
+    assert len(evidence) == 1
+    # bodies=(はずれ, BODY) の2本目（index=1）が一致した本体。
+    assert evidence[0].artifact_content_hash == "sha256:1"
