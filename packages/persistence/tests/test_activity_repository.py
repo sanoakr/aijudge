@@ -148,3 +148,18 @@ def test_a_learners_sessions_come_back_in_the_order_they_were_opened(database: D
 
         assert [s.id for s in found] == [SESSION, later.id]
         assert index.sessions_for(LEARNER, OTHER_COURSE) == ()
+
+
+def test_sessions_can_be_listed_per_course_and_deleted_by_id(database: Database) -> None:
+    """保存期間の purge が使う。**指名したセッションだけ**を消す。"""
+    for index in _both(database):
+        index.start_session(a_session())
+        other = a_session(id=IdeSessionId("ide_" + "7" * 32), learner_id=OTHER)
+        index.start_session(other)
+        index.add_batch(a_batch(0))
+
+        assert [s.id for s in index.course_sessions(COURSE)] == [SESSION, other.id]
+        assert index.delete_sessions([SESSION]) == 1
+        assert index.get_session(SESSION) is None and index.batches(SESSION) == ()
+        assert index.get_session(other.id) == other
+        assert index.delete_sessions([]) == 0

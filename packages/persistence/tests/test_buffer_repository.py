@@ -164,3 +164,13 @@ def test_the_first_origin_wins(database: Database) -> None:
         links.record(a_link(SubmissionOrigin.AUTO_CLOSE))
         found = links.for_submission(SUB)
         assert found is not None and found.origin is SubmissionOrigin.EDITOR
+
+
+def test_a_buffer_can_be_deleted(database: Database) -> None:
+    for store in _both(database):
+        store.save(buffer("mine"))
+        store.save(buffer("theirs", learner=OTHER))
+        store.delete(LEARNER, P1)
+        store.delete(LEARNER, P1)  # 2 度目は何もしない
+        assert store.get(LEARNER, P1) is None
+        assert store.get(OTHER, P1) is not None

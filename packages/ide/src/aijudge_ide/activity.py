@@ -141,6 +141,18 @@ class ActivityIndex(Protocol):
         """seq の順。欠落（seq の飛び）は呼び出し側が数える。"""
         ...
 
+    def course_sessions(self, course_id: CourseId) -> tuple[IdeSession, ...]:
+        """このコースの全セッション。保存期間の purge が期限を調べる。"""
+        ...
+
+    def delete_sessions(self, session_ids: Sequence[IdeSessionId]) -> int:
+        """セッションとその索引を消す。消したセッションの数を返す。
+
+        **本体（ファイル）を消してから呼ぶ**（`aijudge_admin.activity_purge`）。
+        逆にすると、索引が無くなって本体を辿れないファイルが残る。
+        """
+        ...
+
     def delete_for_course(self, course_id: CourseId) -> tuple[IdeSession, ...]:
         """このコースのセッションと索引を消し、消したセッションを返す。
 

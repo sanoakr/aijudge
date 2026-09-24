@@ -8,7 +8,7 @@ commit しない。呼び出し側の UnitOfWork が commit する。
 
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from aijudge_core.ids import SubmissionId, TaskId, TenantId, UserId
@@ -75,6 +75,14 @@ class SqlBufferStore:
             .all()
         )
         return tuple(_buffer(row) for row in rows)
+
+    def delete(self, learner_id: UserId, task_id: TaskId) -> None:
+        self._session.execute(
+            delete(IdeBufferRow).where(
+                IdeBufferRow.learner_id == str(learner_id), IdeBufferRow.task_id == str(task_id)
+            )
+        )
+        self._session.flush()
 
     def task_ids(self) -> tuple[TaskId, ...]:
         rows = self._session.execute(

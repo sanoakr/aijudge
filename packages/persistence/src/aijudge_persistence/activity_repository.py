@@ -8,6 +8,8 @@ commit しない。呼び出し側の UnitOfWork が commit する。
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
@@ -52,6 +54,33 @@ class SqlActivityIndex:
             user_agent=row.user_agent,
             consented_at=row.consented_at,
         )
+
+    def course_sessions(self, course_id: CourseId) -> tuple[IdeSession, ...]:
+        rows = (
+            self._session.execute(
+                select(IdeSessionRow.id)
+                .where(IdeSessionRow.course_id == str(course_id))
+                .order_by(IdeSessionRow.started_at, IdeSessionRow.id)
+            )
+            .scalars()
+            .all()
+        )
+        return tuple(
+            session
+            for session in (self.get_session(IdeSessionId(row)) for row in rows)
+            if session is not None
+        )
+
+    def delete_sessions(self, session_ids: Sequence[IdeSessionId]) -> int:
+        keys = [str(session_id) for session_id in session_ids]
+        if not keys:
+            return 0
+        self._session.execute(
+            delete(IdeEventBatchRow).where(IdeEventBatchRow.ide_session_id.in_(keys))
+        )
+        result = self._session.execute(delete(IdeSessionRow).where(IdeSessionRow.id.in_(keys)))
+        self._session.flush()
+        return int(result.rowcount or 0)  # type: ignore[attr-defined]
 
     def delete_for_course(self, course_id: CourseId) -> tuple[IdeSession, ...]:
         rows = (

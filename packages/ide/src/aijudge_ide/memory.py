@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from datetime import datetime
 
 from aijudge_core.ids import CourseId, SubmissionId, TaskId, UserId
@@ -123,6 +123,9 @@ class InMemoryBufferStore:
     def task_ids(self) -> tuple[TaskId, ...]:
         return tuple(sorted({task_id for (_, task_id) in self._buffers}))
 
+    def delete(self, learner_id: UserId, task_id: TaskId) -> None:
+        self._buffers.pop((learner_id, task_id), None)
+
 
 class InMemorySubmissionLinkStore:
     """インメモリの出どころの記録。SQL 実装と同じテストに通る。"""
@@ -180,6 +183,23 @@ class InMemoryActivityIndex:
         return tuple(
             batch for (sid, _), batch in sorted(self._batches.items()) if sid == session_id
         )
+
+    def course_sessions(self, course_id: CourseId) -> tuple[IdeSession, ...]:
+        return tuple(
+            sorted(
+                (s for s in self._sessions.values() if s.course_id == course_id),
+                key=lambda s: (s.started_at, s.id),
+            )
+        )
+
+    def delete_sessions(self, session_ids: Sequence[IdeSessionId]) -> int:
+        removed = 0
+        for session_id in session_ids:
+            if self._sessions.pop(session_id, None) is not None:
+                removed += 1
+            for key in [k for k in self._batches if k[0] == session_id]:
+                del self._batches[key]
+        return removed
 
     def delete_for_course(self, course_id: CourseId) -> tuple[IdeSession, ...]:
         doomed = tuple(s for s in self._sessions.values() if s.course_id == course_id)

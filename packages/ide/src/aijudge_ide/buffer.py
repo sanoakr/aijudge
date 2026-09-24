@@ -102,3 +102,7 @@ class BufferStore(Protocol):
     def task_ids(self) -> tuple[TaskId, ...]:
         """自動保存のある課題。自動提出はここから辿る（全コースを舐めない）。"""
         ...
+
+    def delete(self, learner_id: UserId, task_id: TaskId) -> None:
+        """1 件消す（保存期間の purge）。無ければ何もしない。"""
+        ...
