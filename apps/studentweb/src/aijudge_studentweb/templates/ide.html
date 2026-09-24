@@ -8,7 +8,27 @@
    形式のときだけ出す。
 
    **JavaScript が無ければ使えない画面である**（エディタそのものが JS）。
-   その場合は `{# 受付終了のあと。**何が起きたかを言う** ── 最後に保存された内容は自動で
+   その場合は noscript の案内で、従来のファイル提出の画面へ送る ──
+   提出の経路は `/submit` にも残してある。
+
+   **このコメントの中に山括弧つきの要素名を書かない。** 以前、案内を差し込む
+   目印にした文字列がこのコメントの中にもあり、差し込みが外れて見出し（残り
+   時間）が noscript の中に入り、JavaScript のある画面から消えた。 #}
+<div class="ide-head">
+  <h1>{{ unit_label }} <span class="desc">エディタ</span></h1>
+  <span class="spacer"></span>
+  {% if accepts_until %}
+  {# 残り時間。**サーバが渡した秒数から数える**（学習者の PC の時計に依存しない）。
+     対象は受付終了で、締切と違えば両方を出す。 #}
+  <span class="ide-clock">
+    <span class="desc">受付終了 {{ accepts_until | local('%m-%d %H:%M') }}</span>
+    {% if due_at and due_at != accepts_until %}<span class="desc">（締切 {{ due_at | local('%m-%d %H:%M') }}）</span>{% endif %}
+    <span class="countdown ide-remaining" data-ide-remaining="{{ remaining_seconds }}"></span>
+  </span>
+  {% endif %}
+</div>
+
+{# 受付終了のあと。**何が起きたかを言う** ── 最後に保存された内容は自動で
    提出される（設計書 §9.1）。言わないと、押し損ねたと思って慌てる。 #}
 <p class="note act" data-ide-closed hidden>
   受付は終了しました。最後に保存された内容は、提出していなければ自動で提出されます
@@ -31,22 +51,6 @@
   <p class="desc">記録は通信が不調なときに欠けることがあります。欠けたことだけで不利に扱うことはありません。</p>
   <button type="button" class="go" data-ide-consent-accept>確認して始める</button>
 </section>
-
-<noscript>` で、従来のファイル提出の画面へ案内する ──
-   提出の経路は `/submit` にも残してある。 #}
-<div class="ide-head">
-  <h1>{{ unit_label }} <span class="desc">エディタ</span></h1>
-  <span class="spacer"></span>
-  {% if accepts_until %}
-  {# 残り時間。**サーバが渡した秒数から数える**（学習者の PC の時計に依存しない）。
-     対象は受付終了で、締切と違えば両方を出す。 #}
-  <span class="ide-clock">
-    <span class="desc">受付終了 {{ accepts_until | local('%m-%d %H:%M') }}</span>
-    {% if due_at and due_at != accepts_until %}<span class="desc">（締切 {{ due_at | local('%m-%d %H:%M') }}）</span>{% endif %}
-    <span class="countdown ide-remaining" data-ide-remaining="{{ remaining_seconds }}"></span>
-  </span>
-  {% endif %}
-</div>
 
 <noscript>
   <p class="note warn">エディタを使うには JavaScript を有効にしてください。

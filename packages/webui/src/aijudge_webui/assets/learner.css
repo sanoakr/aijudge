@@ -33,9 +33,12 @@ details.unit > summary h3{display:inline-flex;vertical-align:middle}
 .unit h3 .dates{font-weight:400;display:flex;flex-wrap:wrap;gap:2px 14px}
 .unit h3 .dates em{font-style:normal;opacity:.65}
 
-/* ブラウザ IDE（`ide.html`・設計書 §5.2）。左に問題文、右にエディタと入出力。
-   **エディタの画面だけ本文の幅の上限を外す** ── 問題文とエディタを並べるには
-   読み物の幅（`main` の上限）では狭すぎる。狭い画面では縦に積む（既存の規約）。 */
+/* ブラウザ IDE（`ide.html`・設計書 §5.2）。**上に問題文、下にエディタと入出力**
+   （2026-09-24 決定。以前は左右に並べていた）。左右に並べるとエディタの幅が画面の
+   6 割に削られ、長い行が折り返しだらけになる。問題文は高さを抑えて中で送れるように
+   し、エディタには画面の幅をすべて渡す。
+   **エディタの画面だけ本文の幅の上限を外す** ── 読み物の幅（`main` の上限）では
+   コードの 1 行が収まらない。 */
 main:has(.ide-head){max-width:none}
 .ide-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 14px}
 .ide-head h1{margin:0}
@@ -50,9 +53,11 @@ main:has(.ide-head){max-width:none}
   padding:6px 12px;display:inline-flex;gap:8px;align-items:center}
 .ide-tab[aria-selected="true"]{background:var(--surface);font-weight:700;
   box-shadow:inset 0 3px 0 var(--ai)}
-.ide-panel{display:grid;grid-template-columns:minmax(260px,2fr) 3fr;gap:16px;padding:14px 0}
+.ide-panel{display:flex;flex-direction:column;gap:14px;padding:14px 0}
 .ide-panel[hidden]{display:none}
-.ide-statement{overflow:auto;max-height:calc(100vh - 220px)}
+/* 問題文は高さを抑え、長ければ中で送る（エディタを画面の外へ押し出さない）。 */
+.ide-statement{overflow:auto;max-height:38vh;padding:4px 12px;
+  border:1px solid var(--line-soft);border-radius:3px;background:var(--surface)}
 .ide-sample{margin:10px 0}
 .ide-sample-head{display:flex;justify-content:space-between;align-items:center;gap:8px}
 .ide-sample-head button,.ide-toolbar .button-like,.ide-run{font-size:.85rem;padding:6px 12px}
@@ -62,7 +67,7 @@ main:has(.ide-head){max-width:none}
   background:var(--surface);color:var(--ink)}
 .ide-toolbar .button-like{cursor:pointer;border:1px solid var(--line);border-radius:3px;
   background:var(--surface)}
-.ide-editor{height:min(56vh,640px);border:1px solid var(--line);border-radius:3px}
+.ide-editor{height:min(62vh,760px);border:1px solid var(--line);border-radius:3px}
 .ide-runbox{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .ide-runbox[hidden]{display:none}
 .ide-stdin textarea{width:100%;box-sizing:border-box;font-size:.85rem;padding:6px;
@@ -74,7 +79,6 @@ main:has(.ide-head){max-width:none}
 .ide-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 .ide-run{background:var(--ai)}
 @media (max-width:900px){
-  .ide-panel{grid-template-columns:1fr}
-  .ide-statement{max-height:none}
+  .ide-statement{max-height:45vh}
   .ide-runbox{grid-template-columns:1fr}
 }

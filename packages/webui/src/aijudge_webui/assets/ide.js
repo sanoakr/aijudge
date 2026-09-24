@@ -798,6 +798,11 @@
           acceptSuggestionOnEnter: "off",
           tabCompletion: "off",
           scrollBeyondLastLine: false,
+          // 枠を超える長い行は折り返して見せる（2026-09-24 決定）。**表示だけ**で、
+          // 中身に改行は入らない（提出も行動記録も変わらない）。折り返した続きは
+          // 元の行と同じ字下げから始め、どこからが続きかを読めるようにする。
+          wordWrap: "on",
+          wrappingIndent: "same",
         });
         var editor = editors[index];
         editor.onDidPaste(function (event) {
