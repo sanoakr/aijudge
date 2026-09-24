@@ -33,13 +33,21 @@ details.unit > summary h3{display:inline-flex;vertical-align:middle}
 .unit h3 .dates{font-weight:400;display:flex;flex-wrap:wrap;gap:2px 14px}
 .unit h3 .dates em{font-style:normal;opacity:.65}
 
-/* ブラウザ IDE（`ide.html`・設計書 §5.2）。**上に問題文、下にエディタと入出力**
-   （2026-09-24 決定。以前は左右に並べていた）。左右に並べるとエディタの幅が画面の
-   6 割に削られ、長い行が折り返しだらけになる。問題文は高さを抑えて中で送れるように
-   し、エディタには画面の幅をすべて渡す。
+/* ブラウザ IDE（`ide.html`・設計書 §5.2）。2026-09-24 に決めた配置:
+
+   - **見出し（問題セット名・残り時間）とタブは上に固定する。** 試験の間ずっと
+     残り時間が見え、どの課題を書いているかを見失わない
+   - その下に問題文（高さを抑えて中で送る）
+   - 問題文の下は**左がエディタ、右が試す道具**（公開サンプル・入力・出力・実行と
+     提出）。書きながら目を移す先なので隣に置く。狭い画面では縦に積む
    **エディタの画面だけ本文の幅の上限を外す** ── 読み物の幅（`main` の上限）では
    コードの 1 行が収まらない。 */
 main:has(.ide-head){max-width:none}
+/* 固定する見出しとタブ。サイトの帯（`.topbar`、これも固定）の直下に貼る。帯の
+   高さは画面の幅で変わる（狭いと 2 段）ので、画面側が測って `--ide-sticky-top` に
+   入れる（`ide.js`）。下の内容が透けないよう地の色を敷く。 */
+.ide-sticky{position:sticky;top:var(--ide-sticky-top,0);z-index:5;background:var(--paper);
+  padding-top:10px}
 .ide-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 14px}
 .ide-head h1{margin:0}
 .ide-head .spacer,.ide-toolbar .spacer,.ide-actions .spacer{flex:1}
@@ -47,7 +55,7 @@ main:has(.ide-head){max-width:none}
 .ide-remaining{font-family:var(--font-mono);font-weight:700;font-size:1.1rem}
 .ide-remaining[data-soon]{color:var(--shu)}
 .ide-remaining[data-over]{color:var(--muted)}
-.ide-tabs{display:flex;flex-wrap:wrap;gap:4px;margin:14px 0 0;border-bottom:1px solid var(--line)}
+.ide-tabs{display:flex;flex-wrap:wrap;gap:4px;margin:10px 0 0;border-bottom:1px solid var(--line)}
 .ide-tab{background:var(--surface-2);color:var(--ink);font-weight:400;
   border:1px solid var(--line);border-bottom:0;border-radius:3px 3px 0 0;
   padding:6px 12px;display:inline-flex;gap:8px;align-items:center}
@@ -56,29 +64,42 @@ main:has(.ide-head){max-width:none}
 .ide-panel{display:flex;flex-direction:column;gap:14px;padding:14px 0}
 .ide-panel[hidden]{display:none}
 /* 問題文は高さを抑え、長ければ中で送る（エディタを画面の外へ押し出さない）。 */
-.ide-statement{overflow:auto;max-height:38vh;padding:4px 12px;
+.ide-statement{overflow:auto;max-height:34vh;padding:4px 12px;
   border:1px solid var(--line-soft);border-radius:3px;background:var(--surface)}
-.ide-sample{margin:10px 0}
-.ide-sample-head{display:flex;justify-content:space-between;align-items:center;gap:8px}
-.ide-sample-head button,.ide-toolbar .button-like,.ide-run{font-size:.85rem;padding:6px 12px}
-.ide-work{display:flex;flex-direction:column;gap:8px;min-width:0}
+/* 左がエディタ、右が試す道具（公開サンプル・入力・出力・実行と提出）。 */
+.ide-work{display:grid;grid-template-columns:minmax(0,1fr) minmax(280px,360px);gap:14px;
+  align-items:start}
+.ide-main{display:flex;flex-direction:column;gap:8px;min-width:0}
 .ide-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px}
 .ide-toolbar select{font:inherit;padding:4px 8px;border:1px solid var(--line);border-radius:3px;
   background:var(--surface);color:var(--ink)}
 .ide-toolbar .button-like{cursor:pointer;border:1px solid var(--line);border-radius:3px;
-  background:var(--surface)}
-.ide-editor{height:min(62vh,760px);border:1px solid var(--line);border-radius:3px}
-.ide-runbox{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  background:var(--surface);font-size:.85rem;padding:6px 12px}
+.ide-editor{height:min(66vh,780px);border:1px solid var(--line);border-radius:3px}
+.ide-side{display:flex;flex-direction:column;gap:10px;min-width:0}
+.ide-samples h3{margin:0 0 4px;font-size:.95rem}
+.ide-sample{margin:0 0 6px}
+.ide-sample summary{cursor:pointer}
+.ide-sample .ide-io{margin:4px 0}
+.ide-sample button{font-size:.8rem;padding:5px 10px}
+.ide-runbox{display:flex;flex-direction:column;gap:8px}
 .ide-runbox[hidden]{display:none}
 .ide-stdin textarea{width:100%;box-sizing:border-box;font-size:.85rem;padding:6px;
   border:1px solid var(--line);border-radius:3px;background:var(--surface);color:var(--ink)}
 .ide-io{margin:0;padding:8px;background:var(--surface-2);border:1px solid var(--line-soft);
   border-radius:3px;font-family:var(--font-mono);font-size:.82rem;white-space:pre-wrap;
   overflow:auto;max-height:260px}
+.ide-output .ide-io{min-height:4.5em}
 .ide-io[data-kind="error"]{border-color:var(--shu);color:var(--shu)}
-.ide-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
-.ide-run{background:var(--ai)}
+.ide-run-note{margin:0}
+/* 実行と提出は同じ大きさ。並び（左が実行・右が提出）と色で区別する。 */
+.ide-actions{display:flex;gap:8px}
+.ide-actions button{flex:1;padding:12px 0;font-size:1rem}
+.ide-actions button[hidden]{display:none}
+/* 実行は押しボタン用の地（`--go-bg`・夜でも文字が読める組）。提出はサイト既定の朱。 */
+.ide-run,.ide-run-sample{background:var(--go-bg);color:var(--go-ink)}
+.ide-submitted{margin:0}
 @media (max-width:900px){
+  .ide-work{grid-template-columns:1fr}
   .ide-statement{max-height:45vh}
-  .ide-runbox{grid-template-columns:1fr}
 }
