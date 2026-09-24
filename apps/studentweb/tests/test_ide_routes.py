@@ -420,3 +420,23 @@ def test_the_completion_setting_reaches_the_editor(world: World) -> None:
     assert _config(world.client.get(f"/courses/{_course_id(world)}/ide").text)["completion"] == [
         True
     ]
+
+
+def test_the_header_and_countdown_are_outside_noscript(world: World) -> None:
+    """**見出し（残り時間）は JavaScript のある画面に出る。**
+
+    以前、案内を差し込む目印がテンプレートのコメントの中にもあり、見出しが
+    noscript の中に入って消えていた ── 試験では残り時間が見えなくなる。
+    """
+    from datetime import UTC, datetime, timedelta
+
+    _editor(world, accepts_until=datetime.now(UTC) + timedelta(hours=1))
+    _learner(world)
+
+    page = world.client.get(f"/courses/{_course_id(world)}/ide").text
+
+    assert page.count("<noscript>") == 1
+    inside = page.split("<noscript>", 1)[1].split("</noscript>", 1)[0]
+    assert "ide-head" not in inside and "data-ide-remaining" not in inside
+    assert "data-ide-remaining" in page
+    assert "data-ide-consent" not in inside

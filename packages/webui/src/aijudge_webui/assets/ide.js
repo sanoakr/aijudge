@@ -374,6 +374,20 @@
     });
   }
 
+  // -- 固定の見出し ----------------------------------------------------------
+  //
+  // 見出しとタブ（`.ide-sticky`）を、サイトの帯（`.topbar`）の直下に貼る。帯の高さは
+  // 画面の幅で変わる（狭いと 2 段）ので、測って CSS の変数に入れる。
+  (function () {
+    var bar = document.querySelector(".topbar");
+    function place() {
+      var height = bar ? bar.getBoundingClientRect().height : 0;
+      document.documentElement.style.setProperty("--ide-sticky-top", height + "px");
+    }
+    place();
+    window.addEventListener("resize", place);
+  })();
+
   // -- タブ ------------------------------------------------------------------
 
   function selectTab(index) {
@@ -736,11 +750,57 @@
 
   // -- エディタ --------------------------------------------------------------
 
-  function theme() {
+  // エディタの配色は**画面の昼／夜に合わせる**（2026-09-24 決定）。画面の配色は
+  // `<html data-theme>`（「自動」なら属性なしで OS の設定）で決まり、色そのものは
+  // CSS の変数（`base.css`）が持つ。そこから Monaco の配色を作るので、画面の色を
+  // 直せばエディタも付いてくる（色を 2 か所に書かない）。
+  function isDark() {
     var forced = document.documentElement.getAttribute("data-theme");
-    if (forced === "dark") return "vs-dark";
-    if (forced === "light") return "vs";
-    return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "vs-dark" : "vs";
+    if (forced === "dark") return true;
+    if (forced === "light") return false;
+    return !!(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  }
+
+  function cssColor(name, fallback) {
+    var value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return /^#[0-9a-fA-F]{6}$/.test(value) ? value : fallback;
+  }
+
+  function applyTheme(monaco) {
+    var dark = isDark();
+    var name = dark ? "aijudge-dark" : "aijudge-light";
+    monaco.editor.defineTheme(name, {
+      base: dark ? "vs-dark" : "vs",
+      inherit: true,
+      rules: [],
+      colors: {
+        "editor.background": cssColor("--surface", dark ? "#151a25" : "#ffffff"),
+        "editor.foreground": cssColor("--ink", dark ? "#dee3ef" : "#151a26"),
+        "editorGutter.background": cssColor("--surface", dark ? "#151a25" : "#ffffff"),
+        "editorLineNumber.foreground": cssColor("--muted", dark ? "#828ca6" : "#69718a"),
+        "editorLineNumber.activeForeground": cssColor("--ink", dark ? "#dee3ef" : "#151a26"),
+        "editor.lineHighlightBackground": cssColor("--surface-2", dark ? "#1b212d" : "#f5f7fb"),
+        "editorIndentGuide.background1": cssColor("--line-soft", dark ? "#212836" : "#e2e5ee"),
+        "editorWidget.background": cssColor("--surface-2", dark ? "#1b212d" : "#f5f7fb"),
+        "editorWidget.border": cssColor("--line", dark ? "#2a3140" : "#cfd4e1"),
+      },
+    });
+    monaco.editor.setTheme(name);
+  }
+
+  function followTheme(monaco) {
+    applyTheme(monaco);
+    // 画面の切り替え（フッタの 自動・昼・夜）と、「自動」のときの OS の切り替えに追従する。
+    new MutationObserver(function () { applyTheme(monaco); }).observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-theme"],
+    });
+    if (window.matchMedia) {
+      var query = window.matchMedia("(prefers-color-scheme: dark)");
+      var onChange = function () { applyTheme(monaco); };
+      if (query.addEventListener) query.addEventListener("change", onChange);
+      else if (query.addListener) query.addListener(onChange);
+    }
   }
 
   for (var p = 0; p < tabCount; p++) { paintRunnable(p); paintTabState(p); }
@@ -765,6 +825,7 @@
   window.require(["vs/editor/editor.main"], function () {
     monacoRef = window.monaco;
     registerCompletion(monacoRef);
+    followTheme(monacoRef);
     for (var k = 0; k < tabCount; k++) {
       (function (index) {
         var model = monacoRef.editor.createModel(
@@ -776,7 +837,6 @@
         if (withCompletion) completionOn[model.uri.toString()] = index;
         editors[index] = monacoRef.editor.create($('[data-editor="' + index + '"]'), {
           model: model,
-          theme: theme(),
           automaticLayout: true,
           minimap: { enabled: false },
           fontSize: 14,
@@ -798,6 +858,11 @@
           acceptSuggestionOnEnter: "off",
           tabCompletion: "off",
           scrollBeyondLastLine: false,
+          // 枠を超える長い行は折り返して見せる（2026-09-24 決定）。**表示だけ**で、
+          // 中身に改行は入らない（提出も行動記録も変わらない）。折り返した続きは
+          // 元の行と同じ字下げから始め、どこからが続きかを読めるようにする。
+          wordWrap: "on",
+          wrappingIndent: "same",
         });
         var editor = editors[index];
         editor.onDidPaste(function (event) {
