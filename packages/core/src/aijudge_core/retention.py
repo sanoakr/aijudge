@@ -24,9 +24,11 @@ import calendar
 from datetime import datetime
 
 __all__ = [
+    "AUTOSAVE_RETENTION_MONTHS_AFTER_CLOSE",
     "PURGED_MESSAGE",
     "VIDEO_RETENTION_MONTHS",
     "VIDEO_RETENTION_MONTHS_WITHOUT_DEADLINE",
+    "autosave_expires_at",
     "video_retention_expires_at",
     "video_retention_has_expired",
 ]
@@ -97,3 +99,24 @@ def video_retention_has_expired(
     """この動画が保存期間を過ぎているか。起点が無ければ常に偽。"""
     expires_at = video_retention_expires_at(due_at, submitted_at=submitted_at)
     return expires_at is not None and now >= expires_at
+
+
+#: IDE の自動保存を、受付終了から何ヶ月で消すか（2026-09-24 決定）。
+#:
+#: **作業の記録（6 ヶ月）より短い。** 自動保存を読むのは IDE の画面と受付終了時の
+#: 自動提出だけで、終了時点の最新の内容は自動提出で提出として残る ── 残す自動保存は
+#: 提出の複製である。1 ヶ月は、終了後に受付を延長したときと、自動提出で見送られた分
+#: （空・形式の変更）に教員が気づくための猶予である。
+AUTOSAVE_RETENTION_MONTHS_AFTER_CLOSE = 1
+
+
+def autosave_expires_at(accepts_until: datetime | None, *, updated_at: datetime) -> datetime:
+    """この自動保存を消してよくなる時刻。
+
+    受付終了があればそこから 1 ヶ月。**無ければ最後の保存から 1 年**（動画の締切の
+    無い課題と同じ） ── 自習・砂場には自動提出が無く、自動保存が学習者の唯一の
+    作業場所なので、短くすると書きかけが消える。
+    """
+    if accepts_until is not None:
+        return _add_months(accepts_until, AUTOSAVE_RETENTION_MONTHS_AFTER_CLOSE)
+    return _add_months(updated_at, VIDEO_RETENTION_MONTHS_WITHOUT_DEADLINE)

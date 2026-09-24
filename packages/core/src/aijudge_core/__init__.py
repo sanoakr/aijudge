@@ -81,9 +81,11 @@ from .knowledge import (
 )
 from .network import CampusAccess, campus_access, parse_cidrs
 from .retention import (
+    AUTOSAVE_RETENTION_MONTHS_AFTER_CLOSE,
     PURGED_MESSAGE,
     VIDEO_RETENTION_MONTHS,
     VIDEO_RETENTION_MONTHS_WITHOUT_DEADLINE,
+    autosave_expires_at,
     video_retention_expires_at,
     video_retention_has_expired,
 )
@@ -155,6 +157,7 @@ from .uploads import (
 __all__ = [
     "ALL_UPLOAD_SUFFIXES",
     "AUTOMATIC_JUSTIFICATION",
+    "AUTOSAVE_RETENTION_MONTHS_AFTER_CLOSE",
     "DEFAULT_UPLOAD_SUFFIXES",
     "DIVISIONS",
     "EVENT_TYPES",
@@ -239,6 +242,7 @@ __all__ = [
     "allowed_suffixes",
     "assert_transition",
     "auto_finalizable",
+    "autosave_expires_at",
     "blocks_finalization",
     "bulk_finalizable",
     "campus_access",

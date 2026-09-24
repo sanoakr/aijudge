@@ -6,9 +6,9 @@
 
 - **行動記録**（セッション単位）: 起点はそのセッションの問題セットの締切
   （セット内で最も遅いもの）。締切が無ければ、IDE を開いた時刻から 1 年
-- **自動保存**（学習者 × 課題）: 起点はその課題の締切。無ければ最後に保存した
-  時刻から 1 年。**これも学習者のコードである**（2026-09-24 決定）。受付終了時の
-  自動提出が済めば役目は終わっている
+- **自動保存**（学習者 × 課題）: **受付終了から 1 ヶ月**（2026-09-24 決定）。受付終了
+  の無い課題は最後に保存した時刻から 1 年。これも学習者のコードで、受付終了時の
+  自動提出が済めば提出の複製でしかない（`aijudge_core.autosave_expires_at`）
 
 提出の出どころの記録（`ide_submission_links`）は消さない。中身はコードではなく
 指紋で、提出と同じだけ残す（提出が消えるときに一緒に消える）。
@@ -30,7 +30,7 @@ from datetime import datetime
 from pathlib import Path
 
 from aijudge_audit import AuditAction, AuditRecorder
-from aijudge_core import Course, Task, video_retention_expires_at
+from aijudge_core import Course, Task, autosave_expires_at, video_retention_expires_at
 from aijudge_core.ids import CourseId, TaskId, TenantId, UserId
 from aijudge_ide import ActivityFiles, IdeSession
 from aijudge_persistence import Database
@@ -130,11 +130,11 @@ def plan_activity_purge(
                 counts[label] = counts.get(label, 0) + 1
             for task in tasks:
                 for buffer in uow.ide_buffers.for_task(task.id):
-                    expires_at = video_retention_expires_at(
-                        task.due_at, submitted_at=buffer.updated_at
+                    # 自動保存は**受付終了から 1 ヶ月**（コアの `autosave_expires_at`）。
+                    # 終了時点の最新は自動提出で提出になっており、残すのは複製である。
+                    expires_at = autosave_expires_at(
+                        task.accepts_until, updated_at=buffer.updated_at
                     )
-                    if expires_at is None:  # pragma: no cover - 保存時刻は必ずある
-                        continue
                     if now < expires_at:
                         later(expires_at)
                         continue

@@ -26,6 +26,7 @@ TENANT = TenantId("ten_" + "0" * 32)
 COURSE = CourseId("crs_" + "1" * 32)
 LEARNER = UserId("usr_" + "2" * 32)
 DUE = datetime(2026, 1, 20, 10, 0, tzinfo=UTC)
+CLOSES = DUE + timedelta(minutes=30)
 EXAM = TaskId("tsk_" + "a" * 32)
 SANDBOX = TaskId("tsk_" + "b" * 32)
 
@@ -50,7 +51,14 @@ class World:
             )
             # 締切のある試験の問題セットと、締切の無い自習の問題セット。
             uow.tasks.save_task(
-                Task(id=EXAM, course_id=COURSE, title="試験 1", unit="exam", due_at=DUE)
+                Task(
+                    id=EXAM,
+                    course_id=COURSE,
+                    title="試験 1",
+                    unit="exam",
+                    due_at=DUE,
+                    accepts_until=CLOSES,
+                )
             )
             uow.tasks.save_task(Task(id=SANDBOX, course_id=COURSE, title="自習", unit="free"))
             uow.commit()
@@ -127,14 +135,23 @@ def test_without_a_deadline_a_year_from_opening(world: World) -> None:
     assert len(plan.sessions) == 1 and plan.sessions_without_deadline == 1
 
 
-def test_autosaves_expire_on_the_same_clock(world: World) -> None:
-    world.autosave(EXAM, DUE - timedelta(minutes=5))
-    world.autosave(SANDBOX, datetime(2026, 3, 1, tzinfo=UTC))
+def test_autosaves_go_a_month_after_the_close(world: World) -> None:
+    """自動保存は**受付終了から 1 ヶ月**（作業の記録の 6 ヶ月より短い）。
 
-    plan = world.plan(DUE + timedelta(days=190))
+    終了時点の最新は自動提出で提出になっているので、残すのは複製である。
+    受付終了の無い課題（自習）は最後の保存から 1 年のまま。
+    """
+    world.autosave(EXAM, DUE - timedelta(minutes=5))
+    world.autosave(SANDBOX, CLOSES)
+
+    assert world.plan(CLOSES + timedelta(days=20)).buffers == ()
+    plan = world.plan(CLOSES + timedelta(days=32))
 
     assert plan.buffers == ((LEARNER, EXAM),)
-    assert plan.next_expires_at is not None
+    assert world.plan(CLOSES + timedelta(days=370)).buffers == (
+        (LEARNER, EXAM),
+        (LEARNER, SANDBOX),
+    )
 
 
 def test_the_plan_deletes_nothing(world: World) -> None:
