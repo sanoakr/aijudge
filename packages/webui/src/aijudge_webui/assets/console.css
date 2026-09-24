@@ -231,6 +231,9 @@ h2[id]{scroll-margin-top:16px}
   border:1px solid var(--line);background:var(--surface);color:var(--ink);
   box-sizing:border-box;line-height:1.4;height:2.45rem}
 .check{display:inline-flex;align-items:center;gap:6px;font-size:.9rem;padding:8px 0}
+/* 選択肢を縦に並べるときは詰める（答え方の 2 項目）。1 項目なら既定のまま。 */
+.check.tight{padding:2px 0}
+.check.disabled{opacity:.5;cursor:not-allowed}
 .flash{display:inline-flex;align-items:center;gap:6px;font-size:.82rem;color:var(--verd);
   background:var(--verd-soft);border:1px solid var(--verd);border-radius:99px;padding:4px 12px}
 .flash::before{content:"✓"}

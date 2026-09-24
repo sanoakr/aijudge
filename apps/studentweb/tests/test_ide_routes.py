@@ -253,6 +253,33 @@ def test_a_program_is_submitted_as_the_file_would_be(world: World) -> None:
     assert link is not None and link.origin.value == "editor"
 
 
+def test_an_editor_only_task_refuses_a_file_but_takes_the_editor(world: World) -> None:
+    """**エディタだけ**（試験・2026-09-24）。ファイルの欄は出さず、受付でも断る ──
+    画面から消すだけでは境界にならない（#146）。エディタからは出せる。"""
+    _editor(world, file_upload=False)
+    _learner(world)
+
+    page = world.client.get(f"/tasks/{world.task_version.id}").text
+    assert "ファイルでは提出できません" in page
+    assert f'action="/tasks/{world.task_version.id}/submit"' not in page
+
+    refused = world.submit()
+    assert refused.status_code == 409
+    assert "エディタからだけ" in refused.text
+
+    assert _submit(world).status_code == 200
+
+
+def test_an_editor_task_still_takes_a_file_by_default(world: World) -> None:
+    """既定は両方。エディタが使えない環境の逃げ道を残す。"""
+    _editor(world)
+    _learner(world)
+
+    page = world.client.get(f"/tasks/{world.task_version.id}").text
+    assert f'action="/tasks/{world.task_version.id}/submit"' in page
+    assert world.submit().status_code == 303
+
+
 def test_a_report_is_submitted_as_text(world: World) -> None:
     """オンラインのレポート試験。.md はテキストとして提出する。"""
     _editor(world, accepted_suffixes=(".md",))

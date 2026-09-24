@@ -21,6 +21,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
+from functools import partial
 from pathlib import Path
 from typing import Annotated
 from urllib.parse import quote
@@ -817,6 +818,9 @@ def create_app(app_state: StudentApp) -> FastAPI:
                     if task_obj.answer_mode is AnswerMode.EDITOR
                     else None
                 ),
+                # ファイルで出せるか。偽なら「エディタだけ」で、提出欄を出さない
+                # （受付側でも `_submission_gate` が断る・#146）。
+                "file_upload": task_obj.file_upload or task_obj.answer_mode is AnswerMode.UPLOAD,
                 "campus_access": (
                     campus_access_for(app_state, request, me.tenant_id)
                     if task_obj.campus_only
@@ -931,7 +935,7 @@ def create_app(app_state: StudentApp) -> FastAPI:
             status_code=303,
         )
 
-    def _submission_gate(request: Request, me, task_version_id: str):
+    def _submission_gate(request: Request, me, task_version_id: str, *, by_file: bool = True):
         """この課題に、いまこの人が出してよいかを**1 か所で**判定する（不変条件 I8）。
 
         `/submit`・動画（`_video_gate`）・IDE の提出と実行が、**すべてここを
@@ -947,10 +951,20 @@ def create_app(app_state: StudentApp) -> FastAPI:
 
         役割はここで 1 度だけ引いて返す。呼び出し側は提出の `submitted_as` に
         同じ値を渡す ── 2 度引くと、許可した役割と記録する役割が食い違いうる。
+
+        `by_file` はファイルでの提出か（既定）。**エディタだけの課題はファイルを
+        断る**（2026-09-24）── 画面から欄を消すだけでは境界にならない（#146）。
+        既定を「ファイル」にしてあるのは、ファイルの経路を足した人が指定を忘れても
+        断る側に倒れるため。IDE だけが `by_file=False` を渡す。
         """
         version, course_obj, task_obj = _task_and_course(
             app_state, me, TaskVersionId(task_version_id)
         )
+        if by_file and not task_obj.file_upload and task_obj.answer_mode is AnswerMode.EDITOR:
+            raise HTTPException(
+                status_code=409,
+                detail="この課題はエディタからだけ提出できます（ファイルでは提出できません）",
+            )
         _require_campus(app_state, request, task_obj, me.tenant_id)
         role = _role_in(app_state, course_obj.id, me.user_id)
         window = task_obj.submission_window_at(now())
@@ -1485,7 +1499,8 @@ def create_app(app_state: StudentApp) -> FastAPI:
         IdeDeps(
             state=app_state,
             templates=TEMPLATES,
-            gate=_submission_gate,
+            # IDE の提出はファイルではない（エディタだけの課題でも通す）。
+            gate=partial(_submission_gate, by_file=False),
             course_and_tasks=_course_and_tasks,
             load_progress=load_progress,
             build_context=build_context,

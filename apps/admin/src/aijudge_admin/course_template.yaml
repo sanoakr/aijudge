@@ -38,7 +38,8 @@ course:
 #
 # 回をブラウザのエディタで解かせるときは `answer_mode: editor` を書きます
 # （回の全課題に入ります。ファイルの提出欄も残ります）。補完を出すなら
-# `editor_completion: true`。提出形式に .c・.py・.md のどれも無い課題が
+# `editor_completion: true`。ファイルでは出させない（試験）なら `file_upload: false`。
+# 提出形式に .c・.py・.md のどれも無い課題が
 # ある回はエディタにできません。書かなければ教員コンソールで切り替えた値のまま。
 units:
   ex1:

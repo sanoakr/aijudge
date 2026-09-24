@@ -432,6 +432,14 @@ class Task(BaseModel):
     # 単語と言語のキーワードを候補に出す。AI の補完や意味を解する補完は作らない。
     # `answer_mode` が `upload` の課題では何もしない（エディタが無い）。
     editor_completion: bool = False
+    # ファイルを選んで提出できるか（2026-09-24 決定）。**答え方とは独立した値である**
+    # ── `editor` の課題でもファイルの提出欄は既定で残す（エディタが使えない環境の
+    # 逃げ道）。切ると「エディタだけ」になり、試験で作業の記録を経ない提出を断てる。
+    #
+    # **既定は真**（従来どおり）。`upload` の課題で切ることはできない（何も提出
+    # できなくなる）── 下の `_check_answer_paths` が止める。切ったときの境界は
+    # 提出の受付（学生画面の関門）で、画面から欄を消すだけでは境界にならない（#146）。
+    file_upload: bool = True
     # 出題先（追試など）。**空は受講者全員**（従来どおり）。複数を持てば、
     # いずれかの名簿に入っている学習者に出す（和集合）。
     #
@@ -451,6 +459,14 @@ class Task(BaseModel):
     # ものは取り下げる**。取り下げた課題は学習者に出さないが、記録は残り、
     # 教員の一覧には印付きで並ぶ。押し間違いは取り消せる。
     withdrawn: bool = False
+
+    @model_validator(mode="after")
+    def _check_answer_paths(self) -> Self:
+        """提出する道が 1 つは残っているか。エディタも無くファイルも断る課題は、
+        誰も提出できない。"""
+        if self.answer_mode is AnswerMode.UPLOAD and not self.file_upload:
+            raise ValueError("エディタを使わない課題では、ファイルの提出を止められません")
+        return self
 
     @model_validator(mode="after")
     def _check_schedule(self) -> Self:
