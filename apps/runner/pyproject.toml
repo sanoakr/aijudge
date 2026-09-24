@@ -1,0 +1,43 @@
+[project]
+name = "aijudge-runner"
+version = "0.0.1"
+description = "Runs the browser IDE's run requests in the sandbox (not grading)"
+requires-python = ">=3.12"
+# 合成の中心（composition root）。**コードを動かせるのはここだけ**（ADR 0024）。
+# 実行要求（ide）・隔離（sandbox）・言語（toolchain）・課題と採点設定の解決
+# （grading・persistence）を束ねる。採点ワーカーとは別のプロセスで、採点の
+# キューには触らない。
+#
+# `aijudge-eval-code-test-runner` は**定数を読むためだけ**に要る（実行上限の
+# 既定値とオプション名）。IDE 独自の値を持たないため ── 採点と食い違えば、
+# IDE で動いたものが採点で動かない（設計書 §4.2）。
+dependencies = [
+    "aijudge-core",
+    "aijudge-grading",
+    "aijudge-ide",
+    "aijudge-sandbox",
+    "aijudge-toolchain",
+    "aijudge-persistence",
+    "aijudge-telemetry",
+    "aijudge-eval-code-test-runner",
+]
+
+[project.scripts]
+aijudge-runner = "aijudge_runner.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/aijudge_runner"]
+
+[tool.uv.sources]
+aijudge-core = { workspace = true }
+aijudge-grading = { workspace = true }
+aijudge-ide = { workspace = true }
+aijudge-sandbox = { workspace = true }
+aijudge-toolchain = { workspace = true }
+aijudge-persistence = { workspace = true }
+aijudge-telemetry = { workspace = true }
+aijudge-eval-code-test-runner = { workspace = true }
