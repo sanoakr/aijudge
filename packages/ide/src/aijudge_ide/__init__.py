@@ -11,6 +11,19 @@
 
 from __future__ import annotations
 
+from .activity import (
+    EVENT_TYPES,
+    MAX_BATCH_BYTES,
+    ActivityFiles,
+    ActivityIndex,
+    ActivityRejected,
+    EventBatch,
+    IdeSession,
+    IdeSessionId,
+    check_events,
+    check_snapshots,
+    snapshot_name,
+)
 from .buffer import (
     BufferStore,
     BufferTooLarge,
@@ -21,7 +34,12 @@ from .buffer import (
 from .formats import EDITOR_FORMATS, EditorFormat, editor_formats
 from .intake import RefusalReason, RunPolicy, RunRefused, RunView, request_run, view_run
 from .links import SubmissionLink, SubmissionLinkStore, SubmissionOrigin
-from .memory import InMemoryBufferStore, InMemoryRunQueue, InMemorySubmissionLinkStore
+from .memory import (
+    InMemoryActivityIndex,
+    InMemoryBufferStore,
+    InMemoryRunQueue,
+    InMemorySubmissionLinkStore,
+)
 from .protocols import RunAlreadyPending, RunQueue
 from .run import (
     DEFAULT_COOLDOWN_SECONDS,
@@ -46,16 +64,25 @@ __all__ = [
     "DEFAULT_LEASE_SECONDS",
     "DISPLAY_OUTPUT_CHARS",
     "EDITOR_FORMATS",
+    "EVENT_TYPES",
     "IN_FLIGHT_STATES",
+    "MAX_BATCH_BYTES",
     "MAX_SOURCE_BYTES",
     "MAX_STDIN_BYTES",
     "RUNNER_LOST",
     "STALE_AFTER_SECONDS",
     "TERMINAL_STATES",
+    "ActivityFiles",
+    "ActivityIndex",
+    "ActivityRejected",
     "BufferStore",
     "BufferTooLarge",
     "EditorFormat",
+    "EventBatch",
     "IdeBuffer",
+    "IdeSession",
+    "IdeSessionId",
+    "InMemoryActivityIndex",
     "InMemoryBufferStore",
     "InMemoryRunQueue",
     "InMemorySubmissionLinkStore",
@@ -73,10 +100,13 @@ __all__ = [
     "SubmissionLink",
     "SubmissionLinkStore",
     "SubmissionOrigin",
+    "check_events",
+    "check_snapshots",
     "clip_for_display",
     "content_hash",
     "editor_formats",
     "make_buffer",
     "request_run",
+    "snapshot_name",
     "view_run",
 ]

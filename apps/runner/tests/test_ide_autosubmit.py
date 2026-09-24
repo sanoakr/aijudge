@@ -231,3 +231,27 @@ def test_a_dry_run_submits_nothing(world: World) -> None:
 
     assert report.submitted == 1
     assert world.submissions() == ()
+
+
+def test_when_the_deadline_is_the_close_the_auto_submission_is_not_late(tmp_path: Path) -> None:
+    """**締切と受付終了が同じ時刻でも、自動提出は遅延にならない。**
+
+    自動提出が走るのは受付終了の後（最大 1 分）だが、提出時刻は最後の自動保存の
+    時刻で、保存は受付終了までしか受け付けない（`submission_window_at` は
+    `now > accepts_until` で閉じる）。遅延の判定は `submitted_at <= due_at` なので、
+    ちょうど締切の瞬間に保存したものも減点されない。
+    """
+    from aijudge_core import LatePenaltyStep, late_penalty_for
+
+    world = World(tmp_path)
+    with world.database.unit_of_work() as uow:
+        uow.tasks.save_task(world.task.model_copy(update={"due_at": CLOSES}))
+        uow.commit()
+    world.autosave(at=CLOSES)
+
+    world.close(now=CLOSES + timedelta(seconds=50))
+
+    (submission,) = world.submissions()
+    assert submission.submitted_at == CLOSES
+    steps = (LatePenaltyStep(after_hours=0, ratio=0.5),)
+    assert late_penalty_for(CLOSES, submission.deadline_timestamp, steps) is None

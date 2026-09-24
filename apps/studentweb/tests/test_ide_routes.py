@@ -293,3 +293,115 @@ def test_the_same_content_twice_is_folded(world: World) -> None:
     again = _submit(world).json()
 
     assert again["deduplicated"] is True
+
+
+# -- 行動記録（ADR 0023） -----------------------------------------------------
+
+
+def _with_activity(world: World, tmp_path) -> None:
+    world.app.activity_dir = tmp_path / "activity"
+
+
+def _start(world: World, *, consent: bool = True):
+    return world.client.post(
+        "/ide/sessions",
+        json={"course_id": _course_id(world), "unit": "", "consent": consent, "user_agent": "UA"},
+    )
+
+
+def _batch(world: World, session_id: str, seq: int, events=None, snapshots=None):
+    return world.client.post(
+        "/ide/activity",
+        json={
+            "session_id": session_id,
+            "seq": seq,
+            "client_time": 1_790_000_000_000,
+            "events": events if events is not None else [{"type": "edit", "t": 1.5, "text": "a"}],
+            "snapshots": snapshots or {},
+        },
+    )
+
+
+def test_a_session_needs_consent_the_first_time(world: World, tmp_path) -> None:
+    """**告知を確認しなければ始めない**（ADR 0023 §5）。2 回目からは出し直さない。"""
+    _editor(world)
+    _learner(world)
+    assert _config(world.client.get(f"/courses/{_course_id(world)}/ide").text)["needsConsent"]
+
+    refused = _start(world, consent=False)
+    assert refused.status_code == 409
+    assert refused.json()["reason"] == "consent_required"
+
+    assert _start(world, consent=True).status_code == 201
+    assert _start(world, consent=False).status_code == 201
+    assert (
+        _config(world.client.get(f"/courses/{_course_id(world)}/ide").text)["needsConsent"] is False
+    )
+
+
+def test_a_batch_is_written_to_a_file_and_indexed(world: World, tmp_path) -> None:
+    import gzip
+
+    _editor(world)
+    _learner(world)
+    _with_activity(world, tmp_path)
+    session_id = _start(world).json()["session_id"]
+
+    response = _batch(world, session_id, 0)
+
+    assert response.status_code == 200 and response.json() == {"stored": True}
+    with world.database.unit_of_work() as uow:
+        (batch,) = uow.ide_activity.batches(session_id)
+    body = gzip.decompress((tmp_path / "activity" / batch.path).read_bytes()).decode()
+    assert '"type":"edit"' in body
+    assert batch.event_count == 1
+
+
+def test_a_resent_batch_is_accepted_but_not_duplicated(world: World, tmp_path) -> None:
+    _editor(world)
+    _learner(world)
+    _with_activity(world, tmp_path)
+    session_id = _start(world).json()["session_id"]
+
+    _batch(world, session_id, 0)
+    again = _batch(world, session_id, 0)
+
+    assert again.status_code == 200 and again.json() == {"stored": False}
+
+
+def test_an_unknown_event_type_is_refused(world: World, tmp_path) -> None:
+    _editor(world)
+    _learner(world)
+    _with_activity(world, tmp_path)
+    session_id = _start(world).json()["session_id"]
+
+    response = _batch(world, session_id, 0, events=[{"type": "screenshot", "t": 1}])
+
+    assert response.status_code == 400
+
+
+def test_without_a_place_to_write_the_record_says_come_back_later(world: World) -> None:
+    """**書けなくても何も止めない**（I7）。503 と Retry-After で間隔を広げさせる。"""
+    _editor(world)
+    _learner(world)
+    world.app.activity_dir = None
+    session_id = _start(world).json()["session_id"]
+
+    response = _batch(world, session_id, 0)
+
+    assert response.status_code == 503
+    assert response.headers["retry-after"]
+    # 記録が書けなくても、実行と提出は通る。
+    assert _run(world).status_code == 202
+
+
+def test_someone_elses_session_does_not_exist(world: World, tmp_path) -> None:
+    _editor(world)
+    _learner(world)
+    _with_activity(world, tmp_path)
+    session_id = _start(world).json()["session_id"]
+
+    world.register("s2400002")
+    world.login("s2400002")
+
+    assert _batch(world, session_id, 0).status_code == 404

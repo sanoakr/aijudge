@@ -9,8 +9,9 @@ from __future__ import annotations
 from collections.abc import Iterable
 from datetime import datetime
 
-from aijudge_core.ids import SubmissionId, TaskId, UserId
+from aijudge_core.ids import CourseId, SubmissionId, TaskId, UserId
 
+from .activity import EventBatch, IdeSession, IdeSessionId
 from .buffer import IdeBuffer
 from .links import SubmissionLink
 from .protocols import RunAlreadyPending
@@ -134,3 +135,36 @@ class InMemorySubmissionLinkStore:
 
     def for_submission(self, submission_id: SubmissionId) -> SubmissionLink | None:
         return self._links.get(submission_id)
+
+
+class InMemoryActivityIndex:
+    """インメモリの行動記録の索引。SQL 実装と同じテストに通る。"""
+
+    def __init__(self) -> None:
+        self._sessions: dict[IdeSessionId, IdeSession] = {}
+        self._batches: dict[tuple[IdeSessionId, int], EventBatch] = {}
+
+    def start_session(self, session: IdeSession) -> None:
+        if session.id in self._sessions:
+            raise ValueError(f"ide session {session.id} already exists")
+        self._sessions[session.id] = session
+
+    def get_session(self, session_id: IdeSessionId) -> IdeSession | None:
+        return self._sessions.get(session_id)
+
+    def has_consented(self, learner_id: UserId, course_id: CourseId) -> bool:
+        return any(
+            s.learner_id == learner_id and s.course_id == course_id for s in self._sessions.values()
+        )
+
+    def add_batch(self, batch: EventBatch) -> bool:
+        key = (batch.ide_session_id, batch.seq)
+        if key in self._batches:
+            return False
+        self._batches[key] = batch
+        return True
+
+    def batches(self, session_id: IdeSessionId) -> tuple[EventBatch, ...]:
+        return tuple(
+            batch for (sid, _), batch in sorted(self._batches.items()) if sid == session_id
+        )

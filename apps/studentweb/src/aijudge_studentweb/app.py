@@ -312,8 +312,13 @@ class StudentApp:
         ai_workers: int = DEFAULT_AI_WORKERS,
         console_url: str = "",
         console_port: int = 8765,
+        activity_dir: Path | None = None,
     ) -> None:
         self.database = database
+        # IDE の行動記録の本体の置き場所（ADR 0023）。**無ければ記録しない** ──
+        # 記録が書けなくても編集・実行・提出は止めない（I7）。受け口は 503 を返し、
+        # 画面は送信を諦めずに間隔を広げる。
+        self.activity_dir = activity_dir
         self.store = artifact_store
         # 動画の置き場所。通常の提出物とは別ディスクに置ける（elite では
         # `/work/aijudge/video`）。未設定なら動画提出は 501 で断る。

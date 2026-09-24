@@ -19,6 +19,7 @@ from contextlib import contextmanager
 from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from .activity_repository import SqlActivityIndex
 from .audit_repository import SqlAuditLog
 from .buffer_repository import SqlBufferStore, SqlSubmissionLinkStore
 from .identity_repository import SqlIdentityRepository
@@ -116,6 +117,8 @@ class SqlUnitOfWork:
         self.ide_buffers = SqlBufferStore(self._session)
         # IDE からの提出の出どころ（本人が押したか、受付終了時の自動提出か）。
         self.ide_links = SqlSubmissionLinkStore(self._session)
+        # 行動記録の索引（ADR 0023）。本体はファイルにある。
+        self.ide_activity = SqlActivityIndex(self._session)
         return self
 
     def __exit__(self, *exc: object) -> None:
