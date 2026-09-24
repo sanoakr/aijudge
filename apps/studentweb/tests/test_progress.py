@@ -129,11 +129,13 @@ class World:
         # インメモリの UnitOfWork は 1 つを使い回す（`with` は境界の形だけ）。
         self.uow, _store = in_memory_backend()
 
-    def submit(self, attempt: int, *, at: datetime) -> Submission:
+    def submit(
+        self, attempt: int, *, at: datetime, version_id: TaskVersionId = VERSION
+    ) -> Submission:
         submission_id = SubmissionId(new_id("sub"))
         submission = Submission(
             id=submission_id,
-            task_version_id=VERSION,
+            task_version_id=version_id,
             learner_id=LEARNER,
             state=SubmissionState.SUBMITTED,
             attempt=attempt,
@@ -155,7 +157,7 @@ class World:
         )
         with self.uow as uow:
             uow.submissions.save(submission)
-            uow.submissions.remember_idempotency_key(TENANT, f"key-{attempt}", submission_id)
+            uow.submissions.remember_idempotency_key(TENANT, f"key-{submission_id}", submission_id)
             uow.commit()
         return submission
 
@@ -340,3 +342,34 @@ def test_a_task_with_no_submissions_has_no_progress(course, task, version) -> No
     """未提出の課題は結果に現れない。一覧側は空として扱う。"""
     world = World()
     assert world.progress(course, task, version) is None
+
+
+def test_an_earlier_version_counts_and_can_be_adopted(course, task, version) -> None:
+    """**採用は版をまたいで決める**（教員側の `adopted_ids` と同じ規則）。
+
+    訂正前の版で満点を取り、訂正後に低い点を出した学習者は、教員の画面では
+    満点が採用されている。学習者の画面だけがいまの版で決めると、自分の成績を
+    低く読む。
+    """
+    from aijudge_authoring import InMemoryTaskRepository
+
+    world = World()
+    world.uow.tasks = InMemoryTaskRepository()  # 版を引く口（インメモリの UoW は持たない）
+    world.uow.tasks.save_version(version)
+    before = world.submit(1, at=NOW - timedelta(hours=3))
+    world.grade(before, ratio=1.0)
+
+    revised = version.model_copy(
+        update={"id": TaskVersionId("tsv_" + "7" * 32), "version": 2, "statement": "訂正した問題文"}
+    )
+    world.uow.tasks.save_version(revised)
+    # 版ごとに 1 から数えるので、訂正後の最初の提出も `attempt=1`。
+    after = world.submit(1, at=NOW - timedelta(hours=1), version_id=revised.id)
+    world.grade(after, ratio=0.4)
+
+    progress = world.progress(course, task, revised)
+    assert progress is not None
+    assert progress.count == 2
+    assert [a.number for a in progress.attempts] == [1, 2]
+    assert [a.earlier_version for a in progress.attempts] == [True, False]
+    assert progress.adopted is not None and progress.adopted.submission.id == before.id

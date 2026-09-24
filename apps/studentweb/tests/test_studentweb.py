@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import re
 import shutil
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -252,6 +253,63 @@ def test_an_unapproved_version_cannot_be_opened_by_its_url(world: World) -> None
         files={"upload": ("answer.c", b"int main(){}", "text/plain")},
     )
     assert response.status_code == 404
+
+
+def _approved_revision(world: World):
+    """問題文を訂正した承認済みの新しい版（`course apply --revise` がこれを作る）。"""
+    base = world.task_version
+    revised = base.model_copy(
+        update={
+            "id": TaskVersionId(new_id("tsv")),
+            "version": base.version + 1,
+            "statement": base.statement + "\n\n（誤字を訂正）",
+        }
+    )
+    with world.database.unit_of_work() as uow:
+        uow.tasks.save_version(revised)
+        uow.commit()
+    return revised
+
+
+def test_a_submission_to_an_earlier_version_is_still_shown(world: World) -> None:
+    """**版が上がっても、前の版への提出は学習者の画面から消えない**（2026-09-24）。
+
+    network ex1 で起きた形。課題を訂正して版が上がると、学習者の画面は
+    いまの版への提出だけを並べていたので、提出が消えて「未提出」に戻り、
+    学生が 4 問とも出し直した。教員の画面には 2 件とも見えていた。
+    """
+    world.register("s2400001")
+    world.login("s2400001")
+    first = world.submit()
+    assert first.status_code == 303
+    first_id = first.headers["location"].rsplit("/", 1)[-1].split("?")[0]
+    revised = _approved_revision(world)
+
+    listing = world.client.get(f"/courses/{COURSE}").text
+    assert f"/tasks/{revised.id}" in listing
+    assert "1 回" in listing
+    assert "未提出" not in listing
+
+    page = world.client.get(f"/tasks/{revised.id}").text
+    assert f"/submissions/{first_id}" in page
+    assert "訂正前の問題文への提出" in page
+
+
+def test_attempts_are_numbered_across_versions(world: World) -> None:
+    """**回は課題の中で通しで数える。** `Submission.attempt` は版ごとに 1 から
+    なので、そのまま出すと訂正の前後で「1 回目」が 2 つ並ぶ。"""
+    world.register("s2400001")
+    world.login("s2400001")
+    world.submit()
+    revised = _approved_revision(world)
+    world.task_version = revised
+    second = world.submit(EXAMPLE_SOURCE.read_bytes() + b"\n")
+    assert second.status_code == 303
+
+    page = world.client.get(f"/tasks/{revised.id}").text
+    numbers = re.findall(r'data-label="回">(\d+)<', page)
+    assert numbers == ["2", "1"], "新しい提出が上、通し番号"
+    assert page.count("訂正前の問題文への提出") == 1
 
 
 def test_a_withdrawn_task_is_not_shown_to_the_learner(world: World) -> None:

@@ -15,7 +15,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from datetime import datetime
 
 from sqlalchemy import and_, case, delete, func, or_, select, update
@@ -1394,6 +1394,18 @@ class SqlTaskRepository:
     def get_version(self, version_id: TaskVersionId) -> TaskVersion | None:
         row = self._session.get(TaskVersionRow, str(version_id))
         return None if row is None else TaskVersion.model_validate(row.document)
+
+    def get_versions(
+        self, version_ids: Iterable[TaskVersionId]
+    ) -> dict[TaskVersionId, TaskVersion]:
+        keys = sorted({str(version_id) for version_id in version_ids})
+        if not keys:
+            return {}
+        rows = self._session.execute(
+            select(TaskVersionRow).where(TaskVersionRow.id.in_(keys))
+        ).scalars()
+        versions = (TaskVersion.model_validate(row.document) for row in rows)
+        return {version.id: version for version in versions}
 
     def latest_version(self, task_id: TaskId) -> TaskVersion | None:
         row = (

@@ -17,14 +17,22 @@
 最高とは限らない（試しに壊してみた提出が最後になることがある）。同点なら
 新しい方を採用として示す ── 点が同じなので値は変わらず、学習者にとっては
 「いま出しているもの」が採られている方が読みやすい。
+
+**提出は課題ごとに数え、版をまたぐ**（2026-09-24）。課題を訂正すると版が上がり
+（`course apply --revise`・P8）、前の版への提出はその版を指したまま残る。
+以前はいまの版への提出だけを並べていたので、版が上がった瞬間に学習者の提出が
+画面から消えて「未提出」に戻り、出し直す学生が出た（network ex1、9/23）。
+教員の画面と成績の採用（`aijudge_reviewconsole.submissions.adopted_ids`）は
+学習者・課題ごとに版をまたいで決めており、学習者の画面だけが違っていた。
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Protocol
 
+from aijudge_authoring import TaskRepository
 from aijudge_core import (
     Course,
     FinalizationSource,
@@ -34,7 +42,7 @@ from aijudge_core import (
     TaskVersion,
     grace_minutes,
 )
-from aijudge_core.ids import TaskVersionId, TenantId, UserId
+from aijudge_core.ids import TaskId, TaskVersionId, TenantId, UserId
 from aijudge_submission import GradingRunRepository, ReviewRepository, SubmissionRepository
 from aijudge_webui import local_filter
 
@@ -50,6 +58,13 @@ class AttemptSummary:
     view: ResultView | None
     # この課題で採用される提出か（＝最高得点）。
     adopted: bool = False
+    # 課題の中で何回目か（版をまたいで古い順に 1 から）。`Submission.attempt` は
+    # **版ごと**に数えるので、版が上がると 1 に戻る ── 並べると「1 回目」が
+    # 2 つ出る。
+    number: int = 0
+    # いま出ている版より前の版への提出か。問題文や観点が今と違いうるので、
+    # 画面でそう断る（点はその版の観点で付いたもの）。
+    earlier_version: bool = False
 
     @property
     def graded(self) -> bool:
@@ -171,6 +186,9 @@ class Reads(Protocol):
     @property
     def reviews(self) -> ReviewRepository: ...
 
+    @property
+    def tasks(self) -> TaskRepository: ...
+
 
 def load_progress(
     uow: Reads,
@@ -189,19 +207,34 @@ def load_progress(
     wanted = {version.id: (task, version) for task, version in rows}
     if not wanted:
         return {}
+    # 課題 → いま出ている版。前の版への提出もここへ寄せる（モジュール冒頭）。
+    current: dict[TaskId, tuple[Task, TaskVersion]] = {
+        task.id: (task, version) for task, version in rows
+    }
 
-    submissions = [
-        submission
-        for submission in uow.submissions.list_for_learner(tenant_id, learner_id)
-        if submission.task_version_id in wanted
-    ]
+    mine = uow.submissions.list_for_learner(tenant_id, learner_id)
+    # 前の版は**まとめて 1 回で**引く。学習者の提出は他のコースのものも含むので、
+    # 知らない版のうち、この一覧の課題に属するものだけを残す。
+    unknown = {s.task_version_id for s in mine if s.task_version_id not in wanted}
+    earlier = {
+        version_id: version
+        for version_id, version in (uow.tasks.get_versions(unknown) if unknown else {}).items()
+        if version.task_id in current
+    }
+
+    submissions = [s for s in mine if s.task_version_id in wanted or s.task_version_id in earlier]
     runs = uow.runs.latest_for_many([submission.id for submission in submissions])
     decisions = uow.reviews.decisions_for_runs([run.id for run in runs.values()])
 
     by_version: dict[TaskVersionId, list[AttemptSummary]] = {}
     moment = now or datetime.now(UTC)
     for submission in submissions:
-        task, version = wanted[submission.task_version_id]
+        if submission.task_version_id in wanted:
+            task, own = wanted[submission.task_version_id]
+            shown = own
+        else:
+            own = earlier[submission.task_version_id]
+            task, shown = current[own.task_id]
         run = runs.get(submission.id)
         decision = None if run is None else decisions.get(run.id)
         view = (
@@ -209,7 +242,9 @@ def load_progress(
             if run is None
             else build_result_view(
                 run,
-                version,
+                # **提出が指す版**で見せる。点はその版の観点で付いている ──
+                # いまの版の観点で読むと、観点の数や重みが違えば保留の判定まで狂う。
+                own,
                 None if decision is None else decision.review,
                 request=None if decision is None else decision.request,
                 finalization=None if decision is None else decision.finalization,
@@ -219,14 +254,36 @@ def load_progress(
                 now=moment,
             )
         )
-        by_version.setdefault(submission.task_version_id, []).append(
-            AttemptSummary(submission=submission, run=run, view=view)
+        by_version.setdefault(shown.id, []).append(
+            AttemptSummary(
+                submission=submission,
+                run=run,
+                view=view,
+                earlier_version=own.version < shown.version,
+            )
         )
 
     return {
-        version_id: TaskProgress(attempts=_mark_adopted(attempts))
+        version_id: TaskProgress(attempts=_mark_adopted(_numbered(attempts)))
         for version_id, attempts in by_version.items()
     }
+
+
+def _numbered(attempts: list[AttemptSummary]) -> list[AttemptSummary]:
+    """古い順に並べ、課題の中での通し番号を振る。
+
+    版をまたぐので `Submission.attempt` では並べられない（版ごとに 1 から）。
+    比べるのは採用の規則と同じ (提出時刻, 回数) ── 教員側の
+    `adopted_ids` と同点の扱いを揃える。
+    """
+    ordered = sorted(
+        attempts,
+        key=lambda a: (
+            a.submission.submitted_at or a.submission.created_at,
+            a.submission.attempt,
+        ),
+    )
+    return [replace(attempt, number=index) for index, attempt in enumerate(ordered, start=1)]
 
 
 def _mark_adopted(attempts: list[AttemptSummary]) -> tuple[AttemptSummary, ...]:
@@ -246,10 +303,5 @@ def _mark_adopted(attempts: list[AttemptSummary]) -> tuple[AttemptSummary, ...]:
     if chosen is None:
         return tuple(attempts)
     marked = list(attempts)
-    marked[chosen] = AttemptSummary(
-        submission=marked[chosen].submission,
-        run=marked[chosen].run,
-        view=marked[chosen].view,
-        adopted=True,
-    )
+    marked[chosen] = replace(marked[chosen], adopted=True)
     return tuple(marked)

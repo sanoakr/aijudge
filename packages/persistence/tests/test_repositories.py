@@ -589,6 +589,21 @@ def test_the_latest_version_is_the_highest_number(task_repo) -> None:
         assert latest.version == 3
 
 
+def test_several_versions_are_read_at_once(task_repo) -> None:
+    """学習者の画面が、前の版への提出の版を引く（版が上がっても提出は見える）。"""
+    with task_repo() as uow:
+        for number in (1, 2, 3):
+            uow.tasks.save_version(a_task_version(number))
+        uow.commit()
+    with task_repo() as uow:
+        first, third = a_task_version(1).id, a_task_version(3).id
+        missing = TaskVersionId("tsv_" + "0" * 32)
+        found = uow.tasks.get_versions([first, third, missing, first])
+        assert set(found) == {first, third}
+        assert found[third].version == 3
+        assert uow.tasks.get_versions([]) == {}
+
+
 def test_tasks_are_listed_per_course(database: Database) -> None:
     task = Task(id=TASK_ID, course_id=COURSE, title="最大値・最小値・平均値")
     other_course = CourseId("crs_" + "9" * 32)
