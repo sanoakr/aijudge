@@ -35,7 +35,7 @@ from aijudge_identity import (
 from aijudge_persistence import ENV_DATABASE_URL, Database
 from aijudge_telemetry import configure_logging
 
-from . import authoring_cli
+from . import authoring_cli, groups
 from .course_definition import apply_course_definition
 from .course_export import DiffState, diff_course, export_course
 from .courses import delete_course
@@ -849,6 +849,117 @@ def cmd_unit_clear(args: argparse.Namespace) -> int:
     return 0
 
 
+# --------------------------------------------------------------------------
+# 出題先の名簿（`docs/design/task-visibility.md` §3.5）
+# --------------------------------------------------------------------------
+
+
+def _course_or_fail(uow, course_id: str):
+    course = uow.identity.get_course(CourseId(course_id))
+    if course is None:
+        raise AdminError(f"コース {course_id} がありません")
+    return course
+
+
+def cmd_group_list(args: argparse.Namespace) -> int:
+    database = _database(args)
+    try:
+        with database.unit_of_work() as uow:
+            course = _course_or_fail(uow, args.course)
+            rows = groups.list_groups(uow, course)
+    finally:
+        database.dispose()
+    for row in rows:
+        used = f"・{row.used_by} 課題の出題先" if row.used_by else ""
+        print(f"{row.group.name}\t{row.members} 名{used}")
+    if not rows:
+        print("名簿はありません")
+    return 0
+
+
+def cmd_group_set(args: argparse.Namespace) -> int:
+    """名簿を**丸ごと置き換える**（無ければ作る）。画面・API と同じ関数を通る。
+
+    名簿のファイルは 1 行に 1 つの login。`#` から後ろは注釈として読み飛ばす
+    （受講登録の名簿と同じ書き方ができるように、最初の列だけを使う）。
+    """
+    logins = _read_logins(Path(args.members))
+    database = _database(args)
+    try:
+        with database.unit_of_work() as uow:
+            course = _course_or_fail(uow, args.course)
+            result = groups.replace_group_members(
+                uow,
+                _cli_audit(uow, course.tenant_id),
+                course=course,
+                name=args.name,
+                logins=logins,
+            )
+            uow.commit()
+    finally:
+        database.dispose()
+    print(
+        f"名簿「{result.group.name}」を{'作った' if result.created else '置き換えた'}"
+        f"（{len(result.members)} 名）"
+    )
+    for login in result.added:
+        print(f"追加: {login}")
+    for login in result.removed:
+        print(f"削除: {login}")
+    return 0
+
+
+def cmd_group_delete(args: argparse.Namespace) -> int:
+    database = _database(args)
+    try:
+        with database.unit_of_work() as uow:
+            course = _course_or_fail(uow, args.course)
+            groups.delete_group(
+                uow, _cli_audit(uow, course.tenant_id), course=course, name=args.name
+            )
+            uow.commit()
+    finally:
+        database.dispose()
+    print(f"名簿「{args.name}」を消した")
+    return 0
+
+
+def cmd_unit_audience(args: argparse.Namespace) -> int:
+    """問題セットの出題先を置き換える。`--group` を付けなければ受講者全員に戻す。"""
+    database = _database(args)
+    try:
+        with database.unit_of_work() as uow:
+            course = _course_or_fail(uow, args.course)
+            tasks = [t for t in uow.tasks.list_for_course(course.id) if t.unit == args.unit]
+            saved = groups.set_audience(
+                uow,
+                _cli_audit(uow, course.tenant_id),
+                course=course,
+                tasks=tasks,
+                names=args.group or [],
+                unit_label=args.unit,
+            )
+            uow.commit()
+    finally:
+        database.dispose()
+    target = "、".join(args.group) if args.group else "受講者全員"
+    print(f"問題セット {args.unit} の {len(saved)} 課題の出題先を {target} にした")
+    return 0
+
+
+def _read_logins(path: Path) -> list[str]:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise AdminError(f"名簿を読めません: {exc}") from exc
+    logins = []
+    for line in text.splitlines():
+        body = line.split("#", 1)[0].strip()
+        if body:
+            logins.append(body.split()[0])
+    return logins
+
+
 def cmd_task_list(args: argparse.Namespace) -> int:
     database = _database(args)
     try:
@@ -1091,6 +1202,31 @@ def build_parser() -> argparse.ArgumentParser:
     clear.add_argument("--unit", required=True, help="問題セットの名前（例: ex03）")
     clear.add_argument("--dry-run", action="store_true", help="何もせず内訳だけ出す")
     clear.set_defaults(func=cmd_unit_clear)
+    aud = unit.add_parser(
+        "audience", help="問題セットの出題先を名簿で絞る（--group なしで受講者全員に戻す）"
+    )
+    aud.add_argument("--course", required=True)
+    aud.add_argument("--unit", required=True, help="問題セットの名前（例: exam01）")
+    aud.add_argument("--group", action="append", help="出題先の名簿（複数指定で和集合）")
+    aud.set_defaults(func=cmd_unit_audience)
+
+    group = sub.add_parser("group", help="出題先の名簿（追試など）").add_subparsers(
+        dest="group_command", required=True
+    )
+    glist = group.add_parser("list", help="一覧")
+    glist.add_argument("--course", required=True)
+    glist.set_defaults(func=cmd_group_list)
+    gset = group.add_parser(
+        "set", help="名簿を丸ごと置き換える（無ければ作る）。知らない login があれば何もしない"
+    )
+    gset.add_argument("--course", required=True)
+    gset.add_argument("--name", required=True)
+    gset.add_argument("--members", required=True, help="1 行に 1 つの login を書いたファイル")
+    gset.set_defaults(func=cmd_group_set)
+    gdel = group.add_parser("delete", help="消す（出題先として使われていれば消さない）")
+    gdel.add_argument("--course", required=True)
+    gdel.add_argument("--name", required=True)
+    gdel.set_defaults(func=cmd_group_delete)
 
     # 作問とレビュー（S2）。**別モジュールに置く** ── このファイルは既に
     # コース・受講・トークンを持っており、作問まで足すと何のための CLI か

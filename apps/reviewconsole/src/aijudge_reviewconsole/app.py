@@ -69,6 +69,7 @@ from aijudge_core import (
     content_disposition,
     content_type_for,
     effective_aggregation,
+    may_see,
     new_id,
     offered_years,
 )
@@ -874,13 +875,13 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
             # ── 担当していないコースについては、あることも知らせない。
             auth = AuthService(uow.identity, audit=uow.audit)
             try:
-                auth.require_grader(CourseId(course_id), me.user_id)
+                viewer = auth.require_grader(CourseId(course_id), me.user_id)
             except PermissionDenied as exc:
                 raise HTTPException(status_code=404, detail="コースが見つかりません") from exc
             course = uow.identity.get_course(CourseId(course_id))
             if course is None:
                 raise HTTPException(status_code=404, detail="コースが見つかりません")
-            units = load_units(uow, course, pending=pending)
+            units = load_units(uow, course, pending=pending, viewer=viewer)
             enrollment = uow.identity.find_enrollment(course.id, me.user_id)
         return TEMPLATES.TemplateResponse(
             request,
@@ -948,8 +949,17 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
         学生に渡せる。
         """
         course, _rows, _marked = _queue_rows(console, me, CourseId(course_id))
+        viewer = _grader_role(console, me, course.id)
+        moment = datetime.now(UTC)
         with console.database.unit_of_work() as uow:
-            units = load_units(uow, course)
+            units = load_units(uow, course, now=moment, viewer=viewer)
+            # 見せない課題（TA にとっての公開前の試験）。問題セットの選択肢から
+            # 外すだけでは、課題 ID を URL に載せれば一覧に出てしまう。
+            hidden_tasks = frozenset(
+                str(task_obj.id)
+                for task_obj in uow.tasks.list_for_course(course.id)
+                if not may_see(task_obj, viewer, now=moment)
+            )
         # **問題セットを選んだら、問題の選択肢もそのセットに絞る。** 全課題を
         # 並べたままにすると、選んだセットに無い問題を選べてしまい、結果が
         # 常に空になる（教員には絞り込みが壊れたように見える）。
@@ -967,6 +977,7 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
             role=role,
             state=state,
             adopted=bool(adopted),
+            hidden_tasks=hidden_tasks,
         )
         # **絞り込んでから読む**（#247）。問題セット・問題・学習者は問い合わせに
         # 載るので、普段の表示は数十〜数百行になり上限にはまず当たらない。
@@ -1051,8 +1062,9 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
         """
         course, rows, _marked = _queue_rows(console, me, CourseId(course_id))
         pending = pending_counts(console.database, course.id)
+        viewer = _grader_role(console, me, course.id)
         with console.database.unit_of_work() as uow:
-            units = load_units(uow, course, pending=pending)
+            units = load_units(uow, course, pending=pending, viewer=viewer)
             enrollment = uow.identity.find_enrollment(course.id, me.user_id)
             open_rows = []
             for submission, run in uow.reviews.pending_for_course(course.id):
@@ -1662,11 +1674,16 @@ def _load(
 
         auth = AuthService(uow.identity, audit=uow.audit)
         try:
-            auth.require_grader(task.course_id, me.user_id)
+            viewer = auth.require_grader(task.course_id, me.user_id)
         except PermissionDenied as exc:
             # 採点できないコースの提出は「無い」と答える。存在を伝えると、
             # 提出 ID の存在自体が漏れる。
             raise HTTPException(status_code=404, detail="提出が見つかりません") from exc
+        # **見せてよい課題の提出か**（`aijudge_core.may_see`）。公開前の試験に
+        # 教員が試しに出した提出は模範解答に近い ── TA には「無い」と答える。
+        # `/review/…` の経路はすべてここを通る（上の docstring）。
+        if not may_see(task, viewer, now=datetime.now(UTC)):
+            raise HTTPException(status_code=404, detail="提出が見つかりません")
 
         run = uow.runs.latest_for(submission_id)
         if run is None:
@@ -1862,6 +1879,20 @@ def _require_course_instructor(console, me: Principal, course_id: CourseId) -> N
             status_code=403,
             detail="確定済みの成績を直せるのは担当教員だけです。",
         )
+
+
+def _grader_role(console, me: Principal, course_id: CourseId) -> Role:
+    """このコースでの採点者としての役割。**見せる範囲を決めるために引く。**
+
+    採点者であることの検査は呼ぶ側で済んでいる前提（`_queue_rows` など）。
+    ここで改めて弾くのは、その前提が崩れたときに黙って広く見せないため。
+    """
+    with console.database.unit_of_work() as uow:
+        auth = AuthService(uow.identity, audit=uow.audit)
+        try:
+            return auth.require_grader(course_id, me.user_id)
+        except PermissionDenied as exc:
+            raise HTTPException(status_code=404, detail="コースが見つかりません") from exc
 
 
 def _is_course_instructor(console, me: Principal, course_id: CourseId) -> bool:

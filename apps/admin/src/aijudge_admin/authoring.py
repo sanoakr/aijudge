@@ -110,30 +110,40 @@ def save_task(
             latest = uow.tasks.latest_version(version.task_id)
         if latest is not None:
             if content(latest) == content(version):
-                # 直すつもりで何も変えなかった場合。版を増やさない。
+                # 直すつもりで問題文・観点・テストケースは何も変えなかった
+                # 場合。版は増やさず latest をそのまま使う。
+                #
+                # **早期リターンはしない。** 以前はここで `SavedTask` を返して
+                # 抜けていたが、それだと下の `Task` の組み立て（日程・並び・
+                # 受付拡張子・取り下げの引き継ぎ）が一度も走らない ──
+                # `TaskVersion` の中身を変えずに `opens_at` だけ直しても、
+                # 課題側の値は何一つ反映されなかった（実際に起きた。
+                # 2026-09-24、network の ex2/p2-p5 の opens_at を
+                # 16:00→16:45 に直したのに反映されず、小テストと演習課題の
+                # 開放が重なった）。`version` を `latest` に差し替えて下の
+                # 共通経路へ進めば、`save_version` は同一内容として黙って
+                # 冪等に扱う（`TaskStoreError` にならない）ので、版は増えない。
                 #
                 # **`substantive` では比べられない**（`content` の docstring）。
-                # 候補は版 1 として組まれ、`latest` は版 2 以上なので、ID と
-                # 版番号が必ず食い違う ── 比較は常に「内容が違う」を返し、
+                # 候補は版 1 として組まれ、`latest` は版 2 以上なので、ID も
+                # 版番号も必ず食い違う ── 比較は常に「内容が違う」を返し、
                 # 何も直していない訂正が版を増やしていた。
-                with database.unit_of_work() as uow:
-                    task = uow.tasks.get_task(version.task_id)
-                assert task is not None
-                return SavedTask(task=task, version=latest, created=False)
-            version = build_task_version(
-                spec,
-                course_id=course_id,
-                subject_profile=profile,
-                authored_by=authored_by,
-                version=latest.version + 1,
-                # **出所を落とさない。** ここで渡し忘れると、訂正で生成した
-                # 中身が「教員が書いた」ことになり、承認待ちにならずそのまま
-                # 出題される ── 上で一度渡しているぶんは、この作り直しで
-                # 捨てられていた（設計原則 P5）。
-                generated_by=generated_by,
-                generation_prompt_version=generation_prompt_version,
-                review_state=review_state,
-            )
+                version = latest
+            else:
+                version = build_task_version(
+                    spec,
+                    course_id=course_id,
+                    subject_profile=profile,
+                    authored_by=authored_by,
+                    version=latest.version + 1,
+                    # **出所を落とさない。** ここで渡し忘れると、訂正で生成した
+                    # 中身が「教員が書いた」ことになり、承認待ちにならずそのまま
+                    # 出題される ── 上で一度渡しているぶんは、この作り直しで
+                    # 捨てられていた（設計原則 P5）。
+                    generated_by=generated_by,
+                    generation_prompt_version=generation_prompt_version,
+                    review_state=review_state,
+                )
     with database.unit_of_work() as uow:
         existing = uow.tasks.get_task(version.task_id)
         task = Task(
@@ -169,6 +179,17 @@ def save_task(
             # 取り下げた課題の誤字を直すと、`withdrawn` が既定に戻って
             # 学習者に出直していた（取り下げは削除ではない・#83）。
             withdrawn=existing.withdrawn if existing else False,
+            # **学内限定も引き継ぐ**（#333）。同じ取りこぼしがあり、学内限定の
+            # 課題を 1 つ直すと、その課題だけ学外から出せるようになっていた。
+            # 欄を足したら引き継ぐかを決めること ──
+            # `tests/test_task_schedule_survives.py` が欄の一覧を固定している。
+            campus_only=existing.campus_only if existing else False,
+            # 公開まで教員だけに見せるか（試験）。引き継がないと、試験の課題を
+            # 1 つ直した瞬間にその課題だけ公開前の TA に見える。
+            confidential_until_open=(existing.confidential_until_open if existing else False),
+            # 出題先も。引き継がないと、追試の課題を 1 つ直した瞬間にその課題
+            # だけ受講者全員に見える。
+            audience_group_ids=existing.audience_group_ids if existing else (),
             # 締切と同じ理由で、**明示された場合だけ上書きする**（#234）。
             # 教員が画面で広げた拡張子を、定義の流し込みが黙って狭めない。
             accepted_suffixes=normalize_suffixes(spec.accepted_suffixes)

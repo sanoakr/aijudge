@@ -97,11 +97,22 @@ def test_the_note_says_the_model_does_not_decide_the_level(world: World) -> None
 def test_a_course_that_transcribes_nothing_says_nothing(world: World) -> None:
     """関係のない注記を出すと、注記そのものが読まれなくなる。
 
-    既定のコースは `cs_lang_c_intro`（`input.transcription` を持たない）。
+    既定のコース（`cs_lang_c_intro`）は prog2 ex01-3 の一件（2026-09-23）で
+    `input.transcription: image_text` を持つようになったので、ここでは
+    それを持たない `cs_sandbox_kc` を使う。
     """
-    world.register("teacher", Role.INSTRUCTOR)
+    course, _ = ensure_course(
+        world.database,
+        tenant_id=TENANT,
+        code="sandbox",
+        title="サンドボックス",
+        term="2025-後期",
+        subject_profile="cs_sandbox_kc",
+        profiles_dir=PROFILES,
+    )
+    world.register("teacher", Role.INSTRUCTOR, course.id)
 
-    page = world.client("teacher").get(f"/manage/courses/{world.course.id}").text
+    page = world.client("teacher").get(f"/manage/courses/{course.id}").text
 
     assert "採点のときに本文へ自動で書き起こされます" not in page
 
