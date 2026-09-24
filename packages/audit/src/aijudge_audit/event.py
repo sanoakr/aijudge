@@ -77,6 +77,11 @@ class AuditAction(StrEnum):
     # 締切（`TASK_UPDATED`）と同じく誰がいつ動かしたかを残す。
     CAMPUS_NETWORKS_UPDATED = "campus_networks.updated"
     PROFILE_DUPLICATED = "profile.duplicated"
+    # 出題先の名簿（`docs/design/task-visibility.md`）。**誰に何が見えるかが
+    # 変わる**ので、受講登録（`ENROLLED`）と同じく誰がいつ動かしたかを残す。
+    # 課題の出題先そのものの変更は `TASK_UPDATED`（問題セットの設定と同じ）。
+    GROUP_UPDATED = "group.updated"
+    GROUP_DELETED = "group.deleted"
     # -- 保管 --
     # 保存期間を過ぎた動画の消去（ADR 0020）。**成績には現れない操作だが、
     # 学習者の提出物が消える**ので、いつ何件消えたかは残す。

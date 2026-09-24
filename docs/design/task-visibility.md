@@ -1,6 +1,6 @@
 # 出題の可視性 ── 誰に・いつ見せるか
 
-- ステータス: **検討中**（`feat/task-visibility` ブランチ）
+- ステータス: **段階 1・2 を実装**（`feat/task-visibility` ブランチ）。決定は ADR 0025
 - 日付: 2026-09-24
 - 関連: #102, #108, #119, #146, #333, #340, #83 / ADR 0013, 0018, 0020 /
   `docs/design/online-coding-test.md`（`feat/online-coding-test`。本書を前提にする）
@@ -179,7 +179,8 @@ def may_see(task: Task, role: Role, *, in_audience: bool, now: datetime) -> bool
 | `GET /api/courses/{course_id}/groups` | グループと人数の一覧 |
 | `PUT /api/courses/{course_id}/groups/{name}` | グループを作る・名簿を**丸ごと置き換える**。本文は `{"members": ["<login>", ...]}` |
 | `DELETE /api/courses/{course_id}/groups/{name}` | グループを消す。**出題先として使われているグループは消せない**（409） |
-| `PUT /api/courses/{course_id}/units/{unit}/audience` | 問題セットの全課題の出題先を置き換える。本文は `{"session": n, "groups": ["<name>", ...]}`。空は全員 |
+| `GET /api/courses/{course_id}/groups/{name}` | 名簿（login の並び） |
+| `PUT /api/courses/{course_id}/units/{unit}/audience` | 問題セットの全課題の出題先を置き換える。`unit` は画面の URL と同じ鍵。本文は `{"groups": ["<name>", ...]}`。空は全員 |
 
 - **置き換え（PUT）にして、足し引きの API は作らない。** 同じ要求を 2 度流しても
   結果が同じ（冪等）で、スクリプトの再実行が安全になる。応答で「足された人・
@@ -218,7 +219,7 @@ def may_see(task: Task, role: Role, *, in_audience: bool, now: datetime) -> bool
 | 段階 | 内容 |
 |---|---|
 | 1 | `may_see`（core）と表のテスト。`confidential_until_open` と学生画面・コンソールへの適用。B を先に塞ぐ（**実装済み**） |
-| 2 | `CourseGroup`・名簿・`audience_group_ids`。`/manage` の名簿画面と問題セットへの設定、**API（§3.5）** |
+| 2 | `CourseGroup`・名簿・`audience_group_ids`。`/manage` の名簿画面と問題セットへの設定、**API（§3.5）**・CLI（**実装済み**） |
 | 3 | 「試験として設定」のひと押し |
 
 段階 1 は小さく、運用中の問題（TA への事前公開）を直接塞ぐので、先に単独で

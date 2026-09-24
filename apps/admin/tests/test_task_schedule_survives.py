@@ -175,6 +175,7 @@ KEPT = {
     "withdrawn",
     "campus_only",
     "confidential_until_open",
+    "audience_group_ids",
 }
 # 版を保存する側が決める（`save_task` は触らない）。
 DECIDED_ELSEWHERE = {"current_version_id"}
@@ -203,3 +204,19 @@ def test_revising_a_confidential_task_keeps_it_from_assistants(world) -> None:
     with database.unit_of_work() as uow:
         after = uow.tasks.get_task(saved.task.id)
     assert after.confidential_until_open is True, "直したら秘匿が外れている"
+
+
+def test_revising_a_task_keeps_its_audience(world) -> None:
+    """追試の課題を 1 つ直しても、受講者全員に出直さない。"""
+    from aijudge_core.ids import CourseGroupId
+
+    database, course = world
+    saved = _save(database, course, "本文")
+    retake = CourseGroupId("grp_" + "3" * 32)
+    _schedule_the_unit(database, saved.task.id, audience_group_ids=(retake,))
+
+    _save(database, course, "本文（誤字を直した）")
+
+    with database.unit_of_work() as uow:
+        after = uow.tasks.get_task(saved.task.id)
+    assert after.audience_group_ids == (retake,), "直したら出題先が外れている"

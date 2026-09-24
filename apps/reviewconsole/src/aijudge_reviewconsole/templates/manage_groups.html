@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}出題先の名簿 — {{ course.title }} — aiJudge{% endblock %}
+{% block body %}
+<h1>出題先の名簿</h1>
+<p class="subtitle">{{ course.title }}・{{ rows | length }} 件</p>
+
+<p class="desc">
+  問題セットを<strong>一部の学習者にだけ</strong>出すための名簿です（追試・再試験など）。
+  名簿を作ったら、問題セットの画面の「出題先」で選びます。
+  <strong>TA と教員には名簿に関係なく見えます。</strong>
+  画面を使わずに登録するなら API（<code>PUT /api/courses/{{ course.id }}/groups/&lt;名前&gt;</code>）も使えます。
+</p>
+
+{% if result %}
+{# **何が起きたかを言う。** 「保存しました」だけだと、置き換えで誰が外れたかが分からない。 #}
+<div id="result" class="note saved">
+  <strong>名簿「{{ result.group.name }}」を{{ '作りました' if result.created else '置き換えました' }}</strong>
+  （{{ result.members | length }} 名）
+  {% if result.added %}<br>追加: <span class="mono">{{ result.added | join(', ') }}</span>{% endif %}
+  {% if result.removed %}<br>削除: <span class="mono">{{ result.removed | join(', ') }}</span>{% endif %}
+  {% if not result.created and not result.added and not result.removed %}<br>変更はありませんでした。{% endif %}
+</div>
+{% elif error %}
+<div id="result" class="note warn"><strong>保存していません。</strong> {{ error }}</div>
+{% elif saved %}<div class="note saved">{{ saved }}</div>{% endif %}
+
+{% for row in rows %}
+{% set g = row.summary.group %}
+<section class="card" id="group-{{ loop.index }}">
+  <h2>{{ g.name }} <span class="desc">{{ row.summary.members }} 名{% if row.summary.used_by %}・{{ row.summary.used_by }} 課題の出題先{% endif %}</span></h2>
+  <form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/groups">
+    <input type="hidden" name="name" value="{{ g.name }}">
+    <label class="desc" for="members-{{ loop.index }}">名簿（1 行に 1 つのアカウント。<strong>丸ごと置き換わります</strong>）</label>
+    <textarea id="members-{{ loop.index }}" name="members" rows="6" class="mono">{{ row.members | join('\n') }}</textarea>
+    <button type="submit">この名簿で置き換える</button>
+  </form>
+  <form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/groups/delete" class="addline">
+    <input type="hidden" name="name" value="{{ g.name }}">
+    {% if row.summary.used_by %}
+    {# 使われている名簿は消せない。消すと誰にも見えない課題が黙って残る。 #}
+    <span class="desc">出題先として使われているので消せません。先に問題セットの出題先から外してください。</span>
+    {% else %}
+    <button type="submit" class="danger">この名簿を消す</button>
+    {% endif %}
+  </form>
+</section>
+{% endfor %}
+
+<h2 id="new">名簿を作る</h2>
+<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/groups" class="card">
+  <label class="desc" for="new-name">名前（{{ max_name }} 字まで。同じ名前なら置き換えになります）</label>
+  <input id="new-name" name="name" maxlength="{{ max_name }}" required
+         value="{{ draft.name if draft else '' }}" placeholder="前期追試">
+  <label class="desc" for="new-members">名簿（1 行に 1 つのアカウント。空白・カンマ区切りも可）</label>
+  <textarea id="new-members" name="members" rows="8" class="mono"
+            placeholder="y2400001&#10;y2400002">{{ draft.members if draft else '' }}</textarea>
+  {% if draft and draft.unknown %}
+  {# **一部だけ登録しない。** どれが原因かを出して、入力は残す。 #}
+  <p class="note warn">このコースの学習者ではないアカウント:
+    <span class="mono">{{ draft.unknown | join(', ') }}</span></p>
+  {% endif %}
+  <button type="submit">保存</button>
+</form>
+{% endblock %}

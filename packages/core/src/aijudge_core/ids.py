@@ -31,6 +31,7 @@ FinalizationId = NewType("FinalizationId", str)
 ReviewRequestId = NewType("ReviewRequestId", str)
 CredentialId = NewType("CredentialId", str)
 EventId = NewType("EventId", str)
+CourseGroupId = NewType("CourseGroupId", str)
 
 # プレフィックス → 用途。新しい実体を足すときは必ずここにも登録する。
 PREFIXES: dict[str, str] = {
@@ -66,6 +67,9 @@ PREFIXES: dict[str, str] = {
     # 確定して初めて `Submission` になるので、提出 ID とは別の空間である
     # （途中で諦めたものに提出 ID を振ると、存在しない提出が数に入る）。
     "upl": "UploadSession",
+    # コースの中の名簿（追試の対象者など）。課題の出題先を絞るのに使う
+    # （`docs/design/task-visibility.md`）。
+    "grp": "CourseGroup",
 }
 
 _ID_RE = re.compile(r"^(?P<prefix>[a-z]+)_(?P<body>[0-9a-f]{32})$")

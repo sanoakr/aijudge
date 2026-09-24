@@ -1865,6 +1865,8 @@ def _course_and_tasks(
             raise HTTPException(status_code=404, detail="コースが見つかりません")
         tasks = uow.tasks.list_for_course(course_id)
         moment = now()
+        # 出題先の名簿（追試など）。学習者のときだけ効く（`may_see`）。
+        groups = uow.identity.groups_of(course_id, me.user_id)
         versions = []
         for task in tasks:
             # 取り下げた課題は出さない（#51）。**消えてはいない** ── 提出も
@@ -1874,7 +1876,7 @@ def _course_and_tasks(
             # **見せてよい課題だけを出す**（`aijudge_core.access`）。学習者に
             # 公開前の課題を、TA に公開前の秘匿の課題を出さない。ここで落とす
             # ので、コースページ・進捗・到達度のどれにも現れない。
-            if not may_see(task, role, now=moment):
+            if not may_see(task, role, now=moment, groups=groups):
                 continue
             # **承認済みの版だけを出す**（#48）。`latest_version` は版番号
             # だけを見るので、生成したまま誰も見ていない版や却下した版が
@@ -1914,7 +1916,8 @@ def _task_and_course(
         # 関門はすべてここを通る。以前は公開日時を見ておらず、一覧から外れて
         # いても URL を知っていれば公開前の問題文を開けた。見せない理由を
         # 「無い」と区別しない（受講していない課題と同じ 404）。
-        if not may_see(task, role, now=now()):
+        groups = uow.identity.groups_of(task.course_id, me.user_id)
+        if not may_see(task, role, now=now(), groups=groups):
             raise HTTPException(status_code=404, detail="課題が見つかりません")
     return version, course_obj, task
 

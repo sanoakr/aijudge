@@ -43,6 +43,10 @@ The console is for reading what arrived and deciding — it never grades.
 - **Confirm one submission or a whole problem set**, with the reason recorded.
 - **Course management in the browser**: deadlines, grace periods, late-penalty
   ladders, enrolment, rubrics, problem sets.
+- **Exams and retakes.** A problem set can stay hidden from teaching
+  assistants until it opens, and can be given to a named group of learners
+  only — a retake is its own problem set, not a per-learner deadline. Groups
+  can be filled from the console, the API or the CLI (ADR 0025).
 - **Blind marking for measurement**, sampled by the system — never by choice —
   so agreement between a person and the machine can be measured honestly.
 - **Built from the same parts as the learner's side.** The rail of

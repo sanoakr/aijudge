@@ -9,8 +9,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Protocol, runtime_checkable
 
-from aijudge_core import Course, Enrollment, Role, term_sort_key
-from aijudge_core.ids import ApiTokenId, CourseId, TenantId, UserId
+from aijudge_core import Course, CourseGroup, Enrollment, Role, term_sort_key
+from aijudge_core.ids import ApiTokenId, CourseGroupId, CourseId, TenantId, UserId
 
 from .models import ApiToken, Session, User
 from .network import CampusNetworkSettings
@@ -156,6 +156,41 @@ class IdentityRepository(Protocol):
         """login をまとめて引く。受講者一覧の表示に使う。"""
         ...
 
+    # -- 出題先の名簿（`docs/design/task-visibility.md`） --
+    #
+    # **規則は持たない。** 名簿に入れてよいのが受講者だけであること、出題先
+    # として使われているグループを消させないことは `aijudge_admin.groups` が
+    # 確かめる。保存層は言われたものを保存する（`delete_course` と同じ分担）。
+
+    def save_group(self, group: CourseGroup) -> None:
+        """作る・名前を変える。名前はコース内で一意（同じ名前の別 ID は保存層が拒む）。"""
+        ...
+
+    def get_group(self, group_id: CourseGroupId) -> CourseGroup | None: ...
+
+    def find_group(self, course_id: CourseId, name: str) -> CourseGroup | None:
+        """名前で引く。API とスクリプトはグループを名前で指す。"""
+        ...
+
+    def list_groups(self, course_id: CourseId) -> tuple[CourseGroup, ...]:
+        """このコースのグループ。**名前の順。**"""
+        ...
+
+    def delete_group(self, group_id: CourseGroupId) -> None:
+        """グループとその名簿を消す。"""
+        ...
+
+    def set_group_members(self, group_id: CourseGroupId, user_ids: frozenset[UserId]) -> None:
+        """名簿を**丸ごと置き換える**。足し引きの操作は持たない ── 同じ要求を
+        2 度流しても結果が同じになる（API の冪等性はここから来る）。"""
+        ...
+
+    def group_members(self, group_id: CourseGroupId) -> frozenset[UserId]: ...
+
+    def groups_of(self, course_id: CourseId, user_id: UserId) -> frozenset[CourseGroupId]:
+        """この人がこのコースで入っているグループ。`may_see` に渡す。"""
+        ...
+
 
 class InMemoryIdentityRepository:
     """テストと開発用。"""
@@ -171,6 +206,8 @@ class InMemoryIdentityRepository:
         self._by_external_id: dict[tuple[TenantId, str], UserId] = {}
         self._oidc_settings: dict[TenantId, OidcSettings] = {}
         self._campus: dict[str, CampusNetworkSettings] = {}
+        self._groups: dict[CourseGroupId, CourseGroup] = {}
+        self._members: dict[CourseGroupId, frozenset[UserId]] = {}
 
     def save_user(self, user: User) -> None:
         self._users[user.id] = user
@@ -285,6 +322,8 @@ class InMemoryIdentityRepository:
         self._courses.pop(course_id, None)
         for key in [key for key in self._enrollments if key[0] == course_id]:
             del self._enrollments[key]
+        for group in [g for g in self._groups.values() if g.course_id == course_id]:
+            self.delete_group(group.id)
 
     def list_courses_using_profile(self, subject_profile: str) -> tuple[Course, ...]:
         return tuple(
@@ -322,4 +361,48 @@ class InMemoryIdentityRepository:
             user
             for user in self._users.values()
             if user.tenant_id == tenant_id and user.login in wanted
+        )
+
+    def save_group(self, group: CourseGroup) -> None:
+        clash = self.find_group(group.course_id, group.name)
+        if clash is not None and clash.id != group.id:
+            # SQL 実装の一意制約と同じ振る舞いにする。
+            raise ValueError(f"group name {group.name!r} is already used in this course")
+        self._groups[group.id] = group
+
+    def get_group(self, group_id: CourseGroupId) -> CourseGroup | None:
+        return self._groups.get(group_id)
+
+    def find_group(self, course_id: CourseId, name: str) -> CourseGroup | None:
+        wanted = name.strip()
+        for group in self._groups.values():
+            if group.course_id == course_id and group.name == wanted:
+                return group
+        return None
+
+    def list_groups(self, course_id: CourseId) -> tuple[CourseGroup, ...]:
+        return tuple(
+            sorted(
+                (g for g in self._groups.values() if g.course_id == course_id),
+                key=lambda group: group.name,
+            )
+        )
+
+    def delete_group(self, group_id: CourseGroupId) -> None:
+        self._groups.pop(group_id, None)
+        self._members.pop(group_id, None)
+
+    def set_group_members(self, group_id: CourseGroupId, user_ids: frozenset[UserId]) -> None:
+        self._members[group_id] = frozenset(user_ids)
+
+    def group_members(self, group_id: CourseGroupId) -> frozenset[UserId]:
+        return self._members.get(group_id, frozenset())
+
+    def groups_of(self, course_id: CourseId, user_id: UserId) -> frozenset[CourseGroupId]:
+        return frozenset(
+            group_id
+            for group_id, members in self._members.items()
+            if user_id in members
+            and (group := self._groups.get(group_id)) is not None
+            and group.course_id == course_id
         )

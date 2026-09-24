@@ -13,7 +13,7 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .ids import CourseId, CriterionId, TaskId, TaskVersionId, UserId
+from .ids import CourseGroupId, CourseId, CriterionId, TaskId, TaskVersionId, UserId
 from .knowledge import QMatrixEntry
 
 
@@ -402,6 +402,17 @@ class Task(BaseModel):
     # この値も、それぞれ単独で要る場面がある（`docs/design/task-visibility.md`
     # §1.3）。判定は `aijudge_core.access.may_see` の 1 か所で行う。
     confidential_until_open: bool = False
+    # 出題先（追試など）。**空は受講者全員**（従来どおり）。複数を持てば、
+    # いずれかの名簿に入っている学習者に出す（和集合）。
+    #
+    # **最初から複数にしてある。** グループごとに別の問題セットを出す運用が
+    # 見込まれる（2026-09-24）── 「X は 1 組、Y は 2 組、共通問題は両方」を
+    # 課題ごとの指定だけで表せる。単数だと共通問題のためにグループを合成するか、
+    # 保存済みの文書を書き換える移行が要る。
+    #
+    # 出題先は**学習者にだけ効く**（`aijudge_core.access.may_see`）。教員・TA は
+    # 名簿に関係なく見える ── TA が追試の質問に答えられないと困る。
+    audience_group_ids: tuple[CourseGroupId, ...] = ()
     # 出題を取り下げたか。**削除ではない。**
     #
     # 採点結果は課題版を指しているので（P8）、提出のある課題を消すと過去の

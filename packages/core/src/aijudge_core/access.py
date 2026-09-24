@@ -8,9 +8,13 @@
 |---|---|---|---|---|
 | 教員・管理者 | 見える | 見える | 見える | 見える |
 | TA | 見える | 見える | **見えない** | 見える |
-| 学習者 | 見えない | 見える | 見えない | 見える |
+| 学習者（出題先の中） | 見えない | 見える | 見えない | 見える |
+| 学習者（出題先の外） | 見えない | **見えない** | 見えない | **見えない** |
 
 「見えない」は、一覧に出さず、URL を直に開いても「無い」と答えること。
+
+出題先（`Task.audience_group_ids`）が空の課題では、学習者は全員「出題先の中」。
+**出題先は学習者にだけ効く** ── 教員・TA は名簿に関係なく見える。
 
 取り下げ（`withdrawn`）と承認済みの版があるか（#48）はここで見ない。
 どちらも課題の**存在**の問題で、役割と時刻によらない。呼ぶ側が先に落とす。
@@ -20,6 +24,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from .ids import CourseGroupId
 from .task import Task
 from .tenancy import Role
 
@@ -27,8 +32,18 @@ from .tenancy import Role
 _STAFF = frozenset({Role.INSTRUCTOR, Role.ADMIN})
 
 
-def may_see(task: Task, role: Role, *, now: datetime) -> bool:
-    """この役割の人に、いまこの課題を見せてよいか。"""
+def may_see(
+    task: Task,
+    role: Role,
+    *,
+    now: datetime,
+    groups: frozenset[CourseGroupId] = frozenset(),
+) -> bool:
+    """この役割の人に、いまこの課題を見せてよいか。
+
+    `groups` は見る人がそのコースで入っている名簿。**学習者のときだけ読む。**
+    名簿を引くのは呼ぶ側（ここは I/O をしない）。
+    """
     if role in _STAFF:
         return True
     before_open = task.before_open_at(now)
@@ -37,7 +52,16 @@ def may_see(task: Task, role: Role, *, now: datetime) -> bool:
         return not (before_open and task.confidential_until_open)
     # 学習者には公開前の課題を出さない。一覧から外すだけでは、URL を知って
     # いれば問題文を開けた（課題ページが公開日時を見ていなかった）。
-    return not before_open
+    if before_open:
+        return False
+    return in_audience(task, groups)
+
+
+def in_audience(task: Task, groups: frozenset[CourseGroupId]) -> bool:
+    """出題先に入っているか。**出題先が空なら全員が入っている**（従来どおり）。"""
+    if not task.audience_group_ids:
+        return True
+    return not groups.isdisjoint(task.audience_group_ids)
 
 
 def may_submit_before_open(task: Task, role: Role, *, now: datetime) -> bool:

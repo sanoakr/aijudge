@@ -996,6 +996,66 @@ TA には出さない ── 採点は分担するが、習熟度は成績から
 
 **採点と確定には効かない。** 既に出された提出はそのまま扱われる。
 
+### 試験を公開まで TA に見せない（ADR 0025）
+
+公開前の問題セットは、**普段は TA にも見える**（質問対応と採点の準備のため・
+#340・#102）。試験では、問題セットの画面の「公開前に見せる相手」で
+**公開まで教員だけに見せる**に切り替える。
+
+- 公開の時刻（`opens_at`）までは、TA の一覧（学生画面・コンソール）にも課題ページ
+  にも出ず、TA は試しに提出できない。**教員が試しに出した提出も TA には見えない**
+  （模範解答に近いので）
+- **公開の時刻からは TA にも見える。** 試験監督をする TA は開始と同時に読める
+- **公開の時刻が無いと効かない** ── 時刻の無い課題は最初から公開済みとして扱う。
+  画面がそう警告するので、日程を先に入れる
+- 変更は監査に残る（`task.updated`・`field=confidential`）
+
+### 一部の学習者にだけ出す ── 出題先の名簿（ADR 0025）
+
+追試・再試験は**別の問題セットとして作り**、出題先を名簿で絞る。同じ課題のまま
+一部の学習者の日程だけ変える形は取らない（締切を学習者ごとに求めることになり、
+遅延減点・自動確定・動画の保存期間のすべてに手が入るため）。本試験と追試の成績は
+別の課題として残る。
+
+1. **名簿を作る**（`/manage/courses/<id>/groups`、または下の API・CLI）。
+   入れられるのは**そのコースの学習者だけ**。知らないアカウントが 1 つでも
+   混じると**何も保存しない**（一部だけ登録されると、漏れた学生が追試を見られない
+   まま気づかれない）。保存は常に**丸ごとの置き換え**で、追加・削除が画面に出る
+2. **問題セットの「出題先」で名簿を選ぶ**。複数選べばどれかに入っている学習者に
+   出る。何も選ばなければ受講者全員（従来どおり）
+
+- 出題先の外の学習者には、一覧にも URL にも出ず、「未提出」とも数えない
+- **TA と教員には名簿に関係なく見える**
+- 名簿から外しても、その学生が既に出した提出と成績は本人に見える
+- 出題先として使っている名簿は消せない（先に出題先から外す）
+- 名簿の変更は `group.updated` / `group.deleted`、出題先の変更は `task.updated` に残る
+
+**画面を使わずに登録する**（手元のスクリプトから。API トークンは教員のもの）:
+
+```sh
+T="Authorization: Bearer aij_..."
+C=crs_...
+# 名簿を丸ごと置き換える（無ければ作る）。同じ要求を何度流しても同じ結果
+curl -X PUT -H "$T" -H 'Content-Type: application/json' \
+  -d '{"members": ["y2400001", "y2400002"]}' "https://<host>/console/api/courses/$C/groups/前期追試"
+# 問題セット（画面の URL と同じ鍵）の出題先を置き換える。空の配列で全員に戻す
+curl -X PUT -H "$T" -H 'Content-Type: application/json' \
+  -d '{"groups": ["前期追試"]}' "https://<host>/console/api/courses/$C/units/exam01r/audience"
+curl -H "$T" "https://<host>/console/api/courses/$C/groups"          # 一覧
+curl -X DELETE -H "$T" "https://<host>/console/api/courses/$C/groups/前期追試"
+```
+
+知らない login があると 422 で、`detail.unknown_logins` に並ぶ。
+
+**運用機で直接流す**（操作者は `system` として監査に残る）:
+
+```sh
+aijudge-admin group set --course crs_... --name 前期追試 --members retake.txt  # 1 行 1 login
+aijudge-admin unit audience --course crs_... --unit exam01r --group 前期追試
+aijudge-admin unit audience --course crs_... --unit exam01r                  # 全員に戻す
+aijudge-admin group list --course crs_...
+```
+
 ### 動画置き場は unit の `ReadWritePaths` の中に
 
 `deploy/systemd/*.service` は `ProtectSystem=strict` で、書けるのは

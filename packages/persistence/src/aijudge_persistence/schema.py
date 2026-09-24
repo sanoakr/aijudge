@@ -485,6 +485,39 @@ class EnrollmentRow(Base):
     __table_args__ = (Index("ix_enrollments_user", "tenant_id", "user_id"),)
 
 
+class CourseGroupRow(Base):
+    """コースの中の名簿（`aijudge_core.CourseGroup`）。課題の出題先を絞る。
+
+    名前はコース内で一意 ── API はグループを名前で指す。**幅は模型と揃える**
+    （`MAX_GROUP_NAME_LENGTH`）。SQLite は `VARCHAR(n)` の n を守らないので、
+    模型で止めないと PostgreSQL でだけ落ちる。
+    """
+
+    __tablename__ = "course_groups"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    course_id: Mapped[str] = mapped_column(String(64), ForeignKey("courses.id"), index=True)
+    name: Mapped[str] = mapped_column(String(64))
+
+    __table_args__ = (UniqueConstraint("course_id", "name", name="uq_course_groups_name"),)
+
+
+class CourseGroupMemberRow(Base):
+    """名簿の 1 行。**置き換えで書く**（`set_group_members`）。"""
+
+    __tablename__ = "course_group_members"
+
+    group_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("course_groups.id"), primary_key=True
+    )
+    user_id: Mapped[str] = mapped_column(String(64), ForeignKey("users.id"), primary_key=True)
+
+    # 「この人はどのグループか」を引く向き（`groups_of`）。学生画面の一覧と
+    # 課題ページのたびに引くので、主キーの逆順に索引を張る。
+    __table_args__ = (Index("ix_course_group_members_user", "user_id"),)
+
+
 class TaskRow(Base):
     """課題。
 

@@ -9,10 +9,10 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Self
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .grading import LatePenaltyStep
-from .ids import CourseId, TenantId, UserId
+from .ids import CourseGroupId, CourseId, TenantId, UserId
 from .task import Aggregation
 
 
@@ -122,6 +122,40 @@ class Course(BaseModel):
         if hours != sorted(set(hours)):
             raise ValueError("late_penalty_steps must be sorted by after_hours and unique")
         return self
+
+
+# グループ名の上限。**列の幅と揃える**（`course_groups.name` は 64）。SQLite は
+# `VARCHAR(n)` の n を守らないので、模型で止めないと PostgreSQL でだけ落ちる
+# （`audit_events.target_id` で本番のログインが止まった前例）。
+MAX_GROUP_NAME_LENGTH = 64
+
+
+class CourseGroup(BaseModel):
+    """コースの中の名簿。**課題の出題先を絞るためにある**（追試・再試験）。
+
+    受講登録とは別の層である ── 受講は「このコースの一員か」で、グループは
+    「そのうち誰にこの課題を出すか」。名簿に入れられるのはそのコースの学習者
+    だけ（`aijudge_admin.groups` が確かめる）。
+
+    名前はコース内で一意。API はグループを名前で指す（スクリプトが ID を
+    引き直さずに済むように）。
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    id: CourseGroupId
+    tenant_id: TenantId
+    course_id: CourseId
+    name: str = Field(min_length=1, max_length=MAX_GROUP_NAME_LENGTH)
+
+    @field_validator("name")
+    @classmethod
+    def _strip(cls, value: str) -> str:
+        # 前後の空白で別のグループになると、同じ名前が 2 つ並んで見える。
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("グループ名が空です")
+        return stripped
 
 
 class Enrollment(BaseModel):

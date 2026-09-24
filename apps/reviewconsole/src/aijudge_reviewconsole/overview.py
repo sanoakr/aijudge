@@ -91,6 +91,10 @@ class UnitGroup:
     # `campus_only` と同じく、混ざりは別に持って黙らせない。
     confidential: bool = False
     confidential_mixed: bool = False
+    # 出題先（名簿の ID）。**全課題で揃っていればその値**、ばらついていれば
+    # 空にして `audience_mixed` を立てる（黙らせない）。空で揃っていれば全員。
+    audience: tuple[str, ...] = ()
+    audience_mixed: bool = False
 
     @property
     def count(self) -> int:
@@ -206,9 +210,19 @@ def load_units(
                 confidential=bool(tasks) and all(task.confidential_until_open for task in tasks),
                 confidential_mixed=any(task.confidential_until_open for task in tasks)
                 and not all(task.confidential_until_open for task in tasks),
+                audience=_common_audience(tasks),
+                audience_mixed=len({task.audience_group_ids for task in tasks}) > 1,
             )
         )
     return tuple(groups)
+
+
+def _common_audience(tasks: list[Task]) -> tuple[str, ...]:
+    """全課題で揃っている出題先。ばらついていれば空（`audience_mixed` が言う）。"""
+    kinds = {task.audience_group_ids for task in tasks}
+    if len(kinds) != 1:
+        return ()
+    return tuple(str(group_id) for group_id in next(iter(kinds)))
 
 
 def _mixed(tasks: list[Task]) -> bool:

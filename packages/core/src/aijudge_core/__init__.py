@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from .access import may_see, may_submit_before_open
+from .access import in_audience, may_see, may_submit_before_open
 from .events import (
     EVENT_TYPES,
     SCHEMA_VERSION,
@@ -127,7 +127,7 @@ from .task import (
     TestCase,
     effective_aggregation,
 )
-from .tenancy import Course, Enrollment, Role, Tenant
+from .tenancy import MAX_GROUP_NAME_LENGTH, Course, CourseGroup, Enrollment, Role, Tenant
 from .terms import (
     DIVISIONS,
     YEARS_OFFERED,
@@ -159,6 +159,7 @@ __all__ = [
     "EVENT_TYPES",
     "GATE_ZERO",
     "HUMAN_SCORED",
+    "MAX_GROUP_NAME_LENGTH",
     "MIN_JUSTIFICATION_LENGTH",
     "PURGED_MESSAGE",
     "SCHEMA_VERSION",
@@ -177,6 +178,7 @@ __all__ = [
     "CampusAccess",
     "CharSpan",
     "Course",
+    "CourseGroup",
     "Credential",
     "CredentialExport",
     "CredentialIssued",
@@ -248,6 +250,7 @@ __all__ = [
     "gate_skipped",
     "grace_minutes",
     "grade_window",
+    "in_audience",
     "is_valid_kc_key",
     "is_valid_term",
     "kc_id_for",

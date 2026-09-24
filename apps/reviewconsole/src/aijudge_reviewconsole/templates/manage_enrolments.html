@@ -4,6 +4,9 @@
 <h1>受講者</h1>
 <p class="subtitle">{{ course.title }}・{{ total }} 名{% if q or role_filter %}（{% if q %}<span class="mono">{{ q }}</span>{% endif %}{% if q and role_filter %}・{% endif %}{% if role_filter %}<span class="mono">{{ role_filter }}</span>{% endif %} で {{ people | length }} 名に絞り込み）{% endif %}</p>
 
+{# 出題先の名簿（追試など）は受講とは別の画面。受講者を探しに来た人が辿れるように置く。 #}
+<p class="desc">一部の学習者にだけ問題セットを出すときは <a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/groups">出題先の名簿</a> を使います。</p>
+
 {# 内訳は**絞り込みの前**の数。絞り込んだ結果の内訳を出すと、「TA が 0 名」が
    登録漏れなのか絞り込みの結果なのか分からない。 #}
 <ul class="rolecounts">
