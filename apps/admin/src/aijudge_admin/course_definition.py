@@ -20,6 +20,7 @@
       ex1: {opens_at: 2026-09-18T13:00:00+09:00, due_at: 2026-09-25T23:59:00+09:00}
       ex2: {answer_mode: editor, editor_completion: true}   # 答え方（ADR 0026）
       ex3: {answer_mode: editor, file_upload: false}        # エディタだけ（試験）
+      test3: {confidential_until_open: true}                # 公開まで教員だけ（TA にも見せない）
     tasks:
       - key: ex1/cert                       # TaskSpec のフィールドをそのまま書く
         unit: ex1
@@ -32,9 +33,9 @@
       - problem_dir: ex1/p1                 # Sharif Judge 形式の問題ディレクトリ
         readability_weight: 0.3             # （YAML からの相対パス）
 
-`answer_mode`・`editor_completion`・`file_upload` は**問題セットの値**で、`/manage` の
-切り替えと同じく回の全課題に入れる（課題ごとには書けない）。書いた回だけを
-変え、書かない回は画面で切り替えた値を残す。`editor` にできない課題
+`answer_mode`・`editor_completion`・`file_upload`・`confidential_until_open` は
+**問題セットの値**で、`/manage` の切り替えと同じく回の全課題に入れる（課題ごとには
+書けない）。書いた回だけを変え、書かない回は画面で切り替えた値を残す。`editor` にできない課題
 （提出形式に `.c`・`.py`・`.md` が無い）があれば投入を止める。
 
 `problem_dir` を書いた課題は、`desc.md` を問題文、`in/` `out/` をテスト
@@ -91,7 +92,12 @@ _UNIT_SCHEDULE_KEYS = ("opens_at", "due_at")
 # 回（問題セット）の値として書けるもの。**課題ごとには書けない** ──
 # `/manage` と同じく回の全課題に入れる。同じ回で答え方が混ざると、学習者は
 # 課題ごとに画面を行き来することになる（ADR 0026）。
-_UNIT_SETTING_KEYS = ("answer_mode", "editor_completion", "file_upload")
+#
+# `confidential_until_open`（公開まで教員だけに見せる・試験）もここに置く。画面でしか
+# 入れられないと、`course apply` で課題を作ってからコンソールで切り替えるまでの間、
+# **公開前の課題が TA に見えている**（`docs/design/task-visibility.md` の B が塞ぎたい
+# 漏洩そのもの）。定義から入れれば、課題の保存と同じ実行の中で入る。
+_UNIT_SETTING_KEYS = ("answer_mode", "editor_completion", "file_upload", "confidential_until_open")
 # 定義側だけの語彙。`TaskSpec` に渡す前に解決して消す。
 _PROBLEM_DIR = "problem_dir"
 _STATEMENT_FILE = "statement_file"
@@ -161,7 +167,7 @@ def _unit_settings(unit: str, raw: dict[str, Any], path: Path) -> dict[str, Any]
                 f"units.{unit}.answer_mode は {wanted} のどれかです"
                 f": {raw['answer_mode']!r}（{path}）"
             ) from None
-    for flag in ("editor_completion", "file_upload"):
+    for flag in ("editor_completion", "file_upload", "confidential_until_open"):
         if flag not in raw:
             continue
         if not isinstance(raw[flag], bool):
@@ -332,6 +338,22 @@ def _apply_unit_settings(
     """
     if not unit_settings:
         return
+    # **秘匿は先に、単独で入れる。** 下の `editor` の検査で断ると同じ作業単位が
+    # 丸ごと巻き戻る ── 課題は保存済みなので、秘匿だけが入らないまま TA に
+    # 見える課題が残る。秘匿は検査を要しない値なので、断られうる値と束ねない。
+    confidential = {
+        unit: {"confidential_until_open": settings["confidential_until_open"]}
+        for unit, settings in unit_settings.items()
+        if "confidential_until_open" in settings
+    }
+    if confidential:
+        with database.unit_of_work() as uow:
+            tasks = uow.tasks.list_for_course(course.id)
+            for unit, settings in confidential.items():
+                for task in tasks:
+                    if task.unit == unit:
+                        uow.tasks.save_task(Task.model_validate(task.model_dump() | settings))
+            uow.commit()
     with database.unit_of_work() as uow:
         tasks = uow.tasks.list_for_course(course.id)
         for unit, settings in unit_settings.items():

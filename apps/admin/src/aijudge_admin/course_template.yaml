@@ -41,6 +41,9 @@ course:
 # `editor_completion: true`。ファイルでは出させない（試験）なら `file_upload: false`。
 # 提出形式に .c・.py・.md のどれも無い課題が
 # ある回はエディタにできません。書かなければ教員コンソールで切り替えた値のまま。
+#
+# 公開（opens_at）まで教員だけに見せ、TA にも見せない回（試験など）は
+# `confidential_until_open: true` を書きます。公開後は TA にも見えます。
 units:
   ex1:
     opens_at: 2026-09-18T09:00:00+09:00

@@ -157,7 +157,7 @@ def may_see(task: Task, role: Role, *, in_audience: bool, now: datetime) -> bool
 | `authoring.save_task`（`authoring.py:155`） | **2 つの値を引き継ぐ**。YAML の再適用や課題の編集で黙って既定値に戻さない（`withdrawn` で #83 が直したのと同じ罠） |
 | `course_copy`（`course_copy.py:150`） | `audience_group_ids` は**落とす**（グループはコースに属するので、別のコースでは意味を持たない）。`confidential_until_open` も**写さない**。複製は日程を写さない（教員の指定）ので、公開の時刻が無い課題に秘匿を写しても効かない（`Task.before_open_at`）。日程と一緒に入れ直す |
 | コース削除（`courses.py`） | グループと名簿も一緒に消す |
-| コース定義の YAML | 当面は載せない（`campus_only` も載っていない前例に合わせる） |
+| コース定義の YAML | `confidential_until_open` は `units.<回>` に書ける（問題セットの値。`answer_mode` と同じ扱い）。画面でしか入れられないと、`course apply` から切り替えるまでの間 TA に見えるため。`audience_group_ids` は載せない（グループは DB 側の名簿に依存する）。`campus_only` も当面は載せない |
 
 ### 3.4 監査
 
