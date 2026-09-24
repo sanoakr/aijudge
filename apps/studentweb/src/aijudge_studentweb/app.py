@@ -937,14 +937,28 @@ def create_app(app_state: StudentApp) -> FastAPI:
             status_code=303,
         )
 
-    def _video_gate(request: Request, me, task_version_id: str, filename: str):
+    def _video_gate(
+        request: Request,
+        me,
+        task_version_id: str,
+        filename: str,
+        *,
+        resumable: bool = True,
+    ):
         """動画を受け付けてよいかを、**1 か所で**判定する（#119）。
 
         分割アップロードと 1 発の送信は**同じ関門を通る**こと ── 別々に書くと、
         片方でしか効かない制限が必ず生まれる（学内限定・受付期間・拡張子・
         上限のどれか 1 つが漏れれば、そちらの経路が抜け道になる）。
+
+        **実際に漏れていた。** 1 発の送信（`submit_video`）はこの関門を通らず
+        判定を写して持っていて、写すときに学内限定だけが落ちた ── 学内限定の
+        動画課題に、学外から出せた。写しをやめてここを呼ぶ形に直してある。
+
+        `resumable` が偽なら分割アップロードの置き場（`upload_sessions`）を
+        要求しない。1 発の送信が要るのは動画の置き場だけである。
         """
-        if app_state.video_store is None or app_state.upload_sessions is None:
+        if app_state.video_store is None or (resumable and app_state.upload_sessions is None):
             raise HTTPException(status_code=501, detail="この配備は動画提出に対応していません")
         version, course_obj, task_obj = _task_and_course(
             app_state, me, TaskVersionId(task_version_id)
@@ -1149,42 +1163,11 @@ def create_app(app_state: StudentApp) -> FastAPI:
         **動画課題はコード課題と別の課題にすること** ── 観点は
         `__human__`（`HUMAN_SCORED`）で宣言し、教員が視聴して段階を入れる。
         """
-        if app_state.video_store is None:
-            raise HTTPException(status_code=501, detail="この配備は動画提出に対応していません")
-        version, course_obj, _task = _task_and_course(app_state, me, TaskVersionId(task_version_id))
-
-        # 「まだ」の側は教員・TA に開ける（#340）。通常の提出と同じ判定で
-        # あること ── 経路ごとに違う答えを出すと、動画だけ出せないが起きる。
-        role = _role_in(app_state, course_obj.id, me.user_id)
-        window = _task.submission_window_at(now())
-        if window is SubmissionWindow.NOT_OPEN and not _may_submit_before_open(role):
-            opens = _task.submissions_open_at or _task.opens_at
-            raise HTTPException(
-                status_code=409,
-                detail=f"まだ提出できません（{webui.local_filter(opens)} から受け付けます）",
-            )
-        if window is SubmissionWindow.CLOSED:
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    "提出の受付は終了しました"
-                    f"（{webui.local_filter(_task.accepts_until)} まででした）"
-                ),
-            )
-
-        accepts = allowed_suffixes(_task.accepted_suffixes, course_obj.upload_suffixes)
-        name = Path(filename or "video").name
-        suffix = Path(name).suffix.lower()
-        kind = kind_for(suffix) if suffix in accepts else None
-        if kind is None:
-            raise HTTPException(
-                status_code=400,
-                detail=f"この形式は提出できません（受付: {', '.join(accepts)}）",
-            )
-        if suffix not in STREAMED_SUFFIXES:
-            raise HTTPException(
-                status_code=400, detail="この形式は通常の提出（/submit）で送ってください"
-            )
+        # 学内限定・受付期間・拡張子は分割アップロードと同じ関門で判定する
+        # （`_video_gate` の docstring。ここで写して持っていたときに学内限定が漏れた）。
+        version, course_obj, _task, role, kind, name = _video_gate(
+            request, me, task_version_id, filename, resumable=False
+        )
 
         idem = request.headers.get("Idempotency-Key")
         # **本文を読む前に** 再送を弾く（3 GB を無駄に受けない）。

@@ -10,6 +10,11 @@
 
 同じ取りこぼしが `withdrawn` にもあり、こちらは結果が重い ── 取り下げた
 課題の誤字を直すと、学習者に出直していた。
+
+**`campus_only` にもあった**（#333 のあと、2026-09-24 に発見）。学内限定の
+問題セットの課題を 1 つ直すと、その課題だけ学内限定が外れ、学外から出せた。
+欄を 1 つ足すたびに同じ取りこぼしが起きうるので、`Task` の欄の一覧を
+ここに固定する（`test_every_field_of_a_task_is_accounted_for`）。
 """
 
 from __future__ import annotations
@@ -21,6 +26,7 @@ import pytest
 
 from aijudge_admin import ensure_course, save_task
 from aijudge_authoring import TaskSpec
+from aijudge_core import Task
 from aijudge_core.ids import TenantId, UserId
 from aijudge_persistence import Database
 
@@ -175,3 +181,67 @@ def test_a_schedule_only_change_still_takes_effect(world) -> None:
 
     assert second.task.opens_at == OPENS, "本文を変えていないので opens_at が反映されない"
     assert second.version.version == first.version.version, "本文が同じなのに版が増えている"
+
+
+def test_revising_a_campus_only_task_keeps_the_restriction(world) -> None:
+    """**学内限定も引き継ぐ**（#333）。引き継いでいなかったので、学内限定の
+    課題の誤字を直すと、その課題だけ学外から出せるようになっていた。
+    """
+    database, course = world
+    saved = _save(database, course, "本文")
+    _schedule_the_unit(database, saved.task.id, campus_only=True)
+
+    _save(database, course, "本文（誤字を直した）")
+
+    with database.unit_of_work() as uow:
+        after = uow.tasks.get_task(saved.task.id)
+    assert after.campus_only is True, "直したら学内限定が外れている"
+
+
+# `save_task` が `Task` を作り直すとき、各欄の値がどこから来るか。
+# **欄を足したら、ここに足すまでこのファイルが落ちる** ── 足した人に
+# 「作り直しで引き継ぐか」を決めさせるため。決めずに足すと、既定値に戻る
+# （`withdrawn`・`campus_only` で実際にそうなった）。
+FROM_THE_SPEC = {"id", "course_id", "title", "unit", "session", "position"}
+FROM_THE_SPEC_OR_KEPT = {"opens_at", "due_at", "accepted_suffixes"}
+KEPT = {
+    "submissions_open_at",
+    "grading_starts_at",
+    "accepts_until",
+    "auto_finalize_after_minutes",
+    "withdrawn",
+    "campus_only",
+}
+# 版を保存する側が決める（`save_task` は触らない）。
+DECIDED_ELSEWHERE = {"current_version_id"}
+
+
+def test_every_field_of_a_task_is_accounted_for() -> None:
+    known = FROM_THE_SPEC | FROM_THE_SPEC_OR_KEPT | KEPT | DECIDED_ELSEWHERE
+    added = set(Task.model_fields) - known
+    removed = known - set(Task.model_fields)
+
+    assert not added, (
+        f"Task に {sorted(added)} が足された。save_task（aijudge_admin.authoring）で"
+        "既存の値を引き継ぐかを決めて、このファイルの集合に足すこと"
+    )
+    assert not removed, f"Task から {sorted(removed)} が無くなった。集合から外すこと"
+
+
+def test_reapplying_unchanged_content_keeps_campus_only(world) -> None:
+    """**本文が同じ当て直しでも学内限定が残る。**
+
+    本文が同じなら以前は `save_task` が早く抜けていたので、この経路では
+    `campus_only` は消えなかった。早期リターンをやめた（#369）ことで、同じ
+    内容の `course apply --revise` も `Task` を作り直すようになった ──
+    引き継ぎが無ければ、当て直すたびに学内限定が外れる。
+    """
+    database, course = world
+    saved = _save(database, course, "本文")
+    _schedule_the_unit(database, saved.task.id, campus_only=True)
+
+    _save(database, course, "本文")
+
+    with database.unit_of_work() as uow:
+        after = uow.tasks.get_task(saved.task.id)
+    assert after.campus_only is True, "同じ内容を当て直したら学内限定が外れている"

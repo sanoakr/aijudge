@@ -179,6 +179,11 @@ def save_task(
             # 取り下げた課題の誤字を直すと、`withdrawn` が既定に戻って
             # 学習者に出直していた（取り下げは削除ではない・#83）。
             withdrawn=existing.withdrawn if existing else False,
+            # **学内限定も引き継ぐ**（#333）。同じ取りこぼしがあり、学内限定の
+            # 課題を 1 つ直すと、その課題だけ学外から出せるようになっていた。
+            # 欄を足したら引き継ぐかを決めること ──
+            # `tests/test_task_schedule_survives.py` が欄の一覧を固定している。
+            campus_only=existing.campus_only if existing else False,
             # 締切と同じ理由で、**明示された場合だけ上書きする**（#234）。
             # 教員が画面で広げた拡張子を、定義の流し込みが黙って狭めない。
             accepted_suffixes=normalize_suffixes(spec.accepted_suffixes)
