@@ -627,9 +627,13 @@ main に混ぜない**。main への取り込みは、段階 3 の負荷試験�
 - 補完の切／入（§5.3）。いまは切だけ。切り替えを `Task` の 2 つ目の値にするかは
   不変条件 I4（`answer_mode` だけ足す）との兼ね合いで決める
 - 受付終了時の自動提出（§9.1）と行動記録（§6）は段階 3
-- 運用機の nginx の `security-headers.conf` が CSP を持つ場合、Monaco のワーカー
-  （blob URL）が止められる可能性がある。止められても画面のスレッドで動くが、
-  main に入れる前に確かめる
+- 運用機の nginx の `security-headers.conf` を確かめた（2026-09-24）。HSTS・
+  `X-Content-Type-Options: nosniff`・`Referrer-Policy` だけで **CSP は無い** ので、
+  Monaco のワーカー（blob URL）もインラインの設定も止められない。`nosniff` の
+  もとでは JS が正しい MIME で配られる必要があるが、nginx の `mime.types` が
+  `.js` を `application/javascript` で出すので問題ない。雛形の
+  `location /static/vendor/` がこのファイルを読み直しているのは、ファイル自身の
+  注意書き（独自の `add_header` を持つ location では include し直す）と同じ
 
 ### 段階 0 で運用機で測るもの
 
