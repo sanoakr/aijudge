@@ -31,6 +31,7 @@ from .buffer import (
     content_hash,
     make_buffer,
 )
+from .flags import FLAG_LABELS, Flag, FlagKind, flag_events, submission_mismatches
 from .formats import EDITOR_FORMATS, EditorFormat, editor_formats
 from .intake import RefusalReason, RunPolicy, RunRefused, RunView, request_run, view_run
 from .integrity import SILENCE_MS, IntegrityReport, Silence, check_session
@@ -67,6 +68,7 @@ __all__ = [
     "DISPLAY_OUTPUT_CHARS",
     "EDITOR_FORMATS",
     "EVENT_TYPES",
+    "FLAG_LABELS",
     "IN_FLIGHT_STATES",
     "MAX_BATCH_BYTES",
     "MAX_SOURCE_BYTES",
@@ -83,6 +85,8 @@ __all__ = [
     "BufferTooLarge",
     "EditorFormat",
     "EventBatch",
+    "Flag",
+    "FlagKind",
     "IdeBuffer",
     "IdeSession",
     "IdeSessionId",
@@ -112,9 +116,11 @@ __all__ = [
     "clip_for_display",
     "content_hash",
     "editor_formats",
+    "flag_events",
     "make_buffer",
     "request_run",
     "snapshot_name",
+    "submission_mismatches",
     "summarize",
     "view_run",
 ]

@@ -493,3 +493,24 @@ source_modules =
     aijudge_ext_image_text
 forbidden_modules =
     aijudge_ide
+
+; **行動記録と印は成績に届かない**（ADR 0023 §4・設計書 §7）。成績を作るのは
+; 採点ワーカー（`aijudge_grader`）と、成績の確定（`aijudge_admin.finalization`）
+; だけで、どちらも IDE の記録を読めないようにする。印は教員が再生で確かめる
+; ための目印であって、判定ではない ── 読めるようになった日に「印が付いたら
+; 減点」の道ができる。`grading-does-not-know-ide` は採点エンジンと評価器を、
+; ここはその外側の合成ルートを閉じる。
+;
+; **直接の import を禁じる**（`allow_indirect_imports`）。保存層（persistence）は
+; IDE の表も実装するので、成績を作る処理が DB を使う限り間接には届く ── それは
+; 表の実装であって、印の計算（`aijudge_ide.flags`）を呼ぶ道ではない。
+[importlinter:contract:grades-do-not-read-activity]
+name = 成績を作る処理は IDE の記録と印を直接 import しない
+type = forbidden
+allow_indirect_imports = True
+source_modules =
+    aijudge_grader
+    aijudge_admin.finalization
+    aijudge_admin.finalize_cli
+forbidden_modules =
+    aijudge_ide
