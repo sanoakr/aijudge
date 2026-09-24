@@ -1853,13 +1853,15 @@ def test_the_evaluator_choices_are_grouped_with_ai_first(world: World) -> None:
     assert page.index('label="AI が判定する"') < page.index('label="機械が確定させる（決定的）"')
     assert page.index('label="機械が確定させる（決定的）"') < page.index('label="人が採点する"')
     # **科目が宣言している評価器だけが並ぶ。** cs_lang_c_intro は
-    # rubric_ai_judge と code_test_runner しか宣言していないので、項目を
-    # 積み上げる評価器はここには出ない（出せば付けられ、付けても誰も採点しない）。
+    # rubric_ai_judge・code_test_runner・text_pattern_check しか宣言して
+    # いないので、項目を積み上げる評価器や network_test_runner はここには
+    # 出ない（出せば付けられ、付けても誰も採点しない）。
     ai_group = page[page.index('label="AI が判定する"') : page.index('label="機械が確定させる')]
     assert "checklist_ai_judge" not in ai_group
     det_group = page[page.index('label="機械が確定させる') : page.index('label="人が採点する"')]
     assert "code_test_runner" in det_group
-    assert "text_pattern_check" not in det_group
+    assert "text_pattern_check" in det_group
+    assert "network_test_runner" not in det_group
 
     # 宣言している科目（report_ja）の課題では AI の組に居る。
     from aijudge_core.ids import TaskVersionId
@@ -1891,6 +1893,11 @@ def test_an_evaluator_the_profile_does_not_declare_is_refused(world: World) -> N
     担当しないまま提出が「点が 1 つも出ない」で落ちる。prog2 ex01-2 で
     実際に起きた（2026-09-22）: cs_lang_c_intro に無い text_pattern_check を
     画面から選べた。選択肢を絞るだけでなく保存でも断る（#146 と同じ理由）。
+
+    その後 cs_lang_c_intro は text_pattern_check を宣言した（prog2 ex01-3
+    が同じ理由で落ちたのを機に、2026-09-23）ので、ここでの「未宣言の評価器」
+    の例は network_test_runner に替えてある ── この科目が宣言しない
+    ことに変わりはない評価器で、検証の意図は変えていない。
     """
     world.register("teacher", Role.INSTRUCTOR)
     task_id = _import_example(world)
@@ -1901,13 +1908,13 @@ def test_an_evaluator_the_profile_does_not_declare_is_refused(world: World) -> N
         "criterion_title": ["修了証"],
         "criterion_description": ["読み取れるか"],
         "criterion_weight": ["1.0"],
-        "criterion_evaluator": ["text_pattern_check"],
+        "criterion_evaluator": ["network_test_runner"],
         "criterion_levels": [""],
     }
     response = client.post(f"/manage/courses/{world.course.id}/tasks/{task_id}/revise", data=rows)
     assert response.status_code == 400, response.text
     detail = response.json()["detail"]
-    assert "text_pattern_check" in detail
+    assert "network_test_runner" in detail
     assert "cs_lang_c_intro" in detail
     assert "/grading" in detail
 
@@ -1933,7 +1940,7 @@ def test_an_evaluator_the_profile_does_not_declare_is_refused(world: World) -> N
                             title="修了証",
                             description="読み取れるか",
                             weight=1.0,
-                            evaluator_id="text_pattern_check",
+                            evaluator_id="network_test_runner",
                             levels=(
                                 RubricLevel(
                                     level=0, label="未達", descriptor="無い", score_ratio=0.0
@@ -1950,7 +1957,7 @@ def test_an_evaluator_the_profile_does_not_declare_is_refused(world: World) -> N
         uow.commit()
     page = client.get(f"/manage/courses/{world.course.id}/tasks/{task_id}/edit").text
     assert "科目プロファイルが宣言していない" in page
-    assert 'value="text_pattern_check" selected' in page
+    assert 'value="network_test_runner" selected' in page
 
 
 def test_kc_candidates_come_from_the_courses_own_components(world: World, monkeypatch) -> None:

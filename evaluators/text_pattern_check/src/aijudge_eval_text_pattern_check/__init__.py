@@ -35,6 +35,12 @@
   「どれか1本で満たせば OK」の真偽値になる。宣言すると、満たした提出物の
   **本数**を `expected_count` に対する割合として重みに割り当てる ── 3 枚中
   2 枚しか認定証が無ければ、その項目は 2/3 の重みしか稼がない。
+- `distinct_by` — 同じものを二重に数えないための鍵。捕捉群を 1 つ持つ
+  正規表現を**本文全体**に当て、正規化した捕捉文字列が同じ提出物は 1 件と
+  数える。「異なるレッスンの認定証を何枚出したか」を数える課題（ex01-3）で、
+  同じ認定証を複数枚出しても増えないようにする。**鍵が取れなかった提出物は
+  そのまま数える** ── 書き起こしが読めなかっただけの提出を重複扱いすると、
+  抽出器の失敗が学習者の減点として出る。
 
 ## 段階はこちらが決める
 
@@ -85,6 +91,8 @@ class PatternSpec(BaseModel):
     weight: float = 1.0
     #: 満たすべき提出物の本数。0 は「真偽値（どれか1本で可）」のまま。
     expected_count: int = Field(default=0, ge=0)
+    #: 同じものを二重に数えないための鍵（捕捉群を 1 つ持つ正規表現）。
+    distinct_by: str = ""
 
 
 def normalise(text: str) -> str:
@@ -144,15 +152,45 @@ def satisfies(spec: PatternSpec, body: str, learner_reference: str | None) -> bo
     return any(expression.search(line) for line in haystack)
 
 
+def distinct_key(spec: PatternSpec, body: str) -> str:
+    """この提出物を他と見分ける鍵。**取れなければ空**（＝見分けられない）。
+
+    `pattern` と違って**本文全体**に当てる。認定証では見分けたい文字列
+    （レッスン名）と、それが認定証だと分かる定型文が別の行にあり、しかも
+    長い講座名は途中で折り返す ── 行単位で見ていると捕まえられない。
+    """
+    if not spec.distinct_by:
+        return ""
+    found = re.compile(spec.distinct_by, re.IGNORECASE | re.DOTALL).search(body)
+    if found is None:
+        return ""
+    return normalise(found.group(1) if found.groups() else found.group(0))
+
+
 def _matching_artifacts(
     spec: PatternSpec,
     bodies: tuple[tuple[ArtifactId, str], ...],
     learner_reference: str | None,
 ) -> tuple[ArtifactId, ...]:
-    """この項目を満たした提出物（本文ごとに独立して判定する）。"""
-    return tuple(
-        artifact_id for artifact_id, body in bodies if satisfies(spec, body, learner_reference)
-    )
+    """この項目を満たした提出物（本文ごとに独立して判定する）。
+
+    `distinct_by` があるときは、同じ鍵の提出物を 1 件として数える ──
+    同じ認定証を複数枚出しても増えない。**鍵が取れなかった提出物はそのまま
+    数える** ── 書き起こしが読めなかっただけの提出を重複扱いにすると、
+    抽出器の失敗が学習者の減点として出る。
+    """
+    hits: list[ArtifactId] = []
+    seen: set[str] = set()
+    for artifact_id, body in bodies:
+        if not satisfies(spec, body, learner_reference):
+            continue
+        key = distinct_key(spec, body)
+        if key:
+            if key in seen:
+                continue
+            seen.add(key)
+        hits.append(artifact_id)
+    return tuple(hits)
 
 
 def _is_met(spec: PatternSpec, hits: tuple[ArtifactId, ...]) -> bool:
@@ -210,6 +248,7 @@ def _spec_of(case: object) -> PatternSpec:
         required=bool(payload.get("required") or False),
         weight=float(getattr(case, "weight", 1.0)),
         expected_count=int(payload.get("expected_count") or 0),
+        distinct_by=str(payload.get("distinct_by") or ""),
     )
 
 

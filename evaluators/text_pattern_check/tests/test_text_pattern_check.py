@@ -429,3 +429,109 @@ def test_evidence_is_attributed_to_the_image_that_actually_matched() -> None:
     assert len(evidence) == 1
     # bodies=(はずれ, BODY) の2本目（index=1）が一致した本体。
     assert evidence[0].artifact_content_hash == "sha256:1"
+
+
+# --------------------------------------------------------------------------
+# 同じものを二重に数えない（distinct_by）
+# --------------------------------------------------------------------------
+
+
+#: 実物の認定証（3 枚のサンプルから）。**レッスン名と定型文は別の行**にある。
+def _certificate(lesson: str) -> str:
+    return "\n".join(
+        [
+            "認定証",
+            lesson,
+            "Y240040naka",
+            "paizaラーニング",
+            lesson,
+            "の全チャプターを修了したことを証明します。",
+            "2026年9月23日",
+        ]
+    )
+
+
+LESSON_KEY = r"(.{5,80}?)\s*の全チャプターを修了したことを証明"
+COUNT_CERTIFICATES = _case(
+    "認定証の枚数",
+    criterion="nickname",
+    pattern=r"修了したことを証明",
+    expected_count=3,
+    distinct_by=LESSON_KEY,
+)
+
+
+def test_the_same_certificate_twice_counts_once() -> None:
+    """**水増しを数えない。** 同じレッスンの認定証は何枚出しても 1 件。"""
+    outcome = TextPatternCheck().evaluate(
+        _request_multi(
+            cases=(COUNT_CERTIFICATES,),
+            criteria=(_criterion(levels=3),),
+            bodies=(_certificate("新・Linux入門編1: Linuxを学習しよう (全 3 回)"),) * 3,
+        )
+    )
+    assert outcome.raw_output["counts"]["nickname"]["認定証の枚数"] == 1
+
+
+def test_different_lessons_each_count() -> None:
+    """**別のレッスンは別と数える。** 講座を選べる課題なので名前は予告できない。"""
+    outcome = TextPatternCheck().evaluate(
+        _request_multi(
+            cases=(COUNT_CERTIFICATES,),
+            criteria=(_criterion(levels=3),),
+            bodies=(
+                _certificate("新・Linux入門編1: Linuxを学習しよう (全 3 回)"),
+                _certificate("新・Linux入門編2: ファイル・ディレクトリの操作と管理 (全 18 回)"),
+                _certificate("新・Linux入門編3: プロセス (全 6 回)"),
+            ),
+        )
+    )
+    assert outcome.raw_output["counts"]["nickname"]["認定証の枚数"] == 3
+    assert outcome.scores[0].level == 2
+
+
+def test_a_lesson_name_that_wraps_is_still_one_key() -> None:
+    """**折り返した講座名でも鍵が取れる。** 実物は長い名前が 2 行に割れる。
+
+    行単位で見ていると、レッスン名の行と定型文の行が別なので捕まらない。
+    `distinct_by` は本文全体に当てる。
+    """
+    wrapped = _certificate("新・Linux入門編1(LinuC対策版): Linuxを学習しよう (全 3\n回)")
+    outcome = TextPatternCheck().evaluate(
+        _request_multi(
+            cases=(COUNT_CERTIFICATES,),
+            criteria=(_criterion(levels=3),),
+            bodies=(wrapped, wrapped),
+        )
+    )
+    assert outcome.raw_output["counts"]["nickname"]["認定証の枚数"] == 1
+
+
+def test_an_unreadable_certificate_is_not_treated_as_a_duplicate() -> None:
+    """**読めなかったものは数える。** 書き起こしの失敗を減点にしない。
+
+    鍵が取れない提出物まで重複扱いにすると、抽出器が読み損ねただけの提出が
+    「同じ認定証を出した」と見なされて学習者が損をする。
+    """
+    unreadable = "認定証\n修了したことを証明\n（レッスン名が読み取れなかった）"
+    outcome = TextPatternCheck().evaluate(
+        _request_multi(
+            cases=(COUNT_CERTIFICATES,),
+            criteria=(_criterion(levels=3),),
+            bodies=(unreadable, unreadable),
+        )
+    )
+    assert outcome.raw_output["counts"]["nickname"]["認定証の枚数"] == 2
+
+
+def test_without_distinct_by_nothing_is_deduplicated() -> None:
+    """**既定は今までどおり。** 宣言しない課題の数え方は変わらない。"""
+    case = _case("認定証", criterion="nickname", pattern=r"認定証", expected_count=3)
+    outcome = TextPatternCheck().evaluate(
+        _request_multi(
+            cases=(case,),
+            criteria=(_criterion(levels=3),),
+            bodies=("認定証", "認定証"),
+        )
+    )
+    assert outcome.raw_output["counts"]["nickname"]["認定証"] == 2
