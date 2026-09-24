@@ -214,6 +214,7 @@ KEPT = {
     "confidential_until_open",
     "audience_group_ids",
     "answer_mode",
+    "editor_completion",
 }
 # 版を保存する側が決める（`save_task` は触らない）。
 DECIDED_ELSEWHERE = {"current_version_id"}
@@ -292,3 +293,16 @@ def test_revising_an_editor_task_keeps_its_answer_mode(world) -> None:
     with database.unit_of_work() as uow:
         after = uow.tasks.get_task(saved.task.id)
     assert after.answer_mode is AnswerMode.EDITOR, "直したら答え方が戻っている"
+
+
+def test_revising_a_task_keeps_its_completion_setting(world) -> None:
+    """演習で補完を入れた課題を 1 つ直しても、補完が切に戻らない。"""
+    database, course = world
+    saved = _save(database, course, "本文")
+    _schedule_the_unit(database, saved.task.id, editor_completion=True)
+
+    _save(database, course, "本文（誤字を直した）")
+
+    with database.unit_of_work() as uow:
+        after = uow.tasks.get_task(saved.task.id)
+    assert after.editor_completion is True, "直したら補完の設定が戻っている"

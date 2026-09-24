@@ -287,6 +287,8 @@ def register_ide_routes(app: FastAPI, deps: IdeDeps, me_dependency: Any) -> None
                     # サンプルは実行できるときだけ出す（押しても動かないボタンを出さない）。
                     "samples": _public_samples(version) if runnable is not None else [],
                     "source": buffer.source if buffer is not None else "",
+                    # 補完の切／入（設計書 §5.3）。答え方とは独立した課題の値。
+                    "completion": task.editor_completion,
                     "submitted": 0 if mark is None else mark.count,
                     "last_submitted_hash": _last_submitted_hash(mark),
                 }

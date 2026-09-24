@@ -306,6 +306,74 @@
     });
   }
 
+  // -- 補完（設計書 §5.3） ----------------------------------------------------
+  //
+  // 問題セットごとに「切／入」。**切でも**括弧を閉じる・字下げ・色分けは効く。
+  // 入のときだけ、そのファイル内の単語と言語のキーワードを候補に出す。
+  //
+  // Monaco の組み込みの単語補完は使わない。確定した瞬間を拾えないので、補完で
+  // 入った数文字を貼り付けや自動入力と取り違える。候補は全部ここで作り、確定の
+  // コマンドで行動記録に `suggest` を残す。キーワードも自前で持つ ── Monaco の
+  // 言語定義は色分けのための一覧しか持たず、C は C++ と共用なので `class` の
+  // ような C に無い語が混じる。
+
+  var KEYWORDS = {
+    // C11 のキーワード。
+    cpp: ("auto break case char const continue default do double else enum extern float " +
+      "for goto if inline int long register restrict return short signed sizeof static " +
+      "struct switch typedef union unsigned void volatile while _Alignas _Alignof _Atomic " +
+      "_Bool _Complex _Generic _Imaginary _Noreturn _Static_assert _Thread_local").split(" "),
+    // Python の `keyword.kwlist`。
+    python: ("False None True and as assert async await break class continue def del elif " +
+      "else except finally for from global if import in is lambda nonlocal not or pass " +
+      "raise return try while with yield").split(" "),
+  };
+  // 候補にするファイル内の単語の最短の長さ。1 文字の変数まで出すと候補が埋まる。
+  var MIN_WORD = 3;
+  var completionOn = {};
+
+  function registerCompletion(monaco) {
+    monaco.editor.registerCommand("aijudge.suggestAccepted", function (_accessor, tab, word, source) {
+      record("suggest", { tab: tab, word: word, len: word.length, source: source });
+    });
+    ["cpp", "python"].forEach(function (language) {
+      monaco.languages.registerCompletionItemProvider(language, {
+        provideCompletionItems: function (model, position) {
+          var tab = completionOn[model.uri.toString()];
+          if (tab === undefined) return { suggestions: [] };
+          var word = model.getWordUntilPosition(position);
+          var range = {
+            startLineNumber: position.lineNumber,
+            endLineNumber: position.lineNumber,
+            startColumn: word.startColumn,
+            endColumn: word.endColumn,
+          };
+          var seen = {};
+          var suggestions = [];
+          function add(label, kind, source) {
+            if (seen[label] || label === word.word) return;
+            seen[label] = true;
+            suggestions.push({
+              label: label,
+              kind: kind,
+              insertText: label,
+              range: range,
+              command: { id: "aijudge.suggestAccepted", title: "", arguments: [tab, label, source] },
+            });
+          }
+          (KEYWORDS[language] || []).forEach(function (k) {
+            add(k, monaco.languages.CompletionItemKind.Keyword, "keyword");
+          });
+          var found = model.getValue().match(/[A-Za-z_][A-Za-z0-9_]*/g) || [];
+          found.forEach(function (w) {
+            if (w.length >= MIN_WORD) add(w, monaco.languages.CompletionItemKind.Text, "word");
+          });
+          return { suggestions: suggestions };
+        },
+      });
+    });
+  }
+
   // -- タブ ------------------------------------------------------------------
 
   function selectTab(index) {
@@ -696,6 +764,7 @@
   });
   window.require(["vs/editor/editor.main"], function () {
     monacoRef = window.monaco;
+    registerCompletion(monacoRef);
     for (var k = 0; k < tabCount; k++) {
       (function (index) {
         var model = monacoRef.editor.createModel(
@@ -703,6 +772,8 @@
           formatOf(index, state[index].suffix).monaco
         );
         models[index] = model;
+        var withCompletion = !!(config.completion && config.completion[index]);
+        if (withCompletion) completionOn[model.uri.toString()] = index;
         editors[index] = monacoRef.editor.create($('[data-editor="' + index + '"]'), {
           model: model,
           theme: theme(),
@@ -716,8 +787,10 @@
           autoClosingQuotes: "always",
           autoIndent: "full",
           matchBrackets: "always",
-          quickSuggestions: false,
-          suggestOnTriggerCharacters: false,
+          // 候補は補完が「入」のタブだけ（上の `registerCompletion`）。組み込みの
+          // 単語補完はどのタブでも使わない。
+          quickSuggestions: withCompletion,
+          suggestOnTriggerCharacters: withCompletion,
           wordBasedSuggestions: "off",
           parameterHints: { enabled: false },
           snippetSuggestions: "none",

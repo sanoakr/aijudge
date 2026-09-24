@@ -59,7 +59,7 @@
 | I1 | `packages/core` の `Submission`・`packages/grading`・評価器は **0 行** | 差分に現れないこと（レビュー）。IDE からの提出で既存の採点テストが通ること |
 | I2 | IDE からの提出は既存の `SubmissionService.accept()` を通る。採点側は提出の出どころを知らない | IDE の提出と `/submit` の提出が同じ `Submission` を作るテスト |
 | I3 | 「実行」は採点キュー（`grading_jobs`）に入れない。`GradingPhase` も増やさない | runner が止まっても採点が進むテスト、その逆も |
-| I4 | 既存の `Task` への追加は `answer_mode`（既定 `upload`）だけ（`document` の JSON に入るので列は増えない）。あとは新テーブル | `test_migrations.py`。既定値で既存の課題の見え方・数え方が変わらないテスト |
+| I4 | 既存の `Task` への追加は `answer_mode`（既定 `upload`）と `editor_completion`（既定 切）だけ（`document` の JSON に入るので列は増えない）。あとは新テーブル | `test_migrations.py`。既定値で既存の課題の見え方・数え方が変わらないテスト |
 | I5 | `answer_mode=upload` の課題には何も起きない。新しい画面は `editor` の課題にしか出ない | 既存の学生画面のテストが無変更で通る |
 | I6 | web プロセスに Docker の権限を与えない | systemd unit の差分。web の依存に `aijudge-sandbox` が入らないこと（import 契約） |
 | I7 | 行動記録が書けなくても、編集・実行・提出は止めない | 記録の保存を失敗させる fake でのテスト |
@@ -206,7 +206,8 @@ IDE とは独立した問題として `docs/design/task-visibility.md` で先に
 
 - Monaco の言語定義は C/C++ 共用の `basic-languages/cpp` と `python` だけを読み込む。
   TypeScript などのワーカーは載せない
-- **補完は問題セットごとに「切／入」の 2 択**（2026-09-24 決定）
+- **補完は問題セットごとに「切／入」の 2 択**（2026-09-24 決定）。値は `Task.editor_completion`
+  で、答え方とは独立に持つ（2026-09-24、I4 を改めて追加。学内限定・秘匿と同じ形）
 
 | 設定 | できること |
 |---|---|
@@ -624,8 +625,7 @@ main に混ぜない**。main への取り込みは、段階 3 の負荷試験�
 
 残したもの:
 
-- 補完の切／入（§5.3）。いまは切だけ。切り替えを `Task` の 2 つ目の値にするかは
-  不変条件 I4（`answer_mode` だけ足す）との兼ね合いで決める
+- 補完の切／入（§5.3）は段階 3 で `Task.editor_completion` として足した（I4 を改めた）
 - 受付終了時の自動提出（§9.1）と行動記録（§6）は段階 3
 - 運用機の nginx の `security-headers.conf` を確かめた（2026-09-24）。HSTS・
   `X-Content-Type-Options: nosniff`・`Referrer-Policy` だけで **CSP は無い** ので、

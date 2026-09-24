@@ -405,3 +405,18 @@ def test_someone_elses_session_does_not_exist(world: World, tmp_path) -> None:
     world.login("s2400002")
 
     assert _batch(world, session_id, 0).status_code == 404
+
+
+def test_the_completion_setting_reaches_the_editor(world: World) -> None:
+    """補完は課題ごとの値（設計書 §5.3）。既定は切。"""
+    _editor(world)
+    _learner(world)
+    assert _config(world.client.get(f"/courses/{_course_id(world)}/ide").text)["completion"] == [
+        False
+    ]
+
+    _task(world, editor_completion=True)
+
+    assert _config(world.client.get(f"/courses/{_course_id(world)}/ide").text)["completion"] == [
+        True
+    ]
