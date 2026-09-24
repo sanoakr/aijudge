@@ -87,6 +87,7 @@ from aijudge_admin import (
     try_settings,
 )
 from aijudge_admin import groups as audience
+from aijudge_admin.answer_mode import editor_blockers
 from aijudge_admin.bundles import MAX_ARCHIVE_BYTES
 from aijudge_admin.course_definition import course_template
 from aijudge_admin.drafting import TaskDrafter
@@ -124,6 +125,7 @@ from aijudge_core import (
     MIN_JUSTIFICATION_LENGTH,
     SUFFIX_GROUPS,
     Aggregation,
+    AnswerMode,
     Course,
     EvaluatorKind,
     GradeWindow,
@@ -826,6 +828,7 @@ SAVED_MESSAGES: dict[str, str] = {
     "campus_only": "この問題セットの受付範囲を変えました（セット内の全課題に反映）",
     "confidential": "この問題セットを公開前に誰に見せるかを変えました（セット内の全課題に反映）",
     "audience": "この問題セットの出題先を変えました（セット内の全課題に反映）",
+    "answer_mode": "この問題セットの答え方を変えました（セット内の全課題に反映）",
     "group_deleted": "名簿を消しました",
     # **版は上がらない。** 日程は課題の内容ではないので、直しても過去の
     # 採点基準は変わらない（ADR 0013・P8 の対象外）。
@@ -2715,6 +2718,9 @@ def register(templates) -> APIRouter:
                 # 出題先の名簿（追試など）。**名簿そのものは別の画面で作る**
                 # （`/manage/courses/{id}/groups`）── ここは選ぶだけ。
                 "groups": _groups_of(console, course),
+                # エディタで解けない理由（ADR 0026）。**押す前に見せる** ──
+                # 押してから断られるのでは、どの課題が原因か分からない。
+                "editor_blockers": editor_blockers(group.tasks, course),
                 # 試験の一括採点（#67）。待機中の件数と、落ちたジョブ。
                 **_exam_state(console, course, group, now),
                 "min_reason": MIN_JUSTIFICATION_LENGTH,
@@ -3159,6 +3165,43 @@ def register(templates) -> APIRouter:
             unit,
             update={"campus_only": bool(campus_only.strip())},
             saved="campus_only",
+        )
+
+    @router.post("/courses/{course_id}/units/{unit}/answer-mode")
+    def set_unit_answer_mode(
+        request: Request,
+        course_id: str,
+        unit: str,
+        answer_mode: Annotated[str, Form()] = "",
+    ) -> Response:
+        """**問題セットをエディタで解くか、ファイルで出すかを切り替える**（ADR 0026）。
+
+        学内限定と同じで、値はセット単位で決めて全課題に入れる（`_update_unit`）。
+        同じ回の中で答え方が混ざると、学習者は課題ごとに画面を行き来する。
+
+        **`editor` にできるのは提出形式に `.c`・`.py`・`.md` のどれかを含む課題だけで、
+        ここで確かめる**（`aijudge_admin.answer_mode`）。画面は理由を先に見せて押せなくするが、
+        それは表示の都合であって境界ではない（#146）。
+        """
+        try:
+            mode = AnswerMode(answer_mode.strip() or AnswerMode.UPLOAD.value)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="答え方の指定が不正です") from None
+        if mode is AnswerMode.EDITOR:
+            from .app import require_principal
+
+            me = require_principal(request)
+            course = _require_instructor(request, me, CourseId(course_id))
+            console = _console(request)
+            group = _unit_group(console, course, unit)
+            blockers = editor_blockers(group.tasks, course)
+            if blockers:
+                raise HTTPException(
+                    status_code=409,
+                    detail="エディタで解けない課題があります: " + "／".join(blockers),
+                )
+        return _update_unit(
+            request, course_id, unit, update={"answer_mode": mode}, saved="answer_mode"
         )
 
     @router.post("/courses/{course_id}/units/{unit}/confidential")

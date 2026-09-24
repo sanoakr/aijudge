@@ -23,6 +23,7 @@ from urllib.parse import quote, unquote
 
 from aijudge_admin import pending_counts
 from aijudge_core import (
+    AnswerMode,
     Course,
     ReviewState,
     Role,
@@ -95,6 +96,10 @@ class UnitGroup:
     # 空にして `audience_mixed` を立てる（黙らせない）。空で揃っていれば全員。
     audience: tuple[str, ...] = ()
     audience_mixed: bool = False
+    # エディタで解くか（ADR 0026）。**全課題がそうなら真。** 学内限定と同じく、
+    # 混ざりは別に持って黙らせない。
+    editor: bool = False
+    editor_mixed: bool = False
 
     @property
     def count(self) -> int:
@@ -212,6 +217,8 @@ def load_units(
                 and not all(task.confidential_until_open for task in tasks),
                 audience=_common_audience(tasks),
                 audience_mixed=len({task.audience_group_ids for task in tasks}) > 1,
+                editor=bool(tasks) and all(task.answer_mode is AnswerMode.EDITOR for task in tasks),
+                editor_mixed=len({task.answer_mode for task in tasks}) > 1,
             )
         )
     return tuple(groups)

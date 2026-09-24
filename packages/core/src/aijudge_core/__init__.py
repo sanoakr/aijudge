@@ -117,6 +117,7 @@ from .submission import (
 from .task import (
     HUMAN_SCORED,
     Aggregation,
+    AnswerMode,
     Provenance,
     ReviewState,
     RubricCriterion,
@@ -170,6 +171,7 @@ __all__ = [
     "VIDEO_RETENTION_MONTHS_WITHOUT_DEADLINE",
     "YEARS_OFFERED",
     "Aggregation",
+    "AnswerMode",
     "Artifact",
     "ArtifactKind",
     "ArtifactRole",
