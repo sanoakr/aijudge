@@ -445,3 +445,26 @@ def test_the_runner_leaves_grading_jobs_alone(world: World) -> None:
         job = uow.jobs.reserve(world.clock(), worker="w1", lease_seconds=60)
         assert job is not None
         assert uow.jobs.reserve(world.clock(), worker="w2", lease_seconds=60) is None
+
+
+# -- 選んだ形式 --------------------------------------------------------------
+
+
+def test_a_format_matching_the_grading_language_runs(world: World) -> None:
+    world.ask(suffix=".c")
+    done = world.runner.run_once()
+    assert done is not None and done.state is RunState.DONE
+
+
+@pytest.mark.parametrize("suffix", [".py", ".md", ".java"])
+def test_a_format_other_than_the_grading_language_is_not_run(world: World, suffix: str) -> None:
+    """**採点の言語と違う形式は動かさない。** web が断っていても、ここで
+    もう一度確かめる（web の検査だけを信じない）。
+    """
+    world.ask(suffix=suffix)
+
+    done = world.runner.run_once()
+
+    assert done is not None and done.state is RunState.FAILED
+    assert done.error == NOT_RUNNABLE
+    assert world.sandbox.requests == []

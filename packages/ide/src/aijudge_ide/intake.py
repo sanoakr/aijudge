@@ -88,6 +88,7 @@ def request_run(
     stdin: str = "",
     sample_name: str | None = None,
     ide_session_id: str | None = None,
+    suffix: str | None = None,
     policy: RunPolicy | None = None,
 ) -> RunRequest:
     """実行要求を積む。受け付けなければ `RunRefused`。"""
@@ -133,6 +134,7 @@ def request_run(
         learner_id=learner_id,
         task_version_id=task_version_id,
         ide_session_id=ide_session_id,
+        suffix=suffix,
         source=source,
         stdin=stdin,
         sample_name=sample_name,

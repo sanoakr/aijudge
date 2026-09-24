@@ -35,6 +35,7 @@ from aijudge_eval_code_test_runner import (
 from aijudge_grading import OverrideError, SubjectProfile, effective_profile, load_profile
 from aijudge_ide import (
     DEFAULT_LEASE_SECONDS,
+    EDITOR_FORMATS,
     STALE_AFTER_SECONDS,
     RunOutcome,
     RunRequest,
@@ -215,6 +216,13 @@ class CodeRunner:
             language = resolve_language(options)
         except UnknownLanguage as exc:
             raise RunNotPossible(MISCONFIGURED) from exc
+        # **選んだ形式が採点の言語と一致するときだけ動かす**（設計書 §4.2）。
+        # web も同じ検査をしているが、ここでもう一度確かめる ── 採点が C の
+        # 課題で Python を走らせても、採点で何が起きるかの手がかりにならない。
+        if request.suffix is not None:
+            chosen = EDITOR_FORMATS.get(request.suffix)
+            if chosen is None or chosen.filename != language.source_name:
+                raise RunNotPossible(NOT_RUNNABLE)
 
         return RunPlan(
             language=language,

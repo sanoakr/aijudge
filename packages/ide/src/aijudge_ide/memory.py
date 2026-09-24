@@ -9,8 +9,9 @@ from __future__ import annotations
 from collections.abc import Iterable
 from datetime import datetime
 
-from aijudge_core.ids import UserId
+from aijudge_core.ids import TaskId, UserId
 
+from .buffer import IdeBuffer
 from .protocols import RunAlreadyPending
 from .run import DEFAULT_LEASE_SECONDS, RUNNER_LOST, RunRequest, RunRequestId, RunState
 
@@ -93,3 +94,23 @@ class InMemoryRunQueue:
     @staticmethod
     def _ordered(requests: Iterable[RunRequest]) -> list[RunRequest]:
         return sorted(requests, key=lambda r: (r.created_at, r.id))
+
+
+class InMemoryBufferStore:
+    """インメモリの自動保存。SQL 実装と同じテストに通る。"""
+
+    def __init__(self) -> None:
+        self._buffers: dict[tuple[UserId, TaskId], IdeBuffer] = {}
+
+    def save(self, buffer: IdeBuffer) -> None:
+        self._buffers[(buffer.learner_id, buffer.task_id)] = buffer
+
+    def get(self, learner_id: UserId, task_id: TaskId) -> IdeBuffer | None:
+        return self._buffers.get((learner_id, task_id))
+
+    def for_tasks(self, learner_id: UserId, task_ids: list[TaskId]) -> dict[TaskId, IdeBuffer]:
+        return {
+            task_id: buffer
+            for task_id in task_ids
+            if (buffer := self._buffers.get((learner_id, task_id))) is not None
+        }

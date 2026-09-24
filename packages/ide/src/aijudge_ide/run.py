@@ -122,6 +122,10 @@ class RunRequest(BaseModel):
     task_version_id: TaskVersionId
     # どの IDE の画面から来たか。行動記録（段階 3）と突き合わせる。
     ide_session_id: str | None = None
+    # エディタで選んだ形式（`.c`・`.py`）。**runner は採点の言語と一致するか
+    # 確かめ直す**（`aijudge_ide.formats`）── web の検査だけを信じない。
+    # None は形式を指定しない要求で、採点の言語で動かす。
+    suffix: str | None = None
     source: str
     # 自由入力の標準入力。**サンプルで実行するときは空**で、中身は runner が
     # 課題から引く（学習者から届いた「サンプルの中身」を信じない）。
