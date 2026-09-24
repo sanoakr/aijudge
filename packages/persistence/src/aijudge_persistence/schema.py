@@ -17,6 +17,8 @@ SQL で集約の中身を検索するようになったときで、そのとき�
     audit_events       誰が成績に届く何を変えたか。**追記のみ**（ADR 0016）
     run_requests       IDE の試しの実行。採点キューとは別（ADR 0024）。結果は残さない
     ide_buffers        IDE の自動保存。(学習者, 課題) ごとに 1 行、上書き
+    ide_submission_links  IDE からの提出の出どころ（本人か、受付終了時の自動提出か）
+    ide_sessions / ide_event_batches  行動記録の索引（ADR 0023）。本体はファイル
 
 日時は必ず timezone 付きで扱う。素の TIMESTAMP に入れると、締切判定が
 サーバのローカル時刻に依存する。**ただしバックエンドによっては保証されない**
@@ -838,3 +840,66 @@ class IdeBufferRow(Base):
     source: Mapped[str] = mapped_column(Text)
     content_hash: Mapped[str] = mapped_column(String(64))
     updated_at: Mapped[datetime] = mapped_column(Timestamp)
+
+
+class IdeSubmissionLinkRow(Base):
+    """IDE からの提出の出どころ（設計書 §9）。**`submissions` には列を足さない**（I1）。
+
+    行が無い提出はファイルでの提出。本人が押した提出（`editor`）と、受付終了時に
+    サーバが出した提出（`auto_close`）を後から区別するために残す。
+    """
+
+    __tablename__ = "ide_submission_links"
+
+    submission_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(64))
+    learner_id: Mapped[str] = mapped_column(String(64))
+    task_id: Mapped[str] = mapped_column(String(64), index=True)
+    origin: Mapped[str] = mapped_column(String(16))
+    content_hash: Mapped[str] = mapped_column(String(64))
+    ide_session_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    recorded_at: Mapped[datetime] = mapped_column(Timestamp)
+
+
+class IdeSessionRow(Base):
+    """IDE の画面を 1 回開いてから閉じるまで（ADR 0023）。行動記録の索引の親。
+
+    **告知を確認した時刻を持つ**（`consented_at`）。確認なしのセッションは作らない。
+    """
+
+    __tablename__ = "ide_sessions"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(64))
+    learner_id: Mapped[str] = mapped_column(String(64))
+    course_id: Mapped[str] = mapped_column(String(64))
+    # 問題セットの名前（`tasks.unit` と同じ幅）。
+    unit: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    started_at: Mapped[datetime] = mapped_column(Timestamp)
+    user_agent: Mapped[str] = mapped_column(String(300))
+    consented_at: Mapped[datetime] = mapped_column(Timestamp)
+
+    __table_args__ = (
+        # 「このコースで告知を確認したことがあるか」と、教員の閲覧（段階 4）。
+        Index("ix_ide_sessions_learner_course", "learner_id", "course_id"),
+    )
+
+
+class IdeEventBatchRow(Base):
+    """行動記録の 1 バッチの索引（ADR 0023 §3）。**本体はファイル**にある。
+
+    **イベント 1 件を 1 行にしない。** 打鍵単位だと 1 試験で数百万行になる。
+    `(ide_session_id, seq)` の一意制約が再送を重複させない。
+    """
+
+    __tablename__ = "ide_event_batches"
+
+    ide_session_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    seq: Mapped[int] = mapped_column(Integer, primary_key=True)
+    received_at: Mapped[datetime] = mapped_column(Timestamp)
+    client_time: Mapped[datetime | None] = mapped_column(Timestamp, nullable=True)
+    event_count: Mapped[int] = mapped_column(Integer)
+    snapshot_count: Mapped[int] = mapped_column(Integer)
+    byte_size: Mapped[int] = mapped_column(Integer)
+    sha256: Mapped[str] = mapped_column(String(64))
+    path: Mapped[str] = mapped_column(String(512))

@@ -102,3 +102,75 @@ def test_the_limit_matches_running() -> None:
     with pytest.raises(BufferTooLarge):
         buffer("a" * (MAX_SOURCE_BYTES + 1))
     buffer("a" * MAX_SOURCE_BYTES)
+
+
+def test_all_learners_of_a_task_come_back(database: Database) -> None:
+    """受付終了時の自動提出が読む（設計書 §9.1）。他の課題は混ざらない。"""
+    for store in _both(database):
+        store.save(buffer("mine", learner=LEARNER, task=P1))
+        store.save(buffer("theirs", learner=OTHER, task=P1))
+        store.save(buffer("other task", learner=LEARNER, task=P2))
+
+        found = store.for_task(P1)
+
+        assert sorted(b.source for b in found) == ["mine", "theirs"]
+        assert store.task_ids() == (P1, P2)
+
+
+# -- 提出の出どころ ----------------------------------------------------------
+
+from aijudge_core.ids import SubmissionId  # noqa: E402
+from aijudge_ide import (  # noqa: E402
+    InMemorySubmissionLinkStore,
+    SubmissionLink,
+    SubmissionLinkStore,
+    SubmissionOrigin,
+)
+
+SUB = SubmissionId("sub_" + "5" * 32)
+
+
+def _links(database: Database) -> Iterator[SubmissionLinkStore]:
+    yield InMemorySubmissionLinkStore()
+    with database.unit_of_work() as uow:
+        yield uow.ide_links
+        uow.commit()
+
+
+def a_link(origin: SubmissionOrigin) -> SubmissionLink:
+    return SubmissionLink(
+        submission_id=SUB,
+        tenant_id=TENANT,
+        learner_id=LEARNER,
+        task_id=P1,
+        origin=origin,
+        content_hash=content_hash("x"),
+        recorded_at=NOW,
+    )
+
+
+def test_a_link_reads_back_whole(database: Database) -> None:
+    for links in _links(database):
+        link = a_link(SubmissionOrigin.EDITOR)
+        links.record(link)
+        assert links.for_submission(SUB) == link
+        assert links.for_submission(SubmissionId("sub_" + "6" * 32)) is None
+
+
+def test_the_first_origin_wins(database: Database) -> None:
+    """本人が押した提出を、あとの自動提出が同じ内容で「自動」に書き換えない。"""
+    for links in _links(database):
+        links.record(a_link(SubmissionOrigin.EDITOR))
+        links.record(a_link(SubmissionOrigin.AUTO_CLOSE))
+        found = links.for_submission(SUB)
+        assert found is not None and found.origin is SubmissionOrigin.EDITOR
+
+
+def test_a_buffer_can_be_deleted(database: Database) -> None:
+    for store in _both(database):
+        store.save(buffer("mine"))
+        store.save(buffer("theirs", learner=OTHER))
+        store.delete(LEARNER, P1)
+        store.delete(LEARNER, P1)  # 2 度目は何もしない
+        assert store.get(LEARNER, P1) is None
+        assert store.get(OTHER, P1) is not None

@@ -94,3 +94,15 @@ class BufferStore(Protocol):
     def for_tasks(self, learner_id: UserId, task_ids: list[TaskId]) -> dict[TaskId, IdeBuffer]:
         """IDE の画面を開いたときに、全タブの内容をまとめて引く。"""
         ...
+
+    def for_task(self, task_id: TaskId) -> tuple[IdeBuffer, ...]:
+        """この課題の全員分。**受付終了時の自動提出だけが使う**（設計書 §9.1）。"""
+        ...
+
+    def task_ids(self) -> tuple[TaskId, ...]:
+        """自動保存のある課題。自動提出はここから辿る（全コースを舐めない）。"""
+        ...
+
+    def delete(self, learner_id: UserId, task_id: TaskId) -> None:
+        """1 件消す（保存期間の purge）。無ければ何もしない。"""
+        ...

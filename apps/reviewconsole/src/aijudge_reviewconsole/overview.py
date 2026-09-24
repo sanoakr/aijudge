@@ -100,6 +100,9 @@ class UnitGroup:
     # 混ざりは別に持って黙らせない。
     editor: bool = False
     editor_mixed: bool = False
+    # エディタの補完（設計書 §5.3）。全課題が入なら真。混ざりは別に持つ。
+    completion: bool = False
+    completion_mixed: bool = False
 
     @property
     def count(self) -> int:
@@ -219,6 +222,8 @@ def load_units(
                 audience_mixed=len({task.audience_group_ids for task in tasks}) > 1,
                 editor=bool(tasks) and all(task.answer_mode is AnswerMode.EDITOR for task in tasks),
                 editor_mixed=len({task.answer_mode for task in tasks}) > 1,
+                completion=bool(tasks) and all(task.editor_completion for task in tasks),
+                completion_mixed=len({task.editor_completion for task in tasks}) > 1,
             )
         )
     return tuple(groups)

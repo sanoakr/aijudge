@@ -20,9 +20,11 @@
 # **`from __future__ import annotations` を使わない。** 経路の引数の型
 # （`me: Me`）は `register_ide_routes` の中で作る別名で、注釈を文字列のまま
 # 遅らせると FastAPI がモジュールの名前空間から引こうとして見つけられない。
+import json
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -30,19 +32,30 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
 from aijudge_authoring import render_statement
 from aijudge_core import AnswerMode, ArtifactKind, Course, Task, TaskVersion, allowed_suffixes
-from aijudge_core.ids import CourseId
+from aijudge_core.ids import CourseId, new_id
 from aijudge_grading import OverrideError, SubjectProfile, effective_profile, load_profile
 from aijudge_ide import (
+    MAX_BATCH_BYTES,
     MAX_SOURCE_BYTES,
     MAX_STDIN_BYTES,
+    ActivityFiles,
+    ActivityRejected,
     BufferTooLarge,
     EditorFormat,
+    EventBatch,
+    IdeSession,
+    IdeSessionId,
     RefusalReason,
     RunRefused,
     RunRequestId,
+    SubmissionLink,
+    SubmissionOrigin,
+    check_events,
+    check_snapshots,
     content_hash,
     editor_formats,
     make_buffer,
@@ -56,6 +69,14 @@ from aijudge_toolchain import UnknownLanguage, resolve_language
 # 評価器のパッケージを import すると sandbox まで引きずり、
 # `web-does-not-run-code` 契約が落ちる。
 CODE_TEST_RUNNER = "code_test_runner"
+
+# 行動記録の受け口が混んでいるとき、画面にどれだけ待たせるか（秒、ADR 0023 §2）。
+# 記録の欠けより、IDE が重くなるほうが試験を壊す。
+ACTIVITY_RETRY_AFTER_SECONDS = 30
+# 行動記録の 1 回の送信の上限（本体 + JSON の包み）。
+MAX_ACTIVITY_REQUEST_BYTES = MAX_BATCH_BYTES + 64 * 1024 * 16
+
+logger = logging.getLogger(__name__)
 
 # 画面が結果を問い合わせる間隔（ミリ秒、設計書 §8.1）。実行を待っている人
 # だけが問い合わせるので、150 名 × 2 回/秒にはならない（ADR 0024 §5）。
@@ -72,6 +93,14 @@ class RunBody(BaseModel):
     stdin: str = Field(default="", max_length=MAX_STDIN_BYTES)
     sample_name: str | None = Field(default=None, max_length=200)
     ide_session_id: str | None = Field(default=None, max_length=64)
+
+
+class SessionBody(BaseModel):
+    course_id: str = Field(max_length=64)
+    unit: str = Field(default="", max_length=64)
+    # 告知を読んで「確認して始める」を押したか（ADR 0023 §5）。
+    consent: bool = False
+    user_agent: str = Field(default="", max_length=1000)
 
 
 class SourceBody(BaseModel):
@@ -224,6 +253,8 @@ def register_ide_routes(app: FastAPI, deps: IdeDeps, me_dependency: Any) -> None
                 rows=tuple(picked),
             )
             buffers = uow.ide_buffers.for_tasks(me.user_id, [task.id for task, _ in picked])
+            # 告知はこのコースで初めて開いたときだけ出す（ADR 0023 §5）。
+            needs_consent = not uow.ide_activity.has_consented(me.user_id, course_obj.id)
 
         moment = deps.now()
         tabs = []
@@ -256,6 +287,8 @@ def register_ide_routes(app: FastAPI, deps: IdeDeps, me_dependency: Any) -> None
                     # サンプルは実行できるときだけ出す（押しても動かないボタンを出さない）。
                     "samples": _public_samples(version) if runnable is not None else [],
                     "source": buffer.source if buffer is not None else "",
+                    # 補完の切／入（設計書 §5.3）。答え方とは独立した課題の値。
+                    "completion": task.editor_completion,
                     "submitted": 0 if mark is None else mark.count,
                     "last_submitted_hash": _last_submitted_hash(mark),
                 }
@@ -283,6 +316,8 @@ def register_ide_routes(app: FastAPI, deps: IdeDeps, me_dependency: Any) -> None
                 "poll_ms": POLL_INTERVAL_MS,
                 "autosave_ms": AUTOSAVE_INTERVAL_MS,
                 "max_source_bytes": MAX_SOURCE_BYTES,
+                "needs_consent": needs_consent,
+                "unit": wanted or "",
                 **deps.build_context(course_obj, first_task, first_version),
             },
         )
@@ -389,6 +424,7 @@ def register_ide_routes(app: FastAPI, deps: IdeDeps, me_dependency: Any) -> None
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         # 提出した内容を自動保存にも入れる。**提出したのに、リロードすると前の
         # 書きかけに戻る**、を起こさない。
+        submission = result.submission
         with deps.state.database.unit_of_work() as uow:
             uow.ide_buffers.save(
                 make_buffer(
@@ -400,8 +436,21 @@ def register_ide_routes(app: FastAPI, deps: IdeDeps, me_dependency: Any) -> None
                     now=deps.now(),
                 )
             )
+            # 本人が押した提出であることを残す（`aijudge_ide.links`）。同じ内容の
+            # 再提出で既存の提出に畳まれたときも、最初の記録がそのまま残る。
+            uow.ide_links.record(
+                SubmissionLink(
+                    submission_id=submission.id,
+                    tenant_id=me.tenant_id,
+                    learner_id=me.user_id,
+                    task_id=task_obj.id,
+                    origin=SubmissionOrigin.EDITOR,
+                    content_hash=content_hash(body.source),
+                    ide_session_id=body.ide_session_id,
+                    recorded_at=deps.now(),
+                )
+            )
             uow.commit()
-        submission = result.submission
         return JSONResponse(
             {
                 "submission_id": str(submission.id),
@@ -439,3 +488,117 @@ def register_ide_routes(app: FastAPI, deps: IdeDeps, me_dependency: Any) -> None
         return JSONResponse(
             {"saved_at": buffer.updated_at.isoformat(), "content_hash": buffer.content_hash}
         )
+
+    @app.post("/ide/sessions")
+    def ide_start_session(body: SessionBody, me: Me) -> JSONResponse:
+        """IDE の画面を開いたことを記録し、行動記録の束ね先を返す（ADR 0023）。
+
+        **告知を確認していなければ始めない**（§5）。このコースで一度確認して
+        いれば、以後は画面を開くたびに出し直さない。確認したことは、セッションの
+        `consented_at` として残る。
+
+        **受付の窓は見ない。** 行動記録は提出ではなく、受付の前後に開いた画面の
+        記録も事実である（実行・提出・保存は関門で断られる）。
+        """
+        course_obj, _rows = deps.course_and_tasks(deps.state, me, CourseId(body.course_id))
+        now = deps.now()
+        with deps.state.database.unit_of_work() as uow:
+            if not body.consent and not uow.ide_activity.has_consented(me.user_id, course_obj.id):
+                return JSONResponse(
+                    {"detail": "記録についての確認が必要です", "reason": "consent_required"},
+                    status_code=409,
+                )
+            session = IdeSession(
+                id=IdeSessionId(new_id("ide")),
+                tenant_id=me.tenant_id,
+                learner_id=me.user_id,
+                course_id=course_obj.id,
+                unit=body.unit or None,
+                started_at=now,
+                user_agent=body.user_agent[:300],
+                consented_at=now,
+            )
+            uow.ide_activity.start_session(session)
+            uow.commit()
+        return JSONResponse({"session_id": str(session.id)}, status_code=201)
+
+    @app.post("/ide/activity")
+    async def ide_activity(request: Request, me: Me) -> JSONResponse:
+        """行動記録の 1 バッチを受ける（ADR 0023・設計書 §6.3）。
+
+        **受け口は軽く保つ**: 形を確かめ、ファイルに書き、索引を 1 行足すだけ。
+        解析はしない。`navigator.sendBeacon` からも届くので、本文は自分で読む。
+
+        **書けなくても何も止めない**（I7）。置き場所が無い・書けないときは
+        `503 + Retry-After` を返し、画面は内容を手元に残して間隔を広げて送り直す。
+        """
+        raw = await request.body()
+        if len(raw) > MAX_ACTIVITY_REQUEST_BYTES:
+            raise HTTPException(status_code=413, detail="記録が大きすぎます")
+        try:
+            data = json.loads(raw)
+            session_id = IdeSessionId(str(data["session_id"]))
+            seq = int(data["seq"])
+            if seq < 0:
+                raise ValueError("seq")
+            events = check_events(data.get("events", []))
+            snapshots = check_snapshots(data.get("snapshots"))
+            client_ms = data.get("client_time")
+            client_time = (
+                None
+                if not isinstance(client_ms, int | float)
+                else datetime.fromtimestamp(client_ms / 1000, tz=UTC)
+            )
+        except (ValueError, KeyError, TypeError, ActivityRejected, OverflowError, OSError) as exc:
+            raise HTTPException(status_code=400, detail=f"記録の形が不正です: {exc}") from None
+
+        return await run_in_threadpool(
+            _store_batch, deps, me, session_id, seq, events, snapshots, client_time
+        )
+
+
+def _store_batch(
+    deps: IdeDeps,
+    me: Any,
+    session_id: IdeSessionId,
+    seq: int,
+    events: list[dict[str, Any]],
+    snapshots: dict[str, str],
+    client_time: datetime | None,
+) -> JSONResponse:
+    """ファイル → DB の順に書く（ADR 0023 §3）。同期の I/O なのでスレッドで動かす。"""
+    retry = {"Retry-After": str(ACTIVITY_RETRY_AFTER_SECONDS)}
+    with deps.state.database.unit_of_work() as uow:
+        session = uow.ide_activity.get_session(session_id)
+    # **他人のセッションは無いものとして扱う**（実行の問い合わせと同じ）。
+    if session is None or session.learner_id != me.user_id:
+        raise HTTPException(status_code=404, detail="記録の束ね先が見つかりません")
+    if deps.state.activity_dir is None:
+        return JSONResponse(
+            {"detail": "記録の置き場所がありません"}, status_code=503, headers=retry
+        )
+    try:
+        path, digest, size = ActivityFiles(deps.state.activity_dir).write_batch(
+            session, seq, events, snapshots
+        )
+    except OSError:
+        # 本文（学習者のコード）はログに出さない。どのセッションかだけ残す。
+        logger.warning("could not write an activity batch", extra={"ide_session_id": session.id})
+        return JSONResponse({"detail": "記録を書けませんでした"}, status_code=503, headers=retry)
+    with deps.state.database.unit_of_work() as uow:
+        stored = uow.ide_activity.add_batch(
+            EventBatch(
+                ide_session_id=session.id,
+                seq=seq,
+                received_at=deps.now(),
+                client_time=client_time,
+                event_count=len(events),
+                snapshot_count=len(snapshots),
+                byte_size=size,
+                sha256=digest,
+                path=path,
+            )
+        )
+        uow.commit()
+    # 再送（同じ seq）は 200 で受け流す。画面はこれで送信済みとして手放す。
+    return JSONResponse({"stored": stored})

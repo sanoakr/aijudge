@@ -624,6 +624,11 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
 
     app.include_router(register_api())
 
+    # IDE の作業の記録（ADR 0023）。**教員だけ**が見られ、見たことは監査に残る。
+    from .activity import register as register_activity
+
+    app.include_router(register_activity(TEMPLATES))
+
     # -- ログイン ----------------------------------------------------------
     #
     # **既定の導線は Google（#121・#125）。** ローカルパスワードは
@@ -1014,6 +1019,13 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 if console.needs_blind_mark(row.submission, course.subject_profile)
                 and uow.reviews.find_blind_mark(row.submission.id) is None
             }
+            # IDE からの提出の出どころ（設計書 §9）。**受付終了時の自動提出は
+            # 本人が押した提出ではない**ので、一覧で見分けられるようにする。
+            ide_origins = {
+                str(row.submission.id): link.origin.value
+                for row in shown
+                if (link := uow.ide_links.for_submission(row.submission.id)) is not None
+            }
         return TEMPLATES.TemplateResponse(
             request,
             "submissions.html",
@@ -1049,6 +1061,9 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 "truncated": listing.truncated,
                 "listing_limit": listing.limit,
                 "blind_pending": blind_pending,
+                "ide_origins": ide_origins,
+                # 作業の記録は教員だけが開ける（TA にはリンクを出さない）。
+                "can_view_activity": viewer in (Role.INSTRUCTOR, Role.ADMIN),
             },
         )
 

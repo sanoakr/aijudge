@@ -20,10 +20,14 @@ dependencies = [
     "aijudge-persistence",
     "aijudge-telemetry",
     "aijudge-eval-code-test-runner",
+    # 受付終了時の自動提出（`autosubmit.py`）。既存の提出の経路を通すため。
+    "aijudge-submission",
+    "aijudge-identity",
 ]
 
 [project.scripts]
 aijudge-runner = "aijudge_runner.cli:main"
+aijudge-ide-close = "aijudge_runner.close_cli:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -41,3 +45,5 @@ aijudge-toolchain = { workspace = true }
 aijudge-persistence = { workspace = true }
 aijudge-telemetry = { workspace = true }
 aijudge-eval-code-test-runner = { workspace = true }
+aijudge-submission = { workspace = true }
+aijudge-identity = { workspace = true }

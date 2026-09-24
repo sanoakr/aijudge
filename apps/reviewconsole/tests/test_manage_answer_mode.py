@@ -169,3 +169,25 @@ def test_the_rule_falls_back_to_the_courses_formats(world: World) -> None:
 def world_with_example(world: World) -> World:
     _import_example(world)
     return world
+
+
+def test_completion_is_switched_for_the_whole_set(world: World) -> None:
+    """補完は答え方とは独立した値で、セット単位で入る（設計書 §5.3）。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    task_id = _import_example(world)
+    unit = _unit_of(world)
+    client = world.client("teacher")
+    assert _task(world, task_id).editor_completion is False
+
+    response = client.post(
+        f"/manage/courses/{world.course.id}/units/{unit}/completion",
+        data={"completion": "1"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert _task(world, task_id).editor_completion is True
+    assert _task(world, task_id).answer_mode is AnswerMode.UPLOAD  # 答え方は変わらない
+    page = client.get(f"/manage/courses/{world.course.id}/units/{unit}").text
+    assert "エディタで補完を出す" in page
+    assert "この設定は効きません" in page

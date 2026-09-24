@@ -1,0 +1,23 @@
+# ブラウザ IDE の受付終了時の自動提出（設計書 §9.1）。timer から 1 分ごとに流す。
+# 何度走らせても同じ結果になる（提出は内容で重複を畳む）。
+#
+# **まだ `aijudge.target` にも timers.target にも入れていない。** 置いただけでは
+# 何も起動しない。入れるのは IDE を main に取り込むと決めたとき（設計書 §12）。
+[Unit]
+Description=aiJudge IDE close (submit the latest autosave when a set closes)
+After=network-online.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=oneshot
+User=aijudge
+Group=aijudge
+WorkingDirectory=/opt/aijudge
+EnvironmentFile=/srv/aijudge/config/aijudge.env
+ExecStart=/opt/aijudge/.venv/bin/aijudge-ide-close --once
+SyslogIdentifier=aijudge-ide-close
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/srv/aijudge /var/lib/aijudge
+PrivateTmp=yes

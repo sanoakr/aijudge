@@ -107,34 +107,126 @@ def test_a_course_with_only_trials_can_be_deleted(world) -> None:
         assert uow.identity.get_course(course.id) is None
 
 
-def test_nothing_that_pointed_at_the_course_survives(world) -> None:
+def _leave_ide_traces(database: Database, store, version, course_id, activity_dir):
+    """IDE が残しうる行とファイルを、学習者と教員の両方の分だけ作る。
+
+    **学習者の提出が無くても、学習者の記録はありうる** ── エディタを開いて
+    書いたが提出しなかった学習者の自動保存・実行要求・行動記録。
+    """
+    from datetime import UTC, datetime
+
+    from aijudge_core.ids import new_id
+    from aijudge_ide import (
+        ActivityFiles,
+        IdeSession,
+        IdeSessionId,
+        SubmissionLink,
+        SubmissionOrigin,
+        content_hash,
+        make_buffer,
+        request_run,
+    )
+    from aijudge_ide.activity import EventBatch
+
+    now = datetime.now(UTC)
+    trial = _submit(database, store, version, TEACHER, trial=True)
+    session = IdeSession(
+        id=IdeSessionId(new_id("ide")),
+        tenant_id=TENANT,
+        learner_id=LEARNER,
+        course_id=course_id,
+        unit=None,
+        started_at=now,
+        consented_at=now,
+    )
+    path, digest, size = ActivityFiles(activity_dir).write_batch(
+        session, 0, [{"type": "hello", "t": 0}], {}
+    )
+    with database.unit_of_work() as uow:
+        uow.ide_buffers.save(
+            make_buffer(
+                tenant_id=TENANT,
+                learner_id=LEARNER,
+                task_id=version.task_id,
+                suffix=".c",
+                source="int main(){}",
+                now=now,
+            )
+        )
+        request_run(
+            uow.run_requests,
+            tenant_id=TENANT,
+            learner_id=LEARNER,
+            task_version_id=version.id,
+            source="int main(){}",
+            now=now,
+        )
+        uow.ide_links.record(
+            SubmissionLink(
+                submission_id=trial.submission.id,
+                tenant_id=TENANT,
+                learner_id=TEACHER,
+                task_id=version.task_id,
+                origin=SubmissionOrigin.EDITOR,
+                content_hash=content_hash("int main(){}"),
+                recorded_at=now,
+            )
+        )
+        uow.ide_activity.start_session(session)
+        uow.ide_activity.add_batch(
+            EventBatch(
+                ide_session_id=session.id,
+                seq=0,
+                received_at=now,
+                event_count=1,
+                snapshot_count=0,
+                byte_size=size,
+                sha256=digest,
+                path=path,
+            )
+        )
+        uow.commit()
+    return trial, session
+
+
+def test_nothing_that_pointed_at_the_course_survives(world, tmp_path) -> None:
     """**表を手で並べない。** スキーマを走査して、残りが 0 であることを見る。
 
-    `submission_id` / `course_id` を持つ表が増えたとき、削除の側で数え
-    漏らせばここで落ちる。
+    提出・コース・課題・課題版・IDE のセッションを指す列を持つ表が増えたとき、
+    削除の側で数え漏らせばここで落ちる。IDE の表は課題を鍵にするものがあり、
+    `submission_id` と `course_id` だけを見ていた頃は素通りしていた。
     """
     database, store, course = world
     version = _task_version(database, course.id)
-    accepted = _submit(database, store, version, TEACHER, trial=True)
-    submission_id = str(accepted.submission.id)
+    activity = tmp_path / "activity"
+    accepted, session = _leave_ide_traces(database, store, version, course.id, activity)
 
-    delete_course(database, course_id=course.id, artifact_store=store)
+    delete_course(database, course_id=course.id, artifact_store=store, activity_dir=activity)
 
+    keys = (
+        ("submission_id", str(accepted.submission.id)),
+        ("course_id", str(course.id)),
+        ("task_id", str(version.task_id)),
+        ("task_version_id", str(version.id)),
+        ("ide_session_id", str(session.id)),
+    )
     leftovers: list[str] = []
     for table in schema.Base.metadata.tables.values():
-        for name, value in (("submission_id", submission_id), ("course_id", str(course.id))):
+        for name, value in keys:
             column = table.columns.get(name)
             if column is None:
                 continue
-            with database.session() as session:
+            with database.session() as session_:
                 remaining = int(
-                    session.execute(
+                    session_.execute(
                         select(func.count()).select_from(table).where(column == value)
                     ).scalar_one()
                 )
             if remaining:
                 leftovers.append(f"{table.name}.{name}: {remaining} 行")
     assert not leftovers, "消したコース・提出を指す行が残っている: " + ", ".join(leftovers)
+    # 行動記録の本体（学習者のコード）も残さない。
+    assert not (activity / str(course.id)).exists()
 
 
 def test_the_course_row_and_its_enrolments_are_gone(world) -> None:

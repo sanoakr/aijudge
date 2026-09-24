@@ -53,6 +53,11 @@ DEFAULT_MAX_VIDEO_BYTES = 5 * 1024 * 1024 * 1024
 DEFAULT_MAX_VIDEO_BYTES_WITHOUT_DEADLINE = 256 * 1024 * 1024
 DEFAULT_MAX_CONCURRENT_VIDEO = 4
 DEFAULT_AI_WORKERS = 1
+# ブラウザ IDE の行動記録の置き場所（ADR 0023）。**運用機では動画と同じ
+# ストレージ**（`/work/aijudge/activity`）── web は既に `/work/aijudge` に書ける
+# （`aijudge-web.service.d/video.conf`）ので、新しい書き込み権限は要らない。
+ENV_ACTIVITY_DIR = "AIJUDGE_ACTIVITY_DIR"
+DEFAULT_ACTIVITY_DIR = Path.home() / ".aijudge" / "activity"
 
 
 def build_app(args: argparse.Namespace):
@@ -75,6 +80,8 @@ def build_app(args: argparse.Namespace):
             ai_workers=args.ai_workers,
             console_url=args.console_url,
             console_port=args.console_port,
+            # 環境変数から読む（`--workers > 1` の子プロセスも同じ値を読む）。
+            activity_dir=Path(os.environ.get(ENV_ACTIVITY_DIR, DEFAULT_ACTIVITY_DIR)).expanduser(),
         )
     )
 

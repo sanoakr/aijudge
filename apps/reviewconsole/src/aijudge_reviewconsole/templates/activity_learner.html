@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}{{ learner.display_name }} のエディタでの作業 — aiJudge レビュー{% endblock %}
+{% block body %}
+{# 行動記録の一覧（ADR 0023・設計書 §7）。**事実だけを並べる。判定はしない。**
+   開いたことは監査ログに残る（`ACTIVITY_VIEWED`）── そう画面にも書く。 #}
+<h1>{{ learner.display_name }} <span class="mono desc">{{ learner.login }}</span></h1>
+<p class="desc">
+  エディタでの作業の記録です。<strong>記録から自動で減点・判定はしません</strong>。
+  数字は経過を確かめる入口で、それだけでは何も意味しません（教科書の例を貼る、席を立つ、など）。
+  <strong>この画面を開いたことは監査ログに残ります。</strong>
+</p>
+
+{% if not configured %}
+<p class="note warn">記録の置き場所（AIJUDGE_ACTIVITY_DIR）が設定されていないため、中身を読めません。
+  記録は {{ session_count }} 回分あります。</p>
+{% elif not views %}
+<p class="desc">このコースでエディタを使った記録はありません。</p>
+{% else %}
+<table class="stack">
+  <thead><tr>
+    <th class="fit">開いた時刻</th><th class="fit">長さ</th><th class="fit">打鍵</th>
+    <th class="fit">外からの貼り付け</th><th class="fit">画面を離れた</th>
+    <th class="fit">実行・提出</th><th class="grow">記録の欠け・食い違い</th><th class="fit"></th>
+  </tr></thead>
+  <tbody>
+  {% for v in views %}
+    <tr>
+      <td class="fit" data-label="開いた時刻">{{ v.session.started_at | local('%m-%d %H:%M') }}</td>
+      <td class="fit" data-label="長さ">{{ (v.summary.duration_seconds / 60) | round | int }} 分</td>
+      <td class="fit" data-label="打鍵">{{ v.summary.typed_chars }} 字</td>
+      <td class="fit" data-label="外からの貼り付け">
+        {% if v.summary.pastes_external %}
+        {{ v.summary.pastes_external }} 回・{{ v.summary.pasted_external_chars }} 字
+        <br><span class="desc">最大 {{ v.summary.largest_external_paste }} 字</span>
+        {% else %}<span class="desc">なし</span>{% endif %}
+      </td>
+      <td class="fit" data-label="画面を離れた">
+        {% if v.summary.away_count %}{{ v.summary.away_count }} 回・{{ v.summary.away_seconds | round | int }} 秒
+        {% else %}<span class="desc">なし</span>{% endif %}
+      </td>
+      <td class="fit" data-label="実行・提出">{{ v.summary.runs }} ・ {{ v.summary.submits }}</td>
+      <td class="grow" data-label="欠け・食い違い">
+        {% set i = v.integrity %}
+        {% if i.complete and not v.unreadable and not i.silences %}<span class="pill ok">欠けなし</span>{% endif %}
+        {% if i.missing_seqs %}<span class="pill attn">欠けた送信 {{ i.missing_seqs | length }}</span>{% endif %}
+        {% if v.unreadable %}<span class="pill attn">読めない記録 {{ v.unreadable }}</span>{% endif %}
+        {% if i.silences %}<span class="pill">途切れ {{ i.silences | length }} 回</span>{% endif %}
+        {% if i.mismatched %}<span class="pill attn">内容の食い違い {{ i.mismatched }}</span>{% endif %}
+        {% if i.unverifiable %}<span class="pill">確かめられない {{ i.unverifiable }}</span>{% endif %}
+      </td>
+      <td class="fit"><a href="{{ root_prefix() }}/courses/{{ course.id }}/activity/{{ learner.id }}/{{ v.session.id }}">再生</a></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+<p class="desc">
+  <strong>欠けた送信・途切れ</strong>は通信の不調や PC のスリープでも起きます。それだけでは不正の証拠になりません。
+  <strong>内容の食い違い</strong>は、記録された打鍵から組み立て直した内容が、その時点の内容と一致しなかった回数です。
+  <strong>確かめられない</strong>は、記録が欠けたために組み立て直せなかった回数です。
+</p>
+{% endif %}
+{% endblock %}

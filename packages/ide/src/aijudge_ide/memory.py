@@ -6,12 +6,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from datetime import datetime
 
-from aijudge_core.ids import TaskId, UserId
+from aijudge_core.ids import CourseId, SubmissionId, TaskId, UserId
 
+from .activity import EventBatch, IdeSession, IdeSessionId
 from .buffer import IdeBuffer
+from .links import SubmissionLink
 from .protocols import RunAlreadyPending
 from .run import DEFAULT_LEASE_SECONDS, RUNNER_LOST, RunRequest, RunRequestId, RunState
 
@@ -114,3 +116,95 @@ class InMemoryBufferStore:
             for task_id in task_ids
             if (buffer := self._buffers.get((learner_id, task_id))) is not None
         }
+
+    def for_task(self, task_id: TaskId) -> tuple[IdeBuffer, ...]:
+        return tuple(b for (_, t), b in sorted(self._buffers.items()) if t == task_id)
+
+    def task_ids(self) -> tuple[TaskId, ...]:
+        return tuple(sorted({task_id for (_, task_id) in self._buffers}))
+
+    def delete(self, learner_id: UserId, task_id: TaskId) -> None:
+        self._buffers.pop((learner_id, task_id), None)
+
+
+class InMemorySubmissionLinkStore:
+    """インメモリの出どころの記録。SQL 実装と同じテストに通る。"""
+
+    def __init__(self) -> None:
+        self._links: dict[SubmissionId, SubmissionLink] = {}
+
+    def record(self, link: SubmissionLink) -> None:
+        self._links.setdefault(link.submission_id, link)
+
+    def for_submission(self, submission_id: SubmissionId) -> SubmissionLink | None:
+        return self._links.get(submission_id)
+
+
+class InMemoryActivityIndex:
+    """インメモリの行動記録の索引。SQL 実装と同じテストに通る。"""
+
+    def __init__(self) -> None:
+        self._sessions: dict[IdeSessionId, IdeSession] = {}
+        self._batches: dict[tuple[IdeSessionId, int], EventBatch] = {}
+
+    def start_session(self, session: IdeSession) -> None:
+        if session.id in self._sessions:
+            raise ValueError(f"ide session {session.id} already exists")
+        self._sessions[session.id] = session
+
+    def get_session(self, session_id: IdeSessionId) -> IdeSession | None:
+        return self._sessions.get(session_id)
+
+    def sessions_for(self, learner_id: UserId, course_id: CourseId) -> tuple[IdeSession, ...]:
+        return tuple(
+            sorted(
+                (
+                    s
+                    for s in self._sessions.values()
+                    if s.learner_id == learner_id and s.course_id == course_id
+                ),
+                key=lambda s: (s.started_at, s.id),
+            )
+        )
+
+    def has_consented(self, learner_id: UserId, course_id: CourseId) -> bool:
+        return any(
+            s.learner_id == learner_id and s.course_id == course_id for s in self._sessions.values()
+        )
+
+    def add_batch(self, batch: EventBatch) -> bool:
+        key = (batch.ide_session_id, batch.seq)
+        if key in self._batches:
+            return False
+        self._batches[key] = batch
+        return True
+
+    def batches(self, session_id: IdeSessionId) -> tuple[EventBatch, ...]:
+        return tuple(
+            batch for (sid, _), batch in sorted(self._batches.items()) if sid == session_id
+        )
+
+    def course_sessions(self, course_id: CourseId) -> tuple[IdeSession, ...]:
+        return tuple(
+            sorted(
+                (s for s in self._sessions.values() if s.course_id == course_id),
+                key=lambda s: (s.started_at, s.id),
+            )
+        )
+
+    def delete_sessions(self, session_ids: Sequence[IdeSessionId]) -> int:
+        removed = 0
+        for session_id in session_ids:
+            if self._sessions.pop(session_id, None) is not None:
+                removed += 1
+            for key in [k for k in self._batches if k[0] == session_id]:
+                del self._batches[key]
+        return removed
+
+    def delete_for_course(self, course_id: CourseId) -> tuple[IdeSession, ...]:
+        doomed = tuple(s for s in self._sessions.values() if s.course_id == course_id)
+        for session in doomed:
+            del self._sessions[session.id]
+            for key in [k for k in self._batches if k[0] == session.id]:
+                del self._batches[key]
+        return doomed

@@ -13,6 +13,8 @@
   "use strict";
 
   var config = JSON.parse(document.getElementById("ide-config").textContent);
+  // 受付終了の何秒前に、待たずに保存するか。保存の間隔（10 秒）より短くする。
+  var FLUSH_BEFORE_CLOSE_SECONDS = 5;
   var tabCount = config.tabs.length;
   var editors = [];
   var models = [];
@@ -79,9 +81,307 @@
     return fallback;
   }
 
+  // -- 行動記録（ADR 0023・設計書 §6） ------------------------------------
+  //
+  // **何も止めない。** 送れなくても編集・実行・提出はそのまま動く。送れなかった
+  // 束は手元に残して、間隔を広げながら送り直す。サーバが混んでいれば 503 が
+  // 返り、間隔を最大 60 秒まで広げる ── 記録の欠けより、IDE が重くなるほうが
+  // 試験を壊す。
+  //
+  // 時刻は 2 本持つ。イベントの `t` は画面を開いてからの経過（ミリ秒・単調）、
+  // 束には送信時の PC の壁時計を付ける（サーバの受信時刻と比べて時計のずれを
+  // 後で推定するため）。
+
+  var REC_INTERVAL_MS = 10000;
+  var REC_MAX_INTERVAL_MS = 60000;
+  var REC_HEARTBEAT_MS = 30000;
+  var REC_SNAPSHOT_MS = 60000;
+  // これ以上の貼り付けは、その場で全文を撮って即時に送る（設計書 §6.4）。
+  var BIG_PASTE_CHARS = 80;
+  // 直近のコピーの指紋をいくつ覚えるか（貼り付けの出どころの判定用）。
+  var RECENT_COPIES = 20;
+
+  var rec = {
+    sessionId: null,
+    seq: 0,
+    t0: performance.now(),
+    queue: [],
+    snapshots: {},
+    sent: {},
+    pending: [],
+    sending: false,
+    interval: REC_INTERVAL_MS,
+    copies: [],
+    current: 0,
+    lastSnapshotHash: [],
+    programmatic: false,
+  };
+  for (var r = 0; r < tabCount; r++) rec.lastSnapshotHash.push(null);
+
+  function now() { return Math.round((performance.now() - rec.t0) * 10) / 10; }
+
+  function record(type, data, immediate) {
+    var event = { type: type, t: now() };
+    for (var key in data) if (Object.prototype.hasOwnProperty.call(data, key)) event[key] = data[key];
+    rec.queue.push(event);
+    if (immediate) flushActivity();
+  }
+
+  function snapshot(index) {
+    var text = source(index);
+    return sha256(text).then(function (hash) {
+      if (!hash || rec.sent[hash] || rec.snapshots[hash] !== undefined) return hash;
+      rec.snapshots[hash] = text;
+      rec.lastSnapshotHash[index] = hash;
+      return hash;
+    });
+  }
+
+  function flushActivity() {
+    if (!rec.sessionId) return;
+    var names = Object.keys(rec.snapshots);
+    if (!rec.queue.length && !names.length) return;
+    // **束を切るその瞬間の内容で指紋を取る。** 画面の「変更あり」表示に使う
+    // 指紋は打鍵の 0.5 秒後に更新されるので、それを使うと即時送信（貼り付け・
+    // 実行）の束に 1 つ前の状態の指紋が載り、正しい記録が「食い違い」に見える。
+    // 内容はここで同期的に写し取り、指紋の計算（非同期）はその写しに対して行う。
+    var texts = [];
+    for (var k = 0; k < tabCount; k++) texts.push(source(k));
+    var t = now();
+    var batch = {
+      session_id: rec.sessionId,
+      seq: rec.seq++,
+      client_time: Date.now(),
+      events: rec.queue.splice(0),
+      snapshots: rec.snapshots,
+      ready: false,
+    };
+    rec.snapshots = {};
+    names.forEach(function (name) { rec.sent[name] = true; });
+    // 送る順（seq）を保つため、指紋の計算を待たずに列に並べる。
+    rec.pending.push(batch);
+    Promise.all(texts.map(sha256)).then(function (hashes) {
+      // 各タブのいまの内容の指紋を束の末尾に付ける。サーバが後から「直前の
+      // 全文 + 差分」を組み立て直し、一致するかを確かめる（一致しなければ改変の印）。
+      batch.events.push({ type: "tabs", t: t, hashes: hashes });
+      batch.ready = true;
+      sendPending();
+    });
+  }
+
+  function sendPending() {
+    if (rec.sending || !rec.pending.length || !rec.pending[0].ready) return;
+    rec.sending = true;
+    var batch = rec.pending[0];
+    send("POST", "/ide/activity", {
+      session_id: batch.session_id,
+      seq: batch.seq,
+      client_time: batch.client_time,
+      events: batch.events,
+      snapshots: batch.snapshots,
+    })
+      .then(function (result) {
+        rec.sending = false;
+        if (result.ok || result.status === 400 || result.status === 404 || result.status === 413) {
+          // 受け取られた（再送も含む）か、形が悪くて二度と受け取られないもの。
+          // 後者を抱えたままにすると、後ろの束がすべて止まる。
+          rec.pending.shift();
+          if (result.ok) rec.interval = REC_INTERVAL_MS;
+          sendPending();
+          return;
+        }
+        // 混雑（503）や一時的な失敗。間隔を広げて送り直す。
+        rec.interval = Math.min(rec.interval * 2, REC_MAX_INTERVAL_MS);
+      })
+      .catch(function () {
+        rec.sending = false;
+        rec.interval = Math.min(rec.interval * 2, REC_MAX_INTERVAL_MS);
+      });
+  }
+
+  function recorderLoop() {
+    flushActivity();
+    sendPending();
+    window.setTimeout(recorderLoop, rec.interval);
+  }
+
+  function startRecorder(consent) {
+    send("POST", "/ide/sessions", {
+      course_id: config.courseId,
+      unit: config.unit,
+      consent: !!consent,
+      user_agent: navigator.userAgent,
+    })
+      .then(function (result) {
+        if (result.status !== 201) {
+          // 記録が始められなくても編集は止めない（I7）。少し待って始め直す。
+          window.setTimeout(function () { startRecorder(consent); }, REC_MAX_INTERVAL_MS);
+          return;
+        }
+        rec.sessionId = result.data.session_id;
+        // 開いたときの各タブの内容を全文で撮り、その指紋を hello に載せる。
+        // 後から「最初の全文 + 差分」で内容を組み立て直す起点になる
+        // （`aijudge_ide.integrity`）。
+        var shots = [];
+        for (var k = 0; k < tabCount; k++) shots.push(snapshot(k));
+        Promise.all(shots).then(function (hashes) {
+          record("hello", {
+            screen: [window.screen.width, window.screen.height],
+            tabs: tabCount,
+            // どのタブがどの課題か（課題版の ID）。再生の画面がタブに課題名を出す。
+            tasks: config.tabs,
+            hashes: hashes,
+          });
+          window.setTimeout(recorderLoop, 500);
+        });
+      })
+      .catch(function () {
+        window.setTimeout(function () { startRecorder(consent); }, REC_MAX_INTERVAL_MS);
+      });
+  }
+
+  window.setInterval(function () { record("heartbeat", {}); }, REC_HEARTBEAT_MS);
+  // 変更がある間は 60 秒ごとに全文を撮る（差分の列だけだと、1 束欠けた先を
+  // 再構成できない）。同じ内容は指紋で重複を省く。
+  window.setInterval(function () {
+    for (var k = 0; k < tabCount; k++) {
+      if (state[k].currentHash && state[k].currentHash !== rec.lastSnapshotHash[k]) snapshot(k);
+    }
+  }, REC_SNAPSHOT_MS);
+
+  window.addEventListener("focus", function () { record("focus", {}); });
+  window.addEventListener("blur", function () { record("blur", {}); });
+  document.addEventListener("visibilitychange", function () {
+    record("visibility", { state: document.visibilityState }, document.visibilityState === "hidden");
+  });
+  // 閉じるときは `sendBeacon` で送る（ページが消えても届く）。
+  window.addEventListener("pagehide", function () {
+    flushActivity();
+    rec.pending.forEach(function (batch) {
+      if (!batch.ready) return;
+      try {
+        navigator.sendBeacon(
+          "/ide/activity",
+          new Blob([JSON.stringify(batch)], { type: "application/json" })
+        );
+      } catch (e) { /* 送れなければ欠落として残る */ }
+    });
+  });
+
+  // 問題文からのコピーも記録する（問題文を外へ持ち出したか、の材料）。
+  $all(".ide-statement").forEach(function (panel) {
+    panel.addEventListener("copy", function () {
+      var text = String(window.getSelection ? window.getSelection() : "");
+      rememberCopy("copy", "statement", text);
+    });
+  });
+
+  function rememberCopy(type, from, text) {
+    sha256(text).then(function (hash) {
+      rec.copies.push(hash);
+      if (rec.copies.length > RECENT_COPIES) rec.copies.shift();
+      record(type, { tab: rec.current, from: from, len: text.length, hash: hash });
+    });
+  }
+
+  function consentFlow() {
+    var notice = $("[data-ide-consent]");
+    if (!config.needsConsent || !notice) {
+      startRecorder(false);
+      return;
+    }
+    notice.hidden = false;
+    setReadOnly(true);
+    $("[data-ide-consent-accept]").addEventListener("click", function () {
+      notice.hidden = true;
+      setReadOnly(false);
+      startRecorder(true);
+    });
+  }
+
+  function setReadOnly(flag) {
+    editors.forEach(function (editor) { editor.updateOptions({ readOnly: flag }); });
+    $all(".ide-run, .ide-submit, .ide-run-sample, .ide-file, .ide-format").forEach(function (el) {
+      el.disabled = flag;
+    });
+  }
+
+  // -- 補完（設計書 §5.3） ----------------------------------------------------
+  //
+  // 問題セットごとに「切／入」。**切でも**括弧を閉じる・字下げ・色分けは効く。
+  // 入のときだけ、そのファイル内の単語と言語のキーワードを候補に出す。
+  //
+  // Monaco の組み込みの単語補完は使わない。確定した瞬間を拾えないので、補完で
+  // 入った数文字を貼り付けや自動入力と取り違える。候補は全部ここで作り、確定の
+  // コマンドで行動記録に `suggest` を残す。キーワードも自前で持つ ── Monaco の
+  // 言語定義は色分けのための一覧しか持たず、C は C++ と共用なので `class` の
+  // ような C に無い語が混じる。
+
+  var KEYWORDS = {
+    // C11 のキーワード。
+    cpp: ("auto break case char const continue default do double else enum extern float " +
+      "for goto if inline int long register restrict return short signed sizeof static " +
+      "struct switch typedef union unsigned void volatile while _Alignas _Alignof _Atomic " +
+      "_Bool _Complex _Generic _Imaginary _Noreturn _Static_assert _Thread_local").split(" "),
+    // Python の `keyword.kwlist`。
+    python: ("False None True and as assert async await break class continue def del elif " +
+      "else except finally for from global if import in is lambda nonlocal not or pass " +
+      "raise return try while with yield").split(" "),
+  };
+  // 候補にするファイル内の単語の最短の長さ。1 文字の変数まで出すと候補が埋まる。
+  var MIN_WORD = 3;
+  var completionOn = {};
+
+  function registerCompletion(monaco) {
+    monaco.editor.registerCommand("aijudge.suggestAccepted", function (_accessor, tab, word, source) {
+      record("suggest", { tab: tab, word: word, len: word.length, source: source });
+    });
+    ["cpp", "python"].forEach(function (language) {
+      monaco.languages.registerCompletionItemProvider(language, {
+        provideCompletionItems: function (model, position) {
+          var tab = completionOn[model.uri.toString()];
+          if (tab === undefined) return { suggestions: [] };
+          var word = model.getWordUntilPosition(position);
+          var range = {
+            startLineNumber: position.lineNumber,
+            endLineNumber: position.lineNumber,
+            startColumn: word.startColumn,
+            endColumn: word.endColumn,
+          };
+          var seen = {};
+          var suggestions = [];
+          function add(label, kind, source) {
+            if (seen[label] || label === word.word) return;
+            seen[label] = true;
+            suggestions.push({
+              label: label,
+              kind: kind,
+              insertText: label,
+              range: range,
+              command: { id: "aijudge.suggestAccepted", title: "", arguments: [tab, label, source] },
+            });
+          }
+          (KEYWORDS[language] || []).forEach(function (k) {
+            add(k, monaco.languages.CompletionItemKind.Keyword, "keyword");
+          });
+          var found = model.getValue().match(/[A-Za-z_][A-Za-z0-9_]*/g) || [];
+          found.forEach(function (w) {
+            if (w.length >= MIN_WORD) add(w, monaco.languages.CompletionItemKind.Text, "word");
+          });
+          return { suggestions: suggestions };
+        },
+      });
+    });
+  }
+
   // -- タブ ------------------------------------------------------------------
 
   function selectTab(index) {
+    if (index !== rec.current) {
+      snapshot(rec.current);
+      record("tab", { from: rec.current, to: index });
+      rec.current = index;
+    }
     $all(".ide-tab").forEach(function (tab) {
       tab.setAttribute("aria-selected", tab.getAttribute("data-index") == index ? "true" : "false");
     });
@@ -152,6 +452,7 @@
       }
       paintRunnable(index);
       markDirty(index);
+      record("format", { tab: index, suffix: select.value });
     });
   });
 
@@ -172,7 +473,15 @@
         if (models[index] && models[index].getValue().trim()) {
           if (!window.confirm("いまの内容を、読み込んだファイルで置き換えますか？")) return;
         }
-        if (models[index]) models[index].setValue(String(reader.result));
+        if (models[index]) {
+          rec.programmatic = true;
+          models[index].setValue(String(reader.result));
+          rec.programmatic = false;
+        }
+        // 読み込んだ中身は全文のスナップショットで残る。ここには名前と大きさだけ。
+        snapshot(index).then(function (hash) {
+          record("file_load", { tab: index, name: file.name, size: file.size, hash: hash }, true);
+        });
         // 拡張子が選べる形式なら、形式もそれに合わせる。
         var dot = file.name.lastIndexOf(".");
         var suffix = dot >= 0 ? file.name.slice(dot).toLowerCase() : "";
@@ -289,6 +598,14 @@
           return;
         }
         finishRun(index);
+        record("run", {
+          tab: index,
+          stage: "result",
+          state: run.state,
+          phase: run.outcome ? run.outcome.stage : null,
+          exit: run.outcome ? run.outcome.exit_code : null,
+          timed_out: run.outcome ? run.outcome.timed_out : null,
+        });
         if (run.state === "done") showOutput(index, describe(run.outcome), "done");
         else if (run.state === "expired") showOutput(index, "混み合っていたため、実行しませんでした。もう一度実行してください。", "error");
         else showOutput(index, run.error || "実行できませんでした", "error");
@@ -309,6 +626,9 @@
     var text = source(index);
     if (!text.trim()) { showOutput(index, "コードが空です。", "error"); return; }
     var body = { suffix: state[index].suffix, source: text };
+    snapshot(index).then(function (hash) {
+      record("run", { tab: index, stage: "request", input: sampleName || "free", hash: hash }, true);
+    });
     if (sampleName) body.sample_name = sampleName;
     else body.stdin = $('[data-stdin="' + index + '"]').value;
     state[index].running = true;
@@ -359,6 +679,8 @@
           var data = result.data;
           state[index].submitted = Math.max(state[index].submitted, data.attempt);
           state[index].lastSubmittedHash = data.content_hash;
+          snapshot(index);
+          record("submit", { tab: index, submission_id: data.submission_id, hash: data.content_hash }, true);
           state[index].currentHash = data.content_hash;
           state[index].savedSource = text;
           dirty[index] = false;
@@ -386,12 +708,22 @@
     var el = $("[data-ide-remaining]");
     if (!el || config.remaining === null) return;
     var loaded = Date.now();
+    var flushed = false;
     function pad(n) { return (n < 10 ? "0" : "") + n; }
     function tick() {
       var left = config.remaining - Math.floor((Date.now() - loaded) / 1000);
+      // **受付終了の直前に、待たずに保存する**（設計書 §9.1）。受付の終わりに
+      // サーバが自動保存の最新を提出するので、10 秒ごとの保存の隙間で書いた分を
+      // 落とさない。
+      if (!flushed && left <= FLUSH_BEFORE_CLOSE_SECONDS) {
+        flushed = true;
+        for (var k = 0; k < tabCount; k++) save(k, true);
+      }
       if (left <= 0) {
         el.textContent = "受付終了";
         el.setAttribute("data-over", "1");
+        var notice = $("[data-ide-closed]");
+        if (notice) notice.hidden = false;
         return;
       }
       var h = Math.floor(left / 3600), m = Math.floor((left % 3600) / 60), s = left % 60;
@@ -432,6 +764,7 @@
   });
   window.require(["vs/editor/editor.main"], function () {
     monacoRef = window.monaco;
+    registerCompletion(monacoRef);
     for (var k = 0; k < tabCount; k++) {
       (function (index) {
         var model = monacoRef.editor.createModel(
@@ -439,6 +772,8 @@
           formatOf(index, state[index].suffix).monaco
         );
         models[index] = model;
+        var withCompletion = !!(config.completion && config.completion[index]);
+        if (withCompletion) completionOn[model.uri.toString()] = index;
         editors[index] = monacoRef.editor.create($('[data-editor="' + index + '"]'), {
           model: model,
           theme: theme(),
@@ -452,8 +787,10 @@
           autoClosingQuotes: "always",
           autoIndent: "full",
           matchBrackets: "always",
-          quickSuggestions: false,
-          suggestOnTriggerCharacters: false,
+          // 候補は補完が「入」のタブだけ（上の `registerCompletion`）。組み込みの
+          // 単語補完はどのタブでも使わない。
+          quickSuggestions: withCompletion,
+          suggestOnTriggerCharacters: withCompletion,
           wordBasedSuggestions: "off",
           parameterHints: { enabled: false },
           snippetSuggestions: "none",
@@ -462,7 +799,47 @@
           tabCompletion: "off",
           scrollBeyondLastLine: false,
         });
-        model.onDidChangeContent(function () {
+        var editor = editors[index];
+        editor.onDidPaste(function (event) {
+          var text = model.getValueInRange(event.range);
+          sha256(text).then(function (hash) {
+            // 出どころ: エディタ内でコピーした内容と一致すれば internal。
+            var origin = rec.copies.indexOf(hash) >= 0 ? "internal" : "external";
+            record(
+              "paste",
+              { tab: index, len: text.length, hash: hash, origin: origin },
+              text.length >= BIG_PASTE_CHARS
+            );
+            if (text.length >= BIG_PASTE_CHARS) snapshot(index);
+          });
+        });
+        ["copy", "cut"].forEach(function (kind) {
+          editor.getDomNode().addEventListener(kind, function () {
+            var selection = editor.getSelection();
+            rememberCopy(kind, "editor", selection ? model.getValueInRange(selection) : "");
+          });
+        });
+        model.onDidChangeContent(function (event) {
+          // 打鍵はまとめずにそのまま残す（まとめると自動入力と人の打鍵が区別
+          // できなくなる・設計書 §6.2）。読み込みで入った分は `file_load` が言う。
+          if (!rec.programmatic) {
+            // 1 回の変更に複数の範囲がある（複数カーソル）とき、位置はどれも
+            // 変更前の内容に対するもの。**後ろから順に**残せば、そのまま順に
+            // 当てて組み立て直せる（`aijudge_ide.integrity`）。
+            event.changes
+              .slice()
+              .sort(function (a, b) { return b.rangeOffset - a.rangeOffset; })
+              .forEach(function (change) {
+              record("edit", {
+                tab: index,
+                off: change.rangeOffset,
+                del: change.rangeLength,
+                ins: change.text,
+                undo: event.isUndoing || undefined,
+                redo: event.isRedoing || undefined,
+              });
+              });
+          }
           markDirty(index);
           window.clearTimeout(state[index].hashTimer);
           state[index].hashTimer = window.setTimeout(function () { refreshHash(index); }, 500);
@@ -470,5 +847,6 @@
         refreshHash(index);
       })(k);
     }
+    consentFlow();
   });
 })();

@@ -11,8 +11,9 @@ Phase 0 の既定は PostgreSQL + ファイルシステム。MinIO（S3 互換�
 
 from __future__ import annotations
 
+from .activity_repository import SqlActivityIndex
 from .audit_repository import SqlAuditLog
-from .buffer_repository import SqlBufferStore
+from .buffer_repository import SqlBufferStore, SqlSubmissionLinkStore
 from .engine import (
     DEFAULT_DATABASE_URL,
     ENV_DATABASE_URL,
@@ -47,6 +48,7 @@ __all__ = [
     "Database",
     "ObjectArtifactStore",
     "ObservationFileStore",
+    "SqlActivityIndex",
     "SqlAuditLog",
     "SqlBufferStore",
     "SqlGradingRunRepository",
@@ -56,6 +58,7 @@ __all__ = [
     "SqlReviewRepository",
     "SqlRunQueue",
     "SqlSkillRepository",
+    "SqlSubmissionLinkStore",
     "SqlSubmissionRepository",
     "SqlTaskRepository",
     "SqlUnitOfWork",

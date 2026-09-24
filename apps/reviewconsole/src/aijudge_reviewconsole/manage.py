@@ -829,6 +829,7 @@ SAVED_MESSAGES: dict[str, str] = {
     "confidential": "この問題セットを公開前に誰に見せるかを変えました（セット内の全課題に反映）",
     "audience": "この問題セットの出題先を変えました（セット内の全課題に反映）",
     "answer_mode": "この問題セットの答え方を変えました（セット内の全課題に反映）",
+    "completion": "この問題セットのエディタの補完を変えました（セット内の全課題に反映）",
     "group_deleted": "名簿を消しました",
     # **版は上がらない。** 日程は課題の内容ではないので、直しても過去の
     # 採点基準は変わらない（ADR 0013・P8 の対象外）。
@@ -3202,6 +3203,27 @@ def register(templates) -> APIRouter:
                 )
         return _update_unit(
             request, course_id, unit, update={"answer_mode": mode}, saved="answer_mode"
+        )
+
+    @router.post("/courses/{course_id}/units/{unit}/completion")
+    def set_unit_completion(
+        request: Request,
+        course_id: str,
+        unit: str,
+        completion: Annotated[str, Form()] = "",
+    ) -> Response:
+        """**エディタで補完を出すかを切り替える**（設計書 §5.3）。
+
+        答え方とは独立した値で、学内限定と同じくセット単位で全課題に入れる。
+        エディタで解かない問題セットでは何も起きない（保存はしておく ── 後で
+        エディタに切り替えたときに、選んだ設定がそのまま効く）。
+        """
+        return _update_unit(
+            request,
+            course_id,
+            unit,
+            update={"editor_completion": bool(completion.strip())},
+            saved="completion",
         )
 
     @router.post("/courses/{course_id}/units/{unit}/confidential")
