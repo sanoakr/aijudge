@@ -135,3 +135,16 @@ def test_deleting_a_course_takes_its_sessions_and_batches(database: Database) ->
         assert index.get_session(SESSION) is None
         assert index.batches(SESSION) == ()
         assert index.get_session(other.id) == other
+
+
+def test_a_learners_sessions_come_back_in_the_order_they_were_opened(database: Database) -> None:
+    for index in _both(database):
+        later = a_session(id=IdeSessionId("ide_" + "8" * 32), started_at=NOW + timedelta(hours=1))
+        index.start_session(later)
+        index.start_session(a_session())
+        index.start_session(a_session(id=IdeSessionId("ide_" + "9" * 32), learner_id=OTHER))
+
+        found = index.sessions_for(LEARNER, COURSE)
+
+        assert [s.id for s in found] == [SESSION, later.id]
+        assert index.sessions_for(LEARNER, OTHER_COURSE) == ()

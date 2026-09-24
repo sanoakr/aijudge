@@ -413,3 +413,18 @@ pre.code.diff .add{display:block;background:var(--ai-soft);color:var(--ink)}
 pre.code.diff .del{display:block;background:var(--shu-soft);color:var(--ink)}
 pre.code.diff .meta{display:block;color:var(--muted)}
 pre.code.diff .same{display:block}
+
+/* IDE の作業の再生（`activity_session.html`・設計書 §7）。左に組み立てた内容、
+   右に目印（貼り付け・離席・実行・提出）の一覧。狭い画面では縦に積む。 */
+.replay-controls{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;margin:10px 0}
+.replay-controls input[type=range]{flex:1;min-width:220px}
+.replay-body{display:grid;grid-template-columns:3fr 2fr;gap:14px}
+.replay-code{margin:0;padding:10px;min-height:320px;max-height:70vh;overflow:auto;
+  background:var(--surface-2);border:1px solid var(--line-soft);border-radius:3px;
+  font-size:.82rem;white-space:pre}
+.replay-marks{margin:0;padding:0 0 0 1.4em;max-height:70vh;overflow:auto;font-size:.85rem}
+.replay-marks li{cursor:pointer;padding:2px 4px;border-radius:3px}
+.replay-marks li:hover{background:var(--surface-2)}
+.replay-marks li.attn{color:var(--shu)}
+.replay-marks li[data-current]{background:var(--ai-soft)}
+@media (max-width:900px){.replay-body{grid-template-columns:1fr}}

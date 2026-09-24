@@ -141,27 +141,45 @@
     if (!rec.sessionId) return;
     var names = Object.keys(rec.snapshots);
     if (!rec.queue.length && !names.length) return;
-    // 各タブのいまの内容の指紋を束の末尾に付ける。サーバが後から「直前の全文 +
-    // 差分」を再構成し、一致するかを確かめる（一致しなければ改変の印）。
-    record("tabs", { hashes: state.map(function (s) { return s.currentHash; }) });
+    // **束を切るその瞬間の内容で指紋を取る。** 画面の「変更あり」表示に使う
+    // 指紋は打鍵の 0.5 秒後に更新されるので、それを使うと即時送信（貼り付け・
+    // 実行）の束に 1 つ前の状態の指紋が載り、正しい記録が「食い違い」に見える。
+    // 内容はここで同期的に写し取り、指紋の計算（非同期）はその写しに対して行う。
+    var texts = [];
+    for (var k = 0; k < tabCount; k++) texts.push(source(k));
+    var t = now();
     var batch = {
       session_id: rec.sessionId,
       seq: rec.seq++,
       client_time: Date.now(),
       events: rec.queue.splice(0),
       snapshots: rec.snapshots,
+      ready: false,
     };
     rec.snapshots = {};
     names.forEach(function (name) { rec.sent[name] = true; });
+    // 送る順（seq）を保つため、指紋の計算を待たずに列に並べる。
     rec.pending.push(batch);
-    sendPending();
+    Promise.all(texts.map(sha256)).then(function (hashes) {
+      // 各タブのいまの内容の指紋を束の末尾に付ける。サーバが後から「直前の
+      // 全文 + 差分」を組み立て直し、一致するかを確かめる（一致しなければ改変の印）。
+      batch.events.push({ type: "tabs", t: t, hashes: hashes });
+      batch.ready = true;
+      sendPending();
+    });
   }
 
   function sendPending() {
-    if (rec.sending || !rec.pending.length) return;
+    if (rec.sending || !rec.pending.length || !rec.pending[0].ready) return;
     rec.sending = true;
     var batch = rec.pending[0];
-    send("POST", "/ide/activity", batch)
+    send("POST", "/ide/activity", {
+      session_id: batch.session_id,
+      seq: batch.seq,
+      client_time: batch.client_time,
+      events: batch.events,
+      snapshots: batch.snapshots,
+    })
       .then(function (result) {
         rec.sending = false;
         if (result.ok || result.status === 400 || result.status === 404 || result.status === 413) {
@@ -210,6 +228,8 @@
           record("hello", {
             screen: [window.screen.width, window.screen.height],
             tabs: tabCount,
+            // どのタブがどの課題か（課題版の ID）。再生の画面がタブに課題名を出す。
+            tasks: config.tabs,
             hashes: hashes,
           });
           window.setTimeout(recorderLoop, 500);
@@ -238,6 +258,7 @@
   window.addEventListener("pagehide", function () {
     flushActivity();
     rec.pending.forEach(function (batch) {
+      if (!batch.ready) return;
       try {
         navigator.sendBeacon(
           "/ide/activity",

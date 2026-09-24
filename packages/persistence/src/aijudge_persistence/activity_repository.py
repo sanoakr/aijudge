@@ -76,6 +76,25 @@ class SqlActivityIndex:
             self._session.flush()
         return doomed
 
+    def sessions_for(self, learner_id: UserId, course_id: CourseId) -> tuple[IdeSession, ...]:
+        rows = (
+            self._session.execute(
+                select(IdeSessionRow.id)
+                .where(
+                    IdeSessionRow.learner_id == str(learner_id),
+                    IdeSessionRow.course_id == str(course_id),
+                )
+                .order_by(IdeSessionRow.started_at, IdeSessionRow.id)
+            )
+            .scalars()
+            .all()
+        )
+        return tuple(
+            session
+            for session in (self.get_session(IdeSessionId(row)) for row in rows)
+            if session is not None
+        )
+
     def has_consented(self, learner_id: UserId, course_id: CourseId) -> bool:
         found = self._session.execute(
             select(IdeSessionRow.id)

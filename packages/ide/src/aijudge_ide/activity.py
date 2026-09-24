@@ -122,6 +122,10 @@ class ActivityIndex(Protocol):
 
     def get_session(self, session_id: IdeSessionId) -> IdeSession | None: ...
 
+    def sessions_for(self, learner_id: UserId, course_id: CourseId) -> tuple[IdeSession, ...]:
+        """この学習者のこのコースでのセッション。開いた順。教員の閲覧で使う。"""
+        ...
+
     def has_consented(self, learner_id: UserId, course_id: CourseId) -> bool:
         """このコースで告知を確認したことがあるか。あれば画面は告知を出し直さない。"""
         ...

@@ -152,6 +152,18 @@ class InMemoryActivityIndex:
     def get_session(self, session_id: IdeSessionId) -> IdeSession | None:
         return self._sessions.get(session_id)
 
+    def sessions_for(self, learner_id: UserId, course_id: CourseId) -> tuple[IdeSession, ...]:
+        return tuple(
+            sorted(
+                (
+                    s
+                    for s in self._sessions.values()
+                    if s.learner_id == learner_id and s.course_id == course_id
+                ),
+                key=lambda s: (s.started_at, s.id),
+            )
+        )
+
     def has_consented(self, learner_id: UserId, course_id: CourseId) -> bool:
         return any(
             s.learner_id == learner_id and s.course_id == course_id for s in self._sessions.values()
