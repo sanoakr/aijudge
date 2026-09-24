@@ -34,6 +34,8 @@ root_packages =
     aijudge_telemetry
     aijudge_audit
     aijudge_webui
+    aijudge_ide
+    aijudge_runner
 include_external_packages = True
 
 [importlinter:contract:core-is-independent]
@@ -59,6 +61,7 @@ forbidden_modules =
     aijudge_toolchain
     aijudge_telemetry
     aijudge_audit
+    aijudge_ide
 
 ; ゲートウェイは他サブシステムを知らない。採点の語彙にも依存しない
 ; （依存させると、採点以外から LLM を使うたびに採点が引きずられる）。
@@ -129,6 +132,7 @@ modules =
     aijudge_submission
     aijudge_identity
     aijudge_skill
+    aijudge_ide
 
 ; S9 は指標の計算だけを持つ純関数の層。採点の実装を知らないので、
 ; 採点器を差し替えても測定側は変わらない。
@@ -234,6 +238,7 @@ source_modules =
     aijudge_eval_text_pattern_check
     aijudge_ext_document_text
     aijudge_ext_image_text
+    aijudge_ide
 forbidden_modules =
     aijudge_persistence
     sqlalchemy
@@ -252,13 +257,14 @@ source_modules =
     aijudge_eval_code_test_runner
     aijudge_eval_rubric_ai_judge
     aijudge_sandbox
+    aijudge_ide
 forbidden_modules =
     aijudge_evalrunner
     aijudge_reviewconsole
     aijudge_grader
     aijudge_studentweb
     aijudge_admin
-    aijudge_admin
+    aijudge_runner
 
 ; 言語の扱い方は何にも依存しない。複数の評価器が共有する知識で、片方に
 ; 置いて他方が import すると評価器どうしが結合する（観測レコードを独立させた
@@ -389,6 +395,7 @@ source_modules =
     aijudge_eval_text_pattern_check
     aijudge_ext_document_text
     aijudge_ext_image_text
+    aijudge_ide
 forbidden_modules =
     aijudge_telemetry
 
@@ -443,3 +450,46 @@ forbidden_modules =
     sqlalchemy
     httpx
     requests
+
+; ブラウザ IDE の試しの実行（ADR 0024）。**コードを動かせるのは runner だけ。**
+;
+; IDE のパッケージは要求を積んで結果を読むだけで、sandbox を知らない。知らせると、
+; web（IDE の受付を import する）がコードを動かせる形に一歩近づく。web には
+; Docker の権限を与えない（不変条件 I6）ので、構造の側でも閉じておく。
+[importlinter:contract:ide-does-not-run-code]
+name = IDE のパッケージはコードを動かさない（sandbox を import しない）
+type = forbidden
+source_modules =
+    aijudge_ide
+forbidden_modules =
+    aijudge_sandbox
+
+; 学生画面の web は sandbox を import しない（不変条件 I6・ADR 0024 §2）。
+; 実行は `run_requests` に行を書くだけで、動かすのは別プロセスの runner である。
+; web が直接動かし始めると、試験中の実行の山が web のワーカーを塞ぎ、画面ごと
+; 固まる ── しかも web に Docker の権限が要るようになる。
+[importlinter:contract:web-does-not-run-code]
+name = 学生画面は sandbox を import しない（実行は runner の仕事）
+type = forbidden
+source_modules =
+    aijudge_studentweb
+forbidden_modules =
+    aijudge_sandbox
+
+; 採点は IDE を知らない（不変条件 I2）。IDE からの提出も `/submit` からの提出も
+; 同じ `Submission` で、採点側は出どころを区別できない ── できないことを構造で
+; 固定する。区別できると、いずれ「IDE の提出だけ」の分岐が採点に入り込み、
+; 試しの実行の結果や行動記録が成績に届く道ができる（設計書 §7）。
+[importlinter:contract:grading-does-not-know-ide]
+name = 採点と評価器は IDE を import しない（提出の出どころを知らない）
+type = forbidden
+source_modules =
+    aijudge_grading
+    aijudge_eval_code_test_runner
+    aijudge_eval_rubric_ai_judge
+    aijudge_eval_network_test_runner
+    aijudge_eval_text_pattern_check
+    aijudge_ext_document_text
+    aijudge_ext_image_text
+forbidden_modules =
+    aijudge_ide

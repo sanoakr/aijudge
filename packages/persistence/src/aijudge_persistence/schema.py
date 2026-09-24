@@ -15,6 +15,7 @@ SQL で集約の中身を検索するようになったときで、そのとき�
     outbox_events      ドメインイベント。published_at が NULL なら未送信
     tasks / task_versions  課題。公開後は不変
     audit_events       誰が成績に届く何を変えたか。**追記のみ**（ADR 0016）
+    run_requests       IDE の試しの実行。採点キューとは別（ADR 0024）。結果は残さない
 
 日時は必ず timezone 付きで扱う。素の TIMESTAMP に入れると、締切判定が
 サーバのローカル時刻に依存する。**ただしバックエンドによっては保証されない**
@@ -38,6 +39,7 @@ from sqlalchemy import (
     Text,
     TypeDecorator,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -766,4 +768,47 @@ class AuditEventRow(Base):
         # 「このテナントの最近の行為」「この行為の履歴」。
         Index("ix_audit_tenant_at", "tenant_id", "at"),
         Index("ix_audit_tenant_action_at", "tenant_id", "action", "at"),
+    )
+
+
+class RunRequestRow(Base):
+    """ブラウザ IDE の試しの実行（ADR 0024）。**採点キューとは別の表。**
+
+    `grading_jobs` に相乗りすると、試験中の実行の山が採点を待たせ、採点の山が
+    学習者の画面を固める。**結果は残さない** ── 終わった行は runner が
+    しばらくで消す（`purge_finished`）。行に学習者のコードが入っているので、
+    画面に出したあとまで持つ理由が無い。
+
+    絞り込みと一意性に使うもの（誰の・どの状態の・いつの）は列にし、
+    ソース・入力・結果は `document` に入れる（`grading_jobs` と同じ判断）。
+    """
+
+    __tablename__ = "run_requests"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(64))
+    learner_id: Mapped[str] = mapped_column(String(64))
+    task_version_id: Mapped[str] = mapped_column(String(64))
+    state: Mapped[str] = mapped_column(String(16))
+    created_at: Mapped[datetime] = mapped_column(Timestamp)
+    finished_at: Mapped[datetime | None] = mapped_column(Timestamp, nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(Timestamp, nullable=True)
+    document: Mapped[dict] = mapped_column(JsonType)
+
+    __table_args__ = (
+        # **1 人が同時に待てるのは 1 件**（ADR 0024 §1）。画面でボタンを
+        # 押せなくするだけでは境界にならない（#146）── 2 つのタブから同時に
+        # 押せば、検査と挿入のあいだをすり抜ける。最後に止めるのは DB である。
+        # 部分索引は PostgreSQL・SQLite の両方が持つ。
+        Index(
+            "uq_run_requests_one_in_flight",
+            "learner_id",
+            unique=True,
+            postgresql_where=text("state IN ('queued', 'running')"),
+            sqlite_where=text("state IN ('queued', 'running')"),
+        ),
+        # runner の取得（待っている要求を古い順に）と、期限切れの片付け。
+        Index("ix_run_requests_state_created", "state", "created_at"),
+        # 連続実行の間隔を見るための「この学習者の最後の要求」。
+        Index("ix_run_requests_learner_created", "learner_id", "created_at"),
     )

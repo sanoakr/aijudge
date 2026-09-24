@@ -29,6 +29,7 @@ from .repositories import (
     SqlSubmissionRepository,
     SqlTaskRepository,
 )
+from .run_repository import SqlRunQueue
 from .schema import Base
 from .skill_repository import SqlSkillRepository
 
@@ -108,6 +109,8 @@ class SqlUnitOfWork:
         # 操作が巻き戻れば監査行も巻き戻り、監査行が書けなければ操作も
         # 成立しない。成績の変更が記録なしで成立してはいけない。
         self.audit = SqlAuditLog(self._session)
+        # ブラウザ IDE の試しの実行（ADR 0024）。**採点キュー（`jobs`）とは別。**
+        self.run_requests = SqlRunQueue(self._session)
         return self
 
     def __exit__(self, *exc: object) -> None:

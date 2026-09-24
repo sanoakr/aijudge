@@ -26,11 +26,13 @@ members = [
     "aijudge-feedback",
     "aijudge-grader",
     "aijudge-grading",
+    "aijudge-ide",
     "aijudge-identity",
     "aijudge-llm-gateway",
     "aijudge-observation",
     "aijudge-persistence",
     "aijudge-reviewconsole",
+    "aijudge-runner",
     "aijudge-sandbox",
     "aijudge-skill",
     "aijudge-studentweb",
@@ -62,11 +64,13 @@ dependencies = [
     { name = "aijudge-feedback" },
     { name = "aijudge-grader" },
     { name = "aijudge-grading" },
+    { name = "aijudge-ide" },
     { name = "aijudge-identity" },
     { name = "aijudge-llm-gateway" },
     { name = "aijudge-observation" },
     { name = "aijudge-persistence" },
     { name = "aijudge-reviewconsole" },
+    { name = "aijudge-runner" },
     { name = "aijudge-sandbox" },
     { name = "aijudge-skill" },
     { name = "aijudge-studentweb" },
@@ -116,11 +120,13 @@ requires-dist = [
     { name = "aijudge-feedback", editable = "packages/feedback" },
     { name = "aijudge-grader", editable = "apps/grader" },
     { name = "aijudge-grading", editable = "packages/grading" },
+    { name = "aijudge-ide", editable = "packages/ide" },
     { name = "aijudge-identity", editable = "packages/identity" },
     { name = "aijudge-llm-gateway", editable = "packages/llm_gateway" },
     { name = "aijudge-observation", editable = "packages/observation" },
     { name = "aijudge-persistence", editable = "packages/persistence" },
     { name = "aijudge-reviewconsole", editable = "apps/reviewconsole" },
+    { name = "aijudge-runner", editable = "apps/runner" },
     { name = "aijudge-sandbox", editable = "packages/sandbox" },
     { name = "aijudge-skill", editable = "packages/skill" },
     { name = "aijudge-studentweb", editable = "apps/studentweb" },
@@ -450,6 +456,21 @@ requires-dist = [
 ]
 
 [[package]]
+name = "aijudge-ide"
+version = "0.0.1"
+source = { editable = "packages/ide" }
+dependencies = [
+    { name = "aijudge-core" },
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aijudge-core", editable = "packages/core" },
+    { name = "pydantic", specifier = ">=2.8" },
+]
+
+[[package]]
 name = "aijudge-identity"
 version = "0.0.1"
 source = { editable = "packages/identity" }
@@ -498,6 +519,7 @@ dependencies = [
     { name = "aijudge-audit" },
     { name = "aijudge-authoring" },
     { name = "aijudge-core" },
+    { name = "aijudge-ide" },
     { name = "aijudge-identity" },
     { name = "aijudge-observation" },
     { name = "aijudge-submission" },
@@ -519,6 +541,7 @@ requires-dist = [
     { name = "aijudge-audit", editable = "packages/audit" },
     { name = "aijudge-authoring", editable = "packages/authoring" },
     { name = "aijudge-core", editable = "packages/core" },
+    { name = "aijudge-ide", editable = "packages/ide" },
     { name = "aijudge-identity", editable = "packages/identity" },
     { name = "aijudge-observation", editable = "packages/observation" },
     { name = "aijudge-submission", editable = "packages/submission" },
@@ -569,6 +592,33 @@ requires-dist = [
     { name = "python-multipart", specifier = ">=0.0.9" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "uvicorn", specifier = ">=0.30" },
+]
+
+[[package]]
+name = "aijudge-runner"
+version = "0.0.1"
+source = { editable = "apps/runner" }
+dependencies = [
+    { name = "aijudge-core" },
+    { name = "aijudge-eval-code-test-runner" },
+    { name = "aijudge-grading" },
+    { name = "aijudge-ide" },
+    { name = "aijudge-persistence" },
+    { name = "aijudge-sandbox" },
+    { name = "aijudge-telemetry" },
+    { name = "aijudge-toolchain" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aijudge-core", editable = "packages/core" },
+    { name = "aijudge-eval-code-test-runner", editable = "evaluators/code_test_runner" },
+    { name = "aijudge-grading", editable = "packages/grading" },
+    { name = "aijudge-ide", editable = "packages/ide" },
+    { name = "aijudge-persistence", editable = "packages/persistence" },
+    { name = "aijudge-sandbox", editable = "packages/sandbox" },
+    { name = "aijudge-telemetry", editable = "packages/telemetry" },
+    { name = "aijudge-toolchain", editable = "packages/toolchain" },
 ]
 
 [[package]]

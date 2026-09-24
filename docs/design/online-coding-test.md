@@ -117,8 +117,8 @@ flowchart TB
 
 ```python
 class AnswerMode(StrEnum):
-    UPLOAD = "upload"   # 既存。ファイルを選んで出す
-    EDITOR = "editor"   # ブラウザのエディタで書いて出す
+    UPLOAD = "upload"  # 既存。ファイルを選んで出す
+    EDITOR = "editor"  # ブラウザのエディタで書いて出す
 ```
 
 `campus_only` と同じ性質の値である ── **課題が持つが、値を決めるのは問題セット
@@ -563,10 +563,40 @@ main に混ぜない**。main への取り込みは、段階 3 の負荷試験�
 - [x] 採点が実際に runsc で走っていることを、`grading_runs` の
   `raw_output.isolation` で確かめた ── `code_test_runner` の 263 件
   （2026-09-16〜09-24）がすべて `kernel_isolated`。runc で走った記録は無い
-- [ ] I8 の関門の現状を確かめる。#370 で動画の経路が関門に寄せられたので、
-  抜き出しの範囲が本書の想定より小さくなっている可能性がある
+- [x] I8 の関門の現状を確かめた（2026-09-24）。#370 で動画の 2 経路（分割
+  アップロードと 1 発の送信）は `_video_gate` に寄せられたが、**`/submit` は
+  学内限定・受付期間・役割の判定をまだ自前で写して持っている**（`app.py` の
+  `submit`）。抜き出しの範囲は本書の想定どおりで、`/submit`・`_video_gate`・
+  IDE の 3 経路が同じ関数を呼ぶ形にする。段階 2 で行う
 
-段階 1 には、今週の授業が終わってから入る。
+### 段階 1 の結果（2026-09-24、`feat/ide-run-queue`）
+
+- `packages/ide`: 実行要求（`RunRequest`）・キューの口（`RunQueue`）・
+  インメモリ実装・受付の検査（`request_run` / `view_run`）。sandbox も保存先も
+  知らない
+- `run_requests` 表と `SqlRunQueue`（移行 `d4a8f2c61e97`）。1 人 1 件は部分一意索引
+  `uq_run_requests_one_in_flight` が止める。**同じテストをインメモリ・SQLite・
+  PostgreSQL に当てる**（`packages/persistence/tests/test_run_repository.py`）
+- `apps/runner`（`aijudge-runner`）: 採点ワーカーと同じ重ね方で
+  `code_test_runner` の設定を引き、同じ上限（`limits_for` が評価器の `_limits` と
+  一致することをテストで固定）で動かす。遅れた結果は捨てる
+- 古い要求の片付けは **runner だけでなく受付と問い合わせでも**行う。runner が
+  全部止まっていても、学習者は 30 秒で次を積める
+- 終わった要求は 10 分で消す（結果は残さない）
+- import 契約を 3 つ足した: `ide-does-not-run-code`・`web-does-not-run-code`・
+  `grading-does-not-know-ide`
+- `deploy/systemd/aijudge-runner@.service` を置いた。**`aijudge.target` には
+  まだ入れていない**（置いただけでは起動しない）
+- 手元の Docker（colima）で、公開サンプルでの実行・コンパイルエラー・無限ループの
+  打ち切り（プロファイルの 2 秒）を確かめた
+
+残したもの:
+
+- web の受け口（`POST /ide/tasks/{id}/run`・`GET /ide/runs/{id}`）は、関門の
+  抜き出しと一緒に段階 2 で作る
+- コースを消したとき（`delete_course`）に、そのコースの課題を指す実行要求は
+  消していない。10 分で消えるうえ、課題が無ければ runner は「課題が
+  見つかりません」で終える
 
 ### 段階 0 で運用機で測るもの
 

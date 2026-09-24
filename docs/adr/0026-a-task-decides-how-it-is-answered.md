@@ -23,8 +23,8 @@
 
 ```python
 class AnswerMode(StrEnum):
-    UPLOAD = "upload"   # 既存。ファイルを選んで出す
-    EDITOR = "editor"   # ブラウザのエディタで書いて出す
+    UPLOAD = "upload"  # 既存。ファイルを選んで出す
+    EDITOR = "editor"  # ブラウザのエディタで書いて出す
 ```
 
 - 値は `tasks.document` に入るので**列は増えない**。既存の課題はすべて `upload` で、

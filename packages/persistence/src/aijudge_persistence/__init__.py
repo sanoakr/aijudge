@@ -33,6 +33,7 @@ from .repositories import (
     SqlSubmissionRepository,
     SqlTaskRepository,
 )
+from .run_repository import SqlRunQueue
 from .schema import Base
 from .skill_repository import SqlSkillRepository
 
@@ -51,6 +52,7 @@ __all__ = [
     "SqlJobQueue",
     "SqlOutbox",
     "SqlReviewRepository",
+    "SqlRunQueue",
     "SqlSkillRepository",
     "SqlSubmissionRepository",
     "SqlTaskRepository",
