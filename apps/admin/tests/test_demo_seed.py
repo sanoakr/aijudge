@@ -13,7 +13,7 @@ import pytest
 
 from aijudge_admin.demo_seed import demo_definition_path, seed_demo_course
 from aijudge_admin.operations import AdminError
-from aijudge_core import HUMAN_SCORED
+from aijudge_core import AnswerMode
 from aijudge_core.ids import TenantId, UserId
 from aijudge_persistence import Database
 
@@ -43,15 +43,15 @@ def test_the_definition_ships_with_the_profiles() -> None:
     assert demo_definition_path(PROFILES).exists()
 
 
-def test_three_kinds_of_task_live_in_one_course(database: Database) -> None:
+def test_program_and_report_live_in_one_course(database: Database) -> None:
     """**これが要件の核心**（#194 の 4）。
 
-    画像・プログラム・レポートが 1 つのコースに同居する。できるように
-    なったのは #195（採点のプロファイルを課題から取る）以降で、それ以前は
-    3 つのコースに割るしかなかった。
+    プログラムとレポートが 1 つのコースに同居する。できるようになったのは
+    #195（採点のプロファイルを課題から取る）以降で、それ以前はコースを割る
+    しかなかった。画像の課題は 2026-09-24 に外した（定義のコメント）。
     """
     result = _seed(database)
-    assert result.tasks == 3
+    assert result.tasks == 2
 
     with database.unit_of_work() as uow:
         versions = {
@@ -59,27 +59,45 @@ def test_three_kinds_of_task_live_in_one_course(database: Database) -> None:
             for task in uow.tasks.list_for_course(result.course.id)
         }
     profiles = {title: version.subject_profile for title, version in versions.items()}
-    assert set(profiles.values()) == {"demo_image", "cs_lang_c_intro", "report_ja"}
+    assert set(profiles.values()) == {"cs_lang_c_intro", "report_ja"}
 
 
-def test_the_image_task_has_no_machine_evaluator(database: Database) -> None:
-    """画像の課題は**人が採点する観点しか持たない**。
+def test_every_demo_task_opens_in_the_editor(database: Database) -> None:
+    """**どちらの課題もエディタで書ける**（ADR 0026・2026-09-24）。
 
-    その結果、提出しても**総合点は保留になる**（`visibility.py`）── 残った
-    観点だけを比例配分した合計を出さない、という設計の実物である。
-    **その状態がデモで見えること自体が説明になる。**
+    エディタの課題にもファイルの提出欄は残るので、これで「ブラウザとファイルの
+    両方で出せる」になる。定義の `units` から入るので、リセットしても戻る ──
+    画面で切り替えただけだと、リセットのたびにファイル提出へ戻る。
+    """
+    result = _seed(database)
+    with database.unit_of_work() as uow:
+        tasks = uow.tasks.list_for_course(result.course.id)
+    assert tasks
+    assert all(task.answer_mode is AnswerMode.EDITOR for task in tasks)
+    assert all(task.editor_completion for task in tasks)
+    suffixes = {task.title: set(task.accepted_suffixes) for task in tasks}
+    assert suffixes == {"最大値を求める": {".c"}, "使ってみた感想を書く": {".md"}}
+
+
+def test_the_code_task_does_not_penalise_idiomatic_names(database: Database) -> None:
+    """**読みやすさの観点は短いプログラムに合わせてある**（2026-09-24）。
+
+    汎用の観点（`readability_weight` が作る）は変数名 `max` まで減点していた。
+    観点の説明が慣用の名前を許すと言っていること、重みが正しさより十分軽い
+    ことを固定する ── 汎用の観点へ戻すと、この 2 つがまとめて消える。
     """
     result = _seed(database)
     with database.unit_of_work() as uow:
         version = next(
             uow.tasks.latest_version(task.id)
             for task in uow.tasks.list_for_course(result.course.id)
-            if uow.tasks.latest_version(task.id).subject_profile == "demo_image"
+            if task.title == "最大値を求める"
         )
-    assert version.criteria
-    assert all(c.evaluator_id == HUMAN_SCORED for c in version.criteria), (
-        "機械が採点する観点が混ざっている。総合点が出てしまう"
-    )
+    by_code = {c.code: c for c in version.criteria}
+    assert by_code["correctness"].evaluator_id == "code_test_runner"
+    assert "max" in by_code["readability"].description
+    assert by_code["readability"].weight < by_code["correctness"].weight
+    assert "最大値関数" not in version.statement
 
 
 def test_the_demo_uses_its_own_knowledge_components(database: Database) -> None:
@@ -109,31 +127,10 @@ def test_seeding_twice_adds_nothing(database: Database) -> None:
 
     assert second.course.id == first.course.id
     with database.unit_of_work() as uow:
-        assert len(uow.tasks.list_for_course(first.course.id)) == 3
+        assert len(uow.tasks.list_for_course(first.course.id)) == 2
 
 
 def test_a_missing_definition_says_so(database: Database, tmp_path: Path) -> None:
     """定義が無ければ、そう言って止まる。**空のコースを作らない。**"""
     with pytest.raises(AdminError, match="定義がありません"):
         seed_demo_course(database, tenant_id=TENANT, profiles_dir=tmp_path, authored_by=AUTHOR)
-
-
-def test_the_image_task_accepts_photographs(database: Database) -> None:
-    """**「撮って出す」課題に写真を出せること**（#234）。
-
-    拡張子を指定しないと組み込みの既定（コードとテキスト）に落ちる。
-    既定をそう決めてあるのは、設定漏れを「提出不能」として学習者側に
-    見せないためで（`allowed_suffixes`）、判断としては妥当だが、画像課題に
-    とっては誤った既定になる ── 本番のE2E検証で、デモの看板課題に写真が
-    出せないことが分かった。
-    """
-    seeded = _seed(database)
-
-    with database.unit_of_work() as uow:
-        tasks = uow.tasks.list_for_course(seeded.course.id)
-    image = next(task for task in tasks if "撮って" in task.title)
-
-    assert ".jpg" in image.accepted_suffixes
-    assert ".pdf" in image.accepted_suffixes
-    # コードの拡張子は要らない ── 受けるものを絞ることが、この課題の説明になる。
-    assert ".c" not in image.accepted_suffixes

@@ -14,7 +14,7 @@ import pytest
 
 from aijudge_admin.course_definition import apply_course_definition, load_course_definition
 from aijudge_admin.operations import AdminError, ensure_course
-from aijudge_core import HUMAN_SCORED
+from aijudge_core import HUMAN_SCORED, AnswerMode
 from aijudge_core.ids import TenantId, UserId
 from aijudge_persistence import Database
 
@@ -198,3 +198,47 @@ def test_the_template_is_a_valid_definition(tmp_path: Path) -> None:
     assert definition.course["code"] == "network"
     assert [task.key for task in definition.tasks] == ["ex1/p1", "ex1/p2", "ex1/p3", "ex2/p1"]
     assert definition.tasks[3].test_cases[0].expected == "6\n"
+
+
+def _with_unit_setting(setting: str) -> str:
+    return DEFINITION.replace(
+        "    due_at: 2026-09-25T23:59:00+09:00\n",
+        f"    due_at: 2026-09-25T23:59:00+09:00\n    {setting}\n",
+        1,
+    )
+
+
+def test_unit_answer_mode_goes_to_every_task_of_the_set(database: Database, tmp_path) -> None:
+    """`units` の答え方は問題セットの値で、回の全課題に入る（ADR 0026・`/manage` と同じ）。
+
+    認定証（画像）を含む回では `editor` にできないので、画像の課題を除いた回で確かめる。
+    """
+    text = _with_unit_setting("answer_mode: editor\n    editor_completion: true").replace(
+        "  - key: ex1/cert\n    unit: ex1\n", "  - key: ex1/cert\n    unit: ex0\n"
+    )
+    result = _apply(database, _write_definition(tmp_path, text))
+
+    tasks, _versions = _tasks(database, result.course.id)
+    in_set = [task for task in tasks.values() if task.unit == "ex1"]
+    assert len(in_set) == 2
+    assert all(task.answer_mode is AnswerMode.EDITOR for task in in_set)
+    assert all(task.editor_completion for task in in_set)
+    # 書かれていない回は触らない。
+    assert tasks["認定証を提出する"].answer_mode is AnswerMode.UPLOAD
+
+
+def test_a_set_that_cannot_open_in_the_editor_is_refused(database: Database, tmp_path) -> None:
+    """**画面と同じ検査を通す**（`editor_blockers`）。画像だけの課題は名前で挙がる。"""
+    text = _with_unit_setting("answer_mode: editor")
+    with pytest.raises(AdminError, match="認定証を提出する"):
+        _apply(database, _write_definition(tmp_path, text))
+
+
+def test_a_misspelt_unit_setting_is_refused_before_anything_is_saved(tmp_path: Path) -> None:
+    """値の誤りは**読む段で**落とす。課題を入れてから分かると、半分だけ入った定義が残る。"""
+    with pytest.raises(AdminError, match="answer_mode"):
+        load_course_definition(_write_definition(tmp_path, _with_unit_setting("answer_mode: ide")))
+    with pytest.raises(AdminError, match="editor_completion"):
+        load_course_definition(
+            _write_definition(tmp_path / "b", _with_unit_setting("editor_completion: yes-please"))
+        )

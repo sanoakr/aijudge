@@ -4,15 +4,20 @@
 # はコースを消して作り直し、ここから問題セットを入れ直す ── だから「当初の
 # 状態」がコードではなくファイルに書いてある必要がある。
 #
-# **3 種類を 1 コースに置く。** これができるのは #195 で採点のプロファイルを
-# 課題側から取るようにしたためで、それ以前は 2 つ（3 つ）のコースに割るしか
-# なかった。デモの要件がその変更を必要とした。
+# **2 種類を 1 コースに置く。** これができるのは #195 で採点のプロファイルを
+# 課題側から取るようにしたためで、それ以前はコースを割るしかなかった。
 #
 # | 課題 | プロファイル | 見せたいこと |
 # |---|---|---|
-# | 画像 | `demo_image` | 機械が採点しない観点 → **総合点が保留になる** |
 # | C 言語 | `cs_lang_c_intro` | テスト実行で即座に判定が出る |
 # | レポート | `report_ja` | AI が根拠を添えて判定する |
+#
+# **画像の課題（手書きのメモ）は外した**（2026-09-24）。総合点が保留になる
+# 様子を見せる課題だったが、お試しで触る人には「採点されない課題」にしか
+# 見えなかった。
+#
+# **どちらもブラウザのエディタとファイルの両方で出せる**（`units` の
+# `answer_mode: editor`・ADR 0026）。エディタの課題にもファイルの提出欄は残る。
 #
 # KC は `demo` 名前空間（`subjects/kc/demo.yaml`）。**`cs` を使わない** ──
 # 除外が漏れたときに本物の習熟度へ効かないようにするため。
@@ -26,59 +31,22 @@ course:
   description: >-
     aiJudge を触って試すためのコースです。ログインすれば誰でも入れます。
     **ここでの提出は、成績にも学習履歴にも残りません。**
-    画像・プログラム・レポートの 3 種類を置いてあり、それぞれ採点のされ方が
-    違います ── 機械が判定するもの、AI が根拠を添えて判定するもの、
-    人が見るまで点が付かないもの。
+    プログラムとレポートの 2 種類を置いてあり、それぞれ採点のされ方が
+    違います ── テストで機械が判定するものと、AI が根拠を添えて判定するもの。
+    どちらもブラウザのエディタで書いても、ファイルで出しても構いません。
+
+# 問題セットの値（ADR 0026）。回の全課題に入る。お試しなので補完も入れる。
+units:
+  demo01: {answer_mode: editor, editor_completion: true}
 
 tasks:
-  - key: d1-image
-    unit: demo01
-    position: 1
-    title: 手書きのメモを撮って出す
-    subject_profile: demo_image
-    knowledge_components: [demo.trial.image.legibility, demo.trial.image.completeness]
-    # **写真と PDF を受ける**（#234）。指定しないと組み込みの既定（コードと
-    # テキスト）に落ち、「撮って出す」課題に写真を出せない。
-    accepted_suffixes: [.jpg, .jpeg, .png, .pdf]
-    statement: |
-      ## [必須] 手書きのメモを撮って出す ##
-
-      紙に何か書いて、写真を撮って提出してください。内容は何でも構いません
-      （落書きでも、講義のノートでも）。
-
-      ### 見てほしいこと
-
-      この課題には**機械の評価器がありません**。観点はどちらも人が見て決めます。
-
-      提出すると、**総合点は出ません。** 「担当教員が確認します」と出るはずです
-      ── 採点できなかった観点が残っているとき、残りだけを比例配分した点は
-      出さない、という設計だからです。その状態を見てもらうための課題です。
-    criteria:
-      - code: legibility
-        title: 読み取れる形で撮れているか
-        description: ピント・明るさ・傾き。人が読める状態か。
-        weight: 0.5
-        evaluator: __human__
-        levels:
-          - {level: 0, label: 読めない, descriptor: 文字が判別できない, score_ratio: 0.0}
-          - {level: 1, label: 一部, descriptor: 一部が読み取れる, score_ratio: 0.5}
-          - {level: 2, label: 読める, descriptor: 全体が問題なく読める, score_ratio: 1.0}
-      - code: completeness
-        title: 必要なものが写っているか
-        description: 紙の全体が入っているか。切れていないか。
-        weight: 0.5
-        evaluator: __human__
-        levels:
-          - {level: 0, label: 不足, descriptor: 大きく切れている, score_ratio: 0.0}
-          - {level: 1, label: 一部, descriptor: 端が切れている, score_ratio: 0.5}
-          - {level: 2, label: 十分, descriptor: 全体が入っている, score_ratio: 1.0}
-
   - key: d2-code
     unit: demo01
-    position: 2
+    position: 1
     title: 最大値を求める
     subject_profile: cs_lang_c_intro
-    readability_weight: 0.3
+    # エディタで書けるのは `.c`。ファイルでも同じ形式で出す。
+    accepted_suffixes: [.c]
     knowledge_components:
       - demo.trial.code.read_input
       - demo.trial.code.loop
@@ -109,23 +77,67 @@ tasks:
       ### 条件
 
       - `n` は 1 以上 128 以下です
-      - 標準ライブラリの最大値関数は使わないこと
 
       ### 見てほしいこと
 
       提出すると**すぐに**テスト実行の結果が出ます。そのあと数十秒して、
       AI が「読みやすさ」の判定を根拠付きで返します ── 決定的な判定と
       AI の判定が別の速さで届くのが分かるはずです。
+
+      エディタでは「実行」で公開のサンプルを試してから提出できます。
+    # **観点を明示する**（2026-09-24）。`readability_weight` が作る汎用の
+    # 読みやすさ観点は「変数名が役割を表しているか」を厳しく読み、`max` の
+    # ような慣用の名前まで減点していた ── 数行の問題には合わない。短い
+    # プログラムに合う書き方にし、重みも 0.3 から 0.2 に下げた。
+    #
+    # もとの条件「標準ライブラリの最大値関数は使わないこと」も外した。C の
+    # 標準ライブラリに整数の最大値関数は無く、AI が変数名 `max` をその違反と
+    # 読む余地だけを作っていた。
+    criteria:
+      - code: correctness
+        title: 出力の正しさ
+        description: 与えられた入力に対して仕様どおりの出力を返すか。テスト実行で判定する。
+        weight: 0.8
+        evaluator: code_test_runner
+        levels:
+          - {level: 0, label: 未達, descriptor: ほとんど正しく動作しない, score_ratio: 0.0}
+          - {level: 1, label: 一部, descriptor: 一部のケースで正しい, score_ratio: 0.34}
+          - {level: 2, label: 概ね, descriptor: 大半のケースで正しい, score_ratio: 0.67}
+          - {level: 3, label: 達成, descriptor: すべてのケースで正しい, score_ratio: 1.0}
+      - code: readability
+        title: 読みやすさ
+        # **書き方の型を名指しで認める**（2026-09-24 実測）。「max は許す」だけでは
+        # 足りず、slab-llm（gemma4:e4b）は先頭の要素を初期値にして残りを比べる
+        # 定番の書き方を「読み込みの重複と誤り」と読んで段階 1 にした。正しさは
+        # テストが見るので、ここでは型の好みを問わない。
+        description: >-
+          字下げが揃っていて、処理の流れ（読み込み → 比較 → 出力）が追えるか。
+          数行のプログラムなので、n・i・max・x のような慣用の短い名前で十分であり、
+          名前の長さや英単語かどうかでは減点しない。
+          最初の要素を読んで初期値にしてから残りをループで比べる書き方も、
+          全要素をループの中で読む書き方も、どちらも素直な書き方として同じに扱う。
+          問題にするのは、役割と食い違う名前（最大値を入れる変数が min など）と、
+          同じ処理をほぼそのまま何度も書き写している重複だけである。
+          出力の正しさはこの観点では評価しない（テストが判定する）。
+        weight: 0.2
+        levels:
+          - {level: 0, label: 未達, descriptor: 字下げが崩れていて流れが追えない, score_ratio: 0.0}
+          - {level: 1, label: 一部, descriptor: 流れは追えるが、役割と食い違う名前か、同じ処理の書き写しがある, score_ratio: 0.5}
+          - {level: 2, label: 十分, descriptor: 字下げが揃い、流れが追える（書き方の型は問わない）, score_ratio: 1.0}
     test_cases:
-      - {name: example, input: "5\n3 -1 12 8 12\n", expected: "12\n"}
+      # `example` は問題文の例と同じなので見せる（エディタの「公開サンプル」に出る）。
+      - {name: example, input: "5\n3 -1 12 8 12\n", expected: "12\n", hidden: false}
       - {name: single, input: "1\n7\n", expected: "7\n"}
       - {name: negative, input: "3\n-5 -2 -9\n", expected: "-2\n"}
+      - {name: first, input: "4\n9 1 2 3\n", expected: "9\n"}
 
   - key: d3-report
     unit: demo01
-    position: 3
+    position: 2
     title: 使ってみた感想を書く
     subject_profile: report_ja
+    # エディタでもファイルでも `.md`（テキスト）。`.txt` は提出形式の表に無い。
+    accepted_suffixes: [.md]
     knowledge_components:
       - demo.trial.writing.structure
       - demo.trial.writing.evidence
@@ -133,45 +145,46 @@ tasks:
     statement: |
       ## [必須] 使ってみた感想を書く ##
 
-      このお試しコースを触ってみて気づいたことを、**400 字程度**で書いて
-      提出してください。
+      このお試しコースを触ってみた感想を、**100 字程度**で書いて提出して
+      ください。
 
       ### 書いてほしいこと
 
       - 何を試したか
-      - 何が分かりやすかったか、分かりにくかったか
-      - そう思った理由（具体的に）
+      - 良かった点か、分かりにくかった点を 1 つ
+      - そう思った理由（1 文でよい）
 
       ### 見てほしいこと
 
-      AI が**根拠を添えて**判定します。「読みやすい」ではなく「どこがどう
-      だから、この段階」という形で返ります ── 点だけを返さない、という
+      AI が**根拠を添えて**判定します。「よく書けている」ではなく「どこが
+      どうだから、この段階」という形で返ります ── 点だけを返さない、という
       設計の実物です。
+    # **100 字で書ける観点にする**（2026-09-24）。もとは 400 字の感想文に
+    # 構成・根拠・簡潔さの 3 観点を当てていた。100 字では「構成」を問う余地が
+    # 無いので、何を書いたか・理由があるか・字数の 3 つにした。いずれも AI が
+    # 本文を引用して判定できる。
     criteria:
-      - code: structure
-        title: 構成
-        description: 何を書くかが順序立っているか。
+      - code: content
+        title: 試したことと感想
+        description: 何を試したかと、良かった点または分かりにくかった点が書かれているか。
         weight: 0.4
         levels:
-          - {level: 0, label: 未達, descriptor: 順序が追えない, score_ratio: 0.0}
-          - {level: 1, label: 不足, descriptor: 一部が飛ぶ, score_ratio: 0.4}
-          - {level: 2, label: 一部, descriptor: おおむね追える, score_ratio: 0.7}
-          - {level: 3, label: 十分, descriptor: 順序立っている, score_ratio: 1.0}
+          - {level: 0, label: 未達, descriptor: 試したことも感想も読み取れない, score_ratio: 0.0}
+          - {level: 1, label: 一部, descriptor: どちらか一方だけが書かれている, score_ratio: 0.5}
+          - {level: 2, label: 十分, descriptor: 試したことと感想の両方が書かれている, score_ratio: 1.0}
       - code: evidence
-        title: 根拠
-        description: 「そう思った」の理由が具体的か。
+        title: 理由
+        description: 感想に、そう思った理由が添えられているか。具体的なほどよい。
         weight: 0.4
         levels:
           - {level: 0, label: 未達, descriptor: 理由が無い, score_ratio: 0.0}
-          - {level: 1, label: 不足, descriptor: 抽象的な理由のみ, score_ratio: 0.4}
-          - {level: 2, label: 一部, descriptor: 一部に具体例, score_ratio: 0.7}
-          - {level: 3, label: 十分, descriptor: 具体的に書かれている, score_ratio: 1.0}
-      - code: conciseness
-        title: 簡潔さ
-        description: 字数に収まり、繰り返しが無いか。
+          - {level: 1, label: 一部, descriptor: 理由が抽象的（「便利だった」など）, score_ratio: 0.5}
+          - {level: 2, label: 十分, descriptor: 画面や操作を挙げた具体的な理由がある, score_ratio: 1.0}
+      - code: length
+        title: 字数
+        description: 100 字程度（おおむね 60〜150 字）に収まっているか。
         weight: 0.2
         levels:
-          - {level: 0, label: 未達, descriptor: 大きく外れている, score_ratio: 0.0}
-          - {level: 1, label: 不足, descriptor: 繰り返しが多い, score_ratio: 0.4}
-          - {level: 2, label: 一部, descriptor: おおむね簡潔, score_ratio: 0.7}
-          - {level: 3, label: 十分, descriptor: 簡潔にまとまっている, score_ratio: 1.0}
+          - {level: 0, label: 未達, descriptor: 30 字未満か 300 字を超える, score_ratio: 0.0}
+          - {level: 1, label: 一部, descriptor: 60 字未満か 150 字を超える, score_ratio: 0.5}
+          - {level: 2, label: 十分, descriptor: おおむね 60〜150 字, score_ratio: 1.0}

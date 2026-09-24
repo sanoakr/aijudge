@@ -129,14 +129,14 @@ def test_submissions_tasks_and_enrolments_all_go(database: Database, course) -> 
     result = _reset(database, course)
 
     assert (result.submissions, result.enrolments) == (1, 1)
-    assert result.tasks == 3, "定義の課題が消えていない"
+    assert result.tasks == 2, "定義の課題が消えていない"
     # **課題は戻る**（#194）── リセットは「学期の初めの状態」であって、
     # 空のコースではない。
-    assert result.seeded_tasks == 3
+    assert result.seeded_tasks == 2
     with database.unit_of_work() as uow:
         assert uow.submissions.list_for_course(course.id) == ()
         assert uow.identity.list_enrollments(course.id) == ()
-        assert len(uow.tasks.list_for_course(course.id)) == 3
+        assert len(uow.tasks.list_for_course(course.id)) == 2
 
 
 def test_logging_in_again_puts_the_learner_back(database: Database, course, monkeypatch) -> None:

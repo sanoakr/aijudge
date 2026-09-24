@@ -18,6 +18,7 @@
       knowledge_components: [cs.loops.control.basic, ...]   # 任意。課題が問うものは自動で入る
     units:                                  # 任意。回ごとの日程の既定
       ex1: {opens_at: 2026-09-18T13:00:00+09:00, due_at: 2026-09-25T23:59:00+09:00}
+      ex2: {answer_mode: editor, editor_completion: true}   # 答え方（ADR 0026）
     tasks:
       - key: ex1/cert                       # TaskSpec のフィールドをそのまま書く
         unit: ex1
@@ -29,6 +30,11 @@
         criteria: [...]
       - problem_dir: ex1/p1                 # Sharif Judge 形式の問題ディレクトリ
         readability_weight: 0.3             # （YAML からの相対パス）
+
+`answer_mode` と `editor_completion` は**問題セットの値**で、`/manage` の
+切り替えと同じく回の全課題に入れる（課題ごとには書けない）。書いた回だけを
+変え、書かない回は画面で切り替えた値を残す。`editor` にできない課題
+（提出形式に `.c`・`.py`・`.md` が無い）があれば投入を止める。
 
 `problem_dir` を書いた課題は、`desc.md` を問題文、`in/` `out/` をテスト
 ケース、`<name>.c` / `.py` を参照解答として読む（`importers/sharif_judge`
@@ -42,7 +48,7 @@ YAML に同じフィールドがあればそちらが勝つ。**既存の課題�
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -50,10 +56,11 @@ import yaml
 
 from aijudge_authoring import TaskSpec
 from aijudge_authoring.importers import sharif_judge
-from aijudge_core import Course
+from aijudge_core import AnswerMode, Course
 from aijudge_core.ids import TenantId, UserId
 from aijudge_persistence import Database
 
+from .answer_mode import editor_blockers
 from .authoring import save_task
 from .operations import AdminError, ensure_course
 
@@ -80,6 +87,10 @@ _COURSE_REQUIRED = ("code", "title", "term", "subject_profile")
 _COURSE_OPTIONAL = ("description", "upload_suffixes", "knowledge_components")
 # 回ごとの既定として書ける日程。課題側に無ければここから埋める。
 _UNIT_SCHEDULE_KEYS = ("opens_at", "due_at")
+# 回（問題セット）の値として書けるもの。**課題ごとには書けない** ──
+# `/manage` と同じく回の全課題に入れる。同じ回で答え方が混ざると、学習者は
+# 課題ごとに画面を行き来することになる（ADR 0026）。
+_UNIT_SETTING_KEYS = ("answer_mode", "editor_completion")
 # 定義側だけの語彙。`TaskSpec` に渡す前に解決して消す。
 _PROBLEM_DIR = "problem_dir"
 _STATEMENT_FILE = "statement_file"
@@ -89,6 +100,8 @@ _STATEMENT_FILE = "statement_file"
 class CourseDefinition:
     course: dict[str, Any]
     tasks: tuple[TaskSpec, ...]
+    # 回 → 問題セットの値（`_UNIT_SETTING_KEYS`）。書かれた回だけが入る。
+    unit_settings: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -117,17 +130,44 @@ def load_course_definition(path: Path) -> CourseDefinition:
     units = data.get("units") or {}
     if not isinstance(units, dict):
         raise AdminError(f"units は回の名前を鍵にした対応表です: {path}")
+    unit_settings: dict[str, dict[str, Any]] = {}
     for unit, schedule in units.items():
-        bad = set(schedule or {}) - set(_UNIT_SCHEDULE_KEYS)
+        bad = set(schedule or {}) - set(_UNIT_SCHEDULE_KEYS) - set(_UNIT_SETTING_KEYS)
         if bad:
             raise AdminError(f"units.{unit} に書けないフィールドです: {sorted(bad)}（{path}）")
+        settings = _unit_settings(str(unit), schedule or {}, path)
+        if settings:
+            unit_settings[str(unit)] = settings
 
     tasks = []
     for raw in data.get("tasks") or []:
         if not isinstance(raw, dict):
             raise AdminError(f"tasks の要素が対応表ではありません: {raw!r}（{path}）")
         tasks.append(_task_spec(dict(raw), base=path.parent, units=units))
-    return CourseDefinition(course=dict(spec), tasks=tuple(tasks))
+    return CourseDefinition(course=dict(spec), tasks=tuple(tasks), unit_settings=unit_settings)
+
+
+def _unit_settings(unit: str, raw: dict[str, Any], path: Path) -> dict[str, Any]:
+    """回の値を型に直す。**読む段で落とす** ── 課題を入れてから不正と分かると、
+    半分だけ入った定義が残る。"""
+    settings: dict[str, Any] = {}
+    if "answer_mode" in raw:
+        try:
+            settings["answer_mode"] = AnswerMode(str(raw["answer_mode"]))
+        except ValueError:
+            wanted = "・".join(mode.value for mode in AnswerMode)
+            raise AdminError(
+                f"units.{unit}.answer_mode は {wanted} のどれかです"
+                f": {raw['answer_mode']!r}（{path}）"
+            ) from None
+    if "editor_completion" in raw:
+        if not isinstance(raw["editor_completion"], bool):
+            raise AdminError(
+                f"units.{unit}.editor_completion は true か false です"
+                f": {raw['editor_completion']!r}（{path}）"
+            )
+        settings["editor_completion"] = raw["editor_completion"]
+    return settings
 
 
 def _task_spec(raw: dict[str, Any], *, base: Path, units: dict[str, Any]) -> TaskSpec:
@@ -265,4 +305,39 @@ def apply_course_definition(
             authored_by=authored_by,
             revise=revise,
         )
+    _apply_unit_settings(database, course, definition.unit_settings)
     return AppliedCourse(course=course, tasks=len(definition.tasks), created=created)
+
+
+def _apply_unit_settings(
+    database: Database, course: Course, unit_settings: dict[str, dict[str, Any]]
+) -> None:
+    """回の値を、その回の全課題に入れる（`/manage` の切り替えと同じ）。
+
+    **`editor` の検査は画面と同じ関数**（`editor_blockers`）で行う。定義から
+    入れる経路だけ検査を抜けると、学習者が何も提出できない課題ができる。
+
+    検査は課題を保存した後に走る（提出形式は保存済みの値で決まる）。断った
+    ときは課題だけが入り、答え方は変わらない ── 定義を直して流し直せば
+    冪等に揃う。
+    """
+    if not unit_settings:
+        return
+    with database.unit_of_work() as uow:
+        tasks = uow.tasks.list_for_course(course.id)
+        for unit, settings in unit_settings.items():
+            members = [task for task in tasks if task.unit == unit]
+            if settings.get("answer_mode") is AnswerMode.EDITOR:
+                pairs = []
+                for task in members:
+                    version = uow.tasks.latest_version(task.id)
+                    if version is not None:
+                        pairs.append((task, version))
+                blockers = editor_blockers(pairs, course)
+                if blockers:
+                    raise AdminError(
+                        f"units.{unit}: エディタで解けない課題があります: " + "／".join(blockers)
+                    )
+            for task in members:
+                uow.tasks.save_task(task.model_copy(update=settings))
+        uow.commit()
