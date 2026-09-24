@@ -131,6 +131,56 @@
   {% endif %}
 </form>
 
+{# 答え方（ADR 0026）。**受け付ける場所の隣に置く** ── どちらも試験で入れる
+   値で、セット単位で決まる。 #}
+<h2 id="answer-mode">答え方</h2>
+<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/units/{{ unit.key }}/answer-mode"
+      class="card">
+  <div class="inline-field">
+    <span class="body desc">
+      <label class="check">
+        <input type="radio" name="answer_mode" value="upload" {{ 'checked' if not unit.editor }}>
+        <strong>ファイルを選んで提出する</strong>（従来どおり）
+      </label>
+      <br>
+      <label class="check">
+        <input type="radio" name="answer_mode" value="editor" {{ 'checked' if unit.editor }}
+               {{ 'disabled' if editor_blockers and not unit.editor }}>
+        <strong>ブラウザのエディタで書いて提出する</strong>
+      </label>
+      <br>
+      エディタで選べる形式は、各課題の<strong>提出形式のうち .c・.py・.md</strong> です。
+      .md はテキストとして書いて提出します（オンラインのレポート試験）。
+      プログラム（.c・.py）が採点の言語と同じなら、学習者は自分で入力を与えて
+      <strong>採点と同じ環境で試しに実行</strong>できます。
+      試しの実行は採点ではなく、<strong>成績には影響しません</strong>。
+      公開サンプルでも実行できますが、<strong>非公開のテストケースでは実行できません</strong>。
+    </span>
+    {% if saved_key == 'answer_mode' %}
+    <span class="flash" id="saved">{{ saved }}</span>{% endif %}
+    <button type="submit">保存</button>
+  </div>
+
+  {% if editor_blockers %}
+  {# **押す前に理由を見せる。** 押してから断られるのでは、どの課題が原因か分からない。 #}
+  <div class="note warn" style="margin:10px 0 0">
+    <strong>このセットはエディタで解く形にできません。</strong>
+    エディタが使えるのは、提出形式に .c・.py・.md のどれかを含む課題だけです
+    （提出形式は課題ごとの設定で変えられます）。
+    <ul>
+      {% for reason in editor_blockers %}<li>{{ reason }}</li>{% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  {% if unit.editor_mixed %}
+  <p class="note warn" style="margin:10px 0 0">
+    <strong>このセットの中で設定がばらついています。</strong>
+    保存すると、セット内のすべての課題に同じ値が入ります。
+  </p>
+  {% endif %}
+</form>
+
 {# 公開前に誰に見せるか（試験）。**受け付ける場所の隣に置く** ── どちらも
    試験で入れる値で、セット単位で決まる（`docs/design/task-visibility.md`）。 #}
 <h2 id="confidential">公開前に見せる相手</h2>

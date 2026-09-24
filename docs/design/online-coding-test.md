@@ -1,6 +1,6 @@
 # オンラインコーディングテスト（ブラウザ IDE）設計
 
-- ステータス: **設計完了・実装待ち**（`feat/online-coding-test` ブランチ。運用中の main には入れない）
+- ステータス: **段階 2 まで実装（`feat/online-coding-test` 系のブランチ）**（`feat/online-coding-test` ブランチ。運用中の main には入れない）
 - 日付: 2026-09-24
 - 関連: 設計原則 P2, P3, P5, P7, P8 / ADR 0006, 0011, 0016, 0018, 0019, 0020, 0025 /
   **本書から起こした ADR 0023（行動記録）・0024（実行は採点ではない）・0026（答え方）** /
@@ -126,9 +126,18 @@ class AnswerMode(StrEnum):
 実体が無い（ADR 0018 の背景と同じ）ので、ここに新しいエンティティは作らない。
 この値と §9 の提出の扱いは ADR 0026 に起こした。
 
-`editor` にできるのは、有効プロファイルの `deterministic` に `code_test_runner` が
-あり、言語が `aijudge_toolchain.LANGUAGES` にある課題だけ。検査は保存時に
-コンソール側で行う（画面で灰色にするだけでは境界にならない、#146）。
+`editor` にできるのは、課題の提出形式に `.c`・`.py`・`.md` のどれかがある課題だけ
+（2026-09-24 改訂・ADR 0026）。検査は保存時にコンソール側で行う（画面で灰色に
+するだけでは境界にならない、#146）。
+
+| 拡張子 | エディタでの扱い | 提出するファイル | 実行 |
+|---|---|---|---|
+| `.c` | プログラム | `main.c`（CODE） | 採点の言語が C のとき |
+| `.py` | プログラム | `main.py`（CODE） | 採点の言語が Python のとき |
+| `.md` | テキスト | `answer.md`（MARKDOWN） | しない（レポート試験） |
+
+タブごとに選べる形式は、その課題の提出形式との共通部分だけ（`aijudge_ide.formats`）。
+受け口は画面の選択肢を信じず、送られてきた形式をもう一度確かめる。
 
 ### 4.2 言語・イメージ・上限は採点から引く
 
@@ -592,11 +601,39 @@ main に混ぜない**。main への取り込みは、段階 3 の負荷試験�
 
 残したもの:
 
-- web の受け口（`POST /ide/tasks/{id}/run`・`GET /ide/runs/{id}`）は、関門の
-  抜き出しと一緒に段階 2 で作る
 - コースを消したとき（`delete_course`）に、そのコースの課題を指す実行要求は
   消していない。10 分で消えるうえ、課題が無ければ runner は「課題が
   見つかりません」で終える
+
+### 段階 2 の結果（2026-09-24、`feat/ide-screen`）
+
+- 関門の抜き出し: `/submit`・`_video_gate`・IDE の 3 経路が `_submission_gate` を
+  呼ぶ。既存の学生画面のテストは無変更で通った（I8）
+- `Task.answer_mode`（既定 `upload`）と、コンソールの問題セット画面の切り替え
+  （保存時に `aijudge_admin.answer_mode.editor_blockers` で確かめる）
+- **形式は課題の提出形式に限る**（2026-09-24 の指示で改訂、§4.1 の表）。`.md` は
+  テキストとして提出する
+- `ide_buffers`（自動保存、移行 `7b3e9a15c4d2`）。形式も一緒に持つ
+- 学生画面: `GET /courses/{id}/ide?unit=…`、`POST /ide/tasks/{id}/run`、
+  `GET /ide/runs/{id}`、`POST /ide/tasks/{id}/submit`、`PUT /ide/tasks/{id}/buffer`
+- Monaco は **0.52.2 の AMD 版**を同梱（0.53 以降は AMD が非推奨・サポート外）。
+  必要な分だけで 4.5 MB。nginx で直接配る設定を雛形に足した（運用機への反映は
+  main に入れる日に手で行う）
+- 手元の Docker で、ブラウザから書く → 自由入力で実行 → サンプルで実行 → 提出、
+  形式を `.md` にすると実行が消えること、狭い画面で縦に積むことを確かめた
+
+残したもの:
+
+- 補完の切／入（§5.3）。いまは切だけ。切り替えを `Task` の 2 つ目の値にするかは
+  不変条件 I4（`answer_mode` だけ足す）との兼ね合いで決める
+- 受付終了時の自動提出（§9.1）と行動記録（§6）は段階 3
+- 運用機の nginx の `security-headers.conf` を確かめた（2026-09-24）。HSTS・
+  `X-Content-Type-Options: nosniff`・`Referrer-Policy` だけで **CSP は無い** ので、
+  Monaco のワーカー（blob URL）もインラインの設定も止められない。`nosniff` の
+  もとでは JS が正しい MIME で配られる必要があるが、nginx の `mime.types` が
+  `.js` を `application/javascript` で出すので問題ない。雛形の
+  `location /static/vendor/` がこのファイルを読み直しているのは、ファイル自身の
+  注意書き（独自の `add_header` を持つ location では include し直す）と同じ
 
 ### 段階 0 で運用機で測るもの
 

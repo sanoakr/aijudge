@@ -16,6 +16,7 @@ SQL で集約の中身を検索するようになったときで、そのとき�
     tasks / task_versions  課題。公開後は不変
     audit_events       誰が成績に届く何を変えたか。**追記のみ**（ADR 0016）
     run_requests       IDE の試しの実行。採点キューとは別（ADR 0024）。結果は残さない
+    ide_buffers        IDE の自動保存。(学習者, 課題) ごとに 1 行、上書き
 
 日時は必ず timezone 付きで扱う。素の TIMESTAMP に入れると、締切判定が
 サーバのローカル時刻に依存する。**ただしバックエンドによっては保証されない**
@@ -812,3 +813,28 @@ class RunRequestRow(Base):
         # 連続実行の間隔を見るための「この学習者の最後の要求」。
         Index("ix_run_requests_learner_created", "learner_id", "created_at"),
     )
+
+
+class IdeBufferRow(Base):
+    """IDE の自動保存（設計書 §6.5）。**(学習者, 課題) ごとに 1 行、上書き。**
+
+    提出でも行動記録でもない。採点はここを読まない。鍵を課題版ではなく課題に
+    してあるのは、版が上がっても学習者の書きかけを消さないため。
+
+    **DB に置く**（行動記録の本体はファイルに置くのと違う、設計書 §6.6）。
+    受付終了時の自動提出が読むもので採点の入口に近く、ストレージの不調で
+    提出が止まってはいけない。
+    """
+
+    __tablename__ = "ide_buffers"
+
+    learner_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    task_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(64))
+    # どの形式で書いているか（`.c`・`.py`・`.md`）。
+    suffix: Mapped[str] = mapped_column(String(8))
+    # 上限は実行と同じ 64 KiB（`aijudge_ide.MAX_SOURCE_BYTES`）。受け口で断るので
+    # 列の幅では縛らない（Text）。
+    source: Mapped[str] = mapped_column(Text)
+    content_hash: Mapped[str] = mapped_column(String(64))
+    updated_at: Mapped[datetime] = mapped_column(Timestamp)

@@ -32,11 +32,20 @@ class AnswerMode(StrEnum):
 - `campus_only` と同じく、**課題が持つが、決めるのは問題セット単位**である。
   コンソールの画面もそう作る。問題セット（`unit`）には実体が無いので（ADR 0018）、
   新しいエンティティは作らない
-- 補完の切／入も同じ形で持つ（試験の既定は切、演習の既定は入）
+- 補完の切／入も同じ形で持つ（試験の既定は切、演習の既定は入）。**段階 2 では切だけ**を
+  出し、切り替えの値は足していない（`Task` に 2 つ目の値を足すかは未決、設計書 §12）
 
-**`editor` にできるのは、有効プロファイルの `deterministic` に `code_test_runner` が
-あり、言語が `aijudge_toolchain.LANGUAGES` にある課題だけ。** 検査は保存時に
+**`editor` にできるのは、課題の提出形式（`Task.accepted_suffixes`、空ならコースの
+既定）に `.c`・`.py`・`.md` のどれかがある課題だけ**（2026-09-24 改訂）。検査は保存時に
 サーバ側で行う ── 画面で灰色にするだけでは境界にならない（#146）。
+
+- **エディタのタブは課題 1 つに対応し、選べる形式はその課題の提出形式に限る。**
+  `.c`・`.py` はプログラム、`.md` はテキストとして書いて提出する。オンラインの
+  レポート試験は `.md` を書いて出す流れになる
+- **実行できるかは別の問い**で、選んだ形式が採点の言語（`code_test_runner` の
+  `language`）と一致するときだけ実行できる（ADR 0024 §3）。テキストは実行しない
+- 当初は「`code_test_runner` を持つ課題だけ」としていた。それではレポートの課題を
+  エディタで出せず、提出形式と食い違う形式を選ばせてしまう
 
 `save_task` の作り直しで値を落とさないよう、`answer_mode` を
 `test_every_field_of_a_task_is_accounted_for` の一覧に加える（ADR 0025 の帰結。
@@ -46,7 +55,8 @@ class AnswerMode(StrEnum):
 
 ### 2. エディタからの提出は `SubmissionService.accept()` を通る
 
-- エディタの内容から `IncomingFile(filename=<言語の source_name>, kind=CODE, ...)` を
+- エディタの内容から `IncomingFile(filename=<形式のファイル名>, kind=<拡張子の種類>, ...)` を
+  （プログラムは言語の表の `source_name`、テキストは `answer.md` と MARKDOWN）
   作り、**既存の `accept()` に渡す**。同じ内容の再提出は既存どおり同じ提出に畳まれる
 - **採点側は提出の出どころを知らない。** `packages/core` の `Submission`・
   `packages/grading`・評価器は 0 行の変更とし、`aijudge_grading` と `evaluators/*` は

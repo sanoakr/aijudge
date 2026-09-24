@@ -20,6 +20,7 @@ from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from .audit_repository import SqlAuditLog
+from .buffer_repository import SqlBufferStore
 from .identity_repository import SqlIdentityRepository
 from .repositories import (
     SqlGradingRunRepository,
@@ -111,6 +112,8 @@ class SqlUnitOfWork:
         self.audit = SqlAuditLog(self._session)
         # ブラウザ IDE の試しの実行（ADR 0024）。**採点キュー（`jobs`）とは別。**
         self.run_requests = SqlRunQueue(self._session)
+        # IDE の自動保存（設計書 §6.5）。提出でも行動記録でもない。
+        self.ide_buffers = SqlBufferStore(self._session)
         return self
 
     def __exit__(self, *exc: object) -> None:

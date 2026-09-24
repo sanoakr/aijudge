@@ -32,3 +32,49 @@ details.unit > summary h3{display:inline-flex;vertical-align:middle}
 .unit h3{font-size:.98rem;margin:0 0 6px;display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px}
 .unit h3 .dates{font-weight:400;display:flex;flex-wrap:wrap;gap:2px 14px}
 .unit h3 .dates em{font-style:normal;opacity:.65}
+
+/* ブラウザ IDE（`ide.html`・設計書 §5.2）。左に問題文、右にエディタと入出力。
+   **エディタの画面だけ本文の幅の上限を外す** ── 問題文とエディタを並べるには
+   読み物の幅（`main` の上限）では狭すぎる。狭い画面では縦に積む（既存の規約）。 */
+main:has(.ide-head){max-width:none}
+.ide-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 14px}
+.ide-head h1{margin:0}
+.ide-head .spacer,.ide-toolbar .spacer,.ide-actions .spacer{flex:1}
+.ide-clock{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline}
+.ide-remaining{font-family:var(--font-mono);font-weight:700;font-size:1.1rem}
+.ide-remaining[data-soon]{color:var(--shu)}
+.ide-remaining[data-over]{color:var(--muted)}
+.ide-tabs{display:flex;flex-wrap:wrap;gap:4px;margin:14px 0 0;border-bottom:1px solid var(--line)}
+.ide-tab{background:var(--surface-2);color:var(--ink);font-weight:400;
+  border:1px solid var(--line);border-bottom:0;border-radius:3px 3px 0 0;
+  padding:6px 12px;display:inline-flex;gap:8px;align-items:center}
+.ide-tab[aria-selected="true"]{background:var(--surface);font-weight:700;
+  box-shadow:inset 0 3px 0 var(--ai)}
+.ide-panel{display:grid;grid-template-columns:minmax(260px,2fr) 3fr;gap:16px;padding:14px 0}
+.ide-panel[hidden]{display:none}
+.ide-statement{overflow:auto;max-height:calc(100vh - 220px)}
+.ide-sample{margin:10px 0}
+.ide-sample-head{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.ide-sample-head button,.ide-toolbar .button-like,.ide-run{font-size:.85rem;padding:6px 12px}
+.ide-work{display:flex;flex-direction:column;gap:8px;min-width:0}
+.ide-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px}
+.ide-toolbar select{font:inherit;padding:4px 8px;border:1px solid var(--line);border-radius:3px;
+  background:var(--surface);color:var(--ink)}
+.ide-toolbar .button-like{cursor:pointer;border:1px solid var(--line);border-radius:3px;
+  background:var(--surface)}
+.ide-editor{height:min(56vh,640px);border:1px solid var(--line);border-radius:3px}
+.ide-runbox{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.ide-runbox[hidden]{display:none}
+.ide-stdin textarea{width:100%;box-sizing:border-box;font-size:.85rem;padding:6px;
+  border:1px solid var(--line);border-radius:3px;background:var(--surface);color:var(--ink)}
+.ide-io{margin:0;padding:8px;background:var(--surface-2);border:1px solid var(--line-soft);
+  border-radius:3px;font-family:var(--font-mono);font-size:.82rem;white-space:pre-wrap;
+  overflow:auto;max-height:260px}
+.ide-io[data-kind="error"]{border-color:var(--shu);color:var(--shu)}
+.ide-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.ide-run{background:var(--ai)}
+@media (max-width:900px){
+  .ide-panel{grid-template-columns:1fr}
+  .ide-statement{max-height:none}
+  .ide-runbox{grid-template-columns:1fr}
+}

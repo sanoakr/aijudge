@@ -17,6 +17,11 @@ dependencies = [
     "aijudge-skill",
     "aijudge-telemetry",
     "aijudge-webui",
+    # ブラウザ IDE（`ide.py`）。実行の要求を積み、自動保存を読み書きする。
+    # **sandbox は依存に入れない** ── web はコードを動かさない（不変条件 I6）。
+    "aijudge-ide",
+    # IDE で実行できる形式を、採点の言語から決めるため（言語の表だけを読む）。
+    "aijudge-toolchain",
     "fastapi>=0.115",
     "jinja2>=3.1",
     "python-multipart>=0.0.9",
@@ -41,3 +46,5 @@ aijudge-authoring = { workspace = true }
 aijudge-persistence = { workspace = true }
 aijudge-grading = { workspace = true }
 aijudge-skill = { workspace = true }
+aijudge-ide = { workspace = true }
+aijudge-toolchain = { workspace = true }

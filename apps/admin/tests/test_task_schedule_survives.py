@@ -213,6 +213,7 @@ KEPT = {
     "campus_only",
     "confidential_until_open",
     "audience_group_ids",
+    "answer_mode",
 }
 # 版を保存する側が決める（`save_task` は触らない）。
 DECIDED_ELSEWHERE = {"current_version_id"}
@@ -276,3 +277,18 @@ def test_reapplying_unchanged_content_keeps_campus_only(world) -> None:
     with database.unit_of_work() as uow:
         after = uow.tasks.get_task(saved.task.id)
     assert after.campus_only is True, "同じ内容を当て直したら学内限定が外れている"
+
+
+def test_revising_an_editor_task_keeps_its_answer_mode(world) -> None:
+    """エディタで解く課題を 1 つ直しても、ファイル提出に戻らない（ADR 0026）。"""
+    from aijudge_core import AnswerMode
+
+    database, course = world
+    saved = _save(database, course, "本文")
+    _schedule_the_unit(database, saved.task.id, answer_mode=AnswerMode.EDITOR)
+
+    _save(database, course, "本文（誤字を直した）")
+
+    with database.unit_of_work() as uow:
+        after = uow.tasks.get_task(saved.task.id)
+    assert after.answer_mode is AnswerMode.EDITOR, "直したら答え方が戻っている"
