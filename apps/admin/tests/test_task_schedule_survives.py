@@ -146,6 +146,43 @@ def test_a_new_task_starts_with_an_empty_schedule(world) -> None:
     assert other.task.withdrawn is False
 
 
+def test_a_schedule_only_change_still_takes_effect(world) -> None:
+    """**本文を直さずに日程だけ直しても反映される。**
+
+    `TaskVersion` の中身（本文・観点・テストケース）が変わっていなければ
+    版は上げない。だが、それは「日程も含めて何もしない」という意味では
+    ない ── 以前は `content` が同じというだけで `save_task` がここで
+    そのまま抜け、下の `Task` の組み立て（日程を含む）が一度も走らなかった。
+
+    `course.yaml` で `opens_at` だけ直して流し直しても、課題の観点や
+    テストケースを一緒に直していなければ何も反映されなかった（実際に
+    起きた。network の ex2、2026-09-24。小テストの時間帯と演習課題の
+    開放が重なった）。
+    """
+    database, course = world
+    first = save_task(
+        database,
+        course_id=course.id,
+        spec=TaskSpec(key="ex1/p1", statement="本文", title="課題", unit="ex1"),
+        subject_profile=course.subject_profile,
+        authored_by=TEACHER,
+        revise=True,
+    )
+    assert first.task.opens_at is None
+
+    second = save_task(
+        database,
+        course_id=course.id,
+        spec=TaskSpec(key="ex1/p1", statement="本文", title="課題", unit="ex1", opens_at=OPENS),
+        subject_profile=course.subject_profile,
+        authored_by=TEACHER,
+        revise=True,
+    )
+
+    assert second.task.opens_at == OPENS, "本文を変えていないので opens_at が反映されない"
+    assert second.version.version == first.version.version, "本文が同じなのに版が増えている"
+
+
 def test_revising_a_campus_only_task_keeps_the_restriction(world) -> None:
     """**学内限定も引き継ぐ**（#333）。引き継いでいなかったので、学内限定の
     課題の誤字を直すと、その課題だけ学外から出せるようになっていた。
@@ -189,3 +226,22 @@ def test_every_field_of_a_task_is_accounted_for() -> None:
         "既存の値を引き継ぐかを決めて、このファイルの集合に足すこと"
     )
     assert not removed, f"Task から {sorted(removed)} が無くなった。集合から外すこと"
+
+
+def test_reapplying_unchanged_content_keeps_campus_only(world) -> None:
+    """**本文が同じ当て直しでも学内限定が残る。**
+
+    本文が同じなら以前は `save_task` が早く抜けていたので、この経路では
+    `campus_only` は消えなかった。早期リターンをやめた（#369）ことで、同じ
+    内容の `course apply --revise` も `Task` を作り直すようになった ──
+    引き継ぎが無ければ、当て直すたびに学内限定が外れる。
+    """
+    database, course = world
+    saved = _save(database, course, "本文")
+    _schedule_the_unit(database, saved.task.id, campus_only=True)
+
+    _save(database, course, "本文")
+
+    with database.unit_of_work() as uow:
+        after = uow.tasks.get_task(saved.task.id)
+    assert after.campus_only is True, "同じ内容を当て直したら学内限定が外れている"
