@@ -36,6 +36,9 @@ ENV_PROFILES_DIR = "AIJUDGE_PROFILES_DIR"
 # 待っている要求を見に行く間隔（秒、設計書 §8.2）。学習者は画面の前で
 # 待っているので、採点ワーカー（2 秒）よりずっと短い。
 DEFAULT_POLL_SECONDS = 0.25
+# DB の接続の枠。**`deploy/aijudge-config-check.sh` の RUNNER_PER_PROCESS と揃える。**
+RUNNER_POOL_SIZE = 2
+RUNNER_MAX_OVERFLOW = 1
 
 _stopping = False
 
@@ -73,7 +76,14 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     configure_logging(f"runner-{args.name}")
-    database = Database.connect(args.database_url, create=args.create_schema)
+    # **接続の枠は小さく取る**（1 件ずつ順に処理するので 1〜2 本で足りる）。
+    # K 本立てても DB の上限を食わない（`aijudge-config-check.sh` の RUNNER_PER_PROCESS）。
+    database = Database.connect(
+        args.database_url,
+        create=args.create_schema,
+        pool_size=RUNNER_POOL_SIZE,
+        max_overflow=RUNNER_MAX_OVERFLOW,
+    )
     runner = CodeRunner(database, profiles_dir=args.profiles, worker=args.name)
 
     if not database.supports_row_locking:

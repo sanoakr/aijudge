@@ -13,6 +13,12 @@ Wants=aijudge-relay.service
 Wants=aijudge-worker-ai@1.service aijudge-worker-ai@2.service
 Wants=aijudge-worker-ai@3.service aijudge-worker-ai@4.service
 Wants=aijudge-finalize.timer
+# ブラウザ IDE の試しの実行（ADR 0024）と、受付終了時の自動提出（設計書 §9.1）。
+# **runner の本数は 4 から**（2026-09-24。運用機での計測の前なので控えめに。手元の
+# 150 名の試験では平常の負荷を 2 本で捌けた）。増やすときはここに足す。
+Wants=aijudge-runner@1.service aijudge-runner@2.service
+Wants=aijudge-runner@3.service aijudge-runner@4.service
+Wants=aijudge-ide-close.timer
 After=network-online.target postgresql.service
 
 [Install]
