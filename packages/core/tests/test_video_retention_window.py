@@ -89,3 +89,24 @@ def test_the_earliest_unit_of_a_term_expires_after_its_appeals_window() -> None:
     spring_appeals_end = _at(2026, 9, 30)
     spring_expires_at = video_retention_expires_at(spring_first_unit)
     assert spring_expires_at is not None and spring_expires_at > spring_appeals_end
+
+
+def test_an_autosave_goes_a_month_after_the_close() -> None:
+    """IDE の自動保存は受付終了から 1 ヶ月（月末は月末に丸める）。"""
+    from datetime import UTC, datetime
+
+    from aijudge_core import autosave_expires_at
+
+    closes = datetime(2026, 1, 31, 12, 0, tzinfo=UTC)
+    saved = datetime(2026, 1, 31, 11, 59, tzinfo=UTC)
+    assert autosave_expires_at(closes, updated_at=saved) == datetime(2026, 2, 28, 12, 0, tzinfo=UTC)
+
+
+def test_an_autosave_without_a_close_is_kept_a_year_from_the_last_save() -> None:
+    """自習・砂場には自動提出が無く、自動保存が唯一の作業場所。"""
+    from datetime import UTC, datetime
+
+    from aijudge_core import autosave_expires_at
+
+    saved = datetime(2026, 3, 1, tzinfo=UTC)
+    assert autosave_expires_at(None, updated_at=saved) == datetime(2027, 3, 1, tzinfo=UTC)
