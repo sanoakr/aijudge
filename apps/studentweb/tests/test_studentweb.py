@@ -1540,6 +1540,32 @@ def test_the_learner_is_told_that_grading_comes_later(world: World) -> None:
 
 
 @needs_c_compiler
+def test_an_instructors_submission_is_graded_during_the_exam(world: World) -> None:
+    """**教員の提出は保留しない**（2026-09-25）。採点開始を締切後にした試験でも、
+    教員は採点の動きをその場で確かめられる。学習者の提出は保留されたまま。"""
+    _hold_grading(world, when=datetime.now(UTC) + timedelta(hours=2))
+    world.register("teacher", role=Role.INSTRUCTOR)
+    world.login("teacher")
+    location = world.submit().headers["location"]
+    world.register("s2400001")
+    world.login("s2400001")
+    world.submit()
+    world.worker.run_until_empty()
+
+    with world.database.unit_of_work() as uow:
+        by_role = {
+            s.submitted_as: uow.runs.latest_for(s.id)
+            for s in uow.submissions.list_for_course(COURSE)
+        }
+    assert by_role[Role.INSTRUCTOR] is not None, "教員の提出が保留された"
+    assert by_role[Role.LEARNER] is None, "試験中に学習者の提出が採点された"
+
+    world.login("teacher")
+    body = world.client.get(location).text
+    assert "提出だけを受け付けています" not in body
+
+
+@needs_c_compiler
 def test_a_submission_after_the_grading_time_is_graded_at_once(world: World) -> None:
     """**過去の時刻で遅らせない。** 試験が終わったあとの提出は待たせる理由が無い。"""
     _hold_grading(world, when=datetime.now(UTC) - timedelta(hours=1))

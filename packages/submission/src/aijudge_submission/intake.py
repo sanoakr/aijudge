@@ -177,7 +177,7 @@ class SubmissionService:
         `grading_starts_at` を渡すと、**ジョブは積むがその時刻まで走らせない**
         （試験・#67）。ここが受け取るのは時刻だけで、なぜ遅らせるのかは
         知らない ── 課題も締切もこの層には持ち込まない（`subject_profile` を
-        文字列で受けているのと同じ）。
+        文字列で受けているのと同じ）。教員・TA の提出には掛けない（`_enqueue`）。
 
         `submitted_as` は**出した人のそのときの役割**（#108）。ここも同じで、
         役割を引くのは呼び出し側の仕事、記録に焼き付けるのがこの層の仕事。
@@ -561,6 +561,16 @@ class SubmissionService:
         starts_at: datetime | None = None,
     ) -> GradingJob:
         target = task_version_id or submission.task_version_id
+        if starts_at is not None and submission.submitted_as is not Role.LEARNER:
+            # **教員・TA の提出は採点を保留しない**（2026-09-25 決定）。保留（#67）は
+            # テスト結果が試験中の**学習者**にとって答えの一部になるから掛けるもので、
+            # 教員の提出は成績にも測定にも数えない動作確認である（`is_trial`・#108）。
+            # 保留すると、採点開始を締切後にした試験で、教員が採点の動きを締切まで
+            # 確かめられない。結果は教員本人にしか見えない。
+            #
+            # 役割は提出に焼き付いた値で判定する ── 経路（`/submit`・動画・IDE・
+            # 二重投入の補い）ごとに判定を写すと、どこかで落ちる。ここは全経路が通る。
+            starts_at = None
         # 版を指定したときは冪等キーに混ぜる（同上の理由）。
         mixed = discriminator if task_version_id is None else f"{discriminator}:{target}"
         key = job_idempotency_key(submission.id, reason, discriminator=mixed)
