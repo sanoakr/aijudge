@@ -14,6 +14,7 @@
   {% if integrity.missing_seqs %}<span class="pill attn">欠けた送信 {{ integrity.missing_seqs | length }}</span>{% endif %}
   {% if unreadable %}<span class="pill attn">読めない記録 {{ unreadable }}</span>{% endif %}
   {% if integrity.mismatched %}<span class="pill attn">内容の食い違い {{ integrity.mismatched }}</span>{% endif %}
+  {% if flag_count %}<span class="pill attn">確かめる場所 {{ flag_count }}</span>{% endif %}
   {% if integrity.clock_offset_seconds is not none %}<span class="desc">PC の時計のずれ（目安） {{ '%.0f' | format(integrity.clock_offset_seconds) }} 秒</span>{% endif %}
 </p>
 
@@ -131,6 +132,21 @@
     if ((e.type === "paste" && e.origin !== "internal") || gap) li.className = "attn";
     li.addEventListener("click", function () { slider.value = String(index); show(); });
     marksEl.appendChild(li);
+  });
+
+  // 印（確かめる場所）を目印の一覧に差し込む。時刻が最も近い出来事へ飛ぶ。
+  (data.flags || []).forEach(function (flag) {
+    var index = 0;
+    for (var k = 0; k < events.length; k++) { if (events[k].t <= flag.t) index = k; else break; }
+    var li = document.createElement("li");
+    li.setAttribute("data-index", String(index));
+    li.className = "attn flag";
+    li.textContent = clock(flag.t) + "  【確かめる場所】 " + flag.label + (flag.detail ? "（" + flag.detail + "）" : "");
+    li.addEventListener("click", function () { slider.value = String(index); show(); });
+    var after = Array.prototype.find.call(marksEl.children, function (other) {
+      return parseInt(other.getAttribute("data-index"), 10) > index;
+    });
+    marksEl.insertBefore(li, after || null);
   });
 
   var timer = null;

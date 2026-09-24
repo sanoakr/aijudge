@@ -22,15 +22,18 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from aijudge_audit import AuditAction
-from aijudge_core.ids import CourseId, TaskVersionId, UserId
+from aijudge_core.ids import CourseId, SubmissionId, TaskVersionId, UserId
 from aijudge_ide import (
     ActivityFiles,
     ActivitySummary,
     EventBatch,
+    Flag,
     IdeSession,
     IdeSessionId,
     IntegrityReport,
     check_session,
+    flag_events,
+    submission_mismatches,
     summarize,
 )
 
@@ -54,6 +57,8 @@ class SessionView:
     integrity: IntegrityReport
     # ファイルが読めなかった束の数（索引はあるのに本体が無い）。
     unreadable: int
+    # 確かめる価値のある場所の目印（`aijudge_ide.flags`）。**判定ではない。**
+    flags: list[Flag]
 
 
 def _read(
@@ -67,6 +72,19 @@ def _read(
         except (OSError, ValueError):
             unreadable += 1
     return loaded, unreadable
+
+
+def _flags(console, events: list[dict[str, Any]]) -> list[Flag]:
+    """印を付ける。提出の食い違いは、実際の提出の指紋（出どころの記録）と比べる。"""
+    submitted: dict[str, str] = {}
+    with console.database.unit_of_work() as uow:
+        for event in events:
+            if event.get("type") == "submit" and event.get("submission_id"):
+                link = uow.ide_links.for_submission(SubmissionId(str(event["submission_id"])))
+                if link is not None:
+                    submitted[str(link.submission_id)] = link.content_hash
+    flags = flag_events(events) + submission_mismatches(events, submitted)
+    return sorted(flags, key=lambda flag: flag.t)
 
 
 def register(templates: Jinja2Templates) -> APIRouter:
@@ -114,15 +132,17 @@ def register(templates: Jinja2Templates) -> APIRouter:
             files = ActivityFiles(root)
             for session in sessions:
                 loaded, unreadable = _read(files, session, indexed[session.id])
+                session_events = [e for _b, events in loaded for e in events]
                 views.append(
                     SessionView(
                         session=session,
                         batches=len(indexed[session.id]),
-                        summary=summarize(e for _b, events in loaded for e in events),
+                        summary=summarize(session_events),
                         integrity=check_session(
                             loaded, lambda name, s=session: files.read_snapshot(s, name)
                         ),
                         unreadable=unreadable,
+                        flags=_flags(console, session_events),
                     )
                 )
         _audit(request, me, str(course.id), learner_id, "一覧", {"sessions": len(sessions)})
@@ -183,6 +203,11 @@ def register(templates: Jinja2Templates) -> APIRouter:
             if (text := files.read_snapshot(session, name)) is not None
         }
         integrity = check_session(loaded, lambda name: files.read_snapshot(session, name))
+        # 印は再生の目印の一覧に並べ、押すとその時点へ飛ぶ。
+        flags = [
+            {"t": flag.t, "label": flag.label, "detail": flag.detail}
+            for flag in _flags(console, events)
+        ]
         _audit(
             request,
             me,
@@ -202,12 +227,18 @@ def register(templates: Jinja2Templates) -> APIRouter:
                 "session": session,
                 "integrity": integrity,
                 "unreadable": unreadable,
+                "flag_count": len(flags),
                 # **`<` をすべて逃がす**（`\u003c`、JSON としてはそのまま読める）。
                 # 学習者のコードに `</script>` があると埋め込みから抜け出せ、
                 # `<!--` や `<script` でも HTML の読み取りが崩れる。教員の画面で、
                 # 教員の権限で動くスクリプトを差し込ませない。
                 "replay_json": json.dumps(
-                    {"events": events, "snapshots": snapshots, "titles": tab_titles},
+                    {
+                        "events": events,
+                        "snapshots": snapshots,
+                        "titles": tab_titles,
+                        "flags": flags,
+                    },
                     ensure_ascii=False,
                 ).replace("<", "\\u003c"),
             },

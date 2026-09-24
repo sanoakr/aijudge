@@ -82,6 +82,9 @@ def test_an_instructor_sees_the_summary_and_the_viewing_is_audited(world: World,
     assert page.status_code == 200
     assert "1 回・200 字" in page.text  # 外からの貼り付け
     assert "1 回・30 秒" in page.text  # 画面を離れた
+    # 200 字の外からの貼り付けには「確かめる場所」の印が付く（判定ではない）。
+    assert "大きな外からの貼り付け" in page.text
+    assert "不正を意味しません" in page.text
     assert "監査ログに残ります" in page.text
     with world.database.unit_of_work() as uow:
         viewed = [

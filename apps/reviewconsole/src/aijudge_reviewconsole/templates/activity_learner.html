@@ -20,7 +20,7 @@
   <thead><tr>
     <th class="fit">開いた時刻</th><th class="fit">長さ</th><th class="fit">打鍵</th>
     <th class="fit">外からの貼り付け</th><th class="fit">画面を離れた</th>
-    <th class="fit">実行・提出</th><th class="grow">記録の欠け・食い違い</th><th class="fit"></th>
+    <th class="fit">実行・提出</th><th class="grow">確かめる場所・記録の欠け</th><th class="fit"></th>
   </tr></thead>
   <tbody>
   {% for v in views %}
@@ -39,7 +39,9 @@
         {% else %}<span class="desc">なし</span>{% endif %}
       </td>
       <td class="fit" data-label="実行・提出">{{ v.summary.runs }} ・ {{ v.summary.submits }}</td>
-      <td class="grow" data-label="欠け・食い違い">
+      <td class="grow" data-label="確かめる場所・記録の欠け">
+        {# 印（`aijudge_ide.flags`）。**判定ではなく、再生で確かめる場所の目印。** #}
+        {% for flag in v.flags %}<span class="pill attn" title="{{ flag.detail }}">{{ flag.label }}</span> {% endfor %}
         {% set i = v.integrity %}
         {% if i.complete and not v.unreadable and not i.silences %}<span class="pill ok">欠けなし</span>{% endif %}
         {% if i.missing_seqs %}<span class="pill attn">欠けた送信 {{ i.missing_seqs | length }}</span>{% endif %}
@@ -57,6 +59,10 @@
   <strong>欠けた送信・途切れ</strong>は通信の不調や PC のスリープでも起きます。それだけでは不正の証拠になりません。
   <strong>内容の食い違い</strong>は、記録された打鍵から組み立て直した内容が、その時点の内容と一致しなかった回数です。
   <strong>確かめられない</strong>は、記録が欠けたために組み立て直せなかった回数です。
+  <br>
+  <strong>確かめる場所</strong>の印（大きな外からの貼り付け、貼り付けを伴わない一括の挿入 など）は、
+  再生で経過を読むための目印です。<strong>印が付いたことは不正を意味しません</strong>
+  （教科書の例や自分のファイルから貼る、速く打てる、など）。自動で減点することもありません。
 </p>
 {% endif %}
 {% endblock %}
