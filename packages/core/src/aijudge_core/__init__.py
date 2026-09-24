@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+from .access import may_see, may_submit_before_open
 from .events import (
     EVENT_TYPES,
     SCHEMA_VERSION,
@@ -252,6 +253,8 @@ __all__ = [
     "kc_id_for",
     "kind_for",
     "late_penalty_for",
+    "may_see",
+    "may_submit_before_open",
     "new_id",
     "normalize_suffixes",
     "offered_years",

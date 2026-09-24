@@ -155,7 +155,7 @@ def may_see(task: Task, role: Role, *, in_audience: bool, now: datetime) -> bool
 | 箇所 | 変更 |
 |---|---|
 | `authoring.save_task`（`authoring.py:155`） | **2 つの値を引き継ぐ**。YAML の再適用や課題の編集で黙って既定値に戻さない（`withdrawn` で #83 が直したのと同じ罠） |
-| `course_copy`（`course_copy.py:150`） | `audience_group_ids` は**落とす**（グループはコースに属するので、別のコースでは意味を持たない）。`confidential_until_open` は**写す**（写し漏れで秘匿が外れるほうが取り返しがつかない） |
+| `course_copy`（`course_copy.py:150`） | `audience_group_ids` は**落とす**（グループはコースに属するので、別のコースでは意味を持たない）。`confidential_until_open` も**写さない**。複製は日程を写さない（教員の指定）ので、公開の時刻が無い課題に秘匿を写しても効かない（`Task.before_open_at`）。日程と一緒に入れ直す |
 | コース削除（`courses.py`） | グループと名簿も一緒に消す |
 | コース定義の YAML | 当面は載せない（`campus_only` も載っていない前例に合わせる） |
 
@@ -217,22 +217,37 @@ def may_see(task: Task, role: Role, *, in_audience: bool, now: datetime) -> bool
 
 | 段階 | 内容 |
 |---|---|
-| 1 | `may_see`（core）と表のテスト。`confidential_until_open` と学生画面・コンソールへの適用。B を先に塞ぐ |
+| 1 | `may_see`（core）と表のテスト。`confidential_until_open` と学生画面・コンソールへの適用。B を先に塞ぐ（**実装済み**） |
 | 2 | `CourseGroup`・名簿・`audience_group_ids`。`/manage` の名簿画面と問題セットへの設定、**API（§3.5）** |
 | 3 | 「試験として設定」のひと押し |
 
 段階 1 は小さく、運用中の問題（TA への事前公開）を直接塞ぐので、先に単独で
 入れられる。決定は ADR 0025（出題の可視性）として起こす。
 
-## 6. 別件で見つかった既存の穴（先に直す）
+## 6. 別件で見つかった既存の穴
+
+### 6.0 学習者が公開前の課題ページを URL で開けた（段階 1 で塞いだ）
+
+一覧（`_group_by_unit`）は公開前の課題を学習者に出さないが、課題ページ
+（`_task_and_course`）は公開日時を見ていなかった。課題版の ID は推測できない
+ものの、URL を知っていれば公開前の問題文が読めた。`may_see` を
+`_task_and_course` に入れたことで、課題ページ・提出・動画の関門のすべてで 404 になる。
+
+### 6.1 学内限定の抜け（#370 で先に直す）
 
 **`POST /tasks/{id}/submit-video`（`app.py:1136`）が学内限定の判定（`_require_campus`）を
 呼んでいない。** 分割アップロード（`_video_gate`）と通常の提出は呼んでいる。
 学内限定の動画課題に、このルートを使えば学外から出せる。
 
-本書の変更とは独立した修正として、先に別の PR で直す（`_require_campus` を
-足し、学外からの `submit-video` が 403 になるテスト）。本書の `may_see` と同じく、
-**関門を 1 つにする**（§3.2）方向の修正でもある。
+本書の変更とは独立した修正として、先に別の PR（#370）で直す。写しをやめて
+`_video_gate` を呼ぶ形にした ── 本書の `may_see` と同じく、**関門を 1 つにする**
+（§3.2）方向の修正である。
+
+同じ PR で、もう 1 つの抜けも直す。**`save_task` が課題を作り直すとき
+`campus_only` を引き継いでいなかった**（`withdrawn` の #83 と同じ形）。学内限定の
+問題セットの課題を 1 つ直すと、その課題だけ学外から出せた。`Task` の欄の一覧を
+テストに固定し、欄を足した人が「作り直しで引き継ぐか」を決めるまで落ちるように
+した ── 本書の `confidential_until_open` がその最初の例になる。
 
 ## 7. 決まったこと（2026-09-24）
 

@@ -53,6 +53,8 @@ from aijudge_core import (
     content_type_for,
     grace_minutes,
     kind_for,
+    may_see,
+    may_submit_before_open,
 )
 from aijudge_core.ids import (
     ArtifactId,
@@ -697,7 +699,7 @@ def create_app(app_state: StudentApp) -> FastAPI:
                 "sections": _group_by_unit(
                     tasks,
                     progress=progress,
-                    preview=_may_submit_before_open(_role_in(app_state, course_obj.id, me.user_id)),
+                    preview=_previews_unopened_sets(_role_in(app_state, course_obj.id, me.user_id)),
                 ),
                 "progress": progress,
                 "no_progress": EMPTY,
@@ -774,7 +776,10 @@ def create_app(app_state: StudentApp) -> FastAPI:
                 # 送ると断られる、が起きる。
                 "open_for_submission": (
                     window is not SubmissionWindow.CLOSED
-                    and (window is not SubmissionWindow.NOT_OPEN or _may_submit_before_open(role))
+                    and (
+                        window is not SubmissionWindow.NOT_OPEN
+                        or may_submit_before_open(task_obj, role, now=now())
+                    )
                 ),
                 # まだ学習者には出せない課題を開いているか（#340）。
                 # **そう書く** ── 書かないと、教員は「もう公開されている」
@@ -832,12 +837,15 @@ def create_app(app_state: StudentApp) -> FastAPI:
         # 断る理由を分ける（#73）。「まだ」と「もう」を同じ文言にすると、
         # 学習者は待てば出せるのか、間に合わなかったのかが分からない。
         #
-        # **「まだ」の側は教員・TA に開ける**（#340・`_may_submit_before_open`）。
+        # **「まだ」の側は教員・TA に開ける**（#340・`may_submit_before_open`。
+        # 秘匿の課題では TA を外す）。
         # 役割はここで 1 度だけ引き、下の `submitted_as` にも同じ値を渡す ──
         # 2 度引くと、許可した役割と記録する役割が食い違いうる。
         role = _role_in(app_state, course_obj.id, me.user_id)
         window = _task.submission_window_at(now())
-        if window is SubmissionWindow.NOT_OPEN and not _may_submit_before_open(role):
+        if window is SubmissionWindow.NOT_OPEN and not may_submit_before_open(
+            _task, role, now=now()
+        ):
             opens = _task.submissions_open_at or _task.opens_at
             raise HTTPException(
                 status_code=409,
@@ -966,7 +974,9 @@ def create_app(app_state: StudentApp) -> FastAPI:
         _require_campus(app_state, request, task_obj, me.tenant_id)
         role = _role_in(app_state, course_obj.id, me.user_id)
         window = task_obj.submission_window_at(now())
-        if window is SubmissionWindow.NOT_OPEN and not _may_submit_before_open(role):
+        if window is SubmissionWindow.NOT_OPEN and not may_submit_before_open(
+            task_obj, role, now=now()
+        ):
             opens = task_obj.submissions_open_at or task_obj.opens_at
             raise HTTPException(
                 status_code=409,
@@ -1809,19 +1819,20 @@ def _require_campus(app_state: StudentApp, request: Request, task, tenant_id) ->
     )
 
 
-def _may_submit_before_open(role: Role) -> bool:
-    """提出開始前でも出せる相手か（#340）。**教員・TA だけ。**
+def _previews_unopened_sets(role: Role) -> bool:
+    """公開前の問題セットを「公開前」の印付きで一覧に出す相手か（#340）。
 
-    この 2 つの役割の提出は `Submission.is_trial` が真になり、成績にも
-    得点分布にも難易度の推定にも一致度の測定にも入らない（#108）。つまり
-    **公開前に出せて困る相手ではない**。むしろ公開前こそ実物で確かめたい
-    ── 確かめられないと、最初の学習者の提出がそのまま最初の動作確認になる。
+    **教員・TA だけ。** 出せるのに一覧に無いと、URL を直接叩くしかない。
 
-    **広げるのは「まだ」の側だけ。** 受付終了（`CLOSED`）は誰にも開けない。
-    過去の回に後から出せてしまうのは別の判断である（#73 の区分は壊さない）。
+    **どの課題を出すかはここでは決めない。** 一覧の元（`_course_and_tasks`）が
+    `may_see` で既に絞っている ── 秘匿の課題は、TA の一覧には公開前の印付き
+    でも出ない。ここが決めるのは、残ったもののうち公開前のものを見せるか
+    だけである。
 
+    提出の側（公開前に試しに出せるか）は `aijudge_core.may_submit_before_open`。
+    広げるのは「まだ」の側だけで、受付終了（`CLOSED`）は誰にも開けない（#73）。
     テナント管理者は含めない ── コースの `Enrollment` を持たない相手まで
-    広げるかは、この issue とは別に決める。
+    広げるかは、#340 とは別に決める。
     """
     return role in (Role.INSTRUCTOR, Role.ASSISTANT)
 
@@ -1844,7 +1855,7 @@ def _course_and_tasks(
     with app_state.database.unit_of_work() as uow:
         auth = AuthService(uow.identity, audit=uow.audit)
         try:
-            auth.require_membership(course_id, me.user_id)
+            role = auth.require_membership(course_id, me.user_id)
         except PermissionDenied as exc:
             # 存在しないコースと、受講していないコースを区別しない。
             # 区別すると、どのコースが存在するかを列挙できる。
@@ -1853,11 +1864,17 @@ def _course_and_tasks(
         if course_obj is None:
             raise HTTPException(status_code=404, detail="コースが見つかりません")
         tasks = uow.tasks.list_for_course(course_id)
+        moment = now()
         versions = []
         for task in tasks:
             # 取り下げた課題は出さない（#51）。**消えてはいない** ── 提出も
             # 採点も残っており、教員の一覧には印付きで並ぶ。
             if task.withdrawn:
+                continue
+            # **見せてよい課題だけを出す**（`aijudge_core.access`）。学習者に
+            # 公開前の課題を、TA に公開前の秘匿の課題を出さない。ここで落とす
+            # ので、コースページ・進捗・到達度のどれにも現れない。
+            if not may_see(task, role, now=moment):
                 continue
             # **承認済みの版だけを出す**（#48）。`latest_version` は版番号
             # だけを見るので、生成したまま誰も見ていない版や却下した版が
@@ -1888,11 +1905,17 @@ def _task_and_course(
         course_obj = uow.identity.get_course(task.course_id)
         auth = AuthService(uow.identity, audit=uow.audit)
         try:
-            auth.require_membership(task.course_id, me.user_id)
+            role = auth.require_membership(task.course_id, me.user_id)
         except PermissionDenied as exc:
             raise HTTPException(status_code=404, detail="課題が見つかりません") from exc
         if course_obj is None:
             raise HTTPException(status_code=404, detail="コースが見つかりません")
+        # **見せてよい課題か**（`aijudge_core.access`）。課題ページ・提出・動画の
+        # 関門はすべてここを通る。以前は公開日時を見ておらず、一覧から外れて
+        # いても URL を知っていれば公開前の問題文を開けた。見せない理由を
+        # 「無い」と区別しない（受講していない課題と同じ 404）。
+        if not may_see(task, role, now=now()):
+            raise HTTPException(status_code=404, detail="課題が見つかりません")
     return version, course_obj, task
 
 

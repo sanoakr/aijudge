@@ -29,6 +29,7 @@ from aijudge_core import (
     Task,
     TaskVersion,
     grace_minutes,
+    may_see,
 )
 
 
@@ -86,6 +87,10 @@ class UnitGroup:
     # 進み、こちらは「この回はもう終わっているか」を言う。教員が見たいのは
     # 後者で、締切を過ぎたのに未確定が残っていれば何かが止まっている。
     deadline_passed: bool
+    # 公開まで教員にしか見せないか（試験）。**全課題がそうなら真。**
+    # `campus_only` と同じく、混ざりは別に持って黙らせない。
+    confidential: bool = False
+    confidential_mixed: bool = False
 
     @property
     def count(self) -> int:
@@ -131,17 +136,24 @@ def load_units(
     *,
     pending: dict[object, int] | None = None,
     now: datetime | None = None,
+    viewer: Role | None = None,
 ) -> tuple[UnitGroup, ...]:
     """コースの課題を問題セットごとにまとめる。並びは `Task.sort_key` に従う。
 
     `pending` は課題ごとの未確定件数（`pending_counts`）。渡さなければ
     件数は 0 として組む ── 件数が要らない画面で課題数ぶんの問い合わせを
     させないため。
+
+    `viewer` は見る人の役割。渡せば `may_see` で絞る ── TA に公開前の秘匿の
+    課題（試験）を出さない。**TA も開ける画面は必ず渡す。** 教員専用の画面
+    では要らない（教員にはすべて見える）。
     """
     moment = now or datetime.now(UTC)
     counts = pending or {}
     rows: list[tuple[Task, TaskVersion]] = []
     for task in uow.tasks.list_for_course(course.id):  # type: ignore[attr-defined]
+        if viewer is not None and not may_see(task, viewer, now=moment):
+            continue
         version = uow.tasks.latest_version(task.id)  # type: ignore[attr-defined]
         if version is not None:
             rows.append((task, version))
@@ -191,6 +203,9 @@ def load_units(
                 and not all(task.campus_only for task in tasks),
                 unfinalized=sum(counts.get(task.id, 0) for task, _ in items),
                 deadline_passed=due_at is not None and moment >= due_at,
+                confidential=bool(tasks) and all(task.confidential_until_open for task in tasks),
+                confidential_mixed=any(task.confidential_until_open for task in tasks)
+                and not all(task.confidential_until_open for task in tasks),
             )
         )
     return tuple(groups)

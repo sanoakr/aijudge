@@ -131,6 +131,7 @@ from aijudge_core import (
     TestCase,
     campus_access,
     format_term,
+    may_see,
     new_id,
     normalize_suffixes,
     offered_years,
@@ -821,6 +822,7 @@ SAVED_MESSAGES: dict[str, str] = {
     "restored": "出題の取り下げを取り消しました",
     "campus_networks": "学内ネットワークを保存しました",
     "campus_only": "この問題セットの受付範囲を変えました（セット内の全課題に反映）",
+    "confidential": "この問題セットを公開前に誰に見せるかを変えました（セット内の全課題に反映）",
     # **版は上がらない。** 日程は課題の内容ではないので、直しても過去の
     # 採点基準は変わらない（ADR 0013・P8 の対象外）。
     "task_schedule": "この課題の日程を保存しました（版は上がりません）",
@@ -2593,7 +2595,8 @@ def register(templates) -> APIRouter:
         pending = pending_counts(console.database, course.id)
         now = datetime.now(UTC)
         with console.database.unit_of_work() as uow:
-            units = load_units(uow, course, pending=pending, now=now)
+            # TA には公開前の秘匿の課題（試験）を出さない（`may_see`）。
+            units = load_units(uow, course, pending=pending, now=now, viewer=role)
         # **知らない鍵でも 404 にしない。** 課題を 1 問も持たない回は
         # 「まだ何も無い回」であって存在しない回ではなく、ここが最初の
         # 1 問を足す場所になる。404 にすると新しい回を作る導線が無くなる。
@@ -3143,6 +3146,31 @@ def register(templates) -> APIRouter:
             unit,
             update={"campus_only": bool(campus_only.strip())},
             saved="campus_only",
+        )
+
+    @router.post("/courses/{course_id}/units/{unit}/confidential")
+    def set_unit_confidential(
+        request: Request,
+        course_id: str,
+        unit: str,
+        confidential: Annotated[str, Form()] = "",
+    ) -> Response:
+        """**問題セットを公開まで教員だけに見せるかを切り替える**（試験）。
+
+        公開前の問題セットは TA にも見えている（#340・#102）── 課題なら
+        TA が先に読んで備えられるので正しいが、試験では TA が内容を先に
+        知ること自体が漏洩の経路になる。**公開後は TA にも見える**
+        （`aijudge_core.access`）。
+
+        学内限定と同じく、値はセット単位で決めて全課題に入れる（`_update_unit`）。
+        監査ログに残る ── 誰に何が見えるかを変える操作である。
+        """
+        return _update_unit(
+            request,
+            course_id,
+            unit,
+            update={"confidential_until_open": bool(confidential.strip())},
+            saved="confidential",
         )
 
     @router.post("/courses/{course_id}/units/{unit}/schedule")
@@ -4600,6 +4628,10 @@ def register(templates) -> APIRouter:
             task = uow.tasks.get_task(TaskId(task_id))
             version = uow.tasks.latest_version(TaskId(task_id))
         if task is None or version is None or task.course_id != CourseId(course_id):
+            raise HTTPException(status_code=404, detail="課題が見つかりません")
+        # **公開前の試験は TA に見せない**（`may_see`）。読むだけの画面でも、
+        # 問題文とテストケースが出る。
+        if not may_see(task, role, now=datetime.now(UTC)):
             raise HTTPException(status_code=404, detail="課題が見つかりません")
         # **TA は読むだけ**（#102）。課題文は描いて出す ── Markdown のまま
         # 出すと、採点しながら読む相手にとっては学習者に見えている画面と

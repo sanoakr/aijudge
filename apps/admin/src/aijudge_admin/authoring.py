@@ -174,6 +174,9 @@ def save_task(
             # 欄を足したら引き継ぐかを決めること ──
             # `tests/test_task_schedule_survives.py` が欄の一覧を固定している。
             campus_only=existing.campus_only if existing else False,
+            # 公開まで教員だけに見せるか（試験）。引き継がないと、試験の課題を
+            # 1 つ直した瞬間にその課題だけ公開前の TA に見える。
+            confidential_until_open=(existing.confidential_until_open if existing else False),
             # 締切と同じ理由で、**明示された場合だけ上書きする**（#234）。
             # 教員が画面で広げた拡張子を、定義の流し込みが黙って狭めない。
             accepted_suffixes=normalize_suffixes(spec.accepted_suffixes)
