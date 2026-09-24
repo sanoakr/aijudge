@@ -11,9 +11,11 @@
 
 from __future__ import annotations
 
+import pytest
 from test_studentweb import COURSE, TENANT, World
 from test_studentweb import world as world  # フィクスチャを借りる
 
+from aijudge_core import Role
 from aijudge_core.ids import TenantId
 from aijudge_identity import CampusNetworkSettings
 
@@ -138,3 +140,33 @@ def test_the_course_list_marks_the_restricted_task(world: World) -> None:
     page = world.client.get(f"/courses/{COURSE}").text
 
     assert "学内のみ" in page
+
+
+@pytest.mark.parametrize("role", [Role.INSTRUCTOR, Role.ASSISTANT])
+def test_staff_submit_from_outside(world: World, role: Role) -> None:
+    """**教員・TA は学内限定を通れる**（2026-09-25）。提出は動作確認で成績に数えない。
+    画面も「提出できません」とは言わない。"""
+    world.register("staff", role=role)
+    world.login("staff")
+    _restrict(world)
+
+    assert _submit_from(world, OUTSIDE).status_code == 303
+    page = world.client.get(
+        f"/tasks/{world.task_version.id}", headers={"x-forwarded-for": OUTSIDE}
+    ).text
+    assert "教員・TA は学外からも提出できます" in page
+    assert "提出できません。" not in page
+
+
+def test_the_exemption_does_not_reach_learners(world: World) -> None:
+    """同じ課題でも、学習者は学外から断られたまま。"""
+    world.register("staff", role=Role.INSTRUCTOR)
+    world.register("s2400001")
+    world.login("s2400001")
+    _restrict(world)
+
+    assert _submit_from(world, OUTSIDE).status_code == 409
+    page = world.client.get(
+        f"/tasks/{world.task_version.id}", headers={"x-forwarded-for": OUTSIDE}
+    ).text
+    assert "教員・TA は学外からも" not in page
