@@ -233,6 +233,21 @@ class ActivityFiles:
             len(body),
         )
 
+    def read_batch(self, path: str) -> list[dict[str, Any]]:
+        """索引の `path` からイベント列を読む。**根の外は読まない。**"""
+        target = (self.root / path).resolve()
+        if not target.is_relative_to(self.root.resolve()):
+            raise ValueError(f"{path!r} is outside the activity root")
+        body = gzip.decompress(target.read_bytes()).decode("utf-8")
+        return [json.loads(line) for line in body.splitlines() if line]
+
+    def read_snapshot(self, session: IdeSession, name: str) -> str | None:
+        """指紋から全文を読む。無ければ None（欠けた束に入っていた）。"""
+        if len(name) != 64 or any(c not in "0123456789abcdef" for c in name):
+            return None
+        target = self.session_dir(session) / "snapshots" / f"{name}.txt"
+        return target.read_text(encoding="utf-8") if target.is_file() else None
+
 
 def _atomic_write(target: Path, payload: bytes) -> None:
     """一時ファイルに書いて `rename` する。途中で落ちても半端なファイルを残さない。"""

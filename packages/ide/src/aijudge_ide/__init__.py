@@ -33,6 +33,7 @@ from .buffer import (
 )
 from .formats import EDITOR_FORMATS, EditorFormat, editor_formats
 from .intake import RefusalReason, RunPolicy, RunRefused, RunView, request_run, view_run
+from .integrity import SILENCE_MS, IntegrityReport, Silence, check_session
 from .links import SubmissionLink, SubmissionLinkStore, SubmissionOrigin
 from .memory import (
     InMemoryActivityIndex,
@@ -70,6 +71,7 @@ __all__ = [
     "MAX_SOURCE_BYTES",
     "MAX_STDIN_BYTES",
     "RUNNER_LOST",
+    "SILENCE_MS",
     "STALE_AFTER_SECONDS",
     "TERMINAL_STATES",
     "ActivityFiles",
@@ -86,6 +88,7 @@ __all__ = [
     "InMemoryBufferStore",
     "InMemoryRunQueue",
     "InMemorySubmissionLinkStore",
+    "IntegrityReport",
     "RefusalReason",
     "RunAlreadyPending",
     "RunOutcome",
@@ -97,10 +100,12 @@ __all__ = [
     "RunStage",
     "RunState",
     "RunView",
+    "Silence",
     "SubmissionLink",
     "SubmissionLinkStore",
     "SubmissionOrigin",
     "check_events",
+    "check_session",
     "check_snapshots",
     "clip_for_display",
     "content_hash",

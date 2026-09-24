@@ -98,3 +98,21 @@ def test_a_snapshot_must_be_named_by_its_hash() -> None:
         big = "a" * (MAX_SOURCE_BYTES + 1)
         check_snapshots({snapshot_name(big): big})
     assert check_snapshots({snapshot_name("x"): "x"}) == {snapshot_name("x"): "x"}
+
+
+def test_what_was_written_reads_back(tmp_path: Path) -> None:
+    files = ActivityFiles(tmp_path)
+    events = [{"type": "hello", "t": 0, "hashes": []}]
+    text = "print(1)\n"
+    path, _, _ = files.write_batch(SESSION, 0, events, {snapshot_name(text): text})
+
+    assert files.read_batch(path) == events
+    assert files.read_snapshot(SESSION, snapshot_name(text)) == text
+    assert files.read_snapshot(SESSION, "f" * 64) is None
+    # 指紋の形でない名前では、ファイルを探しに行かない。
+    assert files.read_snapshot(SESSION, "../../etc/passwd") is None
+
+
+def test_reading_outside_the_root_is_refused(tmp_path: Path) -> None:
+    with pytest.raises(ValueError):
+        ActivityFiles(tmp_path / "root").read_batch("../elsewhere.ndjson.gz")

@@ -201,12 +201,19 @@
           return;
         }
         rec.sessionId = result.data.session_id;
-        record("hello", {
-          screen: [window.screen.width, window.screen.height],
-          tabs: tabCount,
+        // 開いたときの各タブの内容を全文で撮り、その指紋を hello に載せる。
+        // 後から「最初の全文 + 差分」で内容を組み立て直す起点になる
+        // （`aijudge_ide.integrity`）。
+        var shots = [];
+        for (var k = 0; k < tabCount; k++) shots.push(snapshot(k));
+        Promise.all(shots).then(function (hashes) {
+          record("hello", {
+            screen: [window.screen.width, window.screen.height],
+            tabs: tabCount,
+            hashes: hashes,
+          });
+          window.setTimeout(recorderLoop, 500);
         });
-        for (var k = 0; k < tabCount; k++) snapshot(k);
-        window.setTimeout(recorderLoop, 500);
       })
       .catch(function () {
         window.setTimeout(function () { startRecorder(consent); }, REC_MAX_INTERVAL_MS);
@@ -722,7 +729,13 @@
           // 打鍵はまとめずにそのまま残す（まとめると自動入力と人の打鍵が区別
           // できなくなる・設計書 §6.2）。読み込みで入った分は `file_load` が言う。
           if (!rec.programmatic) {
-            event.changes.forEach(function (change) {
+            // 1 回の変更に複数の範囲がある（複数カーソル）とき、位置はどれも
+            // 変更前の内容に対するもの。**後ろから順に**残せば、そのまま順に
+            // 当てて組み立て直せる（`aijudge_ide.integrity`）。
+            event.changes
+              .slice()
+              .sort(function (a, b) { return b.rangeOffset - a.rangeOffset; })
+              .forEach(function (change) {
               record("edit", {
                 tab: index,
                 off: change.rangeOffset,
@@ -731,7 +744,7 @@
                 undo: event.isUndoing || undefined,
                 redo: event.isRedoing || undefined,
               });
-            });
+              });
           }
           markDirty(index);
           window.clearTimeout(state[index].hashTimer);
