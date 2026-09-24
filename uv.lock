@@ -605,8 +605,10 @@ dependencies = [
     { name = "aijudge-eval-code-test-runner" },
     { name = "aijudge-grading" },
     { name = "aijudge-ide" },
+    { name = "aijudge-identity" },
     { name = "aijudge-persistence" },
     { name = "aijudge-sandbox" },
+    { name = "aijudge-submission" },
     { name = "aijudge-telemetry" },
     { name = "aijudge-toolchain" },
 ]
@@ -617,8 +619,10 @@ requires-dist = [
     { name = "aijudge-eval-code-test-runner", editable = "evaluators/code_test_runner" },
     { name = "aijudge-grading", editable = "packages/grading" },
     { name = "aijudge-ide", editable = "packages/ide" },
+    { name = "aijudge-identity", editable = "packages/identity" },
     { name = "aijudge-persistence", editable = "packages/persistence" },
     { name = "aijudge-sandbox", editable = "packages/sandbox" },
+    { name = "aijudge-submission", editable = "packages/submission" },
     { name = "aijudge-telemetry", editable = "packages/telemetry" },
     { name = "aijudge-toolchain", editable = "packages/toolchain" },
 ]

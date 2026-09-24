@@ -245,9 +245,12 @@ def test_a_program_is_submitted_as_the_file_would_be(world: World) -> None:
 
         submission = uow.submissions.get(SubmissionId(data["submission_id"]))
         assert uow.jobs.pending_count() == 1
+        link = uow.ide_links.for_submission(submission.id)
     (artifact,) = submission.artifacts
     assert artifact.filename == "main.c"
     assert artifact.kind is ArtifactKind.CODE
+    # 本人が押した提出として残る（受付終了時の自動提出と区別する）。
+    assert link is not None and link.origin.value == "editor"
 
 
 def test_a_report_is_submitted_as_text(world: World) -> None:

@@ -9,9 +9,10 @@ from __future__ import annotations
 from collections.abc import Iterable
 from datetime import datetime
 
-from aijudge_core.ids import TaskId, UserId
+from aijudge_core.ids import SubmissionId, TaskId, UserId
 
 from .buffer import IdeBuffer
+from .links import SubmissionLink
 from .protocols import RunAlreadyPending
 from .run import DEFAULT_LEASE_SECONDS, RUNNER_LOST, RunRequest, RunRequestId, RunState
 
@@ -114,3 +115,22 @@ class InMemoryBufferStore:
             for task_id in task_ids
             if (buffer := self._buffers.get((learner_id, task_id))) is not None
         }
+
+    def for_task(self, task_id: TaskId) -> tuple[IdeBuffer, ...]:
+        return tuple(b for (_, t), b in sorted(self._buffers.items()) if t == task_id)
+
+    def task_ids(self) -> tuple[TaskId, ...]:
+        return tuple(sorted({task_id for (_, task_id) in self._buffers}))
+
+
+class InMemorySubmissionLinkStore:
+    """インメモリの出どころの記録。SQL 実装と同じテストに通る。"""
+
+    def __init__(self) -> None:
+        self._links: dict[SubmissionId, SubmissionLink] = {}
+
+    def record(self, link: SubmissionLink) -> None:
+        self._links.setdefault(link.submission_id, link)
+
+    def for_submission(self, submission_id: SubmissionId) -> SubmissionLink | None:
+        return self._links.get(submission_id)

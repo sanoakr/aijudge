@@ -43,6 +43,8 @@ from aijudge_ide import (
     RefusalReason,
     RunRefused,
     RunRequestId,
+    SubmissionLink,
+    SubmissionOrigin,
     content_hash,
     editor_formats,
     make_buffer,
@@ -389,6 +391,7 @@ def register_ide_routes(app: FastAPI, deps: IdeDeps, me_dependency: Any) -> None
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         # 提出した内容を自動保存にも入れる。**提出したのに、リロードすると前の
         # 書きかけに戻る**、を起こさない。
+        submission = result.submission
         with deps.state.database.unit_of_work() as uow:
             uow.ide_buffers.save(
                 make_buffer(
@@ -400,8 +403,21 @@ def register_ide_routes(app: FastAPI, deps: IdeDeps, me_dependency: Any) -> None
                     now=deps.now(),
                 )
             )
+            # 本人が押した提出であることを残す（`aijudge_ide.links`）。同じ内容の
+            # 再提出で既存の提出に畳まれたときも、最初の記録がそのまま残る。
+            uow.ide_links.record(
+                SubmissionLink(
+                    submission_id=submission.id,
+                    tenant_id=me.tenant_id,
+                    learner_id=me.user_id,
+                    task_id=task_obj.id,
+                    origin=SubmissionOrigin.EDITOR,
+                    content_hash=content_hash(body.source),
+                    ide_session_id=body.ide_session_id,
+                    recorded_at=deps.now(),
+                )
+            )
             uow.commit()
-        submission = result.submission
         return JSONResponse(
             {
                 "submission_id": str(submission.id),

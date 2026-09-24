@@ -13,6 +13,8 @@
   "use strict";
 
   var config = JSON.parse(document.getElementById("ide-config").textContent);
+  // 受付終了の何秒前に、待たずに保存するか。保存の間隔（10 秒）より短くする。
+  var FLUSH_BEFORE_CLOSE_SECONDS = 5;
   var tabCount = config.tabs.length;
   var editors = [];
   var models = [];
@@ -386,12 +388,22 @@
     var el = $("[data-ide-remaining]");
     if (!el || config.remaining === null) return;
     var loaded = Date.now();
+    var flushed = false;
     function pad(n) { return (n < 10 ? "0" : "") + n; }
     function tick() {
       var left = config.remaining - Math.floor((Date.now() - loaded) / 1000);
+      // **受付終了の直前に、待たずに保存する**（設計書 §9.1）。受付の終わりに
+      // サーバが自動保存の最新を提出するので、10 秒ごとの保存の隙間で書いた分を
+      // 落とさない。
+      if (!flushed && left <= FLUSH_BEFORE_CLOSE_SECONDS) {
+        flushed = true;
+        for (var k = 0; k < tabCount; k++) save(k, true);
+      }
       if (left <= 0) {
         el.textContent = "受付終了";
         el.setAttribute("data-over", "1");
+        var notice = $("[data-ide-closed]");
+        if (notice) notice.hidden = false;
         return;
       }
       var h = Math.floor(left / 3600), m = Math.floor((left % 3600) / 60), s = left % 60;

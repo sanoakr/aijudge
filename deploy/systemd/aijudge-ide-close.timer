@@ -1,0 +1,12 @@
+# 受付終了から最大 1 分で自動提出する。finalize（1 時間ごと）と違い、ずらし
+# （RandomizedDelaySec）を入れない ── 学習者は受付終了の直後に結果を見に来る。
+[Unit]
+Description=Run aijudge-ide-close every minute
+
+[Timer]
+OnCalendar=minutely
+Persistent=true
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target

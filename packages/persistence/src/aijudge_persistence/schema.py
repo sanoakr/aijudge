@@ -17,6 +17,7 @@ SQL で集約の中身を検索するようになったときで、そのとき�
     audit_events       誰が成績に届く何を変えたか。**追記のみ**（ADR 0016）
     run_requests       IDE の試しの実行。採点キューとは別（ADR 0024）。結果は残さない
     ide_buffers        IDE の自動保存。(学習者, 課題) ごとに 1 行、上書き
+    ide_submission_links  IDE からの提出の出どころ（本人か、受付終了時の自動提出か）
 
 日時は必ず timezone 付きで扱う。素の TIMESTAMP に入れると、締切判定が
 サーバのローカル時刻に依存する。**ただしバックエンドによっては保証されない**
@@ -838,3 +839,22 @@ class IdeBufferRow(Base):
     source: Mapped[str] = mapped_column(Text)
     content_hash: Mapped[str] = mapped_column(String(64))
     updated_at: Mapped[datetime] = mapped_column(Timestamp)
+
+
+class IdeSubmissionLinkRow(Base):
+    """IDE からの提出の出どころ（設計書 §9）。**`submissions` には列を足さない**（I1）。
+
+    行が無い提出はファイルでの提出。本人が押した提出（`editor`）と、受付終了時に
+    サーバが出した提出（`auto_close`）を後から区別するために残す。
+    """
+
+    __tablename__ = "ide_submission_links"
+
+    submission_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(64))
+    learner_id: Mapped[str] = mapped_column(String(64))
+    task_id: Mapped[str] = mapped_column(String(64), index=True)
+    origin: Mapped[str] = mapped_column(String(16))
+    content_hash: Mapped[str] = mapped_column(String(64))
+    ide_session_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    recorded_at: Mapped[datetime] = mapped_column(Timestamp)
