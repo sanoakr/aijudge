@@ -811,6 +811,8 @@ def create_app(app_state: StudentApp) -> FastAPI:
                 # して読む）。
                 "knowledge_components": knowledge_components_of(app_state, version),
                 "campus_only": task_obj.campus_only,
+                # 教員・TA は学内限定を通れる。学外でも「提出できません」と出さない。
+                "campus_exempt": campus_exempt(role),
                 # エディタで解く課題か（ADR 0026）。そうなら画面の頭で案内する。
                 # ファイルの提出欄も残す ── エディタが使えない環境の逃げ道である。
                 "editor_url": (
@@ -965,8 +967,8 @@ def create_app(app_state: StudentApp) -> FastAPI:
                 status_code=409,
                 detail="この課題はエディタからだけ提出できます（ファイルでは提出できません）",
             )
-        _require_campus(app_state, request, task_obj, me.tenant_id)
         role = _role_in(app_state, course_obj.id, me.user_id)
+        _require_campus(app_state, request, task_obj, me.tenant_id, role)
         window = task_obj.submission_window_at(now())
         if window is SubmissionWindow.NOT_OPEN and not may_submit_before_open(
             task_obj, role, now=now()
@@ -1837,14 +1839,25 @@ def campus_access_for(app_state: StudentApp, request: Request, tenant_id) -> Cam
     return campus_access(source_ip_of(request), () if settings is None else settings.cidrs)
 
 
-def _require_campus(app_state: StudentApp, request: Request, task, tenant_id) -> None:
-    """学内限定の課題を、学外から出させない（#333）。
+def campus_exempt(role: Role) -> bool:
+    """学内限定を通れる役割か（2026-09-25 決定）。**教員・TA だけ。**
+
+    学内限定は試験で学習者の場所を縛るためのもので、教員・TA の提出は成績にも
+    測定にも数えない動作確認である（`is_trial`・#108）。縛ると、自宅や出張先から
+    試験の問題を試せない。テナント管理者は含めない（`_previews_unopened_sets` と
+    同じ線引き ── コースの受講を持たない相手まで広げるかは別に決める）。
+    """
+    return role in (Role.INSTRUCTOR, Role.ASSISTANT)
+
+
+def _require_campus(app_state: StudentApp, request: Request, task, tenant_id, role: Role) -> None:
+    """学内限定の課題を、学外から出させない（#333）。教員・TA は通す（`campus_exempt`）。
 
     **断る理由を分ける**（受付の窓と同じ作法・#73）。「学外から」と「判定
     できない」は学習者にとって意味が違う ── 前者は場所を移せば出せるが、
     後者は移しても直らない（設定か経路の問題で、教員に言うしかない）。
     """
-    if not getattr(task, "campus_only", False):
+    if not getattr(task, "campus_only", False) or campus_exempt(role):
         return
     access = campus_access_for(app_state, request, tenant_id)
     if access.allows_submission:
