@@ -20,14 +20,20 @@
 
 from __future__ import annotations
 
+import os
+import shutil
 from dataclasses import dataclass
+from pathlib import Path
 
 from aijudge_core import Course
-from aijudge_core.ids import CourseId, SubmissionId
+from aijudge_core.ids import CourseId, SubmissionId, is_id
 from aijudge_persistence import Database
 from aijudge_submission import StreamingArtifactStore
 
 from .operations import AdminError
+
+# 行動記録の本体の置き場所（web と同じ変数・`aijudge_studentweb.cli`）。
+ENV_ACTIVITY_DIR = "AIJUDGE_ACTIVITY_DIR"
 
 
 @dataclass(frozen=True)
@@ -45,7 +51,11 @@ class DeletedCourse:
 
 
 def delete_course(
-    database: Database, *, course_id: CourseId, artifact_store: object | None = None
+    database: Database,
+    *,
+    course_id: CourseId,
+    artifact_store: object | None = None,
+    activity_dir: Path | None = None,
 ) -> DeletedCourse:
     """**学習者の提出が 1 件も無いコースだけを消す。**
 
@@ -84,10 +94,14 @@ def delete_course(
         uow.submissions.delete(trial_ids)
         for task in tasks:
             uow.tasks.delete_task(task.id)
+        # IDE の行動記録の索引（ADR 0023）。**学習者の提出が無くても、学習者の
+        # 記録はありうる** ── エディタを開いて書いたが出さなかった学習者の分。
+        uow.ide_activity.delete_for_course(course_id)
         uow.identity.delete_course(course_id)
         uow.commit()
 
     _remove_artifacts(artifact_store, keys)
+    _remove_activity(activity_dir, course_id)
     return DeletedCourse(
         course=course,
         tasks=len(tasks),
@@ -111,6 +125,28 @@ def _remove_artifacts(store: object | None, keys: list[str]) -> None:
             store.delete(key)
         except Exception:  # pragma: no cover - ストアの実装差を吸収する
             continue
+
+
+def _remove_activity(activity_dir: Path | None, course_id: CourseId) -> None:
+    """このコースの行動記録の本体（ファイル）を消す。
+
+    本体は `{根}/{コース}/...` に置いてある（`aijudge_ide.ActivityFiles`）ので、
+    コースのディレクトリごと消す。根は引数、無ければ web と同じ環境変数から読む。
+    **どちらも無ければ何もしない** ── 成果物と同じく、索引を消せたのにファイルで
+    失敗して全体を巻き戻す形にはしない。
+    """
+    root = activity_dir
+    if root is None:
+        configured = os.environ.get(ENV_ACTIVITY_DIR)
+        root = Path(configured).expanduser() if configured else None
+    if root is None:
+        return
+    # コース ID は `crs_<32 桁>` の形に限る。**根の外を消させない。**
+    if not is_id(str(course_id), "crs"):
+        return
+    target = root / str(course_id)
+    if target.is_dir():
+        shutil.rmtree(target, ignore_errors=True)
 
 
 __all__ = ["DeletedCourse", "delete_course"]

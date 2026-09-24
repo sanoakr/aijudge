@@ -71,8 +71,11 @@ from .schema import (
     GradingJobRow,
     GradingRunRow,
     HumanReviewRow,
+    IdeBufferRow,
+    IdeSubmissionLinkRow,
     OutboxRow,
     ReviewRequestRow,
+    RunRequestRow,
     SubmissionKeyRow,
     SubmissionRow,
     TaskChecksRow,
@@ -416,6 +419,8 @@ class SqlSubmissionRepository:
             (ReviewRequestRow, ReviewRequestRow.submission_id),
             (BlindMarkRow, BlindMarkRow.submission_id),
             (GradingJobRow, GradingJobRow.submission_id),
+            # IDE からの提出の出どころ（設計書 §9）。
+            (IdeSubmissionLinkRow, IdeSubmissionLinkRow.submission_id),
         ):
             self._session.execute(delete(table).where(column.in_(keys)))
         self._session.execute(delete(SubmissionRow).where(SubmissionRow.id.in_(keys)))
@@ -1442,9 +1447,19 @@ class SqlTaskRepository:
             self._session.execute(
                 delete(TaskEmbeddingRow).where(TaskEmbeddingRow.task_version_id.in_(version_ids))
             )
+            # IDE の試しの実行（ADR 0024）。版を指すので版と一緒に消す。
+            self._session.execute(
+                delete(RunRequestRow).where(RunRequestRow.task_version_id.in_(version_ids))
+            )
             self._session.execute(
                 delete(TaskVersionRow).where(TaskVersionRow.task_id == str(task_id))
             )
+        # IDE の自動保存と提出の出どころは課題を指す。**書きかけは提出が無くても
+        # ある**（提出の無い課題を消す経路でも残さない）。
+        self._session.execute(delete(IdeBufferRow).where(IdeBufferRow.task_id == str(task_id)))
+        self._session.execute(
+            delete(IdeSubmissionLinkRow).where(IdeSubmissionLinkRow.task_id == str(task_id))
+        )
         self._session.execute(delete(TaskRow).where(TaskRow.id == str(task_id)))
         self._session.flush()
 

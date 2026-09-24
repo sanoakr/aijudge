@@ -8,7 +8,7 @@ commit しない。呼び出し側の UnitOfWork が commit する。
 
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from aijudge_core.ids import CourseId, TenantId, UserId
@@ -52,6 +52,29 @@ class SqlActivityIndex:
             user_agent=row.user_agent,
             consented_at=row.consented_at,
         )
+
+    def delete_for_course(self, course_id: CourseId) -> tuple[IdeSession, ...]:
+        rows = (
+            self._session.execute(
+                select(IdeSessionRow.id).where(IdeSessionRow.course_id == str(course_id))
+            )
+            .scalars()
+            .all()
+        )
+        doomed = tuple(
+            session
+            for session in (self.get_session(IdeSessionId(row)) for row in rows)
+            if session is not None
+        )
+        if rows:
+            self._session.execute(
+                delete(IdeEventBatchRow).where(IdeEventBatchRow.ide_session_id.in_(list(rows)))
+            )
+            self._session.execute(
+                delete(IdeSessionRow).where(IdeSessionRow.course_id == str(course_id))
+            )
+            self._session.flush()
+        return doomed
 
     def has_consented(self, learner_id: UserId, course_id: CourseId) -> bool:
         found = self._session.execute(

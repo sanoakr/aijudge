@@ -137,6 +137,15 @@ class ActivityIndex(Protocol):
         """seq の順。欠落（seq の飛び）は呼び出し側が数える。"""
         ...
 
+    def delete_for_course(self, course_id: CourseId) -> tuple[IdeSession, ...]:
+        """このコースのセッションと索引を消し、消したセッションを返す。
+
+        **コースを消すときにだけ使う**（`aijudge_admin.courses`）。返したセッションの
+        本体（ファイル）は呼び出し側が消す ── 索引だけ消してファイルを残すと、
+        学習者の記録が誰にも辿れないまま残る。
+        """
+        ...
+
 
 def check_events(events: object) -> list[dict[str, Any]]:
     """イベント列の形だけを確かめる。**中身の解釈はしない**（受信時に解析しない）。"""

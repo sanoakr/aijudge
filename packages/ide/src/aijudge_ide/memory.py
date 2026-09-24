@@ -168,3 +168,11 @@ class InMemoryActivityIndex:
         return tuple(
             batch for (sid, _), batch in sorted(self._batches.items()) if sid == session_id
         )
+
+    def delete_for_course(self, course_id: CourseId) -> tuple[IdeSession, ...]:
+        doomed = tuple(s for s in self._sessions.values() if s.course_id == course_id)
+        for session in doomed:
+            del self._sessions[session.id]
+            for key in [k for k in self._batches if k[0] == session.id]:
+                del self._batches[key]
+        return doomed

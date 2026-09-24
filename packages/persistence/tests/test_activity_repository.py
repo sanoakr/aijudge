@@ -119,3 +119,19 @@ def test_batches_come_back_in_seq_order_with_gaps_visible(database: Database) ->
         # seq 1 が欠けていることが、呼び出し側から読める。
         assert seqs == [0, 2, 3]
         assert index.batches(SESSION)[0] == a_batch(0)
+
+
+def test_deleting_a_course_takes_its_sessions_and_batches(database: Database) -> None:
+    """コースを消すときだけ使う。**他のコースのセッションは残す。**"""
+    for index in _both(database):
+        index.start_session(a_session())
+        other = a_session(id=IdeSessionId("ide_" + "7" * 32), course_id=OTHER_COURSE)
+        index.start_session(other)
+        index.add_batch(a_batch(0))
+
+        deleted = index.delete_for_course(COURSE)
+
+        assert [s.id for s in deleted] == [SESSION]
+        assert index.get_session(SESSION) is None
+        assert index.batches(SESSION) == ()
+        assert index.get_session(other.id) == other
