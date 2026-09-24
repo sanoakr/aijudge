@@ -23,6 +23,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated
+from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
@@ -37,6 +38,7 @@ from aijudge_core import (
     MIN_JUSTIFICATION_LENGTH,
     PURGED_MESSAGE,
     STREAMED_SUFFIXES,
+    AnswerMode,
     ArtifactKind,
     CampusAccess,
     Course,
@@ -96,6 +98,7 @@ from aijudge_submission import (
 from aijudge_telemetry import RequestContextMiddleware
 
 from .audit_context import request_id_of, source_ip_of
+from .ide import IdeDeps, register_ide_routes
 from .progress import EMPTY, load_progress
 from .visibility import ResultView, build_result_view
 
@@ -200,7 +203,9 @@ ENV_ALLOWED_HOSTS = "AIJUDGE_ALLOWED_HOSTS"
 # アクセスログに残さない経路。画像の取り出しと、画面が数秒ごとに叩く
 # 「まだ動いているか」の問い合わせ ── 締切前は 1 人あたり毎分 30 行になる。
 # CSS も残さない ── 1 ページ 1 行増えるだけで、内容は毎回同じ。
-QUIET_PATHS = ("/images/", "/static/")
+# IDE の実行結果の問い合わせ（0.5 秒ごと）も静かにする。実行を待つ間だけの
+# 問い合わせで、1 回の実行で数回〜数十回になる。
+QUIET_PATHS = ("/images/", "/static/", "/ide/runs/")
 QUIET_SUFFIXES = ("/state",)
 
 SESSION_COOKIE = "aijudge_session"
@@ -800,6 +805,13 @@ def create_app(app_state: StudentApp) -> FastAPI:
                 # して読む）。
                 "knowledge_components": knowledge_components_of(app_state, version),
                 "campus_only": task_obj.campus_only,
+                # エディタで解く課題か（ADR 0026）。そうなら画面の頭で案内する。
+                # ファイルの提出欄も残す ── エディタが使えない環境の逃げ道である。
+                "editor_url": (
+                    f"/courses/{course_obj.id}/ide?unit={quote(task_obj.unit or '')}"
+                    if task_obj.answer_mode is AnswerMode.EDITOR
+                    else None
+                ),
                 "campus_access": (
                     campus_access_for(app_state, request, me.tenant_id)
                     if task_obj.campus_only
@@ -1459,6 +1471,25 @@ def create_app(app_state: StudentApp) -> FastAPI:
             uow.commit()
         return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
 
+    # -- ブラウザ IDE（`docs/design/online-coding-test.md`） ----------------
+    #
+    # `answer_mode=editor` の課題にだけ効く経路（不変条件 I5）。関門は上の
+    # `_submission_gate` を**そのまま渡す** ── 写すと条件が落ちる（I8）。
+    register_ide_routes(
+        app,
+        IdeDeps(
+            state=app_state,
+            templates=TEMPLATES,
+            gate=_submission_gate,
+            course_and_tasks=_course_and_tasks,
+            load_progress=load_progress,
+            build_context=build_context,
+            is_demo=_is_demo_course,
+            now=now,
+        ),
+        Me,
+    )
+
     return app
 
 
@@ -1562,6 +1593,10 @@ def _group_by_unit(
         # 畳んだ見出しで判断できるだけの情報（#93）。**中が見えなくなるので、
         # 開かずに「自分がやることが残っているか」が分かる必要がある。**
         group["task_count"] = len(group["tasks"])
+        # エディタで解く課題があるか（ADR 0026）。あれば見出しの下に入口を出す。
+        group["editor"] = any(
+            task.answer_mode is AnswerMode.EDITOR for task, _version in group["tasks"]
+        )
         # **畳んだ見出しで「やることが残っているか」が分かる必要がある。**
         # 中が見えなくなるので、開かないと未提出に気づけないのでは畳む
         # 意味が無い。採点中も出す ── 畳んだ中で採点が進むと、届いたことに

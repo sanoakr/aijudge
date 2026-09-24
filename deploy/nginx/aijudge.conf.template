@@ -78,6 +78,28 @@ server {
         proxy_read_timeout 600s;
     }
 
+    # ブラウザ IDE のエディタ（Monaco 0.52.2、約 4.5 MB。`editor.main.js` だけで
+    # 3.8 MB）。**nginx が直接配る**（設計書 §5.4）── 試験開始の瞬間に 150 名が
+    # 一斉に取りに来るので、uvicorn の 2 ワーカーに配らせない。
+    #
+    # 版はディレクトリ名に入っている（`monaco-0.52.2/`）ので、長期キャッシュで
+    # よい。版を上げたら URL が変わる。`alias` の先は配置先のチェックアウト
+    # （`deploy.sh` が `/opt/aijudge` に置く）。
+    #
+    # **この雛形は `bootstrap.sh` が一度配るだけ**で、`deploy.sh` は更新しない。
+    # IDE を main に入れる日に、運用機の設定へ手で足すこと。
+    location /static/vendor/ {
+        alias /opt/aijudge/packages/webui/src/aijudge_webui/assets/vendor/;
+        expires 30d;
+        # location に `add_header` を書くと、server の `add_header`（下の
+        # security-headers）は引き継がれない。ここでも読み直す。
+        include snippets/security-headers.conf;
+        add_header Cache-Control "public, immutable";
+        gzip on;
+        gzip_types application/javascript text/css;
+        gzip_min_length 1024;
+    }
+
     location / {
         proxy_pass http://127.0.0.1:8080;
         proxy_set_header Host $host;

@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block title %}{{ unit_label }} — エディタ — aiJudge{% endblock %}
+{% block body %}
+{# ブラウザ IDE（`docs/design/online-coding-test.md` §5.2）。
+
+   **タブは課題 1 つに対応する。** 選べる形式はその課題の提出形式に限り
+   （`.c`・`.py` はプログラム、`.md` はテキスト）、実行は採点の言語と同じ
+   形式のときだけ出す。
+
+   **JavaScript が無ければ使えない画面である**（エディタそのものが JS）。
+   その場合は `<noscript>` で、従来のファイル提出の画面へ案内する ──
+   提出の経路は `/submit` にも残してある。 #}
+<div class="ide-head">
+  <h1>{{ unit_label }} <span class="desc">エディタ</span></h1>
+  <span class="spacer"></span>
+  {% if accepts_until %}
+  {# 残り時間。**サーバが渡した秒数から数える**（学習者の PC の時計に依存しない）。
+     対象は受付終了で、締切と違えば両方を出す。 #}
+  <span class="ide-clock">
+    <span class="desc">受付終了 {{ accepts_until | local('%m-%d %H:%M') }}</span>
+    {% if due_at and due_at != accepts_until %}<span class="desc">（締切 {{ due_at | local('%m-%d %H:%M') }}）</span>{% endif %}
+    <span class="countdown ide-remaining" data-ide-remaining="{{ remaining_seconds }}"></span>
+  </span>
+  {% endif %}
+</div>
+
+<noscript>
+  <p class="note warn">エディタを使うには JavaScript を有効にしてください。
+  ファイルで提出する場合は、各課題のページから提出できます。</p>
+  <ul>
+  {% for tab in tabs %}<li><a href="/tasks/{{ tab.version.id }}">{{ tab.task.title }}</a></li>{% endfor %}
+  </ul>
+</noscript>
+
+<nav class="ide-tabs" role="tablist" aria-label="課題">
+  {% for tab in tabs %}
+  <button type="button" role="tab" class="ide-tab" id="ide-tab-{{ loop.index0 }}"
+          data-index="{{ loop.index0 }}" aria-selected="{{ 'true' if loop.first else 'false' }}"
+          aria-controls="ide-panel-{{ loop.index0 }}">
+    <span class="ide-tab-title">{{ tab.task.title }}</span>
+    <span class="ide-tab-state" data-tab-state="{{ loop.index0 }}"></span>
+  </button>
+  {% endfor %}
+</nav>
+
+{% for tab in tabs %}
+{% set tab_index = loop.index0 %}
+<section class="ide-panel" role="tabpanel" id="ide-panel-{{ loop.index0 }}"
+         aria-labelledby="ide-tab-{{ loop.index0 }}" {{ 'hidden' if not loop.first }}>
+  <div class="ide-statement">
+    <div class="statement">{{ tab.statement_html | safe }}</div>
+    {% if tab.samples %}
+    <h3>公開サンプル</h3>
+    {% for sample in tab.samples %}
+    <div class="ide-sample">
+      <div class="ide-sample-head">
+        <span class="mono">{{ sample.name }}</span>
+        <button type="button" class="ide-run-sample"
+                data-tab="{{ tab_index }}" data-sample="{{ sample.name }}">このサンプルで実行</button>
+      </div>
+      <pre class="ide-io"><span class="desc">入力</span>
+{{ sample.input }}</pre>
+      <pre class="ide-io"><span class="desc">期待される出力</span>
+{{ sample.expected }}</pre>
+    </div>
+    {% endfor %}
+    {% endif %}
+  </div>
+
+  <div class="ide-work">
+    <div class="ide-toolbar">
+      <label>形式
+        <select class="ide-format" data-tab="{{ loop.index0 }}" {{ 'disabled' if tab.formats | length == 1 }}>
+          {% for f in tab.formats %}
+          <option value="{{ f.suffix }}" {{ 'selected' if f.suffix == tab.selected }}>{{ f.label }}（{{ f.suffix }}）</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="button-like">ファイルを読み込む
+        <input type="file" class="ide-file" data-tab="{{ loop.index0 }}" hidden>
+      </label>
+      <span class="spacer"></span>
+      <span class="desc ide-saved" data-saved="{{ loop.index0 }}"></span>
+    </div>
+    <div class="ide-editor" data-editor="{{ loop.index0 }}"></div>
+
+    <div class="ide-runbox" data-runbox="{{ loop.index0 }}">
+      <div class="ide-stdin">
+        <label for="ide-stdin-{{ loop.index0 }}" class="desc">標準入力</label>
+        <textarea id="ide-stdin-{{ loop.index0 }}" class="mono" data-stdin="{{ loop.index0 }}"
+                  rows="5" spellcheck="false"></textarea>
+      </div>
+      <div class="ide-output">
+        <span class="desc">出力</span>
+        <pre class="ide-io" data-output="{{ loop.index0 }}" aria-live="polite"></pre>
+      </div>
+    </div>
+
+    <div class="ide-actions">
+      <span class="desc ide-run-note" data-run-note="{{ loop.index0 }}"></span>
+      <span class="spacer"></span>
+      <button type="button" class="ide-run" data-tab="{{ loop.index0 }}">実行</button>
+      <button type="button" class="ide-submit go" data-tab="{{ loop.index0 }}">提出</button>
+    </div>
+    <p class="desc ide-submitted" data-submitted="{{ loop.index0 }}"></p>
+  </div>
+</section>
+{% endfor %}
+
+{# 画面の設定。**JavaScript はここから読む**（テンプレートの中にロジックを
+   書かない）。`tojson` は `<` を逃がすので、課題文に `</script>` があっても
+   ここから抜け出せない。 #}
+<script type="application/json" id="ide-config">{{ {
+  "tabs": tabs | map(attribute="version.id") | map("string") | list,
+  "formats": tabs | map(attribute="formats") | list,
+  "selected": tabs | map(attribute="selected") | list,
+  "runnable": tabs | map(attribute="runnable") | list,
+  "sources": tabs | map(attribute="source") | list,
+  "submitted": tabs | map(attribute="submitted") | list,
+  "lastSubmittedHash": tabs | map(attribute="last_submitted_hash") | list,
+  "remaining": remaining_seconds,
+  "pollMs": poll_ms,
+  "autosaveMs": autosave_ms,
+  "maxBytes": max_source_bytes,
+  "monacoBase": static_url("vendor/monaco-0.52.2/").split("?")[0]
+} | tojson }}</script>
+<script src="{{ static_url('vendor/monaco-0.52.2/vs/loader.js').split('?')[0] }}"></script>
+<script src="{{ static_url('ide.js') }}"></script>
+{% endblock %}
