@@ -26,7 +26,7 @@ import pytest
 
 from aijudge_admin import ensure_course, save_task
 from aijudge_authoring import TaskSpec
-from aijudge_core import Task
+from aijudge_core import AnswerMode, Task
 from aijudge_core.ids import TenantId, UserId
 from aijudge_persistence import Database
 
@@ -215,6 +215,7 @@ KEPT = {
     "audience_group_ids",
     "answer_mode",
     "editor_completion",
+    "file_upload",
 }
 # 版を保存する側が決める（`save_task` は触らない）。
 DECIDED_ELSEWHERE = {"current_version_id"}
@@ -282,7 +283,6 @@ def test_reapplying_unchanged_content_keeps_campus_only(world) -> None:
 
 def test_revising_an_editor_task_keeps_its_answer_mode(world) -> None:
     """エディタで解く課題を 1 つ直しても、ファイル提出に戻らない（ADR 0026）。"""
-    from aijudge_core import AnswerMode
 
     database, course = world
     saved = _save(database, course, "本文")
@@ -306,3 +306,16 @@ def test_revising_a_task_keeps_its_completion_setting(world) -> None:
     with database.unit_of_work() as uow:
         after = uow.tasks.get_task(saved.task.id)
     assert after.editor_completion is True, "直したら補完の設定が戻っている"
+
+
+def test_revising_a_task_keeps_it_editor_only(world) -> None:
+    """「エディタだけ」の試験の課題を 1 つ直しても、ファイルで出せるように戻らない。"""
+    database, course = world
+    saved = _save(database, course, "本文")
+    _schedule_the_unit(database, saved.task.id, answer_mode=AnswerMode.EDITOR, file_upload=False)
+
+    _save(database, course, "本文（誤字を直した）")
+
+    with database.unit_of_work() as uow:
+        after = uow.tasks.get_task(saved.task.id)
+    assert after.file_upload is False, "直したらファイルの提出が戻っている"

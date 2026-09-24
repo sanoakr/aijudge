@@ -196,6 +196,9 @@ def save_task(
             # 補完の切／入も。引き継がないと、試験の課題を直した瞬間にその課題
             # だけ補完が既定（切）に戻る ── 演習では入れていた補完が消える。
             editor_completion=existing.editor_completion if existing else False,
+            # ファイル提出の可否も。引き継がないと、「エディタだけ」の試験の課題を
+            # 1 つ直した瞬間にその課題だけファイルで出せるようになる。
+            file_upload=existing.file_upload if existing else True,
             # 締切と同じ理由で、**明示された場合だけ上書きする**（#234）。
             # 教員が画面で広げた拡張子を、定義の流し込みが黙って狭めない。
             accepted_suffixes=normalize_suffixes(spec.accepted_suffixes)

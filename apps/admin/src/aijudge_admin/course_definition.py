@@ -19,6 +19,7 @@
     units:                                  # 任意。回ごとの日程の既定
       ex1: {opens_at: 2026-09-18T13:00:00+09:00, due_at: 2026-09-25T23:59:00+09:00}
       ex2: {answer_mode: editor, editor_completion: true}   # 答え方（ADR 0026）
+      ex3: {answer_mode: editor, file_upload: false}        # エディタだけ（試験）
     tasks:
       - key: ex1/cert                       # TaskSpec のフィールドをそのまま書く
         unit: ex1
@@ -31,7 +32,7 @@
       - problem_dir: ex1/p1                 # Sharif Judge 形式の問題ディレクトリ
         readability_weight: 0.3             # （YAML からの相対パス）
 
-`answer_mode` と `editor_completion` は**問題セットの値**で、`/manage` の
+`answer_mode`・`editor_completion`・`file_upload` は**問題セットの値**で、`/manage` の
 切り替えと同じく回の全課題に入れる（課題ごとには書けない）。書いた回だけを
 変え、書かない回は画面で切り替えた値を残す。`editor` にできない課題
 （提出形式に `.c`・`.py`・`.md` が無い）があれば投入を止める。
@@ -56,7 +57,7 @@ import yaml
 
 from aijudge_authoring import TaskSpec
 from aijudge_authoring.importers import sharif_judge
-from aijudge_core import AnswerMode, Course
+from aijudge_core import AnswerMode, Course, Task
 from aijudge_core.ids import TenantId, UserId
 from aijudge_persistence import Database
 
@@ -90,7 +91,7 @@ _UNIT_SCHEDULE_KEYS = ("opens_at", "due_at")
 # 回（問題セット）の値として書けるもの。**課題ごとには書けない** ──
 # `/manage` と同じく回の全課題に入れる。同じ回で答え方が混ざると、学習者は
 # 課題ごとに画面を行き来することになる（ADR 0026）。
-_UNIT_SETTING_KEYS = ("answer_mode", "editor_completion")
+_UNIT_SETTING_KEYS = ("answer_mode", "editor_completion", "file_upload")
 # 定義側だけの語彙。`TaskSpec` に渡す前に解決して消す。
 _PROBLEM_DIR = "problem_dir"
 _STATEMENT_FILE = "statement_file"
@@ -160,13 +161,21 @@ def _unit_settings(unit: str, raw: dict[str, Any], path: Path) -> dict[str, Any]
                 f"units.{unit}.answer_mode は {wanted} のどれかです"
                 f": {raw['answer_mode']!r}（{path}）"
             ) from None
-    if "editor_completion" in raw:
-        if not isinstance(raw["editor_completion"], bool):
-            raise AdminError(
-                f"units.{unit}.editor_completion は true か false です"
-                f": {raw['editor_completion']!r}（{path}）"
-            )
-        settings["editor_completion"] = raw["editor_completion"]
+    for flag in ("editor_completion", "file_upload"):
+        if flag not in raw:
+            continue
+        if not isinstance(raw[flag], bool):
+            raise AdminError(f"units.{unit}.{flag} は true か false です: {raw[flag]!r}（{path}）")
+        settings[flag] = raw[flag]
+    if (
+        settings.get("file_upload") is False
+        and settings.get("answer_mode") is not AnswerMode.EDITOR
+    ):
+        # エディタも無くファイルも断ると誰も提出できない（`Task._check_answer_paths`）。
+        raise AdminError(
+            f"units.{unit}.file_upload: false はエディタの回（answer_mode: editor）にだけ"
+            f"書けます（{path}）"
+        )
     return settings
 
 
@@ -339,5 +348,10 @@ def _apply_unit_settings(
                         f"units.{unit}: エディタで解けない課題があります: " + "／".join(blockers)
                     )
             for task in members:
-                uow.tasks.save_task(task.model_copy(update=settings))
+                # **検査を通して作り直す**（`model_copy` は検証しない）。
+                try:
+                    updated = Task.model_validate(task.model_dump() | settings)
+                except ValueError as exc:
+                    raise AdminError(f"units.{unit}: {exc}") from exc
+                uow.tasks.save_task(updated)
         uow.commit()

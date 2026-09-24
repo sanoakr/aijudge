@@ -49,13 +49,15 @@
 {% endif %}
 
 <h2>提出する</h2>
-{# エディタで解く課題（ADR 0026）。**ファイルの提出欄は消さない** ── エディタが
-   使えない環境（JavaScript が無い・古いブラウザ）の逃げ道である。 #}
+{# エディタで解く課題（ADR 0026）。ファイルの提出欄は**教員が止めない限り残す**
+   ── エディタが使えない環境（JavaScript が無い・古いブラウザ）の逃げ道である。
+   「エディタだけ」（試験）では欄を出さず、受付側（`_submission_gate`）でも断る。 #}
 {% if editor_url %}
 <div class="note act">
   <strong>この課題はエディタで解きます。</strong>
   <a href="{{ editor_url }}">エディタを開く</a>と、書いた内容をそのまま提出できます。
-  下の欄からファイルで提出することもできます。
+  {% if file_upload %}下の欄からファイルで提出することもできます。
+  {% else %}<strong>ファイルでは提出できません</strong>（エディタからだけ提出できる課題です）。{% endif %}
 </div>
 {% endif %}
 {# 学内限定（#333）。**出そうとして断られる前に言う** ── 試験の最中に場所を
@@ -85,7 +87,9 @@
 </div>
 {% endif %}
 {% endif %}
-{% if open_for_submission %}
+{% if open_for_submission and not file_upload %}
+{# エディタだけの課題。上の案内だけで足りる（ファイルの欄は出さない）。 #}
+{% elif open_for_submission %}
 {% if plain_accepts %}
 <form method="post" action="/tasks/{{ task.id }}/submit" enctype="multipart/form-data" class="card"
       {% if multi_file %}data-multi-upload{% endif %}>

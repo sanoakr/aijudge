@@ -3173,22 +3173,30 @@ def register(templates) -> APIRouter:
         request: Request,
         course_id: str,
         unit: str,
-        answer_mode: Annotated[str, Form()] = "",
+        file_upload: Annotated[str, Form()] = "",
+        editor: Annotated[str, Form()] = "",
     ) -> Response:
-        """**問題セットをエディタで解くか、ファイルで出すかを切り替える**（ADR 0026）。
+        """**問題セットの答え方を決める**（ADR 0026）── ファイルとエディタの 2 つのチェック。
+
+        2 つは独立に入れられる（2026-09-24）。両方なら学習者はどちらでも出せ、
+        エディタだけなら**ファイルの提出を断る**（試験。作業の記録を経ない提出を
+        止める）。両方外すと誰も提出できないので断る。
 
         学内限定と同じで、値はセット単位で決めて全課題に入れる（`_update_unit`）。
         同じ回の中で答え方が混ざると、学習者は課題ごとに画面を行き来する。
 
-        **`editor` にできるのは提出形式に `.c`・`.py`・`.md` のどれかを含む課題だけで、
+        **エディタを入れられるのは提出形式に `.c`・`.py`・`.md` のどれかを含む課題だけで、
         ここで確かめる**（`aijudge_admin.answer_mode`）。画面は理由を先に見せて押せなくするが、
         それは表示の都合であって境界ではない（#146）。
         """
-        try:
-            mode = AnswerMode(answer_mode.strip() or AnswerMode.UPLOAD.value)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="答え方の指定が不正です") from None
-        if mode is AnswerMode.EDITOR:
+        by_file = bool(file_upload.strip())
+        by_editor = bool(editor.strip())
+        if not (by_file or by_editor):
+            raise HTTPException(
+                status_code=400,
+                detail="ファイルとエディタの少なくとも一方を選んでください（どちらも無いと提出できません）",
+            )
+        if by_editor:
             from .app import require_principal
 
             me = require_principal(request)
@@ -3201,8 +3209,13 @@ def register(templates) -> APIRouter:
                     status_code=409,
                     detail="エディタで解けない課題があります: " + "／".join(blockers),
                 )
+        mode = AnswerMode.EDITOR if by_editor else AnswerMode.UPLOAD
         return _update_unit(
-            request, course_id, unit, update={"answer_mode": mode}, saved="answer_mode"
+            request,
+            course_id,
+            unit,
+            update={"answer_mode": mode, "file_upload": by_file},
+            saved="answer_mode",
         )
 
     @router.post("/courses/{course_id}/units/{unit}/completion")
