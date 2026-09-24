@@ -23,6 +23,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated
+from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
@@ -37,6 +38,7 @@ from aijudge_core import (
     MIN_JUSTIFICATION_LENGTH,
     PURGED_MESSAGE,
     STREAMED_SUFFIXES,
+    AnswerMode,
     ArtifactKind,
     CampusAccess,
     Course,
@@ -96,6 +98,7 @@ from aijudge_submission import (
 from aijudge_telemetry import RequestContextMiddleware
 
 from .audit_context import request_id_of, source_ip_of
+from .ide import IdeDeps, register_ide_routes
 from .progress import EMPTY, load_progress
 from .visibility import ResultView, build_result_view
 
@@ -200,7 +203,9 @@ ENV_ALLOWED_HOSTS = "AIJUDGE_ALLOWED_HOSTS"
 # アクセスログに残さない経路。画像の取り出しと、画面が数秒ごとに叩く
 # 「まだ動いているか」の問い合わせ ── 締切前は 1 人あたり毎分 30 行になる。
 # CSS も残さない ── 1 ページ 1 行増えるだけで、内容は毎回同じ。
-QUIET_PATHS = ("/images/", "/static/")
+# IDE の実行結果の問い合わせ（0.5 秒ごと）も静かにする。実行を待つ間だけの
+# 問い合わせで、1 回の実行で数回〜数十回になる。
+QUIET_PATHS = ("/images/", "/static/", "/ide/runs/")
 QUIET_SUFFIXES = ("/state",)
 
 SESSION_COOKIE = "aijudge_session"
@@ -307,8 +312,13 @@ class StudentApp:
         ai_workers: int = DEFAULT_AI_WORKERS,
         console_url: str = "",
         console_port: int = 8765,
+        activity_dir: Path | None = None,
     ) -> None:
         self.database = database
+        # IDE の行動記録の本体の置き場所（ADR 0023）。**無ければ記録しない** ──
+        # 記録が書けなくても編集・実行・提出は止めない（I7）。受け口は 503 を返し、
+        # 画面は送信を諦めずに間隔を広げる。
+        self.activity_dir = activity_dir
         self.store = artifact_store
         # 動画の置き場所。通常の提出物とは別ディスクに置ける（elite では
         # `/work/aijudge/video`）。未設定なら動画提出は 501 で断る。
@@ -800,6 +810,13 @@ def create_app(app_state: StudentApp) -> FastAPI:
                 # して読む）。
                 "knowledge_components": knowledge_components_of(app_state, version),
                 "campus_only": task_obj.campus_only,
+                # エディタで解く課題か（ADR 0026）。そうなら画面の頭で案内する。
+                # ファイルの提出欄も残す ── エディタが使えない環境の逃げ道である。
+                "editor_url": (
+                    f"/courses/{course_obj.id}/ide?unit={quote(task_obj.unit or '')}"
+                    if task_obj.answer_mode is AnswerMode.EDITOR
+                    else None
+                ),
                 "campus_access": (
                     campus_access_for(app_state, request, me.tenant_id)
                     if task_obj.campus_only
@@ -825,40 +842,9 @@ def create_app(app_state: StudentApp) -> FastAPI:
         提出にまとめる。**コードの課題は 1 ファイル** ── テスト実行は 1 つの
         ソースを走らせるので、2 つ出されても何を走らせるか決められない。
         """
-        version, course_obj, _task = _task_and_course(app_state, me, TaskVersionId(task_version_id))
-
-        # **学内限定の課題は、学外から受け取らない**（#333）。画面にも出すが、
-        # 断るのはここである ── 隠すのは表示の都合であって制限ではない。
-        _require_campus(app_state, request, _task, me.tenant_id)
-
-        # **受付の外では受け取らない。** 画面で隠すだけでは、URL を知って
-        # いれば出せてしまう（隠すのは表示の都合であって制限ではない）。
-        #
-        # 断る理由を分ける（#73）。「まだ」と「もう」を同じ文言にすると、
-        # 学習者は待てば出せるのか、間に合わなかったのかが分からない。
-        #
-        # **「まだ」の側は教員・TA に開ける**（#340・`may_submit_before_open`。
-        # 秘匿の課題では TA を外す）。
-        # 役割はここで 1 度だけ引き、下の `submitted_as` にも同じ値を渡す ──
-        # 2 度引くと、許可した役割と記録する役割が食い違いうる。
-        role = _role_in(app_state, course_obj.id, me.user_id)
-        window = _task.submission_window_at(now())
-        if window is SubmissionWindow.NOT_OPEN and not may_submit_before_open(
-            _task, role, now=now()
-        ):
-            opens = _task.submissions_open_at or _task.opens_at
-            raise HTTPException(
-                status_code=409,
-                detail=f"まだ提出できません（{webui.local_filter(opens)} から受け付けます）",
-            )
-        if window is SubmissionWindow.CLOSED:
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    "提出の受付は終了しました"
-                    f"（{webui.local_filter(_task.accepts_until)} まででした）"
-                ),
-            )
+        # 学内限定・受付期間・役割は、動画と IDE と**同じ関門**で判定する
+        # （`_submission_gate` の docstring・不変条件 I8）。
+        version, course_obj, _task, role = _submission_gate(request, me, task_version_id)
 
         accepts = allowed_suffixes(_task.accepted_suffixes, course_obj.upload_suffixes)
         if not upload:
@@ -945,6 +931,47 @@ def create_app(app_state: StudentApp) -> FastAPI:
             status_code=303,
         )
 
+    def _submission_gate(request: Request, me, task_version_id: str):
+        """この課題に、いまこの人が出してよいかを**1 か所で**判定する（不変条件 I8）。
+
+        `/submit`・動画（`_video_gate`）・IDE の提出と実行が、**すべてここを
+        通る**。経路ごとに写して持つと、写すときに条件が落ちる ── 動画の 1 発の
+        送信で学内限定が落ち、学外から出せた（#119・#370）。
+
+        見るのは 3 つで、断る理由を分ける（#73）。
+
+        - 見えるか（受講・出題先・秘匿、`_task_and_course` の `may_see`）
+        - 学内限定（#333）── 隠すのは表示の都合であって制限ではない
+        - 受付の窓。**「まだ」の側は教員・TA に開ける**（#340・
+          `may_submit_before_open`。秘匿の課題では TA を外す）
+
+        役割はここで 1 度だけ引いて返す。呼び出し側は提出の `submitted_as` に
+        同じ値を渡す ── 2 度引くと、許可した役割と記録する役割が食い違いうる。
+        """
+        version, course_obj, task_obj = _task_and_course(
+            app_state, me, TaskVersionId(task_version_id)
+        )
+        _require_campus(app_state, request, task_obj, me.tenant_id)
+        role = _role_in(app_state, course_obj.id, me.user_id)
+        window = task_obj.submission_window_at(now())
+        if window is SubmissionWindow.NOT_OPEN and not may_submit_before_open(
+            task_obj, role, now=now()
+        ):
+            opens = task_obj.submissions_open_at or task_obj.opens_at
+            raise HTTPException(
+                status_code=409,
+                detail=f"まだ提出できません（{webui.local_filter(opens)} から受け付けます）",
+            )
+        if window is SubmissionWindow.CLOSED:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "提出の受付は終了しました"
+                    f"（{webui.local_filter(task_obj.accepts_until)} まででした）"
+                ),
+            )
+        return version, course_obj, task_obj, role
+
     def _video_gate(
         request: Request,
         me,
@@ -968,28 +995,7 @@ def create_app(app_state: StudentApp) -> FastAPI:
         """
         if app_state.video_store is None or (resumable and app_state.upload_sessions is None):
             raise HTTPException(status_code=501, detail="この配備は動画提出に対応していません")
-        version, course_obj, task_obj = _task_and_course(
-            app_state, me, TaskVersionId(task_version_id)
-        )
-        _require_campus(app_state, request, task_obj, me.tenant_id)
-        role = _role_in(app_state, course_obj.id, me.user_id)
-        window = task_obj.submission_window_at(now())
-        if window is SubmissionWindow.NOT_OPEN and not may_submit_before_open(
-            task_obj, role, now=now()
-        ):
-            opens = task_obj.submissions_open_at or task_obj.opens_at
-            raise HTTPException(
-                status_code=409,
-                detail=f"まだ提出できません（{webui.local_filter(opens)} から受け付けます）",
-            )
-        if window is SubmissionWindow.CLOSED:
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    "提出の受付は終了しました"
-                    f"（{webui.local_filter(task_obj.accepts_until)} まででした）"
-                ),
-            )
+        version, course_obj, task_obj, role = _submission_gate(request, me, task_version_id)
         accepts = allowed_suffixes(task_obj.accepted_suffixes, course_obj.upload_suffixes)
         name = Path(filename or "video").name
         suffix = Path(name).suffix.lower()
@@ -1470,6 +1476,25 @@ def create_app(app_state: StudentApp) -> FastAPI:
             uow.commit()
         return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
 
+    # -- ブラウザ IDE（`docs/design/online-coding-test.md`） ----------------
+    #
+    # `answer_mode=editor` の課題にだけ効く経路（不変条件 I5）。関門は上の
+    # `_submission_gate` を**そのまま渡す** ── 写すと条件が落ちる（I8）。
+    register_ide_routes(
+        app,
+        IdeDeps(
+            state=app_state,
+            templates=TEMPLATES,
+            gate=_submission_gate,
+            course_and_tasks=_course_and_tasks,
+            load_progress=load_progress,
+            build_context=build_context,
+            is_demo=_is_demo_course,
+            now=now,
+        ),
+        Me,
+    )
+
     return app
 
 
@@ -1573,6 +1598,10 @@ def _group_by_unit(
         # 畳んだ見出しで判断できるだけの情報（#93）。**中が見えなくなるので、
         # 開かずに「自分がやることが残っているか」が分かる必要がある。**
         group["task_count"] = len(group["tasks"])
+        # エディタで解く課題があるか（ADR 0026）。あれば見出しの下に入口を出す。
+        group["editor"] = any(
+            task.answer_mode is AnswerMode.EDITOR for task, _version in group["tasks"]
+        )
         # **畳んだ見出しで「やることが残っているか」が分かる必要がある。**
         # 中が見えなくなるので、開かないと未提出に気づけないのでは畳む
         # 意味が無い。採点中も出す ── 畳んだ中で採点が進むと、届いたことに

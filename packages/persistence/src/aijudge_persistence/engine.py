@@ -19,7 +19,9 @@ from contextlib import contextmanager
 from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from .activity_repository import SqlActivityIndex
 from .audit_repository import SqlAuditLog
+from .buffer_repository import SqlBufferStore, SqlSubmissionLinkStore
 from .identity_repository import SqlIdentityRepository
 from .repositories import (
     SqlGradingRunRepository,
@@ -29,6 +31,7 @@ from .repositories import (
     SqlSubmissionRepository,
     SqlTaskRepository,
 )
+from .run_repository import SqlRunQueue
 from .schema import Base
 from .skill_repository import SqlSkillRepository
 
@@ -108,6 +111,14 @@ class SqlUnitOfWork:
         # 操作が巻き戻れば監査行も巻き戻り、監査行が書けなければ操作も
         # 成立しない。成績の変更が記録なしで成立してはいけない。
         self.audit = SqlAuditLog(self._session)
+        # ブラウザ IDE の試しの実行（ADR 0024）。**採点キュー（`jobs`）とは別。**
+        self.run_requests = SqlRunQueue(self._session)
+        # IDE の自動保存（設計書 §6.5）。提出でも行動記録でもない。
+        self.ide_buffers = SqlBufferStore(self._session)
+        # IDE からの提出の出どころ（本人が押したか、受付終了時の自動提出か）。
+        self.ide_links = SqlSubmissionLinkStore(self._session)
+        # 行動記録の索引（ADR 0023）。本体はファイルにある。
+        self.ide_activity = SqlActivityIndex(self._session)
         return self
 
     def __exit__(self, *exc: object) -> None:

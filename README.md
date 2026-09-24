@@ -33,6 +33,12 @@ Submit, and the result comes back without waiting for a marking session.
   card per row, every cell carrying its own heading — sending columns off the
   side of a screen loses the heading, and a value without one is not
   information.
+- **Answering in the browser.** A problem set can be answered in an editor
+  instead of by uploading a file: one tab per task, only the formats the task
+  accepts (`.c` and `.py` as programs, `.md` as text for online report exams),
+  trial runs with your own input in the same sandbox the grader uses, autosave
+  every ten seconds, and — when the set closes — the last save is submitted for
+  you, stamped with the time it was saved.
 
 ### For instructors
 
@@ -47,6 +53,11 @@ The console is for reading what arrived and deciding — it never grades.
   assistants until it opens, and can be given to a named group of learners
   only — a retake is its own problem set, not a per-learner deadline. Groups
   can be filled from the console, the API or the CLI (ADR 0025).
+- **Online coding tests.** Switch a problem set to the browser editor, with or
+  without completion. Trial runs use the grading sandbox but are never grading.
+  How each answer was written — typing, pastes, time away — is recorded and can
+  be replayed by the course's instructors only, every view audited. Places worth
+  a look are marked; nothing is judged or deducted (ADR 0023, 0024, 0026).
 - **Blind marking for measurement**, sampled by the system — never by choice —
   so agreement between a person and the machine can be measured honestly.
 - **Built from the same parts as the learner's side.** The rail of
@@ -176,6 +187,8 @@ uv run aijudge-web                          # learners      :8080
 uv run aijudge-review                       # instructors   :8765
 uv run aijudge-worker --phase deterministic
 uv run aijudge-worker --phase ai
+uv run aijudge-runner                       # trial runs from the browser editor (not grading)
+uv run aijudge-ide-close --once             # submit the last autosave when an editor set closes
 ```
 
 Both apps bind to `127.0.0.1` only. [`docs/RUNNING.md`](docs/RUNNING.md) covers
@@ -280,6 +293,14 @@ uv run aijudge-admin video purge            # a dry run: how many, how many GB
 uv run aijudge-admin video purge --apply    # actually delete
 ```
 
+The browser editor's activity records and autosaves are kept on the same clock
+and removed the same way, by hand:
+
+```fish
+uv run aijudge-admin activity purge         # a dry run
+uv run aijudge-admin activity purge --apply # actually delete
+```
+
 ---
 
 ## Where it stands
@@ -291,6 +312,7 @@ uv run aijudge-admin video purge --apply    # actually delete
 | Sandbox isolation | Verified — fork bomb contained, no network, no host home, non-root |
 | Grading accuracy | **Not yet measured.** The records are being captured; the gate reports NOT_MEASURED |
 | Knowledge components and mastery | Skeleton running; none of its acceptance criteria can be judged yet |
+| Browser editor (online coding test) | Working; load-tested locally with 150 learners, **not yet on the production host** |
 
 The two "not yet" rows are stated rather than omitted on purpose: this codebase
 reports `NOT_MEASURED` wherever it cannot justify a number, and treats that as
@@ -382,10 +404,12 @@ are enforced by `import-linter` and fail the build, not the review.
 | `packages/persistence` | PostgreSQL storage. Infrastructure — no subsystem imports it. |
 | `packages/telemetry` | Operational logging: one shape, correlation ids, identifiers only. |
 | `packages/audit` | Who changed something that reaches a grade. Append-only, in the operation's transaction. |
+| `packages/ide` | The browser editor: run requests, autosave, the activity record and its checks. Never runs code. |
 | `packages/webui` | The shared look of the web screens: one stylesheet, one theme switch. Both apps read it. |
 | `apps/studentweb` | The learner app. |
 | `apps/reviewconsole` | The instructor console and `/manage`. |
 | `apps/grader` | The grading worker. |
+| `apps/runner` | Runs the editor's trial runs in the sandbox, and submits autosaves at close. Not grading. |
 | `apps/admin` | Start-of-term bulk operations and authoring (CLI). |
 | `apps/evalrunner` | Measures agreement. Never grades. |
 | `evaluators/`, `extractors/` | Grading plugins and input converters. |

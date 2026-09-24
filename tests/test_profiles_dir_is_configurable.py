@@ -29,6 +29,9 @@ CLI_MODULES = (
     REPO_ROOT / "apps" / "admin" / "src" / "aijudge_admin" / "cli.py",
     REPO_ROOT / "apps" / "grader" / "src" / "aijudge_grader" / "cli.py",
     REPO_ROOT / "apps" / "reviewconsole" / "src" / "aijudge_reviewconsole" / "cli.py",
+    # IDE の試しの実行（ADR 0024）。採点と同じ設定を読まないと、IDE で動いた
+    # ものが採点で動かない。
+    REPO_ROOT / "apps" / "runner" / "src" / "aijudge_runner" / "cli.py",
     REPO_ROOT / "apps" / "studentweb" / "src" / "aijudge_studentweb" / "cli.py",
 )
 

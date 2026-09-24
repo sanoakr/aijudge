@@ -70,6 +70,13 @@ PREFIXES: dict[str, str] = {
     # コースの中の名簿（追試の対象者など）。課題の出題先を絞るのに使う
     # （`docs/design/task-visibility.md`）。
     "grp": "CourseGroup",
+    # ブラウザ IDE の試しの実行（ADR 0024）。**採点ジョブではない** ── 結果は
+    # 成績の根拠にならず、しばらくで消す。ジョブ ID と別の空間にしておく。
+    "run": "RunRequest",
+    # IDE の画面を 1 回開いてから閉じるまで（ADR 0023）。行動記録はこの単位で
+    # 束ねる。ログインのセッション（`ses`）とは別物 ── 1 回のログインで IDE を
+    # 何度も開き直すし、同じ IDE を 2 つの窓で開くこともある。
+    "ide": "IdeSession",
 }
 
 _ID_RE = re.compile(r"^(?P<prefix>[a-z]+)_(?P<body>[0-9a-f]{32})$")

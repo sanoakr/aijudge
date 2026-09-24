@@ -36,6 +36,7 @@ from aijudge_persistence import ENV_DATABASE_URL, Database
 from aijudge_telemetry import configure_logging
 
 from . import authoring_cli, groups
+from .activity_purge import plan_activity_purge, purge_activity
 from .course_definition import apply_course_definition
 from .course_export import DiffState, diff_course, export_course
 from .courses import delete_course
@@ -500,6 +501,70 @@ def cmd_video_purge(args: argparse.Namespace) -> int:
         # **失敗は黙らせない。** 印を付けていないので次の実行が拾うが、
         # ストアが落ちているならそちらを直さないと何度でも同じ数が残る。
         print(f"消せなかったもの: {len(outcome.failed)} 件", file=sys.stderr)
+        return 1
+    return 0
+
+
+def cmd_activity_purge(args: argparse.Namespace) -> int:
+    """保存期間を過ぎた IDE の作業の記録と自動保存を消す（ADR 0023）。**既定は下見。**
+
+    期間は動画と同じ（締切から 6 ヶ月・締切が無ければ 1 年）。**cron には載せない**
+    （`video purge` と同じ判断）── 学習者のデータを消す操作を定期実行すると、
+    本物のコースに向く事故の余地が残る。
+    """
+    database = _database(args)
+    try:
+        plan = plan_activity_purge(
+            database,
+            tenant_id=_tenant(args),
+            now=datetime.now(UTC),
+            course_id=CourseId(args.course) if args.course else None,
+        )
+    except AdminError as exc:
+        print(str(exc), file=sys.stderr)
+        database.dispose()
+        return 2
+
+    print(f"保存期間を過ぎた作業の記録: {len(plan.sessions)} 回分")
+    for label, count in plan.by_unit:
+        print(f"  {label:32s} {count:4d} 回分")
+    if plan.sessions_without_deadline:
+        print(
+            f"  うち締切の無い問題セット（開いてから 1 年）: {plan.sessions_without_deadline} 回分"
+        )
+    print(f"保存期間を過ぎた自動保存: {len(plan.buffers)} 件")
+    if plan.next_expires_at is not None:
+        print(f"  次に期限が来るのは {plan.next_expires_at.date().isoformat()}")
+
+    if not plan.sessions and not plan.buffers:
+        database.dispose()
+        return 0
+    if args.activity_dir is None and plan.sessions:
+        print(
+            "AIJUDGE_ACTIVITY_DIR（--activity-dir）が無いので、作業の記録は消せません"
+            "（本体を消せないのに索引だけ消すと、辿れないファイルが残ります）",
+            file=sys.stderr,
+        )
+    if not args.apply:
+        print()
+        print("下見です。実際に消すには --apply を付けてください")
+        database.dispose()
+        return 0
+    if not args.yes and not _confirmed("消します。よろしいですか [y/N]: "):
+        print("中止しました")
+        database.dispose()
+        return 1
+
+    try:
+        outcome = purge_activity(
+            database, plan, activity_dir=args.activity_dir, tenant_id=_tenant(args)
+        )
+    finally:
+        database.dispose()
+
+    print(f"消しました: 作業の記録 {outcome.sessions} 回分、自動保存 {outcome.buffers} 件")
+    if outcome.failed:
+        print(f"消せなかった作業の記録: {len(outcome.failed)} 回分", file=sys.stderr)
         return 1
     return 0
 
@@ -1127,6 +1192,30 @@ def build_parser() -> argparse.ArgumentParser:
     )
     video_purge.add_argument("--yes", action="store_true", help="確認を省く")
     video_purge.set_defaults(func=cmd_video_purge)
+
+    activity = sub.add_parser("activity", help="IDE の作業の記録").add_subparsers(
+        dest="activity_command", required=True
+    )
+    activity_purge = activity.add_parser(
+        "purge",
+        help="保存期間（締切から 6 ヶ月）を過ぎた作業の記録と自動保存を消す。既定は下見",
+    )
+    activity_purge.add_argument("--course", help="このコースだけを見る（既定は全コース）")
+    activity_purge.add_argument(
+        "--activity-dir",
+        type=Path,
+        default=(
+            Path(os.environ["AIJUDGE_ACTIVITY_DIR"]).expanduser()
+            if os.environ.get("AIJUDGE_ACTIVITY_DIR")
+            else None
+        ),
+        help="作業の記録の置き場所（web の AIJUDGE_ACTIVITY_DIR と同じ場所）",
+    )
+    activity_purge.add_argument(
+        "--apply", action="store_true", help="実際に消す（付けなければ下見だけ）"
+    )
+    activity_purge.add_argument("--yes", action="store_true", help="確認を省く")
+    activity_purge.set_defaults(func=cmd_activity_purge)
 
     user = sub.add_parser("user", help="利用者").add_subparsers(dest="user_command", required=True)
     user_disable = user.add_parser("disable", help="無効化する（削除ではない。記録は残る）")

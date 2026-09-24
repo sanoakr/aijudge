@@ -12,6 +12,7 @@ dependencies = [
     "aijudge-observation",
     "aijudge-audit",
     "aijudge-identity",
+    "aijudge-ide",
     "sqlalchemy>=2.0",
     "alembic>=1.13",
     "cryptography>=43.0",
@@ -35,3 +36,4 @@ aijudge-authoring = { workspace = true }
 aijudge-observation = { workspace = true }
 aijudge-audit = { workspace = true }
 aijudge-identity = { workspace = true }
+aijudge-ide = { workspace = true }

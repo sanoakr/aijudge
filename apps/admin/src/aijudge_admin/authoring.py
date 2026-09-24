@@ -16,7 +16,7 @@ from dataclasses import dataclass
 
 from aijudge_authoring import TaskSpec, build_task_version
 from aijudge_authoring.repository import TaskStoreError, content
-from aijudge_core import ReviewState, Task, TaskVersion, normalize_suffixes
+from aijudge_core import AnswerMode, ReviewState, Task, TaskVersion, normalize_suffixes
 from aijudge_core.ids import CourseId, UserId
 from aijudge_persistence import Database
 
@@ -190,6 +190,12 @@ def save_task(
             # 出題先も。引き継がないと、追試の課題を 1 つ直した瞬間にその課題
             # だけ受講者全員に見える。
             audience_group_ids=existing.audience_group_ids if existing else (),
+            # 答え方も（ADR 0026）。引き継がないと、試験の課題を 1 つ直した瞬間に
+            # その課題だけエディタから外れ、ファイル提出の画面に戻る。
+            answer_mode=existing.answer_mode if existing else AnswerMode.UPLOAD,
+            # 補完の切／入も。引き継がないと、試験の課題を直した瞬間にその課題
+            # だけ補完が既定（切）に戻る ── 演習では入れていた補完が消える。
+            editor_completion=existing.editor_completion if existing else False,
             # 締切と同じ理由で、**明示された場合だけ上書きする**（#234）。
             # 教員が画面で広げた拡張子を、定義の流し込みが黙って狭めない。
             accepted_suffixes=normalize_suffixes(spec.accepted_suffixes)

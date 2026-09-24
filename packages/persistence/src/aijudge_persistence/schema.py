@@ -15,6 +15,10 @@ SQL で集約の中身を検索するようになったときで、そのとき�
     outbox_events      ドメインイベント。published_at が NULL なら未送信
     tasks / task_versions  課題。公開後は不変
     audit_events       誰が成績に届く何を変えたか。**追記のみ**（ADR 0016）
+    run_requests       IDE の試しの実行。採点キューとは別（ADR 0024）。結果は残さない
+    ide_buffers        IDE の自動保存。(学習者, 課題) ごとに 1 行、上書き
+    ide_submission_links  IDE からの提出の出どころ（本人か、受付終了時の自動提出か）
+    ide_sessions / ide_event_batches  行動記録の索引（ADR 0023）。本体はファイル
 
 日時は必ず timezone 付きで扱う。素の TIMESTAMP に入れると、締切判定が
 サーバのローカル時刻に依存する。**ただしバックエンドによっては保証されない**
@@ -38,6 +42,7 @@ from sqlalchemy import (
     Text,
     TypeDecorator,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -767,3 +772,134 @@ class AuditEventRow(Base):
         Index("ix_audit_tenant_at", "tenant_id", "at"),
         Index("ix_audit_tenant_action_at", "tenant_id", "action", "at"),
     )
+
+
+class RunRequestRow(Base):
+    """ブラウザ IDE の試しの実行（ADR 0024）。**採点キューとは別の表。**
+
+    `grading_jobs` に相乗りすると、試験中の実行の山が採点を待たせ、採点の山が
+    学習者の画面を固める。**結果は残さない** ── 終わった行は runner が
+    しばらくで消す（`purge_finished`）。行に学習者のコードが入っているので、
+    画面に出したあとまで持つ理由が無い。
+
+    絞り込みと一意性に使うもの（誰の・どの状態の・いつの）は列にし、
+    ソース・入力・結果は `document` に入れる（`grading_jobs` と同じ判断）。
+    """
+
+    __tablename__ = "run_requests"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(64))
+    learner_id: Mapped[str] = mapped_column(String(64))
+    task_version_id: Mapped[str] = mapped_column(String(64))
+    state: Mapped[str] = mapped_column(String(16))
+    created_at: Mapped[datetime] = mapped_column(Timestamp)
+    finished_at: Mapped[datetime | None] = mapped_column(Timestamp, nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(Timestamp, nullable=True)
+    document: Mapped[dict] = mapped_column(JsonType)
+
+    __table_args__ = (
+        # **1 人が同時に待てるのは 1 件**（ADR 0024 §1）。画面でボタンを
+        # 押せなくするだけでは境界にならない（#146）── 2 つのタブから同時に
+        # 押せば、検査と挿入のあいだをすり抜ける。最後に止めるのは DB である。
+        # 部分索引は PostgreSQL・SQLite の両方が持つ。
+        Index(
+            "uq_run_requests_one_in_flight",
+            "learner_id",
+            unique=True,
+            postgresql_where=text("state IN ('queued', 'running')"),
+            sqlite_where=text("state IN ('queued', 'running')"),
+        ),
+        # runner の取得（待っている要求を古い順に）と、期限切れの片付け。
+        Index("ix_run_requests_state_created", "state", "created_at"),
+        # 連続実行の間隔を見るための「この学習者の最後の要求」。
+        Index("ix_run_requests_learner_created", "learner_id", "created_at"),
+    )
+
+
+class IdeBufferRow(Base):
+    """IDE の自動保存（設計書 §6.5）。**(学習者, 課題) ごとに 1 行、上書き。**
+
+    提出でも行動記録でもない。採点はここを読まない。鍵を課題版ではなく課題に
+    してあるのは、版が上がっても学習者の書きかけを消さないため。
+
+    **DB に置く**（行動記録の本体はファイルに置くのと違う、設計書 §6.6）。
+    受付終了時の自動提出が読むもので採点の入口に近く、ストレージの不調で
+    提出が止まってはいけない。
+    """
+
+    __tablename__ = "ide_buffers"
+
+    learner_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    task_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(64))
+    # どの形式で書いているか（`.c`・`.py`・`.md`）。
+    suffix: Mapped[str] = mapped_column(String(8))
+    # 上限は実行と同じ 64 KiB（`aijudge_ide.MAX_SOURCE_BYTES`）。受け口で断るので
+    # 列の幅では縛らない（Text）。
+    source: Mapped[str] = mapped_column(Text)
+    content_hash: Mapped[str] = mapped_column(String(64))
+    updated_at: Mapped[datetime] = mapped_column(Timestamp)
+
+
+class IdeSubmissionLinkRow(Base):
+    """IDE からの提出の出どころ（設計書 §9）。**`submissions` には列を足さない**（I1）。
+
+    行が無い提出はファイルでの提出。本人が押した提出（`editor`）と、受付終了時に
+    サーバが出した提出（`auto_close`）を後から区別するために残す。
+    """
+
+    __tablename__ = "ide_submission_links"
+
+    submission_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(64))
+    learner_id: Mapped[str] = mapped_column(String(64))
+    task_id: Mapped[str] = mapped_column(String(64), index=True)
+    origin: Mapped[str] = mapped_column(String(16))
+    content_hash: Mapped[str] = mapped_column(String(64))
+    ide_session_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    recorded_at: Mapped[datetime] = mapped_column(Timestamp)
+
+
+class IdeSessionRow(Base):
+    """IDE の画面を 1 回開いてから閉じるまで（ADR 0023）。行動記録の索引の親。
+
+    **告知を確認した時刻を持つ**（`consented_at`）。確認なしのセッションは作らない。
+    """
+
+    __tablename__ = "ide_sessions"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(64))
+    learner_id: Mapped[str] = mapped_column(String(64))
+    course_id: Mapped[str] = mapped_column(String(64))
+    # 問題セットの名前（`tasks.unit` と同じ幅）。
+    unit: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    started_at: Mapped[datetime] = mapped_column(Timestamp)
+    user_agent: Mapped[str] = mapped_column(String(300))
+    consented_at: Mapped[datetime] = mapped_column(Timestamp)
+
+    __table_args__ = (
+        # 「このコースで告知を確認したことがあるか」と、教員の閲覧（段階 4）。
+        Index("ix_ide_sessions_learner_course", "learner_id", "course_id"),
+    )
+
+
+class IdeEventBatchRow(Base):
+    """行動記録の 1 バッチの索引（ADR 0023 §3）。**本体はファイル**にある。
+
+    **イベント 1 件を 1 行にしない。** 打鍵単位だと 1 試験で数百万行になる。
+    `(ide_session_id, seq)` の一意制約が再送を重複させない。
+    """
+
+    __tablename__ = "ide_event_batches"
+
+    ide_session_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    seq: Mapped[int] = mapped_column(Integer, primary_key=True)
+    received_at: Mapped[datetime] = mapped_column(Timestamp)
+    client_time: Mapped[datetime | None] = mapped_column(Timestamp, nullable=True)
+    event_count: Mapped[int] = mapped_column(Integer)
+    snapshot_count: Mapped[int] = mapped_column(Integer)
+    byte_size: Mapped[int] = mapped_column(Integer)
+    sha256: Mapped[str] = mapped_column(String(64))
+    path: Mapped[str] = mapped_column(String(512))

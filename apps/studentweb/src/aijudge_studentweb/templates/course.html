@@ -54,6 +54,15 @@
   </span>
 </h3>
 </summary>
+{# エディタで解く問題セット（ADR 0026）。**入口は見出しのすぐ下** ── 課題を
+   1 つずつ開くより先に目に入る必要がある。Monaco は大きい（約 1 MB）ので、
+   一覧を開いた時点で先読みさせ、試験開始の瞬間に取りに来る集中を均す
+   （設計書 §5.4）。 #}
+{% if unit.editor %}
+<p class="cta-inline"><a class="button-link" href="/courses/{{ course.id }}/ide?unit={{ (unit.unit or '') | urlencode }}">エディタで解く</a>
+  <span class="desc">ブラウザでコードや文章を書いて、そのまま提出できます。</span></p>
+<link rel="prefetch" href="{{ static_url('vendor/monaco-0.52.2/vs/editor/editor.main.js').split('?')[0] }}">
+{% endif %}
 {# 携帯では行を積む（`table.stack`）。課題の題は見出し無しで出す ──
    1 枚の塊の中で、それが何かは題そのものが言う。 #}
 <table class="stack">

@@ -159,6 +159,12 @@
         {# 教員・TA 自身の試行（#108）。**隠さずに印を付ける** ── 成績にも
            統計にも数えないが、出したこと自体は事実として一覧に残す。 #}
         {% if row.is_trial %}<br><span class="pill">{{ row.role.value }}の試行</span>{% endif %}
+        {# エディタからの提出（設計書 §9）。**受付終了時の自動提出は本人が押して
+           いない**ので、そう書く。作業の記録は教員だけが開ける。 #}
+        {% set origin = ide_origins.get(row.submission.id|string) %}
+        {% if origin == 'auto_close' %}<br><span class="pill attn">受付終了時の自動提出</span>
+        {% elif origin == 'editor' %}<br><span class="pill">エディタ</span>{% endif %}
+        {% if origin and can_view_activity %}<br><a href="{{ root_prefix() }}/courses/{{ course.id }}/activity/{{ row.submission.learner_id }}">作業の記録</a>{% endif %}
       </td>
       <td class="grow">
         <span class="mono desc">{{ row.task.unit or row.task.unit_label }}</span> {{ row.task.title }}

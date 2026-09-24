@@ -292,6 +292,20 @@ class TaskVersion(BaseModel):
         raise KeyError(f"no criterion {criterion_id!r} in {self.id!r}")
 
 
+class AnswerMode(StrEnum):
+    """学習者がどう答えるか（ADR 0026）。
+
+    **採点は答え方を知らない**（不変条件 I2）。どちらで出しても同じ
+    `Submission` になり、評価器は出どころを区別できない。ここが決めるのは
+    学習者の画面だけである。
+    """
+
+    # 既存。ファイルを選んで出す。
+    UPLOAD = "upload"
+    # ブラウザのエディタで書いて出す（`docs/design/online-coding-test.md`）。
+    EDITOR = "editor"
+
+
 class SubmissionWindow(StrEnum):
     """いま提出できるか、できるとしてどの扱いか（#73）。
 
@@ -402,6 +416,22 @@ class Task(BaseModel):
     # この値も、それぞれ単独で要る場面がある（`docs/design/task-visibility.md`
     # §1.3）。判定は `aijudge_core.access.may_see` の 1 か所で行う。
     confidential_until_open: bool = False
+    # 答え方（ADR 0026）。**学内限定と同じ性質の値である** ── 課題が持つが、
+    # 値を決めるのは問題セット単位で、画面もそう作る。
+    #
+    # **既定は `upload`（従来どおり）。** `tasks.document` に入るので列は増えず、
+    # 鍵を持たない既存の課題はこの既定で読まれる ── 今日までの見え方は
+    # 変わらない（不変条件 I4・I5）。`editor` にできるのはテストを走らせる
+    # 課題だけで、その検査は保存する側（コンソール）が行う。
+    answer_mode: AnswerMode = AnswerMode.UPLOAD
+    # エディタで補完を出すか（設計書 §5.3・2026-09-24 決定）。**答え方とは独立した
+    # 値である** ── 同じ「エディタで解く」でも、試験では切り、演習では入れる。
+    # 学内限定・秘匿と同じく、課題が持つが値を決めるのは問題セット単位。
+    #
+    # **既定は切**（括弧を閉じる・字下げ・色分けだけ）。入れると、そのファイル内の
+    # 単語と言語のキーワードを候補に出す。AI の補完や意味を解する補完は作らない。
+    # `answer_mode` が `upload` の課題では何もしない（エディタが無い）。
+    editor_completion: bool = False
     # 出題先（追試など）。**空は受講者全員**（従来どおり）。複数を持てば、
     # いずれかの名簿に入っている学習者に出す（和集合）。
     #

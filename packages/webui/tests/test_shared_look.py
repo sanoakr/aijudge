@@ -26,6 +26,11 @@ def test_the_assets_are_shipped_with_the_package() -> None:
         "base.css",
         "learner.css",
         "console.css",
+        # ブラウザ IDE の画面（`docs/design/online-coding-test.md` §5）。
+        "ide.js",
+        # エディタ本体（Monaco 0.52.2、MIT）。**同じ配信元から配る** ── 外部の
+        # CDN から読むと、試験の画面が学外のサービスに依存する（P7）。
+        "vendor",
     }
     assert webui.TEMPLATES_DIR.is_dir()
     assert {p.name for p in webui.TEMPLATES_DIR.iterdir()} == {
@@ -38,7 +43,8 @@ def test_the_assets_are_shipped_with_the_package() -> None:
         "_theme_switch.html",
     }
     for path in webui.ASSETS_DIR.iterdir():
-        assert path.stat().st_size > 0, f"{path.name} が空"
+        if path.is_file():
+            assert path.stat().st_size > 0, f"{path.name} が空"
 
 
 def test_the_url_carries_a_version_so_the_browser_lets_go_of_the_old_sheet() -> None:
@@ -121,3 +127,12 @@ def test_the_format_groups_take_the_same_shape_on_a_phone() -> None:
     assert ".formats .rows{display:block}" in narrow, "格子が解けていない"
     assert ".checkrow{display:block" in narrow, "群ごとに形が変わる"
     assert ".checkrow .rowlabel{display:block" in narrow
+
+
+def test_the_editor_ships_with_its_licence() -> None:
+    """同梱した Monaco の利用許諾（MIT）を一緒に配る。"""
+    monaco = webui.ASSETS_DIR / "vendor" / "monaco-0.52.2"
+    assert (monaco / "LICENSE").is_file()
+    assert (monaco / "ThirdPartyNotices.txt").is_file()
+    for name in ("vs/loader.js", "vs/editor/editor.main.js", "vs/editor/editor.main.css"):
+        assert (monaco / name).is_file(), name

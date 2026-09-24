@@ -245,3 +245,22 @@ def test_the_audit_record_declares_only_core_and_pydantic() -> None:
         dependencies = tomllib.load(handle)["project"]["dependencies"]
     names = {item.split(">")[0].split("=")[0].split("[")[0].strip() for item in dependencies}
     assert names == {"aijudge-core", "pydantic"}, f"audit gained unexpected dependencies: {names}"
+
+
+def test_the_activity_record_cannot_reach_grades() -> None:
+    """IDE の行動記録と印が成績に届かないことを保証する契約があること（ADR 0023 §4）。
+
+    契約ごと消せば、採点ワーカーや成績の確定から印を読めてしまう。
+    契約の存在と中身を固定する。
+    """
+    config = _import_linter_config()
+    for section, sources in (
+        ("importlinter:contract:grading-does-not-know-ide", {"aijudge_grading"}),
+        (
+            "importlinter:contract:grades-do-not-read-activity",
+            {"aijudge_grader", "aijudge_admin.finalization"},
+        ),
+    ):
+        assert config.has_section(section), f"{section} が .importlinter から消えている"
+        assert sources <= set(config[section]["source_modules"].split())
+        assert "aijudge_ide" in config[section]["forbidden_modules"].split()
