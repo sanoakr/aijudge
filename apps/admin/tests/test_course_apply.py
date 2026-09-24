@@ -261,3 +261,57 @@ def test_turning_off_files_without_the_editor_is_refused(tmp_path: Path) -> None
         load_course_definition(
             _write_definition(tmp_path, _with_unit_setting("file_upload: false"))
         )
+
+
+def test_a_unit_can_be_confidential_until_open(database: Database, tmp_path) -> None:
+    """`confidential_until_open` は問題セットの値で、回の全課題に入る（試験）。
+
+    画面でしか入れられないと、`course apply` から切り替えるまでの間、公開前の
+    課題が TA に見える。書かれていない回は触らない。
+    """
+    text = _with_unit_setting("confidential_until_open: true").replace(
+        "  - key: ex1/cert\n    unit: ex1\n", "  - key: ex1/cert\n    unit: ex0\n"
+    )
+    result = _apply(database, _write_definition(tmp_path, text))
+    tasks, _versions = _tasks(database, result.course.id)
+    in_set = [task for task in tasks.values() if task.unit == "ex1"]
+    assert len(in_set) == 2
+    assert all(task.confidential_until_open for task in in_set)
+    assert tasks["認定証を提出する"].confidential_until_open is False
+
+
+def test_confidential_survives_a_refused_editor_setting(database: Database, tmp_path) -> None:
+    """**秘匿は、同じ回の答え方が断られても入る。**
+
+    課題は答え方の検査より前に保存されるので、秘匿を答え方と同じ作業単位で
+    入れると、断られたときに秘匿だけが巻き戻り、TA に見える課題が残る。
+    """
+    text = _with_unit_setting("answer_mode: editor\n    confidential_until_open: true")
+    with pytest.raises(AdminError, match="認定証を提出する"):
+        _apply(database, _write_definition(tmp_path, text))
+    with database.unit_of_work() as uow:
+        course = next(iter(uow.identity.list_courses(TENANT)))
+        in_set = [task for task in uow.tasks.list_for_course(course.id) if task.unit == "ex1"]
+    assert len(in_set) == 3
+    assert all(task.confidential_until_open for task in in_set)
+    assert all(task.answer_mode is AnswerMode.UPLOAD for task in in_set)
+
+
+def test_a_misspelt_confidential_is_refused(tmp_path: Path) -> None:
+    with pytest.raises(AdminError, match="confidential_until_open"):
+        load_course_definition(
+            _write_definition(tmp_path, _with_unit_setting("confidential_until_open: yes-please"))
+        )
+
+
+def test_leaving_confidential_out_keeps_what_the_console_set(database: Database, tmp_path) -> None:
+    """書かない回は、画面で切り替えた値のまま（`answer_mode` と同じ）。"""
+    path = _write_definition(tmp_path)
+    result = _apply(database, path)
+    with database.unit_of_work() as uow:
+        for task in uow.tasks.list_for_course(result.course.id):
+            uow.tasks.save_task(task.model_copy(update={"confidential_until_open": True}))
+        uow.commit()
+    _apply(database, path)
+    tasks, _versions = _tasks(database, result.course.id)
+    assert all(task.confidential_until_open for task in tasks.values())
