@@ -13,7 +13,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from typing import Any
 
@@ -63,6 +63,8 @@ class Flag:
     # 画面を開いてからの経過（ミリ秒）。再生はここへ飛ぶ。
     t: float
     detail: str
+    # どの問題（タブ）での出来事か。分からなければ None。
+    tab: int | None = None
 
     @property
     def label(self) -> str:
@@ -85,6 +87,7 @@ def flag_events(events: Iterable[dict[str, Any]]) -> list[Flag]:
     typing_flagged_until = -1.0
 
     for event in ordered:
+        before = len(flags)
         kind = event.get("type")
         t = float(event.get("t", 0))
 
@@ -155,6 +158,12 @@ def flag_events(events: Iterable[dict[str, Any]]) -> list[Flag]:
                     )
                     # 同じ速い区間で何度も印を付けない。
                     typing_flagged_until = t + TYPING_WINDOW_MS
+
+        # この出来事で付いた印に、どの問題（タブ）かを添える。
+        tab = event.get("tab")
+        if isinstance(tab, int):
+            for index in range(before, len(flags)):
+                flags[index] = replace(flags[index], tab=tab)
     return flags
 
 
@@ -174,7 +183,13 @@ def submission_mismatches(
         submission_id = str(event.get("submission_id", ""))
         expected = submitted_hashes.get(submission_id)
         if expected is not None and event.get("hash") and event["hash"] != expected:
+            tab = event.get("tab")
             flags.append(
-                Flag(FlagKind.SUBMISSION_MISMATCH, float(event.get("t", 0)), submission_id)
+                Flag(
+                    FlagKind.SUBMISSION_MISMATCH,
+                    float(event.get("t", 0)),
+                    submission_id,
+                    tab if isinstance(tab, int) else None,
+                )
             )
     return flags

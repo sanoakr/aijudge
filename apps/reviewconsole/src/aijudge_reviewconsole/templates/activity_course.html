@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}作業の記録 — {{ course.title }} — aiJudge レビュー{% endblock %}
+{% block body %}
+{# コース全体の作業の記録（ADR 0023）。**索引だけで作る**（本体を読まない）ので、
+   受講者が多くても開ける。印や要約は学習者の画面で見る。
+   **受講者全員を並べる** ── 提出していない学習者の記録にも、ここから辿れる。 #}
+<h1>作業の記録</h1>
+<p class="desc">
+  ブラウザのエディタでの作業の記録です。受講者 {{ rows | length }} 名のうち
+  {{ with_record }} 名に記録があります。学習者を選ぶと、問題ごとの要約と再生が見られます。
+  <strong>記録から自動で減点・判定はしません。</strong>
+  <strong>この画面を開いたことは監査ログに残ります。</strong>
+</p>
+
+<table class="stack">
+  <thead><tr>
+    <th class="fit">学習者</th><th class="grow">氏名</th>
+    <th class="fit">エディタを開いた回数</th><th class="fit">最後に開いた時刻</th>
+    <th class="fit">送信の欠け</th><th class="fit"></th>
+  </tr></thead>
+  <tbody>
+  {% for row in rows %}
+    <tr>
+      <td class="fit mono" data-label="学習者">{{ row.login }}</td>
+      <td class="grow" data-label="氏名">{{ row.name }}</td>
+      <td class="fit" data-label="開いた回数">{% if row.sessions %}{{ row.sessions }} 回{% else %}<span class="desc">なし</span>{% endif %}</td>
+      <td class="fit" data-label="最後に開いた時刻">{{ row.last | local('%m-%d %H:%M') if row.last else '—' }}</td>
+      <td class="fit" data-label="送信の欠け">
+        {% if row.missing %}<span class="pill attn">{{ row.missing }}</span>
+        {% elif row.sessions %}<span class="desc">なし</span>{% else %}—{% endif %}
+      </td>
+      <td class="fit">{% if row.sessions %}<a href="{{ root_prefix() }}/courses/{{ course.id }}/activity/{{ row.user_id }}">開く</a>{% endif %}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="6" class="desc">受講者がいません。</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+<p class="desc">送信の欠けは通信の不調や PC のスリープでも起きます。それだけでは不正の証拠になりません。</p>
+{% endblock %}

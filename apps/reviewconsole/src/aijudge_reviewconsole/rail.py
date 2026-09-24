@@ -117,6 +117,13 @@ def course_rail(
     # 学習者の質問にも自分の付けた点にも答えられない。行き先はコースの
     # 一覧（`/courses/{id}`）そのもので、追加と日程はその先にある。
     authoring = [RailItem("問題セット", base)]
+    if can_manage:
+        # ブラウザのエディタでの作業の記録（ADR 0023）。**教員だけ** ── TA には
+        # 開けない画面なので出さない。提出していない学習者の記録にも、ここから辿れる。
+        grading = RailGroup(
+            title=grading.title,
+            items=(*grading.items, RailItem("作業の記録", f"{base}/activity")),
+        )
     groups = [grading]
     if can_manage:
         # 科目・ルーブリック・提出形式など、**このコースの課題すべてに効く値**。

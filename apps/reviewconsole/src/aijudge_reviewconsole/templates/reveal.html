@@ -3,6 +3,12 @@
 {% block main_class %}wide{% endblock %}
 {% block body %}
 <h1>AI の判定 — <span class="mono">{{ submission.id[:12] }}…</span></h1>
+{# エディタからの提出なら、書いた経過（作業の記録）へ。教員にだけ出る。 #}
+{% if activity_href %}
+<p class="desc">この提出はブラウザのエディタから出されました。
+  <a href="{{ root_prefix() }}{{ activity_href }}">この学習者の作業の記録を見る</a>
+  （開いたことは監査ログに残ります）</p>
+{% endif %}
 
 {# **左に見るもの、右に決めるもの**（#185）。以前は 1 本の縦に
    「突き合わせ → 答案 → 問題文 → 段階の選択」と並んでいたので、コードを
