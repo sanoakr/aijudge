@@ -230,6 +230,8 @@
             tabs: tabCount,
             // どのタブがどの課題か（課題版の ID）。再生の画面がタブに課題名を出す。
             tasks: config.tabs,
+            // 各タブの形式（`.c`・`.py`・`.md`）。再生の画面が色分けの言語を決める。
+            formats: state.map(function (s) { return s.suffix; }),
             hashes: hashes,
           });
           window.setTimeout(recorderLoop, 500);

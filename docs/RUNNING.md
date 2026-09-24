@@ -1143,6 +1143,28 @@ uv run aijudge-admin video purge --apply             # 実際に消す
 **動画はバックアップに入っていない**（restic が取るのは `/srv/aijudge` と作業の記録
 だけ）。本番が壊れると動画は戻らない。入れるかどうかは検討中である。
 
+### ブラウザ IDE を有効にする（2026-09-24）
+
+runner（`aijudge-runner@1..4`）と受付終了時の自動提出（`aijudge-ide-close.timer`）は
+`aijudge.target` に入っているので、デプロイで起動する。**運用機で 1 度だけ手で行う**
+のは次の 2 つ（どちらもリポジトリの外のファイル）。
+
+1. **作業の記録の置き場所。** `aijudge.env` に `AIJUDGE_ACTIVITY_DIR=/work/aijudge/activity`
+   を足し、ディレクトリを `aijudge` の持ち物で作る。web は `/work/aijudge` に書ける
+   （動画の drop-in）。コンソールは読むだけ。無いと作業の記録は 503 で断られるが、
+   編集・実行・提出は止まらない
+2. **エディタ本体を nginx から配る。** 雛形（`deploy/nginx/aijudge.conf.template`）の
+   `location /static/vendor/` を、運用機の vhost に足して `nginx -t` のうえ再読み込みする。
+   無くても動くが、Monaco（約 4.5 MB）を web のプロセスが圧縮せずに配ることになり、
+   授業の始めに全員が一斉に開くと web が詰まる
+
+restic の環境ファイルにも `AIJUDGE_ACTIVITY_DIR` を足すと、作業の記録もバックアップに
+入る（入れなくても IDE は動く）。
+
+有効にしたら、テスト用のコースで一巡確かめる（エディタで書く → 実行 → 提出 → 採点 →
+コンソールの「作業の記録」）。IDE に問題が出たら、問題セットの「答え方」をファイル提出に
+戻せばその場で従来どおりに戻る（エディタの課題でもファイルでの提出は使える）。
+
 ### IDE の作業の記録の保存期間（ADR 0023）
 
 ブラウザ IDE の**作業の記録**（`AIJUDGE_ACTIVITY_DIR` の下のファイルと、DB の索引）と

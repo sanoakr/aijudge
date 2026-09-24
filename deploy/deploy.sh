@@ -67,7 +67,13 @@ systemctl restart aijudge.target
 if systemctl list-units 'aijudge-worker-ai@*' --state=loaded -q | grep -q .; then
     systemctl restart 'aijudge-worker-ai@*'
 fi
+# IDE の runner も入れ替える（AI ワーカーと同じ理由 ── 古いコードの runner が
+# 新しい実行要求の行を読めずに詰まる）。無い機械では何もしない。
+if systemctl list-units 'aijudge-runner@*' --state=loaded -q | grep -q .; then
+    systemctl restart 'aijudge-runner@*'
+fi
 systemctl try-restart aijudge-finalize.timer
+systemctl try-restart aijudge-ide-close.timer
 
 # 疎通確認。落ちていたら非ゼロで終わり、timer のログに残る。
 # **ホスト名はここに書かない** — EnvironmentFile の AIJUDGE_LEARNER_URL を使う

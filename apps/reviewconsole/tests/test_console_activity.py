@@ -26,7 +26,7 @@ NOW = datetime(2026, 9, 24, 10, 0, tzinfo=UTC)
 START = "int main(void){}\n"
 
 
-def _record(world: World, learner, root: Path, *, extra_events=()) -> IdeSession:
+def _record(world: World, learner, root: Path, *, extra_events=(), tasks=()) -> IdeSession:
     session = IdeSession(
         id=IdeSessionId(new_id("ide")),
         tenant_id=world.course.tenant_id,
@@ -37,7 +37,13 @@ def _record(world: World, learner, root: Path, *, extra_events=()) -> IdeSession
         consented_at=NOW,
     )
     events = [
-        {"type": "hello", "t": 0, "tabs": 1, "hashes": [snapshot_name(START)], "tasks": []},
+        {
+            "type": "hello",
+            "t": 0,
+            "tabs": max(1, len(tasks)),
+            "hashes": [snapshot_name(START)],
+            "tasks": list(tasks),
+        },
         {"type": "edit", "t": 1000, "tab": 0, "off": 15, "del": 0, "ins": "return 0;"},
         {"type": "paste", "t": 2000, "tab": 0, "len": 200, "origin": "external", "hash": "0" * 64},
         {"type": "blur", "t": 3000},
@@ -216,3 +222,127 @@ def test_an_auto_submission_is_marked_in_the_list(world: World, root) -> None:
     ta_page = world.client("ta").get(f"/courses/{world.course.id}/submissions").text
     assert "受付終了時の自動提出" in ta_page
     assert f"/activity/{learner.user_id}" not in ta_page
+
+
+# -- 入口と問題ごとの表示（2026-09-24） --------------------------------------
+
+
+def _two_problems(world: World) -> list[str]:
+    """課題を 2 つ用意し、それぞれの課題版 ID を返す（hello の `tasks` に載せる）。"""
+    from aijudge_admin import list_tasks
+    from aijudge_core.ids import TaskId, TaskVersionId
+
+    _import_example(world)
+    (task, version) = list_tasks(world.database, world.course.id)[0]
+    second_task = task.model_copy(update={"id": TaskId("tsk_" + "e" * 32), "title": "第二の問題"})
+    second = version.model_copy(
+        update={"id": TaskVersionId("tsv_" + "e" * 32), "task_id": second_task.id}
+    )
+    with world.database.unit_of_work() as uow:
+        uow.tasks.save_task(second_task)
+        uow.tasks.save_version(second)
+        uow.commit()
+    return [str(version.id), str(second.id)]
+
+
+def test_the_course_list_shows_every_learner(world: World, root) -> None:
+    """**提出していない学習者の記録にも辿れる。** 受講者全員を並べる。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    wrote = world.register("s2400001", Role.LEARNER)
+    world.register("s2400002", Role.LEARNER)
+    _record(world, wrote, root)
+
+    page = world.client("teacher").get(f"/courses/{world.course.id}/activity")
+
+    assert page.status_code == 200
+    assert "s2400001" in page.text and "s2400002" in page.text
+    assert f"/activity/{wrote.user_id}" in page.text
+    assert "1 名に記録があります" in page.text
+
+
+def test_the_course_list_is_for_instructors_only(world: World, root) -> None:
+    world.register("ta", Role.ASSISTANT)
+    assert world.client("ta").get(f"/courses/{world.course.id}/activity").status_code == 403
+
+
+def test_the_rail_offers_the_record_to_instructors_only(world: World, root) -> None:
+    world.register("teacher", Role.INSTRUCTOR)
+    world.register("ta", Role.ASSISTANT)
+    href = f"/courses/{world.course.id}/activity"
+
+    assert href in world.client("teacher").get(f"/courses/{world.course.id}/submissions").text
+    assert href not in world.client("ta").get(f"/courses/{world.course.id}/submissions").text
+
+
+def test_the_learner_page_is_split_by_problem(world: World, root) -> None:
+    """1 回のセッションで問題を行き来しても、**問題ごとの節**に分けて数える。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    learner = world.register("s2400001", Role.LEARNER)
+    versions = _two_problems(world)
+    _record(
+        world,
+        learner,
+        root,
+        tasks=versions,
+        extra_events=[
+            {"type": "tab", "t": 40_000, "from": 0, "to": 1},
+            {"type": "paste", "t": 41_000, "tab": 1, "len": 500, "origin": "external"},
+        ],
+    )
+
+    page = (
+        world.client("teacher").get(f"/courses/{world.course.id}/activity/{learner.user_id}").text
+    )
+
+    sections = page.split('class="card activity-problem"')[1:]
+    assert len(sections) == 2
+    second = next(section for section in sections if "第二の問題" in section)
+    first = next(section for section in sections if "第二の問題" not in section)
+    # 500 字の貼り付けは第二の問題の節にだけ現れ、再生はその問題を開く。
+    assert "500 字" in second and "500 字" not in first
+    assert "?tab=1" in second
+    # 最初の問題の節には、そちらでの 200 字の貼り付けが出る。
+    assert "200 字" in first
+
+
+def test_a_session_with_no_work_on_a_problem_is_not_listed(world: World, root) -> None:
+    """開いただけの回（ハートビートだけ）は、その問題の節に並べない。"""
+    from aijudge_ide import ActivityFiles as Files
+
+    world.register("teacher", Role.INSTRUCTOR)
+    learner = world.register("s2400001", Role.LEARNER)
+    idle = IdeSession(
+        id=IdeSessionId(new_id("ide")),
+        tenant_id=world.course.tenant_id,
+        learner_id=learner.user_id,
+        course_id=world.course.id,
+        unit="ex01",
+        started_at=NOW,
+        consented_at=NOW,
+    )
+    events = [
+        {"type": "hello", "t": 0, "tabs": 1, "hashes": []},
+        {"type": "heartbeat", "t": 30_000},
+    ]
+    path, digest, size = Files(root).write_batch(idle, 0, events, {})
+    with world.database.unit_of_work() as uow:
+        uow.ide_activity.start_session(idle)
+        uow.ide_activity.add_batch(
+            EventBatch(
+                ide_session_id=idle.id,
+                seq=0,
+                received_at=NOW,
+                event_count=2,
+                snapshot_count=0,
+                byte_size=size,
+                sha256=digest,
+                path=path,
+            )
+        )
+        uow.commit()
+
+    page = (
+        world.client("teacher").get(f"/courses/{world.course.id}/activity/{learner.user_id}").text
+    )
+
+    assert f"/{idle.id}?tab=" not in page

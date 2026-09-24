@@ -96,3 +96,35 @@ def summarize(events: Iterable[dict[str, Any]]) -> ActivitySummary:
         summary.away_count += 1
     summary.duration_seconds = (last_t - (first_t or 0.0)) / 1000
     return summary
+
+
+def active_tabs(events: Iterable[dict[str, Any]]) -> list[int]:
+    """各イベントの時点で学習者が開いていたタブ（イベントと同じ並び）。
+
+    `tab` を持つ操作（打鍵・貼り付け・実行など）はそのタブ。持たない出来事
+    （画面を離れた・戻った・ハートビート）は、直前の `tab` の切り替えで決まる
+    開いていたタブに振り分ける。記録の始まりは最初のタブ（0）。
+    """
+    current = 0
+    result: list[int] = []
+    for event in events:
+        if event.get("type") == "tab" and isinstance(event.get("to"), int):
+            current = int(event["to"])
+            result.append(current)
+            continue
+        tab = event.get("tab")
+        result.append(tab if isinstance(tab, int) else current)
+    return result
+
+
+def summarize_by_tab(events: Iterable[dict[str, Any]]) -> dict[int, ActivitySummary]:
+    """問題（タブ）ごとの要約。**教員が知りたいのは「この問題をどう書いたか」**。
+
+    1 回のセッションで複数の問題を行き来するので、セッション全体の合計では
+    問題ごとの様子が読めない。各イベントを `active_tabs` で振り分けて数える。
+    """
+    ordered = list(events)
+    by_tab: dict[int, list[dict[str, Any]]] = {}
+    for event, tab in zip(ordered, active_tabs(ordered), strict=True):
+        by_tab.setdefault(tab, []).append(event)
+    return {tab: summarize(tab_events) for tab, tab_events in sorted(by_tab.items())}

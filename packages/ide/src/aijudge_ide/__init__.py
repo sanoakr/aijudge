@@ -60,7 +60,7 @@ from .run import (
     RunState,
     clip_for_display,
 )
-from .summary import ActivitySummary, summarize
+from .summary import ActivitySummary, active_tabs, summarize, summarize_by_tab
 
 __all__ = [
     "DEFAULT_COOLDOWN_SECONDS",
@@ -110,6 +110,7 @@ __all__ = [
     "SubmissionLink",
     "SubmissionLinkStore",
     "SubmissionOrigin",
+    "active_tabs",
     "check_events",
     "check_session",
     "check_snapshots",
@@ -122,5 +123,6 @@ __all__ = [
     "snapshot_name",
     "submission_mismatches",
     "summarize",
+    "summarize_by_tab",
     "view_run",
 ]

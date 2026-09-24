@@ -3,11 +3,8 @@
 # 複数本立てる。同時に動かす数はこの本数で決め、プロセスの中に並列性は
 # 持たせない（運用機では K = 8 から、上限の目安は 12・設計書 §10.0）。
 #
-# **まだ `aijudge.target` に入れていない。** 置いただけでは何も起動しない。
-# 入れるのは段階 3 の負荷試験で K を決め、main に取り込むと決めたとき
-# （`docs/design/online-coding-test.md` §12）。入れる日には
-# `aijudge-config-check.sh` の `max_connections` の検査に runner の本数を足す
-# （設計書 §10.4）。
+# **`aijudge.target` に 4 本入れてある**（2026-09-24）。本数を変えるときは target の
+# `Wants=` を直す。DB の接続の枠は小さい（`aijudge-config-check.sh` の RUNNER_PER_PROCESS）。
 #
 # sandbox（Docker）を使うので docker.service に依存する。web には Docker の
 # 権限を与えない（不変条件 I6）── コードを動かすのは採点ワーカーとここだけ。

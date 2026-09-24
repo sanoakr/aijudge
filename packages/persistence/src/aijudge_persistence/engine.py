@@ -52,7 +52,18 @@ def supports_row_locking(engine: Engine) -> bool:
     return engine.dialect.name != "sqlite"
 
 
-def create_db_engine(url: str | None = None, *, echo: bool = False) -> Engine:
+# 既定の接続の枠。締切前のバーストで接続が枯れないよう、事前に少し多めに張る。
+DEFAULT_POOL_SIZE = 10
+DEFAULT_MAX_OVERFLOW = 20
+
+
+def create_db_engine(
+    url: str | None = None,
+    *,
+    echo: bool = False,
+    pool_size: int = DEFAULT_POOL_SIZE,
+    max_overflow: int = DEFAULT_MAX_OVERFLOW,
+) -> Engine:
     resolved = url or database_url()
     if resolved.startswith("sqlite"):
         # インメモリ SQLite は接続ごとに別 DB になるため、接続を共有する。
@@ -64,8 +75,13 @@ def create_db_engine(url: str | None = None, *, echo: bool = False) -> Engine:
             connect_args={"check_same_thread": False},
             poolclass=StaticPool,
         )
-    # 締切前のバーストで接続が枯れないよう、事前に少し多めに張る。
-    return create_engine(resolved, echo=echo, pool_pre_ping=True, pool_size=10, max_overflow=20)
+    return create_engine(
+        resolved,
+        echo=echo,
+        pool_pre_ping=True,
+        pool_size=pool_size,
+        max_overflow=max_overflow,
+    )
 
 
 def create_schema(engine: Engine) -> None:
@@ -152,8 +168,21 @@ class Database:
         self._session_factory = sessionmaker(engine, expire_on_commit=False)
 
     @classmethod
-    def connect(cls, url: str | None = None, *, create: bool = False) -> Database:
-        engine = create_db_engine(url)
+    def connect(
+        cls,
+        url: str | None = None,
+        *,
+        create: bool = False,
+        pool_size: int = DEFAULT_POOL_SIZE,
+        max_overflow: int = DEFAULT_MAX_OVERFLOW,
+    ) -> Database:
+        """接続する。**1 件ずつ順に処理するプロセスは枠を小さく取る**（runner など）。
+
+        既定の枠（10 + 20）は web のように並行して要求を受けるプロセスのもので、
+        runner を K 本立てるたびに 30 本ずつ見込むと、DB の `max_connections` を
+        すぐに使い切る見積もりになる（`aijudge-config-check.sh`）。
+        """
+        engine = create_db_engine(url, pool_size=pool_size, max_overflow=max_overflow)
         database = cls(engine)
         if create:
             create_schema(engine)

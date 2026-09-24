@@ -3,13 +3,17 @@
 {% block main_class %}wide{% endblock %}
 {% block body %}
 {# 1 回のセッションの再生（設計書 §7 のビューア）。記録された打鍵を順に当てて、
-   その時点の内容を組み立てる。**組み立ては画面の中だけで行い、判定はしない。** #}
+   その時点の内容を組み立てる。**組み立ては画面の中だけで行い、判定はしない。**
+
+   **時間で進む**（2026-09-24 決定）。出来事の数で進めると、5 分考え込んだ間が
+   一瞬で過ぎ、速く打った区間と見分けがつかない。ただし長い空白をそのまま流すと
+   再生が終わらないので、10 秒を超える空白は 3 秒に詰め、詰めたことを表示する。 #}
 <h1>作業の再生
   <span class="desc">{{ learner.display_name if learner else '' }}
   <span class="mono">{{ learner.login if learner else '' }}</span>
   · {{ session.started_at | local('%Y-%m-%d %H:%M') }} に開いた</span></h1>
 <p class="desc">
-  <a href="{{ root_prefix() }}/courses/{{ course.id }}/activity/{{ session.learner_id }}">一覧に戻る</a>
+  <a href="{{ root_prefix() }}/courses/{{ course.id }}/activity/{{ session.learner_id }}">この学習者の記録へ戻る</a>
   · この画面を開いたことは監査ログに残ります。
   {% if integrity.missing_seqs %}<span class="pill attn">欠けた送信 {{ integrity.missing_seqs | length }}</span>{% endif %}
   {% if unreadable %}<span class="pill attn">読めない記録 {{ unreadable }}</span>{% endif %}
@@ -20,85 +24,116 @@
 
 <div class="replay">
   <div class="replay-controls">
-    <input type="range" min="0" max="0" value="0" id="replay-slider" aria-label="再生の位置">
-    <span class="mono" id="replay-time">0:00</span>
     <button type="button" id="replay-play">再生</button>
-    <select id="replay-tab" aria-label="タブ"></select>
+    <label>速さ
+      <select id="replay-speed">
+        <option value="1">1 倍</option>
+        <option value="4" selected>4 倍</option>
+        <option value="16">16 倍</option>
+      </select>
+    </label>
+    <input type="range" min="0" max="0" value="0" step="100" id="replay-slider" aria-label="再生の位置">
+    <span class="mono" id="replay-time">0:00</span>
+    <label>問題 <select id="replay-tab"></select></label>
+    <label class="check"><input type="checkbox" id="replay-follow" checked> 学習者が開いていた問題に合わせる</label>
   </div>
   <div class="replay-body">
-    <pre class="replay-code mono" id="replay-code" aria-live="off"></pre>
+    <div>
+      <div class="replay-editor" id="replay-editor"></div>
+      <p class="desc replay-unknown" id="replay-unknown" hidden></p>
+    </div>
     <ol class="replay-marks" id="replay-marks"></ol>
   </div>
   <p class="desc" id="replay-note"></p>
 </div>
 
-{# 記録そのもの。`</` は逃がしてあるので、学習者のコードがここから抜け出せない。 #}
+{# 記録そのもの。`<` はすべて逃がしてあるので、学習者のコードがここから抜け出せない。 #}
 <script type="application/json" id="replay-data">{{ replay_json | safe }}</script>
+<script type="application/json" id="replay-config">{{ {"monacoBase": static_url("vendor/monaco-0.52.2/").split("?")[0], "prefix": root_prefix()} | tojson }}</script>
+<script src="{{ static_url('vendor/monaco-0.52.2/vs/loader.js').split('?')[0] }}"></script>
 <script>
 (function () {
   "use strict";
   var data = JSON.parse(document.getElementById("replay-data").textContent);
+  var config = JSON.parse(document.getElementById("replay-config").textContent);
   var events = data.events;
   var slider = document.getElementById("replay-slider");
   var timeEl = document.getElementById("replay-time");
-  var codeEl = document.getElementById("replay-code");
   var marksEl = document.getElementById("replay-marks");
   var tabSel = document.getElementById("replay-tab");
+  var followEl = document.getElementById("replay-follow");
   var noteEl = document.getElementById("replay-note");
-  slider.max = Math.max(0, events.length - 1);
+  var unknownEl = document.getElementById("replay-unknown");
+  var playBtn = document.getElementById("replay-play");
+  var speedSel = document.getElementById("replay-speed");
 
-  // タブの選択肢。hello に載った課題名（無ければ番号）。
-  var tabCount = 0;
-  events.forEach(function (e) { if (e.type === "hello") tabCount = Math.max(tabCount, e.tabs || 0); });
-  for (var t = 0; t < Math.max(1, tabCount); t++) {
+  // 長い空白を詰めた再生用の時刻。10 秒を超える空白は 3 秒にする。
+  var IDLE_MS = 10000, IDLE_SHOWN_MS = 3000;
+  var play = [];
+  for (var i = 0; i < events.length; i++) {
+    if (i === 0) { play.push(0); continue; }
+    var gap = Math.max(0, events[i].t - events[i - 1].t);
+    play.push(play[i - 1] + (gap > IDLE_MS ? IDLE_SHOWN_MS : gap));
+  }
+  slider.max = String(play.length ? play[play.length - 1] : 0);
+
+  var hello = events.find(function (e) { return e.type === "hello"; }) || {};
+  var tabCount = Math.max(1, hello.tabs || (data.titles || []).length);
+  var formats = (hello.formats || []).slice();
+  for (var t = 0; t < tabCount; t++) {
     var opt = document.createElement("option");
     opt.value = String(t);
     opt.textContent = (data.titles && data.titles[t]) || ("タブ " + (t + 1));
     tabSel.appendChild(opt);
   }
+  tabSel.value = String(Math.min(data.tab || 0, tabCount - 1));
 
   function clock(ms) {
-    var s = Math.floor(ms / 1000);
+    var s = Math.max(0, Math.floor(ms / 1000));
     return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
   }
 
-  // 位置 i までを当てた内容を組み立てる。**欠けた束のあとは組み立てられない**
-  // ので、次の全文（束の末尾の指紋）が見つかるまで「不明」と出す。
-  function rebuild(until, tab) {
-    var text = null;
-    var lastSeq = -1;
-    var unknownReason = "記録の始まりの内容がありません";
-    for (var i = 0; i <= until && i < events.length; i++) {
-      var e = events[i];
-      if (e.seq > lastSeq + 1 && lastSeq >= 0) { text = null; unknownReason = "送信が欠けています"; }
-      lastSeq = Math.max(lastSeq, e.seq);
-      if (e.type === "hello" && e.hashes) {
-        var h = e.hashes[tab];
-        text = h && data.snapshots[h] !== undefined ? data.snapshots[h] : null;
-      } else if (e.type === "edit" && e.tab === tab && text !== null) {
-        if (e.off < 0 || e.off + e.del > text.length) { text = null; unknownReason = "組み立てられない差分"; continue; }
-        text = text.slice(0, e.off) + (e.ins || "") + text.slice(e.off + e.del);
-      } else if (e.type === "file_load" && e.tab === tab) {
-        text = e.hash && data.snapshots[e.hash] !== undefined ? data.snapshots[e.hash] : null;
-      } else if (e.type === "tabs" && text === null && e.hashes) {
-        var r = e.hashes[tab];
-        if (r && data.snapshots[r] !== undefined) text = data.snapshots[r];
-      }
-    }
-    return text === null ? { text: "", unknown: unknownReason } : { text: text, unknown: null };
+  function indexAt(position) {
+    var found = -1;
+    for (var k = 0; k < play.length; k++) { if (play[k] <= position) found = k; else break; }
+    return found;
   }
 
-  function show() {
-    var i = parseInt(slider.value, 10);
-    var tab = parseInt(tabSel.value || "0", 10);
-    var state = rebuild(i, tab);
-    codeEl.textContent = state.unknown ? "（この時点の内容は分かりません: " + state.unknown + "）" : state.text;
-    var e = events[i];
-    timeEl.textContent = e ? clock(e.t) : "0:00";
-    noteEl.textContent = e ? describe(e) : "";
-    Array.prototype.forEach.call(marksEl.children, function (li) {
-      li.toggleAttribute("data-current", parseInt(li.getAttribute("data-index"), 10) === i);
-    });
+  // 位置 i までを当てた状態。**欠けた束のあとは組み立てられない**ので、次の全文
+  // （束の末尾の指紋）が見つかるまで「分かりません」と出す。
+  function stateAt(until) {
+    var texts = {}, reasons = {}, active = 0, lastSeq = -1, fmts = formats.slice();
+    for (var k = 0; k <= until && k < events.length; k++) {
+      var e = events[k];
+      if (lastSeq >= 0 && e.seq > lastSeq + 1) {
+        for (var key in texts) { texts[key] = null; reasons[key] = "送信が欠けています"; }
+      }
+      lastSeq = Math.max(lastSeq, e.seq);
+      if (e.type === "hello" && e.hashes) {
+        e.hashes.forEach(function (h, tab) {
+          texts[tab] = h && data.snapshots[h] !== undefined ? data.snapshots[h] : null;
+          if (texts[tab] === null) reasons[tab] = "記録の始まりの内容がありません";
+        });
+      } else if (e.type === "edit" && typeof e.tab === "number") {
+        var cur = texts[e.tab];
+        if (cur === null || cur === undefined) continue;
+        if (e.off < 0 || e.off + e.del > cur.length) { texts[e.tab] = null; reasons[e.tab] = "組み立てられない差分"; continue; }
+        texts[e.tab] = cur.slice(0, e.off) + (e.ins || "") + cur.slice(e.off + e.del);
+      } else if (e.type === "file_load" && typeof e.tab === "number") {
+        texts[e.tab] = e.hash && data.snapshots[e.hash] !== undefined ? data.snapshots[e.hash] : null;
+      } else if (e.type === "tabs" && e.hashes) {
+        e.hashes.forEach(function (h, tab) {
+          if ((texts[tab] === null || texts[tab] === undefined) && h && data.snapshots[h] !== undefined) {
+            texts[tab] = data.snapshots[h];
+          }
+        });
+      } else if (e.type === "tab" && typeof e.to === "number") {
+        active = e.to;
+      } else if (e.type === "format" && typeof e.tab === "number") {
+        fmts[e.tab] = e.suffix;
+      }
+    }
+    return { texts: texts, reasons: reasons, active: active, formats: fmts };
   }
 
   function describe(e) {
@@ -108,18 +143,62 @@
       case "cut": return "切り取り " + e.len + " 字";
       case "file_load": return "ファイルの読み込み " + (e.name || "") + "（" + e.size + " バイト）";
       case "run": return e.stage === "request" ? "実行（" + (e.input === "free" ? "自由入力" : e.input) + "）" : "実行の結果: " + e.state + (e.timed_out ? "・時間切れ" : "");
-      case "submit": return "提出";
+      case "submit":
+        var sub = data.submissions && data.submissions[e.submission_id];
+        if (!sub) return "提出";
+        var parts = [sub.attempt + " 回目"];
+        if (sub.ratio !== null && sub.ratio !== undefined) parts.push(Math.round(sub.ratio * 100) + "%");
+        if (sub.adopted) parts.push("採用");
+        return "提出（" + parts.join("・") + "）";
+      case "suggest": return "補完を確定: " + e.word;
       case "blur": return "画面を離れた";
       case "focus": return "画面に戻った";
       case "visibility": return e.state === "hidden" ? "画面が隠れた" : "画面が見えるようになった";
-      case "tab": return "タブを切り替えた";
+      case "tab": return "問題を切り替えた";
       case "hello": return "エディタを開いた";
+      case "edit": return e.ins ? "打鍵 " + JSON.stringify(e.ins.length > 20 ? e.ins.slice(0, 20) + "…" : e.ins) : "削除 " + e.del + " 字";
       default: return "";
     }
   }
 
-  // 目印の一覧。**打鍵は出さない**（多すぎる）。貼り付け・離席・実行・提出など。
-  var marked = { paste: 1, copy: 1, cut: 1, file_load: 1, run: 1, submit: 1, blur: 1, visibility: 1, hello: 1 };
+  var monacoRef = null, viewer = null, model = null, decorations = [];
+  var LANGUAGES = { ".c": "cpp", ".py": "python", ".md": "markdown" };
+
+  function show() {
+    var position = parseInt(slider.value, 10);
+    var i = indexAt(position);
+    var state = stateAt(i);
+    if (followEl.checked) tabSel.value = String(Math.min(state.active, tabCount - 1));
+    var tab = parseInt(tabSel.value || "0", 10);
+    var text = state.texts[tab];
+    var e = events[i];
+    timeEl.textContent = e ? clock(e.t) + (play[i] < e.t - events[0].t ? "（空白を詰めて再生）" : "") : "0:00";
+    noteEl.textContent = e ? describe(e) : "";
+    unknownEl.hidden = !(text === null || text === undefined);
+    unknownEl.textContent = unknownEl.hidden ? "" : "この時点の内容は分かりません: " + (state.reasons[tab] || "記録がありません");
+    if (model) {
+      var value = text === null || text === undefined ? "" : text;
+      if (model.getValue() !== value) model.setValue(value);
+      monacoRef.editor.setModelLanguage(model, LANGUAGES[state.formats[tab]] || "cpp");
+      // いま入った文字を強調する（この問題の打鍵のとき）。
+      var marks = [];
+      if (e && e.type === "edit" && e.tab === tab && e.ins && value) {
+        var start = model.getPositionAt(e.off), end = model.getPositionAt(e.off + e.ins.length);
+        marks.push({ range: new monacoRef.Range(start.lineNumber, start.column, end.lineNumber, end.column),
+                     options: { inlineClassName: "replay-inserted" } });
+        viewer.revealPositionInCenterIfOutsideViewport(end);
+      }
+      decorations = viewer.deltaDecorations(decorations, marks);
+    }
+    Array.prototype.forEach.call(marksEl.children, function (li) {
+      li.toggleAttribute("data-current", parseInt(li.getAttribute("data-index"), 10) === i);
+    });
+  }
+
+  function jump(index) { slider.value = String(play[index] || 0); show(); }
+
+  // 目印の一覧。**打鍵は出さない**（多すぎる）。貼り付け・離席・実行・提出・欠け・印。
+  var marked = { paste: 1, copy: 1, cut: 1, file_load: 1, run: 1, submit: 1, blur: 1, visibility: 1, hello: 1, tab: 1 };
   var lastSeq = -1;
   events.forEach(function (e, index) {
     var gap = lastSeq >= 0 && e.seq > lastSeq + 1;
@@ -128,13 +207,21 @@
     if (e.type === "run" && e.stage !== "request") return;
     var li = document.createElement("li");
     li.setAttribute("data-index", String(index));
-    li.textContent = clock(e.t) + "  " + (gap ? "【送信の欠け】 " : "") + describe(e);
+    var label = clock(e.t) + "  " + (gap ? "【送信の欠け】 " : "") + describe(e);
+    if (e.type === "tab" && data.titles) label += "（" + (data.titles[e.to] || "タブ " + (e.to + 1)) + "）";
+    li.appendChild(document.createTextNode(label));
+    var sub = e.type === "submit" && data.submissions && data.submissions[e.submission_id];
+    if (sub) {
+      var link = document.createElement("a");
+      link.href = config.prefix + sub.href;
+      link.textContent = " 確認する";
+      link.addEventListener("click", function (ev) { ev.stopPropagation(); });
+      li.appendChild(link);
+    }
     if ((e.type === "paste" && e.origin !== "internal") || gap) li.className = "attn";
-    li.addEventListener("click", function () { slider.value = String(index); show(); });
+    li.addEventListener("click", function () { jump(index); });
     marksEl.appendChild(li);
   });
-
-  // 印（確かめる場所）を目印の一覧に差し込む。時刻が最も近い出来事へ飛ぶ。
   (data.flags || []).forEach(function (flag) {
     var index = 0;
     for (var k = 0; k < events.length; k++) { if (events[k].t <= flag.t) index = k; else break; }
@@ -142,7 +229,7 @@
     li.setAttribute("data-index", String(index));
     li.className = "attn flag";
     li.textContent = clock(flag.t) + "  【確かめる場所】 " + flag.label + (flag.detail ? "（" + flag.detail + "）" : "");
-    li.addEventListener("click", function () { slider.value = String(index); show(); });
+    li.addEventListener("click", function () { jump(index); });
     var after = Array.prototype.find.call(marksEl.children, function (other) {
       return parseInt(other.getAttribute("data-index"), 10) > index;
     });
@@ -150,18 +237,49 @@
   });
 
   var timer = null;
-  document.getElementById("replay-play").addEventListener("click", function (ev) {
-    if (timer) { window.clearInterval(timer); timer = null; ev.target.textContent = "再生"; return; }
-    ev.target.textContent = "止める";
+  function stop() { if (timer) window.clearInterval(timer); timer = null; playBtn.textContent = "再生"; }
+  playBtn.addEventListener("click", function () {
+    if (timer) { stop(); return; }
+    if (parseInt(slider.value, 10) >= parseInt(slider.max, 10)) slider.value = "0";
+    playBtn.textContent = "止める";
     timer = window.setInterval(function () {
-      if (parseInt(slider.value, 10) >= events.length - 1) { window.clearInterval(timer); timer = null; ev.target.textContent = "再生"; return; }
-      slider.value = String(parseInt(slider.value, 10) + 1);
+      var next = parseInt(slider.value, 10) + 100 * parseInt(speedSel.value, 10);
+      if (next >= parseInt(slider.max, 10)) { slider.value = slider.max; show(); stop(); return; }
+      slider.value = String(next);
       show();
-    }, 60);
+    }, 100);
   });
   slider.addEventListener("input", show);
-  tabSel.addEventListener("change", show);
-  slider.value = String(Math.max(0, events.length - 1));
+  tabSel.addEventListener("change", function () { followEl.checked = false; show(); });
+  followEl.addEventListener("change", show);
+
+  // 表示は Monaco を読み取り専用で使う（色分け）。配色は画面の昼／夜に合わせる。
+  function isDark() {
+    var forced = document.documentElement.getAttribute("data-theme");
+    if (forced === "dark") return true;
+    if (forced === "light") return false;
+    return !!(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  }
+  var base = window.location.origin + config.monacoBase;
+  window.MonacoEnvironment = {
+    getWorkerUrl: function () {
+      return URL.createObjectURL(new Blob(["self.MonacoEnvironment={baseUrl:'" + base + "'};importScripts('" + base + "vs/base/worker/workerMain.js');"], { type: "text/javascript" }));
+    },
+  };
+  window.require.config({ paths: { vs: base + "vs" }, "vs/nls": { availableLanguages: { "*": "ja" } } });
+  window.require(["vs/editor/editor.main"], function () {
+    monacoRef = window.monaco;
+    model = monacoRef.editor.createModel("", "cpp");
+    viewer = monacoRef.editor.create(document.getElementById("replay-editor"), {
+      model: model, readOnly: true, automaticLayout: true, minimap: { enabled: false },
+      wordWrap: "on", wrappingIndent: "same", fontSize: 13, scrollBeyondLastLine: false,
+      theme: isDark() ? "vs-dark" : "vs", renderValidationDecorations: "off",
+    });
+    new MutationObserver(function () { monacoRef.editor.setTheme(isDark() ? "vs-dark" : "vs"); })
+      .observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    show();
+  });
+  slider.value = slider.max;
   show();
 })();
 </script>

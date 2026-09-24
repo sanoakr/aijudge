@@ -24,6 +24,7 @@ from aijudge_submission import FilesystemArtifactStore
 from aijudge_telemetry import configure_logging
 
 from .autosubmit import DEFAULT_LOOKBACK_HOURS, close_editor_tasks
+from .cli import RUNNER_MAX_OVERFLOW, RUNNER_POOL_SIZE
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +60,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     configure_logging("ide-close")
-    database = Database.connect(args.database_url)
+    # 1 回走って終わる処理なので、接続の枠は小さく取る（runner と同じ）。
+    database = Database.connect(
+        args.database_url, pool_size=RUNNER_POOL_SIZE, max_overflow=RUNNER_MAX_OVERFLOW
+    )
     try:
         report = close_editor_tasks(
             database,

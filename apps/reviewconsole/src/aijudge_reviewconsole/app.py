@@ -1330,6 +1330,9 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 # **教員なら直せる**（#275）。TA も 1 件ずつなら確定できるので、
                 # そこでの判断ちがいを直せる人が要る。1 件目は誰でもよい。
                 "can_correct": _is_course_instructor(console, me, context.course.id),
+                # エディタからの提出なら、その学習者の作業の記録へのリンク（ADR 0023）。
+                # **教員だけ**に出す（作業の記録は TA には開けない）。
+                "activity_href": _activity_href(console, me, context),
                 # 訂正の履歴。**何がどう変わったかを出す** ── 「直された」と
                 # だけ言われても、読み手は納得のしようがない。
                 "review_history": _review_history(console, context.run),
@@ -1938,6 +1941,17 @@ def _review_history(console, run) -> tuple:
             user = uow.identity.get_user(review.grader_id)
             out.append((review, getattr(user, "login", "") or ""))
     return tuple(out)
+
+
+def _activity_href(console, me, context) -> str | None:
+    """この提出がエディタから来ていれば、作業の記録の場所。教員でなければ None。"""
+    if not _is_course_instructor(console, me, context.course.id):
+        return None
+    with console.database.unit_of_work() as uow:
+        link = uow.ide_links.for_submission(context.submission.id)
+    if link is None:
+        return None
+    return f"/courses/{context.course.id}/activity/{context.submission.learner_id}"
 
 
 def _actor_login_of(console, record) -> str:

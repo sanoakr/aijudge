@@ -110,3 +110,16 @@ def test_labels_state_facts_not_verdicts() -> None:
 
     for label in FLAG_LABELS.values():
         assert "不正" not in label and "疑" not in label
+
+
+def test_a_mark_knows_which_problem_it_belongs_to() -> None:
+    flags = flag_events(
+        [
+            {"type": "paste", "t": 1_000, "tab": 1, "len": 400, "origin": "external"},
+            {"type": "edit", "t": 10_000, "tab": 0, "off": 0, "del": 0, "ins": "z" * 150},
+        ]
+    )
+    assert [(f.kind, f.tab) for f in flags] == [
+        (FlagKind.LARGE_EXTERNAL_PASTE, 1),
+        (FlagKind.BULK_INSERT, 0),
+    ]

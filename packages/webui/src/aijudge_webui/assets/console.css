@@ -414,14 +414,17 @@ pre.code.diff .del{display:block;background:var(--shu-soft);color:var(--ink)}
 pre.code.diff .meta{display:block;color:var(--muted)}
 pre.code.diff .same{display:block}
 
-/* IDE の作業の再生（`activity_session.html`・設計書 §7）。左に組み立てた内容、
-   右に目印（貼り付け・離席・実行・提出）の一覧。狭い画面では縦に積む。 */
+/* IDE の作業の記録（`activity_*.html`・設計書 §7）。学習者ごとの画面は問題ごとの
+   カード、再生は左に組み立てた内容（Monaco・読み取り専用）、右に目印の一覧。 */
+.activity-problem{margin:0 0 18px}
+.activity-problem h2{margin-top:0}
+.activity-numbers{display:flex;flex-wrap:wrap;gap:4px 18px}
 .replay-controls{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;margin:10px 0}
 .replay-controls input[type=range]{flex:1;min-width:220px}
 .replay-body{display:grid;grid-template-columns:3fr 2fr;gap:14px}
-.replay-code{margin:0;padding:10px;min-height:320px;max-height:70vh;overflow:auto;
-  background:var(--surface-2);border:1px solid var(--line-soft);border-radius:3px;
-  font-size:.82rem;white-space:pre}
+.replay-editor{height:min(66vh,720px);border:1px solid var(--line);border-radius:3px}
+/* いま入った文字。色だけに頼らず下線も引く。 */
+.replay-inserted{background:var(--kin-soft);border-bottom:2px solid var(--kin)}
 .replay-marks{margin:0;padding:0 0 0 1.4em;max-height:70vh;overflow:auto;font-size:.85rem}
 .replay-marks li{cursor:pointer;padding:2px 4px;border-radius:3px}
 .replay-marks li:hover{background:var(--surface-2)}

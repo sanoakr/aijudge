@@ -24,6 +24,9 @@ STATE=/var/lib/aijudge/config-check.state
 # 1 プロセスが取りうる接続数（`packages/persistence/.../engine.py`）。
 # **ここを写しているので、engine.py を変えたらここも変える。**
 PER_PROCESS=30
+# IDE の runner と受付終了時の自動提出は、枠を小さく取る（1 件ずつ順に処理する）。
+# **`apps/runner/.../cli.py` の RUNNER_POOL_SIZE + RUNNER_MAX_OVERFLOW と揃える。**
+RUNNER_PER_PROCESS=3
 
 problems=()
 
@@ -96,11 +99,14 @@ web=$(_unit_env aijudge-web.service AIJUDGE_WEB_WORKERS)
 web="${web:-1}"
 # web + review 1 + det 1 + ai N + finalize 1
 processes=$(( web + 1 + 1 + running + 1 ))
-needed=$(( processes * PER_PROCESS ))
+# IDE の runner（K 本）と受付終了時の自動提出（1）。枠が小さいので別に数える。
+runners=$(systemctl list-units 'aijudge-runner@*.service' --state=running --no-legend --plain \
+          2>/dev/null | wc -l | tr -d ' ')
+needed=$(( processes * PER_PROCESS + (runners + 1) * RUNNER_PER_PROCESS ))
 limit=$(sudo -u postgres psql -At -c 'show max_connections' 2>/dev/null \
         || psql -At -c 'show max_connections' 2>/dev/null || echo 0)
 if [ "${limit}" != "0" ] && [ "${limit}" -lt "${needed}" ]; then
-    problems+=("max_connections=${limit} が ${processes} プロセスの最悪値 ${needed} を下回る")
+    problems+=("max_connections=${limit} が ${processes} プロセスと runner ${runners} 本の最悪値 ${needed} を下回る")
 fi
 
 # 5. バックアップが読めないファイルが無いか（#344）
