@@ -409,7 +409,9 @@
   <tbody>
   {% for item in attempts %}
     <tr>
-      <td class="fit" data-label="回">{{ item.submission.attempt }}</td>
+      {# 課題の中での通し番号（版をまたぐ・progress.py）。`submission.attempt` は
+         版ごとに 1 から数えるので、版が上がった課題では「1」が重なる。 #}
+      <td class="fit" data-label="回">{{ item.number }}</td>
       <td class="fit" data-label="提出日時">{{ item.submission.submitted_at | local('%Y-%m-%d %H:%M') if item.submission.submitted_at else '—' }}</td>
       <td class="fit" data-label="得点">
         {% if item.score_ratio is not none %}
@@ -424,6 +426,9 @@
            自動確定が「教員が確認しました」として並ぶ（ADR 0010）。 #}
         <span class="pill {{ item.status_tone }}">{{ item.status_label }}</span>
         {% if item.status_detail %}<span class="desc">{{ item.status_detail }}</span>{% endif %}
+        {# 課題を訂正する前の問題文への提出。**消えたのではなく残っている**ことを
+           見せる ── 以前は版が上がると一覧から消え、出し直す学生が出た。 #}
+        {% if item.earlier_version %}<span class="pill">訂正前の問題文への提出</span>{% endif %}
       </td>
       <td class="fit"><a href="/submissions/{{ item.submission.id }}">結果を見る</a></td>
     </tr>

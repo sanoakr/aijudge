@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import Protocol, runtime_checkable
 
 from aijudge_core import ReviewState, Task, TaskVersion
@@ -45,6 +46,18 @@ class TaskRepository(Protocol):
         ...
 
     def get_version(self, version_id: TaskVersionId) -> TaskVersion | None: ...
+
+    def get_versions(
+        self, version_ids: Iterable[TaskVersionId]
+    ) -> dict[TaskVersionId, TaskVersion]:
+        """複数の版を **1 回で**引く。無い ID は結果に含めない。
+
+        学習者の画面が、自分の提出が指す版（いまの版とは限らない）を引くために
+        ある ── 版が上がった後も前の版への提出を見せるには、その提出の課題と
+        観点を知る必要がある。提出ごとに `get_version` すると一覧を開くたびに
+        提出数ぶんの問い合わせになる。
+        """
+        ...
 
     def latest_version(self, task_id: TaskId) -> TaskVersion | None: ...
 
@@ -258,6 +271,11 @@ class InMemoryTaskRepository:
 
     def get_version(self, version_id: TaskVersionId) -> TaskVersion | None:
         return self._versions.get(version_id)
+
+    def get_versions(
+        self, version_ids: Iterable[TaskVersionId]
+    ) -> dict[TaskVersionId, TaskVersion]:
+        return {vid: self._versions[vid] for vid in version_ids if vid in self._versions}
 
     def latest_version(self, task_id: TaskId) -> TaskVersion | None:
         versions = [
