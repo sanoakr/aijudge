@@ -48,7 +48,11 @@ LANGUAGES: dict[str, Language] = {
     "c": Language(
         source_name="main.c",
         # -O0 なのは、最適化で消える未定義動作を採点で拾えるようにするため。
-        compile_argv=("cc", "-std=c11", "-O0", "-o", BINARY_NAME, "main.c"),
+        # -lm は数学関数（sqrt・sin・pow など、<math.h>）のため。glibc では libm が
+        # libc と別で、無いと学習者が正しく書いてもリンクで落ちる（講義で
+        # 普通に出す関数である）。ソースより後ろに置く ── リンカは左から
+        # 未解決の記号を解くので、前に置くと効かない。
+        compile_argv=("cc", "-std=c11", "-O0", "-o", BINARY_NAME, "main.c", "-lm"),
         run_argv=(f"./{BINARY_NAME}",),
         label="C",
     ),
