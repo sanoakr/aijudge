@@ -13,7 +13,7 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .ids import CourseId, CriterionId, TaskId, TaskVersionId, UserId
+from .ids import CourseGroupId, CourseId, CriterionId, TaskId, TaskVersionId, UserId
 from .knowledge import QMatrixEntry
 
 
@@ -388,6 +388,31 @@ class Task(BaseModel):
     # 何を学内と見なすかはここに書かない ── テナント管理者が設定する
     # （`CampusNetworkSettings`・このリポジトリは公開物である）。
     campus_only: bool = False
+    # 公開（`opens_at`）までは教員にしか見せないか。**試験のための値である。**
+    #
+    # 公開前の問題セットは教員と TA の両方に見えていた（#340 の学生画面・
+    # #102 のコンソール）。**課題なら正しい** ── TA が先に読んで質問対応と
+    # 採点に備えられる。だが試験では、TA（多くは学生）が内容を先に知ること
+    # 自体が漏洩の経路になる。課題と試験を区別する値が無かった。
+    #
+    # **公開後は TA に見せる。** 学習者に出ているものであり、TA が質問に
+    # 答えて採点するには読めなければならない。値の効く区間は公開前だけ。
+    #
+    # 種別（「試験」）ではなく独立した値にしてある ── 採点保留も学内限定も
+    # この値も、それぞれ単独で要る場面がある（`docs/design/task-visibility.md`
+    # §1.3）。判定は `aijudge_core.access.may_see` の 1 か所で行う。
+    confidential_until_open: bool = False
+    # 出題先（追試など）。**空は受講者全員**（従来どおり）。複数を持てば、
+    # いずれかの名簿に入っている学習者に出す（和集合）。
+    #
+    # **最初から複数にしてある。** グループごとに別の問題セットを出す運用が
+    # 見込まれる（2026-09-24）── 「X は 1 組、Y は 2 組、共通問題は両方」を
+    # 課題ごとの指定だけで表せる。単数だと共通問題のためにグループを合成するか、
+    # 保存済みの文書を書き換える移行が要る。
+    #
+    # 出題先は**学習者にだけ効く**（`aijudge_core.access.may_see`）。教員・TA は
+    # 名簿に関係なく見える ── TA が追試の質問に答えられないと困る。
+    audience_group_ids: tuple[CourseGroupId, ...] = ()
     # 出題を取り下げたか。**削除ではない。**
     #
     # 採点結果は課題版を指しているので（P8）、提出のある課題を消すと過去の
@@ -460,6 +485,14 @@ class Task(BaseModel):
         if self.due_at is not None and now > self.due_at:
             return SubmissionWindow.LATE
         return SubmissionWindow.OPEN
+
+    def before_open_at(self, now: datetime) -> bool:
+        """公開（`opens_at`）より前か。**空なら公開済み**として扱う（従来どおり）。
+
+        提出開始（`submissions_open_at`）とは別の時刻である。公開から提出開始
+        までは「予告」で、学習者は問題文を読めるが出せない。
+        """
+        return self.opens_at is not None and now < self.opens_at
 
     @property
     def unit_label(self) -> str:

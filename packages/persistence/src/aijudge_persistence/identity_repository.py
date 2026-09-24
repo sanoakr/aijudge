@@ -19,12 +19,13 @@ from sqlalchemy.orm import Session as DbSession
 from aijudge_core import (
     Aggregation,
     Course,
+    CourseGroup,
     Enrollment,
     LatePenaltyStep,
     Role,
     term_sort_key,
 )
-from aijudge_core.ids import ApiTokenId, CourseId, SessionId, TenantId, UserId
+from aijudge_core.ids import ApiTokenId, CourseGroupId, CourseId, SessionId, TenantId, UserId
 from aijudge_identity.models import ApiToken, Session, User, UserState
 from aijudge_identity.network import CampusNetworkSettings
 from aijudge_identity.oidc import DEFAULT_LOGIN_LABEL, OidcSettings
@@ -32,6 +33,8 @@ from aijudge_identity.oidc import DEFAULT_LOGIN_LABEL, OidcSettings
 from .schema import (
     ApiTokenRow,
     CampusNetworkRow,
+    CourseGroupMemberRow,
+    CourseGroupRow,
     CourseRow,
     EnrollmentRow,
     OidcSettingsRow,
@@ -356,7 +359,12 @@ class SqlIdentityRepository:
         return _in_term_order(_course(row) for row in rows if row is not None)  # type: ignore[misc]
 
     def delete_course(self, course_id: CourseId) -> None:
-        """コースと受講登録を消す。**提出が無いことは呼び出し側が確かめる**（#156）。"""
+        """コースと受講登録を消す。**提出が無いことは呼び出し側が確かめる**（#156）。
+
+        名簿も消す。`course_groups` はコースへの外部キーを持つので、残すと消せない。
+        """
+        for group in self.list_groups(course_id):
+            self.delete_group(group.id)
         self._session.execute(
             delete(EnrollmentRow).where(EnrollmentRow.course_id == str(course_id))
         )
@@ -448,6 +456,81 @@ class SqlIdentityRepository:
             for row in rows
         )
 
+    # -- 出題先の名簿 --
+
+    def save_group(self, group: CourseGroup) -> None:
+        row = self._session.get(CourseGroupRow, str(group.id))
+        if row is None:
+            self._session.add(
+                CourseGroupRow(
+                    id=str(group.id),
+                    tenant_id=str(group.tenant_id),
+                    course_id=str(group.course_id),
+                    name=group.name,
+                )
+            )
+        else:
+            row.name = group.name
+        # 名前の重複は一意制約がここで拒む（`uq_course_groups_name`）。
+        self._session.flush()
+
+    def get_group(self, group_id: CourseGroupId) -> CourseGroup | None:
+        row = self._session.get(CourseGroupRow, str(group_id))
+        return None if row is None else _group(row)
+
+    def find_group(self, course_id: CourseId, name: str) -> CourseGroup | None:
+        row = self._session.execute(
+            select(CourseGroupRow).where(
+                CourseGroupRow.course_id == str(course_id),
+                CourseGroupRow.name == name.strip(),
+            )
+        ).scalar_one_or_none()
+        return None if row is None else _group(row)
+
+    def list_groups(self, course_id: CourseId) -> tuple[CourseGroup, ...]:
+        rows = self._session.execute(
+            select(CourseGroupRow)
+            .where(CourseGroupRow.course_id == str(course_id))
+            .order_by(CourseGroupRow.name)
+        ).scalars()
+        return tuple(_group(row) for row in rows)
+
+    def delete_group(self, group_id: CourseGroupId) -> None:
+        self._session.execute(
+            delete(CourseGroupMemberRow).where(CourseGroupMemberRow.group_id == str(group_id))
+        )
+        self._session.execute(delete(CourseGroupRow).where(CourseGroupRow.id == str(group_id)))
+        self._session.flush()
+
+    def set_group_members(self, group_id: CourseGroupId, user_ids: frozenset[UserId]) -> None:
+        self._session.execute(
+            delete(CourseGroupMemberRow).where(CourseGroupMemberRow.group_id == str(group_id))
+        )
+        self._session.add_all(
+            CourseGroupMemberRow(group_id=str(group_id), user_id=str(user_id))
+            for user_id in sorted(user_ids)
+        )
+        self._session.flush()
+
+    def group_members(self, group_id: CourseGroupId) -> frozenset[UserId]:
+        rows = self._session.execute(
+            select(CourseGroupMemberRow.user_id).where(
+                CourseGroupMemberRow.group_id == str(group_id)
+            )
+        ).scalars()
+        return frozenset(UserId(user_id) for user_id in rows)
+
+    def groups_of(self, course_id: CourseId, user_id: UserId) -> frozenset[CourseGroupId]:
+        rows = self._session.execute(
+            select(CourseGroupMemberRow.group_id)
+            .join(CourseGroupRow, CourseGroupRow.id == CourseGroupMemberRow.group_id)
+            .where(
+                CourseGroupMemberRow.user_id == str(user_id),
+                CourseGroupRow.course_id == str(course_id),
+            )
+        ).scalars()
+        return frozenset(CourseGroupId(group_id) for group_id in rows)
+
 
 def _user(row: UserRow | None) -> User | None:
     if row is None:
@@ -523,3 +606,12 @@ def _steps_to_json(course: Course) -> list[dict[str, float]] | None:
     if not course.late_penalty_steps:
         return None
     return [step.model_dump() for step in course.late_penalty_steps]
+
+
+def _group(row: CourseGroupRow) -> CourseGroup:
+    return CourseGroup(
+        id=CourseGroupId(row.id),
+        tenant_id=TenantId(row.tenant_id),
+        course_id=CourseId(row.course_id),
+        name=row.name,
+    )

@@ -86,6 +86,7 @@ from aijudge_admin import (
     template_of,
     try_settings,
 )
+from aijudge_admin import groups as audience
 from aijudge_admin.bundles import MAX_ARCHIVE_BYTES
 from aijudge_admin.course_definition import course_template
 from aijudge_admin.drafting import TaskDrafter
@@ -119,6 +120,7 @@ from aijudge_core import (
     DEFAULT_UPLOAD_SUFFIXES,
     DIVISIONS,
     HUMAN_SCORED,
+    MAX_GROUP_NAME_LENGTH,
     MIN_JUSTIFICATION_LENGTH,
     SUFFIX_GROUPS,
     Aggregation,
@@ -131,6 +133,7 @@ from aijudge_core import (
     TestCase,
     campus_access,
     format_term,
+    may_see,
     new_id,
     normalize_suffixes,
     offered_years,
@@ -821,6 +824,9 @@ SAVED_MESSAGES: dict[str, str] = {
     "restored": "出題の取り下げを取り消しました",
     "campus_networks": "学内ネットワークを保存しました",
     "campus_only": "この問題セットの受付範囲を変えました（セット内の全課題に反映）",
+    "confidential": "この問題セットを公開前に誰に見せるかを変えました（セット内の全課題に反映）",
+    "audience": "この問題セットの出題先を変えました（セット内の全課題に反映）",
+    "group_deleted": "名簿を消しました",
     # **版は上がらない。** 日程は課題の内容ではないので、直しても過去の
     # 採点基準は変わらない（ADR 0013・P8 の対象外）。
     "task_schedule": "この課題の日程を保存しました（版は上がりません）",
@@ -1416,6 +1422,12 @@ def _parse_minutes(raw: str) -> int | None:
     if minutes <= 0:
         raise HTTPException(status_code=400, detail="猶予は 1 分以上にしてください")
     return minutes
+
+
+def _split_logins(text: str) -> list[str]:
+    """名簿の入力を login の並びにする。**改行・空白・カンマのどれで区切ってもよい**
+    ── 表計算ソフトの列を貼ると改行、メールの宛先を貼るとカンマになる。"""
+    return [part for part in re.split(r"[\s,、]+", text) if part]
 
 
 def _first_error(exc: ValidationError) -> str:
@@ -2593,7 +2605,8 @@ def register(templates) -> APIRouter:
         pending = pending_counts(console.database, course.id)
         now = datetime.now(UTC)
         with console.database.unit_of_work() as uow:
-            units = load_units(uow, course, pending=pending, now=now)
+            # TA には公開前の秘匿の課題（試験）を出さない（`may_see`）。
+            units = load_units(uow, course, pending=pending, now=now, viewer=role)
         # **知らない鍵でも 404 にしない。** 課題を 1 問も持たない回は
         # 「まだ何も無い回」であって存在しない回ではなく、ここが最初の
         # 1 問を足す場所になる。404 にすると新しい回を作る導線が無くなる。
@@ -2699,6 +2712,9 @@ def register(templates) -> APIRouter:
                 # いない**ので、そう書く ── 切り替えただけで守られていると
                 # 読まれるのが、いちばん高くつく誤解である。
                 "campus_configured": _campus_configured(console, me),
+                # 出題先の名簿（追試など）。**名簿そのものは別の画面で作る**
+                # （`/manage/courses/{id}/groups`）── ここは選ぶだけ。
+                "groups": _groups_of(console, course),
                 # 試験の一括採点（#67）。待機中の件数と、落ちたジョブ。
                 **_exam_state(console, course, group, now),
                 "min_reason": MIN_JUSTIFICATION_LENGTH,
@@ -3143,6 +3159,144 @@ def register(templates) -> APIRouter:
             unit,
             update={"campus_only": bool(campus_only.strip())},
             saved="campus_only",
+        )
+
+    @router.post("/courses/{course_id}/units/{unit}/confidential")
+    def set_unit_confidential(
+        request: Request,
+        course_id: str,
+        unit: str,
+        confidential: Annotated[str, Form()] = "",
+    ) -> Response:
+        """**問題セットを公開まで教員だけに見せるかを切り替える**（試験）。
+
+        公開前の問題セットは TA にも見えている（#340・#102）── 課題なら
+        TA が先に読んで備えられるので正しいが、試験では TA が内容を先に
+        知ること自体が漏洩の経路になる。**公開後は TA にも見える**
+        （`aijudge_core.access`）。
+
+        学内限定と同じく、値はセット単位で決めて全課題に入れる（`_update_unit`）。
+        監査ログに残る ── 誰に何が見えるかを変える操作である。
+        """
+        return _update_unit(
+            request,
+            course_id,
+            unit,
+            update={"confidential_until_open": bool(confidential.strip())},
+            saved="confidential",
+        )
+
+    @router.post("/courses/{course_id}/units/{unit}/audience")
+    def set_unit_audience(
+        request: Request,
+        course_id: str,
+        unit: str,
+        groups: Annotated[list[str] | None, Form()] = None,
+    ) -> Response:
+        """**問題セットの出題先を置き換える**（追試など）。何も選ばなければ受講者全員。
+
+        API（`PUT /api/courses/{id}/units/{unit}/audience`）と**同じ関数**を通す
+        （`aijudge_admin.groups.set_audience`）── 名簿の検証と監査の記録を経路
+        ごとに書かない。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+        key = _normalized_unit(unit)
+        with console.database.unit_of_work() as uow:
+            tasks = [t for t in uow.tasks.list_for_course(course.id) if unit_key(t) == key]
+            try:
+                audience.set_audience(
+                    uow,
+                    recorder_for(uow, request, me),
+                    course=course,
+                    tasks=tasks,
+                    names=groups or [],
+                    unit_label=unquote(key),
+                )
+            except audience.GroupError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            uow.commit()
+        return RedirectResponse(
+            f"/manage/courses/{course_id}/units/{key}?saved=audience#saved", status_code=303
+        )
+
+    @router.get("/courses/{course_id}/groups", response_class=HTMLResponse)
+    def groups_page(request: Request, course_id: str, saved: str = "") -> Response:
+        """出題先の名簿。**受講者の画面とは別にする** ── 受講は「このコースの
+        一員か」、名簿は「そのうち誰に出すか」で、別の問いである。"""
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        return _render_groups(request, me, course, saved=saved)
+
+    @router.post("/courses/{course_id}/groups")
+    def save_group(
+        request: Request,
+        course_id: str,
+        name: Annotated[str, Form()] = "",
+        members: Annotated[str, Form()] = "",
+    ) -> Response:
+        """名簿を作る・丸ごと置き換える。1 行に 1 つの login（空白・カンマ区切りも可）。
+
+        **知らない login が 1 つでもあれば何も保存しない。** 画面は入力を残した
+        まま、どれが知らない login かを言って突き返す ── 一部だけ登録されると、
+        漏れた学生に気づけない。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+        logins = _split_logins(members)
+        with console.database.unit_of_work() as uow:
+            try:
+                result = audience.replace_group_members(
+                    uow, recorder_for(uow, request, me), course=course, name=name, logins=logins
+                )
+            except audience.UnknownLogins as exc:
+                return _render_groups(
+                    request,
+                    me,
+                    course,
+                    error=str(exc),
+                    draft={"name": name, "members": members, "unknown": exc.logins},
+                    status_code=400,
+                )
+            except ValidationError as exc:
+                # 名前が空・長すぎる（`CourseGroup` の検証）。
+                return _render_groups(
+                    request,
+                    me,
+                    course,
+                    error=f"グループ名を確かめてください（{_first_error(exc)}）",
+                    draft={"name": name, "members": members, "unknown": ()},
+                    status_code=400,
+                )
+            uow.commit()
+        return _render_groups(request, me, course, result=result)
+
+    @router.post("/courses/{course_id}/groups/delete")
+    def remove_group(
+        request: Request, course_id: str, name: Annotated[str, Form()] = ""
+    ) -> Response:
+        """名簿を消す。**出題先として使われていれば消さない**（先に出題先から外す）。"""
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+        with console.database.unit_of_work() as uow:
+            try:
+                audience.delete_group(uow, recorder_for(uow, request, me), course=course, name=name)
+            except audience.GroupError as exc:
+                return _render_groups(request, me, course, error=str(exc), status_code=409)
+            uow.commit()
+        return RedirectResponse(
+            f"/manage/courses/{course_id}/groups?saved=group_deleted", status_code=303
         )
 
     @router.post("/courses/{course_id}/units/{unit}/schedule")
@@ -4600,6 +4754,10 @@ def register(templates) -> APIRouter:
             task = uow.tasks.get_task(TaskId(task_id))
             version = uow.tasks.latest_version(TaskId(task_id))
         if task is None or version is None or task.course_id != CourseId(course_id):
+            raise HTTPException(status_code=404, detail="課題が見つかりません")
+        # **公開前の試験は TA に見せない**（`may_see`）。読むだけの画面でも、
+        # 問題文とテストケースが出る。
+        if not may_see(task, role, now=datetime.now(UTC)):
             raise HTTPException(status_code=404, detail="課題が見つかりません")
         # **TA は読むだけ**（#102）。課題文は描いて出す ── Markdown のまま
         # 出すと、採点しながら読む相手にとっては学習者に見えている画面と
@@ -6067,6 +6225,47 @@ def register(templates) -> APIRouter:
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
         return _kc_page(request, me, course, saved=saved)
+
+    def _groups_of(console, course) -> tuple:
+        with console.database.unit_of_work() as uow:
+            return audience.list_groups(uow, course)
+
+    def _render_groups(
+        request: Request,
+        me: Principal,
+        course: Course,
+        *,
+        saved: str = "",
+        result=None,
+        error: str | None = None,
+        draft: dict | None = None,
+        status_code: int = 200,
+    ) -> Response:
+        console = _console(request)
+        with console.database.unit_of_work() as uow:
+            rows = [
+                {
+                    "summary": summary,
+                    "members": audience.members_of(uow, summary.group),
+                }
+                for summary in audience.list_groups(uow, course)
+            ]
+        return templates.TemplateResponse(
+            request,
+            "manage_groups.html",
+            {
+                "me": me,
+                "course": course,
+                "section": {"label": "出題先の名簿", "href": f"/manage/courses/{course.id}/groups"},
+                "rows": rows,
+                "result": result,
+                "error": error,
+                "draft": draft,
+                "saved": SAVED_MESSAGES.get(saved),
+                "max_name": MAX_GROUP_NAME_LENGTH,
+            },
+            status_code=status_code,
+        )
 
     def _campus_configured(console, me) -> bool:
         """テナントに学内の範囲が 1 件でも入っているか（#333）。"""

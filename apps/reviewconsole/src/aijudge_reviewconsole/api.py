@@ -1,4 +1,4 @@
-"""課題を足す API。**非対話の呼び出し元のための入口。**
+"""課題を足す API・出題先の名簿を登録する API。**非対話の呼び出し元のための入口。**
 
 既存コースの初回移行は、エージェントがディレクトリを読んでここに流し込む。
 移行元の形式（Sharif Judge のディレクトリ）を知っているのは呼び出し側で、
@@ -16,15 +16,20 @@ API は Cookie を見ないので、その経路が最初から無い。
 from __future__ import annotations
 
 from typing import Annotated
+from urllib.parse import quote, unquote
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
+from pydantic import BaseModel, Field
 
 from aijudge_admin import AdminError, save_task
+from aijudge_admin import groups as audience
 from aijudge_authoring import TaskSpec
 from aijudge_core import Role
 from aijudge_core.ids import CourseId
 from aijudge_identity import AuthService, PermissionDenied, Principal
+
+from .audit_context import recorder_for
+from .overview import unit_key
 
 BEARER = "Bearer "
 
@@ -43,6 +48,18 @@ class TaskResponse(BaseModel):
     test_cases: int
     auto_graded: bool
     criteria: list[str]
+
+
+class MembersRequest(BaseModel):
+    """名簿を**丸ごと**置き換える要求。login（学籍番号）の並び。"""
+
+    members: list[str] = Field(default_factory=list)
+
+
+class AudienceRequest(BaseModel):
+    """問題セットの出題先を置き換える要求。**空は受講者全員。**"""
+
+    groups: list[str] = Field(default_factory=list)
 
 
 def _console(request: Request):
@@ -176,6 +193,110 @@ def register() -> APIRouter:
                     }
                 )
         return sorted(out, key=lambda row: (row["session"] or 10**6, row["position"] or 10**6))
+
+    # -- 出題先の名簿（`docs/design/task-visibility.md` §3.5）--------------
+    #
+    # グループは**名前**で指す。スクリプトが ID を引き直さずに済む。
+    # 画面（`/manage`）と同じ関数（`aijudge_admin.groups`）を通るので、
+    # 名簿の検証と監査の記録は経路によらず同じになる。
+
+    @router.get("/courses/{course_id}/groups")
+    def list_groups(request: Request, course_id: str, me: Caller) -> list[dict[str, object]]:
+        console = _console(request)
+        course = _require_instructor(console, me, CourseId(course_id))
+        with console.database.unit_of_work() as uow:
+            return [
+                {"name": row.group.name, "members": row.members, "used_by": row.used_by}
+                for row in audience.list_groups(uow, course)
+            ]
+
+    @router.get("/courses/{course_id}/groups/{name}")
+    def get_group(request: Request, course_id: str, name: str, me: Caller) -> dict[str, object]:
+        console = _console(request)
+        course = _require_instructor(console, me, CourseId(course_id))
+        with console.database.unit_of_work() as uow:
+            group = uow.identity.find_group(course.id, name)
+            if group is None:
+                raise HTTPException(status_code=404, detail=f"グループ {name!r} はありません")
+            return {"name": group.name, "members": list(audience.members_of(uow, group))}
+
+    @router.put("/courses/{course_id}/groups/{name}")
+    def put_group(
+        request: Request, course_id: str, name: str, body: MembersRequest, me: Caller
+    ) -> dict[str, object]:
+        """作る（無ければ）・名簿を丸ごと置き換える。**冪等。**
+
+        知らない login が 1 つでもあれば**何も保存しない**（422）。一部だけ
+        登録されると、漏れた学生に気づけない。
+        """
+        console = _console(request)
+        course = _require_instructor(console, me, CourseId(course_id))
+        with console.database.unit_of_work() as uow:
+            try:
+                result = audience.replace_group_members(
+                    uow,
+                    recorder_for(uow, request, me),
+                    course=course,
+                    name=name,
+                    logins=body.members,
+                )
+            except audience.UnknownLogins as exc:
+                raise HTTPException(
+                    status_code=422,
+                    detail={"message": str(exc), "unknown_logins": list(exc.logins)},
+                ) from exc
+            except ValueError as exc:
+                # 名前が長すぎる・空（`CourseGroup` の検証）。
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            uow.commit()
+        return {
+            "name": result.group.name,
+            "created": result.created,
+            "added": list(result.added),
+            "removed": list(result.removed),
+            "members": list(result.members),
+        }
+
+    @router.delete("/courses/{course_id}/groups/{name}", status_code=204)
+    def delete_group(request: Request, course_id: str, name: str, me: Caller) -> Response:
+        """消す。**出題先として使われていれば 409**（先に出題先から外す）。"""
+        console = _console(request)
+        course = _require_instructor(console, me, CourseId(course_id))
+        with console.database.unit_of_work() as uow:
+            try:
+                audience.delete_group(uow, recorder_for(uow, request, me), course=course, name=name)
+            except audience.GroupNotFound as exc:
+                raise HTTPException(status_code=404, detail=str(exc)) from exc
+            except audience.GroupInUse as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            uow.commit()
+        return Response(status_code=204)
+
+    @router.put("/courses/{course_id}/units/{unit}/audience")
+    def put_audience(
+        request: Request, course_id: str, unit: str, body: AudienceRequest, me: Caller
+    ) -> dict[str, object]:
+        """問題セットの全課題の出題先を置き換える。`unit` は画面の URL と同じ鍵。"""
+        console = _console(request)
+        course = _require_instructor(console, me, CourseId(course_id))
+        key = quote(unquote(unit), safe="")
+        with console.database.unit_of_work() as uow:
+            tasks = [t for t in uow.tasks.list_for_course(course.id) if unit_key(t) == key]
+            try:
+                saved = audience.set_audience(
+                    uow,
+                    recorder_for(uow, request, me),
+                    course=course,
+                    tasks=tasks,
+                    names=body.groups,
+                    unit_label=unquote(key),
+                )
+            except audience.GroupNotFound as exc:
+                raise HTTPException(status_code=404, detail=str(exc)) from exc
+            except audience.GroupError as exc:
+                raise HTTPException(status_code=404, detail=str(exc)) from exc
+            uow.commit()
+        return {"unit": unquote(key), "tasks": len(saved), "groups": body.groups}
 
     return router
 

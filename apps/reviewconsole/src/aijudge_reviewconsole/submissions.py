@@ -170,8 +170,14 @@ class Filters:
     role: str = ""
     state: str = ""
     adopted: bool = False
+    # 見る人に見せない課題（`aijudge_core.may_see` の外）。**URL からは入らない**
+    # ── 画面が見る人の役割から決めて渡す。TA に、公開前の秘匿の課題（試験）
+    # への教員の試しの提出を出さないためにある。試しの提出は模範解答に近い。
+    hidden_tasks: frozenset[str] = frozenset()
 
     def matches(self, row: Row) -> bool:
+        if str(row.task.id) in self.hidden_tasks:
+            return False
         if self.unit and row.unit != self.unit:
             return False
         if self.task and str(row.task.id) != self.task:
@@ -504,12 +510,15 @@ def _task_ids(uow: object, course: Course, filters: Filters) -> list[object] | N
     **課題で返す。課題版ではない。** 提出は出したときの版を指すので、
     最新版だけで絞ると、課題を直す前に出した提出が一覧から消える。
     """
-    if not filters.unit and not filters.task:
+    if not filters.unit and not filters.task and not filters.hidden_tasks:
         return None
+    # 見せない課題もここで外す。一覧・図・頁数が同じ母数から作られるので、
+    # 読んだ後で落とすと頁の件数と総数が食い違う（#255 と同じ理由）。
     return [
         task.id
         for task in uow.tasks.list_for_course(course.id)  # type: ignore[attr-defined]
-        if not (filters.task and str(task.id) != filters.task)
+        if str(task.id) not in filters.hidden_tasks
+        and not (filters.task and str(task.id) != filters.task)
         and not (filters.unit and unit_key(task) != filters.unit)
     ]
 
