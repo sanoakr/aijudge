@@ -7,6 +7,7 @@ TaskVersion を不変にしているのは採点の再現性（P8）のため。
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import datetime
 from enum import StrEnum
 from typing import Self
@@ -224,7 +225,20 @@ class TaskVersion(BaseModel):
     aggregation: Aggregation | None = None
     test_cases: tuple[TestCase, ...] = ()
     q_matrix: tuple[QMatrixEntry, ...] = ()
+    # **配点**（2026-09-25 決定）。提出の得点は「割合 × この値」で、問題セットの
+    # 合計とクリアの判定に使う。**版に付く** ── 配点を変えるには版を上げる。
+    # 教員が配点を下げても、前の版で取った点は下がらない（学生にとって公平）。
+    # 版をまたいだ採用は点数で比べる。
     max_score: float = Field(gt=0.0)
+    # この版の `max_score` を**配点として書いたか**。配点の機能より前に作られた版は
+    # 既定の 100 が入っているだけで、一度も点数に使われていない（偽のまま読まれる）。
+    # そうした版は、その課題で最初に配点を書いた版の値で数える
+    # （`effective_max_score`）── 既出の問題にあとから配点を入れても、学生に
+    # 見せていたのは割合だけなので、以前の提出もその配点で数えて揃える。
+    #
+    # **不変性の比較から外す**（`aijudge_authoring.VOLATILE_FIELDS`）。外さないと、
+    # 既存の版を同じ内容で入れ直すたびに「内容が違う」になり、版が増えるか断られる。
+    points_declared: bool = False
     allow_handwriting: bool = False
     # 書き起こしを**学習者に確認させるか**（ADR 0018: 採点のされ方は課題が決める）。
     #
@@ -440,6 +454,11 @@ class Task(BaseModel):
     # できなくなる）── 下の `_check_answer_paths` が止める。切ったときの境界は
     # 提出の受付（学生画面の関門）で、画面から欄を消すだけでは境界にならない（#146）。
     file_upload: bool = True
+    # 問題セットのクリア点（2026-09-25 決定）。**問題セットの値**で、学内限定と同じく
+    # 課題が持つが決めるのはセット単位（全課題に同じ値）。セット内の各問題の得点
+    # （割合 × 配点・`effective_max_score`）の合計がこの値以上ならクリア。
+    # None はクリアの条件なし（従来どおり）。表示だけに使い、採点は変えない。
+    clear_points: float | None = Field(default=None, gt=0.0)
     # 出題先（追試など）。**空は受講者全員**（従来どおり）。複数を持てば、
     # いずれかの名簿に入っている学習者に出す（和集合）。
     #
@@ -559,3 +578,43 @@ class Task(BaseModel):
             self.unit or "",
             self.position if self.position is not None else 10**6,
         )
+
+
+def effective_max_score(version: TaskVersion, history: Iterable[TaskVersion]) -> float:
+    """この版の提出を数えるときの配点。
+
+    配点を書いた版（`points_declared`）はその値。書いていない版は:
+
+    - それより前に配点を書いた版があれば、**直近のもの**の値（書き忘れた訂正で
+      配点が既定の 100 に戻らない）
+    - 無ければ、その課題で**最初に**配点を書いた版の値（配点の機能より前の提出を、
+      あとから入れた配点で揃える。学生に見せていたのは割合だけ）
+    - どの版にも無ければ、その版の値（既定 100）
+
+    `history` はその課題の版（順不同・`version` を含んでいてよい）。
+    """
+    if version.points_declared:
+        return version.max_score
+    declared = sorted(
+        (v for v in history if v.task_id == version.task_id and v.points_declared),
+        key=lambda v: v.version,
+    )
+    if not declared:
+        return version.max_score
+    before = [v for v in declared if v.version < version.version]
+    return (before[-1] if before else declared[0]).max_score
+
+
+def max_scores_by_version(versions: Iterable[TaskVersion]) -> dict[TaskVersionId, float]:
+    """版 → その版の提出を数える配点（`effective_max_score`）。課題が混ざっていてよい。
+
+    一覧（課題数 × 版数）で配点を引くたびに履歴を渡し直さないための表。
+    """
+    by_task: dict[TaskId, list[TaskVersion]] = {}
+    for version in versions:
+        by_task.setdefault(version.task_id, []).append(version)
+    return {
+        version.id: effective_max_score(version, history)
+        for history in by_task.values()
+        for version in history
+    }

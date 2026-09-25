@@ -104,6 +104,10 @@ class UnitGroup:
     # 偽なら「エディタだけ」。混ざりは別に持つ。
     file_upload: bool = True
     file_upload_mixed: bool = False
+    # クリア点（2026-09-25）。**全課題で揃っていればその値**、ばらついていれば
+    # いちばん高い値にして `clear_points_mixed` を立てる（学生側と同じ採り方）。
+    clear_points: float | None = None
+    clear_points_mixed: bool = False
     # エディタの補完（設計書 §5.3）。全課題が入なら真。混ざりは別に持つ。
     completion: bool = False
     completion_mixed: bool = False
@@ -228,6 +232,11 @@ def load_units(
                 editor_mixed=len({task.answer_mode for task in tasks}) > 1,
                 file_upload=all(task.file_upload for task in tasks),
                 file_upload_mixed=len({task.file_upload for task in tasks}) > 1,
+                clear_points=max(
+                    (task.clear_points for task in tasks if task.clear_points is not None),
+                    default=None,
+                ),
+                clear_points_mixed=len({task.clear_points for task in tasks}) > 1,
                 completion=bool(tasks) and all(task.editor_completion for task in tasks),
                 completion_mixed=len({task.editor_completion for task in tasks}) > 1,
             )

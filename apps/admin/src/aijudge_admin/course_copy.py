@@ -188,7 +188,9 @@ def _copy_tasks(
                     # 全課題が締切済みになる。
                     opens_at=None,
                     due_at=None,
-                    max_score=version.max_score,
+                    # 配点は**書かれていたときだけ**写す（写すと既定の 100 まで
+                    # 「書いた」ことになる）。
+                    **({"max_score": version.max_score} if version.points_declared else {}),
                     aggregation=version.aggregation,
                     reference_solution=version.reference_solution,
                     test_cases=_test_cases(version),

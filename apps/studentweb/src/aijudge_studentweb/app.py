@@ -1626,6 +1626,10 @@ def _group_by_unit(
         marks = [(progress or {}).get(version.id) for _task, version in group["tasks"]]
         group["unsubmitted"] = sum(1 for m in marks if m is None or not m.count)
         group["grading"] = sum(1 for m in marks if m is not None and m.grading)
+        # **問題セットの合計とクリア**（2026-09-25）。得点は「割合 × 配点」で、配点は
+        # 提出が指す版の値（`progress.py`）。合計は上限で切らない ── 配点を下げる前の
+        # 版で取った点を削ることになる。満点はいまの版の配点の和。
+        group.update(_set_points(group["tasks"], marks))
         group["seconds_to_due"] = (
             None if group["due_at"] is None else int((group["due_at"] - moment).total_seconds())
         )
@@ -1892,6 +1896,46 @@ def _previews_unopened_sets(role: Role) -> bool:
     広げるかは、#340 とは別に決める。
     """
     return role in (Role.INSTRUCTOR, Role.ASSISTANT)
+
+
+def _set_points(tasks, marks) -> dict[str, object]:
+    """問題セットの合計点・満点・クリア点・クリアか・暫定か。
+
+    **確定していない点を含む合計は暫定**と示す ── AI の判定は教員の確認で
+    下がりうる。点を伏せている問題（保留・採点中）は合計に入れず、そのことも
+    暫定として示す（一部だけの合計を完成した合計に見せない・P2）。
+    クリア点は問題セットの値（`Task.clear_points`、全課題で同じ値）。揃って
+    いなければいちばん高い値を採る ── 低い方を採ると、教員の意図より易しく
+    クリアを出してしまう。
+    """
+    total = 0.0
+    full = 0.0
+    provisional = False
+    for mark in marks:
+        if mark is None:
+            continue
+        full += mark.max_points
+        best = mark.best_points
+        if best is not None:
+            total += best
+            provisional = provisional or not mark.best_confirmed
+        if mark.grading or mark.withheld:
+            provisional = True
+    clears = [task.clear_points for task, _version in tasks if task.clear_points is not None]
+    clear = max(clears) if clears else None
+    # 合計を点数で出すのは、**セットの全問題に配点が入っているときだけ**。入って
+    # いない問題があるうちは、既定の 100 を混ぜた合計になるので出さない（従来どおり
+    # 割合だけ）。クリア点が決まっていれば、判定と合計はその数え方で出す。
+    shown = [mark for mark in marks if mark is not None]
+    all_pointed = bool(shown) and all(mark.pointed for mark in shown)
+    return {
+        "points_shown": all_pointed or clear is not None,
+        "points_total": total,
+        "points_full": full,
+        "clear_points": clear,
+        "cleared": clear is not None and total >= clear,
+        "points_provisional": provisional,
+    }
 
 
 def _role_in(app_state: StudentApp, course_id: CourseId, user_id: UserId) -> Role:

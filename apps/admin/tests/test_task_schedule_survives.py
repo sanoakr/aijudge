@@ -216,6 +216,7 @@ KEPT = {
     "answer_mode",
     "editor_completion",
     "file_upload",
+    "clear_points",
 }
 # 版を保存する側が決める（`save_task` は触らない）。
 DECIDED_ELSEWHERE = {"current_version_id"}
@@ -319,3 +320,16 @@ def test_revising_a_task_keeps_it_editor_only(world) -> None:
     with database.unit_of_work() as uow:
         after = uow.tasks.get_task(saved.task.id)
     assert after.file_upload is False, "直したらファイルの提出が戻っている"
+
+
+def test_revising_a_task_keeps_its_clear_points(world) -> None:
+    """問題セットのクリア点は、課題を 1 つ直しても外れない。"""
+    database, course = world
+    saved = _save(database, course, "本文")
+    _schedule_the_unit(database, saved.task.id, clear_points=60.0)
+
+    _save(database, course, "本文（誤字を直した）")
+
+    with database.unit_of_work() as uow:
+        after = uow.tasks.get_task(saved.task.id)
+    assert after.clear_points == 60.0, "直したらクリア点が外れている"

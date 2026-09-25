@@ -49,7 +49,7 @@ from aijudge_ide import (
 )
 
 from .audit_context import recorder_for
-from .submissions import adopted_ids
+from .submissions import adopted_ids, version_max_scores
 
 # 行動記録の本体の置き場所（web と同じ変数・`aijudge_studentweb.cli`）。
 ENV_ACTIVITY_DIR = "AIJUDGE_ACTIVITY_DIR"
@@ -169,7 +169,7 @@ def _submissions(console, course, learner_id: UserId) -> dict[str, dict[str, Any
     """
     with console.database.unit_of_work() as uow:
         rows = uow.submissions.scored_for_course(course.id, learner_ids=[learner_id])
-        adopted = adopted_ids(rows)
+        adopted = adopted_ids(rows, version_max_scores(uow, rows))
         origins = {
             str(row.submission_id): link.origin.value
             for row in rows

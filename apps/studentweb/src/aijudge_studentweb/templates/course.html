@@ -51,6 +51,16 @@
     {% if unit.unsubmitted %}<span class="pill attn">未提出 {{ unit.unsubmitted }}</span>
     {% else %}<span>すべて提出済み</span>{% endif %}
     {% if unit.grading %}<span class="pill">採点中 {{ unit.grading }}</span>{% endif %}
+    {# 問題セットの合計とクリア（2026-09-25）。得点は割合 × 配点（progress.py）。
+       確定していない点を含む合計は暫定と添える。 #}
+    {% if unit.points_shown %}
+    <span>合計 <strong>{{ '%g' | format(unit.points_total | round(1)) }}</strong> / {{ '%g' | format(unit.points_full | round(1)) }} 点
+      {%- if unit.points_provisional %}（暫定）{% endif %}</span>
+    {% endif %}
+    {% if unit.clear_points is not none %}
+      {% if unit.cleared %}<span class="pill ok">クリア{% if unit.points_provisional %}（暫定）{% endif %}</span>
+      {% else %}<span class="desc">クリアまであと {{ '%g' | format((unit.clear_points - unit.points_total) | round(1)) }} 点</span>{% endif %}
+    {% endif %}
   </span>
 </h3>
 </summary>
@@ -70,7 +80,7 @@
     <th class="fit">問</th><th class="grow">課題</th>
     {# 提出回数と採用される点。**一覧に出す。** 出さないと、学習者は自分の
        到達点を知るのに課題を 1 つずつ開くことになる（progress.py）。 #}
-    <th class="fit">提出</th><th class="fit">得点</th><th class="fit"></th>
+    <th class="fit">配点</th><th class="fit">提出</th><th class="fit">得点</th><th class="fit"></th>
   </tr></thead>
   <tbody>
   {% for task, version in unit.tasks %}
@@ -84,6 +94,7 @@
         {# 学内限定（#333）。**一覧にも出す** ── 開くまで分からないと、
            学外に居るときに何が出せるのかが読み取れない。 #}
         {%- if task.campus_only %} <span class="pill attn">学内のみ</span>{% endif %}</td>
+      <td class="fit" data-label="配点">{% if p.pointed %}{{ '%g' | format(p.max_points | round(1)) }} 点{% else %}<span class="desc">—</span>{% endif %}</td>
       <td class="fit" data-label="提出">
         {% if p.count %}{{ p.count }} 回{% else %}<span class="desc">未提出</span>{% endif %}
       </td>
@@ -92,7 +103,14 @@
           {# 最高得点が採用される（progress.py）。確定前ならそう添える ──
              確定した点と AI の暫定値を同じ顔で並べると、学習者は暫定値を
              成績として読む。 #}
+          {# 点数と割合を並べる（2026-09-25）。点数は割合 × 採用された提出の版の配点。 #}
+          {% if p.pointed %}
+          <strong>{{ '%g' | format(p.best_points | round(1)) }} 点</strong>
+          <span class="desc">（{{ '%.0f' | format(p.best_ratio * 100) }}%）</span>
+          {% else %}
+          {# 配点の入っていない課題は割合だけ（従来どおり）。 #}
           <strong>{{ '%.0f' | format(p.best_ratio * 100) }}%</strong>
+          {% endif %}
           {% if not p.best_confirmed %}<span class="pill">暫定</span>{% endif %}
           {# 採点待ちの提出が別にあるなら添える。添えないと、出したばかりの
              提出が無かったことになって見える。 #}

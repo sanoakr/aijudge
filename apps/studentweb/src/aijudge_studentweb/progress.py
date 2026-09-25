@@ -41,6 +41,7 @@ from aijudge_core import (
     Task,
     TaskVersion,
     grace_minutes,
+    max_scores_by_version,
 )
 from aijudge_core.ids import TaskId, TaskVersionId, TenantId, UserId
 from aijudge_submission import GradingRunRepository, ReviewRepository, SubmissionRepository
@@ -65,6 +66,19 @@ class AttemptSummary:
     # いま出ている版より前の版への提出か。問題文や観点が今と違いうるので、
     # 画面でそう断る（点はその版の観点で付いたもの）。
     earlier_version: bool = False
+    # この提出を数える配点（`effective_max_score`・2026-09-25）。**提出が指す版**の
+    # 値で、いまの版の値ではない ── 教員が配点を下げても、取った点は下がらない。
+    max_points: float = 100.0
+    # この課題に配点が入っているか（どれかの版が `points_declared`）。**入っていなければ
+    # 割合だけを見せる**（従来どおり）── 既定の 100 を点数として出すと、配点を決めて
+    # いない課題に「80 / 100 点」が並ぶ。
+    pointed: bool = False
+
+    @property
+    def points(self) -> float | None:
+        """得点（割合 × 配点）。割合を見せられないとき（保留・未採点）は None。"""
+        ratio = self.score_ratio
+        return None if ratio is None else ratio * self.max_points
 
     @property
     def graded(self) -> bool:
@@ -129,6 +143,10 @@ class TaskProgress:
     """1 つの課題に対する、その学習者のこれまで。"""
 
     attempts: tuple[AttemptSummary, ...]
+    # いま出ている版の配点。課題一覧に出す（提出が無くても要る）。
+    max_points: float = 100.0
+    # 配点が入っている課題か（`AttemptSummary.pointed`）。偽なら割合だけを見せる。
+    pointed: bool = False
 
     @property
     def count(self) -> int:
@@ -146,6 +164,12 @@ class TaskProgress:
     def best_ratio(self) -> float | None:
         adopted = self.adopted
         return None if adopted is None else adopted.score_ratio
+
+    @property
+    def best_points(self) -> float | None:
+        """採用される提出の得点。採用が無ければ None。"""
+        adopted = self.adopted
+        return None if adopted is None else adopted.points
 
     @property
     def best_confirmed(self) -> bool:
@@ -213,14 +237,13 @@ def load_progress(
     }
 
     mine = uow.submissions.list_for_learner(tenant_id, learner_id)
-    # 前の版は**まとめて 1 回で**引く。学習者の提出は他のコースのものも含むので、
-    # 知らない版のうち、この一覧の課題に属するものだけを残す。
-    unknown = {s.task_version_id for s in mine if s.task_version_id not in wanted}
-    earlier = {
-        version_id: version
-        for version_id, version in (uow.tasks.get_versions(unknown) if unknown else {}).items()
-        if version.task_id in current
-    }
+    # この一覧の課題の版を**まとめて 1 回で**引く。前の版への提出を寄せるのにも、
+    # 配点（`effective_max_score` は版の履歴で決まる）にも要る。
+    history = uow.tasks.versions_for_tasks(current)
+    earlier = {version.id: version for version in history if version.id not in wanted}
+    max_points = max_scores_by_version([*history, *(version for _, version in rows)])
+    pointed = {version.task_id for version in history if version.points_declared}
+    pointed |= {version.task_id for _, version in rows if version.points_declared}
 
     submissions = [s for s in mine if s.task_version_id in wanted or s.task_version_id in earlier]
     runs = uow.runs.latest_for_many([submission.id for submission in submissions])
@@ -260,12 +283,19 @@ def load_progress(
                 run=run,
                 view=view,
                 earlier_version=own.version < shown.version,
+                max_points=max_points.get(own.id, own.max_score),
+                pointed=own.task_id in pointed,
             )
         )
 
+    # **提出の無い課題も返す**（配点を課題一覧に出すため）。数は 0 のまま。
     return {
-        version_id: TaskProgress(attempts=_mark_adopted(_numbered(attempts)))
-        for version_id, attempts in by_version.items()
+        version.id: TaskProgress(
+            attempts=_mark_adopted(_numbered(by_version.get(version.id, []))),
+            max_points=max_points.get(version.id, version.max_score),
+            pointed=version.task_id in pointed,
+        )
+        for _task, version in rows
     }
 
 
@@ -289,6 +319,9 @@ def _numbered(attempts: list[AttemptSummary]) -> list[AttemptSummary]:
 def _mark_adopted(attempts: list[AttemptSummary]) -> tuple[AttemptSummary, ...]:
     """最高得点の提出に印を付ける。同点なら後の提出を採る（モジュール冒頭）。
 
+    **点数で比べる**（割合 × その版の配点・2026-09-25）。教員側の `adopted_ids` と
+    同じ規則 ── 版をまたぐと、割合と点数の大小が食い違う。
+
     `attempts` は古い順。点の出ていない提出（採点中・保留）は候補にしない ──
     保留中の提出を採用として示すと、そこに点が付いていないことが
     「0 点が採用された」に見える。
@@ -296,9 +329,9 @@ def _mark_adopted(attempts: list[AttemptSummary]) -> tuple[AttemptSummary, ...]:
     best = -1.0
     chosen: int | None = None
     for index, attempt in enumerate(attempts):
-        ratio = attempt.score_ratio
-        if ratio is not None and ratio >= best:
-            best = ratio
+        points = attempt.points
+        if points is not None and points >= best:
+            best = points
             chosen = index
     if chosen is None:
         return tuple(attempts)

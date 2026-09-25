@@ -236,3 +236,45 @@ def test_completion_is_switched_for_the_whole_set(world: World) -> None:
     page = client.get(f"/manage/courses/{world.course.id}/units/{unit}").text
     assert "エディタで補完を出す" in page
     assert "この設定は効きません" in page
+
+
+# -- クリア点（2026-09-25）------------------------------------------------------
+
+
+def test_an_instructor_sets_the_clear_points_of_a_set(world: World) -> None:
+    """クリア点は問題セットの値で、中の全課題に入る。空欄に戻せば条件なし。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    task_id = _import_example(world)
+    unit = _unit_of(world)
+    client = world.client("teacher")
+
+    response = client.post(
+        f"/manage/courses/{world.course.id}/units/{unit}/clear-points",
+        data={"clear_points": "60"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert _task(world, task_id).clear_points == 60.0
+    page = client.get(f"/manage/courses/{world.course.id}/units/{unit}").text
+    assert "クリア条件" in page and 'value="60"' in page
+
+    client.post(
+        f"/manage/courses/{world.course.id}/units/{unit}/clear-points",
+        data={"clear_points": ""},
+        follow_redirects=False,
+    )
+    assert _task(world, task_id).clear_points is None
+
+
+def test_a_non_positive_clear_points_is_refused(world: World) -> None:
+    world.register("teacher", Role.INSTRUCTOR)
+    task_id = _import_example(world)
+    unit = _unit_of(world)
+
+    response = world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/units/{unit}/clear-points",
+        data={"clear_points": "0"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 400
+    assert _task(world, task_id).clear_points is None

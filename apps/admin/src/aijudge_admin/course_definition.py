@@ -21,6 +21,7 @@
       ex2: {answer_mode: editor, editor_completion: true}   # 答え方（ADR 0026）
       ex3: {answer_mode: editor, file_upload: false}        # エディタだけ（試験）
       test3: {confidential_until_open: true}                # 公開まで教員だけ（TA にも見せない）
+      ex4: {clear_points: 60}                               # 合計 60 点でクリア
     tasks:
       - key: ex1/cert                       # TaskSpec のフィールドをそのまま書く
         unit: ex1
@@ -33,7 +34,7 @@
       - problem_dir: ex1/p1                 # Sharif Judge 形式の問題ディレクトリ
         readability_weight: 0.3             # （YAML からの相対パス）
 
-`answer_mode`・`editor_completion`・`file_upload`・`confidential_until_open` は
+`answer_mode`・`editor_completion`・`file_upload`・`confidential_until_open`・`clear_points` は
 **問題セットの値**で、`/manage` の切り替えと同じく回の全課題に入れる（課題ごとには
 書けない）。書いた回だけを変え、書かない回は画面で切り替えた値を残す。`editor` にできない課題
 （提出形式に `.c`・`.py`・`.md` が無い）があれば投入を止める。
@@ -97,7 +98,15 @@ _UNIT_SCHEDULE_KEYS = ("opens_at", "due_at")
 # 入れられないと、`course apply` で課題を作ってからコンソールで切り替えるまでの間、
 # **公開前の課題が TA に見えている**（`docs/design/task-visibility.md` の B が塞ぎたい
 # 漏洩そのもの）。定義から入れれば、課題の保存と同じ実行の中で入る。
-_UNIT_SETTING_KEYS = ("answer_mode", "editor_completion", "file_upload", "confidential_until_open")
+#
+# `clear_points`（問題セットのクリア点・2026-09-25）も同じ。合計の点数で書く。
+_UNIT_SETTING_KEYS = (
+    "answer_mode",
+    "editor_completion",
+    "file_upload",
+    "confidential_until_open",
+    "clear_points",
+)
 # 定義側だけの語彙。`TaskSpec` に渡す前に解決して消す。
 _PROBLEM_DIR = "problem_dir"
 _STATEMENT_FILE = "statement_file"
@@ -167,6 +176,13 @@ def _unit_settings(unit: str, raw: dict[str, Any], path: Path) -> dict[str, Any]
                 f"units.{unit}.answer_mode は {wanted} のどれかです"
                 f": {raw['answer_mode']!r}（{path}）"
             ) from None
+    if "clear_points" in raw:
+        value = raw["clear_points"]
+        if value is not None and (
+            isinstance(value, bool) or not isinstance(value, int | float) or value <= 0
+        ):
+            raise AdminError(f"units.{unit}.clear_points は正の数か null です: {value!r}（{path}）")
+        settings["clear_points"] = None if value is None else float(value)
     for flag in ("editor_completion", "file_upload", "confidential_until_open"):
         if flag not in raw:
             continue

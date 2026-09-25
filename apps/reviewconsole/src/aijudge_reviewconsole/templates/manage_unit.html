@@ -183,6 +183,34 @@
   {% endif %}
 </form>
 
+{# 問題セットのクリア点（2026-09-25）。学習者のコース一覧で、合計点（割合 × 配点）が
+   この値以上のセットに「クリア」が付く。配点は各課題の版の max_score（課題の定義で書く）。 #}
+<h2 id="clear-points">クリア条件</h2>
+<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/units/{{ unit.key }}/clear-points"
+      class="card">
+  <div class="inline-field">
+    <span class="body desc">
+      <label>合計
+        <input type="number" name="clear_points" min="0" step="any" style="width:7em"
+               value="{{ '%g' | format(unit.clear_points) if unit.clear_points is not none }}"> 点以上でクリア
+      </label>
+      <span class="desc">（満点 {{ '%g' | format(points_full | round(1)) }} 点。空欄ならクリアの条件なし）</span>
+      <br>
+      各問題の得点は<strong>割合 × 配点</strong>で、配点は下の一覧のとおりです（課題の定義の <code>max_score</code>）。
+      学習者のコース一覧で、合計がこの値以上の問題セットに<strong>クリア</strong>が付きます。採点は変わりません。
+    </span>
+    {% if saved_key == 'clear_points' %}
+    <span class="flash" id="saved">{{ saved }}</span>{% endif %}
+    <button type="submit">保存</button>
+  </div>
+  {% if unit.clear_points_mixed %}
+  <p class="note warn" style="margin:10px 0 0">
+    <strong>このセットの中で設定がばらついています。</strong>
+    保存すると、セット内のすべての課題に同じ値が入ります。
+  </p>
+  {% endif %}
+</form>
+
 {# 補完の切／入（設計書 §5.3）。**答え方とは別の値** ── 同じエディタでも、試験では
    切り、演習では入れる。エディタで解かないセットでは効かない。 #}
 <form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/units/{{ unit.key }}/completion"
@@ -381,7 +409,7 @@
 <p style="margin:0 0 10px"><span class="flash" id="saved">{{ saved }}</span></p>{% endif %}
 <table>
   <thead><tr>
-    <th class="fit">順</th><th class="grow">課題</th><th class="fit">テスト</th>
+    <th class="fit">順</th><th class="grow">課題</th><th class="fit">配点</th><th class="fit">テスト</th>
     <th class="fit">観点</th><th class="fit">KC</th><th class="fit">版</th><th class="fit">未確定</th><th class="fit"></th>
   </tr></thead>
   <tbody>
@@ -442,6 +470,7 @@
           別の問題セットへ移してください。</span>
         {% endif %}
       </td>
+      <td class="fit">{% if row.pointed %}{{ '%g' | format(row.points | round(1)) }}{% else %}<span class="desc" title="配点が入っていません（学習者には割合だけが出ます）">—</span>{% endif %}</td>
       <td class="fit">{{ row.test_cases }}</td>
       <td class="fit">{{ row.rubric_rows | length }}</td>
       {# 知識要素（#292）。無い課題は成績が習熟度に記録されない。 #}
@@ -461,7 +490,7 @@
       <td class="fit"><a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/tasks/{{ row.task.id }}/edit">修正</a></td>
     </tr>
   {% else %}
-    <tr><td colspan="8" class="desc">この問題セットにはまだ課題がありません。</td></tr>
+    <tr><td colspan="9" class="desc">この問題セットにはまだ課題がありません。</td></tr>
   {% endfor %}
   </tbody>
 </table>

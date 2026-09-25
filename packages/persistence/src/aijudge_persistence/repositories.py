@@ -324,6 +324,7 @@ class SqlSubmissionRepository:
                 FinalizationRow.id,
                 ReviewRequestRow.id,
                 ReviewRequestRow.resolved_by,
+                SubmissionRow.task_version_id,
             )
             .join(TaskVersionRow, TaskVersionRow.id == SubmissionRow.task_version_id)
             .join(TaskRow, TaskRow.id == TaskVersionRow.task_id)
@@ -370,6 +371,7 @@ class SqlSubmissionRepository:
                 # 依頼は**未対応のときだけ**「再確認の依頼あり」。対応済みの
                 # 依頼が残っていても状態は戻らない（`Row.contested` と同じ）。
                 contested=row[10] is not None and row[11] is None,
+                task_version_id=TaskVersionId(row[12]),
             )
             for row in self._session.execute(statement)
         )
@@ -1406,6 +1408,15 @@ class SqlTaskRepository:
         ).scalars()
         versions = (TaskVersion.model_validate(row.document) for row in rows)
         return {version.id: version for version in versions}
+
+    def versions_for_tasks(self, task_ids: Iterable[TaskId]) -> tuple[TaskVersion, ...]:
+        keys = sorted({str(task_id) for task_id in task_ids})
+        if not keys:
+            return ()
+        rows = self._session.execute(
+            select(TaskVersionRow).where(TaskVersionRow.task_id.in_(keys))
+        ).scalars()
+        return tuple(TaskVersion.model_validate(row.document) for row in rows)
 
     def latest_version(self, task_id: TaskId) -> TaskVersion | None:
         row = (

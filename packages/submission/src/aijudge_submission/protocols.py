@@ -187,6 +187,9 @@ class ScoredRow:
     finalized: bool = False
     #: 未対応の再確認の依頼があるか。
     contested: bool = False
+    #: 提出が指す課題の版（配点 `max_score` を引くのに要る・2026-09-25）。採用は
+    #: 版をまたいで**点数**で比べるので、割合だけでは決まらない。
+    task_version_id: TaskVersionId | None = None
 
 
 @runtime_checkable

@@ -17,6 +17,7 @@ p2 はどのくらい通っているか」を見たいことは常にあり、�
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -32,9 +33,10 @@ from aijudge_core import (
     Task,
     TaskVersion,
     final_score,
+    max_scores_by_version,
     score_withheld,
 )
-from aijudge_core.ids import SubmissionId
+from aijudge_core.ids import SubmissionId, TaskVersionId
 from aijudge_submission.protocols import ScoredRow
 
 from .overview import unit_key
@@ -396,7 +398,7 @@ def load_rows(
     filters = filters or Filters()
     if scored is None:
         scored = load_scored(uow, course, filters)
-    adopted = adopted_ids(scored)
+    adopted = adopted_ids(scored, version_max_scores(uow, scored))
     task_ids = _task_ids(uow, course, filters)
     learner_ids = _learner_ids(uow, course, filters)
 
@@ -575,7 +577,18 @@ def _finalized_by(
     return None if finalization is None else finalization.source
 
 
-def adopted_ids(rows: tuple[ScoredRow, ...]) -> set[SubmissionId]:
+def version_max_scores(uow: object, rows: tuple[ScoredRow, ...]) -> dict[TaskVersionId, float]:
+    """行に現れる課題の、版 → 配点（`max_scores_by_version`）。**1 回で引く。**"""
+    task_ids = {row.task_id for row in rows}
+    if not task_ids:
+        return {}
+    versions = uow.tasks.versions_for_tasks(task_ids)  # type: ignore[attr-defined]
+    return max_scores_by_version(versions)
+
+
+def adopted_ids(
+    rows: tuple[ScoredRow, ...], max_scores: Mapping[TaskVersionId, float] | None = None
+) -> set[SubmissionId]:
     """学習者・課題ごとに、成績に採用される提出（#256）。
 
     **規則はここ 1 つだけ。** 学習者側（`aijudge_studentweb.progress`）と
@@ -592,10 +605,16 @@ def adopted_ids(rows: tuple[ScoredRow, ...]) -> set[SubmissionId]:
     **細い行から決める**（#253）。頁送りが入ると一覧は 1 頁ぶんしか持たない
     ので、そこから採用を決めると「この頁の中でいちばん高い提出」になる
     （#255）。採用はコース全体で決まる事実である。
+
+    **点数で比べる**（2026-09-25）。配点（`max_score`）は版に付くので、版をまたぐと
+    割合と点数の大小が食い違う（50 点満点の 100% と 40 点満点の 100%）。`max_scores`
+    は版 → 配点（`aijudge_core.max_scores_by_version`）。無い版は割合のまま比べる。
     """
+    scale = max_scores or {}
 
     def rank(row: ScoredRow) -> tuple[float, datetime, int]:
-        return (row.final_ratio or 0.0, row.submitted_at, row.attempt)
+        weight = scale.get(row.task_version_id, 1.0) if row.task_version_id else 1.0
+        return ((row.final_ratio or 0.0) * weight, row.submitted_at, row.attempt)
 
     best: dict[tuple[str, str], ScoredRow] = {}
     for row in rows:

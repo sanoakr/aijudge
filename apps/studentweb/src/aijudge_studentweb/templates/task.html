@@ -401,9 +401,11 @@
 
 <h2>これまでの提出
   <span class="desc" style="font-weight:400;font-size:.85rem">
-    {% if progress.count %}
-      {{ progress.count }} 回
-      {%- if progress.best_ratio is not none %}／採用 {{ '%.0f' | format(progress.best_ratio * 100) }}%
+    {% if progress.pointed %}配点 {{ '%g' | format(progress.max_points | round(1)) }} 点{% if progress.count %}／{% endif %}{% endif %}
+    {%- if progress.count %}{{ progress.count }} 回
+      {%- if progress.best_ratio is not none %}／採用
+        {%- if progress.pointed %} {{ '%g' | format(progress.best_points | round(1)) }} 点（{{ '%.0f' | format(progress.best_ratio * 100) }}%）
+        {%- else %} {{ '%.0f' | format(progress.best_ratio * 100) }}%{% endif %}
         {%- if not progress.best_confirmed %}（暫定）{% endif %}
       {%- endif %}
     {% endif %}
@@ -424,7 +426,14 @@
       <td class="fit" data-label="提出日時">{{ item.submission.submitted_at | local('%Y-%m-%d %H:%M') if item.submission.submitted_at else '—' }}</td>
       <td class="fit" data-label="得点">
         {% if item.score_ratio is not none %}
+          {# 得点は割合 × **この提出の版の**配点（2026-09-25）。割合も並べる。 #}
+          {% if item.pointed %}
+          <strong>{{ '%g' | format(item.points | round(1)) }} / {{ '%g' | format(item.max_points | round(1)) }} 点</strong>
+          <span class="desc">（{{ '%.0f' | format(item.score_ratio * 100) }}%）</span>
+          {% else %}
+          {# 配点の入っていない課題は割合だけ（従来どおり）。 #}
           <strong>{{ '%.0f' | format(item.score_ratio * 100) }}%</strong>
+          {% endif %}
           {# 最高得点が採用される。どの提出が採られているかを示さないと、
              学習者は一覧の点と自分の成績を結び付けられない（progress.py）。 #}
           {% if item.adopted %}<span class="pill ok">採用</span>{% endif %}
@@ -437,7 +446,7 @@
         {% if item.status_detail %}<span class="desc">{{ item.status_detail }}</span>{% endif %}
         {# 課題を訂正する前の問題文への提出。**消えたのではなく残っている**ことを
            見せる ── 以前は版が上がると一覧から消え、出し直す学生が出た。 #}
-        {% if item.earlier_version %}<span class="pill">訂正前の問題文への提出</span>{% endif %}
+        {% if item.earlier_version %}<span class="pill">訂正前の版への提出</span>{% endif %}
       </td>
       <td class="fit"><a href="/submissions/{{ item.submission.id }}">結果を見る</a></td>
     </tr>
