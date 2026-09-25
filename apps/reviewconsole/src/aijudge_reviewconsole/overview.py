@@ -92,6 +92,11 @@ class UnitGroup:
     # `campus_only` と同じく、混ざりは別に持って黙らせない。
     confidential: bool = False
     confidential_mixed: bool = False
+    # **いま誰に見えているか**（2026-09-25）。`learners`（学生に公開中）・`staff`
+    # （未公開・TA まで）・`instructors`（教員のみ・TA にも未公開）。一覧を分けて出す ──
+    # 誤って公開した、公開し忘れた、に気づけるように。判定は `may_see` と同じ事実で、
+    # セットの中に学生に見えている課題が 1 つでもあれば `learners`。
+    visibility: str = "learners"
     # 出題先（名簿の ID）。**全課題で揃っていればその値**、ばらついていれば
     # 空にして `audience_mixed` を立てる（黙らせない）。空で揃っていれば全員。
     audience: tuple[str, ...] = ()
@@ -148,6 +153,15 @@ class CourseDigest:
     @property
     def needs_attention(self) -> bool:
         return self.contested > 0 or self.drafts > 0
+
+
+def _visibility(tasks: list[Task], moment: datetime) -> str:
+    """問題セットがいま誰に見えているか（`UnitGroup.visibility`）。"""
+    if not tasks or any(not task.before_open_at(moment) for task in tasks):
+        return "learners"
+    if all(task.confidential_until_open for task in tasks):
+        return "instructors"
+    return "staff"
 
 
 def load_units(
@@ -237,6 +251,7 @@ def load_units(
                     default=None,
                 ),
                 clear_points_mixed=len({task.clear_points for task in tasks}) > 1,
+                visibility=_visibility(tasks, moment),
                 completion=bool(tasks) and all(task.editor_completion for task in tasks),
                 completion_mixed=len({task.editor_completion for task in tasks}) > 1,
             )

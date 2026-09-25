@@ -48,6 +48,10 @@
 </p>
 {% endif %}
 
+{# 教員・TA にだけ見えている課題（2026-09-25）。学生の見え方と違うことを先に言う。 #}
+{% if staff_visibility %}
+<p class="note warn staff-view-note"><strong>{{ staff_visibility }}</strong></p>
+{% endif %}
 <h2>提出する</h2>
 {# エディタで解く課題（ADR 0026）。ファイルの提出欄は**教員が止めない限り残す**
    ── エディタが使えない環境（JavaScript が無い・古いブラウザ）の逃げ道である。

@@ -330,3 +330,51 @@ def test_the_server_refuses_editor_only_for_a_set_with_video(
         follow_redirects=False,
     )
     assert ok.status_code == 303
+
+
+# -- 学生の画面への入口（2026-09-25）---------------------------------------------
+
+
+def test_the_console_links_to_the_learner_view_of_the_course(world: World) -> None:
+    """コンソールの上の帯に「学生の画面」。コースの中ならそのコースの学生の画面へ。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    _import_example(world)
+    unit = _unit_of(world)
+    page = world.client("teacher").get(f"/manage/courses/{world.course.id}/units/{unit}").text
+
+    assert "学生の画面" in page
+    assert f'/courses/{world.course.id}" target="_blank"' in page
+
+
+# -- 問題セットの一覧を、いま誰に見えているかで分ける（2026-09-25）---------------
+
+
+def _set_opening(world: World, task_id: str, *, days: int, confidential: bool = False) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    when = datetime.now(UTC) + timedelta(days=days)
+    with world.database.unit_of_work() as uow:
+        task = uow.tasks.get_task(TaskId(task_id))
+        uow.tasks.save_task(
+            task.model_copy(update={"opens_at": when, "confidential_until_open": confidential})
+        )
+        uow.commit()
+
+
+def test_the_set_list_is_split_by_who_can_see_it(world: World) -> None:
+    world.register("teacher", Role.INSTRUCTOR)
+    task_id = _import_example(world)
+    client = world.client("teacher")
+    menu = f"/courses/{world.course.id}"
+
+    assert "学生に公開中" in client.get(menu).text
+
+    _set_opening(world, task_id, days=1)
+    page = client.get(menu).text
+    assert "未公開（TA まで見える）" in page and "学生に公開中" not in page
+
+    _set_opening(world, task_id, days=1, confidential=True)
+    assert "教員のみ（TA にも未公開）" in client.get(menu).text
+
+    _set_opening(world, task_id, days=-1, confidential=True)
+    assert "学生に公開中" in client.get(menu).text

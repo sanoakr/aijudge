@@ -698,20 +698,20 @@ def create_app(app_state: StudentApp) -> FastAPI:
                 course=course_obj,
                 rows=tasks,
             )
+        staff_view = _previews_unopened_sets(_role_in(app_state, course_obj.id, me.user_id))
         return TEMPLATES.TemplateResponse(
             request,
             "course.html",
             {
                 "me": me,
                 "course": course_obj,
+                # 教員・TA として見ているか（2026-09-25）。学生に見えていないセットを
+                # 見分けられるように印を付ける ── 印が無いと、誤って公開しても気づけない。
+                "staff_view": staff_view,
                 # 公開前の問題セットは学習者には出さない。**教員・TA には
                 # 出す**（#340）── 出せるのに一覧に無いと、URL を直接
                 # 叩くしかない。
-                "sections": _group_by_unit(
-                    tasks,
-                    progress=progress,
-                    preview=_previews_unopened_sets(_role_in(app_state, course_obj.id, me.user_id)),
-                ),
+                "sections": _group_by_unit(tasks, progress=progress, preview=staff_view),
                 "progress": progress,
                 "no_progress": EMPTY,
                 **build_context(course_obj),
@@ -813,6 +813,9 @@ def create_app(app_state: StudentApp) -> FastAPI:
                 "campus_only": task_obj.campus_only,
                 # 教員・TA は学内限定を通れる。学外でも「提出できません」と出さない。
                 "campus_exempt": campus_exempt(role),
+                # 教員・TA にだけ見えている理由（2026-09-25）。一覧と同じ区別を課題の
+                # 画面にも出す ── 開いた課題が学生に見えているのかを、その場で分かるように。
+                "staff_visibility": _staff_visibility(task_obj, role, now()),
                 # エディタで解く課題か（ADR 0026）。そうなら画面の頭で案内する。
                 # ファイルの提出欄も残す ── エディタが使えない環境の逃げ道である。
                 "editor_url": (
@@ -1638,6 +1641,18 @@ def _group_by_unit(
         # まだ学習者に出ていないセットか（#340）。`preview` のときだけ
         # 真になりうる ── 学習者の一覧には、そもそも並んでいない。
         group["before_open"] = bool(group["opens_at"] and moment < group["opens_at"])
+        # 教員・TA にだけ見える理由（2026-09-25）。**学生にどう見えているかを一覧で
+        # 見分けられるようにする** ── 公開前・教員のみ・一部の学生だけ、を区別しないと、
+        # 誤って公開しても、逆に公開し忘れても気づけない。判定は `may_see` と同じ事実
+        # （`before_open_at`・`confidential_until_open`・`audience_group_ids`）。
+        set_tasks = [task for task, _version in group["tasks"]]
+        group["hidden_from_learners"] = bool(set_tasks) and all(
+            task.before_open_at(moment) for task in set_tasks
+        )
+        group["instructors_only"] = any(
+            task.confidential_until_open and task.before_open_at(moment) for task in set_tasks
+        )
+        group["audience_limited"] = any(task.audience_group_ids for task in set_tasks)
         # **残り秒数はサーバが数える**（#73）。画面が締切と自分の時計を
         # 比べると、時計のずれがそのまま表示のずれになる。締切前は正、
         # 過ぎていれば負（＝経過時間）。
@@ -1965,6 +1980,19 @@ def _set_points(tasks, marks) -> dict[str, object]:
         "cleared": clear is not None and total >= clear,
         "points_provisional": provisional,
     }
+
+
+def _staff_visibility(task, role: Role, moment) -> str | None:
+    """教員・TA の画面に出す「学生からの見え方」。学生に見えていれば None。"""
+    if not _previews_unopened_sets(role):
+        return None
+    if task.before_open_at(moment):
+        if task.confidential_until_open:
+            return "この課題は公開まで教員だけに見えています（TA と学生には見えていません）。"
+        return "この課題は学生にはまだ公開されていません。"
+    if task.audience_group_ids:
+        return "この課題は一部の学生（出題先の名簿）だけに出題されています。"
+    return None
 
 
 def _role_in(app_state: StudentApp, course_id: CourseId, user_id: UserId) -> Role:

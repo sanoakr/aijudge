@@ -137,16 +137,6 @@ class TaskSpec(BaseModel):
     position: int | None = Field(default=None, ge=1)
     opens_at: datetime | None = None
     due_at: datetime | None = None
-    # 公開・締切以外の日程（意味は `aijudge_core.task.Task` の同名の欄）。
-    # **None は「書いていない」であって「空にする」ではない** ── 保存では
-    # 既存の値を残す（`opens_at` と同じ・`aijudge_admin.authoring.save_task`）。
-    # 定義ファイルから書けないと、課題文を先に配って提出は演習時間に開ける
-    # 運用（提出開始）や試験の採点開始・受付終了を、毎回コンソールで入れ直す
-    # ことになり、正本の `course.yaml` に記録が残らない（2026-09-25、prog2 の
-    # 16:00 公開・16:30 提出開始・12:00 締切がそうだった）。
-    submissions_open_at: datetime | None = None
-    grading_starts_at: datetime | None = None
-    accepts_until: datetime | None = None
     max_score: float = Field(default=100.0, gt=0.0)
     # 受け付ける拡張子（#234）。**空ならコースの既定、それも空なら組み込みの
     # 既定（コードとテキスト）。** 写真や PDF を出させる課題は、ここで明示
@@ -218,19 +208,6 @@ class TaskSpec(BaseModel):
             raise ValueError(f"key の形が不正です: {self.key!r}")
         if self.due_at is not None and self.opens_at is not None and self.due_at <= self.opens_at:
             raise ValueError("締切が公開日時より前になっています")
-        # 前後関係は `Task._check_schedule` と同じ。保存の直前にコアの検証で
-        # 落ちると、どの課題の定義が悪いのかが分かりにくい。
-        opens, starts, due = self.opens_at, self.submissions_open_at, self.due_at
-        if opens and starts and starts < opens:
-            raise ValueError("提出開始が公開より前になっています")
-        if due and starts and due <= starts:
-            raise ValueError("締切が提出開始より前になっています")
-        if self.grading_starts_at and starts and self.grading_starts_at < starts:
-            raise ValueError("採点開始が提出開始より前になっています")
-        if self.accepts_until and due and self.accepts_until < due:
-            raise ValueError("受付終了が締切より前になっています")
-        if self.accepts_until and starts and self.accepts_until <= starts:
-            raise ValueError("受付終了が提出開始より前になっています")
         names = [case.name for case in self.test_cases]
         if len(set(names)) != len(names):
             raise ValueError("テストケース名が重複しています")
