@@ -19,6 +19,9 @@
    自動確定を待っているのか、教員が閉じないと成績にならないのかが分からない。 #}
 <div class="work-summary">
   {% if manual_total %}<span class="pill attn">手動の確定が必要 {{ manual_total }} 件</span>
+    {# 順に処理する（2026-09-25）。**依頼の出ていないもの**から 1 件ずつ、帯付きで開く。 #}
+    {% set first = rows | selectattr('manual') | rejectattr('contested') | first %}
+    {% if first %}<a class="button-link" href="{{ root_prefix() }}/review/{{ first.submission.id }}/reveal?from=finalize">先頭から順に確定する →</a>{% endif %}
   {% else %}<span class="pill ok">手動の確定が必要なものはありません</span>{% endif %}
   {% if waiting_total %}<span class="pill">自動確定待ち {{ waiting_total }} 件</span>
     <span class="desc">猶予が明けると自動で確定されます（操作は要りません）。</span>{% endif %}
@@ -106,7 +109,8 @@
   </tr></thead>
   <tbody>
   {% for row in rows %}
-    <tr class="row-link" data-href="{{ root_prefix() }}/review/{{ row.submission.id }}/reveal">
+    {% set work = '?from=finalize' if row.manual and not row.contested else '' %}
+    <tr class="row-link" data-href="{{ root_prefix() }}/review/{{ row.submission.id }}/reveal{{ work }}">
       <td class="fit" data-label="提出">{{ row.submission.submitted_at | local('%m-%d %H:%M') if row.submission.submitted_at else '—' }}</td>
       <td class="fit mono" data-label="学習者">{{ row.learner.login if row.learner else '—' }}</td>
       <td class="grow">
@@ -116,7 +120,7 @@
       <td class="fit" data-label="回">{{ row.submission.attempt }} 回目</td>
       <td class="fit" data-label="AI の総合">{{ '%.0f' | format(row.run.score_ratio * 100) }}%</td>
       <td class="fit">
-        <a href="{{ root_prefix() }}/review/{{ row.submission.id }}/reveal">確認して確定する</a>
+        <a href="{{ root_prefix() }}/review/{{ row.submission.id }}/reveal{{ work }}">確認して確定する</a>
         {% if row.contested %}<br><span class="desc">再確認の依頼あり</span>{% endif %}
         <br>{% if row.manual %}<span class="pill attn">手動の確定が必要</span>{% else %}<span class="pill">自動確定待ち</span>{% endif %}
       </td>

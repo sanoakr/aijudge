@@ -1610,3 +1610,30 @@ def test_a_graced_task_waits_for_automatic_finalisation(world: World) -> None:
     else:
         # 人の目を求めた採点は、猶予があっても手動。
         assert "手動の確定が必要 1 件" in page
+
+
+def test_manual_finalisation_is_worked_through_with_the_strip(world: World) -> None:
+    """**確定処理も帯付きで順に処理する**（2026-09-25）。手動の確定が要る提出から始め、
+    確定すると帯を付けたまま戻り、待ちが無くなったことが出る。"""
+    _, accepted = _instructor_and_submission(world)
+    world.worker.run_until_empty()
+    sid = accepted.submission.id
+
+    listing = world.client.get(f"/courses/{COURSE}/finalize").text
+    assert f"/review/{sid}/reveal?from=finalize" in listing
+    assert "先頭から順に確定する" in listing
+
+    page = world.client.get(f"/review/{sid}/reveal?from=finalize").text
+    assert 'class="work-strip"' in page and "確定処理" in page and "待ち 1 件" in page
+
+    with world.database.unit_of_work() as uow:
+        run = uow.runs.latest_for(sid)
+    machine = {score.criterion_id: score.level for score in run.criterion_scores}
+    response = world.client.post(
+        f"/review/{sid}/finalize?from=finalize",
+        data=_agree_form(world, machine),
+        follow_redirects=False,
+    )
+    assert response.headers["location"].endswith(f"/review/{sid}/reveal?from=finalize")
+    after = world.client.get(f"/review/{sid}/reveal?from=finalize").text
+    assert "待ちはありません（すべて対応済み）" in after

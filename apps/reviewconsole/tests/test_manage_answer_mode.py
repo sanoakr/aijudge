@@ -369,7 +369,9 @@ def test_the_console_links_to_the_learner_view_of_the_course(world: World) -> No
     page = world.client("teacher").get(f"/manage/courses/{world.course.id}/units/{unit}").text
 
     assert "学生の画面" in page
-    assert f'/courses/{world.course.id}" target="_blank"' in page
+    # 同じタブで移る（新しいタブはブラウザによって止められる）。
+    assert f'/courses/{world.course.id}">学生の画面</a>' in page
+    assert 'target="_blank" rel="noopener">学生の画面' not in page
 
 
 # -- 問題セットの一覧を、いま誰に見えているかで分ける（2026-09-25）---------------
