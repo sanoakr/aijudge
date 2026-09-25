@@ -77,6 +77,19 @@ main:has(.ide-head){max-width:none}
   background:var(--surface);font-size:.85rem;padding:6px 12px}
 .ide-editor{height:min(66vh,780px);border:1px solid var(--line);border-radius:3px}
 .ide-side{display:flex;flex-direction:column;gap:10px;min-width:0}
+/* 画像・PDF を選んで出す欄（2026-09-25）。エディタの無い課題では、これが作業の場所になる。 */
+.ide-work-attach{grid-template-columns:minmax(0,640px)}
+.ide-attach{display:flex;flex-direction:column;gap:8px;border:1px solid var(--line-soft);
+  border-radius:3px;padding:10px 12px;background:var(--surface)}
+.ide-attach h3{margin:0;font-size:.95rem}
+.ide-attach .button-like{cursor:pointer;border:1px solid var(--line);border-radius:3px;
+  background:var(--surface);font-size:.85rem;padding:6px 12px;align-self:flex-start}
+.ide-attach-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;
+  font-size:.85rem}
+.ide-attach-list li{display:flex;align-items:center;gap:8px;overflow-wrap:anywhere}
+.ide-attach-thumb{width:56px;height:56px;object-fit:cover;border:1px solid var(--line-soft);
+  border-radius:3px;flex:none}
+.ide-video-note{margin:0 0 10px}
 .ide-samples h3{margin:0 0 4px;font-size:.95rem}
 .ide-sample{margin:0 0 6px}
 .ide-sample summary{cursor:pointer}

@@ -75,7 +75,8 @@ def summarize(events: Iterable[dict[str, Any]]) -> ActivitySummary:
             summary.file_loads += 1
         elif kind == "run" and event.get("stage") == "request":
             summary.runs += 1
-        elif kind == "submit":
+        elif kind == "submit" or (kind == "attach" and event.get("stage") == "submit"):
+            # 画像・PDF の提出も提出として数える（`attach` の `submit` 段）。
             summary.submits += 1
         elif kind in ("blur", "visibility"):
             leaving = kind == "blur" or event.get("state") == "hidden"

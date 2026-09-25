@@ -55,7 +55,7 @@
   <h2>このエディタでの作業の記録について</h2>
   <p>このエディタでは、答えを作る過程を時刻付きで記録します。</p>
   <ul>
-    <li><strong>記録するもの</strong>: 打鍵と削除、貼り付けとコピー（長さと内容）、ファイルの読み込み、実行と提出、課題のタブの切り替え、この画面を離れていた時間、書いている内容の全文（ときどき）</li>
+    <li><strong>記録するもの</strong>: 打鍵と削除、貼り付けとコピー（長さと内容）、ファイルの読み込み、実行と提出、課題のタブの切り替え、この画面を離れていた時間、書いている内容の全文（ときどき）、画像・PDF を選んで提出したこと（ファイル名と大きさ。画像そのものは記録しません）</li>
     <li><strong>使いみち</strong>: 担当の教員が、答案がどう書かれたかを確かめるための材料です</li>
     <li><strong>使わないこと</strong>: 記録から自動で減点したり、不正と判定したりはしません。成績の計算にも使いません</li>
     <li><strong>見られる人</strong>: このコースの担当教員だけです。誰がいつ見たかも記録されます</li>
@@ -86,6 +86,45 @@
     <div class="statement">{{ tab.statement_html | safe }}</div>
   </div>
 
+  {# 動画を受ける課題（2026-09-25）。**動画はエディタの画面から出せない** ── 分割送信の
+     経路は課題の画面にしか無い。黙って欄を出さないと、学習者は出し方が分からない。 #}
+  {% if tab.videos %}
+  <div class="note act ide-video-note">
+    <strong>動画はエディタの画面からは提出できません。</strong>
+    動画（{{ tab.videos | join('・') }}）は、<a href="/tasks/{{ tab.version.id }}">課題の画面</a>の
+    ファイル選択から提出してください。
+  </div>
+  {% endif %}
+
+  {% macro attach_box(tab, index) %}
+  {# 画像・PDF を選んで出す欄（2026-09-25）。**自動保存も受付終了時の自動提出もしない**
+     ので、選んだまま提出していなければ警告を出す。 #}
+  <div class="ide-attach" data-attach="{{ index }}">
+    <h3>ファイルで提出（{{ tab.attach | join('・') }}）</h3>
+    <label class="button-like">ファイルを選ぶ
+      <input type="file" class="ide-attach-input" data-tab="{{ index }}" hidden
+             accept="{{ tab.attach | join(',') }}" {{ 'multiple' if tab.attach_multi }}>
+    </label>
+    {% if tab.attach_multi %}<span class="desc">複数のファイルを 1 回の提出にまとめられます。</span>{% endif %}
+    <ul class="ide-attach-list" data-attach-list="{{ index }}"></ul>
+    <p class="note warn ide-attach-pending" data-attach-pending="{{ index }}" hidden>
+      選んだファイルは<strong>まだ提出されていません</strong>。提出しないまま受付が終わると失われます
+      （画像・PDF は自動では提出されません）。
+    </p>
+    <div class="ide-actions">
+      <button type="button" class="ide-attach-submit" data-tab="{{ index }}" disabled>ファイルを提出</button>
+    </div>
+    <p class="desc ide-submitted" data-attach-result="{{ index }}"></p>
+  </div>
+  {% endmacro %}
+
+  {% if tab.mode == 'attach' %}
+  <div class="ide-work ide-work-attach">
+    {{ attach_box(tab, tab_index) }}
+  </div>
+  {% elif tab.mode == 'video' %}
+  {# 動画だけの課題。上の案内で足りる（この画面では何も出せない）。 #}
+  {% else %}
   <div class="ide-work">
     <div class="ide-main">
       <div class="ide-toolbar">
@@ -143,8 +182,10 @@
         <button type="button" class="ide-submit" data-tab="{{ loop.index0 }}">提出</button>
       </div>
       <p class="desc ide-submitted" data-submitted="{{ loop.index0 }}"></p>
+      {% if tab.attach %}{{ attach_box(tab, tab_index) }}{% endif %}
     </aside>
   </div>
+  {% endif %}
 </section>
 {% endfor %}
 
@@ -157,6 +198,7 @@
   "selected": tabs | map(attribute="selected") | list,
   "runnable": tabs | map(attribute="runnable") | list,
   "completion": tabs | map(attribute="completion") | list,
+  "modes": tabs | map(attribute="mode") | list,
   "sources": tabs | map(attribute="source") | list,
   "submitted": tabs | map(attribute="submitted") | list,
   "lastSubmittedHash": tabs | map(attribute="last_submitted_hash") | list,

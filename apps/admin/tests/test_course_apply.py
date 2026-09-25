@@ -227,10 +227,37 @@ def test_unit_answer_mode_goes_to_every_task_of_the_set(database: Database, tmp_
     assert tasks["認定証を提出する"].answer_mode is AnswerMode.UPLOAD
 
 
+def _only_the_certificate_in_ex1(text: str) -> str:
+    """ex1 に認定証（画像）だけを残す。p2・p3 は別の回へ。"""
+    return text.replace(
+        "  - problem_dir: ex1/p2\n", "  - problem_dir: ex1/p2\n    unit: ex9\n"
+    ).replace("  - problem_dir: ex1/p3\n", "  - problem_dir: ex1/p3\n    unit: ex9\n")
+
+
 def test_a_set_that_cannot_open_in_the_editor_is_refused(database: Database, tmp_path) -> None:
-    """**画面と同じ検査を通す**（`editor_blockers`）。画像だけの課題は名前で挙がる。"""
-    text = _with_unit_setting("answer_mode: editor")
-    with pytest.raises(AdminError, match="認定証を提出する"):
+    """**画面と同じ検査を通す**（`editor_blockers`）。書ける課題が 1 つも無い回は断る。"""
+    text = _only_the_certificate_in_ex1(_with_unit_setting("answer_mode: editor"))
+    with pytest.raises(AdminError, match="エディタで書ける課題がありません"):
+        _apply(database, _write_definition(tmp_path, text))
+
+
+def test_a_mixed_set_opens_in_the_editor(database: Database, tmp_path) -> None:
+    """認定証（画像）と .py の課題が混ざった回もエディタにできる（2026-09-25）。"""
+    result = _apply(
+        database, _write_definition(tmp_path, _with_unit_setting("answer_mode: editor"))
+    )
+    tasks, _versions = _tasks(database, result.course.id)
+    assert all(
+        task.answer_mode is AnswerMode.EDITOR for task in tasks.values() if task.unit == "ex1"
+    )
+
+
+def test_a_video_task_refuses_editor_only(database: Database, tmp_path) -> None:
+    """動画を受ける課題がある回は、ファイル選択を止められない。"""
+    text = _with_unit_setting("answer_mode: editor\n    file_upload: false").replace(
+        "accepted_suffixes: [.png, .jpg]", "accepted_suffixes: [.png, .jpg, .mp4]"
+    )
+    with pytest.raises(AdminError, match="ファイル選択での提出を止められません"):
         _apply(database, _write_definition(tmp_path, text))
 
 
@@ -286,13 +313,15 @@ def test_confidential_survives_a_refused_editor_setting(database: Database, tmp_
     課題は答え方の検査より前に保存されるので、秘匿を答え方と同じ作業単位で
     入れると、断られたときに秘匿だけが巻き戻り、TA に見える課題が残る。
     """
-    text = _with_unit_setting("answer_mode: editor\n    confidential_until_open: true")
-    with pytest.raises(AdminError, match="認定証を提出する"):
+    text = _only_the_certificate_in_ex1(
+        _with_unit_setting("answer_mode: editor\n    confidential_until_open: true")
+    )
+    with pytest.raises(AdminError, match="エディタで書ける課題がありません"):
         _apply(database, _write_definition(tmp_path, text))
     with database.unit_of_work() as uow:
         course = next(iter(uow.identity.list_courses(TENANT)))
         in_set = [task for task in uow.tasks.list_for_course(course.id) if task.unit == "ex1"]
-    assert len(in_set) == 3
+    assert len(in_set) == 1
     assert all(task.confidential_until_open for task in in_set)
     assert all(task.answer_mode is AnswerMode.UPLOAD for task in in_set)
 

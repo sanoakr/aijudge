@@ -32,7 +32,13 @@ from .buffer import (
     make_buffer,
 )
 from .flags import FLAG_LABELS, Flag, FlagKind, flag_events, submission_mismatches
-from .formats import EDITOR_FORMATS, EditorFormat, editor_formats
+from .formats import (
+    EDITOR_FORMATS,
+    EditorFormat,
+    attachable_suffixes,
+    editor_formats,
+    video_suffixes,
+)
 from .intake import RefusalReason, RunPolicy, RunRefused, RunView, request_run, view_run
 from .integrity import SILENCE_MS, IntegrityReport, Silence, check_session
 from .links import SubmissionLink, SubmissionLinkStore, SubmissionOrigin
@@ -111,6 +117,7 @@ __all__ = [
     "SubmissionLinkStore",
     "SubmissionOrigin",
     "active_tabs",
+    "attachable_suffixes",
     "check_events",
     "check_session",
     "check_snapshots",
@@ -124,5 +131,6 @@ __all__ = [
     "submission_mismatches",
     "summarize",
     "summarize_by_tab",
+    "video_suffixes",
     "view_run",
 ]
