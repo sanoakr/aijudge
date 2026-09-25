@@ -632,7 +632,9 @@ def capture(state: Path, playwright: Any, login_url: str) -> None:
     login(page, WEB, "y230002")
     s.shot("st-home", between=("main h1", None), height=330)
     task_url = first_task_url(page, course)
-    s.shot("st-course", between=("main h1", "p.desc, main > p"), pad=16)
+    # 題名から問題セットの一覧まで。以前は「次の段落まで」で切っていたが、題名の直下に
+    # 「身についたこと」の段落ができて題名だけになった（2026-09-25）。高さで切る。
+    s.shot("st-course", between=("main h1", None), height=620, pad=16)
     page.goto(task_url)
     s.shot("st-task", full=True)
     s.shot("st-task-submit", between=("h2:has-text('提出する')", "h2:has-text('これまでの提出')"))
