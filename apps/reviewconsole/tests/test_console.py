@@ -1637,3 +1637,46 @@ def test_manual_finalisation_is_worked_through_with_the_strip(world: World) -> N
     assert response.headers["location"].endswith(f"/review/{sid}/reveal?from=finalize")
     after = world.client.get(f"/review/{sid}/reveal?from=finalize").text
     assert "待ちはありません（すべて対応済み）" in after
+
+
+# --------------------------------------------------------------------------
+# 回数は課題の中で版をまたいで数える（2026-09-25）
+# --------------------------------------------------------------------------
+
+
+def _revise(world: World):
+    """問題文を訂正した承認済みの新しい版（`course apply --revise` がこれを作る）。"""
+    from aijudge_core.ids import TaskVersionId, new_id
+
+    base = world.task_version
+    revised = base.model_copy(
+        update={
+            "id": TaskVersionId(new_id("tsv")),
+            "version": base.version + 1,
+            "statement": base.statement + "\n\n（誤字を訂正）",
+        }
+    )
+    with world.database.unit_of_work() as uow:
+        uow.tasks.save_version(revised)
+        uow.commit()
+    world.task_version = revised
+    return base, revised
+
+
+def test_attempts_are_counted_through_versions_in_the_console(world: World) -> None:
+    """訂正の前後で「1 回目」が 2 つ並ばない。前の版への提出には版を添える。"""
+    learner = world.register("s2400001", role=Role.LEARNER)
+    world.register("instructor", role=Role.INSTRUCTOR)
+    first = world.submit(learner)
+    _revise(world)
+    second = world.submit(learner, EXAMPLE_SOURCE.read_bytes() + b"\n")
+    world.worker.run_until_empty()
+    world.login("instructor")
+
+    listing = world.client.get(f"/courses/{COURSE}/submissions").text
+    assert re.search(r"data-label=\"回\">2\b", listing), "訂正後の提出が 2 回目になっていない"
+    assert "v1（いまは v2）" in listing
+
+    page = world.client.get(f"/review/{second.submission.id}/reveal").text
+    assert "提出 2 回目" in page
+    assert "提出 1 回目" in world.client.get(f"/review/{first.submission.id}/reveal").text

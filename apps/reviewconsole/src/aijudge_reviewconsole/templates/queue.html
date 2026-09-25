@@ -39,7 +39,7 @@
           <span class="desc">{{ row.task.title }}</span>
         {% else %}—{% endif %}
       </td>
-      <td class="fit" data-label="回">{{ row.submission.attempt }} 回目</td>
+      <td class="fit" data-label="回">{{ row.attempt_no or row.submission.attempt }} 回目</td>
       <td class="fit" data-label="AI の総合">{{ '%.0f' | format(row.run.score_ratio * 100) }}%</td>
       <td class="grow" data-label="依頼の理由">{{ row.request.reason }}</td>
       <td class="fit">

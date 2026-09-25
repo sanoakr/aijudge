@@ -18,7 +18,7 @@ p2 はどのくらい通っているか」を見たいことは常にあり、�
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 
 from aijudge_core import (
@@ -28,10 +28,12 @@ from aijudge_core import (
     GradingRun,
     HumanReview,
     ReviewRequest,
+    ReviewState,
     Role,
     Submission,
     Task,
     TaskVersion,
+    attempt_ordinals,
     final_score,
     max_scores_by_version,
     score_withheld,
@@ -133,6 +135,20 @@ class Row:
     #: 総合点を保留しているか（#235）。`score` が `None` になる理由は
     #: 「保留」と「まだ採点が無い」の 2 つあり、**画面はそれを区別する**。
     withheld: bool = False
+    #: 課題の中で何回目か（版をまたぐ・`aijudge_core.attempt_ordinals`）。0 は数えられなかった。
+    #: `Submission.attempt` は版ごとに 1 から数えるので、そのまま出すと重なる。
+    attempt_no: int = 0
+    #: 学習者にいま出ている版の番号（2026-09-25）。提出の版と違えば一覧に並べて出す。
+    current_version: int | None = None
+
+    @property
+    def shown_attempt(self) -> int:
+        return self.attempt_no or self.submission.attempt
+
+    @property
+    def outdated(self) -> bool:
+        """いまの版より前の版への提出か。"""
+        return self.current_version is not None and self.version.version < self.current_version
 
     @property
     def is_trial(self) -> bool:
@@ -447,6 +463,19 @@ def load_rows(
     # 受講の一覧からは引けない。**同じ人を何度も引かない。**
     actors: dict[str, str] = {}
 
+    # 課題の中での回数（版をまたぐ）。**細い行から数える** ── 絞り込みは課題と学習者の
+    # 単位なので、1 人の 1 課題の提出は全部そろっている（状態などの絞りは後で掛かる）。
+    numbers = attempt_ordinals(
+        (row.submission_id, row.learner_id, row.task_id, row.submitted_at, row.attempt)
+        for row in scored
+    )
+    # いま学習者に出ている版（承認済みのうち最新）。提出の版と比べて一覧に出す。
+    current: dict[str, int] = {}
+    for candidate in uow.tasks.versions_for_tasks(list(tasks)):  # type: ignore[attr-defined]
+        if candidate.provenance.review_state is ReviewState.APPROVED:
+            key = str(candidate.task_id)
+            current[key] = max(current.get(key, 0), candidate.version)
+
     rows: list[Row] = []
     for submission in submissions:
         version = versions.get(str(submission.task_version_id))
@@ -488,6 +517,8 @@ def load_rows(
                 finalized_by=_finalized_by(finalization, review),
                 finalized_by_login=_actor_login(finalization, review, uow, actors),
                 contested=request is not None and not request.resolved,
+                attempt_no=numbers.get(submission.id, 0),
+                current_version=current.get(str(task.id)),
             )
         )
     rows = _apply_adopted(rows, adopted)
@@ -577,6 +608,26 @@ def _finalized_by(
     return None if finalization is None else finalization.source
 
 
+def attempt_numbers(uow: object, course_id: object, submissions: list) -> dict[SubmissionId, int]:
+    """提出 → 課題の中での回数（版をまたぐ）。待ち行列など、数件の画面のためにある。
+
+    その学習者のその課題の提出を**全部**細い行で引いてから数える（一部だけでは番号が
+    詰まる）。提出の文書は読まない。
+    """
+    if not submissions:
+        return {}
+    versions = uow.tasks.get_versions({s.task_version_id for s in submissions})  # type: ignore[attr-defined]
+    task_ids = sorted({str(v.task_id) for v in versions.values()})
+    learner_ids = sorted({str(s.learner_id) for s in submissions})
+    rows = uow.submissions.scored_for_course(  # type: ignore[attr-defined]
+        course_id, task_ids=task_ids, learner_ids=learner_ids
+    )
+    return attempt_ordinals(
+        (row.submission_id, row.learner_id, row.task_id, row.submitted_at, row.attempt)
+        for row in rows
+    )
+
+
 def version_max_scores(uow: object, rows: tuple[ScoredRow, ...]) -> dict[TaskVersionId, float]:
     """行に現れる課題の、版 → 配点（`max_scores_by_version`）。**1 回で引く。**"""
     task_ids = {row.task_id for row in rows}
@@ -634,20 +685,9 @@ def _apply_adopted(rows: list[Row], adopted: set[SubmissionId]) -> list[Row]:
     for index, row in enumerate(rows):
         if row.submission.id not in adopted:
             continue
-        rows[index] = Row(
-            submission=row.submission,
-            run=row.run,
-            task=row.task,
-            version=row.version,
-            learner=row.learner,
-            role=row.role,
-            score=row.score,
-            finalized_by=row.finalized_by,
-            finalized_by_login=row.finalized_by_login,
-            contested=row.contested,
-            adopted=True,
-            withheld=row.withheld,
-        )
+        # **写してから変える**（`replace`）。欄を 1 つずつ書き写していたので、欄を足すと
+        # 採用された行だけその欄が落ちた（2026-09-25、回数と版で実際に落ちた）。
+        rows[index] = replace(row, adopted=True)
     return rows
 
 

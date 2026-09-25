@@ -169,7 +169,9 @@
       <td class="grow">
         <span class="mono desc">{{ row.task.unit or row.task.unit_label }}</span> {{ row.task.title }}
       </td>
-      <td class="fit" data-label="回">{{ row.submission.attempt }}</td>
+      {# 課題の中での回数（版をまたぐ）。いまの版より前の版への提出なら版を添える（2026-09-25）。 #}
+      <td class="fit" data-label="回">{{ row.shown_attempt }}
+        {%- if row.outdated %}<br><span class="pill" title="この提出は訂正前の版に対するものです">v{{ row.version.version }}（いまは v{{ row.current_version }}）</span>{% endif %}</td>
       <td class="fit" data-label="得点">
         {% if row.score is not none %}<strong>{{ '%.0f' | format(row.score * 100) }}%</strong>
           {% if row.adopted %}<span class="pill ok">採用</span>{% endif %}

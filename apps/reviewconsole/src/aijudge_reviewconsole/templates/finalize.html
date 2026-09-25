@@ -117,7 +117,7 @@
         {% if row.task %}<span class="mono desc">{{ row.task.unit or row.task.unit_label }}</span>
           {{ row.task.title }}{% else %}—{% endif %}
       </td>
-      <td class="fit" data-label="回">{{ row.submission.attempt }} 回目</td>
+      <td class="fit" data-label="回">{{ row.attempt_no or row.submission.attempt }} 回目</td>
       <td class="fit" data-label="AI の総合">{{ '%.0f' | format(row.run.score_ratio * 100) }}%</td>
       <td class="fit">
         <a href="{{ root_prefix() }}/review/{{ row.submission.id }}/reveal{{ work }}">確認して確定する</a>

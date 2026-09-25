@@ -51,6 +51,7 @@ from aijudge_core import (
     Task,
     TaskVersion,
     allowed_suffixes,
+    attempt_ordinals,
     campus_access,
     content_disposition,
     content_type_for,
@@ -1346,12 +1347,17 @@ def create_app(app_state: StudentApp) -> FastAPI:
     def submission(request: Request, submission_id: str, me: Me, again: int = 0) -> HTMLResponse:
         loaded = _submission_view(app_state, me, SubmissionId(submission_id))
         source = _source_of(app_state, loaded.submission)
+        attempt_no = attempt_number(
+            app_state, loaded.submission, loaded.task, loaded.course.tenant_id
+        )
         return TEMPLATES.TemplateResponse(
             request,
             "submission.html",
             {
                 "me": me,
                 "submission": loaded.submission,
+                # 課題の中での回数（版をまたぐ）。見出しとパンくずはこれを出す。
+                "attempt_no": attempt_no,
                 "task": loaded.version,
                 "run": loaded.run,
                 "view": loaded.view,
@@ -1373,7 +1379,9 @@ def create_app(app_state: StudentApp) -> FastAPI:
                 # 出す** ── 「この提出で何点だったか」ではなく「何を問われた
                 # 提出か」である。習熟度の推定値は出さない。
                 "knowledge_components": knowledge_components_of(app_state, loaded.version),
-                **build_context(loaded.course, loaded.task, loaded.version, loaded.submission),
+                **build_context(
+                    loaded.course, loaded.task, loaded.version, loaded.submission, attempt_no
+                ),
             },
         )
 
@@ -1535,6 +1543,9 @@ def create_app(app_state: StudentApp) -> FastAPI:
             gate=partial(_submission_gate, by_file=False),
             # 画像・PDF をエディタの画面から出す経路も、課題の画面と同じ検査を通す。
             accept_uploads=accept_uploads,
+            attempt_number=lambda submission, task, tenant: attempt_number(
+                app_state, submission, task, tenant
+            ),
             course_and_tasks=_course_and_tasks,
             load_progress=load_progress,
             build_context=build_context,
@@ -2266,8 +2277,12 @@ def build_context(
     task: Task | None = None,
     version: TaskVersion | None = None,
     submission: Submission | None = None,
+    attempt_no: int | None = None,
 ) -> dict[str, object]:
     """どのコースのどの問題セットのどの課題か、誰の何回目の提出かを 1 つにまとめる。
+
+    `attempt_no` は課題の中での回数（版をまたぐ・`aijudge_core.attempt_ordinals`）。
+    無ければ `Submission.attempt`（版ごとの番号）で代える。
 
     **すべての画面に出す。** 出さないと、複数のコース・問題セット・提出を行き来する
     うちに「いま何を見ているか」が分からなくなる。ブラウザの戻る操作や
@@ -2278,7 +2293,31 @@ def build_context(
         "ctx_task": task,
         "ctx_version": version,
         "ctx_submission": submission,
+        "ctx_attempt_no": attempt_no
+        if attempt_no is not None
+        else (submission.attempt if submission is not None else None),
     }
+
+
+def attempt_number(
+    app_state: StudentApp, submission: Submission, task: Task, tenant_id: TenantId
+) -> int:
+    """この提出が、その学習者のその課題への何回目か（版をまたぐ・2026-09-25）。
+
+    `Submission.attempt` は版ごとに 1 から数えるので、版が上がった課題では画面の
+    回数が一覧（`progress.py` の通し番号）と食い違っていた。
+    """
+    with app_state.database.unit_of_work() as uow:
+        version_ids = {version.id for version in uow.tasks.list_versions(task.id)}
+        mine = [
+            s
+            for s in uow.submissions.list_for_learner(tenant_id, submission.learner_id)
+            if s.task_version_id in version_ids
+        ]
+    numbers = attempt_ordinals(
+        (s.id, s.learner_id, task.id, s.submitted_at or s.created_at, s.attempt) for s in mine
+    )
+    return numbers.get(submission.id, submission.attempt)
 
 
 def _numbered(source: str) -> list[tuple[int, str]]:
