@@ -95,7 +95,7 @@
       <span class="sep">&gt;</span>
       <span aria-current="page">
         {%- if learner is defined and learner %}<span class="mono">{{ learner.login }}</span> {% endif -%}
-        提出 {{ submission.attempt }} 回目
+        提出 {{ attempt_no if attempt_no is defined and attempt_no else submission.attempt }} 回目
         {%- if submission.submitted_at %}（{{ submission.submitted_at | local('%Y-%m-%d %H:%M') }}）{% endif -%}
       </span>
     {% endif %}

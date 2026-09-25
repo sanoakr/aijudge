@@ -138,6 +138,8 @@ class IdeDeps:
     # 画像・PDF を検査して提出にする関数（`create_app` の `accept_uploads`）。課題の画面の
     # ファイル提出と**同じ関数**を受け取る ── 検査を写すと条件が落ちる（I8 と同じ理由）。
     accept_uploads: Callable[..., Awaitable[Any]] | None = None
+    # 提出が課題の何回目か（版をまたぐ・`app.attempt_number`）。画面の「◯回目」に使う。
+    attempt_number: Callable[[Any, Task, Any], int] | None = None
     profiles: dict[str, SubjectProfile] = field(default_factory=dict)
 
     def formats_for(self, task: Task, course: Course) -> tuple[EditorFormat, ...]:
@@ -188,6 +190,13 @@ class IdeDeps:
             (f for f in self.formats_for(task, course) if f.filename == language.source_name),
             None,
         )
+
+
+def _attempt_no(deps: IdeDeps, submission: Any, task: Task, tenant_id: Any) -> int:
+    """画面に出す回数。課題の中で版をまたいで数える（無ければ版ごとの番号）。"""
+    if deps.attempt_number is None:
+        return int(submission.attempt)
+    return deps.attempt_number(submission, task, tenant_id)
 
 
 def _require_editor(task: Task) -> None:
@@ -487,7 +496,7 @@ def register_ide_routes(app: FastAPI, deps: IdeDeps, me_dependency: Any) -> None
         return JSONResponse(
             {
                 "submission_id": str(submission.id),
-                "attempt": submission.attempt,
+                "attempt": _attempt_no(deps, submission, task_obj, me.tenant_id),
                 "deduplicated": result.deduplicated,
                 "content_hash": content_hash(body.source),
                 "url": f"/submissions/{submission.id}",
@@ -544,7 +553,7 @@ def register_ide_routes(app: FastAPI, deps: IdeDeps, me_dependency: Any) -> None
         return JSONResponse(
             {
                 "submission_id": str(submission.id),
-                "attempt": submission.attempt,
+                "attempt": _attempt_no(deps, submission, task_obj, me.tenant_id),
                 "deduplicated": result.deduplicated,
                 "files": [
                     {

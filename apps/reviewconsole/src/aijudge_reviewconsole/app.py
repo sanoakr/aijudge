@@ -112,6 +112,7 @@ from .sampling import is_blind_sample
 from .submissions import (
     STATE_LABELS,
     Filters,
+    attempt_numbers,
     distribution_for,
     load_rows,
     load_scored,
@@ -1205,6 +1206,8 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 "task_meta": context.task,
                 "learner": context.learner,
                 "statement_html": render_statement(context.task_version.statement),
+                # 課題の中での回数（版をまたぐ）。見出しとパンくずに出す。
+                "attempt_no": _attempt_no_of(console, context),
                 # 順に処理する帯（2026-09-25）。一覧から開いたときだけ出る。
                 "work_mode": mode,
                 "strip": _work_strip(console, me, context.course.id, mode, submission_id),
@@ -1402,6 +1405,8 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                     "href": f"/courses/{context.course.id}/queue",
                 },
                 "min_reason": MIN_JUSTIFICATION_LENGTH,
+                # 課題の中での回数（版をまたぐ）。見出しとパンくずに出す。
+                "attempt_no": _attempt_no_of(console, context),
                 # 順に処理する帯（2026-09-25）。一覧から開いたときだけ出る。
                 "work_mode": mode,
                 "strip": _work_strip(console, me, context.course.id, mode, submission_id),
@@ -1857,6 +1862,7 @@ def _queue_rows(
                     and console.needs_blind_mark(submission, course.subject_profile),
                 }
             )
+        _number_rows(uow, course.id, rows)
     return course, tuple(rows), marked
 
 
@@ -1897,7 +1903,22 @@ def _blind_rows(
                     "learner": uow.identity.get_user(submission.learner_id),
                 }
             )
+        _number_rows(uow, course.id, rows)
     return course, tuple(rows), marked
+
+
+def _number_rows(uow, course_id: CourseId, rows: list[dict]) -> None:
+    """行に課題の中での回数（`attempt_no`・版をまたぐ）を足す。"""
+    numbers = attempt_numbers(uow, course_id, [row["submission"] for row in rows])
+    for row in rows:
+        row["attempt_no"] = numbers.get(row["submission"].id, row["submission"].attempt)
+
+
+def _attempt_no_of(console: Console, context) -> int:
+    """1 件の画面の見出しとパンくずに出す回数（版をまたぐ）。"""
+    with console.database.unit_of_work() as uow:
+        numbers = attempt_numbers(uow, context.course.id, [context.submission])
+    return numbers.get(context.submission.id, context.submission.attempt)
 
 
 def _open_rows(console: Console, course: Course) -> tuple[dict, ...]:
@@ -1925,6 +1946,7 @@ def _open_rows(console: Console, course: Course) -> tuple[dict, ...]:
                     "manual": _needs_manual_finalization(course, task, run),
                 }
             )
+        _number_rows(uow, course.id, rows)
     return tuple(rows)
 
 

@@ -80,6 +80,7 @@ from .knowledge import (
     parse_kc_key,
 )
 from .network import CampusAccess, campus_access, parse_cidrs
+from .ordinals import attempt_ordinals
 from .retention import (
     AUTOSAVE_RETENTION_MONTHS_AFTER_CLOSE,
     PURGED_MESSAGE,
@@ -243,6 +244,7 @@ __all__ = [
     "aggregate",
     "allowed_suffixes",
     "assert_transition",
+    "attempt_ordinals",
     "auto_finalizable",
     "autosave_expires_at",
     "blocks_finalization",
