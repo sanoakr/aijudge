@@ -306,6 +306,10 @@ def _declared_version(
         test_cases=cases,
         q_matrix=q_matrix_for(spec.knowledge_components, version_id),
         max_score=spec.max_score,
+        # 配点を**明示したときだけ**書いたことにする（`TaskVersion.points_declared`）。
+        # 書かずに問題文だけ直した版まで既定の 100 を「書いた」ことにすると、
+        # 後で入れた配点より先に 100 が採られる（`effective_max_score` は最初の値を使う）。
+        points_declared="max_score" in spec.model_fields_set,
         source_key=spec.key,
         allow_handwriting=False,
         provenance=_provenance(authored_by, generated_by, generation_prompt_version, review_state),
@@ -475,6 +479,10 @@ def build_task_version(
         test_cases=cases,
         q_matrix=q_matrix_for(spec.knowledge_components, version_id),
         max_score=spec.max_score,
+        # 配点を**明示したときだけ**書いたことにする（`TaskVersion.points_declared`）。
+        # 書かずに問題文だけ直した版まで既定の 100 を「書いた」ことにすると、
+        # 後で入れた配点より先に 100 が採られる（`effective_max_score` は最初の値を使う）。
+        points_declared="max_score" in spec.model_fields_set,
         source_key=spec.key,
         allow_handwriting=False,
         provenance=_provenance(authored_by, generated_by, generation_prompt_version, review_state),

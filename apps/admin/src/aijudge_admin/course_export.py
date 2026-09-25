@@ -276,7 +276,9 @@ def _common_fields(
         "position": task.position,
         "opens_at": task.opens_at,
         "due_at": task.due_at,
-        "max_score": version.max_score,
+        # 配点は**書かれた版だけ**持ち出す（`TaskVersion.points_declared`）。既定の 100 を
+        # 書き出すと、流し直したときに「配点を書いた」ことになる。
+        "max_score": version.max_score if version.points_declared else None,
         "aggregation": version.aggregation,
         "reference_solution": version.reference_solution,
         "knowledge_components": kc_keys,
@@ -504,7 +506,7 @@ def _write_task(
         entry["title"] = spec.title
     if spec.accepted_suffixes:
         entry["accepted_suffixes"] = list(spec.accepted_suffixes)
-    if spec.max_score != 100.0:
+    if "max_score" in spec.model_fields_set:
         entry["max_score"] = spec.max_score
     if spec.evaluator != DEFAULT_EVALUATOR:
         entry["evaluator"] = spec.evaluator

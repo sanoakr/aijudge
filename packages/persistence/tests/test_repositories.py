@@ -604,6 +604,18 @@ def test_several_versions_are_read_at_once(task_repo) -> None:
         assert uow.tasks.get_versions([]) == {}
 
 
+def test_all_versions_of_several_tasks_are_read_at_once(task_repo) -> None:
+    """配点は版の履歴から決まる。一覧は課題の版をまとめて引く。"""
+    with task_repo() as uow:
+        for number in (1, 2):
+            uow.tasks.save_version(a_task_version(number))
+        uow.commit()
+    with task_repo() as uow:
+        found = uow.tasks.versions_for_tasks([TASK_ID, TaskId("tsk_" + "0" * 32)])
+        assert sorted(v.version for v in found) == [1, 2]
+        assert uow.tasks.versions_for_tasks([]) == ()
+
+
 def test_tasks_are_listed_per_course(database: Database) -> None:
     task = Task(id=TASK_ID, course_id=COURSE, title="最大値・最小値・平均値")
     other_course = CourseId("crs_" + "9" * 32)

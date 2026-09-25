@@ -59,6 +59,14 @@ class TaskRepository(Protocol):
         """
         ...
 
+    def versions_for_tasks(self, task_ids: Iterable[TaskId]) -> tuple[TaskVersion, ...]:
+        """複数の課題の版を**全部、1 回で**引く（順不同）。
+
+        配点（`effective_max_score`）は版の履歴から決まるので、一覧で課題ごとに
+        `list_versions` すると課題数ぶんの問い合わせになる。
+        """
+        ...
+
     def latest_version(self, task_id: TaskId) -> TaskVersion | None: ...
 
     def latest_published_version(self, task_id: TaskId) -> TaskVersion | None:
@@ -125,7 +133,11 @@ class TaskRepository(Protocol):
 
 
 # 不変性の比較から外す項目。採点の基準ではないもの。
-VOLATILE_FIELDS = frozenset({"created_at"})
+#
+# `points_declared` は「この版の `max_score` を配点として書いたか」という
+# 目印（2026-09-25）。配点そのもの（`max_score`）は比較に残る。目印まで比べると、
+# 目印の無い既存の版を同じ内容で入れ直すたびに内容が違うことになる。
+VOLATILE_FIELDS = frozenset({"created_at", "points_declared"})
 
 # **同一性**の項目。`content` が外し、`substantive` が残すもの。
 #
@@ -276,6 +288,10 @@ class InMemoryTaskRepository:
         self, version_ids: Iterable[TaskVersionId]
     ) -> dict[TaskVersionId, TaskVersion]:
         return {vid: self._versions[vid] for vid in version_ids if vid in self._versions}
+
+    def versions_for_tasks(self, task_ids: Iterable[TaskId]) -> tuple[TaskVersion, ...]:
+        wanted = set(task_ids)
+        return tuple(v for v in self._versions.values() if v.task_id in wanted)
 
     def latest_version(self, task_id: TaskId) -> TaskVersion | None:
         versions = [

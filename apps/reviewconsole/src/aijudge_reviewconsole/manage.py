@@ -135,6 +135,7 @@ from aijudge_core import (
     TestCase,
     campus_access,
     format_term,
+    max_scores_by_version,
     may_see,
     new_id,
     normalize_suffixes,
@@ -829,6 +830,7 @@ SAVED_MESSAGES: dict[str, str] = {
     "confidential": "この問題セットを公開前に誰に見せるかを変えました（セット内の全課題に反映）",
     "audience": "この問題セットの出題先を変えました（セット内の全課題に反映）",
     "answer_mode": "この問題セットの答え方を変えました（セット内の全課題に反映）",
+    "clear_points": "この問題セットのクリア点を変えました（セット内の全課題に反映）",
     "completion": "この問題セットのエディタの補完を変えました（セット内の全課題に反映）",
     "group_deleted": "名簿を消しました",
     # **版は上がらない。** 日程は課題の内容ではないので、直しても過去の
@@ -2637,6 +2639,9 @@ def register(templates) -> APIRouter:
             published = {
                 task.id: uow.tasks.latest_published_version(task.id) for task, _ in group.tasks
             }
+            # 配点（`effective_max_score`・2026-09-25）。**学習者に出ている版の値**を出す。
+            versions = uow.tasks.versions_for_tasks([task.id for task, _ in group.tasks])
+            max_scores = max_scores_by_version(versions)
 
         rows = []
         for task, version in group.tasks:
@@ -2666,6 +2671,11 @@ def register(templates) -> APIRouter:
                     # 学習者に出ている版（無ければ None）。ラベルはこれで決める
                     # ── 出ているかどうかは、承認済みの版があるかどうかである。
                     "published": published.get(task.id),
+                    "points": max_scores.get(
+                        (published.get(task.id) or version).id, version.max_score
+                    ),
+                    # 配点が入っているか。入っていなければ「—」（学習者にも割合だけが出る）。
+                    "pointed": any(v.points_declared for v in versions if v.task_id == task.id),
                     # 訂正フォームの初期値。読みやすさの観点の重みは
                     # 版の中にあるので、そこから取り出す。
                     "readability_weight": next(
@@ -2722,6 +2732,12 @@ def register(templates) -> APIRouter:
                 # エディタで解けない理由（ADR 0026）。**押す前に見せる** ──
                 # 押してから断られるのでは、どの課題が原因か分からない。
                 "editor_blockers": editor_blockers(group.tasks, course),
+                # 問題セットの満点（学習者に出ている課題の配点の和）。クリア点の目安に出す。
+                "points_full": sum(
+                    row["points"]
+                    for row in rows
+                    if not row["withdrawn"] and (row["published"] is not None)
+                ),
                 # 試験の一括採点（#67）。待機中の件数と、落ちたジョブ。
                 **_exam_state(console, course, group, now),
                 "min_reason": MIN_JUSTIFICATION_LENGTH,
@@ -3216,6 +3232,34 @@ def register(templates) -> APIRouter:
             unit,
             update={"answer_mode": mode, "file_upload": by_file},
             saved="answer_mode",
+        )
+
+    @router.post("/courses/{course_id}/units/{unit}/clear-points")
+    def set_unit_clear_points(
+        request: Request,
+        course_id: str,
+        unit: str,
+        clear_points: Annotated[str, Form()] = "",
+    ) -> Response:
+        """**問題セットのクリア点を決める**（2026-09-25）。空欄はクリアの条件なし。
+
+        学内限定と同じく、値はセット単位で決めて全課題に入れる（`_update_unit`）。
+        学習者のコース一覧で、合計点がこの値以上の問題セットに「クリア」が付く。
+        採点は変えない。
+        """
+        raw = clear_points.strip()
+        value: float | None = None
+        if raw:
+            try:
+                value = float(raw)
+            except ValueError:
+                raise HTTPException(
+                    status_code=400, detail="クリア点は数で入れてください"
+                ) from None
+            if value <= 0:
+                raise HTTPException(status_code=400, detail="クリア点は 0 より大きい数です")
+        return _update_unit(
+            request, course_id, unit, update={"clear_points": value}, saved="clear_points"
         )
 
     @router.post("/courses/{course_id}/units/{unit}/completion")
@@ -4330,6 +4374,9 @@ def register(templates) -> APIRouter:
         try:
             spec = TaskSpec(
                 key=_key_of(task, version),
+                # **配点を引き継ぐ**（`TaskVersion.points_declared`）。渡さないと既定の
+                # 100 で版が作られ、教員が入れた配点が消える。
+                **({"max_score": version.max_score} if version.points_declared else {}),
                 statement=statement,
                 unit=task.unit,
                 session=task.session,
@@ -5433,6 +5480,9 @@ def register(templates) -> APIRouter:
             task_id=task.id,
             spec=TaskSpec(
                 key=_key_of(task, version),
+                # **配点を引き継ぐ**（`TaskVersion.points_declared`）。渡さないと既定の
+                # 100 で版が作られ、教員が入れた配点が消える。
+                **({"max_score": version.max_score} if version.points_declared else {}),
                 title=task.title,
                 statement=revised.statement,
                 unit=task.unit,

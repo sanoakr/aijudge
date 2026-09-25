@@ -315,3 +315,16 @@ def test_leaving_confidential_out_keeps_what_the_console_set(database: Database,
     _apply(database, path)
     tasks, _versions = _tasks(database, result.course.id)
     assert all(task.confidential_until_open for task in tasks.values())
+
+
+def test_a_unit_carries_its_clear_points(database: Database, tmp_path) -> None:
+    """`clear_points` は問題セットの値で、回の全課題に入る。"""
+    result = _apply(database, _write_definition(tmp_path, _with_unit_setting("clear_points: 60")))
+    tasks, _versions = _tasks(database, result.course.id)
+    in_set = [task for task in tasks.values() if task.unit == "ex1"]
+    assert in_set and all(task.clear_points == 60.0 for task in in_set)
+
+
+def test_a_bad_clear_points_is_refused(tmp_path: Path) -> None:
+    with pytest.raises(AdminError, match="clear_points"):
+        load_course_definition(_write_definition(tmp_path, _with_unit_setting("clear_points: -1")))

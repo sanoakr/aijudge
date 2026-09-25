@@ -16,6 +16,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from aijudge_authoring import InMemoryTaskRepository
 from aijudge_core import (
     Artifact,
     ArtifactKind,
@@ -128,6 +129,8 @@ class World:
     def __init__(self) -> None:
         # インメモリの UnitOfWork は 1 つを使い回す（`with` は境界の形だけ）。
         self.uow, _store = in_memory_backend()
+        # 版を引く口（配点・前の版）。インメモリの UoW は課題を持たないので足す。
+        self.uow.tasks = InMemoryTaskRepository()
 
     def submit(
         self, attempt: int, *, at: datetime, version_id: TaskVersionId = VERSION
@@ -237,6 +240,8 @@ class World:
             uow.commit()
 
     def progress(self, course: Course, task: Task, version: TaskVersion):
+        if self.uow.tasks.get_version(version.id) is None:
+            self.uow.tasks.save_version(version)
         with self.uow as uow:
             loaded = load_progress(
                 uow,
@@ -338,10 +343,51 @@ def test_an_automatic_finalisation_is_not_shown_as_an_instructor_check(
     assert progress.attempts[0].status_label == "確定（自動）"
 
 
-def test_a_task_with_no_submissions_has_no_progress(course, task, version) -> None:
-    """未提出の課題は結果に現れない。一覧側は空として扱う。"""
+def test_a_task_with_no_submissions_has_no_attempts_but_its_points(course, task, version) -> None:
+    """未提出の課題も結果に現れる（配点を課題一覧に出すため・2026-09-25）。回数は 0。"""
     world = World()
-    assert world.progress(course, task, version) is None
+    progress = world.progress(course, task, version)
+    assert progress is not None
+    assert progress.count == 0
+    assert progress.best_points is None
+    assert progress.max_points == version.max_score
+    # 配点を書いた版が無いので、割合だけを見せる課題（従来どおり）。
+    assert progress.pointed is False
+
+
+def test_points_are_the_ratio_times_the_versions_max_score(course, task, version) -> None:
+    """提出の得点は「割合 × 配点」。配点は版に付く。"""
+    world = World()
+    pointed = version.model_copy(update={"max_score": 20.0, "points_declared": True})
+    submission = world.submit(1, at=NOW - timedelta(hours=1))
+    world.grade(submission, ratio=0.8)
+
+    progress = world.progress(course, task, pointed)
+    assert progress.pointed is True
+    assert progress.max_points == 20.0
+    assert progress.best_points == pytest.approx(16.0)
+
+
+def test_adoption_compares_points_across_versions(course, task, version) -> None:
+    """**配点を下げても、前の版で取った点は下がらない。** 採用は点数で比べる
+    （割合だけで比べると、40 点満点の 100% が 50 点満点の 90% に勝つ）。"""
+    world = World()
+    fifty = version.model_copy(update={"max_score": 50.0, "points_declared": True})
+    world.uow.tasks.save_version(fifty)
+    before = world.submit(1, at=NOW - timedelta(hours=3))
+    world.grade(before, ratio=0.9)
+
+    forty = fifty.model_copy(
+        update={"id": TaskVersionId("tsv_" + "8" * 32), "version": 2, "max_score": 40.0}
+    )
+    world.uow.tasks.save_version(forty)
+    after = world.submit(1, at=NOW - timedelta(hours=1), version_id=forty.id)
+    world.grade(after, ratio=1.0)
+
+    progress = world.progress(course, task, forty)
+    assert progress.adopted is not None and progress.adopted.submission.id == before.id
+    assert progress.best_points == pytest.approx(45.0)
+    assert progress.max_points == 40.0
 
 
 def test_an_earlier_version_counts_and_can_be_adopted(course, task, version) -> None:
@@ -351,10 +397,7 @@ def test_an_earlier_version_counts_and_can_be_adopted(course, task, version) -> 
     満点が採用されている。学習者の画面だけがいまの版で決めると、自分の成績を
     低く読む。
     """
-    from aijudge_authoring import InMemoryTaskRepository
-
     world = World()
-    world.uow.tasks = InMemoryTaskRepository()  # 版を引く口（インメモリの UoW は持たない）
     world.uow.tasks.save_version(version)
     before = world.submit(1, at=NOW - timedelta(hours=3))
     world.grade(before, ratio=1.0)

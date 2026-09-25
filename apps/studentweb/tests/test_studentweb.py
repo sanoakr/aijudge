@@ -292,7 +292,7 @@ def test_a_submission_to_an_earlier_version_is_still_shown(world: World) -> None
 
     page = world.client.get(f"/tasks/{revised.id}").text
     assert f"/submissions/{first_id}" in page
-    assert "訂正前の問題文への提出" in page
+    assert "訂正前の版への提出" in page
 
 
 def test_attempts_are_numbered_across_versions(world: World) -> None:
@@ -309,7 +309,7 @@ def test_attempts_are_numbered_across_versions(world: World) -> None:
     page = world.client.get(f"/tasks/{revised.id}").text
     numbers = re.findall(r'data-label="回">(\d+)<', page)
     assert numbers == ["2", "1"], "新しい提出が上、通し番号"
-    assert page.count("訂正前の問題文への提出") == 1
+    assert page.count("訂正前の版への提出") == 1
 
 
 def test_a_withdrawn_task_is_not_shown_to_the_learner(world: World) -> None:
@@ -2374,3 +2374,115 @@ def test_the_image_task_form_says_the_text_is_transcribed(world: World) -> None:
     # 同じ科目でも、画像を受けない課題には出さない。
     _set_task(world, accepted_suffixes=(".py",))
     assert notice not in world.client.get(f"/tasks/{version.id}").text
+
+
+def _set_clear_points(world: World, points: float) -> None:
+    from aijudge_core.ids import TaskId
+
+    with world.database.unit_of_work() as uow:
+        task = uow.tasks.get_task(TaskId(world.task_version.task_id))
+        uow.tasks.save_task(task.model_copy(update={"clear_points": points}))
+        uow.commit()
+
+
+def _declare_points(world: World, points: float):
+    """配点を入れた版を足す（`course apply --revise` で `max_score` を書いたのと同じ）。"""
+    base = world.task_version
+    pointed = base.model_copy(
+        update={
+            "id": TaskVersionId(new_id("tsv")),
+            "version": base.version + 1,
+            "max_score": points,
+            "points_declared": True,
+        }
+    )
+    with world.database.unit_of_work() as uow:
+        uow.tasks.save_version(pointed)
+        uow.commit()
+    world.task_version = pointed
+    return pointed
+
+
+def test_a_task_without_points_shows_only_the_ratio(world: World) -> None:
+    """**配点の入っていない課題は割合だけ**（従来どおり）。既定の 100 を点数に出さない。"""
+    world.register("s2400001")
+    world.login("s2400001")
+
+    body = world.client.get(f"/courses/{COURSE}").text
+    assert 'data-label="配点"><span class="desc">—</span>' in body
+    assert "合計 <strong>" not in body
+
+
+@needs_c_compiler
+def test_a_graded_task_without_points_still_reads_as_a_ratio(world: World) -> None:
+    """提出済みでも、配点が入るまでは割合のまま。"""
+    world.register("s2400001")
+    world.login("s2400001")
+    world.submit()
+    world.worker.run_until_empty()
+
+    listing = world.client.get(f"/courses/{COURSE}").text
+    page = world.client.get(f"/tasks/{world.task_version.id}").text
+    assert re.search(r"<strong>\d+%</strong>", listing)
+    assert " 点</strong>" not in listing
+    assert re.search(r"<strong>\d+%</strong>", page)
+    assert "/ 100 点" not in page
+
+
+def test_the_course_list_shows_each_problems_points(world: World) -> None:
+    """配点を入れた課題は、課題一覧に配点を出す（2026-09-25）。提出が無くても出る。"""
+    world.register("s2400001")
+    world.login("s2400001")
+    _declare_points(world, 20)
+
+    body = world.client.get(f"/courses/{COURSE}").text
+    assert 'data-label="配点">20 点' in body
+    assert "合計 <strong>0</strong> / 20 点" in body
+
+
+@needs_c_compiler
+def test_an_earlier_submission_counts_with_the_first_points(world: World) -> None:
+    """**既出の問題にあとから配点を入れると、以前の提出もその配点で数える。**"""
+    world.register("s2400001")
+    world.login("s2400001")
+    world.submit()
+    world.worker.run_until_empty()
+    pointed = _declare_points(world, 20)
+
+    page = world.client.get(f"/tasks/{pointed.id}").text
+    assert re.search(r"<strong>[\d.]+ / 20 点</strong>", page)
+    assert "訂正前の版への提出" in page
+
+
+@needs_c_compiler
+def test_a_set_past_its_clear_points_gets_the_badge(world: World) -> None:
+    """**合計がクリア点以上ならクリア。** 確定前の点を含むなら暫定と添える。"""
+    world.register("s2400001")
+    world.login("s2400001")
+    _declare_points(world, 20)
+    _set_clear_points(world, 10)
+
+    before = world.client.get(f"/courses/{COURSE}").text
+    assert "クリアまであと 10 点" in before
+
+    world.submit()
+    world.worker.run_until_empty()
+
+    after = world.client.get(f"/courses/{COURSE}").text
+    assert '<span class="pill ok">クリア（暫定）</span>' in after
+    page = world.client.get(f"/tasks/{world.task_version.id}").text
+    assert re.search(r"<strong>[\d.]+ / 20 点</strong>", page)
+
+
+@needs_c_compiler
+def test_a_set_short_of_its_clear_points_has_no_badge(world: World) -> None:
+    world.register("s2400001")
+    world.login("s2400001")
+    _set_clear_points(world, 1000)
+
+    world.submit()
+    world.worker.run_until_empty()
+
+    body = world.client.get(f"/courses/{COURSE}").text
+    assert '<span class="pill ok">クリア' not in body
+    assert "クリアまであと" in body

@@ -199,6 +199,9 @@ def save_task(
             # ファイル提出の可否も。引き継がないと、「エディタだけ」の試験の課題を
             # 1 つ直した瞬間にその課題だけファイルで出せるようになる。
             file_upload=existing.file_upload if existing else True,
+            # クリア点も。引き継がないと、課題を 1 つ直した瞬間にその課題だけ
+            # セットの値から外れ、画面が「設定がばらついています」と言い出す。
+            clear_points=existing.clear_points if existing else None,
             # 締切と同じ理由で、**明示された場合だけ上書きする**（#234）。
             # 教員が画面で広げた拡張子を、定義の流し込みが黙って狭めない。
             accepted_suffixes=normalize_suffixes(spec.accepted_suffixes)

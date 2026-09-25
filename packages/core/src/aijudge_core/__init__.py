@@ -129,6 +129,8 @@ from .task import (
     TaskVersion,
     TestCase,
     effective_aggregation,
+    effective_max_score,
+    max_scores_by_version,
 )
 from .tenancy import MAX_GROUP_NAME_LENGTH, Course, CourseGroup, Enrollment, Role, Tenant
 from .terms import (
@@ -251,6 +253,7 @@ __all__ = [
     "content_type_for",
     "derived_id",
     "effective_aggregation",
+    "effective_max_score",
     "final_score",
     "format_term",
     "gate_skipped",
@@ -262,6 +265,7 @@ __all__ = [
     "kc_id_for",
     "kind_for",
     "late_penalty_for",
+    "max_scores_by_version",
     "may_see",
     "may_submit_before_open",
     "new_id",
