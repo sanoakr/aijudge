@@ -54,6 +54,11 @@ EVENT_TYPES = frozenset(
         "file_load",
         "run",
         "submit",
+        # 画像・PDF を選んだ／提出した（2026-09-25）。**ファイル名・大きさ・指紋だけ**で、
+        # 中身は記録に入れない（画像は記録の容量と個人情報の両方で重い）。`submit` と
+        # 別の種類にするのは、`submit` がエディタの内容の指紋との突き合わせ
+        # （`integrity`・`flags.submission_mismatches`）に使われるため。
+        "attach",
         "tab",
         "focus",
         "blur",

@@ -142,6 +142,10 @@
       case "copy": return (e.from === "statement" ? "問題文から" : "エディタから") + "コピー " + e.len + " 字";
       case "cut": return "切り取り " + e.len + " 字";
       case "file_load": return "ファイルの読み込み " + (e.name || "") + "（" + e.size + " バイト）";
+      case "attach": {
+        var names = (e.files || []).map(function (f) { return f.name; }).join("・");
+        return (e.stage === "submit" ? "ファイルを提出 " : "ファイルを選択 ") + names;
+      }
       case "run": return e.stage === "request" ? "実行（" + (e.input === "free" ? "自由入力" : e.input) + "）" : "実行の結果: " + e.state + (e.timed_out ? "・時間切れ" : "");
       case "submit":
         var sub = data.submissions && data.submissions[e.submission_id];
