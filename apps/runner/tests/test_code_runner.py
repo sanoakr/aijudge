@@ -183,7 +183,7 @@ def test_a_c_program_is_compiled_then_run(world: World) -> None:
 
     compile_step, run_step = world.sandbox.requests
     # コンパイルのフラグは言語の表から来る（採点と同じ）。
-    assert compile_step.argv == ("cc", "-std=c11", "-O0", "-o", "main", "main.c")
+    assert compile_step.argv == ("cc", "-std=c11", "-O0", "-o", "main", "main.c", "-lm")
     assert compile_step.trusted_toolchain is True
     # **提出物そのものは信頼しない。**
     assert run_step.argv == ("./main",)
