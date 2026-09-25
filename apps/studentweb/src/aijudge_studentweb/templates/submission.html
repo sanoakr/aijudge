@@ -1,7 +1,7 @@
 {% extends "base.html" %}
-{% block title %}提出 {{ submission.attempt }} 回目 — aiJudge{% endblock %}
+{% block title %}提出 {{ attempt_no }} 回目 — aiJudge{% endblock %}
 {% block body %}
-<h1>{{ task.statement.split("\n")[0] | replace("#", "") | trim }} — 提出 {{ submission.attempt }} 回目</h1>
+<h1>{{ task.statement.split("\n")[0] | replace("#", "") | trim }} — 提出 {{ attempt_no }} 回目</h1>
 
 {% if duplicate %}
 <div class="note">同じ内容がすでに提出されています。新しい提出は作られていません。</div>

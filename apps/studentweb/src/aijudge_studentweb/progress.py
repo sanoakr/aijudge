@@ -40,6 +40,7 @@ from aijudge_core import (
     Submission,
     Task,
     TaskVersion,
+    attempt_ordinals,
     grace_minutes,
     max_scores_by_version,
 )
@@ -306,14 +307,20 @@ def _numbered(attempts: list[AttemptSummary]) -> list[AttemptSummary]:
     比べるのは採用の規則と同じ (提出時刻, 回数) ── 教員側の
     `adopted_ids` と同点の扱いを揃える。
     """
-    ordered = sorted(
-        attempts,
-        key=lambda a: (
+    # 番号の規則は 1 か所（`aijudge_core.attempt_ordinals`）── 提出の画面の見出しと
+    # 教員側の一覧も同じ関数で数える。ここは 1 つの課題の提出だけを渡す。
+    numbers = attempt_ordinals(
+        (
+            a.submission.id,
+            a.submission.learner_id,
+            TaskId("same-task"),
             a.submission.submitted_at or a.submission.created_at,
             a.submission.attempt,
-        ),
+        )
+        for a in attempts
     )
-    return [replace(attempt, number=index) for index, attempt in enumerate(ordered, start=1)]
+    ordered = sorted(attempts, key=lambda a: numbers[a.submission.id])
+    return [replace(attempt, number=numbers[attempt.submission.id]) for attempt in ordered]
 
 
 def _mark_adopted(attempts: list[AttemptSummary]) -> tuple[AttemptSummary, ...]:

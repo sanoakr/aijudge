@@ -32,7 +32,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from aijudge_audit import AuditAction
-from aijudge_core import Role
+from aijudge_core import Role, attempt_ordinals
 from aijudge_core.ids import CourseId, SubmissionId, TaskVersionId, UserId
 from aijudge_ide import (
     ActivityFiles,
@@ -186,6 +186,10 @@ def _submissions(console, course, learner_id: UserId) -> dict[str, dict[str, Any
     with console.database.unit_of_work() as uow:
         rows = uow.submissions.scored_for_course(course.id, learner_ids=[learner_id])
         adopted = adopted_ids(rows, version_max_scores(uow, rows))
+        numbers = attempt_ordinals(
+            (row.submission_id, row.learner_id, row.task_id, row.submitted_at, row.attempt)
+            for row in rows
+        )
         origins = {
             str(row.submission_id): link.origin.value
             for row in rows
@@ -195,7 +199,8 @@ def _submissions(console, course, learner_id: UserId) -> dict[str, dict[str, Any
         str(row.submission_id): {
             "id": str(row.submission_id),
             "task_id": str(row.task_id),
-            "attempt": row.attempt,
+            # 課題の中での回数（版をまたぐ）。`row.attempt` は版ごとの番号。
+            "attempt": numbers.get(row.submission_id, row.attempt),
             "ratio": row.final_ratio,
             "adopted": row.submission_id in adopted,
             "origin": origins.get(str(row.submission_id)),

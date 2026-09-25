@@ -311,6 +311,10 @@ def test_attempts_are_numbered_across_versions(world: World) -> None:
     assert numbers == ["2", "1"], "新しい提出が上、通し番号"
     assert page.count("訂正前の版への提出") == 1
 
+    # **提出の画面の見出しも同じ番号**（2026-09-25）。以前は版ごとの番号で「1 回目」だった。
+    detail = world.client.get(second.headers["location"].split("?")[0]).text
+    assert "提出 2 回目" in detail
+
 
 def test_a_withdrawn_task_is_not_shown_to_the_learner(world: World) -> None:
     """**取り下げは削除ではない**が、学習者には出さない（#51）。"""
