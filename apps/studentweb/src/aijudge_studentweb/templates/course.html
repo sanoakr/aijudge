@@ -11,6 +11,16 @@
 {# **段階で分けて、新しい順に並べる。** 学期が進むと課題が数十件になり、
    平らな一覧では「いま出せるのはどれか」が読み取れない（app.py の
    `_group_by_unit`）。日程は 3 つとも出す ── 未設定もそう書く。 #}
+{# 教員・TA として見ているとき（2026-09-25）。**学生の見え方と違う**ことを先に言う ──
+   学生に見えていない問題セットは点線の枠で示す。 #}
+{% if staff_view %}
+<p class="note staff-view-note">
+  <strong>教員・TA として表示しています。</strong>
+  学生には見えていない問題セットは<span class="staff-only-sample">点線の枠</span>で示し、
+  理由（公開前・教員のみ・一部の学生だけに出題）を印で出します。
+</p>
+{% endif %}
+
 {% for section in sections if section.groups %}
 <h2>{{ section.label }}</h2>
 {% for unit in section.groups %}
@@ -23,13 +33,17 @@
 
    **既定はセットの状態で決める**（#73 の 4 状態）。出せるものは開き、
    出せない・まだ出せないものは畳む。 #}
-<details class="unit" {{ 'open' if section.state.value in ('open', 'late') }}>
+<details class="unit{{ ' staff-only' if unit.hidden_from_learners }}" {{ 'open' if section.state.value in ('open', 'late') }}>
 <summary>
 <h3>{{ unit.label }}
   {% if unit.unit %}<span class="mono desc">{{ unit.unit }}</span>{% endif %}
   {# **公開前と書く**（#340）。教員・TA にだけ並ぶセットで、学習者はまだ
      見ていない。書かないと「もう公開されている」と読まれる。 #}
-  {%- if unit.before_open %} <span class="pill attn">公開前（動作確認）</span>{% endif %}
+  {%- if unit.instructors_only %} <span class="pill attn staff-mark">教員のみ（TA・学生には非公開）</span>
+  {%- elif unit.hidden_from_learners %} <span class="pill attn staff-mark">学生には未公開{% if unit.opens_at %}（{{ unit.opens_at | local('%m-%d %H:%M') }} 公開）{% endif %}</span>
+  {%- elif unit.before_open %} <span class="pill attn">公開前（動作確認）</span>{% endif %}
+  {#- 一部の学生だけに出題（追試など）。**教員・TA にしか並ばない**事実なので、staff_view のときだけ。 #}
+  {%- if staff_view and unit.audience_limited %} <span class="pill staff-mark">一部の学生だけに出題</span>{% endif %}
   <span class="dates desc">
     <span>公開 {% if unit.opens_at %}{{ unit.opens_at | local('%m-%d %H:%M') }}{% else %}<em>未設定</em>{% endif %}</span>
     <span>提出開始 {% if unit.submissions_open_at %}{{ unit.submissions_open_at | local('%m-%d %H:%M') }}{% elif unit.opens_at %}公開と同時{% else %}<em>未設定</em>{% endif %}</span>
@@ -93,7 +107,8 @@
       <td class="grow"><strong>{{ task.title }}</strong>
         {# 学内限定（#333）。**一覧にも出す** ── 開くまで分からないと、
            学外に居るときに何が出せるのかが読み取れない。 #}
-        {%- if task.campus_only %} <span class="pill attn">学内のみ</span>{% endif %}</td>
+        {%- if task.campus_only %} <span class="pill attn">学内のみ</span>{% endif %}
+        {%- if staff_view and task.audience_group_ids %} <span class="pill staff-mark">一部の学生だけ</span>{% endif %}</td>
       <td class="fit" data-label="配点">{% if p.pointed %}{{ '%g' | format(p.max_points | round(1)) }} 点{% else %}<span class="desc">—</span>{% endif %}</td>
       <td class="fit" data-label="提出">
         {% if p.count %}{{ p.count }} 回{% else %}<span class="desc">未提出</span>{% endif %}

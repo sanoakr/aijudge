@@ -27,6 +27,15 @@ WEBUI = REPO_ROOT / "packages/webui/src/aijudge_webui"
 BASE_CSS = WEBUI / "assets/base.css"
 THEME_BOOT = WEBUI / "templates/_theme_boot.html"
 THEME_SWITCH = WEBUI / "templates/_theme_switch.html"
+# ボタンの部品（2026-09-25 にヘッダにも置くため切り出した）。script は上に 1 つだけ。
+THEME_BUTTONS = WEBUI / "templates/_theme_buttons.html"
+
+
+def _switch_source() -> str:
+    """スイッチの断片と、それが取り込むボタンの部品を合わせた文面。"""
+    return THEME_SWITCH.read_text(encoding="utf-8") + THEME_BUTTONS.read_text(encoding="utf-8")
+
+
 TEMPLATES = {
     "learner": REPO_ROOT / "apps/studentweb/src/aijudge_studentweb/templates/base.html",
     "console": REPO_ROOT / "apps/reviewconsole/src/aijudge_reviewconsole/templates/base.html",
@@ -90,7 +99,7 @@ def test_the_switch_is_not_shown_without_javascript() -> None:
     隠し方は既存の `.js-only` に合わせる。同じ目的の仕組みを 2 つ持つと、
     片方を直したときにもう片方が取り残される。
     """
-    partial = THEME_SWITCH.read_text(encoding="utf-8")
+    partial = _switch_source()
     switch = re.search(r'<div class="theme-switch[^"]*"[^>]*>', partial)
     assert switch is not None, "配色スイッチが共有の断片に無い"
     assert "js-only" in switch.group(0)
@@ -138,7 +147,5 @@ def test_three_choices_because_dropping_auto_would_be_a_regression() -> None:
     いま何も設定せずに夜で見えている人が、捨てた瞬間に昼へ戻る。
     切り替えを足すことが、その人にとっての機能削除になってはいけない。
     """
-    choices = set(
-        re.findall(r'data-theme-choice="(\w+)"', THEME_SWITCH.read_text(encoding="utf-8"))
-    )
+    choices = set(re.findall(r'data-theme-choice="(\w+)"', _switch_source()))
     assert choices == {"auto", "light", "dark"}, choices

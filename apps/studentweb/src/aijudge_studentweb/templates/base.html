@@ -34,6 +34,9 @@
   {# 利用ガイド（#327）。**どの画面からも届く場所に置く** ── 使い方が分から
      なくなるのは作業の途中で、入口に戻ってから探すものではない。別の場所
      （GitHub Pages）なので新しいタブで開く。 #}
+  {# 昼夜の切り替え（2026-09-25）。**上にも置く** ── フッタは長い画面では見えない。
+     フッタにも残す（ログイン画面にはヘッダが無い）。 #}
+  {% with extra="in-header" %}{% include "_theme_buttons.html" %}{% endwith %}
   <a href="{{ guide_url() }}" target="_blank" rel="noopener">利用ガイド</a>
   <form method="post" action="/logout"><button type="submit">ログアウト</button></form>
 </div></header>

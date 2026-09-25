@@ -1586,7 +1586,7 @@ def test_an_unknown_from_value_shows_no_strip(world: World) -> None:
 def test_the_finalize_page_says_what_needs_a_person(world: World) -> None:
     """**手動の確定が要るものと、待てば閉じるものを分けて言う**（2026-09-25）。
     猶予の無いコースの未確定は、すべて手動。"""
-    _, accepted = _instructor_and_submission(world)
+    _instructor_and_submission(world)
     world.worker.run_until_empty()
 
     page = world.client.get(f"/courses/{COURSE}/finalize").text

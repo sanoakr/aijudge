@@ -123,68 +123,6 @@ def test_unit_schedule_is_the_default_and_the_task_wins(tmp_path: Path) -> None:
     assert by_key["ex1/p3"].due_at == datetime(2026, 10, 2, 14, 59, tzinfo=UTC)
 
 
-WINDOW = """
-    submissions_open_at: 2026-09-18T13:30:00+09:00
-    grading_starts_at: 2026-09-18T14:00:00+09:00
-    accepts_until: 2026-10-02T23:59:00+09:00
-"""
-
-
-def _with_window(window: str = WINDOW) -> str:
-    return DEFINITION.replace(
-        "    due_at: 2026-09-25T23:59:00+09:00\n",
-        "    due_at: 2026-09-25T23:59:00+09:00\n" + window.lstrip("\n"),
-        1,
-    )
-
-
-def test_unit_submission_window_goes_to_every_task(database: Database, tmp_path: Path) -> None:
-    """提出開始・採点開始・受付終了も回の既定として書け、課題に入る。
-
-    書けなかったあいだは、課題文を先に配って提出は演習時間に開ける運用
-    （16:00 公開・16:30 提出開始）を回ごとにコンソールで入れ直していた。
-    """
-    result = _apply(database, _write_definition(tmp_path, _with_window()))
-    tasks, _ = _tasks(database, result.course.id)
-    assert len(tasks) == 3
-    for task in tasks.values():
-        assert task.submissions_open_at == datetime(2026, 9, 18, 4, 30, tzinfo=UTC)
-        assert task.grading_starts_at == datetime(2026, 9, 18, 5, 0, tzinfo=UTC)
-        assert task.accepts_until == datetime(2026, 10, 2, 14, 59, tzinfo=UTC)
-
-
-def test_a_definition_without_the_window_keeps_what_the_console_set(
-    database: Database, tmp_path: Path
-) -> None:
-    """**書かなければ消さない。** 定義に無い回は、コンソールで入れた値のまま。"""
-    root = tmp_path / "with"
-    root.mkdir()
-    first = _apply(database, _write_definition(root, _with_window()))
-    # 同じ定義ファイルから提出開始などを消して流し直す。
-    (root / "course.yaml").write_text(DEFINITION, encoding="utf-8")
-    _apply(database, root / "course.yaml")
-    tasks, _ = _tasks(database, first.course.id)
-    for task in tasks.values():
-        assert task.submissions_open_at == datetime(2026, 9, 18, 4, 30, tzinfo=UTC)
-        assert task.accepts_until == datetime(2026, 10, 2, 14, 59, tzinfo=UTC)
-
-
-@pytest.mark.parametrize(
-    ("window", "message"),
-    [
-        ("    submissions_open_at: 2026-09-18T12:00:00+09:00\n", "提出開始が公開より前"),
-        ("    submissions_open_at: 2026-09-26T00:00:00+09:00\n", "締切が提出開始より前"),
-        ("    accepts_until: 2026-09-25T12:00:00+09:00\n", "受付終了が締切より前"),
-    ],
-)
-def test_a_window_out_of_order_is_refused_when_read(
-    tmp_path: Path, window: str, message: str
-) -> None:
-    """前後関係の壊れた日程は**読む段で**落とす（課題を入れてからでは半分残る）。"""
-    with pytest.raises(AdminError, match=message):
-        load_course_definition(_write_definition(tmp_path, _with_window(window)))
-
-
 def test_apply_creates_the_course_with_its_settings_and_tasks(database: Database, tmp_path) -> None:
     result = _apply(database, _write_definition(tmp_path))
     assert result.created and result.tasks == 3

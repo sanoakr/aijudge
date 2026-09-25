@@ -100,7 +100,7 @@ def test_a_set_before_its_opening_is_listed_for_an_instructor(world: World) -> N
 
     body = world.client.get(f"/courses/{COURSE}").text
     assert "公開されている課題がありません" not in body
-    assert "公開前（動作確認）" in body
+    assert "学生には未公開" in body
 
 
 def test_a_set_before_its_opening_is_still_hidden_from_a_learner(world: World) -> None:
@@ -111,4 +111,39 @@ def test_a_set_before_its_opening_is_still_hidden_from_a_learner(world: World) -
 
     body = world.client.get(f"/courses/{COURSE}").text
     assert "公開されている課題がありません" in body
-    assert "公開前（動作確認）" not in body
+    assert "学生には未公開" not in body
+
+
+def test_staff_are_told_they_see_more_than_learners(world: World) -> None:
+    """教員・TA の一覧には「教員・TA として表示」と出て、未公開のセットは枠で囲まれる。
+    公開済みのセットは囲まない（誤って公開したら、枠が消えることで気づける）。"""
+    world.register("teacher", role=Role.INSTRUCTOR)
+    world.login("teacher")
+
+    open_now = world.client.get(f"/courses/{COURSE}").text
+    assert "教員・TA として表示しています" in open_now
+    assert 'class="unit staff-only"' not in open_now
+
+    tomorrow = datetime.now(UTC) + timedelta(days=1)
+    _set_task(world, opens_at=tomorrow, submissions_open_at=tomorrow)
+    body = world.client.get(f"/courses/{COURSE}").text
+    assert 'class="unit staff-only"' in body
+    assert (
+        "学生にはまだ公開されていません" in world.client.get(f"/tasks/{world.task_version.id}").text
+    )
+
+
+def test_learners_get_no_staff_marks(world: World) -> None:
+    world.register("s2400001")
+    world.login("s2400001")
+    body = world.client.get(f"/courses/{COURSE}").text
+    assert "教員・TA として表示しています" not in body
+
+
+def test_the_theme_switch_is_also_in_the_header(world: World) -> None:
+    """昼夜の切り替えは上にも出す（フッタは長い画面では見えない）。フッタにも残る。"""
+    world.register("s2400001")
+    world.login("s2400001")
+    body = world.client.get(f"/courses/{COURSE}").text
+    assert "theme-switch js-only in-header" in body
+    assert body.count('data-theme-choice="dark"') == 2

@@ -37,10 +37,23 @@
 {% endif %}
 
 {% if units %}
-<nav class="menu sets">
+{# **いま誰に見えているかで分けて並べる**（2026-09-25）。学生に公開中・未公開（TA まで）・
+   教員のみ（TA にも未公開）。1 本の一覧だと、誤って公開した、公開し忘れた、に気づけない。
+   判定は `overview._visibility`（`may_see` と同じ事実）。 #}
+{% set bands = [
+  ('learners', '学生に公開中', ''),
+  ('staff', '未公開（TA まで見える）', '学生にはまだ見えていません。公開の日時を過ぎると学生に出ます。'),
+  ('instructors', '教員のみ（TA にも未公開）', '公開まで教員だけに見えています（試験など）。公開の日時を過ぎると TA と学生に出ます。'),
+] %}
+{% for band, heading, note in bands %}
+{% set rows = units | selectattr('visibility', 'equalto', band) | list %}
+{% if rows %}
+<h2 class="sets-band sets-band-{{ band }}">{{ heading }} <span class="desc">{{ rows | length }} セット</span></h2>
+{% if note %}<p class="desc">{{ note }}</p>{% endif %}
+<nav class="menu sets sets-{{ band }}">
   {# 学期を通すと 15 行前後になる。**1 セット 1 行に収める**うえ、列を
      揃える ── 揃っていないと、締切や未確定の数を縦に読み比べられない。 #}
-  {% for unit in units %}
+  {% for unit in rows %}
   {# 中身が全部学習者に出ていないセットは、行そのものを分ける（#83）──
      セットの中の課題には印を付けたが、**コースに並ぶセット自体**は生きて
      いるものと同じ見た目のままだった。 #}
@@ -64,6 +77,8 @@
   </a>
   {% endfor %}
 </nav>
+{% endif %}
+{% endfor %}
 {% else %}
 <p class="desc">問題セットがまだありません。{% if can_manage %}下の欄に鍵を入れて始めてください。{% endif %}</p>
 {% endif %}

@@ -52,7 +52,7 @@ def test_an_assistant_does_not_see_a_confidential_set_before_it_opens(world: Wor
     body = world.client.get(f"/courses/{COURSE}").text
 
     assert EMPTY_LIST in body
-    assert "公開前（動作確認）" not in body
+    assert "学生には未公開" not in body
 
 
 def test_an_assistant_cannot_open_or_submit_to_it_by_url(world: World) -> None:
@@ -81,8 +81,12 @@ def test_an_instructor_sees_and_tries_it_before_it_opens(world: World) -> None:
     _open_tomorrow(world, confidential=True)
 
     body = world.client.get(f"/courses/{COURSE}").text
-    assert "公開前（動作確認）" in body
-    assert world.client.get(f"/tasks/{world.task_version.id}").status_code == 200
+    # **教員だけに見えていることを、公開前と区別して示す**（2026-09-25）。
+    assert "教員のみ（TA・学生には非公開）" in body
+    assert 'class="unit staff-only"' in body
+    page = world.client.get(f"/tasks/{world.task_version.id}")
+    assert page.status_code == 200
+    assert "公開まで教員だけに見えています" in page.text
     assert _submit(world).status_code == 303
 
 
@@ -91,7 +95,7 @@ def test_a_plain_set_is_still_open_to_an_assistant_before_it_opens(world: World)
     _as(world, "ta", Role.ASSISTANT)
     _open_tomorrow(world, confidential=False)
 
-    assert "公開前（動作確認）" in world.client.get(f"/courses/{COURSE}").text
+    assert "学生には未公開" in world.client.get(f"/courses/{COURSE}").text
     assert world.client.get(f"/tasks/{world.task_version.id}").status_code == 200
     assert _submit(world).status_code == 303
 

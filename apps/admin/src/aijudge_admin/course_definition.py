@@ -18,12 +18,7 @@
       knowledge_components: [cs.loops.control.basic, ...]   # 任意。課題が問うものは自動で入る
     units:                                  # 任意。回ごとの日程の既定
       ex1: {opens_at: 2026-09-18T13:00:00+09:00, due_at: 2026-09-25T23:59:00+09:00}
-      ex2: {opens_at: 2026-09-25T16:00:00+09:00,           # 課題文は先に配り、
-            submissions_open_at: 2026-09-25T16:30:00+09:00,  # 提出は演習時間から
-            due_at: 2026-10-02T12:00:00+09:00}
-      test2: {grading_starts_at: 2026-09-25T16:45:00+09:00,    # 試験の採点開始と
-              accepts_until: 2026-09-25T16:45:00+09:00}        # 受付終了
-      ex5: {answer_mode: editor, editor_completion: true}   # 答え方（ADR 0026）
+      ex2: {answer_mode: editor, editor_completion: true}   # 答え方（ADR 0026）
       ex3: {answer_mode: editor, file_upload: false}        # エディタだけ（試験）
       test3: {confidential_until_open: true}                # 公開まで教員だけ（TA にも見せない）
       ex4: {clear_points: 60}                               # 合計 60 点でクリア
@@ -94,14 +89,7 @@ def course_template() -> str:
 _COURSE_REQUIRED = ("code", "title", "term", "subject_profile")
 _COURSE_OPTIONAL = ("description", "upload_suffixes", "knowledge_components")
 # 回ごとの既定として書ける日程。課題側に無ければここから埋める。
-# 提出開始・採点開始・受付終了も同じ扱い（`TaskSpec` の同名の欄）。
-UNIT_SCHEDULE_KEYS = (
-    "opens_at",
-    "submissions_open_at",
-    "due_at",
-    "grading_starts_at",
-    "accepts_until",
-)
+_UNIT_SCHEDULE_KEYS = ("opens_at", "due_at")
 # 回（問題セット）の値として書けるもの。**課題ごとには書けない** ──
 # `/manage` と同じく回の全課題に入れる。同じ回で答え方が混ざると、学習者は
 # 課題ごとに画面を行き来することになる（ADR 0026）。
@@ -160,7 +148,7 @@ def load_course_definition(path: Path) -> CourseDefinition:
         raise AdminError(f"units は回の名前を鍵にした対応表です: {path}")
     unit_settings: dict[str, dict[str, Any]] = {}
     for unit, schedule in units.items():
-        bad = set(schedule or {}) - set(UNIT_SCHEDULE_KEYS) - set(_UNIT_SETTING_KEYS)
+        bad = set(schedule or {}) - set(_UNIT_SCHEDULE_KEYS) - set(_UNIT_SETTING_KEYS)
         if bad:
             raise AdminError(f"units.{unit} に書けないフィールドです: {sorted(bad)}（{path}）")
         settings = _unit_settings(str(unit), schedule or {}, path)
@@ -223,7 +211,7 @@ def _task_spec(raw: dict[str, Any], *, base: Path, units: dict[str, Any]) -> Tas
 
     # 回ごとの日程の既定。**課題側の指定が勝つ。**
     schedule = units.get(raw.get("unit")) or {}
-    for key in UNIT_SCHEDULE_KEYS:
+    for key in _UNIT_SCHEDULE_KEYS:
         if raw.get(key) is None and schedule.get(key) is not None:
             raw[key] = schedule[key]
 

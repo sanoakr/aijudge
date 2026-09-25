@@ -404,6 +404,8 @@ footer.app-footer .inner{max-width:none;display:flex;align-items:center;gap:12px
    別に持つと、支援技術に伝わる状態と画面の状態がずれる。 */
 .theme-switch button[aria-pressed="true"]{background:var(--surface);color:var(--ink);
   box-shadow:inset 0 0 0 1px var(--line-soft)}
+/* ヘッダに置いたとき。フッタの `margin-right:auto`（左へ寄せる）は要らない。 */
+.theme-switch.in-header{margin-right:0}
 
 /* ==========================================================================
    左の常設の帯（#189・ADR 0017）

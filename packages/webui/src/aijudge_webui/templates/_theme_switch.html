@@ -8,11 +8,7 @@
    **部品と、それを動かす script を 1 つの断片にまとめる**（#184）── 以前は
    markup がフッタ、script が body の末尾にあり、同じ組が 2 アプリに
    4 か所へ散っていた。script は部品より後にあればよい。 #}
-<div class="theme-switch js-only" role="group" aria-label="配色" hidden>
-    <button type="button" data-theme-choice="auto" aria-pressed="false">自動</button>
-    <button type="button" data-theme-choice="light" aria-pressed="false">昼</button>
-    <button type="button" data-theme-choice="dark" aria-pressed="false">夜</button>
-  </div>
+{% include "_theme_buttons.html" %}
 <script>
 // 配色の切り替え（#181）。**保存するのは選択であって、解決した配色ではない**
 // ── 「自動」を選んだ人は、そのあと OS の設定を変えたら追従してほしい。

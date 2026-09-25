@@ -226,6 +226,25 @@ TEMPLATES.env.globals["purged_message"] = lambda: PURGED_MESSAGE
 # どちらの頁を読むべきかは画面の側からは決められない。
 TEMPLATES.env.globals["guide_url"] = webui.guide_url
 
+
+def _learner_link(request: Request, course: object = None) -> str:
+    """学生の画面への入口（2026-09-25）。コースの中ならそのコースの画面、外ならトップ。
+
+    場所は受講しているコースの一覧と**同じ関数**（`counterpart_url`）で決める ──
+    ホスト名の扱い（Cookie が付いていくか・ヘッダの検査 #116）を写さない。
+    """
+    console = getattr(request.app.state, "aijudge", None)
+    if console is None:
+        return ""
+    base = counterpart_url(request, configured=console.learner_url, port=console.learner_port)
+    if not base:
+        return ""
+    course_id = getattr(course, "id", None)
+    return f"{base}/courses/{course_id}" if course_id else f"{base}/"
+
+
+TEMPLATES.env.globals["learner_link"] = _learner_link
+
 # 画面に埋め込んでよい種別。それ以外はダウンロードさせる（#75）。
 INLINE_KINDS = (ArtifactKind.IMAGE, ArtifactKind.PDF, ArtifactKind.VIDEO)
 

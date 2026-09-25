@@ -449,3 +449,8 @@ pre.code.diff .same{display:block}
 .work-summary{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;margin:0 0 12px}
 .correct-gate{border:1px dashed var(--line);border-radius:4px;padding:6px 10px}
 .correct-gate > summary{cursor:pointer;font-weight:600}
+/* 問題セットの一覧を、いま誰に見えているかで分ける（2026-09-25）。学生に見えていない
+   帯は点線の枠で囲む ── 学生の画面の印（`learner.css` の `.unit.staff-only`）と同じ見た目。 */
+.sets-band{margin:18px 0 4px;font-size:1rem}
+.menu.sets-staff,.menu.sets-instructors{border:2px dashed var(--shu);border-radius:4px;padding:4px}
+.sets-band-instructors{color:var(--shu)}
