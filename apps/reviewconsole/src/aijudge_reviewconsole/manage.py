@@ -132,6 +132,7 @@ from aijudge_core import (
     ReviewState,
     Role,
     Task,
+    TaskVersion,
     TestCase,
     campus_access,
     format_term,
@@ -995,6 +996,32 @@ def _clear_plan(console, course, group) -> dict[str, int]:
         "untouched": len(report.untouched),
         "total": report.total,
     }
+
+
+def _graded_by(version: TaskVersion) -> tuple[str, ...]:
+    """課題の観点を何が判定するか。一覧の印に使う（複数ありうる）。
+
+    - テストで判定: テストケースを走らせる評価器（`*_test_runner`）
+    - 規則で判定: そのほかの決定的な評価器（文字列の照合・提出物の検査など）
+    - AI が判定: 評価器を指名していない観点（どの AI 評価器も対象）と `*_ai_judge`
+    - 教員が採点: 機械に採点させない観点（`HUMAN_SCORED`）
+
+    名前で分けるのは、評価器の登録（エントリポイント）をこの画面が読まないため。
+    AI の評価器は `_ai_judge`、テストは `_test_runner` で終わる名前に揃えてある。
+    """
+    found: dict[str, None] = {}
+    for criterion in version.criteria:
+        name = criterion.evaluator_id
+        if name == HUMAN_SCORED:
+            found["教員が採点"] = None
+        elif name is None or name.endswith("_ai_judge"):
+            found["AI が判定"] = None
+        elif name.endswith("_test_runner"):
+            found["テストで判定"] = None
+        else:
+            found["規則で判定"] = None
+    order = ("テストで判定", "規則で判定", "AI が判定", "教員が採点")
+    return tuple(label for label in order if label in found)
 
 
 def _update_unit(
@@ -2657,6 +2684,9 @@ def register(templates) -> APIRouter:
                     # 自動採点できるか。できない課題は AI 観点だけで、
                     # 教員の確定が前提になる（ADR 0008）。
                     "auto_graded": bool(version.test_cases),
+                    # **採点のされ方**（2026-09-25）。以前は「自動テストなし」とだけ出し、
+                    # AI が判定する課題（レポート・感想）まで自動採点されないように読めた。
+                    "graded_by": _graded_by(version),
                     "evaluators": sorted(
                         {c.evaluator_id for c in version.criteria if c.evaluator_id}
                     ),

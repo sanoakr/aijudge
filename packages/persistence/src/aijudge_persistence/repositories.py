@@ -923,9 +923,18 @@ class SqlReviewRepository:
             .where(learner_submitted)
         )
 
+        # 内訳は同じ条件で課題と振り分けごとに数える（行は持ってこない）。
+        breakdown = unfinalized.with_only_columns(
+            TaskRow.id, GradingRunRow.routing, func.count()
+        ).group_by(TaskRow.id, GradingRunRow.routing)
+        by_task = tuple(
+            (str(task_id), str(routing), int(count))
+            for task_id, routing, count in self._session.execute(breakdown).all()
+        )
         return AttentionCounts(
             contested=self._session.execute(contested).scalar_one(),
             unfinalized=self._session.execute(unfinalized).scalar_one(),
+            unfinalized_by_task=by_task,
         )
 
     def unfinalized_for_task(

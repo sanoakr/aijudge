@@ -38,7 +38,7 @@ from pathlib import Path
 from typing import Annotated
 from urllib.parse import urlencode
 
-from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response
+from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request, Response
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -62,13 +62,16 @@ from aijudge_core import (
     GradingRun,
     HumanReview,
     Role,
+    Routing,
     RubricCriterion,
     Submission,
+    Task,
     TaskVersion,
     blocks_finalization,
     content_disposition,
     content_type_for,
     effective_aggregation,
+    grace_minutes,
     may_see,
     new_id,
     offered_years,
@@ -1118,8 +1121,17 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                         # 未対応の異議申立があるものは一括では閉じない。
                         # **1 件ずつ読むもの**として印を付ける。
                         "contested": blocks_finalization(request_row),
+                        # 手動の確定が要るか（2026-09-25）。偽なら猶予が明ければ自動で閉じる。
+                        "manual": _needs_manual_finalization(course, task, run),
                     }
                 )
+        # 課題ごとの内訳（手動・自動確定待ち）。問題セットと問題の行に出す。
+        split: dict[str, list[int]] = {}
+        for row in open_rows:
+            if row["task"] is None:
+                continue
+            counts_of = split.setdefault(str(row["task"].id), [0, 0])
+            counts_of[0 if row["manual"] else 1] += 1
         return TEMPLATES.TemplateResponse(
             request,
             "finalize.html",
@@ -1130,6 +1142,9 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 "rows": open_rows,
                 "units": [unit for unit in units if unit.unfinalized],
                 "pending": pending,
+                "split": split,
+                "manual_total": sum(1 for row in open_rows if row["manual"]),
+                "waiting_total": sum(1 for row in open_rows if not row["manual"]),
                 "contested": len(rows),
                 # 一括確定は担当教員以上（`manage.py` の権限と揃える）。
                 # **テナント管理者は受講登録が無くても管理できる**（#128）。
@@ -1165,10 +1180,15 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
     # -- blind 採点（抽出対象のみ）----------------------------------------
 
     @app.get("/review/{submission_id}/blind", response_class=HTMLResponse)
-    def blind(request: Request, submission_id: str, me: Me) -> Response:
+    def blind(
+        request: Request, submission_id: str, me: Me, from_: str = Query("", alias="from")
+    ) -> Response:
+        mode = _work_mode(from_)
         context = _load(console, me, SubmissionId(submission_id), request)
         if not context.needs_blind:
-            return RedirectResponse(f"/review/{submission_id}/reveal", status_code=303)
+            return RedirectResponse(
+                _with_mode(f"/review/{submission_id}/reveal", mode), status_code=303
+            )
         return TEMPLATES.TemplateResponse(
             request,
             "blind.html",
@@ -1206,11 +1226,16 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 "task_meta": context.task,
                 "learner": context.learner,
                 "statement_html": render_statement(context.task_version.statement),
+                # 順に処理する帯（2026-09-25）。一覧から開いたときだけ出る。
+                "work_mode": mode,
+                "strip": _work_strip(console, me, context.course.id, mode, submission_id),
             },
         )
 
     @app.post("/review/{submission_id}/blind")
-    async def submit_blind(request: Request, submission_id: str, me: Me) -> Response:
+    async def submit_blind(
+        request: Request, submission_id: str, me: Me, from_: str = Query("", alias="from")
+    ) -> Response:
         """blind 採点を保存する。**採点は起動しない。**
 
         フォーム全体を読む。段階の項目名が観点ごとに違うため
@@ -1254,7 +1279,9 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
             mark=fresh.mark,
             review=fresh.review,
         )
-        return RedirectResponse(f"/review/{submission_id}/reveal", status_code=303)
+        return RedirectResponse(
+            _with_mode(f"/review/{submission_id}/reveal", _work_mode(from_)), status_code=303
+        )
 
     @app.get("/images/{course_id}/{name}")
     def statement_image(request: Request, course_id: str, name: str, me: Me) -> Response:
@@ -1332,10 +1359,15 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
     # -- 開示と確定 --------------------------------------------------------
 
     @app.get("/review/{submission_id}/reveal", response_class=HTMLResponse)
-    def reveal(request: Request, submission_id: str, me: Me) -> Response:
+    def reveal(
+        request: Request, submission_id: str, me: Me, from_: str = Query("", alias="from")
+    ) -> Response:
+        mode = _work_mode(from_)
         context = _load(console, me, SubmissionId(submission_id), request)
         if context.needs_blind:
-            return RedirectResponse(f"/review/{submission_id}/blind", status_code=303)
+            return RedirectResponse(
+                _with_mode(f"/review/{submission_id}/blind", mode), status_code=303
+            )
 
         source = console.source_of(context.submission)
         return TEMPLATES.TemplateResponse(
@@ -1391,11 +1423,16 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                     "href": f"/courses/{context.course.id}/queue",
                 },
                 "min_reason": MIN_JUSTIFICATION_LENGTH,
+                # 順に処理する帯（2026-09-25）。一覧から開いたときだけ出る。
+                "work_mode": mode,
+                "strip": _work_strip(console, me, context.course.id, mode, submission_id),
             },
         )
 
     @app.post("/review/{submission_id}/finalize")
-    async def finalize(request: Request, submission_id: str, me: Me) -> Response:
+    async def finalize(
+        request: Request, submission_id: str, me: Me, from_: str = Query("", alias="from")
+    ) -> Response:
         form = await request.form()
         context = _load(console, me, SubmissionId(submission_id), request)
         if context.awaiting_ai:
@@ -1570,7 +1607,10 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
         # 押した結果が画面から消え、確定できたのかどうかを確かめるには
         # 戻って開き直すしかなかった。戻せば、確定済みとして描き直され、
         # ボタンは押せなくなる（`reveal.html`）── 結果がその場に出る。
-        return RedirectResponse(f"/review/{submission_id}/reveal", status_code=303)
+        # 順に処理している途中なら帯を付けたまま戻す（上の帯から次へ進める）。
+        return RedirectResponse(
+            _with_mode(f"/review/{submission_id}/reveal", _work_mode(from_)), status_code=303
+        )
 
     return app
 
@@ -1879,6 +1919,94 @@ def _blind_rows(
                 }
             )
     return course, tuple(rows), marked
+
+
+def _needs_manual_finalization(course: Course, task: Task | None, run: GradingRun) -> bool:
+    """この未確定の提出は、人が確定しないと閉じないか（2026-09-25）。
+
+    自動確定（`aijudge-finalize`）が閉じないのは、猶予（課題かコースの
+    `auto_finalize_after_minutes`）が無い課題と、レビュー方針が人の目を求めた採点
+    （`Routing.REVIEW_REQUIRED`）。左の帯（`rail_context._split_unfinalized`）と同じ規則。
+    """
+    grace = grace_minutes(
+        task.auto_finalize_after_minutes if task is not None else None,
+        course.auto_finalize_after_minutes,
+    )
+    return grace is None or run.routing is Routing.REVIEW_REQUIRED
+
+
+# -- 順に処理する帯（2026-09-25） --------------------------------------------
+#
+# blind 採点と再確認の依頼は、1 件ずつ開いて処理する仕事である。以前は 1 件を
+# 終えるたびに一覧へ戻る必要があり、どこまで進んだかも画面から消えた。1 件の
+# 画面の上部に待ち行列の一部を出し、そこから次へ進めるようにする。
+
+# 帯を出す仕事の種類（`?from=`）。**これ以外の値は無視する**（帯を出さない）。
+WORK_QUEUE = "queue"
+WORK_BLIND = "blind"
+WORK_MODES = frozenset({WORK_QUEUE, WORK_BLIND})
+# 帯に並べる件数。全部並べると作業の画面が下へ押し出される（一部だけを出す）。
+WORK_STRIP_ROWS = 8
+
+
+def work_href(mode: str, submission_id: object) -> str:
+    """帯から開く 1 件の画面。blind は自分で採点する画面、依頼は確定の画面。"""
+    page = "blind" if mode == WORK_BLIND else "reveal"
+    return f"/review/{submission_id}/{page}?from={mode}"
+
+
+def _work_strip(console: Console, me: Principal, course_id: CourseId, mode: str, current: str):
+    """1 件の画面の上に出す帯。`mode` が知らない値なら None（帯を出さない）。
+
+    **待ち行列は一覧と同じ関数で作る**（`_queue_rows`・`_blind_rows`）── 帯と一覧で
+    待っているものが食い違わない。いま開いている 1 件が処理済みなら、それを
+    「対応済み」として先頭に残し、次の 1 件を指す。
+    """
+    if mode not in WORK_MODES:
+        return None
+    builder = _queue_rows if mode == WORK_QUEUE else _blind_rows
+    course, rows, _marked = builder(console, me, course_id)
+    ids = [str(row["submission"].id) for row in rows]
+    position = ids.index(current) if current in ids else -1
+    # 次は「いまの 1 件の後ろ」、無ければ先頭（処理済みで行列から抜けたとき）。
+    following = [i for i in ids[position + 1 :] if i != current] or [i for i in ids if i != current]
+    start = max(0, position - 2) if position >= 0 else 0
+    shown = rows[start : start + WORK_STRIP_ROWS]
+    return {
+        "mode": mode,
+        "label": "再確認の依頼" if mode == WORK_QUEUE else "blind 採点",
+        "list_href": f"/courses/{course.id}/{'queue' if mode == WORK_QUEUE else 'blind'}",
+        "pending": len(ids),
+        "current_pending": position >= 0,
+        "next_href": work_href(mode, following[0]) if following else None,
+        # `items` にしない ── テンプレートでは辞書の `items` メソッドと衝突する。
+        "rows": [
+            {
+                "href": work_href(mode, row["submission"].id),
+                "current": str(row["submission"].id) == current,
+                "learner": row["learner"].login if row["learner"] else "—",
+                "task": row["task"].title if row["task"] else "—",
+                "unit": row["task"].unit_label if row["task"] else "",
+                "when": (
+                    row["request"].requested_at
+                    if mode == WORK_QUEUE
+                    else row["submission"].submitted_at
+                ),
+            }
+            for row in shown
+        ],
+        "hidden_before": start,
+        "hidden_after": max(0, len(rows) - start - len(shown)),
+    }
+
+
+def _work_mode(value: str | None) -> str:
+    """`?from=` を受ける。知らない値は空（帯を出さない・リダイレクトにも載せない）。"""
+    return value if value in WORK_MODES else ""
+
+
+def _with_mode(path: str, mode: str) -> str:
+    return f"{path}?from={mode}" if mode else path
 
 
 # -- 表示用のヘルパ ----------------------------------------------------------

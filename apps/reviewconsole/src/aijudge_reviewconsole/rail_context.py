@@ -26,7 +26,7 @@ import logging
 
 from fastapi import Request
 
-from aijudge_core import Role
+from aijudge_core import Role, Routing, grace_minutes
 from aijudge_core.ids import CourseId
 
 from .rail import Rail, RailGroup, RailItem, course_rail, tenant_rail
@@ -99,6 +99,7 @@ def _resolved(rail: Rail, path: str) -> Rail:
                     href=f"{prefix}{i.href}",
                     count=i.count,
                     attention=i.attention,
+                    note=i.note,
                     current=i.href == path,
                 )
                 for i in g.items
@@ -143,10 +144,39 @@ def _build(console, request: Request, principal) -> Rail:
             enrollment is not None and enrollment.role in (Role.INSTRUCTOR, Role.ADMIN)
         )
         counts = uow.reviews.attention_counts_for_course(course_id)
+        tasks = {str(task.id): task for task in uow.tasks.list_for_course(course_id)}
 
+    manual, waiting = _split_unfinalized(course, tasks, counts)
     return course_rail(
         course,
         contested=counts.contested,
-        unfinalized=counts.unfinalized,
+        unfinalized=manual,
+        finalize_waiting=waiting,
         can_manage=can_manage,
     )
+
+
+def _split_unfinalized(course, tasks: dict, counts) -> tuple[int, int]:
+    """未確定を「手動の確定が必要」と「自動確定を待っている」に分ける（2026-09-25）。
+
+    自動確定されないのは、猶予（課題かコースの `auto_finalize_after_minutes`）が
+    無い課題と、レビュー方針が人の目を求めた採点（`Routing.REVIEW_REQUIRED`）。
+    規則は自動確定（`aijudge_admin.finalization`）と同じ事実から取る。内訳が
+    無い（古い実装）ときは全部を手動として数える ── 待ちを手動と言う方が、
+    手動を待ちと言うより安全である。
+    """
+    if not counts.unfinalized_by_task:
+        return counts.unfinalized, 0
+    manual = 0
+    waiting = 0
+    for task_id, routing, number in counts.unfinalized_by_task:
+        task = tasks.get(task_id)
+        grace = grace_minutes(
+            task.auto_finalize_after_minutes if task is not None else None,
+            course.auto_finalize_after_minutes,
+        )
+        if grace is None or routing == Routing.REVIEW_REQUIRED.value:
+            manual += number
+        else:
+            waiting += number
+    return manual, waiting

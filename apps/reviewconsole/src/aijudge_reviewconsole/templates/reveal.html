@@ -2,6 +2,7 @@
 {% block title %}AI の判定 — aiJudge レビュー{% endblock %}
 {% block main_class %}wide{% endblock %}
 {% block body %}
+{% if strip %}{% include "_work_strip.html" %}{% endif %}
 <h1>AI の判定 — <span class="mono">{{ submission.id[:12] }}…</span></h1>
 {# エディタからの提出なら、書いた経過（作業の記録）へ。教員にだけ出る。 #}
 {% if activity_href %}
@@ -199,7 +200,13 @@
   ── 観点は互いに影響せず、重み付きの和で畳みます。
   {% endif %}
 </p>
-<form method="post" action="{{ root_prefix() }}/review/{{ submission.id }}/finalize">
+{# **確定済みなら、確定のフォームを畳む**（2026-09-25）。開いたまま並べると、対応済みの
+   依頼を誤って処理し直す（実際にあった）。訂正は開いてからでないとできない。 #}
+{% if review %}
+<details class="correct-gate">
+  <summary>対応済みの判断を訂正する{% if not can_correct %}（担当教員のみ）{% endif %}</summary>
+{% endif %}
+<form method="post" action="{{ root_prefix() }}/review/{{ submission.id }}/finalize{{ '?from=' ~ work_mode if work_mode }}">
   {#
     ラジオの name は**観点ごとに変える**。共有すると、ブラウザは全観点を
     1 つのグループとして扱い、観点をまたいで 1 つしか選べなくなる
@@ -304,6 +311,7 @@
       {{ '確定し直す' if review else '成績を確定' }}</button>
   </div>
 </form>
+{% if review %}</details>{% endif %}
 {% endif %}
 </div>{# .right #}
 </div>{# .desk #}

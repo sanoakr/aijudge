@@ -63,6 +63,10 @@ class AttentionCounts:
 
     contested: int
     unfinalized: int
+    #: 未確定の内訳（2026-09-25）。`(課題 ID, 振り分け, 件数)`。帯が「手動の確定が
+    #: 必要」と「自動確定を待っている」を分けるのに使う ── 分けるには課題ごとの猶予
+    #: （`auto_finalize_after_minutes`）が要り、それは課題の文書にあるので呼ぶ側で畳む。
+    unfinalized_by_task: tuple[tuple[str, str, int], ...] = ()
 
 
 @dataclass(frozen=True)

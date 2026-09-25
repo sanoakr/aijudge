@@ -448,6 +448,9 @@ footer.app-footer .inner{max-width:none;display:flex;align-items:center;gap:12px
   color:var(--ink-2);text-decoration:none;font-size:.86rem}
 .rail a.nav:hover{background:var(--surface-2);color:var(--ink)}
 .rail a.nav .t{flex:1;min-width:0}
+/* 数字の補足（例: 確定処理の「自動確定待ち 12」・2026-09-25）。行を改めて小さく出す。 */
+.rail a.nav{flex-wrap:wrap}
+.rail a.nav .n{flex-basis:100%;font-size:.72rem;margin-top:-2px}
 .rail a.nav .c{font-family:var(--font-mono);font-size:.75rem;color:var(--muted);
   min-width:2.6em;text-align:right;flex:none}
 /* 人が押さないと進まない件数だけ琥珀。数え上げは薄いまま。 */

@@ -4,6 +4,18 @@
 <h1>再確認の依頼</h1>
 <p class="subtitle">{{ course.title }}・学習者が判定に疑問を出した提出だけが並びます。</p>
 
+{# **待ちの件数を最初に言う**（2026-09-25）。0 件のときに空の表だけだと、終わったのか
+   読み込めなかったのかが分からない。順に処理するなら先頭の 1 件から帯付きで開く。 #}
+<div class="work-summary">
+  {% if rows %}
+    <span class="pill attn">確認を待っている依頼 {{ rows | length }} 件</span>
+    <a class="button-link go" href="{{ root_prefix() }}/review/{{ rows[0].submission.id }}/reveal?from=queue">先頭から順に処理する →</a>
+  {% else %}
+    <span class="pill ok">確認を待っている依頼はありません</span>
+    <span class="desc">下に並ぶ対応済みのものは処理済みです。開いても確定し直す必要はありません。</span>
+  {% endif %}
+</div>
+
 <div class="note">
   <strong>ここに出るのは、学習者が再確認を依頼した提出です。</strong>
   AI の判定は採点直後に学習者へ示しているので、疑いが出たものだけが
@@ -19,7 +31,7 @@
   </tr></thead>
   <tbody>
   {% for row in rows %}
-    <tr class="row-link" data-href="{{ root_prefix() }}/review/{{ row.submission.id }}/reveal">
+    <tr class="row-link" data-href="{{ root_prefix() }}/review/{{ row.submission.id }}/reveal?from=queue">
       <td class="fit" data-label="依頼">{{ row.request.requested_at | local('%m-%d %H:%M') }}</td>
       <td class="fit mono" data-label="学習者">{{ row.learner.login if row.learner else '—' }}</td>
       <td class="fit" data-label="課題">
@@ -31,7 +43,7 @@
       <td class="fit" data-label="AI の総合">{{ '%.0f' | format(row.run.score_ratio * 100) }}%</td>
       <td class="grow" data-label="依頼の理由">{{ row.request.reason }}</td>
       <td class="fit">
-        <a href="{{ root_prefix() }}/review/{{ row.submission.id }}/reveal">確認して確定する</a>
+        <a href="{{ root_prefix() }}/review/{{ row.submission.id }}/reveal?from=queue">確認して確定する</a>
         {# 抽出された提出は、AI を見る前に自分で段階を付ける段が挟まる
            （ADR 0005）。行の意味は「依頼への対応」のままなので、
            blind の待ち行列とは分けたうえでここに一言だけ添える。 #}
@@ -55,7 +67,8 @@
    確かめる手段が無かった。 #}
 {% if resolved %}
 <h2>対応済みの依頼（{{ resolved | length }} 件）</h2>
-<table>
+<p class="desc"><strong>処理済みです。</strong>開くと記録を読めます（確定し直す欄は畳んであります）。</p>
+<table class="resolved-table">
   <thead><tr>
     <th class="fit">提出</th><th class="fit">学習者</th><th class="grow">課題</th>
     <th class="grow">申し出</th><th class="fit">答えた人</th><th class="fit"></th>
@@ -75,7 +88,7 @@
           {% if row.review %}<br><span class="desc">{{ row.review.reviewed_at | local('%m-%d %H:%M') }}</span>{% endif %}
         {% else %}<span class="desc">記録なし</span>{% endif %}
       </td>
-      <td class="fit"><a href="{{ root_prefix() }}/review/{{ row.submission.id }}/reveal">見る</a></td>
+      <td class="fit"><span class="pill ok">対応済み</span> <a href="{{ root_prefix() }}/review/{{ row.submission.id }}/reveal">見る</a></td>
     </tr>
   {% endfor %}
   </tbody>

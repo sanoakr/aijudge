@@ -1527,3 +1527,86 @@ def test_a_listing_that_fits_says_nothing(world: World) -> None:
     body = world.client.get(f"/courses/{COURSE}/submissions").text
 
     assert "まで読み込んでいます" not in body
+
+
+# --------------------------------------------------------------------------
+# 順に処理する帯（2026-09-25）
+# --------------------------------------------------------------------------
+
+
+def test_the_queue_says_how_many_wait_and_starts_in_order(world: World) -> None:
+    """一覧の上に待ちの件数。**0 件ならそう言う**。順に処理するなら帯付きで先頭を開く。"""
+    _, accepted = _instructor_and_submission(world)
+    world.worker.run_until_empty()
+
+    empty = world.client.get(f"/courses/{COURSE}/queue").text
+    assert "確認を待っている依頼はありません" in empty
+
+    _request_review(world, accepted.submission.id)
+    body = world.client.get(f"/courses/{COURSE}/queue").text
+    assert "確認を待っている依頼 1 件" in body
+    assert f"/review/{accepted.submission.id}/reveal?from=queue" in body
+
+
+def test_the_strip_follows_the_work_and_says_when_it_is_done(world: World) -> None:
+    """1 件の画面の上に帯。確定すると帯を付けたまま戻り、「対応済み」「待ちなし」が出る。
+    **確定済みの確定フォームは畳まれる**（対応済みを誤って処理し直さない）。"""
+    _, accepted = _instructor_and_submission(world)
+    world.worker.run_until_empty()
+    _request_review(world, accepted.submission.id)
+    sid = accepted.submission.id
+
+    page = world.client.get(f"/review/{sid}/reveal?from=queue").text
+    assert 'class="work-strip"' in page and "待ち 1 件" in page
+    assert f"/review/{sid}/finalize?from=queue" in page
+
+    with world.database.unit_of_work() as uow:
+        run = uow.runs.latest_for(sid)
+    machine = {score.criterion_id: score.level for score in run.criterion_scores}
+    response = world.client.post(
+        f"/review/{sid}/finalize?from=queue",
+        data=_agree_form(world, machine),
+        follow_redirects=False,
+    )
+    assert response.headers["location"].endswith(f"/review/{sid}/reveal?from=queue")
+
+    after = world.client.get(f"/review/{sid}/reveal?from=queue").text
+    assert "待ちはありません（すべて対応済み）" in after
+    assert "この 1 件は対応済み" in after
+    assert 'class="correct-gate"' in after
+
+
+def test_an_unknown_from_value_shows_no_strip(world: World) -> None:
+    _, accepted = _instructor_and_submission(world)
+    world.worker.run_until_empty()
+    page = world.client.get(f"/review/{accepted.submission.id}/reveal?from=elsewhere").text
+    assert 'class="work-strip"' not in page
+
+
+def test_the_finalize_page_says_what_needs_a_person(world: World) -> None:
+    """**手動の確定が要るものと、待てば閉じるものを分けて言う**（2026-09-25）。
+    猶予の無いコースの未確定は、すべて手動。"""
+    _instructor_and_submission(world)
+    world.worker.run_until_empty()
+
+    page = world.client.get(f"/courses/{COURSE}/finalize").text
+    assert "手動の確定が必要 1 件" in page
+    assert "自動確定待ち" not in page.split("手動の確定が必要")[0]
+
+
+def test_a_graced_task_waits_for_automatic_finalisation(world: World) -> None:
+    _, accepted = _instructor_and_submission(world)
+    world.worker.run_until_empty()
+    with world.database.unit_of_work() as uow:
+        course = uow.identity.get_course(COURSE)
+        uow.identity.save_course(course.model_copy(update={"auto_finalize_after_minutes": 60}))
+        run = uow.runs.latest_for(accepted.submission.id)
+        uow.commit()
+
+    page = world.client.get(f"/courses/{COURSE}/finalize").text
+    if run.routing.value == "auto":
+        assert "自動確定待ち 1 件" in page
+        assert "手動の確定が必要なものはありません" in page
+    else:
+        # 人の目を求めた採点は、猶予があっても手動。
+        assert "手動の確定が必要 1 件" in page

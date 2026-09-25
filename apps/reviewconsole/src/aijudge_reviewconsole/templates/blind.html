@@ -2,6 +2,7 @@
 {% block title %}採点 — aiJudge レビュー{% endblock %}
 {% block main_class %}wide{% endblock %}
 {% block body %}
+{% if strip %}{% include "_work_strip.html" %}{% endif %}
 {#
   この画面は AI の判定を一切含まない。CSS で隠すのではなく、
   レンダリングの時点で持っていない。テストで固定してある。
@@ -61,7 +62,7 @@
 
   <div class="right">
     <h2>あなたの採点</h2>
-    <form method="post" action="{{ root_prefix() }}/review/{{ submission.id }}/blind">
+    <form method="post" action="{{ root_prefix() }}/review/{{ submission.id }}/blind{{ '?from=' ~ work_mode if work_mode }}">
       {% for criterion in criteria %}
       <fieldset>
         {# 基準はこの場に出す（`reveal.html` と同じ理由）。 #}

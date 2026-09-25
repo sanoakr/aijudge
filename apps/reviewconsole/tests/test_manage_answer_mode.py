@@ -332,6 +332,32 @@ def test_the_server_refuses_editor_only_for_a_set_with_video(
     assert ok.status_code == 303
 
 
+# -- 採点のされ方の印（2026-09-25）------------------------------------------------
+
+
+def test_the_grading_method_is_named_by_evaluator(world: World) -> None:
+    """「自動テストなし」だけだと、AI が判定する課題（感想・レポート）まで自動採点されない
+    ように読めた。観点の担当から「テスト・規則・AI・教員」を出す。"""
+    from aijudge_core import HUMAN_SCORED
+    from aijudge_reviewconsole.manage import _graded_by
+
+    _task_obj, version = _pair(world_with_example(world))
+    base = version.criteria[0]
+
+    def with_evaluators(*names):
+        weight = 1.0 / len(names)
+        criteria = tuple(
+            base.model_copy(update={"code": f"c{i}", "evaluator_id": name, "weight": weight})
+            for i, name in enumerate(names)
+        )
+        return version.model_copy(update={"criteria": criteria})
+
+    assert _graded_by(with_evaluators(None)) == ("AI が判定",)
+    assert _graded_by(with_evaluators("code_test_runner", None)) == ("テストで判定", "AI が判定")
+    assert _graded_by(with_evaluators("text_pattern_check")) == ("規則で判定",)
+    assert _graded_by(with_evaluators(HUMAN_SCORED)) == ("教員が採点",)
+
+
 # -- 学生の画面への入口（2026-09-25）---------------------------------------------
 
 
