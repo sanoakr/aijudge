@@ -1103,28 +1103,7 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
         with console.database.unit_of_work() as uow:
             units = load_units(uow, course, pending=pending, viewer=viewer)
             enrollment = uow.identity.find_enrollment(course.id, me.user_id)
-            open_rows = []
-            for submission, run in uow.reviews.pending_for_course(course.id):
-                # 教員・TA 自身の試行は成績ではない（#108）。閉じる対象に
-                # 出すと、いつまでも減らない未確定として残り続ける。
-                if submission.is_trial:
-                    continue
-                version = uow.tasks.get_version(submission.task_version_id)
-                task = None if version is None else uow.tasks.get_task(version.task_id)
-                request_row = uow.reviews.find_request_for_run(run.id)
-                open_rows.append(
-                    {
-                        "submission": submission,
-                        "run": run,
-                        "task": task,
-                        "learner": uow.identity.get_user(submission.learner_id),
-                        # 未対応の異議申立があるものは一括では閉じない。
-                        # **1 件ずつ読むもの**として印を付ける。
-                        "contested": blocks_finalization(request_row),
-                        # 手動の確定が要るか（2026-09-25）。偽なら猶予が明ければ自動で閉じる。
-                        "manual": _needs_manual_finalization(course, task, run),
-                    }
-                )
+        open_rows = list(_open_rows(console, course))
         # 課題ごとの内訳（手動・自動確定待ち）。問題セットと問題の行に出す。
         split: dict[str, list[int]] = {}
         for row in open_rows:
@@ -1921,6 +1900,50 @@ def _blind_rows(
     return course, tuple(rows), marked
 
 
+def _open_rows(console: Console, course: Course) -> tuple[dict, ...]:
+    """確定していない提出（教員・TA の試行を除く）。確定処理の一覧と帯が同じものを読む。"""
+    rows = []
+    with console.database.unit_of_work() as uow:
+        for submission, run in uow.reviews.pending_for_course(course.id):
+            # 教員・TA 自身の試行は成績ではない（#108）。閉じる対象に
+            # 出すと、いつまでも減らない未確定として残り続ける。
+            if submission.is_trial:
+                continue
+            version = uow.tasks.get_version(submission.task_version_id)
+            task = None if version is None else uow.tasks.get_task(version.task_id)
+            request_row = uow.reviews.find_request_for_run(run.id)
+            rows.append(
+                {
+                    "submission": submission,
+                    "run": run,
+                    "task": task,
+                    "learner": uow.identity.get_user(submission.learner_id),
+                    # 未対応の異議申立があるものは一括では閉じない。
+                    # **1 件ずつ読むもの**として印を付ける。
+                    "contested": blocks_finalization(request_row),
+                    # 手動の確定が要るか（2026-09-25）。偽なら猶予が明ければ自動で閉じる。
+                    "manual": _needs_manual_finalization(course, task, run),
+                }
+            )
+    return tuple(rows)
+
+
+def _finalize_rows(
+    console: Console, me: Principal, course_id: CourseId
+) -> tuple[Course, tuple[dict, ...], int]:
+    """確定処理の帯に並べるもの ── **手動の確定が必要で、依頼の出ていない**提出。
+
+    自動確定を待っているものは放っておけば閉じるので並べない。依頼が出ているものは
+    再確認の依頼の帯で読む（二重に並べると、どちらで処理したのか分からなくなる）。
+    権限の確かめは `_queue_rows` と同じ（採点できる人だけ）。
+    """
+    course, _requests, _marked = _queue_rows(console, me, course_id)
+    rows = tuple(
+        row for row in _open_rows(console, course) if row["manual"] and not row["contested"]
+    )
+    return course, rows, 0
+
+
 def _needs_manual_finalization(course: Course, task: Task | None, run: GradingRun) -> bool:
     """この未確定の提出は、人が確定しないと閉じないか（2026-09-25）。
 
@@ -1944,7 +1967,10 @@ def _needs_manual_finalization(course: Course, task: Task | None, run: GradingRu
 # 帯を出す仕事の種類（`?from=`）。**これ以外の値は無視する**（帯を出さない）。
 WORK_QUEUE = "queue"
 WORK_BLIND = "blind"
-WORK_MODES = frozenset({WORK_QUEUE, WORK_BLIND})
+# 確定処理（2026-09-25）。手動の確定が必要な提出を 1 件ずつ閉じる。
+WORK_FINALIZE = "finalize"
+WORK_MODES = frozenset({WORK_QUEUE, WORK_BLIND, WORK_FINALIZE})
+WORK_LABELS = {WORK_QUEUE: "再確認の依頼", WORK_BLIND: "blind 採点", WORK_FINALIZE: "確定処理"}
 # 帯に並べる件数。全部並べると作業の画面が下へ押し出される（一部だけを出す）。
 WORK_STRIP_ROWS = 8
 
@@ -1964,7 +1990,9 @@ def _work_strip(console: Console, me: Principal, course_id: CourseId, mode: str,
     """
     if mode not in WORK_MODES:
         return None
-    builder = _queue_rows if mode == WORK_QUEUE else _blind_rows
+    builder = {WORK_QUEUE: _queue_rows, WORK_BLIND: _blind_rows, WORK_FINALIZE: _finalize_rows}[
+        mode
+    ]
     course, rows, _marked = builder(console, me, course_id)
     ids = [str(row["submission"].id) for row in rows]
     position = ids.index(current) if current in ids else -1
@@ -1974,8 +2002,8 @@ def _work_strip(console: Console, me: Principal, course_id: CourseId, mode: str,
     shown = rows[start : start + WORK_STRIP_ROWS]
     return {
         "mode": mode,
-        "label": "再確認の依頼" if mode == WORK_QUEUE else "blind 採点",
-        "list_href": f"/courses/{course.id}/{'queue' if mode == WORK_QUEUE else 'blind'}",
+        "label": WORK_LABELS[mode],
+        "list_href": f"/courses/{course.id}/{mode}",
         "pending": len(ids),
         "current_pending": position >= 0,
         "next_href": work_href(mode, following[0]) if following else None,
