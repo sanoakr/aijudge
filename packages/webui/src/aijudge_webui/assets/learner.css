@@ -20,6 +20,12 @@
   background:var(--surface);color:var(--ink)}
 /* 問題セット。段階（提出できる／公開済／締切済）の見出しの下に並ぶ。 */
 .unit{margin-bottom:22px}
+/* 学生に見えていない問題セット（教員・TA の画面だけ・2026-09-25）。**枠で囲って目立たせる**
+   ── 小さな印だけでは、公開済みのセットと並んだときに見落とす。 */
+.unit.staff-only{border:2px dashed var(--shu);border-radius:4px;padding:4px 10px 8px;
+  background:var(--surface-2)}
+.staff-only-sample{border:2px dashed var(--shu);border-radius:3px;padding:0 4px}
+.staff-view-note{margin:0 0 14px}
 /* 問題セットの開閉（#93）。**畳んだ見出しが押せることを示す。** 三角は
    ブラウザ既定を消して自前で出す ── 既定の位置だと見出しの折り返しに
    合わせて動き、日付の並びと重なる。 */

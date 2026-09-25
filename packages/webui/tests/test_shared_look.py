@@ -40,6 +40,8 @@ def test_the_assets_are_shipped_with_the_package() -> None:
         "_mastery_rows.html",
         "_rail.html",
         "_theme_boot.html",
+        # 配色のボタン（ヘッダとフッタの両方に置く・2026-09-25）。script は `_theme_switch`。
+        "_theme_buttons.html",
         "_theme_switch.html",
     }
     for path in webui.ASSETS_DIR.iterdir():

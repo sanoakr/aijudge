@@ -1,0 +1,8 @@
+{# 配色のボタン（#181）。**動かす script は `_theme_switch.html` に 1 つだけ** ── script は
+   ページ内のすべての `[data-theme-choice]` を拾うので、ヘッダとフッタの両方に置いても
+   押した結果は揃う（2026-09-25、ヘッダにも置いた）。`extra` は置き場所ごとの class。 #}
+<div class="theme-switch js-only {{ extra | default('') }}" role="group" aria-label="配色" hidden>
+    <button type="button" data-theme-choice="auto" aria-pressed="false">自動</button>
+    <button type="button" data-theme-choice="light" aria-pressed="false">昼</button>
+    <button type="button" data-theme-choice="dark" aria-pressed="false">夜</button>
+  </div>
