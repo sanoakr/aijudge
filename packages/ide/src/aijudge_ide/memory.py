@@ -11,7 +11,7 @@ from datetime import datetime
 
 from aijudge_core.ids import CourseId, SubmissionId, TaskId, UserId
 
-from .activity import EventBatch, IdeSession, IdeSessionId
+from .activity import EventBatch, IdeSession, IdeSessionId, PasteMark
 from .buffer import IdeBuffer
 from .links import SubmissionLink
 from .protocols import RunAlreadyPending
@@ -146,6 +146,7 @@ class InMemoryActivityIndex:
     def __init__(self) -> None:
         self._sessions: dict[IdeSessionId, IdeSession] = {}
         self._batches: dict[tuple[IdeSessionId, int], EventBatch] = {}
+        self._pastes: dict[tuple[IdeSessionId, int, int], PasteMark] = {}
 
     def start_session(self, session: IdeSession) -> None:
         if session.id in self._sessions:
@@ -192,6 +193,24 @@ class InMemoryActivityIndex:
             )
         )
 
+    def add_paste_marks(self, marks: Sequence[PasteMark]) -> None:
+        for mark in marks:
+            self._pastes.setdefault((mark.ide_session_id, mark.seq, mark.position), mark)
+
+    def learners_sharing(
+        self, course_id: CourseId, hashes: Sequence[str]
+    ) -> dict[str, frozenset[UserId]]:
+        wanted = set(hashes)
+        found: dict[str, set[UserId]] = {}
+        for mark in self._pastes.values():
+            if mark.course_id == course_id and mark.content_hash in wanted:
+                found.setdefault(mark.content_hash, set()).add(mark.learner_id)
+        return {digest: frozenset(learners) for digest, learners in found.items()}
+
+    def _drop_pastes(self, session_id: IdeSessionId) -> None:
+        for key in [k for k in self._pastes if k[0] == session_id]:
+            del self._pastes[key]
+
     def delete_sessions(self, session_ids: Sequence[IdeSessionId]) -> int:
         removed = 0
         for session_id in session_ids:
@@ -199,6 +218,8 @@ class InMemoryActivityIndex:
                 removed += 1
             for key in [k for k in self._batches if k[0] == session_id]:
                 del self._batches[key]
+            # 貼り付けの指紋も記録と一緒に消す（残すと、消した記録の痕跡が残る）。
+            self._drop_pastes(session_id)
         return removed
 
     def delete_for_course(self, course_id: CourseId) -> tuple[IdeSession, ...]:
@@ -207,4 +228,5 @@ class InMemoryActivityIndex:
             del self._sessions[session.id]
             for key in [k for k in self._batches if k[0] == session.id]:
                 del self._batches[key]
+            self._drop_pastes(session.id)
         return doomed

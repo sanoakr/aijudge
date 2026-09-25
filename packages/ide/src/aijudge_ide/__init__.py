@@ -14,14 +14,17 @@ from __future__ import annotations
 from .activity import (
     EVENT_TYPES,
     MAX_BATCH_BYTES,
+    SHARED_PASTE_CHARS,
     ActivityFiles,
     ActivityIndex,
     ActivityRejected,
     EventBatch,
     IdeSession,
     IdeSessionId,
+    PasteMark,
     check_events,
     check_snapshots,
+    paste_marks,
     snapshot_name,
 )
 from .buffer import (
@@ -31,7 +34,14 @@ from .buffer import (
     content_hash,
     make_buffer,
 )
-from .flags import FLAG_LABELS, Flag, FlagKind, flag_events, submission_mismatches
+from .flags import (
+    FLAG_LABELS,
+    Flag,
+    FlagKind,
+    flag_events,
+    shared_paste_flags,
+    submission_mismatches,
+)
 from .formats import (
     EDITOR_FORMATS,
     EditorFormat,
@@ -80,6 +90,7 @@ __all__ = [
     "MAX_SOURCE_BYTES",
     "MAX_STDIN_BYTES",
     "RUNNER_LOST",
+    "SHARED_PASTE_CHARS",
     "SILENCE_MS",
     "STALE_AFTER_SECONDS",
     "TERMINAL_STATES",
@@ -101,6 +112,7 @@ __all__ = [
     "InMemoryRunQueue",
     "InMemorySubmissionLinkStore",
     "IntegrityReport",
+    "PasteMark",
     "RefusalReason",
     "RunAlreadyPending",
     "RunOutcome",
@@ -126,7 +138,9 @@ __all__ = [
     "editor_formats",
     "flag_events",
     "make_buffer",
+    "paste_marks",
     "request_run",
+    "shared_paste_flags",
     "snapshot_name",
     "submission_mismatches",
     "summarize",

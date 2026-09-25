@@ -20,7 +20,14 @@ from test_manage import world as world  # フィクスチャを借りる
 
 from aijudge_core import Role
 from aijudge_core.ids import new_id
-from aijudge_ide import ActivityFiles, EventBatch, IdeSession, IdeSessionId, snapshot_name
+from aijudge_ide import (
+    ActivityFiles,
+    EventBatch,
+    IdeSession,
+    IdeSessionId,
+    paste_marks,
+    snapshot_name,
+)
 
 NOW = datetime(2026, 9, 24, 10, 0, tzinfo=UTC)
 START = "int main(void){}\n"
@@ -67,6 +74,8 @@ def _record(world: World, learner, root: Path, *, extra_events=(), tasks=()) -> 
                 path=path,
             )
         )
+        # 受け口（`aijudge_studentweb.ide._store_batch`）と同じく、貼り付けの指紋も残す。
+        uow.ide_activity.add_paste_marks(paste_marks(session, 0, events))
         uow.commit()
     return session
 
@@ -346,3 +355,20 @@ def test_a_session_with_no_work_on_a_problem_is_not_listed(world: World, root) -
     )
 
     assert f"/{idle.id}?tab=" not in page
+
+
+def test_a_paste_shared_with_other_learners_is_marked(world: World, root) -> None:
+    """**ほかの学生と同じ内容を外から貼り付けたら目印**（2026-09-25）。判定ではない。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    first = world.register("s2400001", Role.LEARNER)
+    second = world.register("s2400002", Role.LEARNER)
+    _record(world, first, root)
+
+    alone = world.client("teacher").get(f"/courses/{world.course.id}/activity/{first.user_id}")
+    # 印そのもの（再生へのリンク）で見る ── 画面の下の説明文にも同じ語が出る。
+    assert ">ほかの学生と同じ内容の貼り付け</a>" not in alone.text
+
+    _record(world, second, root)  # 同じ指紋（"0" * 64・200 字）を貼り付けている
+    shared = world.client("teacher").get(f"/courses/{world.course.id}/activity/{first.user_id}")
+    assert ">ほかの学生と同じ内容の貼り付け</a>" in shared.text
+    assert "ほかの学生 1 人も同じ内容" in shared.text

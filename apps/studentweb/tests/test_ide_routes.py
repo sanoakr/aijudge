@@ -580,3 +580,22 @@ def test_a_set_of_images_only_does_not_open_the_editor(world: World) -> None:
     _learner(world)
 
     assert world.client.get(f"/courses/{_course_id(world)}/ide").status_code == 404
+
+
+def test_a_large_external_paste_leaves_only_its_fingerprint(world: World, tmp_path) -> None:
+    """受け口は大きな外からの貼り付けの**指紋だけ**を索引に残す（2026-09-25）。再送で増えない。"""
+    from aijudge_ide import IdeSessionId
+
+    _editor(world)
+    _learner(world)
+    _with_activity(world, tmp_path)
+    session_id = _start(world).json()["session_id"]
+    paste = {"type": "paste", "t": 5, "tab": 0, "len": 120, "hash": "f" * 64, "origin": "external"}
+
+    assert _batch(world, session_id, 0, events=[paste]).status_code == 200
+    assert _batch(world, session_id, 0, events=[paste]).status_code == 200  # 再送
+
+    with world.database.unit_of_work() as uow:
+        session = uow.ide_activity.get_session(IdeSessionId(session_id))
+        found = uow.ide_activity.learners_sharing(session.course_id, ["f" * 64])
+    assert found == {"f" * 64: frozenset({session.learner_id})}

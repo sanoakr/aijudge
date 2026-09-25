@@ -44,6 +44,7 @@ class FlagKind(StrEnum):
     BULK_INSERT = "bulk_insert"
     FAST_TYPING = "fast_typing"
     SUBMISSION_MISMATCH = "submission_mismatch"
+    SHARED_PASTE = "shared_paste"
 
 
 # 教員に見せる言葉。**「不正」「疑い」と書かない** ── 事実だけを言う。
@@ -54,6 +55,7 @@ FLAG_LABELS: dict[FlagKind, str] = {
     FlagKind.BULK_INSERT: "貼り付けを伴わない一括の挿入",
     FlagKind.FAST_TYPING: "とても速い打鍵が続いた",
     FlagKind.SUBMISSION_MISMATCH: "提出した内容が記録と一致しない",
+    FlagKind.SHARED_PASTE: "ほかの学生と同じ内容の貼り付け",
 }
 
 
@@ -192,4 +194,32 @@ def submission_mismatches(
                     tab if isinstance(tab, int) else None,
                 )
             )
+    return flags
+
+
+def shared_paste_flags(events: Iterable[dict[str, Any]], others: dict[str, int]) -> list[Flag]:
+    """ほかの学生も同じ内容を外から貼り付けている箇所（2026-09-25）。
+
+    `others` は指紋 → **この学生以外で**同じ内容を貼り付けた学習者の数。答えの共有の
+    手がかりになりうるが、**配布したひな形を皆が貼った**場合も同じになる ── だから
+    これも判定ではなく、再生で確かめる場所の目印である。
+    """
+    flags: list[Flag] = []
+    for event in events:
+        if event.get("type") != "paste" or event.get("origin") == "internal":
+            continue
+        count = others.get(str(event.get("hash", "")), 0)
+        if count <= 0:
+            continue
+        tab = event.get("tab")
+        flags.append(
+            Flag(
+                kind=FlagKind.SHARED_PASTE,
+                t=float(event.get("t", 0) or 0),
+                detail=(
+                    f"ほかの学生 {count} 人も同じ内容（{event.get('len', 0)} 字）を貼り付けています"
+                ),
+                tab=tab if isinstance(tab, int) else None,
+            )
+        )
     return flags

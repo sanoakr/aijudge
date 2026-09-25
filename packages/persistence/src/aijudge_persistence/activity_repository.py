@@ -14,9 +14,9 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from aijudge_core.ids import CourseId, TenantId, UserId
-from aijudge_ide import EventBatch, IdeSession, IdeSessionId
+from aijudge_ide import EventBatch, IdeSession, IdeSessionId, PasteMark
 
-from .schema import IdeEventBatchRow, IdeSessionRow
+from .schema import IdeEventBatchRow, IdePasteMarkRow, IdeSessionRow
 
 
 class SqlActivityIndex:
@@ -71,12 +71,52 @@ class SqlActivityIndex:
             if session is not None
         )
 
+    def add_paste_marks(self, marks: Sequence[PasteMark]) -> None:
+        for mark in marks:
+            key = (str(mark.ide_session_id), mark.seq, mark.position)
+            if self._session.get(IdePasteMarkRow, key) is not None:
+                continue
+            self._session.add(
+                IdePasteMarkRow(
+                    ide_session_id=str(mark.ide_session_id),
+                    seq=mark.seq,
+                    position=mark.position,
+                    course_id=str(mark.course_id),
+                    learner_id=str(mark.learner_id),
+                    content_hash=mark.content_hash,
+                    length=mark.length,
+                    t=mark.t,
+                )
+            )
+        self._session.flush()
+
+    def learners_sharing(
+        self, course_id: CourseId, hashes: Sequence[str]
+    ) -> dict[str, frozenset[UserId]]:
+        wanted = sorted(set(hashes))
+        if not wanted:
+            return {}
+        rows = self._session.execute(
+            select(IdePasteMarkRow.content_hash, IdePasteMarkRow.learner_id)
+            .where(IdePasteMarkRow.course_id == str(course_id))
+            .where(IdePasteMarkRow.content_hash.in_(wanted))
+            .distinct()
+        ).all()
+        found: dict[str, set[UserId]] = {}
+        for digest, learner_id in rows:
+            found.setdefault(str(digest), set()).add(UserId(str(learner_id)))
+        return {digest: frozenset(learners) for digest, learners in found.items()}
+
     def delete_sessions(self, session_ids: Sequence[IdeSessionId]) -> int:
         keys = [str(session_id) for session_id in session_ids]
         if not keys:
             return 0
         self._session.execute(
             delete(IdeEventBatchRow).where(IdeEventBatchRow.ide_session_id.in_(keys))
+        )
+        # 貼り付けの指紋も記録と一緒に消す（残すと、消した記録の痕跡が残る）。
+        self._session.execute(
+            delete(IdePasteMarkRow).where(IdePasteMarkRow.ide_session_id.in_(keys))
         )
         result = self._session.execute(delete(IdeSessionRow).where(IdeSessionRow.id.in_(keys)))
         self._session.flush()
@@ -98,6 +138,9 @@ class SqlActivityIndex:
         if rows:
             self._session.execute(
                 delete(IdeEventBatchRow).where(IdeEventBatchRow.ide_session_id.in_(list(rows)))
+            )
+            self._session.execute(
+                delete(IdePasteMarkRow).where(IdePasteMarkRow.ide_session_id.in_(list(rows)))
             )
             self._session.execute(
                 delete(IdeSessionRow).where(IdeSessionRow.course_id == str(course_id))

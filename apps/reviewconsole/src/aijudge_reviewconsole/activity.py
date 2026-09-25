@@ -44,6 +44,7 @@ from aijudge_ide import (
     IntegrityReport,
     check_session,
     flag_events,
+    shared_paste_flags,
     submission_mismatches,
     summarize_by_tab,
 )
@@ -84,16 +85,31 @@ def _missing(batches: tuple[EventBatch, ...]) -> int:
     return (seqs[-1] + 1) - len(set(seqs))
 
 
-def _flags(console, events: list[dict[str, Any]]) -> list[Flag]:
-    """印を付ける。提出の食い違いは、実際の提出の指紋（出どころの記録）と比べる。"""
+def _flags(console, events: list[dict[str, Any]], session: IdeSession) -> list[Flag]:
+    """印を付ける。提出の食い違いは、実際の提出の指紋（出どころの記録）と比べる。
+
+    **ほかの学生と同じ内容の貼り付け**（2026-09-25）は、貼り付けの指紋の索引
+    （`ide_paste_marks`）で同じコースのほかの学習者を数える。この学習者自身は数えない。
+    """
     submitted: dict[str, str] = {}
+    hashes = [
+        str(event["hash"])
+        for event in events
+        if event.get("type") == "paste" and event.get("origin") != "internal" and event.get("hash")
+    ]
     with console.database.unit_of_work() as uow:
         for event in events:
             if event.get("type") == "submit" and event.get("submission_id"):
                 link = uow.ide_links.for_submission(SubmissionId(str(event["submission_id"])))
                 if link is not None:
                     submitted[str(link.submission_id)] = link.content_hash
-    flags = flag_events(events) + submission_mismatches(events, submitted)
+        sharing = uow.ide_activity.learners_sharing(session.course_id, hashes) if hashes else {}
+    others = {digest: len(learners - {session.learner_id}) for digest, learners in sharing.items()}
+    flags = (
+        flag_events(events)
+        + submission_mismatches(events, submitted)
+        + shared_paste_flags(events, others)
+    )
     return sorted(flags, key=lambda flag: flag.t)
 
 
@@ -287,7 +303,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
                     loaded, lambda name, s=session: files.read_snapshot(s, name)
                 )
                 tabs = _tab_tasks(console, events)
-                flags = _flags(console, events)
+                flags = _flags(console, events, session)
                 for tab, summary in summarize_by_tab(events).items():
                     # **その問題で何もしていない回は並べない。** 開いただけの回や、
                     # 切り替えずに離れた回でも、ハートビートは開いていたタブに
@@ -377,7 +393,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         integrity = check_session(loaded, lambda name: files.read_snapshot(session, name))
         flags = [
             {"t": flag.t, "label": flag.label, "detail": flag.detail, "tab": flag.tab}
-            for flag in _flags(console, events)
+            for flag in _flags(console, events, session)
         ]
         # 提出は「何回目・得点・採用」を添え、確認画面へのリンクを付ける。
         submissions = _submissions(console, course, session.learner_id)
