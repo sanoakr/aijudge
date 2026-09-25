@@ -43,9 +43,11 @@
           {# 数字は「人が動かないと進まない件数」だけ（ADR 0017 §4）。
              **数えられなかったときは出さない** ── 0 と書けば「見たが
              無かった」の意味になり、それは嘘である。 #}
-          {% if item.count is not none %}
+          {# **0 件は出さない**（2026-09-25）── 「0」の丸は用があるように見える。 #}
+          {% if item.count %}
           <span class="c{{ ' attn' if item.attention }}">{{ item.count }}</span>
           {% else %}<span class="c"></span>{% endif %}
+          {% if item.note %}<span class="n desc">{{ item.note }}</span>{% endif %}
         </a>
         {% endfor %}
       </div>

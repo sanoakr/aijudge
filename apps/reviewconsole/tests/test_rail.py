@@ -179,7 +179,8 @@ def test_the_rail_counts_only_what_waits_on_a_person(world: World) -> None:
         got = re.search(r'<span class="c[^"]*">([^<]*)</span>', m.group(1))
         return (got.group(1).strip() or None) if got else None
 
-    assert count_of(f"/courses/{world.course.id}/queue") == "0"
+    # **0 件は数字を出さない**（2026-09-25）── 「0」の丸は用があるように見える。
+    assert count_of(f"/courses/{world.course.id}/queue") is None
     assert count_of(f"/courses/{world.course.id}/submissions") is None, (
         "提出の総数が載っている。どこに用があるかを教えない数字である"
     )
@@ -279,3 +280,30 @@ def test_the_fold_out_button_says_move_and_sits_at_the_right_edge(world: World) 
     )
     placement = css[css.index(".rail .railopen{") : css.index(".rail .railopen:hover")]
     assert "margin-left:auto" in placement, "右端に寄せる指定が落ちている"
+
+
+def test_unfinalized_is_split_into_manual_and_waiting() -> None:
+    """**手動の確定が要るものだけを数字にする**（2026-09-25）。猶予のある課題の自動の
+    振り分けは「自動確定待ち」。猶予が無い課題と、人の目を求めた採点は手動。"""
+    from types import SimpleNamespace
+
+    from aijudge_reviewconsole.rail_context import _split_unfinalized
+
+    course = SimpleNamespace(auto_finalize_after_minutes=None)
+    tasks = {
+        "graced": SimpleNamespace(auto_finalize_after_minutes=60),
+        "no-grace": SimpleNamespace(auto_finalize_after_minutes=None),
+    }
+    counts = SimpleNamespace(
+        unfinalized=9,
+        unfinalized_by_task=(
+            ("graced", "auto", 5),
+            ("graced", "review_required", 1),
+            ("no-grace", "auto", 3),
+        ),
+    )
+    assert _split_unfinalized(course, tasks, counts) == (4, 5)
+    # 内訳が無ければ、全部を手動として数える（待ちを手動と言う方が安全）。
+    assert _split_unfinalized(
+        course, tasks, SimpleNamespace(unfinalized=2, unfinalized_by_task=())
+    ) == (2, 0)

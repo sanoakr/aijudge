@@ -473,7 +473,8 @@
           <span class="pill no">却下済み — 出題されません</span>
           {% endif %}
         {% endif %}
-        {% if not row.auto_graded %}<br><span class="pill">自動テストなし</span>{% endif %}
+        {# 採点のされ方（2026-09-25）。「自動テストなし」だけだと AI 採点まで無いように読めた。 #}
+        {% if row.graded_by %}<br>{% for label in row.graded_by %}<span class="pill">{{ label }}</span> {% endfor %}{% endif %}
         {# **同じ題名が並んでいることを言う。** 別々の課題なので提出も採点も
            割れる ── 気づかなければ「片方だけ採点されていない」に見える。 #}
         {% if row.withdrawn %}

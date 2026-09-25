@@ -434,3 +434,18 @@ pre.code.diff .same{display:block}
 .replay-marks li.attn{color:var(--shu)}
 .replay-marks li[data-current]{background:var(--ai-soft)}
 @media (max-width:900px){.replay-body{grid-template-columns:1fr}}
+
+/* 順に処理する帯（2026-09-25）。1 件の画面の上に固定し、待ち行列の一部と「次へ」を出す。 */
+.work-strip{position:sticky;top:0;z-index:5;background:var(--surface);border:1px solid var(--line);
+  border-radius:4px;padding:8px 12px;margin:0 0 14px;box-shadow:0 2px 6px rgba(0,0,0,.06)}
+.work-strip-head{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px}
+.work-strip-head .spacer{flex:1}
+.work-strip-list{list-style:none;margin:6px 0 0;padding:0;max-height:22vh;overflow:auto;
+  display:flex;flex-direction:column;gap:2px;font-size:.88rem}
+.work-strip-list li a{display:flex;gap:10px;padding:3px 6px;border-radius:3px;text-decoration:none;
+  color:inherit}
+.work-strip-list li a:hover{background:var(--surface-2)}
+.work-strip-list li.current a{background:var(--surface-2);box-shadow:inset 3px 0 0 var(--shu);font-weight:600}
+.work-summary{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;margin:0 0 12px}
+.correct-gate{border:1px dashed var(--line);border-radius:4px;padding:6px 10px}
+.correct-gate > summary{cursor:pointer;font-weight:600}

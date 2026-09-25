@@ -802,6 +802,8 @@ def test_the_attention_count_excludes_the_instructors_own_trial(database: Databa
 
     assert counts.unfinalized == 2, "教員の試行が未確定に混ざっている"
     assert counts.contested == 0
+    # 内訳（課題 × 振り分け）は同じ条件で数える ── 足せば合計に一致する（2026-09-25）。
+    assert sum(number for _task, _routing, number in counts.unfinalized_by_task) == 2
 
 
 def test_iterating_a_course_is_not_capped_by_the_listing_limit(database: Database) -> None:

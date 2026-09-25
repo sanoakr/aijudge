@@ -1,0 +1,37 @@
+{# 順に処理する帯（2026-09-25）。1 件の画面の上部に、待ち行列の一部と「次へ」を出す。
+   以前は 1 件を終えるたびに一覧へ戻り、どこまで進んだかも画面から消えた。
+   **待ちが 0 件ならそう言う** ── 何も並ばない帯は、読み込みに失敗したのか
+   終わったのか区別できない（対応済みを誤って処理し直す事例があった）。 #}
+<section class="work-strip" aria-label="{{ strip.label }}の待ち行列">
+  <div class="work-strip-head">
+    <strong>{{ strip.label }}</strong>
+    {% if strip.pending %}
+      <span class="pill attn">待ち {{ strip.pending }} 件</span>
+    {% else %}
+      <span class="pill ok">待ちはありません（すべて対応済み）</span>
+    {% endif %}
+    {% if not strip.current_pending %}
+      <span class="pill ok">この 1 件は対応済み</span>
+    {% endif %}
+    <span class="spacer"></span>
+    <a href="{{ root_prefix() }}{{ strip.list_href }}">一覧へ</a>
+    {% if strip.next_href %}
+      <a class="button-link go" href="{{ root_prefix() }}{{ strip.next_href }}">次の 1 件へ →</a>
+    {% endif %}
+  </div>
+  {% if strip.rows %}
+  <ol class="work-strip-list">
+    {% if strip.hidden_before %}<li class="desc">… 前に {{ strip.hidden_before }} 件</li>{% endif %}
+    {% for item in strip.rows %}
+    <li class="{{ 'current' if item.current }}">
+      <a href="{{ root_prefix() }}{{ item.href }}" {% if item.current %}aria-current="true"{% endif %}>
+        <span class="mono">{{ item.learner }}</span>
+        <span class="desc">{{ item.unit }}</span> {{ item.task }}
+        {% if item.when %}<span class="desc">{{ item.when | local('%m-%d %H:%M') }}</span>{% endif %}
+      </a>
+    </li>
+    {% endfor %}
+    {% if strip.hidden_after %}<li class="desc">… ほかに {{ strip.hidden_after }} 件</li>{% endif %}
+  </ol>
+  {% endif %}
+</section>

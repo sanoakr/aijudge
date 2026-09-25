@@ -28,14 +28,18 @@ class RailItem:
     """行き先 1 つ。
 
     `count` は `None` なら数字を出さない ── **数えられないことと 0 件は
-    別のこと**で、0 と書けば「見たが無かった」という意味になる。
+    別のこと**。**0 件も数字は出さない**（2026-09-25）── 「0」の丸が並ぶと、
+    用があるように見える（利用者の指摘）。数えられなかったことは帯の下の
+    断り書き（`counts_unavailable`）が言う。
     `attention` は「人が押さないと先へ進まない」の琥珀（`base.css` の規則）。
+    `note` は数字の補足（例: 確定処理の「自動確定待ち 12」）。
     """
 
     label: str
     href: str
     count: int | None = None
     attention: bool = False
+    note: str = ""
     #: いまこの行き先を見ているか。**照合はパスで行う**（`rail_context`）──
     #: 画面ごとに鍵を書く取り決めにすると、書き忘れた画面だけ現在地が
     #: 出ない、という気づきにくい壊れ方をする。
@@ -81,6 +85,7 @@ def course_rail(
     contested: int | None,
     unfinalized: int | None,
     can_manage: bool,
+    finalize_waiting: int | None = None,
 ) -> Rail:
     """コース単位の帯。
 
@@ -105,7 +110,16 @@ def course_rail(
                 count=contested,
                 attention=bool(contested),
             ),
-            RailItem("確定処理", f"{base}/finalize", count=unfinalized),
+            # **手動の確定が要るものだけを数字にする**（2026-09-25）。自動確定を待って
+            # いるものは放っておけば閉じるので、数字に混ぜると用があるように見える。
+            # 待っている件数は補足に書く（`unfinalized` は呼ぶ側で手動の分だけにしてある）。
+            RailItem(
+                "確定処理",
+                f"{base}/finalize",
+                count=unfinalized,
+                attention=bool(unfinalized),
+                note=f"自動確定待ち {finalize_waiting}" if finalize_waiting else "",
+            ),
             RailItem("blind 採点", f"{base}/blind"),
         ),
     )

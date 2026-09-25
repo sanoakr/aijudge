@@ -15,6 +15,19 @@
   1 件ずつ読んでください。
 </div>
 
+{# **手動が要るものと、待てば閉じるものを分けて言う**（2026-09-25）。件数だけだと、
+   自動確定を待っているのか、教員が閉じないと成績にならないのかが分からない。 #}
+<div class="work-summary">
+  {% if manual_total %}<span class="pill attn">手動の確定が必要 {{ manual_total }} 件</span>
+  {% else %}<span class="pill ok">手動の確定が必要なものはありません</span>{% endif %}
+  {% if waiting_total %}<span class="pill">自動確定待ち {{ waiting_total }} 件</span>
+    <span class="desc">猶予が明けると自動で確定されます（操作は要りません）。</span>{% endif %}
+</div>
+<p class="desc">
+  <strong>手動の確定が必要</strong>なのは、自動確定の猶予が設定されていない課題と、
+  レビュー方針が人の確認を求めた採点（コンパイルエラー・合否の境界の近く など）です。
+</p>
+
 {% if last_finalize %}
 <div class="note">
   {{ last_finalize.finalized }} 件を確定しました。
@@ -30,7 +43,11 @@
 <details class="card">
   <summary>
     <strong>{{ unit.unit or unit.label }}</strong>
+    {% set ns = namespace(manual=0, waiting=0) %}
+    {% for task, version in unit.tasks %}{% set pair = split.get(task.id | string, [0, 0]) %}{% set ns.manual = ns.manual + pair[0] %}{% set ns.waiting = ns.waiting + pair[1] %}{% endfor %}
     <span class="desc">{{ unit.count }} 問・未確定 {{ unit.unfinalized }} 件</span>
+    {% if ns.manual %}<span class="pill attn">手動 {{ ns.manual }}</span>{% endif %}
+    {% if ns.waiting %}<span class="pill">自動確定待ち {{ ns.waiting }}</span>{% endif %}
   </summary>
   <form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/units/{{ unit.key }}/finalize"
         style="margin-top:10px">
@@ -50,7 +67,10 @@
     {% for task, version in unit.tasks %}
       <tr>
         <td class="grow">{{ task.title }}</td>
-        <td class="fit" data-label="未確定">{{ pending.get(task.id, 0) }} 件</td>
+        {% set pair = split.get(task.id | string, [0, 0]) %}
+        <td class="fit" data-label="未確定">{{ pending.get(task.id, 0) }} 件
+          {% if pair[0] %}<br><span class="pill attn">手動 {{ pair[0] }}</span>{% endif %}
+          {% if pair[1] %}<br><span class="pill">自動確定待ち {{ pair[1] }}</span>{% endif %}</td>
         <td class="fit">
           {% if pending.get(task.id, 0) %}
           <details>
@@ -98,6 +118,7 @@
       <td class="fit">
         <a href="{{ root_prefix() }}/review/{{ row.submission.id }}/reveal">確認して確定する</a>
         {% if row.contested %}<br><span class="desc">再確認の依頼あり</span>{% endif %}
+        <br>{% if row.manual %}<span class="pill attn">手動の確定が必要</span>{% else %}<span class="pill">自動確定待ち</span>{% endif %}
       </td>
     </tr>
   {% else %}
