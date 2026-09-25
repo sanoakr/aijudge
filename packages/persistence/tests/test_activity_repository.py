@@ -163,3 +163,48 @@ def test_sessions_can_be_listed_per_course_and_deleted_by_id(database: Database)
         assert index.get_session(SESSION) is None and index.batches(SESSION) == ()
         assert index.get_session(other.id) == other
         assert index.delete_sessions([]) == 0
+
+
+# -- 貼り付けの指紋（2026-09-25）---------------------------------------------------
+
+
+def _pasting(learner, session_id: str, digest: str, *, length: int = 120, origin: str = "external"):
+    """1 人の学習者のセッションと、その中の貼り付けイベント。"""
+    from aijudge_ide import paste_marks
+
+    session = a_session(id=IdeSessionId(session_id), learner_id=learner)
+    events = [
+        {"type": "edit", "t": 1},
+        {"type": "paste", "t": 2, "tab": 0, "len": length, "hash": digest, "origin": origin},
+    ]
+    return session, paste_marks(session, 0, events)
+
+
+def test_shared_pastes_are_found_across_learners(database: Database) -> None:
+    """同じコースで同じ内容を外から貼った学習者を、指紋から引ける。再送は重複しない。"""
+    same = "c" * 64
+    for index in _both(database):
+        first, marks_a = _pasting(LEARNER, "ide_" + "6" * 32, same)
+        second, marks_b = _pasting(OTHER, "ide_" + "7" * 32, same)
+        index.start_session(first)
+        index.start_session(second)
+        index.add_paste_marks(marks_a)
+        index.add_paste_marks(marks_a)  # 再送
+        index.add_paste_marks(marks_b)
+
+        found = index.learners_sharing(COURSE, [same, "d" * 64])
+        assert found == {same: frozenset({LEARNER, OTHER})}
+        assert index.learners_sharing(OTHER_COURSE, [same]) == {}
+
+        # **記録と一緒に消える**（消した記録の痕跡を残さない）。
+        index.delete_sessions([first.id])
+        assert index.learners_sharing(COURSE, [same]) == {same: frozenset({OTHER})}
+        index.delete_for_course(COURSE)
+        assert index.learners_sharing(COURSE, [same]) == {}
+
+
+def test_short_and_internal_pastes_are_not_indexed() -> None:
+    """短い定型と、エディタ内（問題文を含む）のコピーの貼り付けは比べない。"""
+    _session, short = _pasting(LEARNER, "ide_" + "8" * 32, "e" * 64, length=30)
+    _session, internal = _pasting(LEARNER, "ide_" + "9" * 32, "e" * 64, origin="internal")
+    assert short == [] and internal == []

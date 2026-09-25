@@ -68,6 +68,7 @@ from aijudge_ide import (
     content_hash,
     editor_formats,
     make_buffer,
+    paste_marks,
     request_run,
     video_suffixes,
     view_run,
@@ -705,6 +706,10 @@ def _store_batch(
                 path=path,
             )
         )
+        if stored:
+            # 外からの大きな貼り付けの**指紋だけ**を索引に残す（2026-09-25）。学習者を
+            # またいで同じ内容を見つけるため。中身は記録の本体にあり、ここには入れない。
+            uow.ide_activity.add_paste_marks(paste_marks(session, seq, events))
         uow.commit()
     # 再送（同じ seq）は 200 で受け流す。画面はこれで送信済みとして手放す。
     return JSONResponse({"stored": stored})

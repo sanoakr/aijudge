@@ -903,3 +903,24 @@ class IdeEventBatchRow(Base):
     byte_size: Mapped[int] = mapped_column(Integer)
     sha256: Mapped[str] = mapped_column(String(64))
     path: Mapped[str] = mapped_column(String(512))
+
+
+class IdePasteMarkRow(Base):
+    """外からの大きな貼り付けの**指紋だけ**（2026-09-25・`aijudge_ide.PasteMark`）。
+
+    学習者をまたいで同じ内容の貼り付けを見つけるための索引。中身は持たない。
+    主キー `(ide_session_id, seq, position)` が再送を重複させない。記録（セッション）と
+    一緒に消す。引くのはコースと指紋の組なので、その 2 列に索引を張る。
+    """
+
+    __tablename__ = "ide_paste_marks"
+    __table_args__ = (Index("ix_ide_paste_marks_course_hash", "course_id", "content_hash"),)
+
+    ide_session_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    seq: Mapped[int] = mapped_column(Integer, primary_key=True)
+    position: Mapped[int] = mapped_column(Integer, primary_key=True)
+    course_id: Mapped[str] = mapped_column(String(64))
+    learner_id: Mapped[str] = mapped_column(String(64))
+    content_hash: Mapped[str] = mapped_column(String(64))
+    length: Mapped[int] = mapped_column(Integer)
+    t: Mapped[float] = mapped_column(Float)

@@ -115,6 +115,62 @@ class EventBatch(BaseModel):
     path: str = Field(min_length=1, max_length=512)
 
 
+# 学習者をまたいで比べる貼り付けの最小の長さ（文字数・2026-09-25）。短い定型
+# （`#include <stdio.h>` や 1 行の式）まで比べると、誰でも同じになって目印にならない。
+# 画面が全文の写しを撮る「大きな貼り付け」（`BIG_PASTE_CHARS`）と揃えた目安。
+SHARED_PASTE_CHARS = 80
+
+
+class PasteMark(BaseModel):
+    """外からの大きな貼り付け 1 回の**指紋だけ**（2026-09-25）。
+
+    学習者をまたいで同じ内容の貼り付けを見つけるための索引。**中身は持たない**
+    （中身は記録の本体にある）。記録を受け取るときに足し、記録と一緒に消す。
+    主キー `(ide_session_id, seq, position)` が再送を重複させない。
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    ide_session_id: IdeSessionId
+    seq: int = Field(ge=0)
+    # 束の中で何番目のイベントか。
+    position: int = Field(ge=0)
+    course_id: CourseId
+    learner_id: UserId
+    content_hash: str = Field(min_length=64, max_length=64)
+    length: int = Field(ge=0)
+    # 画面を開いてからの経過（ミリ秒）。
+    t: float = Field(ge=0)
+
+
+def paste_marks(session: IdeSession, seq: int, events: list[dict[str, Any]]) -> list[PasteMark]:
+    """束の中の、外からの大きな貼り付けの指紋。エディタ内のコピーの貼り付けは入れない
+    （問題文からのコピーもここに入る ── 全員が同じになるのは当然である）。"""
+    marks: list[PasteMark] = []
+    for position, event in enumerate(events):
+        if event.get("type") != "paste" or event.get("origin") == "internal":
+            continue
+        digest = event.get("hash")
+        length = event.get("len")
+        if not isinstance(digest, str) or len(digest) != 64:
+            continue
+        if not isinstance(length, int) or isinstance(length, bool) or length < SHARED_PASTE_CHARS:
+            continue
+        marks.append(
+            PasteMark(
+                ide_session_id=session.id,
+                seq=seq,
+                position=position,
+                course_id=session.course_id,
+                learner_id=session.learner_id,
+                content_hash=digest,
+                length=length,
+                t=float(event.get("t", 0) or 0),
+            )
+        )
+    return marks
+
+
 class ActivityRejected(ValueError):
     """形が合わない。**受け取らない**（400）。記録の欠けとは別である。"""
 
@@ -148,6 +204,16 @@ class ActivityIndex(Protocol):
 
     def course_sessions(self, course_id: CourseId) -> tuple[IdeSession, ...]:
         """このコースの全セッション。保存期間の purge が期限を調べる。"""
+        ...
+
+    def add_paste_marks(self, marks: Sequence[PasteMark]) -> None:
+        """貼り付けの指紋を足す（2026-09-25）。**同じ鍵は足さない**（再送で重複しない）。"""
+        ...
+
+    def learners_sharing(
+        self, course_id: CourseId, hashes: Sequence[str]
+    ) -> dict[str, frozenset[UserId]]:
+        """指紋 → そのコースで同じ内容を外から貼り付けた学習者。無い指紋は含めない。"""
         ...
 
     def delete_sessions(self, session_ids: Sequence[IdeSessionId]) -> int:
