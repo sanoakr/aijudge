@@ -63,7 +63,7 @@ from aijudge_core import AnswerMode, Course, Task
 from aijudge_core.ids import TenantId, UserId
 from aijudge_persistence import Database
 
-from .answer_mode import editor_blockers
+from .answer_mode import editor_blockers, file_upload_required
 from .authoring import save_task
 from .operations import AdminError, ensure_course
 
@@ -374,16 +374,22 @@ def _apply_unit_settings(
         tasks = uow.tasks.list_for_course(course.id)
         for unit, settings in unit_settings.items():
             members = [task for task in tasks if task.unit == unit]
+            pairs = []
+            for task in members:
+                version = uow.tasks.latest_version(task.id)
+                if version is not None:
+                    pairs.append((task, version))
             if settings.get("answer_mode") is AnswerMode.EDITOR:
-                pairs = []
-                for task in members:
-                    version = uow.tasks.latest_version(task.id)
-                    if version is not None:
-                        pairs.append((task, version))
                 blockers = editor_blockers(pairs, course)
                 if blockers:
+                    raise AdminError(f"units.{unit}: エディタにできません: " + "／".join(blockers))
+            if settings.get("file_upload") is False:
+                # 動画を受ける課題があると、ファイル選択を止めた瞬間に動画を出す道が無くなる。
+                required = file_upload_required(pairs, course)
+                if required:
                     raise AdminError(
-                        f"units.{unit}: エディタで解けない課題があります: " + "／".join(blockers)
+                        f"units.{unit}: ファイル選択での提出を止められません: "
+                        + "／".join(required)
                     )
             for task in members:
                 # **検査を通して作り直す**（`model_copy` は検証しない）。

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from test_studentweb import TENANT, World
+from test_studentweb import COURSE, TENANT, World
 from test_studentweb import world as world  # フィクスチャを借りる
 
 from aijudge_core import AnswerMode, ArtifactKind
@@ -467,3 +467,116 @@ def test_the_header_and_countdown_are_outside_noscript(world: World) -> None:
     assert "ide-head" not in inside and "data-ide-remaining" not in inside
     assert "data-ide-remaining" in page
     assert "data-ide-consent" not in inside
+
+
+# -- 画像・PDF をエディタの画面から出す（2026-09-25） ---------------------------
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
+
+
+def _second_task(world: World, suffixes: tuple[str, ...], *, title: str = "認定証"):
+    """同じ問題セットに、画像などを受ける課題を足す（エディタの答え方で）。"""
+    from aijudge_core import Task
+    from aijudge_core.ids import TaskId, TaskVersionId
+
+    base = world.task_version
+    version = base.model_copy(
+        update={
+            "id": TaskVersionId("tsv_" + "e" * 32),
+            "task_id": TaskId("tsk_" + "e" * 32),
+            "statement": f"## [必須] {title} ##\n\n画像を出してください。",
+        }
+    )
+    with world.database.unit_of_work() as uow:
+        uow.tasks.save_task(
+            Task(
+                id=version.task_id,
+                course_id=COURSE,
+                title=title,
+                position=2,
+                answer_mode=AnswerMode.EDITOR,
+                accepted_suffixes=suffixes,
+            )
+        )
+        uow.tasks.save_version(version)
+        uow.commit()
+    return version
+
+
+def _upload(world: World, version_id, name: str, payload: bytes, kind: str = "image/png"):
+    return world.client.post(
+        f"/ide/tasks/{version_id}/upload", files={"upload": (name, payload, kind)}
+    )
+
+
+def test_an_image_task_gets_a_tab_with_a_file_picker(world: World) -> None:
+    """画像だけの課題も、セットにエディタで書く課題があればタブとして並ぶ（中身はファイル欄）。"""
+    _editor(world)
+    image = _second_task(world, (".png", ".pdf"))
+    _learner(world)
+
+    page = world.client.get(f"/courses/{_course_id(world)}/ide").text
+    config = _config(page)
+
+    assert str(image.id) in config["tabs"]
+    assert config["modes"][config["tabs"].index(str(image.id))] == "attach"
+    assert 'class="ide-attach-input"' in page and 'accept=".png,.pdf"' in page
+
+
+def test_an_image_is_submitted_from_the_editor_page(world: World) -> None:
+    """**課題の画面と同じ検査**（`accept_uploads`）を通り、エディタの経路の提出として残る。"""
+    _editor(world)
+    image = _second_task(world, (".png", ".pdf"))
+    _learner(world)
+
+    response = _upload(world, image.id, "cert.png", PNG)
+
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["attempt"] == 1 and data["files"][0]["name"] == "cert.png"
+    with world.database.unit_of_work() as uow:
+        from aijudge_core.ids import SubmissionId
+
+        submission = uow.submissions.get(SubmissionId(data["submission_id"]))
+        link = uow.ide_links.for_submission(submission.id)
+    assert submission.artifacts[0].kind is ArtifactKind.IMAGE
+    assert link is not None and link.origin.value == "editor"
+
+
+def test_the_editor_page_takes_no_video_and_no_code_files(world: World) -> None:
+    """動画は分割送信の経路（課題の画面）だけ。コードはエディタで書く（ファイル欄では受けない）。"""
+    _editor(world)
+    image = _second_task(world, (".png", ".mp4", ".c"))
+    _learner(world)
+
+    assert _upload(world, image.id, "demo.mp4", b"\x00" * 64, "video/mp4").status_code == 400
+    assert _upload(world, image.id, "main.c", SOURCE.encode(), "text/plain").status_code == 400
+    page = world.client.get(f"/courses/{_course_id(world)}/ide").text
+    assert "動画はエディタの画面からは提出できません" in page
+
+
+def test_an_editor_only_set_still_takes_images_in_the_editor(world: World) -> None:
+    """「エディタだけ」でも、エディタの画面からは画像を出せる（課題の画面の欄は止まる）。"""
+    _editor(world, file_upload=False)
+    image = _second_task(world, (".png",))
+    with world.database.unit_of_work() as uow:
+        task = uow.tasks.get_task(image.task_id)
+        uow.tasks.save_task(task.model_copy(update={"file_upload": False}))
+        uow.commit()
+    _learner(world)
+
+    assert _upload(world, image.id, "cert.png", PNG).status_code == 200
+    refused = world.client.post(
+        f"/tasks/{image.id}/submit",
+        files={"upload": ("cert.png", PNG, "image/png")},
+        follow_redirects=False,
+    )
+    assert refused.status_code == 409
+
+
+def test_a_set_of_images_only_does_not_open_the_editor(world: World) -> None:
+    """書ける課題が 1 つも無いセットはエディタで開かない（`editor_blockers` と同じ規則）。"""
+    _task(world, answer_mode=AnswerMode.EDITOR, accepted_suffixes=(".png",))
+    _learner(world)
+
+    assert world.client.get(f"/courses/{_course_id(world)}/ide").status_code == 404

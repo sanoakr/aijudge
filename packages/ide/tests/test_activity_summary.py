@@ -69,3 +69,13 @@ def test_a_session_is_split_by_problem() -> None:
     assert by_tab[0].typed_chars == 2 and by_tab[0].submits == 1
     assert by_tab[1].pastes_external == 1 and by_tab[1].away_seconds == 20.0
     assert by_tab[0].away_count == 0
+
+
+def test_an_attached_file_submission_counts_as_a_submit() -> None:
+    """画像・PDF の提出（`attach` の `submit` 段）も提出として数える。選んだだけは数えない。"""
+    files = [{"name": "cert.png", "size": 1024, "hash": "ab"}]
+    events = [
+        {"type": "attach", "t": 10, "tab": 1, "stage": "select", "files": files},
+        {"type": "attach", "t": 20, "tab": 1, "stage": "submit", "files": files},
+    ]
+    assert summarize(events).submits == 1

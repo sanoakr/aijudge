@@ -141,10 +141,15 @@
       class="card">
   <div class="inline-field">
     <span class="body desc">
-      <label class="check tight">
-        <input type="checkbox" name="file_upload" value="1" {{ 'checked' if unit.file_upload }}>
+      {# 動画を受ける課題があるセットでは、ファイル選択を外せない（動画の道が無くなる）。
+         外せないチェックは `disabled` だと送信されないので、隠し項目で同じ値を送る。 #}
+      <label class="check tight{{ ' disabled' if file_upload_required }}">
+        <input type="checkbox" name="file_upload" value="1"
+               {{ 'checked' if unit.file_upload or file_upload_required }}
+               {{ 'disabled' if file_upload_required }}>
         <strong>ファイルを選んで提出する</strong>
       </label>
+      {% if file_upload_required %}<input type="hidden" name="file_upload" value="1">{% endif %}
       <br>
       <label class="check tight{{ ' disabled' if editor_blockers and not unit.editor }}">
         <input type="checkbox" name="editor" value="1" {{ 'checked' if unit.editor }}
@@ -153,8 +158,10 @@
       </label>
       <br>
       この問題セットの<strong>すべての課題</strong>に効きます。両方入れると学習者はどちらでも出せ、
-      エディタだけにすると<strong>ファイルでは提出できません</strong>（試験向け）。
+      エディタだけにすると<strong>課題の画面のファイル選択では提出できません</strong>（試験向け）。
       エディタで書けるのは各課題の提出形式のうち .c・.py・.md で、.md はテキストとして書きます。
+      画像・PDF はエディタの画面でファイルを選んで提出できます。<strong>動画はエディタの画面から
+      出せない</strong>ので、動画を受ける課題があるセットではファイル選択を外せません。
       プログラムが採点の言語と同じなら、公開サンプルや自分の入力で<strong>試しに実行</strong>できます
       （採点ではなく成績に影響しません。非公開のテストケースでは実行できません）。
     </span>
@@ -167,10 +174,20 @@
   {# **押す前に理由を見せる。** 押してから断られるのでは、どの課題が原因か分からない。 #}
   <div class="note warn" style="margin:10px 0 0">
     <strong>このセットはエディタで解く形にできません。</strong>
-    エディタが使えるのは、提出形式に .c・.py・.md のどれかを含む課題だけです
-    （提出形式は課題ごとの設定で変えられます）。
+    エディタにできるのは、提出形式に .c・.py・.md のどれかを含む課題が 1 つ以上ある問題セットです
+    （画像・PDF の課題はエディタの画面から出せます。提出形式は課題ごとの設定で変えられます）。
     <ul>
       {% for reason in editor_blockers %}<li>{{ reason }}</li>{% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  {% if file_upload_required %}
+  <div class="note" style="margin:10px 0 0">
+    <strong>動画を受ける課題があるので、ファイル選択は外せません。</strong>
+    動画はエディタの画面から出せず、学習者は課題の画面のファイル選択から出します。
+    <ul>
+      {% for reason in file_upload_required %}<li>{{ reason }}</li>{% endfor %}
     </ul>
   </div>
   {% endif %}

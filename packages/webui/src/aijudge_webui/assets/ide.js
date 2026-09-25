@@ -29,6 +29,12 @@
       lastSubmittedHash: config.lastSubmittedHash[i],
       currentHash: null,
       running: false,
+      // タブの中身（2026-09-25）。`editor` は Monaco、`attach` は画像・PDF を選ぶ欄だけ、
+      // `video` は課題の画面への案内だけ。
+      mode: (config.modes && config.modes[i]) || "editor",
+      // 選んだがまだ提出していない画像・PDF。**自動保存も自動提出もしない**ので、
+      // 残っていれば警告を出す。
+      pending: [],
     });
   }
 
@@ -303,7 +309,7 @@
 
   function setReadOnly(flag) {
     editors.forEach(function (editor) { editor.updateOptions({ readOnly: flag }); });
-    $all(".ide-run, .ide-submit, .ide-run-sample, .ide-file, .ide-format").forEach(function (el) {
+    $all(".ide-run, .ide-submit, .ide-run-sample, .ide-file, .ide-format, .ide-attach-input, .ide-attach-submit").forEach(function (el) {
       el.disabled = flag;
     });
   }
@@ -416,7 +422,11 @@
     if (!el) return;
     var s = state[index];
     var changed = s.lastSubmittedHash && s.currentHash && s.currentHash !== s.lastSubmittedHash;
-    if (!s.submitted) {
+    if (s.pending.length) {
+      // 画像・PDF を選んだまま提出していない。**失われうる**ことをタブにも出す。
+      el.textContent = "選んだファイルが未提出";
+      el.className = "ide-tab-state pill attn";
+    } else if (!s.submitted) {
       el.textContent = "未提出";
       el.className = "ide-tab-state pill attn";
     } else if (changed) {
@@ -438,6 +448,8 @@
   // -- 形式と実行の可否 ------------------------------------------------------
 
   function paintRunnable(index) {
+    // エディタの無いタブ（画像・PDF・動画）には、実行の欄が無い。
+    if (state[index].mode !== "editor") return;
     var runnable = config.runnable[index] && config.runnable[index] === state[index].suffix;
     var runButton = $('.ide-run[data-tab="' + index + '"]');
     var runbox = $('[data-runbox="' + index + '"]');
@@ -563,6 +575,12 @@
   });
 
   window.addEventListener("beforeunload", function (event) {
+    var pendingFiles = state.some(function (s) { return s.pending.length > 0; });
+    if (pendingFiles) {
+      // 選んだ画像・PDF はサーバに無い（自動保存しない）。閉じれば失われる。
+      event.preventDefault();
+      event.returnValue = "";
+    }
     if (dirty.some(function (x) { return x; })) {
       for (var k = 0; k < tabCount; k++) save(k, true);
       event.preventDefault();
@@ -718,6 +736,117 @@
     });
   });
 
+  // -- 画像・PDF の提出（2026-09-25） -------------------------------------------
+  //
+  // 課題の画面のファイル提出と同じ検査をサーバが通す（`accept_uploads`）。ここは選んで
+  // 送るだけ。**中身は作業の記録に入れない** ── ファイル名・大きさ・指紋だけを残す。
+
+  function fileHash(file) {
+    if (!window.crypto || !window.crypto.subtle) return Promise.resolve(null);
+    return file.arrayBuffer().then(function (buffer) {
+      return window.crypto.subtle.digest("SHA-256", buffer);
+    }).then(function (digest) {
+      return Array.prototype.map
+        .call(new Uint8Array(digest), function (b) { return b.toString(16).padStart(2, "0"); })
+        .join("");
+    }).catch(function () { return null; });
+  }
+
+  function describeFiles(files) {
+    return Promise.all(files.map(function (f) {
+      return fileHash(f).then(function (hash) { return { name: f.name, size: f.size, hash: hash }; });
+    }));
+  }
+
+  function paintAttach(index) {
+    var list = $('[data-attach-list="' + index + '"]');
+    var pending = $('[data-attach-pending="' + index + '"]');
+    var button = $('.ide-attach-submit[data-tab="' + index + '"]');
+    if (!list) return;
+    list.textContent = "";
+    state[index].pending.forEach(function (file) {
+      var item = document.createElement("li");
+      if (file.type && file.type.indexOf("image/") === 0) {
+        // 見本を出す（選び間違いに気づけるように）。**サーバには送らない**表示だけ。
+        var img = document.createElement("img");
+        img.src = URL.createObjectURL(file);
+        img.alt = "";
+        img.className = "ide-attach-thumb";
+        img.onload = function () { URL.revokeObjectURL(img.src); };
+        item.appendChild(img);
+      }
+      item.appendChild(document.createTextNode(file.name + "（" + Math.ceil(file.size / 1024) + " KiB）"));
+      list.appendChild(item);
+    });
+    if (pending) pending.hidden = state[index].pending.length === 0;
+    if (button) button.disabled = state[index].pending.length === 0;
+    paintTabState(index);
+  }
+
+  $all(".ide-attach-input").forEach(function (input) {
+    input.addEventListener("change", function () {
+      var index = parseInt(input.getAttribute("data-tab"), 10);
+      var files = Array.prototype.slice.call(input.files || []);
+      input.value = "";
+      if (!files.length) return;
+      state[index].pending = input.multiple ? state[index].pending.concat(files) : files.slice(0, 1);
+      paintAttach(index);
+      describeFiles(files).then(function (described) {
+        record("attach", { tab: index, stage: "select", files: described }, true);
+      });
+    });
+  });
+
+  $all(".ide-attach-submit").forEach(function (button) {
+    button.addEventListener("click", function () {
+      var index = parseInt(button.getAttribute("data-tab"), 10);
+      var files = state[index].pending;
+      var note = $('[data-attach-result="' + index + '"]');
+      if (!files.length) return;
+      if (!window.confirm(files.length + " 個のファイルを提出しますか？")) return;
+      var form = new FormData();
+      files.forEach(function (f) { form.append("upload", f, f.name); });
+      if (rec.sessionId) form.append("ide_session_id", rec.sessionId);
+      button.disabled = true;
+      note.textContent = "提出しています…";
+      fetch("/ide/tasks/" + config.tabs[index] + "/upload", {
+        method: "POST",
+        body: form,
+        credentials: "same-origin",
+      })
+        .then(function (response) {
+          return response.json().catch(function () { return {}; }).then(function (data) {
+            return { ok: response.ok, status: response.status, data: data };
+          });
+        })
+        .then(function (result) {
+          if (!result.ok) {
+            button.disabled = false;
+            note.textContent = "提出できませんでした: " + detailOf(result, "サーバが受け付けませんでした");
+            return;
+          }
+          var data = result.data;
+          record("attach", { tab: index, stage: "submit", files: data.files, submission_id: data.submission_id }, true);
+          state[index].pending = [];
+          state[index].submitted = Math.max(state[index].submitted, data.attempt);
+          paintAttach(index);
+          note.textContent = "";
+          var message = data.deduplicated ? "同じ内容を提出済みです（" + data.attempt + " 回目）。" : "提出しました（" + data.attempt + " 回目）。";
+          note.appendChild(document.createTextNode(message + " "));
+          var link = document.createElement("a");
+          link.href = data.url;
+          link.target = "_blank";
+          link.rel = "noopener";
+          link.textContent = "結果を見る";
+          note.appendChild(link);
+        })
+        .catch(function () {
+          button.disabled = false;
+          note.textContent = "提出できませんでした（通信の不調）。もう一度押してください。";
+        });
+    });
+  });
+
   // -- 残り時間 --------------------------------------------------------------
 
   (function () {
@@ -830,6 +959,8 @@
     followTheme(monacoRef);
     for (var k = 0; k < tabCount; k++) {
       (function (index) {
+        // 画像・PDF だけの課題と動画だけの課題には、エディタを作らない。
+        if (state[index].mode !== "editor") return;
         var model = monacoRef.editor.createModel(
           config.sources[index],
           formatOf(index, state[index].suffix).monaco

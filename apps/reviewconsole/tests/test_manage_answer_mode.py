@@ -191,14 +191,36 @@ def test_the_rule_accepts_a_report_written_as_text(world: World) -> None:
     assert editor_blockers([(task, version)], world.course) == ()
 
 
-def test_the_rule_names_a_task_that_takes_nothing_the_editor_writes(world: World) -> None:
+def test_a_set_with_nothing_the_editor_writes_is_blocked(world: World) -> None:
+    """画像・PDF だけのセットはエディタにしない（2026-09-25）。"""
     task, version = _pair(world_with_example(world))
     task = task.model_copy(update={"accepted_suffixes": (".pdf", ".jpg")})
 
     reasons = editor_blockers([(task, version)], world.course)
 
     assert len(reasons) == 1
-    assert task.title in reasons[0] and ".pdf" in reasons[0]
+    assert "エディタで書ける課題がありません" in reasons[0]
+
+
+def test_a_mixed_set_can_use_the_editor(world: World) -> None:
+    """**書ける課題が 1 つあれば、画像の課題が混ざっていてもエディタにできる**（2026-09-25）。
+    画像・PDF はエディタの画面からファイルを選んで出す。"""
+    task, version = _pair(world_with_example(world))
+    image_only = task.model_copy(update={"accepted_suffixes": (".png", ".pdf")})
+
+    assert editor_blockers([(task, version), (image_only, version)], world.course) == ()
+
+
+def test_a_video_task_keeps_file_upload(world: World) -> None:
+    """**動画を受ける課題があれば、ファイル選択は外せない**。動画はエディタから出せない。"""
+    from aijudge_admin.answer_mode import file_upload_required
+
+    task, version = _pair(world_with_example(world))
+    video = task.model_copy(update={"accepted_suffixes": (".mp4",), "title": "実演の動画"})
+
+    assert file_upload_required([(task, version)], world.course) == ()
+    reasons = file_upload_required([(task, version), (video, version)], world.course)
+    assert len(reasons) == 1 and "実演の動画" in reasons[0]
 
 
 def test_the_rule_falls_back_to_the_courses_formats(world: World) -> None:
@@ -278,6 +300,36 @@ def test_a_non_positive_clear_points_is_refused(world: World) -> None:
     )
     assert response.status_code == 400
     assert _task(world, task_id).clear_points is None
+
+
+def test_the_server_refuses_editor_only_for_a_set_with_video(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """**動画を受ける課題があるセットは、ファイル選択を外せない**（保存する側が断る）。"""
+    import aijudge_reviewconsole.manage as manage
+
+    world.register("teacher", Role.INSTRUCTOR)
+    task_id = _import_example(world)
+    unit = _unit_of(world)
+    monkeypatch.setattr(
+        manage, "file_upload_required", lambda *a, **k: ("実演: 動画はエディタから出せません",)
+    )
+
+    response = world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/units/{unit}/answer-mode",
+        data={"editor": "1"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 409
+    assert _task(world, task_id).file_upload is True
+    # 両方入れるのは通る（動画は課題の画面から出す）。
+    ok = world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/units/{unit}/answer-mode",
+        data={"editor": "1", "file_upload": "1"},
+        follow_redirects=False,
+    )
+    assert ok.status_code == 303
 
 
 # -- 学生の画面への入口（2026-09-25）---------------------------------------------

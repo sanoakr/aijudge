@@ -854,8 +854,39 @@ def create_app(app_state: StudentApp) -> FastAPI:
         # 学内限定・受付期間・役割は、動画と IDE と**同じ関門**で判定する
         # （`_submission_gate` の docstring・不変条件 I8）。
         version, course_obj, _task, role = _submission_gate(request, me, task_version_id)
+        result = await accept_uploads(me, version, course_obj, _task, role, upload)
 
-        accepts = allowed_suffixes(_task.accepted_suffixes, course_obj.upload_suffixes)
+        return RedirectResponse(
+            f"/submissions/{result.submission.id}" + ("?again=1" if result.deduplicated else ""),
+            status_code=303,
+        )
+
+    async def accept_uploads(
+        me,
+        version: TaskVersion,
+        course_obj: Course,
+        _task: Task,
+        role: Role,
+        upload: list[UploadFile],
+        *,
+        only: tuple[str, ...] | None = None,
+    ):
+        """選ばれたファイルを検査して提出にする。**課題の画面とエディタの画面の両方が
+        呼ぶ**（2026-09-25）。
+
+        拡張子・空・大きさ・合計・複数ファイル・コードは 1 ファイル、の検査を経路ごとに
+        写すと、写すときに条件が落ちる（学内限定の漏れ #370 と同じ形）。関門
+        （`_submission_gate`）は呼び出し側が先に通す ── ファイルの経路とエディタの
+        経路で `by_file` が違うため。
+
+        `only` はこの経路で受ける拡張子（エディタの画面は画像・PDF などに絞る ──
+        `aijudge_ide.attachable_suffixes`）。None なら課題の提出形式すべて。
+        """
+        accepts = (
+            allowed_suffixes(_task.accepted_suffixes, course_obj.upload_suffixes)
+            if only is None
+            else only
+        )
         if not upload:
             raise HTTPException(status_code=400, detail="ファイルを選んでください")
         if len(upload) > MAX_FILES_PER_SUBMISSION:
@@ -934,11 +965,7 @@ def create_app(app_state: StudentApp) -> FastAPI:
             )
         except SubmissionRejected as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-        return RedirectResponse(
-            f"/submissions/{result.submission.id}" + ("?again=1" if result.deduplicated else ""),
-            status_code=303,
-        )
+        return result
 
     def _submission_gate(request: Request, me, task_version_id: str, *, by_file: bool = True):
         """この課題に、いまこの人が出してよいかを**1 か所で**判定する（不変条件 I8）。
@@ -1506,6 +1533,8 @@ def create_app(app_state: StudentApp) -> FastAPI:
             templates=TEMPLATES,
             # IDE の提出はファイルではない（エディタだけの課題でも通す）。
             gate=partial(_submission_gate, by_file=False),
+            # 画像・PDF をエディタの画面から出す経路も、課題の画面と同じ検査を通す。
+            accept_uploads=accept_uploads,
             course_and_tasks=_course_and_tasks,
             load_progress=load_progress,
             build_context=build_context,

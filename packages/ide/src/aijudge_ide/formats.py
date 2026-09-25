@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from aijudge_core import ArtifactKind, kind_for
+from aijudge_core import STREAMED_SUFFIXES, ArtifactKind, kind_for
 
 
 @dataclass(frozen=True)
@@ -65,3 +65,25 @@ def editor_formats(accepted: tuple[str, ...]) -> tuple[EditorFormat, ...]:
         for suffix in dict.fromkeys(s.lower() for s in accepted)
         if suffix in EDITOR_FORMATS
     )
+
+
+def attachable_suffixes(accepted: tuple[str, ...]) -> tuple[str, ...]:
+    """エディタの画面から**ファイルを選んで**出せる形式（2026-09-25 決定）。
+
+    課題が受け付ける形式のうち、エディタで書くもの（上の表）と動画を除いたもの ──
+    画像・PDF など。**動画は出せない**: 分割送信・再開・保存期間を持つ専用の経路が
+    あり（`STREAMED_SUFFIXES`）、エディタの画面はそれを持たない。動画は課題の画面の
+    ファイル選択から出す（だから動画を受ける課題ではファイル選択を止められない）。
+    """
+    return tuple(
+        suffix
+        for suffix in dict.fromkeys(s.lower() for s in accepted)
+        if suffix not in EDITOR_FORMATS
+        and suffix not in STREAMED_SUFFIXES
+        and kind_for(suffix) is not None
+    )
+
+
+def video_suffixes(accepted: tuple[str, ...]) -> tuple[str, ...]:
+    """課題が受け付ける動画の形式。エディタの画面からは出せない（`attachable_suffixes`）。"""
+    return tuple(s for s in dict.fromkeys(x.lower() for x in accepted) if s in STREAMED_SUFFIXES)

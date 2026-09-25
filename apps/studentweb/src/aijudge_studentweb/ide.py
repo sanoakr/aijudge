@@ -22,20 +22,28 @@
 # 遅らせると FastAPI がモジュールの名前空間から引こうとして見つけられない。
 import json
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from aijudge_authoring import render_statement
-from aijudge_core import AnswerMode, ArtifactKind, Course, Task, TaskVersion, allowed_suffixes
+from aijudge_core import (
+    AnswerMode,
+    ArtifactKind,
+    Course,
+    Task,
+    TaskVersion,
+    allowed_suffixes,
+    kind_for,
+)
 from aijudge_core.ids import CourseId, new_id
 from aijudge_grading import OverrideError, SubjectProfile, effective_profile, load_profile
 from aijudge_ide import (
@@ -54,12 +62,14 @@ from aijudge_ide import (
     RunRequestId,
     SubmissionLink,
     SubmissionOrigin,
+    attachable_suffixes,
     check_events,
     check_snapshots,
     content_hash,
     editor_formats,
     make_buffer,
     request_run,
+    video_suffixes,
     view_run,
 )
 from aijudge_submission import IncomingFile, SubmissionRejected
@@ -125,6 +135,9 @@ class IdeDeps:
     build_context: Callable[..., dict]
     is_demo: Callable[[object], bool]
     now: Callable[[], datetime]
+    # 画像・PDF を検査して提出にする関数（`create_app` の `accept_uploads`）。課題の画面の
+    # ファイル提出と**同じ関数**を受け取る ── 検査を写すと条件が落ちる（I8 と同じ理由）。
+    accept_uploads: Callable[..., Awaitable[Any]] | None = None
     profiles: dict[str, SubjectProfile] = field(default_factory=dict)
 
     def formats_for(self, task: Task, course: Course) -> tuple[EditorFormat, ...]:
@@ -133,6 +146,14 @@ class IdeDeps:
         別の決め方をすると、画面が出した形式を提出で断ることになる。
         """
         return editor_formats(allowed_suffixes(task.accepted_suffixes, course.upload_suffixes))
+
+    def attachable_for(self, task: Task, course: Course) -> tuple[str, ...]:
+        """この課題でエディタの画面からファイルを選んで出せる形式（画像・PDF など）。"""
+        return attachable_suffixes(allowed_suffixes(task.accepted_suffixes, course.upload_suffixes))
+
+    def videos_for(self, task: Task, course: Course) -> tuple[str, ...]:
+        """この課題が受ける動画の形式。エディタの画面からは出せない（課題の画面から出す）。"""
+        return video_suffixes(allowed_suffixes(task.accepted_suffixes, course.upload_suffixes))
 
     def runnable_format(
         self, task: Task, version: TaskVersion, course: Course
@@ -234,14 +255,16 @@ def register_ide_routes(app: FastAPI, deps: IdeDeps, me_dependency: Any) -> None
         """
         course_obj, rows = deps.course_and_tasks(deps.state, me, CourseId(course_id))
         wanted = unit or None
+        # **セットの全課題をタブにする**（2026-09-25）。エディタで書く課題に加え、画像・PDF
+        # を出す課題（ファイルを選ぶ欄）と、動画だけの課題（課題の画面へ案内する）も並べる
+        # ── タブが抜けると、学習者はその課題があることに気づかない。
         picked = [
             (task, version)
             for task, version in sorted(rows, key=lambda row: row[0].sort_key)
-            if task.unit == wanted
-            and task.answer_mode is AnswerMode.EDITOR
-            and deps.formats_for(task, course_obj)
+            if task.unit == wanted and task.answer_mode is AnswerMode.EDITOR
         ]
-        if not picked:
+        # エディタで書ける課題が 1 つも無いセットは開かない（`editor_blockers` と同じ規則）。
+        if not any(deps.formats_for(task, course_obj) for task, _ in picked):
             raise HTTPException(status_code=404, detail="エディタで解く課題がありません")
 
         with deps.state.database.unit_of_work() as uow:
@@ -260,12 +283,14 @@ def register_ide_routes(app: FastAPI, deps: IdeDeps, me_dependency: Any) -> None
         tabs = []
         for task, version in picked:
             formats = deps.formats_for(task, course_obj)
-            runnable = deps.runnable_format(task, version, course_obj)
+            attach = deps.attachable_for(task, course_obj)
+            videos = deps.videos_for(task, course_obj)
+            runnable = deps.runnable_format(task, version, course_obj) if formats else None
             buffer = buffers.get(task.id)
             selected = (
                 buffer.suffix
                 if buffer is not None and any(f.suffix == buffer.suffix for f in formats)
-                else formats[0].suffix
+                else (formats[0].suffix if formats else None)
             )
             mark = progress.get(version.id)
             tabs.append(
@@ -289,6 +314,14 @@ def register_ide_routes(app: FastAPI, deps: IdeDeps, me_dependency: Any) -> None
                     "source": buffer.source if buffer is not None else "",
                     # 補完の切／入（設計書 §5.3）。答え方とは独立した課題の値。
                     "completion": task.editor_completion,
+                    # タブの中身（2026-09-25）。`editor` は Monaco、`attach` はファイルを選ぶ欄
+                    # だけ（画像・PDF の課題）、`video` は課題の画面への案内だけ。
+                    "mode": "editor" if formats else ("attach" if attach else "video"),
+                    "attach": list(attach),
+                    # 画像・PDF は複数を 1 つの提出にまとめてよい（#283）。コードは 1 つ。
+                    "attach_multi": bool(attach)
+                    and all(kind_for(suffix) is not ArtifactKind.CODE for suffix in attach),
+                    "videos": list(videos),
                     "submitted": 0 if mark is None else mark.count,
                     "last_submitted_hash": _last_submitted_hash(mark),
                 }
@@ -457,6 +490,70 @@ def register_ide_routes(app: FastAPI, deps: IdeDeps, me_dependency: Any) -> None
                 "attempt": submission.attempt,
                 "deduplicated": result.deduplicated,
                 "content_hash": content_hash(body.source),
+                "url": f"/submissions/{submission.id}",
+            }
+        )
+
+    @app.post("/ide/tasks/{task_version_id}/upload")
+    async def ide_upload(
+        request: Request,
+        task_version_id: str,
+        me: Me,
+        upload: list[UploadFile],
+        ide_session_id: Annotated[str | None, Form(max_length=64)] = None,
+    ) -> JSONResponse:
+        """エディタの画面から画像・PDF を提出する（2026-09-25）。
+
+        関門は IDE の提出と同じ（`by_file=False` ── 「エディタだけ」の問題セットでも
+        エディタの画面からは出せる）。検査と受付は**課題の画面のファイル提出と同じ関数**
+        （`accept_uploads`）で、受ける拡張子だけを画像・PDF などに絞る。動画は受けない
+        （分割送信の経路を持たない）── 課題の画面から出す。
+
+        **自動保存も受付終了時の自動提出もしない。** 画像を下書きとしてサーバに置くと、
+        容量・個人情報・保存期間の問題が増えるだけである。選んだまま提出しなかった
+        画像は失われ、画面がそう警告する。
+        """
+        version, course_obj, task_obj, role = deps.gate(request, me, task_version_id)
+        _require_editor(task_obj)
+        attach = deps.attachable_for(task_obj, course_obj)
+        if not attach or deps.accept_uploads is None:
+            raise HTTPException(
+                status_code=400, detail="この課題は、エディタの画面からファイルを出せません"
+            )
+        result = await deps.accept_uploads(
+            me, version, course_obj, task_obj, role, upload, only=attach
+        )
+        submission = result.submission
+        first = submission.artifacts[0].content_hash if submission.artifacts else ""
+        with deps.state.database.unit_of_work() as uow:
+            # 本人が押した提出であることを残す（`aijudge_ide.links`）。作業の記録から
+            # 提出へ辿れるように、エディタの経路の提出として扱う。
+            uow.ide_links.record(
+                SubmissionLink(
+                    submission_id=submission.id,
+                    tenant_id=me.tenant_id,
+                    learner_id=me.user_id,
+                    task_id=task_obj.id,
+                    origin=SubmissionOrigin.EDITOR,
+                    content_hash=str(first).removeprefix("sha256:"),
+                    ide_session_id=ide_session_id,
+                    recorded_at=deps.now(),
+                )
+            )
+            uow.commit()
+        return JSONResponse(
+            {
+                "submission_id": str(submission.id),
+                "attempt": submission.attempt,
+                "deduplicated": result.deduplicated,
+                "files": [
+                    {
+                        "name": artifact.filename,
+                        "size": artifact.byte_size,
+                        "hash": str(artifact.content_hash).removeprefix("sha256:"),
+                    }
+                    for artifact in submission.artifacts
+                ],
                 "url": f"/submissions/{submission.id}",
             }
         )

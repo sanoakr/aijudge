@@ -87,7 +87,7 @@ from aijudge_admin import (
     try_settings,
 )
 from aijudge_admin import groups as audience
-from aijudge_admin.answer_mode import editor_blockers
+from aijudge_admin.answer_mode import editor_blockers, file_upload_required
 from aijudge_admin.bundles import MAX_ARCHIVE_BYTES
 from aijudge_admin.course_definition import course_template
 from aijudge_admin.drafting import TaskDrafter
@@ -2732,6 +2732,8 @@ def register(templates) -> APIRouter:
                 # エディタで解けない理由（ADR 0026）。**押す前に見せる** ──
                 # 押してから断られるのでは、どの課題が原因か分からない。
                 "editor_blockers": editor_blockers(group.tasks, course),
+                # ファイル選択を止められない理由（動画を受ける課題）。**押す前に見せる。**
+                "file_upload_required": file_upload_required(group.tasks, course),
                 # 問題セットの満点（学習者に出ている課題の配点の和）。クリア点の目安に出す。
                 "points_full": sum(
                     row["points"]
@@ -3212,18 +3214,26 @@ def register(templates) -> APIRouter:
                 status_code=400,
                 detail="ファイルとエディタの少なくとも一方を選んでください（どちらも無いと提出できません）",
             )
-        if by_editor:
+        if by_editor or not by_file:
             from .app import require_principal
 
             me = require_principal(request)
             course = _require_instructor(request, me, CourseId(course_id))
             console = _console(request)
             group = _unit_group(console, course, unit)
-            blockers = editor_blockers(group.tasks, course)
+            blockers = editor_blockers(group.tasks, course) if by_editor else ()
             if blockers:
                 raise HTTPException(
                     status_code=409,
-                    detail="エディタで解けない課題があります: " + "／".join(blockers),
+                    detail="エディタにできません: " + "／".join(blockers),
+                )
+            # **動画を受ける課題があれば、ファイル選択は止められない**（2026-09-25）。
+            # 動画はエディタの画面から出せないので、止めると出す道が無くなる。
+            required = () if by_file else file_upload_required(group.tasks, course)
+            if required:
+                raise HTTPException(
+                    status_code=409,
+                    detail="ファイル選択での提出を止められません: " + "／".join(required),
                 )
         mode = AnswerMode.EDITOR if by_editor else AnswerMode.UPLOAD
         return _update_unit(
