@@ -169,9 +169,15 @@ def save_task(
             # ここに並ぶのは「課題が持つが、課題の内容ではない」値である
             # （日程は問題セットで決める・`aijudge_core.task.Task`）。
             # `spec` に欄が無い以上、既存の値を運ぶ以外に正しい既定は無い。
-            submissions_open_at=existing.submissions_open_at if existing else None,
-            grading_starts_at=existing.grading_starts_at if existing else None,
-            accepts_until=existing.accepts_until if existing else None,
+            #
+            # 提出開始・採点開始・受付終了は定義ファイルからも書ける
+            # （`TaskSpec`）。書かれていれば公開・締切と同じく上書きし、
+            # 書かれていなければ既存の値を運ぶ。
+            submissions_open_at=spec.submissions_open_at
+            or (existing.submissions_open_at if existing else None),
+            grading_starts_at=spec.grading_starts_at
+            or (existing.grading_starts_at if existing else None),
+            accepts_until=spec.accepts_until or (existing.accepts_until if existing else None),
             auto_finalize_after_minutes=(
                 existing.auto_finalize_after_minutes if existing else None
             ),
