@@ -26,9 +26,11 @@ from .jobs import (
     DEFAULT_BACKOFF_SECONDS,
     DEFAULT_LEASE_SECONDS,
     DEFAULT_MAX_ATTEMPTS,
+    LEASE_LOST_ERROR,
     GradingJob,
     JobReason,
     JobState,
+    follow_up_idempotency_key,
     job_idempotency_key,
 )
 from .memory import (
@@ -72,6 +74,7 @@ __all__ = [
     "DEFAULT_LEASE_SECONDS",
     "DEFAULT_MAX_ATTEMPTS",
     "DEFAULT_TTL",
+    "LEASE_LOST_ERROR",
     "AcceptResult",
     "ArtifactStore",
     "AttentionCounts",
@@ -110,6 +113,7 @@ __all__ = [
     "UploadSessionError",
     "artifact_storage_key",
     "content_idempotency_key",
+    "follow_up_idempotency_key",
     "gradable_contents",
     "in_memory_backend",
     "iter_file",

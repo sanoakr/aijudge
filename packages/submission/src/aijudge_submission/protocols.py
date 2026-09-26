@@ -516,11 +516,21 @@ class JobQueue(Protocol):
     ) -> GradingJob | None:
         """実行可能なジョブを 1 つ取る。無ければ None。
 
-        リースの切れた RUNNING も取り直しの対象にする。
+        リースの切れた RUNNING も取り直しの対象にする。ただし試行を使い
+        切ったものは渡さず FAILED にする（`GradingJob.taken`・#398）。
         """
         ...
 
     def update(self, job: GradingJob) -> None: ...
+
+    def lock(self, job_id: str) -> GradingJob | None:
+        """現在値を読み、**トランザクションが終わるまで他の書き手を待たせる。**
+
+        完了・失敗・リース延長の前に「まだ自分が持っているか」を確かめる
+        ために使う（#399）。確かめてから書くまでの間に別のワーカーが
+        取り直すと、確かめた意味が無い。
+        """
+        ...
 
     def get(self, job_id: str) -> GradingJob | None: ...
 

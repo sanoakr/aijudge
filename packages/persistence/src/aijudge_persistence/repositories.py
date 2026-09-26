@@ -570,7 +570,15 @@ class SqlGradingRunRepository:
         }
 
     def supersede(self, old_id: GradingRunId, new_id: GradingRunId) -> None:
-        row = self._session.get(GradingRunRow, str(old_id))
+        # **行ロックを取ってから確かめる**（#399）。読んでから書くだけだと、
+        # 同じ提出の採点を 2 つのワーカーが同時に保存したとき、両方が
+        # 「まだ置き換わっていない」と読み、片方の置き換えが失われる。
+        # ロックがあれば後の側は待ち、`already superseded` で止まる
+        # （ジョブは一時的な失敗として再試行され、次は正しい最新の上に積む）。
+        locks = self._session.bind is not None and self._session.bind.dialect.name != "sqlite"
+        row = self._session.get(
+            GradingRunRow, str(old_id), with_for_update=locks, populate_existing=locks
+        )
         if row is None:
             raise SubmissionStoreError(f"no GradingRun {old_id}")
         if row.superseded_by is not None:
@@ -1096,18 +1104,23 @@ class SqlJobQueue:
             statement = statement.order_by(
                 GradingJobRow.available_at, GradingJobRow.created_at, GradingJobRow.id
             ).limit(1)
-            if self._session.bind is not None and self._session.bind.dialect.name != "sqlite":
+            if self._locks_rows:
                 # SQLite は行ロックを持たない。単一プロセスの開発用なので許容する。
                 statement = statement.with_for_update(skip_locked=True)
-            row = self._session.execute(statement).scalars().first()
-            if row is None:
-                continue
-            job = GradingJob.model_validate(row.document)
-            reserved = job.reserved(now, worker=worker, lease_seconds=lease_seconds)
-            _apply(row, reserved)
-            self._session.flush()
-            return reserved
+            # 試行を使い切ったリース切れは FAILED にして次を探す（#398）。
+            # 1 周ごとに 1 行が RUNNING から抜けるので、この繰り返しは終わる。
+            while (row := self._session.execute(statement).scalars().first()) is not None:
+                job = GradingJob.model_validate(row.document)
+                taken = job.taken(now, worker=worker, lease_seconds=lease_seconds)
+                _apply(row, taken)
+                self._session.flush()
+                if taken.state is JobState.RUNNING:
+                    return taken
         return None
+
+    @property
+    def _locks_rows(self) -> bool:
+        return self._session.bind is not None and self._session.bind.dialect.name != "sqlite"
 
     def update(self, job: GradingJob) -> None:
         row = self._session.get(GradingJobRow, str(job.id))
@@ -1118,6 +1131,17 @@ class SqlJobQueue:
 
     def get(self, job_id: GradingJobId) -> GradingJob | None:
         row = self._session.get(GradingJobRow, str(job_id))
+        return None if row is None else GradingJob.model_validate(row.document)
+
+    def lock(self, job_id: GradingJobId) -> GradingJob | None:
+        # `populate_existing` ── 同じセッションで先に読んでいても、ロックを
+        # 取った時点の値で読み直す。古い値で「まだ持っている」と判定しない。
+        row = self._session.get(
+            GradingJobRow,
+            str(job_id),
+            with_for_update=self._locks_rows,
+            populate_existing=True,
+        )
         return None if row is None else GradingJob.model_validate(row.document)
 
     def find_by_idempotency_key(self, key: str) -> GradingJob | None:

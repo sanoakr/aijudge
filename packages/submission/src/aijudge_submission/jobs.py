@@ -39,6 +39,10 @@ DEFAULT_MAX_ATTEMPTS = 3
 DEFAULT_BACKOFF_SECONDS = 30.0
 # ワーカーがジョブを保持できる時間。超えたら死んだと見なして再割り当てする。
 DEFAULT_LEASE_SECONDS = 900.0
+# リースが切れたまま試行を使い切ったジョブに残す理由。**例外を残せない**
+# ── ワーカーはプロセスごと落ちた（OOM・segfault・コンテナ runtime の停止）
+# ので、`failed()` を一度も通っていない（#398）。
+LEASE_LOST_ERROR = "worker lost the lease on every attempt (the process died while grading)"
 
 
 class JobState(StrEnum):
@@ -160,6 +164,54 @@ class GradingJob(BaseModel):
             }
         )
 
+    def taken(
+        self, now: datetime, *, worker: str, lease_seconds: float = DEFAULT_LEASE_SECONDS
+    ) -> GradingJob:
+        """キューから取り出す。**試行を使い切ったリース切れは FAILED にする。**
+
+        `reserved()` だけで取ると、ワーカーのプロセスごと落とす提出は
+        `failed()` を一度も通らないので、上限を見る場所が無い。900 秒ごとに
+        取り直され、`attempts` が 4, 5, 6… と増えるだけで終わらない（#398）。
+        取り出す側（キューの実装 2 つ）はここを通すだけでよく、判定を
+        写さない。返り値の `state` が RUNNING でなければ、渡さずに次を探す。
+        """
+        lease_lost = (
+            self.state is JobState.RUNNING
+            and self.lease_expires_at is not None
+            and self.lease_expires_at <= now
+        )
+        if lease_lost and self.attempts >= self.max_attempts:
+            return self.failed(now, LEASE_LOST_ERROR, permanent=True)
+        return self.reserved(now, worker=worker, lease_seconds=lease_seconds)
+
+    def held_by(self, holder: GradingJob) -> bool:
+        """`holder`（ワーカーが予約時に受け取ったもの）が、まだこのジョブを持っているか。
+
+        **完了・失敗を書く前にキューの現在値で確かめる**（#399）。リースが
+        切れて別のワーカーが取り直していれば、`worker` か `attempts` が
+        変わっている。確かめずに書くと、同じ提出が二重に採点され、後から
+        失敗した側がもう一度キューへ戻す。
+        """
+        return (
+            self.state is JobState.RUNNING
+            and self.worker == holder.worker
+            and self.attempts == holder.attempts
+        )
+
+    def lease_extended(self, now: datetime, lease_seconds: float) -> GradingJob:
+        """採点中のリースを延ばす（#399）。
+
+        AI 段階は観点ごとに LLM を複数回呼ぶので、S6 が遅いとリースを超える。
+        超えると別のワーカーが取り直し、持ち主の確認（`held_by`）で最初の
+        ワーカーの結果が捨てられる ── 延ばさないと、遅いだけの採点が
+        いつまでも終わらない。
+        """
+        if self.state is not JobState.RUNNING:
+            raise ValueError(f"cannot extend the lease of a {self.state} job")
+        return self.model_copy(
+            update={"lease_expires_at": now + timedelta(seconds=lease_seconds), "updated_at": now}
+        )
+
     def completed(self, now: datetime, grading_run_id: GradingRunId) -> GradingJob:
         return self.model_copy(
             update={
@@ -267,3 +319,16 @@ def job_idempotency_key(
         # 移行中のキューに二重投入が起きない。
         parts.append(phase.value)
     return "|".join(parts)
+
+
+def follow_up_idempotency_key(base: GradingJob, phase: GradingPhase) -> str:
+    """段階を続けるジョブ（決定的 → AI）の冪等キー。**元のジョブのキーから作る。**
+
+    元のキーには再採点の区別（課題の版など）が入っている。提出と理由だけで
+    作ると、2 回目の再採点の AI 段階が 1 回目の DONE ジョブに吸収され、
+    永久に走らない（#397）。
+
+    新しい提出の場合は `job_idempotency_key(sub, reason, phase=phase)` と
+    同じ文字列になる ── 既存のキューと互換で、移行は要らない。
+    """
+    return f"{base.idempotency_key}|{phase.value}"

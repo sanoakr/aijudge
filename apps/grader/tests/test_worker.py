@@ -348,6 +348,98 @@ def test_a_dead_worker_does_not_strand_a_submission(world: World) -> None:
     assert result is not None and result.graded, result.error if result else None
 
 
+@needs_c_compiler
+def test_a_worker_that_lost_its_lease_records_nothing(world: World) -> None:
+    """リースが切れた後の結果は書かない（#399）。
+
+    書くと同じ提出が二重に採点され、後から失敗した側が DONE を QUEUED に戻す。
+    """
+    from aijudge_grader.worker import LEASE_LOST
+
+    accepted = world.submit()
+    with world.database.unit_of_work() as uow:
+        stale = uow.jobs.reserve(world.clock(), worker="slow", lease_seconds=60.0)
+        assert stale is not None
+        uow.commit()
+    world.clock.advance(120)
+    taken_over = world.worker.run_once()
+    assert taken_over is not None and taken_over.graded
+
+    with world.database.unit_of_work() as uow:
+        runs_before = len(uow.runs.list_for(accepted.submission.id))
+    late = world.worker._record_success(stale, taken_over.run)
+    failed = world.worker._record_failure(stale, "LLM timeout")
+
+    assert late.error == LEASE_LOST and not late.graded
+    assert failed.error == LEASE_LOST
+    with world.database.unit_of_work() as uow:
+        assert len(uow.runs.list_for(accepted.submission.id)) == runs_before
+        assert uow.jobs.get(stale.id).state is JobState.DONE
+
+
+@needs_c_compiler
+def test_the_lease_is_renewed_only_while_held(world: World) -> None:
+    world.submit()
+    with world.database.unit_of_work() as uow:
+        job = uow.jobs.reserve(world.clock(), worker="worker-1", lease_seconds=60.0)
+        uow.commit()
+    world.clock.advance(50)
+    assert world.worker.renew_lease(job)
+    with world.database.unit_of_work() as uow:
+        assert uow.jobs.get(job.id).lease_expires_at > job.lease_expires_at
+
+    # 延ばした後も死んだと見なされれば別のワーカーが取り、延長は止まる。
+    world.clock.advance(world.worker._lease_seconds + 1)
+    with world.database.unit_of_work() as uow:
+        assert uow.jobs.reserve(world.clock(), worker="other", lease_seconds=60.0) is not None
+        uow.commit()
+    assert not world.worker.renew_lease(job)
+
+
+@needs_c_compiler
+def test_a_worker_that_keeps_dying_does_not_retake_the_job_forever(world: World) -> None:
+    """採点中にプロセスごと落ちる提出は、試行を使い切ったら FAILED（#398）。"""
+    from aijudge_submission import LEASE_LOST_ERROR
+
+    accepted = world.submit()
+    for attempt in range(3):
+        with world.database.unit_of_work() as uow:
+            assert uow.jobs.reserve(world.clock(), worker=f"dead{attempt}", lease_seconds=60.0)
+            uow.commit()
+        world.clock.advance(120)
+
+    assert world.worker.run_once() is None
+    with world.database.unit_of_work() as uow:
+        failed = uow.jobs.failed_for([accepted.submission.id])
+    assert [job.last_error for job in failed] == [LEASE_LOST_ERROR]
+
+
+@needs_c_compiler
+def test_every_regrade_runs_its_own_ai_phase(world: World) -> None:
+    """2 回目以降の再採点でも AI 段階が走る（#397）。
+
+    走らないと最新の run が AI 観点未採点の暫定のまま残り、総合点が永久に
+    保留される。
+    """
+    accepted = world.submit()
+    world.worker.run_until_empty()
+    for version in ("v2", "v3"):
+        world.provider._responses.extend([AI_SAYS_1] * PROFILE_SAMPLES)
+        world.service.request_regrade(
+            tenant_id=TENANT,
+            submission_id=accepted.submission.id,
+            subject_profile=PROFILE,
+            discriminator=version,
+        )
+        world.clock.advance(60)
+        world.worker.run_until_empty()
+
+        with world.database.unit_of_work() as uow:
+            latest = uow.runs.latest_for(accepted.submission.id)
+        assert not latest.unscored_criteria, f"{version}: AI 段階が走っていない"
+        assert "ai" in {score.kind.value for score in latest.criterion_scores}
+
+
 # --------------------------------------------------------------------------
 # 観測（測定用の記録）
 # --------------------------------------------------------------------------
