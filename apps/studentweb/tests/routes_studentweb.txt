@@ -5,13 +5,9 @@ GET /auth/login aijudge_studentweb.app:auth_login
 GET /courses/{course_id} aijudge_studentweb.app:course
 GET /courses/{course_id}/ide aijudge_studentweb.ide:ide_page
 GET /courses/{course_id}/mastery aijudge_studentweb.app:my_mastery
-GET /docs fastapi.applications:swagger_ui_html
-GET /docs/oauth2-redirect fastapi.applications:swagger_ui_redirect
 GET /ide/runs/{run_id} aijudge_studentweb.ide:ide_run_state
 GET /images/{course_id}/{name} aijudge_studentweb.app:statement_image
 GET /login aijudge_studentweb.app:login_form
-GET /openapi.json fastapi.applications:openapi
-GET /redoc fastapi.applications:redoc_html
 GET /submissions/{submission_id} aijudge_studentweb.app:submission
 GET /submissions/{submission_id}/artifacts/{artifact_id} aijudge_studentweb.app:submitted_file
 GET /submissions/{submission_id}/state aijudge_studentweb.app:submission_state

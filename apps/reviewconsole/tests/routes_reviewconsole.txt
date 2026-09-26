@@ -17,8 +17,6 @@ GET /courses/{course_id}/blind aijudge_reviewconsole.app:blind_queue
 GET /courses/{course_id}/finalize aijudge_reviewconsole.app:finalize_queue
 GET /courses/{course_id}/queue aijudge_reviewconsole.app:queue
 GET /courses/{course_id}/submissions aijudge_reviewconsole.app:submissions_page
-GET /docs fastapi.applications:swagger_ui_html
-GET /docs/oauth2-redirect fastapi.applications:swagger_ui_redirect
 GET /images/{course_id}/{name} aijudge_reviewconsole.app:statement_image
 GET /login aijudge_reviewconsole.app:login_form
 GET /manage aijudge_reviewconsole.manage:index
@@ -44,8 +42,6 @@ GET /manage/subjects/{name} aijudge_reviewconsole.manage:subject_detail
 GET /manage/users aijudge_reviewconsole.manage:user_list
 GET /manage/users/new aijudge_reviewconsole.manage:new_user_form
 GET /manage/users/{user_id} aijudge_reviewconsole.manage:user_detail
-GET /openapi.json fastapi.applications:openapi
-GET /redoc fastapi.applications:redoc_html
 GET /review/{submission_id}/artifacts/{artifact_id} aijudge_reviewconsole.app:submitted_file
 GET /review/{submission_id}/blind aijudge_reviewconsole.app:blind
 GET /review/{submission_id}/reveal aijudge_reviewconsole.app:reveal

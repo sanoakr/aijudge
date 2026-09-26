@@ -610,7 +610,13 @@ def _page_href(base: str, filters: Filters) -> Callable[[int], str]:
 
 
 def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
-    app = FastAPI(title="aiJudge instructor console")
+    # **API の説明ページを出さない**（2026-09-27）。FastAPI の既定では `/docs`・`/redoc`・
+    # `/openapi.json` がログインなしで開き、全ルートと各経路の入力の形が誰にでも読めた
+    # （運用機で 200 を返していた）。使っている人はいない ── API を使う人にはリポジトリの
+    # 文書がある。ルートの写し（`tests/routes_*.txt`）が、戻ったときに落とす。
+    app = FastAPI(
+        title="aiJudge instructor console", docs_url=None, redoc_url=None, openapi_url=None
+    )
     app.state.aijudge = console
 
     # 共有の CSS（#184）。**mount 先に接頭辞は付けない** ── 逆プロキシが
