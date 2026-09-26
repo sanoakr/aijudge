@@ -516,6 +516,269 @@ document.querySelectorAll(".checkrow .nojs").forEach(function (el) { el.remove()
   });
 })();
 
+{# **知識要素の選び方**（`.kcpick`・2026-09-26）。数が多いと、何を選んだかを確かめるのに
+   一覧をスクロールするしかなかった。次の 3 つを足す（スクリプトが無ければ元の一覧のまま）:
+
+   1. 選んだものを一覧の上に札で並べる。× で外せる
+   2. キーと名前で絞り込む（送らない欄 ── 名前を持たせない）
+   3. 「選択中だけ」に切り替える
+
+   **並びは変えない。** 選んだ順に上へ動かすと、押した行が指の下から逃げる。 #}
+(function () {
+  document.querySelectorAll(".kcpick").forEach(function (list) {
+    var boxes = Array.prototype.slice.call(list.querySelectorAll("input[type=checkbox]"));
+    if (!boxes.length) return;
+    var bar = document.createElement("div");
+    bar.className = "kcpick-bar";
+    var filter = document.createElement("input");
+    filter.type = "search";
+    filter.className = "kcpick-filter";
+    filter.placeholder = "キー・名前で絞り込む";
+    filter.setAttribute("aria-label", "知識要素を絞り込む");
+    var onlyLabel = document.createElement("label");
+    onlyLabel.className = "check tight";
+    var only = document.createElement("input");
+    only.type = "checkbox";
+    onlyLabel.appendChild(only);
+    onlyLabel.appendChild(document.createTextNode(" 選択中だけ"));
+    var count = document.createElement("span");
+    count.className = "desc kcpick-count";
+    bar.appendChild(filter);
+    bar.appendChild(onlyLabel);
+    bar.appendChild(count);
+    var chips = document.createElement("div");
+    chips.className = "kcpick-chips";
+    list.parentNode.insertBefore(bar, list);
+    list.parentNode.insertBefore(chips, list);
+
+    function textOf(box) {
+      var label = box.closest("label");
+      return (label ? label.textContent : box.value).toLowerCase();
+    }
+    function refresh() {
+      var words = filter.value.toLowerCase().split(/\s+/).filter(Boolean);
+      var chosen = boxes.filter(function (box) { return box.checked; });
+      var shown = 0;
+      boxes.forEach(function (box) {
+        var label = box.closest("label");
+        var text = textOf(box);
+        var visible = (!only.checked || box.checked) &&
+          words.every(function (w) { return text.indexOf(w) >= 0; });
+        if (label) label.classList.toggle("off", !visible);
+        if (visible) shown += 1;
+      });
+      count.textContent = chosen.length + " 件を選択中" +
+        (shown < boxes.length ? "（" + boxes.length + " 件中 " + shown + " 件を表示）" : "（全 " + boxes.length + " 件）");
+      chips.textContent = "";
+      chosen.forEach(function (box) {
+        var chip = document.createElement("button");
+        chip.type = "button";
+        chip.className = "kc-chip";
+        var key = document.createElement("span");
+        key.className = "mono";
+        key.textContent = box.value;
+        chip.appendChild(key);
+        var name = box.closest("label") && box.closest("label").querySelector(".desc");
+        if (name) {
+          var n = document.createElement("span");
+          n.textContent = " " + name.textContent;
+          chip.appendChild(n);
+        }
+        var x = document.createElement("span");
+        x.className = "x";
+        x.setAttribute("aria-hidden", "true");
+        x.textContent = "×";
+        chip.appendChild(x);
+        chip.setAttribute("aria-label", box.value + " を外す");
+        chip.addEventListener("click", function () {
+          box.checked = false;
+          box.dispatchEvent(new Event("change", { bubbles: true }));
+        });
+        chips.appendChild(chip);
+      });
+      chips.hidden = !chosen.length;
+    }
+    filter.addEventListener("input", refresh);
+    // 絞り込み欄で Enter を押しても、フォームを送らない。
+    filter.addEventListener("keydown", function (event) {
+      if (event.key === "Enter") event.preventDefault();
+    });
+    only.addEventListener("change", refresh);
+    boxes.forEach(function (box) { box.addEventListener("change", refresh); });
+    refresh();
+  });
+})();
+
+{# **タブ**（`nav[data-tabs]`・問題のページ）。`#` と連動する ── `#schedule` や保存後の
+   `#saved` で来たら、その場所を含むタブを開く。スクリプトが無ければ全部が縦に並ぶ。 #}
+(function () {
+  var nav = document.querySelector("nav[data-tabs]");
+  if (!nav) return;
+  var links = Array.prototype.slice.call(nav.querySelectorAll("a[href^='#']"));
+  var panels = links.map(function (a) { return document.getElementById(a.getAttribute("href").slice(1)); });
+  function show(panel) {
+    panels.forEach(function (p, i) {
+      if (!p) return;
+      p.hidden = p !== panel;
+      if (p === panel) links[i].setAttribute("aria-current", "page");
+      else links[i].removeAttribute("aria-current");
+    });
+  }
+  function fromHash() {
+    var id = decodeURIComponent(window.location.hash.slice(1));
+    var target = id && document.getElementById(id);
+    var panel = target && (panels.indexOf(target) >= 0 ? target : target.closest(".tab-panel"));
+    show(panel && panels.indexOf(panel) >= 0 ? panel : panels[0]);
+    if (target && panels.indexOf(target) < 0) target.scrollIntoView({ block: "start" });
+  }
+  links.forEach(function (a, i) {
+    a.addEventListener("click", function (event) {
+      event.preventDefault();
+      history.replaceState(null, "", a.getAttribute("href"));
+      show(panels[i]);
+    });
+  });
+  window.addEventListener("hashchange", fromHash);
+  fromHash();
+})();
+
+{# 設定の説明（`_help.html`）。**押しても開く** ── 載せる操作の無いタブレットのため。
+   画面の右端で開くと外へはみ出すので、そのときは右に寄せる。Esc と外側を押すと閉じる。 #}
+(function () {
+  function place(help) {
+    help.classList.remove("flip");
+    var body = help.querySelector(".help-body");
+    if (body && body.getBoundingClientRect().right > window.innerWidth - 16) {
+      help.classList.add("flip");
+    }
+  }
+  function close(except) {
+    document.querySelectorAll(".help.open").forEach(function (help) {
+      if (help === except) return;
+      help.classList.remove("open");
+      help.querySelector(".help-btn").setAttribute("aria-expanded", "false");
+    });
+  }
+  document.addEventListener("mouseover", function (event) {
+    var help = event.target.closest && event.target.closest(".help");
+    if (help) place(help);
+  });
+  document.addEventListener("click", function (event) {
+    if (!event.target.closest) return;
+    var button = event.target.closest(".help-btn");
+    if (!button) {
+      // 説明の中（リンクなど）を押したときは閉じない。
+      if (!event.target.closest(".help-body")) close(null);
+      return;
+    }
+    event.preventDefault();
+    var help = button.parentElement;
+    var opening = !help.classList.contains("open");
+    close(help);
+    help.classList.toggle("open", opening);
+    button.setAttribute("aria-expanded", opening ? "true" : "false");
+    if (opening) place(help);
+  });
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape") close(null);
+  });
+})();
+
+{# **まとめて保存するフォーム**（`form[data-save-all]`・2026-09-26）。
+
+   1. **断られても書きかけを消さない。** 素の POST だと、検査で断られた時点で
+      エラーの頁に移り、戻らないと入力が残らない。fetch で送り、断られたら
+      理由を保存ボタンの横に出して、頁はそのまま残す。通れば読み直す。
+   2. **書きかけのまま離れるときは確かめる**（`beforeunload`）。別のフォームの
+      ボタン（課題の追加・片付けなど）を押したときも、ここで止まる ── 以前は
+      節ごとの保存ボタンを押すと、他の節の書きかけが黙って消えた。
+
+   スクリプトが無くても、フォームは素のまま送れる。 #}
+(function () {
+  document.querySelectorAll("form[data-save-all]").forEach(function (form) {
+    var dirty = false;
+    var leaving = false;
+    var state = form.querySelector(".save-state");
+    var button = form.querySelector(".deskbar button[type=submit]");
+    function say(text, kind) {
+      if (!state) return;
+      state.textContent = text;
+      state.classList.remove("dirty", "error");
+      if (kind) state.classList.add(kind);
+    }
+    function touched(event) {
+      // 送られない欄（KC の絞り込みなど）は書きかけに数えない。
+      if (event && event.target && !event.target.name) return;
+      dirty = true;
+      say("未保存の変更があります", "dirty");
+    }
+    form.addEventListener("input", touched);
+    form.addEventListener("change", touched);
+    window.addEventListener("beforeunload", function (event) {
+      if (!dirty || leaving) return;
+      event.preventDefault();
+      event.returnValue = "";
+    });
+    form.addEventListener("submit", function (event) {
+      if (!window.fetch || !window.FormData) { leaving = true; return; }
+      var submitter = event.submitter;
+      // **頁を移らずに結果だけ差し込むボタン**（`data-swap`・共通設定の試行）。
+      // 試行は保存しないので、書きかけの印はそのまま残す。
+      if (submitter && submitter.getAttribute("data-swap")) {
+        event.preventDefault();
+        var target = document.querySelector(submitter.getAttribute("data-swap"));
+        var data = new FormData(form);
+        data.append(submitter.name, submitter.value);
+        submitter.disabled = true;
+        fetch(submitter.formAction, { method: "POST", body: data, credentials: "same-origin" })
+          .then(function (response) { return response.text().then(function (html) { return [response, html]; }); })
+          .then(function (pair) {
+            var fresh = new DOMParser().parseFromString(pair[1], "text/html")
+              .querySelector(submitter.getAttribute("data-swap"));
+            if (target && fresh) {
+              target.replaceWith(fresh);
+              fresh.scrollIntoView({ block: "nearest" });
+            } else {
+              say("試行できませんでした（HTTP " + pair[0].status + "）", "error");
+            }
+          })
+          .catch(function () { say("試行できませんでした（通信に失敗しました）", "error"); })
+          .then(function () { submitter.disabled = false; });
+        return;
+      }
+      // 別の送り先を持つボタン（`formaction`）は素のまま送る ── 保存ではない。
+      if (submitter && submitter.hasAttribute("formaction")) { leaving = true; return; }
+      event.preventDefault();
+      if (button) button.disabled = true;
+      say("保存しています…", "");
+      // `form.action` を使わない。`name="action"` の欄（試行のボタン）があると、
+      // そちらが返ってくる。
+      var url = new URL(form.getAttribute("action") || "", window.location.href).href;
+      fetch(url, { method: "POST", body: new FormData(form), credentials: "same-origin" })
+        .then(function (response) {
+          if (response.ok) {
+            leaving = true;
+            var target = response.url.split("#")[0];
+            // 同じ URL（保存の直後にもう一度保存した）だと、`#` を変えるだけでは読み直さない。
+            if (target === window.location.href.split("#")[0]) window.location.reload();
+            else window.location.assign(target + "#saved");
+            return;
+          }
+          return response.json().catch(function () { return {}; }).then(function (body) {
+            var detail = body && body.detail;
+            if (Array.isArray(detail)) detail = detail.map(function (d) { return d.msg || d; }).join("／");
+            say(detail || "保存できませんでした（HTTP " + response.status + "）", "error");
+            if (button) button.disabled = false;
+          });
+        })
+        .catch(function () {
+          say("保存できませんでした（通信に失敗しました）。入力はそのまま残っています。", "error");
+          if (button) button.disabled = false;
+        });
+    });
+  });
+})();
+
 document.addEventListener("submit", function (event) {
   var form = event.target;
   if (!(form instanceof HTMLFormElement)) return;

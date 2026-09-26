@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from aijudge_ide import FlagKind, flag_events, submission_mismatches
+from aijudge_ide.flags import FlagKind, flag_events, submission_mismatches
 
 
 def kinds(events) -> list[FlagKind]:
@@ -106,7 +106,7 @@ def test_a_submission_that_differs_from_the_record_is_flagged() -> None:
 
 def test_labels_state_facts_not_verdicts() -> None:
     """**「不正」「疑い」と書かない。**"""
-    from aijudge_ide import FLAG_LABELS
+    from aijudge_ide.flags import FLAG_LABELS
 
     for label in FLAG_LABELS.values():
         assert "不正" not in label and "疑" not in label

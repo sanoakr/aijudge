@@ -34,14 +34,11 @@ from .buffer import (
     content_hash,
     make_buffer,
 )
-from .flags import (
-    FLAG_LABELS,
-    Flag,
-    FlagKind,
-    flag_events,
-    shared_paste_flags,
-    submission_mismatches,
-)
+
+# **印（`flags`）はここから再エクスポートしない**（#434）。成績を作る処理
+# （`aijudge_grader`・確定）は保存層を通じて `aijudge_ide` を読み込むので、
+# ここで印を読み込むと、import 契約の上では成績から印の計算まで道が通る。
+# 印を使う画面は `aijudge_ide.flags` を名指しで import する。
 from .formats import (
     EDITOR_FORMATS,
     EditorFormat,
@@ -84,7 +81,6 @@ __all__ = [
     "DISPLAY_OUTPUT_CHARS",
     "EDITOR_FORMATS",
     "EVENT_TYPES",
-    "FLAG_LABELS",
     "IN_FLIGHT_STATES",
     "MAX_BATCH_BYTES",
     "MAX_SOURCE_BYTES",
@@ -102,8 +98,6 @@ __all__ = [
     "BufferTooLarge",
     "EditorFormat",
     "EventBatch",
-    "Flag",
-    "FlagKind",
     "IdeBuffer",
     "IdeSession",
     "IdeSessionId",
@@ -136,13 +130,10 @@ __all__ = [
     "clip_for_display",
     "content_hash",
     "editor_formats",
-    "flag_events",
     "make_buffer",
     "paste_marks",
     "request_run",
-    "shared_paste_flags",
     "snapshot_name",
-    "submission_mismatches",
     "summarize",
     "summarize_by_tab",
     "video_suffixes",

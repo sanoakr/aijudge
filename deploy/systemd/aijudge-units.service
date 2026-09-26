@@ -10,6 +10,8 @@
 # 中身を変えたときだけ、機械で 1 度だけ手で入れ直すこと。
 [Unit]
 Description=aiJudge install unit files from the checkout
+# 失敗したらメールで知らせる（#422）。
+OnFailure=aijudge-notify@%n.service
 # チェックアウトが読めない状態では意味が無い。
 ConditionPathIsDirectory=/opt/aijudge/deploy/systemd
 

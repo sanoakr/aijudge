@@ -7,11 +7,13 @@
 from __future__ import annotations
 
 import contextlib
+import logging
 import os
 import platform
 import shutil
 import signal
 import subprocess
+import uuid
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -202,6 +204,20 @@ DEFAULT_IMAGE = "gcc:14-bookworm"
 DEFAULT_WORKSPACE_ROOT = Path.home() / ".aijudge" / "work"
 ENV_WORKSPACE_ROOT = "AIJUDGE_SANDBOX_WORKDIR"
 
+logger = logging.getLogger(__name__)
+
+# 提出物を動かすコンテナに付ける印（#410）。時間切れの後始末は名前で、
+# 取りこぼしの棚卸しはこのラベルで引く:
+#   docker ps --filter label=aijudge.sandbox
+CONTAINER_LABEL = "aijudge.sandbox"
+CONTAINER_NAME_PREFIX = "aijudge-sbx-"
+# コンテナ 1 つが使える CPU の数。**CPU 時間の上限（`--ulimit=cpu`）とは別物**
+# で、こちらは同時に何コア食えるか。無いと、スレッドを撒く提出 1 件が
+# ホストの全コアを取り、同時に走る他の学習者の実行を遅らせる。
+CONTAINER_CPUS = 1.0
+# 後始末（`docker rm -f`）を待つ上限。デーモンが詰まっていても採点を止めない。
+RELEASE_TIMEOUT_SECONDS = 30.0
+
 # マウント検証に使う目印。中身まで一致を見るのは、
 # 「ディレクトリは見えるが中身が古い」構成（キャッシュされた共有）も落とすため。
 _MOUNT_PROBE = "aijudge-mount-probe"
@@ -350,6 +366,11 @@ class DockerSandbox(LocalSandboxBase):
             "run",
             "--rm",
             "--interactive",
+            # 名前とラベル。時間切れのとき、クライアントではなくコンテナを
+            # 名指しで止めるため（`release`・#410）。
+            f"--name={CONTAINER_NAME_PREFIX}{uuid.uuid4().hex}",
+            f"--label={CONTAINER_LABEL}=1",
+            f"--cpus={CONTAINER_CPUS}",
             "--network=none" if not request.network else "--network=bridge",
             "--read-only",
             "--cap-drop=ALL",
@@ -374,6 +395,34 @@ class DockerSandbox(LocalSandboxBase):
         command.extend(argv)
 
         # docker クライアント自身の環境。中に渡るのは --env で明示した分だけ。
-        return command, {
+        return command, self._client_env()
+
+    def _client_env(self) -> dict[str, str]:
+        return {
             key: os.environ[key] for key in ("PATH", "HOME", "DOCKER_HOST") if key in os.environ
         }
+
+    def release(self, argv: list[str]) -> None:
+        """時間切れのあと、コンテナを名指しで止めて消す（#410）。
+
+        `docker run` のクライアントを SIGKILL しても、コンテナは動き続ける。
+        sleep やブロックで待つ提出は CPU 上限にも掛からないので、放っておくと
+        `--memory` ぶんを抱えたまま残り、繰り返し実行でホストのメモリが尽きる。
+
+        **失敗しても採点は止めない。** 記録を残し、ラベルで棚卸しできる。
+        """
+        name = next(
+            (arg.removeprefix("--name=") for arg in argv if arg.startswith("--name=")), None
+        )
+        if name is None:
+            return
+        try:
+            subprocess.run(
+                [self._binary, "rm", "--force", name],
+                capture_output=True,
+                timeout=RELEASE_TIMEOUT_SECONDS,
+                env=self._client_env(),
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            logger.warning("could not remove sandbox container %s", name, exc_info=True)

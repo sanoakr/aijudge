@@ -8,6 +8,7 @@ Create Date: 2026-09-12 10:20:00.000000
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Sequence
 
 import sqlalchemy as sa
@@ -39,7 +40,16 @@ def _backfill() -> None:
 
     **NULL は「数えない」。** 保留した採点（#235）と課題版が引けない採点が
     これに当たる。どちらも一覧に点として出ていない。
+
+    **いまのモデルで読めない行は NULL のまま飛ばす**（#409）。ドメインに
+    訊く代償として、この移行は実行時の `aijudge_core` に依存する。後で
+    モデルが変わると、この移行より古いバックアップを戻して `upgrade head`
+    したとき、古い文書の `model_validate` が落ちて移行全体が止まる ──
+    復旧の最中に DB が上がらなくなる。列は「数えない」に倒れるだけで、
+    採点の文書は無傷で残る。
     """
+    from pydantic import ValidationError
+
     from aijudge_core import GradingRun, HumanReview, TaskVersion, final_score, score_withheld
 
     runs = sa.table(
@@ -67,20 +77,30 @@ def _backfill() -> None:
             document = json.loads(document)
         return document or {}  # type: ignore[return-value]
 
-    by_version: dict[str, TaskVersion] = {
-        row_id: TaskVersion.model_validate(loaded(document))
-        for row_id, document in connection.execute(
-            sa.select(versions.c.id, versions.c.document)
-        ).fetchall()
-    }
+    skipped = 0
+    by_version: dict[str, TaskVersion] = {}
+    for row_id, document in connection.execute(
+        sa.select(versions.c.id, versions.c.document)
+    ).fetchall():
+        try:
+            by_version[row_id] = TaskVersion.model_validate(loaded(document))
+        except ValidationError:
+            skipped += 1
     reviewed: dict[str, HumanReview] = {}
     for run_id, document in connection.execute(
         sa.select(reviews.c.grading_run_id, reviews.c.document)
     ).fetchall():
-        reviewed[run_id] = HumanReview.model_validate(loaded(document))
+        try:
+            reviewed[run_id] = HumanReview.model_validate(loaded(document))
+        except ValidationError:
+            skipped += 1
 
     for row_id, document in connection.execute(sa.select(runs.c.id, runs.c.document)).fetchall():
-        run = GradingRun.model_validate(loaded(document))
+        try:
+            run = GradingRun.model_validate(loaded(document))
+        except ValidationError:
+            skipped += 1
+            continue
         review = reviewed.get(row_id)
         version = by_version.get(str(run.context.task_version_id))
         if version is None:
@@ -97,6 +117,11 @@ def _backfill() -> None:
                 .where(reviews.c.grading_run_id == row_id)
                 .values(final_ratio=final_score(run, version, review).final)
             )
+    if skipped:
+        # alembic 自身の出力に並べる（`alembic.ini` の logger 設定が効く）。
+        logging.getLogger("alembic.runtime.migration").warning(
+            "final_ratio: skipped %d rows the current model cannot read", skipped
+        )
 
 
 def downgrade() -> None:

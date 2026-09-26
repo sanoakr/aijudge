@@ -110,6 +110,12 @@ class NetworkTestRunner:
     # **画面はこの宣言で欄を出す** ── 評価器名の表を画面に持たせると、
     # 評価器を足した日にその表だけが古くなる。
     uses_test_cases = True
+    # **入出力の組ではない**（#402）。1 件が伴走プロセス・ポート・同梱ファイル・
+    # 期待する断片（`expected_contains`）を持つ。名乗らないと画面は入出力の欄で
+    # 編集させ、保存で `input` / `expected` 以外の中身が消えて評価器も
+    # `code_test_runner` に書き換わる。画面が知らない形なので、編集欄は出ず
+    # 課題定義から直す。
+    test_case_shape = "companion"
 
     def __init__(self, sandbox: Sandbox | None = None) -> None:
         self._sandbox = sandbox

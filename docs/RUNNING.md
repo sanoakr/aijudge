@@ -389,6 +389,8 @@ JavaScript を切っていると切り替えは出ず、端末の設定に従う
 | `AIJUDGE_JUDGE_SAMPLES` | AI 評価器（`rubric_ai_judge`・`checklist_ai_judge`）の自己一貫性の標本数。一致度が確信度になる | `3` |
 | `AIJUDGE_ADMIN_PASSWORD` | `aijudge-admin staff` の `--password` を省いたときに使う初期パスワード（CLI のみ） | 未設定 |
 | `AIJUDGE_S3_ENDPOINT` / `AIJUDGE_S3_BUCKET` / `AIJUDGE_S3_ACCESS_KEY` / `AIJUDGE_S3_SECRET_KEY` | S3 互換ストレージに提出物を置く場合（`ObjectArtifactStore`）。**学内の MinIO を想定**。既定の構成は使わない（提出物はファイルシステム） | 未設定 |
+| `AIJUDGE_SANDBOX_MIN` | これより弱い隔離では提出を動かさない（`none`/`os_sandbox`/`container`/`kernel_isolated`、#414）。**本番では `container` 以上**。自動選択が弱い方へ黙って落ちるのを止める | 未設定（制限なし） |
+| `AIJUDGE_SANDBOX_IMAGES` | コースの採点設定（`evaluator_options.*.image`）から名指しできる、既定以外のイメージ（カンマ区切り、#419）。既定と `AIJUDGE_SANDBOX_IMAGE` は常に使える | 未設定（既定のみ） |
 | `AIJUDGE_SECURE_COOKIES` | セッション Cookie に `Secure` を付ける（`1`/`0`）。未設定なら `X-Forwarded-Proto` で判断 | 未設定 |
 | `AIJUDGE_CONSOLE_URL` | 学習者アプリが出す教員コンソールの場所（#103）。逆プロキシの後ろなど、相手が別ホストのときだけ指定する | 未設定（開いているホスト名 + `AIJUDGE_CONSOLE_PORT`） |
 | `AIJUDGE_LEARNER_URL` | 教員コンソールが出す学習者アプリの場所（#103） | 未設定（開いているホスト名 + `AIJUDGE_LEARNER_PORT`） |

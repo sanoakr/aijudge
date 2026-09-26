@@ -12,7 +12,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Self
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
 from .ids import CourseGroupId, CourseId, CriterionId, TaskId, TaskVersionId, UserId
 from .knowledge import QMatrixEntry
@@ -374,12 +374,17 @@ class Task(BaseModel):
     position: int | None = Field(default=None, ge=1)
     current_version_id: TaskVersionId | None = None
     # 公開日時。学習者に見せる「何日提示の課題か」がこれ。
-    opens_at: datetime | None = None
+    #
+    # **予定の時刻はどれもタイムゾーン付きに限る**（#401）。素の値が入ると
+    # 提出時刻（UTC）との比較が TypeError になり、その課題の採点が全件
+    # 失敗する。何時の意味かも決まらない（UTC か機関の時刻か）ので、
+    # 推測せずに入口で拒む。
+    opens_at: AwareDatetime | None = None
     # 提出を受け付け始める時刻。**空なら公開と同時に受け付ける。**
     # 公開と分けるのは、課題文を先に配って提出は演習時間に開ける運用が
     # あるため。ここが未来なら提出は受け付けない（学習者側で拒否する）。
-    submissions_open_at: datetime | None = None
-    due_at: datetime | None = None
+    submissions_open_at: AwareDatetime | None = None
+    due_at: AwareDatetime | None = None
     # 採点を始める時刻。**空なら提出と同時に採点する**（従来どおり）。
     #
     # 試験のための値である（#67）。テスト実行の結果は「どのケースで落ちたか」を
@@ -392,14 +397,14 @@ class Task(BaseModel):
     #
     # 締切とは別に持つ。試験の終了と採点の開始はふつう同じ時刻だが、
     # 同じ値にすると延長のたびに採点開始も動いてしまう。
-    grading_starts_at: datetime | None = None
+    grading_starts_at: AwareDatetime | None = None
     # 提出の受付を終える時刻。**空なら締切後も無期限に受け付ける**（従来どおり）。
     #
     # 締切と分ける。締切は「ここから減点が始まる」で、こちらは「ここで
     # 受け付けを終える」であって、間にあるのが**減点提出できる時間**である
     # （#73）。同じ値にすると、遅れた学習者が何も出せなくなる ── 出せない
     # ままでは何を間違えたのかも分からない（ADR 0013）。
-    accepts_until: datetime | None = None
+    accepts_until: AwareDatetime | None = None
     # 成績の自動確定までの猶予（分）。**空なら科目の設定**（`grace_minutes`）。
     auto_finalize_after_minutes: int | None = Field(default=None, gt=0)
     # この課題で受け付ける提出ファイル形式（拡張子）。空なら科目の既定

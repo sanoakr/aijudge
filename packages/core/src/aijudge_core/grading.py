@@ -89,8 +89,15 @@ class GradingContext(BaseModel):
     input_hash: str = Field(min_length=1)
     prompt_versions: dict[str, str] = Field(default_factory=dict)
     model_ids: dict[str, str] = Field(default_factory=dict)
+    # 評価器ごとの実際の設定（科目プロファイルの `evaluator_options` と、
+    # 自己一貫性の標本数など評価器が報告したもの）。以前は常に空だった（#407）。
     model_params: dict[str, object] = Field(default_factory=dict)
     pipeline_version: str = Field(min_length=1)
+    # **実際に効いた科目プロファイル**（コースの上書きを重ねた後）のハッシュ（#407）。
+    # 名前（`subject_profile`）だけでは、上書き・評価器の設定・レビュー方針を
+    # `/manage` から学期中に変えたあとで、どの設定で採点したかを言えない。
+    # None はこの欄より前の採点。
+    profile_hash: str | None = None
 
 
 class EvaluatorResult(BaseModel):

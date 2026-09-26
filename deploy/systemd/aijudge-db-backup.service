@@ -2,6 +2,8 @@
 # （`deploy.sh` がロールバックの保険として実行する）。
 [Unit]
 Description=aiJudge PostgreSQL dump to /srv/aijudge/backups/db
+# 失敗したらメールで知らせる（#422）。
+OnFailure=aijudge-notify@%n.service
 After=postgresql.service
 Wants=postgresql.service
 
