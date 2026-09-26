@@ -142,16 +142,16 @@ unit には `SyslogIdentifier` が付いているので、サービス単位で�
 
 ```fish
 # 採点ワーカーの失敗だけ
-journalctl -u aijudge-worker-ai@1 -o cat | jq 'select(.level == "ERROR")'
+journalctl -u aijudge-worker-ai@1 -o cat | jq -R 'fromjson? | select(.level == "ERROR")'
 
 # **1 つの提出について、web とワーカーの両方の行を集める。**
 # 突き合わせの鍵は submission_id ── これが無かったので、#60 / #80 では
 # 画面から「採点が遅い」としか見えなかった（docs/RUNNING.md）。
 journalctl -t aijudge-web -t aijudge-worker-det -t aijudge-worker-ai1 -o cat \
-  | jq 'select(.submission_id == "SUB-ID")'
+  | jq -R 'fromjson? | select(.submission_id == "SUB-ID")'
 
 # 1 リクエストの中で起きたこと（学生の問い合わせに付いてくる X-Request-ID から）
-journalctl -t aijudge-web -o cat | jq 'select(.request_id == "REQ-ID")'
+journalctl -t aijudge-web -o cat | jq -R 'fromjson? | select(.request_id == "REQ-ID")'
 ```
 
 保存期間は 90 日（`journald/aijudge.conf`）。**成績に関わる「誰が何を変えたか」は

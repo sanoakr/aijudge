@@ -28,6 +28,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import signal
 import sys
@@ -38,6 +39,8 @@ from aijudge_telemetry import configure_logging
 
 from .relay import EventRelay
 from .skill_subscriber import subscribe_skills
+
+logger = logging.getLogger(__name__)
 
 #: 空のときに待つ秒数。**短くしすぎない** ── 空振りの問い合わせが増えるだけで、
 #: イベントは採点の完了に合わせて出るので、数秒の遅れは誰にも見えない。
@@ -110,11 +113,11 @@ def main(argv: list[str] | None = None) -> int:
 
         signal.signal(signal.SIGINT, _stop)
         signal.signal(signal.SIGTERM, _stop)
-        print("リレーを開始しました（Ctrl-C で停止）")
+        logger.info("リレーを開始しました")
         while not _stopping:
             if _drain_all(relay) == 0:
                 time.sleep(args.poll_seconds)
-        print("停止しました")
+        logger.info("停止しました")
         return 0
     finally:
         database.dispose()

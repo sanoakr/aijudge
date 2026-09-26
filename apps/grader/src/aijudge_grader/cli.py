@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import signal
 import sys
@@ -30,6 +31,8 @@ from aijudge_telemetry import configure_logging
 
 from .feedback import build_feedback_generator
 from .worker import GradingWorker
+
+logger = logging.getLogger(__name__)
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 
@@ -134,17 +137,17 @@ def main(argv: list[str] | None = None) -> int:
 
         signal.signal(signal.SIGINT, _stop)
         signal.signal(signal.SIGTERM, _stop)
-        print(f"ワーカー {args.name} を開始しました（Ctrl-C で停止）")
+        logger.info("ワーカー %s を開始しました", args.name)
         while not _stopping:
             result = worker.run_once(subject_profile=args.subject, phase=phase)
             if result is None:
                 time.sleep(args.poll_seconds)
                 continue
             if result.graded:
-                print(f"採点しました: {result.job.submission_id}")
+                logger.info("採点しました: %s", result.job.submission_id)
             else:
-                print(f"失敗: {result.job.submission_id}: {result.error}", file=sys.stderr)
-        print("停止しました")
+                logger.warning("失敗: %s: %s", result.job.submission_id, result.error)
+        logger.info("停止しました")
         return 0
     finally:
         database.dispose()

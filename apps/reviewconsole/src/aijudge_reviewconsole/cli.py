@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 from pathlib import Path
 
@@ -22,6 +23,8 @@ from aijudge_submission import FilesystemArtifactStore
 from aijudge_telemetry import configure_logging, uvicorn_log_config
 
 from .app import Console, create_app
+
+logger = logging.getLogger(__name__)
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 ENV_ARTIFACT_DIR = "AIJUDGE_ARTIFACT_DIR"
@@ -100,8 +103,9 @@ def main(argv: list[str] | None = None) -> int:
 
     configure_logging("review-console")
     console = build_console(args)
-    print(f"→ http://{args.host}:{args.port}/")
-    print("採点は aijudge-worker が行います（このコンソールは採点しません）")
+    # **ログに出す**（#431）。常駐プロセスの標準出力に JSON でない行が混ざると、
+    # `journalctl -o cat | jq` がそこで止まる。
+    logger.info("listening on http://%s:%s/（採点は aijudge-worker が行う）", args.host, args.port)
     uvicorn.run(
         create_app(console),
         host=args.host,

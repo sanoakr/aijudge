@@ -70,7 +70,7 @@ The console is for reading what arrived and deciding — it never grades.
 |---|---|
 | Programming (C, Python) | Test execution in a container, then a model on readability |
 | Reports (Japanese) | Structural checks, then a model against the course rubric |
-| Images and PDFs (screenshots, handwriting) | An instructor — the criterion is declared human-scored, so it is never sent to a model |
+| Images and PDFs (screenshots, handwriting) | PDFs are read as text and graded like reports. Images are either transcribed by a **local** vision model and checked deterministically against the task's patterns (a certificate screenshot, say — ADR 0021/0022), or left to an instructor when the criterion is declared human-scored |
 
 Programming and reports are **subject profiles** — a YAML declaration naming
 which evaluators run and in what order, not code. Adding report grading changed
@@ -349,7 +349,7 @@ next one starts. The full criteria are in
 | Measuring accuracy | Agreement metrics over the records already being captured | Cohen's κ ≥ 0.65 per criterion, misses ≤ 5%, instructor marking time halved |
 | **Mathematics** | Symbolic equivalence (CAS), numeric tolerance and significant figures, LaTeX entry, judgement of the working, not just the answer | Equivalence decided correctly on real answers; the split between what CAS settles and what a model judges holds up |
 | Authoring and knowledge components | Generated tasks aimed at a named component, machine-checked for solvability and a unique answer before an instructor sees them | Instructor approval ≥ 60%, mastery predicts the next result at AUC ≥ 0.70 |
-| **Handwriting and OCR** | Photograph a handwritten answer; a local vision model transcribes it, **the learner checks and corrects it**, and the corrected text is what gets submitted | Learner correction rate ≤ 10% of characters, and grading the corrected text loses ≤ 0.05 κ against typed entry |
+| **Handwriting and OCR** | Photograph a handwritten answer; a local vision model transcribes it, **the learner checks and corrects it**, and the corrected text is what gets submitted. (Transcription itself is in place for images whose text is checked by pattern — ADR 0021; the learner-correction flow is what is still to come.) | Learner correction rate ≤ 10% of characters, and grading the corrected text loses ≤ 0.05 κ against typed entry |
 | Portfolio | Mastery per knowledge component across courses and terms, exportable as Open Badges 3.0 | The learner controls what is shared and an external wallet can verify it |
 | Multiple institutions | Per-institution tenancy, SSO, LTI 1.3 | Two institutions running at once; a 500-submission burst cleared within 10 minutes |
 
