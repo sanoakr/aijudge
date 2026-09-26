@@ -2866,6 +2866,84 @@ def test_editing_one_kind_of_data_keeps_the_other(world: World) -> None:
     assert names["code_test_runner"] == ["case1"]
 
 
+def test_editing_the_io_set_keeps_the_companion_cases_intact(world: World) -> None:
+    """**伴走プロセスのケースは入出力の欄で書き換えない**（#402）。
+
+    `network_test_runner` は形を名乗っていなかったので入出力扱いになり、
+    入出力を 1 文字直すと全ケースが `code_test_runner` あてに作り直され、
+    ポートや同梱ファイルが消えていた（v1.14.0 と同じ型の事故）。
+    """
+    from aijudge_admin import save_task
+    from aijudge_authoring import TaskSpec
+    from aijudge_authoring.spec import CriterionSpec, LevelSpec, TestCaseSpec
+
+    world.register("teacher", Role.INSTRUCTOR)
+    companion = {
+        "role": "client",
+        "companion": "import socket\n",
+        "port": 5000,
+        "fixtures": {"hosts.txt": "localhost\n"},
+        "expected_contains": ["200 OK"],
+    }
+    saved = save_task(
+        world.database,
+        course_id=world.course.id,
+        spec=TaskSpec(
+            key="net01/p1",
+            unit="net01",
+            statement="## [必須] 通信 ##\n\nサーバに接続する。",
+            criteria=(
+                CriterionSpec(
+                    code="correctness",
+                    title="出力の正しさ",
+                    description="仕様どおりの出力を返すか。",
+                    weight=1.0,
+                    evaluator="code_test_runner",
+                    levels=(
+                        LevelSpec(level=0, label="未達", descriptor="通らない", score_ratio=0.0),
+                        LevelSpec(level=1, label="達成", descriptor="通る", score_ratio=1.0),
+                    ),
+                ),
+            ),
+            test_cases=(
+                TestCaseSpec(name="case1", input="1 2\n", expected="3\n"),
+                TestCaseSpec(name="connect", evaluator="network_test_runner", payload=companion),
+            ),
+        ),
+        subject_profile="cs_lang_c_intro",
+        authored_by=_user_id(world, "teacher"),
+    )
+    task_id = str(saved.task.id)
+
+    world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/tasks/{task_id}/test-cases/edit",
+        data={
+            "case_name": ["case1"],
+            "case_input": ["2 2\n"],
+            "case_expected": ["4\n"],
+            "case_weight": ["1.0"],
+            "case_hidden": ["1"],
+        },
+        follow_redirects=False,
+    )
+    with world.database.unit_of_work() as uow:
+        version = uow.tasks.latest_version(TaskId(task_id))
+    by_name = {case.name: case for case in version.test_cases}
+    assert set(by_name) == {"case1", "connect"}
+    assert by_name["case1"].evaluator_id == "code_test_runner"
+    assert by_name["case1"].payload["expected"] == "4\n"
+    assert by_name["connect"].evaluator_id == "network_test_runner"
+    assert dict(by_name["connect"].payload) == companion
+
+
+def test_the_companion_shape_is_not_offered_as_an_io_set() -> None:
+    """伴走プロセスの評価器は入出力とは別の形を名乗る（#402）。"""
+    from aijudge_eval_network_test_runner import NetworkTestRunner
+    from aijudge_grading.protocol import test_case_shape
+
+    assert test_case_shape(NetworkTestRunner()) not in (None, "io")
+
+
 def test_an_assistant_reads_the_item_list_but_cannot_change_it(world: World) -> None:
     """**TA は確認だけ**（#302・#300 と同じ扱い）。"""
     world.register("teacher", Role.INSTRUCTOR)
