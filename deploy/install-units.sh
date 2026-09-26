@@ -30,6 +30,7 @@ SBIN_SCRIPTS=(
     aijudge-storage-check.sh
     aijudge-llm-primary-check.sh
     aijudge-http-check.sh
+    aijudge-queue-check.sh
     aijudge-notify
 )
 SBIN=/usr/local/sbin
