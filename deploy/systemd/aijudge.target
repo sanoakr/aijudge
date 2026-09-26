@@ -23,6 +23,8 @@ Wants=aijudge-ide-close.timer
 Wants=aijudge-http-check.timer
 # 採点キューとワーカーの監視（#426）。
 Wants=aijudge-queue-check.timer
+# 保存期間を過ぎたものの下見（#427）。消すのは人。
+Wants=aijudge-purge-preview.timer
 After=network-online.target postgresql.service
 
 [Install]

@@ -138,7 +138,7 @@ fi
 # ずれる ── 1 の検査が unit に対してやっていることを、その先にもやる。
 for name in aijudge-restic-backup.sh aijudge-restic-offbox.sh aijudge-db-backup.sh \
             aijudge-pg-basebackup.sh aijudge-storage-check.sh aijudge-llm-primary-check.sh \
-            aijudge-notify; do
+            aijudge-restic-check.sh aijudge-purge-preview.sh aijudge-notify; do
     src="${REPO_DIR}/deploy/${name}"
     [ -e "${src}" ] || continue
     cmp -s "${src}" "/usr/local/sbin/${name}" || problems+=("スクリプトがずれている: ${name}")
@@ -149,9 +149,32 @@ if [ -e "${REPO_DIR}/deploy/lib/llm-primary-check.py" ]; then
         || problems+=("スクリプトがずれている: lib/llm-primary-check.py")
 fi
 
+# 7. バックアップの timer が有効か（#427）
+#
+# **timer は bootstrap で有効にならない**（受け先の設定が済んでから人が
+# 有効にする）。有効にし忘れると、失敗もしないので何も知らせない ── 走って
+# いないことは OnFailure では捕まらない。受け先の設定（EnvironmentFile）が
+# ある系統だけを見る。
+for pair in "aijudge-db-backup.timer:" "aijudge-pg-basebackup.timer:" \
+            "aijudge-restic-backup.timer:aijudge-restic" \
+            "aijudge-restic-offbox@target2.timer:aijudge-restic-target2" \
+            "aijudge-restic-offbox@target3.timer:aijudge-restic-target3" \
+            "aijudge-restic-check@aijudge-restic.timer:aijudge-restic" \
+            "aijudge-restic-check@aijudge-restic-target2.timer:aijudge-restic-target2" \
+            "aijudge-restic-check@aijudge-restic-target3.timer:aijudge-restic-target3"; do
+    timer="${pair%%:*}"
+    envname="${pair#*:}"
+    [ -e "/etc/systemd/system/${timer}" ] || [ -e "${REPO_DIR}/deploy/systemd/${timer}" ] || continue
+    if [ -n "${envname}" ] && [ ! -e "/srv/aijudge/config/${envname}.env" ]; then
+        continue
+    fi
+    systemctl is-enabled --quiet "${timer}" 2>/dev/null \
+        || problems+=("バックアップの timer が有効でない: ${timer}")
+done
+
 if [ "${#problems[@]}" -eq 0 ]; then
     NOW=OK
-    detail="unit 一致・AI ワーカー ${running} 本・目安 ${hint}・max_connections ${limit}（要 ${needed}）・/srv/aijudge は全部読める・スクリプト一致"
+    detail="unit 一致・AI ワーカー ${running} 本・目安 ${hint}・max_connections ${limit}（要 ${needed}）・/srv/aijudge は全部読める・スクリプト一致・バックアップの timer は有効"
 else
     NOW=NG
     detail=$(printf '%s\n' "${problems[@]}")
