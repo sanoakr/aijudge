@@ -28,6 +28,7 @@ import os
 import tempfile
 from collections.abc import Sequence
 from datetime import datetime
+from enum import StrEnum
 from pathlib import Path
 from typing import Any, NewType, Protocol, runtime_checkable
 from urllib.parse import quote
@@ -59,6 +60,9 @@ EVENT_TYPES = frozenset(
         # 別の種類にするのは、`submit` がエディタの内容の指紋との突き合わせ
         # （`integrity`・`flags.submission_mismatches`）に使われるため。
         "attach",
+        # 画面の共有の開始・停止・拒否（ADR 0027）。止まっていた区間を教員の時系列に
+        # 出すため。画像そのものは記録に入れない（別のファイルに置く）。
+        "screen",
         "tab",
         "focus",
         "blur",
@@ -171,6 +175,30 @@ def paste_marks(session: IdeSession, seq: int, events: list[dict[str, Any]]) -> 
     return marks
 
 
+class ScreenShareState(StrEnum):
+    """画面の共有の状態（ADR 0027 §3）。"""
+
+    SHARING = "sharing"
+    STOPPED = "stopped"
+
+
+class ScreenShare(BaseModel):
+    """このセッションで画面全体を共有しているか（ADR 0027・#444）。
+
+    **提出を止めるのは、この状態が `stopped` のときだけ**である。画像が
+    届かないこと（通信・受け口の不調）では止めない ── 区別しないと、サーバの
+    不調で試験が止まる（ADR 0023 §2）。
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    ide_session_id: IdeSessionId
+    state: ScreenShareState
+    # 共有された面（`monitor` のはず）。ブラウザが言わなければ None（Safari など）。
+    surface: str | None = Field(default=None, max_length=16)
+    updated_at: datetime
+
+
 class ActivityRejected(ValueError):
     """形が合わない。**受け取らない**（400）。記録の欠けとは別である。"""
 
@@ -214,6 +242,14 @@ class ActivityIndex(Protocol):
         self, course_id: CourseId, hashes: Sequence[str]
     ) -> dict[str, frozenset[UserId]]:
         """指紋 → そのコースで同じ内容を外から貼り付けた学習者。無い指紋は含めない。"""
+        ...
+
+    def set_screen_share(self, share: ScreenShare) -> None:
+        """画面の共有の状態を記録する（上書き）。"""
+        ...
+
+    def screen_share(self, session_id: IdeSessionId) -> ScreenShare | None:
+        """このセッションの最後の共有の状態。記録が無ければ None。"""
         ...
 
     def delete_sessions(self, session_ids: Sequence[IdeSessionId]) -> int:
@@ -334,6 +370,75 @@ class ActivityFiles:
             return None
         target = self.session_dir(session) / "snapshots" / f"{name}.txt"
         return target.read_text(encoding="utf-8") if target.is_file() else None
+
+    # -- 画面の静止画（ADR 0027） ----------------------------------------------
+
+    def write_still(
+        self, session: IdeSession, *, kind: str, t: float, received: datetime, payload: bytes
+    ) -> str:
+        """静止画を 1 枚書く。名前は `受信時刻ms-種類-ページの時刻ms.jpg`。
+
+        **記録（セッション）と同じディレクトリの下に置く** ── 保存期間の purge は
+        セッションのディレクトリごと消すので、静止画も一緒に消える（ADR 0027 §5）。
+        索引は DB に持たない。見るのは教員が 1 人の記録を開いたときだけで、
+        ディレクトリを読めば足りる。
+        """
+        if kind not in STILL_KINDS:
+            raise ActivityRejected(f"unknown still kind: {kind!r}")
+        name = f"{int(received.timestamp() * 1000):013d}-{kind}-{int(t):010d}.jpg"
+        target = self.session_dir(session) / "stills" / name
+        _atomic_write(target, payload)
+        return name
+
+    def stills(self, session: IdeSession) -> tuple[Still, ...]:
+        """このセッションの静止画を古い順に。"""
+        directory = self.session_dir(session) / "stills"
+        if not directory.is_dir():
+            return ()
+        found = []
+        for path in sorted(directory.glob("*.jpg")):
+            still = Still.from_name(path.name)
+            if still is not None:
+                found.append(still)
+        return tuple(found)
+
+    def read_still(self, session: IdeSession, name: str) -> bytes | None:
+        """名前から静止画を読む。**名前の形を確かめてから**（経路を抜け出させない）。"""
+        if Still.from_name(name) is None:
+            return None
+        target = self.session_dir(session) / "stills" / name
+        return target.read_bytes() if target.is_file() else None
+
+
+#: 静止画の種類（ADR 0027 §2）。`random` は定期、`paste_before`・`paste_after` は
+#: 大きな貼り付けの前後、`blur` は画面を離れた後、`start` は共有を始めたとき。
+STILL_KINDS = frozenset({"random", "paste_before", "paste_after", "blur", "start"})
+# 1 枚の上限。1280px・品質 0.6 の JPEG は実測 10〜150 KB。細かい画面でも余裕を持たせる。
+MAX_STILL_BYTES = 1024 * 1024
+
+
+class Still(BaseModel):
+    """保存された静止画 1 枚（ファイル名から読む）。"""
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    received_ms: int
+    kind: str
+    t: int
+
+    @classmethod
+    def from_name(cls, name: str) -> Still | None:
+        parts = name.removesuffix(".jpg").split("-")
+        if (
+            not name.endswith(".jpg")
+            or len(parts) != 3
+            or not parts[0].isdigit()
+            or not parts[2].isdigit()
+            or parts[1] not in STILL_KINDS
+        ):
+            return None
+        return cls(name=name, received_ms=int(parts[0]), kind=parts[1], t=int(parts[2]))
 
 
 def _atomic_write(target: Path, payload: bytes) -> None:

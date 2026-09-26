@@ -131,6 +131,34 @@
   {% endif %}
 </form>
 
+{# 画面の静止画（ADR 0027・#444）。試験で入れる値なので、受け付ける場所の隣に置く。 #}
+<h2 id="screen-capture">試験中の画面の静止画</h2>
+<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/units/{{ unit.key }}/screen-capture"
+      class="card">
+  <div class="inline-field">
+    <span class="body desc">
+      <label class="check">
+        <input type="checkbox" name="screen_capture" value="1" {{ 'checked' if unit.screen_capture }}>
+        <strong>エディタで受験する間、画面全体の静止画を撮る</strong>
+      </label>
+      <br>
+      この問題セットの<strong>すべての課題</strong>に効きます。学習者は<strong>画面全体を共有しないと受験を始められず</strong>、
+      共有を止めると提出できなくなります（締切時の自動提出は行われます）。
+      5〜15 秒おきと、外からの大きな貼り付け・画面の切り替えの前後に撮ります。
+      見られるのは担当教員だけで、保存期間は動画と同じです。<strong>採点には使いません。</strong>
+    </span>
+    {% if saved_key == 'screen_capture' %}
+    <span class="flash" id="saved">{{ saved }}</span>{% endif %}
+    <button type="submit">保存</button>
+  </div>
+  {% if unit.screen_capture_mixed %}
+  <p class="note warn" style="margin:10px 0 0">
+    <strong>このセットの中で設定がばらついています。</strong>
+    上のチェックを保存すると、セット内のすべての課題に同じ値が入ります。
+  </p>
+  {% endif %}
+</form>
+
 {# 答え方（ADR 0026）。**受け付ける場所の隣に置く** ── どちらも試験で入れる
    値で、セット単位で決まる。 #}
 <h2 id="answer-mode">答え方</h2>

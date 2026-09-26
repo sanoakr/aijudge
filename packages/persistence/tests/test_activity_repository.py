@@ -208,3 +208,22 @@ def test_short_and_internal_pastes_are_not_indexed() -> None:
     _session, short = _pasting(LEARNER, "ide_" + "8" * 32, "e" * 64, length=30)
     _session, internal = _pasting(LEARNER, "ide_" + "9" * 32, "e" * 64, origin="internal")
     assert short == [] and internal == []
+
+
+def test_the_screen_share_state_is_kept_and_goes_with_the_session(database: Database) -> None:
+    """画面の共有の状態（ADR 0027）。最後の 1 つを持ち、記録と一緒に消える。"""
+    from aijudge_ide import ScreenShare, ScreenShareState
+
+    for index in _both(database):
+        index.start_session(a_session())
+        assert index.screen_share(SESSION) is None
+        for state in (ScreenShareState.SHARING, ScreenShareState.STOPPED):
+            index.set_screen_share(
+                ScreenShare(ide_session_id=SESSION, state=state, surface="monitor", updated_at=NOW)
+            )
+        kept = index.screen_share(SESSION)
+        assert kept is not None and kept.state is ScreenShareState.STOPPED
+        assert kept.surface == "monitor"
+
+        index.delete_sessions([SESSION])
+        assert index.screen_share(SESSION) is None

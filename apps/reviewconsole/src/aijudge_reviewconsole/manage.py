@@ -828,6 +828,7 @@ SAVED_MESSAGES: dict[str, str] = {
     "restored": "出題の取り下げを取り消しました",
     "campus_networks": "学内ネットワークを保存しました",
     "campus_only": "この問題セットの受付範囲を変えました（セット内の全課題に反映）",
+    "screen_capture": "画面の静止画の設定を変えました（セット内の全課題に反映）",
     "confidential": "この問題セットを公開前に誰に見せるかを変えました（セット内の全課題に反映）",
     "audience": "この問題セットの出題先を変えました（セット内の全課題に反映）",
     "answer_mode": "この問題セットの答え方を変えました（セット内の全課題に反映）",
@@ -3214,6 +3215,25 @@ def register(templates) -> APIRouter:
             unit,
             update={"campus_only": bool(campus_only.strip())},
             saved="campus_only",
+        )
+
+    @router.post("/courses/{course_id}/units/{unit}/screen-capture")
+    def set_unit_screen_capture(
+        request: Request,
+        course_id: str,
+        unit: str,
+        screen_capture: Annotated[str, Form()] = "",
+    ) -> Response:
+        """**試験中に画面全体の静止画を撮るかを切り替える**（ADR 0027・#444）。
+
+        学内限定と同じく、値はセット単位で決めてその中の全課題に入れる。
+        """
+        return _update_unit(
+            request,
+            course_id,
+            unit,
+            update={"screen_capture": bool(screen_capture.strip())},
+            saved="screen_capture",
         )
 
     @router.post("/courses/{course_id}/units/{unit}/answer-mode")

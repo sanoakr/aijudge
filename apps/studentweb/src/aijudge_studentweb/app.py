@@ -999,6 +999,14 @@ def create_app(app_state: StudentApp) -> FastAPI:
                 detail="この課題はエディタからだけ提出できます（ファイルでは提出できません）",
             )
         role = _role_in(app_state, course_obj.id, me.user_id)
+        if by_file and task_obj.screen_capture and role is Role.LEARNER:
+            # 画面の静止画を撮る試験（ADR 0027）は、**画面を共有しているエディタから
+            # だけ**受ける。ファイルの経路を開けておくと、共有を止めて課題の画面から
+            # 出せば撮影を迂回できる。教員・TA の動作確認は止めない。
+            raise HTTPException(
+                status_code=409,
+                detail="この試験は、エディタで画面を共有しながら提出してください",
+            )
         _require_campus(app_state, request, task_obj, me.tenant_id, role)
         window = task_obj.submission_window_at(now())
         if window is SubmissionWindow.NOT_OPEN and not may_submit_before_open(
