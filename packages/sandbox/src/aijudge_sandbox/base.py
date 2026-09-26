@@ -107,6 +107,26 @@ def _signal_of_negative_code(code: int) -> str | None:
         return None
 
 
+def _workspace_size(root: Path) -> int:
+    """作業域の合計バイト数。シンボリックリンクはたどらない。"""
+    total = 0
+    for directory, _dirs, files in os.walk(root):
+        for name in files:
+            with contextlib.suppress(OSError):
+                total += os.lstat(os.path.join(directory, name)).st_size
+    return total
+
+
+def _empty(root: Path) -> None:
+    """作業域の中身を消す（作業域そのものは残す）。"""
+    for entry in root.iterdir():
+        if entry.is_dir() and not entry.is_symlink():
+            shutil.rmtree(entry, ignore_errors=True)
+        else:
+            with contextlib.suppress(OSError):
+                entry.unlink()
+
+
 def _truncate(text: str, cap: int) -> tuple[str, bool]:
     if len(text) <= cap:
         return text, False
@@ -227,6 +247,17 @@ class LocalWorkspace:
         stderr, cut_err = _truncate(raw_err or "", request.limits.output_bytes)
 
         code = process.returncode if process.returncode is not None else -1
+        exceeded = _workspace_size(self.path) > request.limits.workspace_bytes
+        if exceeded:
+            # **残させない**（#430）。上限を超えたものを抱えたまま次の実行へ
+            # 進むと、作業域のあるファイルシステム（DB と同じことがある）が
+            # 積み上がる。中身を消して失敗にする ── 続く実行はファイルが
+            # 無くて失敗するが、それがこの提出の正しい扱いである。
+            _empty(self.path)
+            stderr = (
+                f"{stderr}\n[sandbox] the workspace grew past "
+                f"{request.limits.workspace_bytes} bytes and was cleared"
+            ).lstrip("\n")
         signal_name = self._decode_signal(code)
         if signal_name is not None:
             # CPU 上限やメモリ上限で殺されたのは時間切れと同じ意味。
@@ -241,6 +272,7 @@ class LocalWorkspace:
             signal_name=signal_name,
             truncated=cut_out or cut_err,
             isolation=self._isolation,
+            workspace_exceeded=exceeded,
         )
 
 
