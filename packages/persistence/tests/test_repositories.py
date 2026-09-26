@@ -409,6 +409,60 @@ def test_an_expired_lease_is_handed_to_another_worker(database: Database) -> Non
         assert second.attempts == 2
 
 
+def test_an_expired_lease_with_no_attempts_left_fails_instead(database: Database) -> None:
+    """プロセスごと落とす提出を無限に取り直さない（#398）。"""
+    from aijudge_submission import DEFAULT_MAX_ATTEMPTS, LEASE_LOST_ERROR
+
+    service = a_service(database)
+    result = service.accept(
+        tenant_id=TENANT,
+        task_version_id=TASK_VERSION,
+        learner_id=LEARNER,
+        subject_profile="cs_lang_c_intro",
+        files=code(),
+    )
+    clock = NOW + timedelta(seconds=1)
+    for attempt in range(DEFAULT_MAX_ATTEMPTS):
+        with database.unit_of_work() as uow:
+            assert uow.jobs.reserve(clock, worker=f"w{attempt}", lease_seconds=60.0) is not None
+            uow.commit()
+        clock += timedelta(seconds=120)
+
+    with database.unit_of_work() as uow:
+        assert uow.jobs.reserve(clock, worker="last", lease_seconds=60.0) is None
+        uow.commit()
+    with database.unit_of_work() as uow:
+        stored = uow.jobs.get(result.job.id)
+        assert stored is not None
+        assert stored.state is JobState.FAILED
+        assert stored.last_error == LEASE_LOST_ERROR
+        assert stored.attempts == DEFAULT_MAX_ATTEMPTS
+        assert uow.jobs.failed_for([result.submission.id])
+
+
+def test_lock_reads_the_current_holder(database: Database) -> None:
+    """完了を書く前の持ち主確認は、ロックを取った時点の値で行う（#399）。"""
+    service = a_service(database)
+    result = service.accept(
+        tenant_id=TENANT,
+        task_version_id=TASK_VERSION,
+        learner_id=LEARNER,
+        subject_profile="cs_lang_c_intro",
+        files=code(),
+    )
+    with database.unit_of_work() as uow:
+        first = uow.jobs.reserve(NOW + timedelta(seconds=1), worker="w1", lease_seconds=60.0)
+        uow.commit()
+    with database.unit_of_work() as uow:
+        uow.jobs.reserve(NOW + timedelta(seconds=120), worker="w2", lease_seconds=60.0)
+        uow.commit()
+    with database.unit_of_work() as uow:
+        current = uow.jobs.lock(result.job.id)
+        assert current is not None
+        assert current.worker == "w2"
+        assert not current.held_by(first)
+
+
 def test_a_worker_can_be_limited_to_one_subject(database: Database) -> None:
     service = a_service(database)
     service.accept(

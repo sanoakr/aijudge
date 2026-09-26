@@ -10,6 +10,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from aijudge_core import GradingPhase
 from aijudge_core.ids import (
     GradingJobId,
     GradingRunId,
@@ -17,7 +18,14 @@ from aijudge_core.ids import (
     TaskVersionId,
     TenantId,
 )
-from aijudge_submission import GradingJob, JobReason, JobState, job_idempotency_key
+from aijudge_submission import (
+    LEASE_LOST_ERROR,
+    GradingJob,
+    JobReason,
+    JobState,
+    follow_up_idempotency_key,
+    job_idempotency_key,
+)
 from aijudge_submission.memory import InMemoryJobQueue
 
 NOW = datetime(2026, 8, 28, 9, 0, tzinfo=UTC)
@@ -152,6 +160,92 @@ def test_the_queue_hands_an_expired_job_to_another_worker() -> None:
     assert second.id == first.id
     assert second.attempts == 2
     assert second.worker == "w2"
+
+
+def test_a_job_that_kills_every_worker_stops_after_the_last_attempt() -> None:
+    """プロセスごと落とす提出は `failed()` を通らない。取り出す側で止める（#398）。
+
+    止めないと 900 秒ごとに取り直され、`attempts` が増えるだけで終わらない。
+    """
+    queue = InMemoryJobQueue()
+    queue.enqueue(make(max_attempts=2))
+    clock = NOW
+    for worker in ("w1", "w2"):
+        assert queue.reserve(clock, worker=worker, lease_seconds=60.0) is not None
+        clock += timedelta(seconds=120)  # 採点中に落ちた
+
+    assert queue.reserve(clock, worker="w3", lease_seconds=60.0) is None
+    job = queue.get(make().id)
+    assert job is not None
+    assert job.state is JobState.FAILED
+    assert job.last_error == LEASE_LOST_ERROR
+    assert job.attempts == 2, "使い切った後にもう一度取っている"
+
+
+def test_an_exhausted_job_does_not_block_the_one_behind_it() -> None:
+    queue = InMemoryJobQueue()
+    queue.enqueue(make(max_attempts=1))
+    assert queue.reserve(NOW, worker="w1", lease_seconds=60.0) is not None
+    later = NOW + timedelta(seconds=120)
+    queue.enqueue(
+        make(
+            id=GradingJobId("job_" + "5" * 32),
+            idempotency_key="other",
+            available_at=later,
+            created_at=later,
+        )
+    )
+
+    taken = queue.reserve(later, worker="w2", lease_seconds=60.0)
+    assert taken is not None
+    assert taken.id == GradingJobId("job_" + "5" * 32)
+
+
+def test_a_job_is_held_only_by_the_worker_that_took_it_last() -> None:
+    """持ち主の確認（#399）。リースを失った側は完了も失敗も書かない。"""
+    first = make().reserved(NOW, worker="w1", lease_seconds=60.0)
+    assert first.held_by(first)
+
+    retaken = first.reserved(NOW + timedelta(seconds=120), worker="w2")
+    assert not retaken.held_by(first)
+    assert retaken.held_by(retaken)
+    # 同じワーカーが取り直しても、回数が違えば別の保持である。
+    again = first.reserved(NOW + timedelta(seconds=120), worker="w1")
+    assert not again.held_by(first)
+    assert not first.completed(NOW, RUN).held_by(first)
+
+
+def test_a_lease_can_be_extended_only_while_running() -> None:
+    job = make().reserved(NOW, worker="w1", lease_seconds=60.0)
+    later = NOW + timedelta(seconds=50)
+    extended = job.lease_extended(later, 60.0)
+    assert extended.lease_expires_at == later + timedelta(seconds=60)
+    assert extended.attempts == job.attempts
+    with pytest.raises(ValueError, match="cannot extend"):
+        job.completed(NOW, RUN).lease_extended(later, 60.0)
+
+
+def test_each_regrade_gets_its_own_follow_up_key() -> None:
+    """AI 段階のキーは元のジョブのキーから作る（#397）。
+
+    提出と理由だけで作ると、2 回目の再採点の AI 段階が 1 回目に吸収される。
+    """
+    first = make(
+        idempotency_key=job_idempotency_key(SUBMISSION, JobReason.REGRADE, discriminator="v1")
+    )
+    second = make(
+        idempotency_key=job_idempotency_key(SUBMISSION, JobReason.REGRADE, discriminator="v2")
+    )
+    assert follow_up_idempotency_key(first, GradingPhase.AI) != follow_up_idempotency_key(
+        second, GradingPhase.AI
+    )
+
+
+def test_the_follow_up_key_of_a_new_submission_is_unchanged() -> None:
+    """既存のキューと互換 ── 新しい提出のキーは以前と同じ文字列になる。"""
+    assert follow_up_idempotency_key(make(), GradingPhase.AI) == job_idempotency_key(
+        SUBMISSION, JobReason.SUBMISSION, phase=GradingPhase.AI
+    )
 
 
 # --------------------------------------------------------------------------

@@ -21,8 +21,12 @@ from aijudge_authoring import TaskSpec
         "2026-09-25T23:59:00",
     ],
 )
-def test_a_naive_deadline_from_yaml_is_refused(written: str) -> None:
-    document = yaml.safe_load(f"key: ex1/p1\nstatement: 本文\ndue_at: {written}\n")
+@pytest.mark.parametrize(
+    "field",
+    ["opens_at", "due_at", "submissions_open_at", "grading_starts_at", "accepts_until"],
+)
+def test_a_naive_time_from_yaml_is_refused(written: str, field: str) -> None:
+    document = yaml.safe_load(f"key: ex1/p1\nstatement: 本文\n{field}: {written}\n")
     with pytest.raises(ValidationError, match="timezone"):
         TaskSpec.model_validate(document)
 
