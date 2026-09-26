@@ -88,6 +88,10 @@ grader → admin.justification）を列挙して `ignore_imports` に入れ、�
 1-3. `CourseRow` を直接読む SQL（`operations.list_courses`・`finalization._courses`）を
 保存層のメソッドに置き換える（`kc.py` が `finalization._courses` を import している
 結合もここで解く）
+   → **済み**: `IdentityRepository.list_all_courses` を足し、3 か所を置き換えた。
+   写しは遅延の減点・KC・ルーブリックの畳み方を読み落としていた（呼び出し側が
+   まだ読んでいなかったので実害は無かった）。契約 `apps-do-not-read-tables` で、
+   アプリが `aijudge_persistence.schema` を直接 import することを禁じた  
 
 ### 段階 2: UnitOfWork の Protocol を実態に合わせる（2〜3 PR）
 

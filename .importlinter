@@ -613,3 +613,22 @@ ignore_imports =
     aijudge_reviewconsole.manage -> aijudge_admin.test_cases
     aijudge_reviewconsole.overview -> aijudge_admin
 unmatched_ignore_imports_alerting = error
+
+; アプリは表の行（`aijudge_persistence.schema`）を直接読まない（段階的な立て直し 1-3）。
+; 読むのは保存層のメソッド越し。`CourseRow` から `Course` を手で組み立てていた写しが
+; 2 つあり、どちらも遅延の減点・KC・ルーブリックの畳み方を読み落としていた ──
+; 列を足した日に、保存層の変換だけが直り、写しは黙って古いまま残る。
+[importlinter:contract:apps-do-not-read-tables]
+name = アプリは表の定義を直接 import しない（保存層のメソッドを通す）
+type = forbidden
+source_modules =
+    aijudge_reviewconsole
+    aijudge_studentweb
+    aijudge_grader
+    aijudge_admin
+    aijudge_evalrunner
+    aijudge_runner
+forbidden_modules =
+    aijudge_persistence.schema
+; 保存層を通した間接の到達は当然ある（リポジトリが表を読む）。禁じるのは直接の import。
+allow_indirect_imports = True
