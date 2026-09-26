@@ -24,9 +24,14 @@
 <ol>
   <li>「開始」を押し、<strong>画面全体</strong>を共有する</li>
   <li>このタブのまま 30 秒待つ</li>
-  <li>別のタブ（またはアプリ）に切り替えて <strong>90 秒</strong>待ち、戻ってくる。途中でウィンドウを最小化してもよい</li>
-  <li>「結果」を押し、表を報告する（画像はどこにも送りません）</li>
+  <li>別のタブ（またはアプリ）に切り替えて <strong>6〜7 分</strong>待ち、戻ってくる。途中でウィンドウを最小化してもよい</li>
+  <li>「結果」を押し、下に出る<strong>報告用の文</strong>をコピーして送る（画像はどこにも送りません）</li>
 </ol>
+<p class="muted">
+  <strong>なぜ 6〜7 分か:</strong> Chrome・Edge は、隠れて <strong>5 分</strong>を過ぎたタブのタイマーを強く間引きます。
+  それより短いと、試験で実際に起きる長い離脱を確かめたことになりません。
+  切り替えたか最小化したかは、報告用の文に書き足してください。
+</p>
 <p>
   <button id="start">開始</button>
   <button id="report" disabled>結果</button>
@@ -34,9 +39,15 @@
 </p>
 <p id="status" class="muted">未開始</p>
 <table id="summary" hidden>
-  <thead><tr><th>状態</th><th>撮影数（定期）</th><th>最大の間隔</th><th>離脱の後の撮影</th><th>判定</th></tr></thead>
+  <thead><tr><th>状態</th><th>時間</th><th>撮影数（定期）</th><th>最大の間隔</th><th>離脱の後の撮影</th><th>判定</th></tr></thead>
   <tbody></tbody>
 </table>
+<div id="share" hidden>
+  <h2>報告用の文</h2>
+  <p class="muted">そのままコピーして送ってください。切り替えたか最小化したか、教室の PC か自分の PC かを書き足してください。</p>
+  <textarea id="share-text" rows="9" readonly style="width:100%;font-family:ui-monospace,monospace;font-size:.85rem"></textarea>
+  <p><button id="copy">コピー</button> <span id="copied" class="muted"></span></p>
+</div>
 <h2>記録</h2>
 <pre id="log"></pre>
 <script src="screen.js"></script>
@@ -78,6 +89,13 @@
     }).catch(function (e) { note("開始できません: " + e); });
   };
   document.getElementById("stop").onclick = function () { if (controller) controller.stop(); };
+  document.getElementById("copy").onclick = function () {
+    var text = document.getElementById("share-text");
+    text.select();
+    var done = function () { document.getElementById("copied").textContent = "コピーしました"; };
+    if (navigator.clipboard) navigator.clipboard.writeText(text.value).then(done, function () { document.execCommand("copy"); done(); });
+    else { document.execCommand("copy"); done(); }
+  };
 
   document.getElementById("report").onclick = function () {
     function hiddenAt(t) {
@@ -85,7 +103,21 @@
       switches.forEach(function (s) { if (s.t <= t) h = s.hidden; });
       return h;
     }
+    var now = performance.now();
+    // 状態ごとに過ごした時間。**隠れていた時間が 5 分に届いたか**が、この実測の要点である
+    // （Chrome 系の強い間引きは、隠れて 5 分を過ぎてから始まる）。
+    function spent(hidden) {
+      var total = 0, last = t0, state = false;
+      switches.forEach(function (s) {
+        if (state === hidden) total += s.t - last;
+        last = s.t; state = s.hidden;
+      });
+      if (state === hidden) total += now - last;
+      return total;
+    }
+    var LONG_ENOUGH_MS = 5 * 60 * 1000;
     var randoms = shots.filter(function (s) { return s.kind === "random"; });
+    var cells = [];
     var rows = [false, true].map(function (hidden) {
       var own = randoms.filter(function (s) { return s.hidden === hidden; });
       var gaps = [];
@@ -95,15 +127,33 @@
       var max = gaps.length ? Math.max.apply(null, gaps) : null;
       var blurs = shots.filter(function (s) { return s.kind === "blur"; }).length;
       var ok = own.length > 0 && max !== null && max <= 20000;
-      return "<tr><td>" + (hidden ? "隠れている間" : "表示中") + "</td><td>" + own.length +
+      var time = spent(hidden);
+      var verdict = ok ? "撮れている" : "間引かれている／足りない";
+      if (hidden && ok && time < LONG_ENOUGH_MS) verdict += "（ただし隠れていた時間が 5 分未満）";
+      cells.push([hidden ? "隠れている間" : "表示中", sec(time), String(own.length),
+                  max === null ? "—" : sec(max), hidden ? String(blurs) : "—", verdict]);
+      return "<tr><td>" + (hidden ? "隠れている間" : "表示中") + "</td><td>" + sec(time) +
+        "</td><td>" + own.length +
         "</td><td>" + (max === null ? "—" : sec(max)) + "</td><td>" + (hidden ? blurs : "—") +
-        "</td><td class='" + (ok ? "ok'>撮れている" : "ng'>間引かれている／足りない") + "</td></tr>";
+        "</td><td class='" + (ok && !(hidden && time < LONG_ENOUGH_MS) ? "ok'>" : "ng'>") + verdict + "</td></tr>";
     });
     var table = document.getElementById("summary");
     table.hidden = false;
     table.querySelector("tbody").innerHTML = rows.join("");
     note("UA: " + navigator.userAgent);
     note("共有: " + JSON.stringify(info.sharing || {}));
+    var head = ["状態", "時間", "撮影数（定期）", "最大の間隔", "離脱の後の撮影", "判定"];
+    var method = shots.length ? shots[shots.length - 1].method : "";
+    document.getElementById("share-text").value = [
+      "画面撮影の実測（#444）",
+      head.join(" | "),
+    ].concat(cells.map(function (c) { return c.join(" | "); })).concat([
+      "ブラウザ: " + navigator.userAgent,
+      "撮り方: " + (method || "不明") + " / 共有: " + JSON.stringify(info.sharing || {}),
+      "隠し方（切り替え／最小化）: ",
+      "機械（教室の PC／自分の PC）: ",
+    ]).join("\n");
+    document.getElementById("share").hidden = false;
   };
 })();
 </script>
