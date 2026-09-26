@@ -37,6 +37,8 @@ from aijudge_llm_gateway import (
     PromptTemplate,
     default_gateway,
     default_model,
+    instruction_lines,
+    instruction_notice,
 )
 
 EVALUATOR_ID = "rubric_ai_judge"
@@ -261,6 +263,16 @@ class RubricAiJudge:
             )
 
         level = self._clamp_level(criterion, verdict.level)
+        rationale = f"{verdict.observation.strip()} — {verdict.rationale}"
+        confidence = result.agreement
+        # **採点への指示と読める記述があれば、必ず人に回す**（#411）。注入は
+        # 何度引いても同じように効くので、一致度（確信度）は高く出る ──
+        # そのままではレビューの条件に掛からない。判定は変えず、確信度を
+        # 0 にして理由を先頭に出す。
+        suspected = instruction_lines(source)
+        if suspected:
+            confidence = 0.0
+            rationale = f"{instruction_notice(suspected)} {rationale}"
         return EvaluationOutcome(
             status=EvaluatorStatus.OK,
             scores=(
@@ -273,13 +285,13 @@ class RubricAiJudge:
                     score_ratio=criterion.level_for(level).score_ratio,
                     weight=criterion.weight,
                     # 一致度をそのまま確信度にする。割れたら人間が見る（P5）。
-                    confidence=result.agreement,
+                    confidence=confidence,
                     conclusive=False,
                     evidence=evidence,
                     # **観察を先に見せる。** 採点者が実際にそう書いている
                     # （2025 年度のコメント欄）し、教員が確認するとき
                     # 「何を見てその段階にしたのか」が 1 行で分かる。
-                    rationale=f"{verdict.observation.strip()} — {verdict.rationale}",
+                    rationale=rationale,
                 ),
             ),
             model_id=result.model_id,
@@ -287,6 +299,7 @@ class RubricAiJudge:
             raw_output={
                 "verdict": verdict.model_dump(),
                 "agreement": result.agreement,
+                "suspected_instruction_lines": list(suspected),
                 "samples": result.samples,
                 "attempts": result.attempts,
                 "provider": result.provider,

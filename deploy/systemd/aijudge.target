@@ -19,6 +19,8 @@ Wants=aijudge-finalize.timer
 Wants=aijudge-runner@1.service aijudge-runner@2.service
 Wants=aijudge-runner@3.service aijudge-runner@4.service
 Wants=aijudge-ide-close.timer
+# 外形監視（#422）。target に入れておけば、unit の配布と同時に有効になる。
+Wants=aijudge-http-check.timer
 After=network-online.target postgresql.service
 
 [Install]

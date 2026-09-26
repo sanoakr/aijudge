@@ -10,6 +10,8 @@
 # 権限を与えない（不変条件 I6）── コードを動かすのは採点ワーカーとここだけ。
 [Unit]
 Description=aiJudge IDE runner (instance %i)
+# 失敗したらメールで知らせる（#422）。
+OnFailure=aijudge-notify@%n.service
 PartOf=aijudge.target
 After=network-online.target postgresql.service docker.service
 Wants=postgresql.service

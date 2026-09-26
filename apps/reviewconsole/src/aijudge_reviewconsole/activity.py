@@ -38,16 +38,13 @@ from aijudge_ide import (
     ActivityFiles,
     ActivitySummary,
     EventBatch,
-    Flag,
     IdeSession,
     IdeSessionId,
     IntegrityReport,
     check_session,
-    flag_events,
-    shared_paste_flags,
-    submission_mismatches,
     summarize_by_tab,
 )
+from aijudge_ide.flags import Flag, flag_events, shared_paste_flags, submission_mismatches
 
 from .audit_context import recorder_for
 from .submissions import adopted_ids, version_max_scores

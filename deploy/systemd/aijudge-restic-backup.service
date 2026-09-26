@@ -3,6 +3,8 @@
 # restic のパスワード等は aijudge.env とは別ファイルで渡す（隔離のため）。
 [Unit]
 Description=aiJudge restic backup of /srv/aijudge (target 1)
+# 失敗したらメールで知らせる（#422）。
+OnFailure=aijudge-notify@%n.service
 After=network-online.target
 
 [Service]

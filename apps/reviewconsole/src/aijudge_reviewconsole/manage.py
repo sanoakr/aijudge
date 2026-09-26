@@ -85,6 +85,7 @@ from aijudge_admin import (
     template_bundle,
     template_of,
     try_settings,
+    validate_grading_settings,
 )
 from aijudge_admin import groups as audience
 from aijudge_admin.answer_mode import editor_blockers, file_upload_required
@@ -349,6 +350,8 @@ class _Merged:
     task: object
     finalized: int
     contested: int
+    awaiting_human: int = 0
+    ai_pending: int = 0
 
 
 def _merged(outcomes) -> _Merged:
@@ -356,6 +359,8 @@ def _merged(outcomes) -> _Merged:
         task=outcomes[0].task if outcomes else None,
         finalized=sum(outcome.finalized for outcome in outcomes),
         contested=sum(outcome.contested for outcome in outcomes),
+        awaiting_human=sum(outcome.awaiting_human for outcome in outcomes),
+        ai_pending=sum(outcome.ai_pending for outcome in outcomes),
     )
 
 
@@ -802,6 +807,9 @@ def _key_candidates(task) -> list[str]:
 MAX_UNKNOWN_SHOWN = 20
 
 SAVED_MESSAGES: dict[str, str] = {
+    "settings": "保存しました（この問題セットの全課題に反映）",
+    "unchanged": "変更はありませんでした",
+    "course_settings": "保存しました",
     "schedule": "日程を保存しました（この問題セットの全課題に反映）",
     "moved": "課題を移しました（日程は移動先に揃えました）",
     "grace": "保存しました",
@@ -1025,15 +1033,97 @@ def _graded_by(version: TaskVersion) -> tuple[str, ...]:
     return tuple(label for label in order if label in found)
 
 
+def _answer_mode_update(course, group, *, by_file: bool, by_editor: bool) -> dict:
+    """答え方の 2 つのチェックを、課題に入れる値にする。**入れられない組は断る。**
+
+    個別の保存（`set_unit_answer_mode`）とまとめて保存（`save_unit_settings`）が
+    同じ関数を通る ── 断る条件を経路ごとに書くと、片方だけが緩む。
+    `group` は検査の要るとき（エディタを入れる・ファイルを止める）だけ渡せばよい。
+    """
+    if not (by_file or by_editor):
+        raise HTTPException(
+            status_code=400,
+            detail="ファイルとエディタの少なくとも一方を選んでください（どちらも無いと提出できません）",
+        )
+    if group is not None:
+        blockers = editor_blockers(group.tasks, course) if by_editor else ()
+        if blockers:
+            raise HTTPException(
+                status_code=409,
+                detail="エディタにできません: " + "／".join(blockers),
+            )
+        # **動画を受ける課題があれば、ファイル選択は止められない**（2026-09-25）。
+        # 動画はエディタの画面から出せないので、止めると出す道が無くなる。
+        required = () if by_file else file_upload_required(group.tasks, course)
+        if required:
+            raise HTTPException(
+                status_code=409,
+                detail="ファイル選択での提出を止められません: " + "／".join(required),
+            )
+    mode = AnswerMode.EDITOR if by_editor else AnswerMode.UPLOAD
+    return {"answer_mode": mode, "file_upload": by_file}
+
+
+def _parse_clear_points(raw: str) -> float | None:
+    """クリア点。空欄はクリアの条件なし。"""
+    text = raw.strip()
+    if not text:
+        return None
+    try:
+        value = float(text)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="クリア点は数で入れてください") from None
+    if value <= 0:
+        raise HTTPException(status_code=400, detail="クリア点は 0 より大きい数です")
+    return value
+
+
+def _grading_changed(course, overrides: dict, profiles_dir, registry) -> bool:
+    """採点設定が**効き方として**変わったか。
+
+    画面は雛形の値（使う評価器など）を入れた状態で出すので、開いてそのまま送ると
+    雛形と同じ値が「上書き」として届く。上書きの辞書どうしで比べると、それだけで
+    「変わった」ことになり、雛形からの差分でない上書きが溜まる。**効くプロファイル**
+    で比べる。いまの上書きが読めない（壊れている）ときは、辞書で比べる。
+    """
+    current = course.grading_overrides or {}
+    if overrides == current:
+        return False
+    try:
+        before = validate_grading_settings(course, current, profiles_dir, registry)
+        after = validate_grading_settings(course, overrides, profiles_dir, registry)
+    except AdminError:
+        return True
+    return before.model_dump() != after.model_dump()
+
+
+def _rubric_key(criteria) -> list[dict[str, object]]:
+    """ルーブリックを「画面で同じに見えるか」で比べるための形。
+
+    **評価器の空欄は `rubric_ai_judge` のことである**（観点の選択欄の既定・
+    `_criterion_fields.html`）。組み込みの既定は名前で持ち、画面から返ると空欄に
+    なる ── そのまま比べると、開いて保存し直しただけで「変わった」ことになり、
+    既定が明示の宣言に化ける。
+    """
+    rows = rubric.to_rows(criteria)
+    for row in rows:
+        if row.get("evaluator") in (None, "rubric_ai_judge"):
+            row["evaluator"] = ""
+    return rows
+
+
+def _same_minute(left: datetime | None, right: datetime | None) -> bool:
+    """画面の日時は分までなので、分までで比べる。秒を持つ値（取り込み）を
+    開いて保存し直しただけで「変わった」ことにしない。"""
+    if left is None or right is None:
+        return left is right
+    return left.replace(second=0, microsecond=0) == right.replace(second=0, microsecond=0)
+
+
 def _update_unit(
     request: Request, course_id: str, unit: str, *, update: dict, saved: str
 ) -> Response:
-    """問題セット内の全課題に同じ更新を当てる。
-
-    **`model_copy` を使わない。** あれは検証を走らせないので、締切が公開より
-    前の課題がそのまま保存され、次に読むときに初めて落ちる（実際にそうなった）。
-    作り直して検証を通す。
-    """
+    """問題セット内の全課題に同じ更新を当てる。"""
     from .app import require_principal
 
     me = require_principal(request)
@@ -1042,46 +1132,61 @@ def _update_unit(
 
     key = _normalized_unit(unit)
     with console.database.unit_of_work() as uow:
-        tasks = [
-            task for task in uow.tasks.list_for_course(CourseId(course_id)) if unit_key(task) == key
-        ]
-        if not tasks:
-            raise HTTPException(status_code=404, detail="この問題セットには課題がありません")
-        before: dict[str, object] = {}
-        for task in tasks:
-            try:
-                updated = Task.model_validate(task.model_dump() | update)
-            except ValidationError as exc:
-                # 日程の前後関係は模型が見ている（`Task._check_schedule`）。
-                raise HTTPException(status_code=400, detail=_first_error(exc)) from None
-            before |= {key: getattr(task, key, None) for key in update}
-            uow.tasks.save_task(updated)
-        # **締切と自動確定の猶予はここを通る。** どちらも成績がいつ閉じるかを
-        # 決める値で（ADR 0013・ADR 0014）、後から「誰がいつ動かしたか」を
-        # 言えないと、締切を巡る問い合わせに答えられない。
-        recorder_for(uow, request, me).record(
-            AuditAction.TASK_UPDATED,
-            target_type="unit",
-            # **記録が名指すのは問題セットそのもので、URL での姿ではない。**
-            # `key` は経路に載せるために percent-encode してあり、日本語の
-            # 名前だと 1 文字が 9 字に膨らむ ── 「第3回 配列とポインタ入門」で
-            # 103 字になり、コースの id と合わせて列（128 字）を超える。
-            # 復号すれば `tasks.unit` の幅（64 字）に収まり、記録としても
-            # 読める（符号化された鍵は人にも機械にも引きにくい）。
-            target_id=f"{course_id}/{unquote(key)}",
-            summary=f"問題セットの設定を変えた（{saved}・課題 {len(tasks)} 件）",
-            detail={
-                "course_id": course_id,
-                "field": saved,
-                "changed": {
-                    name: {"before": _plain(before.get(name)), "after": _plain(value)}
-                    for name, value in update.items()
-                },
-            },
-        )
+        _apply_unit_update(uow, request, me, course_id, key, update=update, saved=saved)
         uow.commit()
     return RedirectResponse(
         f"/manage/courses/{course_id}/units/{key}?saved={saved}#saved", status_code=303
+    )
+
+
+def _apply_unit_update(
+    uow, request: Request, me, course_id: str, key: str, *, update: dict, saved: str
+) -> None:
+    """`_update_unit` の中身。**書くだけで確定しない**（`commit` は呼ぶ側）。
+
+    まとめて保存（`save_unit_settings`）が出題先と同じ作業単位で書けるように
+    分けてある ── どちらかが断られたら、もう一方も書かれない。
+
+    **`model_copy` を使わない。** あれは検証を走らせないので、締切が公開より
+    前の課題がそのまま保存され、次に読むときに初めて落ちる（実際にそうなった）。
+    作り直して検証を通す。
+    """
+    tasks = [
+        task for task in uow.tasks.list_for_course(CourseId(course_id)) if unit_key(task) == key
+    ]
+    if not tasks:
+        raise HTTPException(status_code=404, detail="この問題セットには課題がありません")
+    before: dict[str, object] = {}
+    for task in tasks:
+        try:
+            updated = Task.model_validate(task.model_dump() | update)
+        except ValidationError as exc:
+            # 日程の前後関係は模型が見ている（`Task._check_schedule`）。
+            raise HTTPException(status_code=400, detail=_first_error(exc)) from None
+        before |= {key: getattr(task, key, None) for key in update}
+        uow.tasks.save_task(updated)
+    # **締切と自動確定の猶予はここを通る。** どちらも成績がいつ閉じるかを
+    # 決める値で（ADR 0013・ADR 0014）、後から「誰がいつ動かしたか」を
+    # 言えないと、締切を巡る問い合わせに答えられない。
+    recorder_for(uow, request, me).record(
+        AuditAction.TASK_UPDATED,
+        target_type="unit",
+        # **記録が名指すのは問題セットそのもので、URL での姿ではない。**
+        # `key` は経路に載せるために percent-encode してあり、日本語の
+        # 名前だと 1 文字が 9 字に膨らむ ── 「第3回 配列とポインタ入門」で
+        # 103 字になり、コースの id と合わせて列（128 字）を超える。
+        # 復号すれば `tasks.unit` の幅（64 字）に収まり、記録としても
+        # 読める（符号化された鍵は人にも機械にも引きにくい）。
+        target_id=f"{course_id}/{unquote(key)}",
+        summary=f"問題セットの設定を変えた（{saved}・課題 {len(tasks)} 件）",
+        detail={
+            "course_id": course_id,
+            "field": saved,
+            "changed": {
+                name: {"before": _plain(before.get(name)), "after": _plain(value)}
+                for name, value in update.items()
+            },
+        },
     )
 
 
@@ -2524,6 +2629,8 @@ def register(templates) -> APIRouter:
                 "course": course,
                 "section": {"label": "共通設定", "href": f"/manage/courses/{course.id}"},
                 "saved": note or SAVED_MESSAGES.get(saved),
+                # 試行が断られた理由。試行の結果と同じ場所に出す（`#trial-result`）。
+                "trial_note": note,
                 "saved_key": saved,
                 # コースの削除は作成と同じくテナント管理者だけ（#156）。
                 # 担当教員には出さない ── 押せないものを見せない。
@@ -2977,7 +3084,7 @@ def register(templates) -> APIRouter:
         return Response(
             content=payload,
             media_type=images.content_type(name),
-            headers={"Cache-Control": "private, max-age=86400"},
+            headers=images.response_headers(),
         )
 
     # -- 束（zip）で課題を入れる（#161）------------------------------------
@@ -3257,40 +3364,21 @@ def register(templates) -> APIRouter:
         ここで確かめる**（`aijudge_admin.answer_mode`）。画面は理由を先に見せて押せなくするが、
         それは表示の都合であって境界ではない（#146）。
         """
+        from .app import require_principal
+
         by_file = bool(file_upload.strip())
         by_editor = bool(editor.strip())
-        if not (by_file or by_editor):
-            raise HTTPException(
-                status_code=400,
-                detail="ファイルとエディタの少なくとも一方を選んでください（どちらも無いと提出できません）",
-            )
         if by_editor or not by_file:
-            from .app import require_principal
-
             me = require_principal(request)
             course = _require_instructor(request, me, CourseId(course_id))
-            console = _console(request)
-            group = _unit_group(console, course, unit)
-            blockers = editor_blockers(group.tasks, course) if by_editor else ()
-            if blockers:
-                raise HTTPException(
-                    status_code=409,
-                    detail="エディタにできません: " + "／".join(blockers),
-                )
-            # **動画を受ける課題があれば、ファイル選択は止められない**（2026-09-25）。
-            # 動画はエディタの画面から出せないので、止めると出す道が無くなる。
-            required = () if by_file else file_upload_required(group.tasks, course)
-            if required:
-                raise HTTPException(
-                    status_code=409,
-                    detail="ファイル選択での提出を止められません: " + "／".join(required),
-                )
-        mode = AnswerMode.EDITOR if by_editor else AnswerMode.UPLOAD
+            group = _unit_group(_console(request), course, unit)
+        else:
+            course = group = None
         return _update_unit(
             request,
             course_id,
             unit,
-            update={"answer_mode": mode, "file_upload": by_file},
+            update=_answer_mode_update(course, group, by_file=by_file, by_editor=by_editor),
             saved="answer_mode",
         )
 
@@ -3307,19 +3395,12 @@ def register(templates) -> APIRouter:
         学習者のコース一覧で、合計点がこの値以上の問題セットに「クリア」が付く。
         採点は変えない。
         """
-        raw = clear_points.strip()
-        value: float | None = None
-        if raw:
-            try:
-                value = float(raw)
-            except ValueError:
-                raise HTTPException(
-                    status_code=400, detail="クリア点は数で入れてください"
-                ) from None
-            if value <= 0:
-                raise HTTPException(status_code=400, detail="クリア点は 0 より大きい数です")
         return _update_unit(
-            request, course_id, unit, update={"clear_points": value}, saved="clear_points"
+            request,
+            course_id,
+            unit,
+            update={"clear_points": _parse_clear_points(clear_points)},
+            saved="clear_points",
         )
 
     @router.post("/courses/{course_id}/units/{unit}/completion")
@@ -3551,6 +3632,230 @@ def register(templates) -> APIRouter:
         """
         number = int(session) if session.strip() else None
         return _update_unit(request, course_id, unit, update={"session": number}, saved="number")
+
+    @router.post("/courses/{course_id}/units/{unit}/settings")
+    async def save_unit_settings(request: Request, course_id: str, unit: str) -> Response:
+        """問題セットの設定を**まとめて**保存する（2026-09-26）。
+
+        以前は節ごとに保存ボタンがあり（回番号・日程・場所・答え方・クリア条件・
+        補完・公開前・出題先・自動確定の 9 つ）、1 つを押すと頁が読み直されて、
+        他の節で書きかけていた値が黙って消えた。
+
+        **書くのは画面で変えた項目だけ。** 送られてきた値をセットの代表値
+        （`UnitGroup`）と比べ、違う項目だけを全課題に入れる ── 全部を書くと、
+        課題ごとにばらついている値（取り込みの結果）を、触ってもいない節の保存で
+        揃えてしまう。
+
+        **どれか 1 つでも断られたら何も書かない。** 出題先も同じ作業単位で書く。
+        検査は個別の経路と同じ関数を通す（`_answer_mode_update` など）。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+        key = _normalized_unit(unit)
+        group = _unit_group(console, course, unit)
+        form = await request.form()
+
+        def text(name: str) -> str:
+            value = form.get(name)
+            return value if isinstance(value, str) else ""
+
+        def flag(name: str) -> bool:
+            return bool(text(name).strip())
+
+        raw_session = text("session").strip()
+        try:
+            session = int(raw_session) if raw_session else None
+        except ValueError:
+            raise HTTPException(status_code=400, detail="回番号は整数で入れてください") from None
+
+        update: dict[str, object] = {}
+        if session != group.session:
+            update["session"] = session
+        for name in (
+            "opens_at",
+            "submissions_open_at",
+            "due_at",
+            "accepts_until",
+            "grading_starts_at",
+        ):
+            when = _parse_when(text(name))
+            if not _same_minute(when, getattr(group, name)):
+                update[name] = when
+        for field, name, current in (
+            ("campus_only", "campus_only", group.campus_only),
+            ("editor_completion", "completion", group.completion),
+            ("confidential_until_open", "confidential", group.confidential),
+            ("screen_capture", "screen_capture", group.screen_capture),
+        ):
+            if flag(name) != current:
+                update[field] = flag(name)
+        clear_points = _parse_clear_points(text("clear_points"))
+        if clear_points != group.clear_points:
+            update["clear_points"] = clear_points
+        grace = _parse_minutes(text("after_minutes"))
+        if grace != (None if group.grace_from_course else group.grace):
+            update["auto_finalize_after_minutes"] = grace
+        by_file, by_editor = flag("file_upload"), flag("editor")
+        if (by_file, by_editor) != (group.file_upload, group.editor):
+            update |= _answer_mode_update(course, group, by_file=by_file, by_editor=by_editor)
+
+        # 出題先。**名簿があるときだけ欄が出る**ので、欄が送られてきたときだけ見る
+        # （チェックが 0 個だと `groups` そのものが送られず、全員に戻すのと
+        # 区別が付かない）。
+        names: list[str] | None = None
+        if flag("audience_shown"):
+            chosen = sorted(v for v in form.getlist("groups") if isinstance(v, str))
+            known = {str(row.group.id): row.group.name for row in _groups_of(console, course)}
+            current_names = sorted(known[g] for g in group.audience if g in known)
+            if chosen != current_names:
+                names = chosen
+
+        if not update and names is None:
+            return RedirectResponse(
+                f"/manage/courses/{course_id}/units/{key}?saved=unchanged#saved",
+                status_code=303,
+            )
+        with console.database.unit_of_work() as uow:
+            if update:
+                _apply_unit_update(
+                    uow, request, me, course_id, key, update=update, saved="settings"
+                )
+            if names is not None:
+                tasks = [t for t in uow.tasks.list_for_course(course.id) if unit_key(t) == key]
+                try:
+                    audience.set_audience(
+                        uow,
+                        recorder_for(uow, request, me),
+                        course=course,
+                        tasks=tasks,
+                        names=names,
+                        unit_label=unquote(key),
+                    )
+                except audience.GroupError as exc:
+                    raise HTTPException(status_code=400, detail=str(exc)) from exc
+            uow.commit()
+        return RedirectResponse(
+            f"/manage/courses/{course_id}/units/{key}?saved=settings#saved", status_code=303
+        )
+
+    @router.post("/courses/{course_id}/settings")
+    async def save_course_settings(request: Request, course_id: str) -> Response:
+        """共通設定を**まとめて**保存する（2026-09-26）。
+
+        以前は自動確定・提出形式・共通ルーブリック・採点設定がそれぞれ別の
+        フォームで、1 つを保存すると頁が読み直され、他で書きかけていた値が
+        黙って消えた。
+
+        **全部を検査してから、1 度に書く。** どれか 1 つでも断られたら何も
+        書かない。検査は個別の経路と同じ関数を通す（`rubric.parse`・
+        `_refuse_undeclared`・`validate_grading_settings`）。観点が指名する
+        評価器は、**同時に送られてきた採点設定で**確かめる ── 評価器を足して、
+        それを使う観点を同じ保存で足す、が通るように。
+
+        **書くのは変わった項目だけ**（監査の記録もそれだけ）。組み込みの既定の
+        ルーブリックを開いて保存し直しただけで、既定が明示の宣言に化けない。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+        registry = EvaluatorRegistry().load_installed()
+        form = await request.form()
+
+        minutes = _parse_minutes(str(form.get("after_minutes") or ""))
+        suffixes = normalize_suffixes([str(v) for v in form.getlist("suffix")])
+        if not suffixes:
+            raise HTTPException(
+                status_code=400, detail="提出できるファイル形式を 1 つ以上選んでください"
+            )
+        overrides = _collect_overrides(form)
+        try:
+            criteria = rubric.parse(_rubric_from_form(form))
+            aggregation = _aggregation_from_form(form) or Aggregation.OR
+        except AdminError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from None
+        shown_rubric = (
+            rubric.from_stored(course.rubric) if course.rubric else _default_rubric_criteria()
+        )
+        grading_changed = _grading_changed(course, overrides, console.profiles_dir, registry)
+        rubric_changed = _rubric_key(criteria) != _rubric_key(shown_rubric) or (
+            aggregation != (course.rubric_aggregation or Aggregation.OR)
+        )
+        # **検査するのは変えた節だけ**（個別の保存と同じ）。触っていない節に元から
+        # 食い違いがあると、自動確定の分数を直すだけの保存まで断られる。
+        if grading_changed or rubric_changed:
+            try:
+                profile = validate_grading_settings(
+                    course, overrides, console.profiles_dir, registry
+                )
+            except AdminError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from None
+            if rubric_changed:
+                _refuse_undeclared(profile, criteria, course_id=course_id)
+        update: dict[str, object] = {}
+        records: list[tuple[str, dict]] = []
+        if minutes != course.auto_finalize_after_minutes:
+            update["auto_finalize_after_minutes"] = minutes
+            records.append(
+                (
+                    "自動確定までの猶予を変えた",
+                    {
+                        "auto_finalize_after_minutes": {
+                            "before": course.auto_finalize_after_minutes,
+                            "after": minutes,
+                        }
+                    },
+                )
+            )
+        # 並びではなく集合で比べる（`normalize_suffixes` は並べ替える）。
+        if set(suffixes) != set(course.upload_suffixes or DEFAULT_UPLOAD_SUFFIXES):
+            update["upload_suffixes"] = suffixes
+            records.append(("提出できるファイル形式を変えた", {"upload_suffixes": list(suffixes)}))
+        if rubric_changed:
+            update["rubric"] = tuple(c.model_dump() for c in criteria)
+            update["rubric_aggregation"] = aggregation
+            # ルーブリックは採点の基準そのもの。**観点の中身は書かない**
+            # （長く、`detail` の上限に収まらない）── 何観点になったかと
+            # 集約の仕方だけ残し、中身は課題の版が持つ（P8）。
+            records.append(
+                (
+                    f"共通ルーブリックを保存した（{len(criteria)} 観点）",
+                    {
+                        "criteria": {"before": len(course.rubric), "after": len(criteria)},
+                        "aggregation": {
+                            "before": getattr(course.rubric_aggregation, "value", None),
+                            "after": aggregation.value,
+                        },
+                    },
+                )
+            )
+        if grading_changed:
+            update["grading_overrides"] = overrides
+            records.append(("採点設定を変えた", {"keys": sorted(overrides)}))
+
+        if not update:
+            return RedirectResponse(
+                f"/manage/courses/{course_id}?saved=unchanged#saved", status_code=303
+            )
+        with console.database.unit_of_work() as uow:
+            uow.identity.save_course(course.model_copy(update=update))
+            recorder = recorder_for(uow, request, me)
+            for summary, detail in records:
+                recorder.record(
+                    AuditAction.COURSE_UPDATED,
+                    target_type="course",
+                    target_id=course_id,
+                    summary=summary,
+                    detail=detail,
+                )
+            uow.commit()
+        return RedirectResponse(
+            f"/manage/courses/{course_id}?saved=course_settings#saved", status_code=303
+        )
 
     @router.post("/courses/{course_id}/auto-finalize")
     def set_auto_finalize(
@@ -4792,10 +5097,14 @@ def register(templates) -> APIRouter:
             accepted=task.accepted_suffixes,
             aggregation=version.aggregation,
             reference_solution=generated.reference_solution,
+            # 生成したのは入出力の組だけ。**他の評価器あてのデータは持ち越す**
+            # （#302・#402）── 作り直すと、同じ課題の項目表や伴走プロセスの
+            # ケースが黙って消える。
             test_cases=tuple(
                 TestCaseSpec(name=case.name, input=case.input, expected=case.expected)
                 for case in generated.test_cases
-            ),
+            )
+            + _kept_cases(version, editing=_io_evaluator_ids(EvaluatorRegistry().load_installed())),
             generated_by=generated.model,
             generation_prompt_version=generated.prompt_id,
         )
@@ -5244,6 +5553,16 @@ def register(templates) -> APIRouter:
         def at(values: list[str], index: int, default: str = "") -> str:
             return values[index] if index < len(values) else default
 
+        # **この欄が直している評価器**（#402）。いまの版で入出力の形を読む
+        # 評価器のデータから取る。既定（`code_test_runner`）に倒すのは入出力の
+        # データがまだ無いときだけ ── 倒すと、別の入出力評価器あてのケースが
+        # 保存のたびに書き換わる。
+        io_ids = _io_evaluator_ids(EvaluatorRegistry().load_installed())
+        io_evaluator = next(
+            (case.evaluator_id for case in version.test_cases if case.evaluator_id in io_ids),
+            CODE_TEST_RUNNER,
+        )
+
         cases: list[TestCaseSpec] = []
         seen: set[str] = set()
         for index in range(len(names)):
@@ -5272,6 +5591,7 @@ def register(templates) -> APIRouter:
                     expected=text_out,
                     hidden=at(hidden, index, "1") != "0",
                     weight=weight,
+                    evaluator=io_evaluator,
                 )
             )
         # **採用した提案だけを足す**（#305）。印を付けなかったものは消える ──
@@ -5300,6 +5620,7 @@ def register(templates) -> APIRouter:
                     expected=at(prop_expected, index).replace("\r\n", "\n"),
                     hidden=True,
                     weight=1.0,
+                    evaluator=io_evaluator,
                 )
             )
 
@@ -5313,15 +5634,12 @@ def register(templates) -> APIRouter:
         # 見るのは**いま欄にあるもの**（#305）── 保存済みで確かめると、
         # 教員が直した解答例ではない別のもので判定することになる。
         if reference:
-            evaluator_id = next(
-                (case.evaluator_id for case in version.test_cases), CODE_TEST_RUNNER
-            )
             candidate = version.model_copy(
                 update={
                     "test_cases": tuple(
                         TestCase(
                             name=case.name,
-                            evaluator_id=evaluator_id,
+                            evaluator_id=io_evaluator,
                             payload={"input": case.input, "expected": case.expected},
                             hidden=case.hidden,
                             weight=case.weight,
@@ -5362,8 +5680,7 @@ def register(templates) -> APIRouter:
             # 直しているのは入出力の組だけで、同じ課題が項目表を持っている
             # ことがある ── 全件を作り直していたので、入出力を 1 文字直すと
             # 項目表が黙って消えた。
-            test_cases=tuple(cases)
-            + _kept_cases(version, editing=_io_evaluator_ids(EvaluatorRegistry().load_installed())),
+            test_cases=tuple(cases) + _kept_cases(version, editing=io_ids),
         )
         return RedirectResponse(
             f"/manage/courses/{course_id}/tasks/{task_id}/edit?saved=tests_revised#saved",
@@ -6370,7 +6687,10 @@ def register(templates) -> APIRouter:
 
         form = await request.form()
         overrides = _collect_overrides(form)
-        action = str(form.get("action") or "save")
+        # 試行はまとめて保存のフォームから `?action=try` で来る（ボタンの値は、
+        # 古いブラウザの fetch では送られないことがある ── 試行のつもりが保存に
+        # ならないよう、送り先の側で言う）。
+        action = str(form.get("action") or request.query_params.get("action") or "save")
 
         if action == "try":
             try:

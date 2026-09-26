@@ -4,6 +4,8 @@
 # だから別に訊く（`llm-primary-check.py` の docstring に経緯）。
 [Unit]
 Description=aiJudge LLM primary health check (notifies on state change)
+# 失敗したらメールで知らせる（#422）。
+OnFailure=aijudge-notify@%n.service
 After=network-online.target
 Wants=network-online.target
 

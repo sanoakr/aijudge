@@ -91,5 +91,8 @@
   {% set data_shape = criterion_data.get(row.evaluator) if criterion_data is defined and criterion_data else none %}
   {% if data_shape == 'io' %}{% include "_io_set_block.html" %}
   {% elif data_shape == 'items' %}{% include "_item_set_block.html" %}
+  {% elif data_shape %}
+  {# 画面が知らない形。入出力の欄で編集させると黙って壊す（#402）。 #}
+  <p class="desc">この評価器（<code>{{ row.evaluator }}</code>）の検証データは画面から編集できません。課題定義（course.yaml）で直してください。</p>
   {% endif %}
 </div>

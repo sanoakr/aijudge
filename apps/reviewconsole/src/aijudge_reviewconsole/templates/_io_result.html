@@ -1,0 +1,64 @@
+{# 入出力セットとの突き合わせ（`io_results.py`）。観点のブロックの中に置く ──
+   段階を決める人が、根拠の文と同じ場所で**何が違ったのか**を見られるように。
+
+   **落ちたケースは開いて、通ったケースは畳む。** 見るべきものは落ちた方で、
+   通ったケースまで全部開くと、落ちたケースが画面の下に押し出される。
+
+   並べるのは採点のとき記録された出力で、**正規化した後の行**（評価器が
+   比べたもの）。この画面で提出を走らせ直すことはしない（ADR 0007）。 #}
+<details class="io-result" {{ 'open' if io.failed or io.compile_error }}>
+  <summary>
+    入出力セットとの突き合わせ
+    {% if io.compile_error %}<span class="pill no">コンパイルできず</span>
+    {% else %}
+    <span class="pill {{ 'ok' if not io.failed else 'no' }}">{{ io.passed }} / {{ io.cases | length }} 件一致</span>
+    {% endif %}
+  </summary>
+  {% if io.compile_error %}
+  <p class="desc">コンパイラの出力:</p>
+  <pre class="code">{{ io.compile_error }}</pre>
+  {% endif %}
+  {% for case in io.failed %}
+  <div class="io-case">
+    <p class="io-head"><b>{{ case.name }}</b>
+      <span class="pill no">{{ case.reason }}</span>
+      {% if case.hidden %}<span class="desc">学習者には非公開のケース</span>{% endif %}
+    </p>
+    {% if case.input is not none %}
+    <p class="desc">入力{% if case.input_truncated %}（先頭 {{ case.input | length }} 文字）{% endif %}</p>
+    <pre class="code io-input">{{ case.input.rstrip("\n") }}</pre>
+    {% endif %}
+    {% if case.compared %}
+    <table class="io-diff">
+      <thead><tr><th class="n">行</th><th>期待する出力</th><th>実際の出力</th></tr></thead>
+      <tbody>
+      {% for line in case.lines %}
+      <tr class="{{ 'same' if line.same else 'differs' }}">
+        <td class="n">{{ loop.index }}</td>
+        <td class="{{ 'missing' if line.expected is none }}">{% if line.expected is none %}（なし）{% else %}{{ line.expected }}{% endif %}</td>
+        <td class="{{ 'missing' if line.actual is none }}">{% if line.actual is none %}（なし）{% else %}{{ line.actual }}{% endif %}</td>
+      </tr>
+      {% else %}
+      <tr><td class="n"></td><td class="missing">（出力なし）</td><td class="missing">（出力なし）</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% if case.lines_truncated %}<p class="desc">長いので先頭の {{ case.lines | length }} 行だけ並べています。</p>{% endif %}
+    {% else %}
+    {# 時間切れには実際の出力が記録されていない。空の出力と同じ顔にしない。 #}
+    <p class="desc">出力は記録されていません（{{ case.reason }}）。</p>
+    {% endif %}
+    {% if case.stderr %}
+    <p class="desc">標準エラー出力</p>
+    <pre class="code">{{ case.stderr }}</pre>
+    {% endif %}
+  </div>
+  {% endfor %}
+  {% set passed_cases = io.cases | selectattr('passed') | list %}
+  {% if passed_cases %}
+  <p class="desc io-passed">一致したケース:
+    {% for case in passed_cases %}<span class="mono">{{ case.name }}</span>{{ '、' if not loop.last }}{% endfor %}
+  </p>
+  {% endif %}
+  <p class="desc">比べているのは、行末の空白と末尾の空行を除いた後の行です（採点と同じ比べ方）。</p>
+</details>

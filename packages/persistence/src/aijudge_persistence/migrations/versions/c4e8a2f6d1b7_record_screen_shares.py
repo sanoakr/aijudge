@@ -5,7 +5,7 @@
 触らない（不変条件 I4）。
 
 Revision ID: c4e8a2f6d1b7
-Revises: a8d2e5f1c7b3
+Revises: b3f7c1d9e2a4
 Create Date: 2026-09-27 10:00:00.000000
 """
 
@@ -19,7 +19,7 @@ from alembic import op
 import aijudge_persistence.schema
 
 revision: str = "c4e8a2f6d1b7"
-down_revision: str | None = "a8d2e5f1c7b3"
+down_revision: str | None = "b3f7c1d9e2a4"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

@@ -309,6 +309,99 @@ def test_bulk_finalization_leaves_a_contested_submission_alone(database: Databas
     assert finalizations[1] is None, "依頼が出ている提出が確定されてしまった"
 
 
+def _awaiting_ai(database: Database, submission_id: SubmissionId) -> None:
+    """この提出の AI 段階をキューに積む（決定的段階の結果が保存された直後の状態）。"""
+    from aijudge_core import GradingPhase
+    from aijudge_core.ids import GradingJobId
+    from aijudge_submission import GradingJob, JobReason, job_idempotency_key
+
+    with database.unit_of_work() as uow:
+        base = uow.runs.latest_for(submission_id)
+        uow.jobs.enqueue(
+            GradingJob(
+                id=GradingJobId(new_id("job")),
+                tenant_id=TENANT,
+                submission_id=submission_id,
+                task_version_id=TASK_VERSION,
+                subject_profile="cs_lang_c_intro",
+                phase=GradingPhase.AI,
+                base_run_id=base.id,
+                idempotency_key=job_idempotency_key(
+                    submission_id, JobReason.SUBMISSION, phase=GradingPhase.AI
+                ),
+                available_at=DUE,
+                created_at=DUE,
+                updated_at=DUE,
+            )
+        )
+        uow.commit()
+
+
+def test_bulk_finalization_waits_for_the_ai_phase(database: Database, course) -> None:
+    """AI 段階が届く前の暫定の採点は一括でも確定しない（#400）。
+
+    確定すると、直後に届く AI の採点が確定済みの run を supersede し、
+    学習者の表示が「確定」から暫定へ逆戻りする。
+    """
+    ids = _world(database, course.id, routings=(Routing.REVIEW_REQUIRED,) * 2, unscored_at=0)
+    _awaiting_ai(database, ids[0])
+
+    outcome = finalize_task(
+        database,
+        task_id=TASK_ID,
+        actor_id=INSTRUCTOR,
+        justification="AI の判定が出たものからまとめて確定します。",
+    )
+
+    assert outcome.finalized == 1
+    assert outcome.ai_pending == 1
+    first, second = _finalizations(database, ids)
+    assert first is None
+    assert second is not None
+
+
+def test_automatic_finalization_waits_for_the_ai_phase(database: Database, course) -> None:
+    ids = _world(database, course.id, routings=(Routing.AUTO,) * 2)
+    _awaiting_ai(database, ids[0])
+    _with_grace(database, course, 1)
+
+    report = sweep_deadlines(database, now=DUE + timedelta(days=1))
+
+    assert report.finalized == 1
+    assert sum(o.ai_pending for o in report.outcomes) == 1
+
+
+def test_one_failing_course_does_not_stop_the_sweep(
+    database: Database, course, monkeypatch
+) -> None:
+    """1 コースの失敗（一括確定との競合など）で他のコースを止めない（#404）。"""
+    from aijudge_admin import finalization
+
+    other, _ = ensure_course(
+        database,
+        tenant_id=TENANT,
+        code="other",
+        title="別のコース",
+        term="2026-後期",
+        subject_profile="cs_lang_c_intro",
+        profiles_dir=PROFILES,
+    )
+    real = finalization._sweep_course
+    calls: list[str] = []
+
+    def flaky(database, target, **kwargs):
+        calls.append(target.code)
+        if target.id == course.id:
+            raise RuntimeError("uq_finalizations_run")
+        return real(database, target, **kwargs)
+
+    monkeypatch.setattr(finalization, "_sweep_course", flaky)
+    report = sweep_deadlines(database, now=DUE)
+
+    assert set(calls) == {course.code, other.code}
+    assert [c.id for c in report.failed_courses] == [course.id]
+
+
 def test_bulk_finalization_is_idempotent(database: Database, course) -> None:
     """二度目は何もしない。二度確定できると成績が二つ存在する。"""
     _world(database, course.id, routings=(Routing.AUTO,) * 2)

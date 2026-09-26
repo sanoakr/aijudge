@@ -278,6 +278,30 @@ def test_superseding_twice_is_refused(database: Database) -> None:
         uow.runs.supersede(old_id, GradingRunId("grn_" + "d" * 32))
 
 
+def test_pass_rates_leave_out_a_withheld_total(database: Database) -> None:
+    """総合点を保留した採点は正答率に入れない（#406）。
+
+    S6 停止中の暫定の採点は、AI 観点を除いた重みで比例配分した点を
+    `score_ratio` に持つ。数えると正答率が実際とずれる。
+    """
+    version = a_task_version(1)
+    with database.unit_of_work() as uow:
+        uow.tasks.save_version(version)
+        for index, withheld in enumerate((False, True)):
+            run = a_run(f"grn_{index:032d}", SubmissionId(f"sub_{index:032d}"))
+            run = run.model_copy(
+                update={
+                    "context": run.context.model_copy(update={"task_version_id": version.id}),
+                    "unscored_criteria": (CriterionId("crt_" + "9" * 32),) if withheld else (),
+                }
+            )
+            uow.runs.save(run)
+        uow.commit()
+
+    with database.unit_of_work() as uow:
+        assert uow.tasks.pass_rates((version.id,), threshold=0.5) == {str(version.id): (1, 1)}
+
+
 # --------------------------------------------------------------------------
 # ジョブ
 # --------------------------------------------------------------------------
@@ -383,6 +407,34 @@ def test_an_expired_lease_is_handed_to_another_worker(database: Database) -> Non
         assert second is not None
         assert second.id == first.id
         assert second.attempts == 2
+
+
+def test_unfinalized_rows_are_not_capped(database: Database) -> None:
+    """確定されない行が溜まっても、後ろの提出が候補から落ちない（#403）。
+
+    以前は 500 行で切っており、要レビューや異議の行が 500 を超えると
+    新しい提出がいつまでも確定されなかった。
+    """
+    version = a_task_version(1)
+    with database.unit_of_work() as uow:
+        uow.tasks.save_version(version)
+        uow.commit()
+    service = a_service(database)
+    count = 510
+    for index in range(count):
+        accepted = service.accept(
+            tenant_id=TENANT,
+            task_version_id=version.id,
+            learner_id=UserId(f"usr_{index:032d}"),
+            subject_profile="cs_lang_c_intro",
+            files=code(f"int main(void){{return {index};}}"),
+        )
+        with database.unit_of_work() as uow:
+            uow.runs.save(a_run(f"grn_{index:032d}", accepted.submission.id))
+            uow.commit()
+
+    with database.unit_of_work() as uow:
+        assert len(uow.reviews.unfinalized_for_task(TASK_ID)) == count
 
 
 def test_an_expired_lease_with_no_attempts_left_fails_instead(database: Database) -> None:

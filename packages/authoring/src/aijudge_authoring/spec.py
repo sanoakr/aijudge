@@ -16,7 +16,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Self
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from aijudge_core import (
     HUMAN_SCORED,
@@ -135,8 +135,10 @@ class TaskSpec(BaseModel):
     # 0 を許す理由は `Task.session` と同じ（#60）。
     session: int | None = Field(default=None, ge=0)
     position: int | None = Field(default=None, ge=1)
-    opens_at: datetime | None = None
-    due_at: datetime | None = None
+    # **日程はどれもタイムゾーン付きに限る**（`Task` と同じ・#401）。YAML の
+    # `2026-09-25 23:59` は素の値になるので、`+09:00` を付けて書く。
+    opens_at: AwareDatetime | None = None
+    due_at: AwareDatetime | None = None
     # 公開・締切以外の日程（意味は `aijudge_core.task.Task` の同名の欄）。
     # **None は「書いていない」であって「空にする」ではない** ── 保存では
     # 既存の値を残す（`opens_at` と同じ・`aijudge_admin.authoring.save_task`）。
@@ -144,9 +146,9 @@ class TaskSpec(BaseModel):
     # 運用（提出開始）や試験の採点開始・受付終了を、毎回コンソールで入れ直す
     # ことになり、正本の `course.yaml` に記録が残らない（2026-09-25、prog2 の
     # 16:00 公開・16:30 提出開始・12:00 締切がそうだった）。
-    submissions_open_at: datetime | None = None
-    grading_starts_at: datetime | None = None
-    accepts_until: datetime | None = None
+    submissions_open_at: AwareDatetime | None = None
+    grading_starts_at: AwareDatetime | None = None
+    accepts_until: AwareDatetime | None = None
     max_score: float = Field(default=100.0, gt=0.0)
     # 受け付ける拡張子（#234）。**空ならコースの既定、それも空なら組み込みの
     # 既定（コードとテキスト）。** 写真や PDF を出させる課題は、ここで明示

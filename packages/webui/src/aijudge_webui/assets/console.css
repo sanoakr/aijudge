@@ -21,16 +21,18 @@
 .menu .row:last-child{border-bottom:0}
 .menu .row:hover{background:var(--surface-2)}
 .menu .what{flex:1;display:flex;flex-direction:column;gap:2px}
-/* 問題セットの一覧。**列を揃える。** 揃っていないと、締切や未確定の数を
-   縦に読み比べられない。狭い画面では 1 列に落として折り返す。 */
-.menu.sets .row{display:grid;align-items:baseline;padding:9px 18px;gap:2px 14px;
-  grid-template-columns:6rem 5rem 4rem repeat(3, 11rem) 1fr}
-.menu.sets .c-open{text-align:right}
+/* 問題セットの一覧。**2 段に収める**（2026-09-26）。1 行に 7 列を並べると、
+   日付が入った途端に幅が足りず折り返し、行の高さが揃わなかった。上段は
+   鍵と札、下段は問数と日程。**下段は列の幅を固定する** ── 揃っていないと、
+   締切を縦に読み比べられない。未確定の数は右端で 2 段にまたがる。 */
+.menu.sets .row{display:grid;grid-template-columns:minmax(0,1fr) auto;
+  align-items:center;padding:7px 18px;gap:0 14px;line-height:1.45}
+.menu.sets .s-main{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 10px;min-width:0}
+.menu.sets .s-meta{grid-column:1;display:flex;flex-wrap:wrap;gap:0 14px;font-size:.78rem}
+.menu.sets .s-meta .c-count{min-width:3.5rem}
+.menu.sets .s-meta .c-date{min-width:8.5rem;white-space:nowrap}
+.menu.sets .c-open{grid-column:2;grid-row:1 / span 2;text-align:right;white-space:nowrap}
 .menu.sets em{font-style:normal;opacity:.65}
-@media (max-width:900px){
-  .menu.sets .row{grid-template-columns:6rem 5rem 4rem 1fr}
-  .menu.sets .c-open{grid-column:1 / -1;text-align:left}
-}
 .menu .what b{font-size:.95rem}
 .menu .meta{text-align:right;font-size:.85rem;white-space:nowrap}
 /* 固定された接頭辞つきの入力。前半が動かないことが見て分かる形にする。 */
@@ -98,7 +100,10 @@ tr.hidden-from-learners:hover > td{opacity:1}
    どこまでを保存するボタンなのかがまた読めなくなる。 */
 .taskform-foot{display:flex;flex-wrap:wrap;gap:12px;align-items:center;
   justify-content:space-between;margin:16px -14px 0;padding:14px;
-  border-top:1px solid var(--line);background:var(--surface)}
+  border-top:1px solid var(--line);background:var(--surface);
+  /* **画面の底に貼る**（2026-09-26・KC の画面と同じ）。長い課題では、問題文を直した
+     あと保存のボタンまで 1 画面以上スクロールしていた。枠の中に居るのは変わらない。 */
+  position:sticky;bottom:0;z-index:5}
 .taskform-foot > .desc{flex:1 1 16rem}
 /* 枠の中の箱は最後のものも下に余白を残さない（枠の padding が受ける）。 */
 .taskform > .card:last-of-type{margin-bottom:0}
@@ -417,6 +422,27 @@ pre.code.diff .del{display:block;background:var(--shu-soft);color:var(--ink)}
 pre.code.diff .meta{display:block;color:var(--muted)}
 pre.code.diff .same{display:block}
 
+/* 入出力セットとの突き合わせ（確定の画面・`_io_result.html`）。**期待と実際を
+   横に並べる** ── 上下に 2 つの枠で出すと、何行目が違うのかを目で往復して
+   数えることになる。違う行だけに地の色を敷く（問題文の差分と同じ朱）。
+   **空白を潰さない**（`pre-wrap`）。書式違いで落ちたケースでは、空白こそが
+   違いである。 */
+.io-result{margin-top:8px;font-size:.82rem}
+.io-result > summary{cursor:pointer;color:var(--ink-2)}
+.io-case{margin:10px 0 4px}
+.io-case .io-head{margin:0 0 4px;display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline}
+.io-case + .io-case{border-top:1px dashed var(--line-soft);padding-top:10px}
+.io-case p.desc{margin:6px 0 2px}
+.io-case pre.code{max-height:12rem;overflow:auto;margin:0 0 6px}
+table.io-diff{width:100%;border-collapse:collapse;table-layout:fixed;
+  font-family:ui-monospace,"SFMono-Regular",monospace;font-size:.78rem}
+table.io-diff th{text-align:left;font-weight:600;color:var(--muted);
+  border-bottom:1px solid var(--line-soft);padding:2px 6px}
+table.io-diff td{padding:1px 6px;white-space:pre-wrap;word-break:break-all;vertical-align:top}
+table.io-diff .n{width:3em;color:var(--muted);text-align:right}
+table.io-diff tr.differs td:not(.n){background:var(--shu-soft)}
+table.io-diff td.missing{color:var(--muted);font-style:italic}
+
 /* IDE の作業の記録（`activity_*.html`・設計書 §7）。学習者ごとの画面は問題ごとの
    カード、再生は左に組み立てた内容（Monaco・読み取り専用）、右に目印の一覧。 */
 .activity-problem{margin:0 0 18px}
@@ -454,3 +480,93 @@ pre.code.diff .same{display:block}
 .sets-band{margin:18px 0 4px;font-size:1rem}
 .menu.sets-staff,.menu.sets-instructors{border:2px dashed var(--shu);border-radius:4px;padding:4px}
 .sets-band-instructors{color:var(--shu)}
+
+/* ほぼ使わない取り消しの操作（受講の取り消しなど）。**目に入っても押したくならない
+   形にする** ── 畳んだ小さな灰色の文字から開く。開いた先のボタンも副次の見た目。 */
+details.quiet-danger > summary{font-size:.75rem;color:var(--muted);cursor:pointer;
+  list-style:none;white-space:nowrap}
+details.quiet-danger > summary::-webkit-details-marker{display:none}
+details.quiet-danger > summary:hover{color:var(--ink-2);text-decoration:underline}
+details.quiet-danger[open] > form{margin:6px 0 0;max-width:16rem}
+details.quiet-danger .desc{font-size:.75rem;margin:0 0 6px;white-space:normal}
+
+/* 設定の説明を畳む部品（`_help.html`）。**説明は捨てずに畳む** ── 1 項目に 2〜5 行の
+   説明が付いて、1 画面に入る設定が 2〜3 個しかなかった。載せても押しても開く
+   （押す道はタブレットのため・`base.html`）。開いた説明は浮かせて、下の設定を
+   押し下げない。 */
+.help{position:relative;display:inline-block;vertical-align:baseline;margin-left:4px}
+.help-btn{all:unset;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;
+  width:1.05rem;height:1.05rem;border-radius:50%;border:1px solid var(--line);
+  font-size:.68rem;font-weight:700;line-height:1;color:var(--muted);cursor:help;
+  background:var(--surface)}
+.help-btn:hover,.help-btn:focus-visible,.help.open .help-btn{color:var(--ai);border-color:var(--ai)}
+.help-btn:focus-visible{outline:2px solid var(--ai);outline-offset:1px}
+.help-body{display:none;position:absolute;z-index:30;top:calc(100% + 6px);left:-8px;
+  width:max-content;max-width:min(34rem,86vw);padding:10px 12px;border-radius:4px;
+  background:var(--surface);border:1px solid var(--line);box-shadow:0 6px 20px rgb(0 0 0 / .14);
+  font-size:.8rem;font-weight:400;line-height:1.6;color:var(--ink-2);white-space:normal;text-align:left}
+.help:hover .help-body,.help:focus-within .help-body,.help.open .help-body{display:block}
+/* 右端で開くと画面の外へはみ出すので、右に寄せる（`base.html` が付ける）。 */
+.help.flip .help-body{left:auto;right:-8px}
+
+/* 設定の一覧（`form.settings`・2026-09-26）。**名前の列と値の列に分ける** ──
+   説明と入力欄が同じ地に並び、どこが設定なのか読み分けにくかった。名前は太く、
+   補足は小さく灰色。説明そのものは ⓘ に畳む（`_help.html`）。 */
+form.settings{padding:6px 22px 0}
+.settings-group{font-size:.78rem;font-weight:700;color:var(--muted);letter-spacing:.04em;
+  margin:18px 0 0;padding-bottom:4px;border-bottom:1px solid var(--line)}
+.settings-group:first-of-type{margin-top:10px}
+.setting{display:grid;grid-template-columns:11rem minmax(0,1fr);gap:4px 18px;align-items:baseline;
+  padding:10px 0;border-bottom:1px solid var(--line-soft)}
+.setting-name{font-size:.88rem;font-weight:600;color:var(--ink)}
+.setting-name label{display:inline;font-size:inherit;color:inherit;margin:0}
+.setting-value{font-size:.88rem;color:var(--ink);display:flex;flex-wrap:wrap;align-items:center;gap:6px 16px}
+.setting-value > .note,.setting-value > p.note,.setting-value > div.note{flex-basis:100%}
+.setting-value .desc{font-size:.78rem;margin:0}
+.setting-value label.check{display:inline-flex;align-items:center;gap:6px;margin:0;font-size:.88rem;color:var(--ink)}
+.setting-value input[type=number]{font:inherit;padding:5px 8px}
+.schedule-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(12.5rem,1fr));gap:8px 12px}
+.schedule-grid label{display:block;font-size:.75rem;color:var(--muted);margin-bottom:2px}
+.schedule-grid input{width:100%;font:inherit;font-size:.85rem;padding:5px 8px}
+.note.tight{margin:4px 0 0;padding:6px 10px;font-size:.8rem}
+.note.tight ul{margin:4px 0 0}
+form.settings .deskbar{margin:0 -22px;padding:10px 22px}
+.save-state.dirty{color:var(--kin);font-weight:600}
+.save-state.error{color:var(--shu);font-weight:600}
+@media (max-width:760px){
+  .setting{grid-template-columns:1fr}
+}
+/* 共通設定の中の、名前の列を持たない塊（ルーブリックの編集）。 */
+.settings-block{padding:10px 0;border-bottom:1px solid var(--line-soft)}
+.setting-value .row-form.compact{display:flex;flex-wrap:wrap;gap:8px 14px;margin:0}
+.setting-value .row-form.compact label{display:block;font-size:.75rem;color:var(--muted);margin-bottom:2px}
+.setting-value .row-form.compact select,.setting-value .row-form.compact input{font:inherit;font-size:.85rem;padding:5px 8px}
+.setting-value.stacked{flex-direction:column;align-items:flex-start;gap:4px}
+.setting-value.stacked input:not([type=checkbox]){width:100%;font:inherit;font-size:.85rem;padding:5px 8px}
+.setting-value.formats{display:block}
+.settings-group .help{margin-left:6px}
+.help-body ul.evaluators{margin:0 0 6px;padding-left:1.2em}
+
+/* タブ（問題のページ）。**内容と操作を分ける** ── 保存すると新しい版になる内容と、
+   押すとその場で起きる操作が、縦に並ぶと 1 回の保存の範囲が読めなかった。 */
+nav.tabs{display:flex;gap:2px;border-bottom:2px solid var(--line);margin:0 0 18px}
+nav.tabs a{padding:8px 16px;font-size:.9rem;color:var(--ink-2);text-decoration:none;
+  border:1px solid transparent;border-bottom:0;border-radius:4px 4px 0 0;margin-bottom:-2px}
+nav.tabs a:hover{background:var(--surface-2)}
+nav.tabs a[aria-current]{background:var(--surface);border-color:var(--line);color:var(--ink);font-weight:600;
+  border-bottom:2px solid var(--surface)}
+
+/* 知識要素の選び方の補助（`base.html` の `.kcpick` の拡張）。選んだものは札で上に並べ、
+   一覧は絞り込める。**`label` は `display:contents` なので `hidden` では消えない** ──
+   詳細度の高い `.off` で消す。 */
+.kcpick label.off{display:none}
+.kcpick-bar{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;margin:0 0 6px}
+.kcpick-filter{flex:1 1 14rem;max-width:22rem;font:inherit;font-size:.85rem;padding:5px 8px}
+.kcpick-chips{display:flex;flex-wrap:wrap;gap:4px 6px;margin:0 0 6px}
+.kc-chip{all:unset;box-sizing:border-box;display:inline-flex;align-items:baseline;gap:4px;
+  padding:2px 8px;border:1px solid var(--ai);border-radius:999px;background:var(--ai-soft);
+  font-size:.75rem;color:var(--ink);cursor:pointer}
+.kc-chip .mono{font-size:.72rem}
+.kc-chip .x{color:var(--muted);margin-left:2px}
+.kc-chip:hover .x,.kc-chip:focus-visible .x{color:var(--shu)}
+.kc-chip:focus-visible{outline:2px solid var(--ai);outline-offset:1px}

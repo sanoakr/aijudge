@@ -29,6 +29,7 @@ SBIN_SCRIPTS=(
     aijudge-pg-basebackup.sh
     aijudge-storage-check.sh
     aijudge-llm-primary-check.sh
+    aijudge-http-check.sh
     aijudge-notify
 )
 SBIN=/usr/local/sbin
