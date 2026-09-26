@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_help.html" import help %}
 {% block title %}受講者 — {{ course.title }} — aiJudge{% endblock %}
 {% block body %}
 <h1>受講者</h1>
@@ -130,10 +131,10 @@
     {# **アカウントであって学籍番号ではない。** 学内ログイン（OIDC）の利用者の
        アカウントは `<学籍番号>@<許可ドメイン>` で、番号だけを貼ると全員が
        未登録になる。例は設定のドメインから作る（他機関でもそのまま合う）。 #}
-    <label for="roster">名簿（1 行 1 名。ログインに使う<strong>アカウント</strong>を並べます）</label>
-    <textarea id="roster" name="roster" rows="5" required
-              placeholder="{% if login_domains %}y239999@{{ login_domains[0] }}&#10;y239998@{{ login_domains[0] }}&#10;{% endif %}ta01"></textarea>
-    <p class="desc">
+    {# 説明は ⓘ に畳む（2026-09-26）。名簿の欄より説明の方が長く、登録の操作が
+       画面の下に押し出されていた。 #}
+    <label for="roster">名簿（1 行 1 アカウント）{% call help() %}
+      ログインに使う<strong>アカウント</strong>を 1 行に 1 つ並べます。
       {% if login_domains %}
       学内ログインの利用者は <span class="mono">学籍番号@{{ login_domains | join(' / ') }}</span>
       のように書きます（例: <span class="mono">y239999@{{ login_domains[0] }}</span>）。
@@ -141,13 +142,20 @@
       ローカルアカウント（配布した ID とパスワードでログインする利用者）は
       その ID をそのまま書きます（例: <span class="mono">ta01</span>）。
       {% if not login_domains %}学内ログイン（OIDC）は設定されていません。{% endif %}
-    </p>
+      <br>
+      {% if login_domains %}
+      学内ログインのアカウント（<span class="mono">@{{ login_domains | join(' / @') }}</span>）は、
+      まだログインしたことがなくてもここで登録できます（本人の初回ログインで結び付きます）。
+      {% endif %}
+      ローカルアカウントは既に利用者として存在するものだけ登録できます ──
+      新規作成（パスワードの配布）は <code>aijudge-admin enrol</code> で行います。
+      パスワードはこの画面では扱いません。
+    {% endcall %}</label>
+    <textarea id="roster" name="roster" rows="5" required
+              placeholder="{% if login_domains %}y239999@{{ login_domains[0] }}&#10;y239998@{{ login_domains[0] }}&#10;{% endif %}ta01"></textarea>
   </div>
   <div class="field">
-    <label for="role">役割の既定</label>
-    <select id="role" name="role">
-      {% for name in roles %}<option value="{{ name }}">{{ name }}</option>{% endfor %}
-    </select>
+    <label for="role">役割の既定{% call help("役割の違い") %}
     {# **差分で書く。** 4 つの役割をそれぞれ列挙すると同じ項目が 4 回並び、
        どこが違うのかを読み手が引き算することになる。上位は下位のできること
        を全部含むので、増える分だけを書く。 #}
@@ -181,16 +189,11 @@
         </tr>
       </tbody>
     </table>
+    {% endcall %}</label>
+    <select id="role" name="role">
+      {% for name in roles %}<option value="{{ name }}">{{ name }}</option>{% endfor %}
+    </select>
   </div>
-  <p class="desc">
-    {% if login_domains %}
-    学内ログインのアカウント（<span class="mono">@{{ login_domains | join(' / @') }}</span>）は、
-    まだログインしたことがなくてもここで登録できます（本人の初回ログインで結び付きます）。
-    {% endif %}
-    ローカルアカウントは既に利用者として存在するものだけ登録できます ──
-    新規作成（パスワードの配布）は <code>aijudge-admin enrol</code> で行います。
-    パスワードはこの画面では扱いません。
-  </p>
   <div class="actions"><button type="submit">登録</button></div>
 </form>
 {% endblock %}

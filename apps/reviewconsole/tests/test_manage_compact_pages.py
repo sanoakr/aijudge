@@ -71,3 +71,38 @@ def test_removing_an_enrolment_is_folded_and_confirmed(world: World) -> None:
     # 畳んだ外側に、取り消しのボタンが出ていない。
     outside = page.replace(folded.group(0), "")
     assert f"/enrolments/{learner.user_id}/remove" not in outside
+
+
+# --------------------------------------------------------------------------
+# 説明を畳む（`_help.html`）
+# --------------------------------------------------------------------------
+
+
+def test_the_help_keeps_its_text_in_the_page() -> None:
+    """**隠すのは見た目だけ。** 説明の文字は HTML に残り、押しても載せても開く。"""
+    from aijudge_reviewconsole.app import TEMPLATES
+
+    html = TEMPLATES.env.from_string(
+        '{% from "_help.html" import help %}'
+        "<label>名前{% call help() %}<strong>理由</strong>の説明{% endcall %}</label>"
+    ).render()
+
+    assert '<button type="button" class="help-btn"' in html
+    assert 'aria-expanded="false"' in html
+    assert '<span class="help-body" role="note"><strong>理由</strong>の説明</span>' in html
+
+
+def test_the_roles_are_explained_behind_the_help(world: World) -> None:
+    """役割の表は 4 行の説明で、登録の操作を画面の下に押し出していた。"""
+    world.register("teacher", Role.INSTRUCTOR)
+
+    page = world.client("teacher").get(f"/manage/courses/{world.course.id}/enrolments").text
+
+    body = re.search(r'<span class="help-body" role="note">(.*?)</span></span>', page, re.S)
+    assert body
+    folded = "".join(
+        m.group(1)
+        for m in re.finditer(r'<span class="help-body" role="note">(.*?)</span></span>', page, re.S)
+    )
+    assert "下位の役割に加えてできること" in folded
+    assert "aijudge-admin enrol" in folded

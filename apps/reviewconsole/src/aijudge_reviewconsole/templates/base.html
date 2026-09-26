@@ -516,6 +516,48 @@ document.querySelectorAll(".checkrow .nojs").forEach(function (el) { el.remove()
   });
 })();
 
+{# 設定の説明（`_help.html`）。**押しても開く** ── 載せる操作の無いタブレットのため。
+   画面の右端で開くと外へはみ出すので、そのときは右に寄せる。Esc と外側を押すと閉じる。 #}
+(function () {
+  function place(help) {
+    help.classList.remove("flip");
+    var body = help.querySelector(".help-body");
+    if (body && body.getBoundingClientRect().right > window.innerWidth - 16) {
+      help.classList.add("flip");
+    }
+  }
+  function close(except) {
+    document.querySelectorAll(".help.open").forEach(function (help) {
+      if (help === except) return;
+      help.classList.remove("open");
+      help.querySelector(".help-btn").setAttribute("aria-expanded", "false");
+    });
+  }
+  document.addEventListener("mouseover", function (event) {
+    var help = event.target.closest && event.target.closest(".help");
+    if (help) place(help);
+  });
+  document.addEventListener("click", function (event) {
+    if (!event.target.closest) return;
+    var button = event.target.closest(".help-btn");
+    if (!button) {
+      // 説明の中（リンクなど）を押したときは閉じない。
+      if (!event.target.closest(".help-body")) close(null);
+      return;
+    }
+    event.preventDefault();
+    var help = button.parentElement;
+    var opening = !help.classList.contains("open");
+    close(help);
+    help.classList.toggle("open", opening);
+    button.setAttribute("aria-expanded", opening ? "true" : "false");
+    if (opening) place(help);
+  });
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape") close(null);
+  });
+})();
+
 document.addEventListener("submit", function (event) {
   var form = event.target;
   if (!(form instanceof HTMLFormElement)) return;
