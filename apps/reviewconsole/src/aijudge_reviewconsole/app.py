@@ -95,6 +95,7 @@ from aijudge_identity import (
     demo_course_from_env,
     session_cookie_kwargs,
 )
+from aijudge_identity.origin_check import SameOriginMiddleware
 from aijudge_persistence import Database, ObservationFileStore
 from aijudge_submission import (
     ArtifactStore,
@@ -626,6 +627,10 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
     allowed = [h.strip() for h in os.environ.get(ENV_ALLOWED_HOSTS, "*").split(",") if h.strip()]
     if allowed and allowed != ["*"]:
         app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed)
+
+    # 状態を変える要求は同じオリジンからだけ（#413）。SameSite=Lax は同じ
+    # サイトの別ホストからの POST を止めない。
+    app.add_middleware(SameOriginMiddleware)
 
     # アクセスログと相関 ID（ADR 0016）。**一番外側に置く** ── `add_middleware`
     # は後から足した方が外になるので、Host 検査より後に書く。弾かれた要求も
@@ -1295,7 +1300,7 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
         return Response(
             content=payload,
             media_type=images.content_type(name),
-            headers={"Cache-Control": "private, max-age=86400"},
+            headers=images.response_headers(),
         )
 
     @app.get("/review/{submission_id}/artifacts/{artifact_id}")
