@@ -85,6 +85,9 @@ grader → admin.justification）を列挙して `ignore_imports` に入れ、�
 `_read_copyright_notice`、`_read_app_version`、`_serve_video`）から。
 `current_principal` は**キャッシュの有無が違う**ので、共通化は別の PR にし、
 学生画面にもキャッシュを入れてよいかを確かめてから  
+   → **前半は済み**: 4 つを `packages/webapp` に移した（契約 `webapp-is-for-the-apps`
+   で、import できるのはアプリだけ）。`_serve_video` は状態オブジェクトの代わりに
+   store を受け取る形にした（両アプリの違いはどちらの属性から取るかだけだった）  
 1-3. `CourseRow` を直接読む SQL（`operations.list_courses`・`finalization._courses`）を
 保存層のメソッドに置き換える（`kc.py` が `finalization._courses` を import している
 結合もここで解く）
