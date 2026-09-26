@@ -54,6 +54,8 @@ def _report(report: FinalizeReport, *, dry_run: bool) -> None:
     ものが見えないと学期末に気づくことになる。
     """
     prefix = "確定する予定" if dry_run else "確定しました"
+    for course in report.failed_courses:
+        logger.error("コース %s の確定に失敗しました（次の周回で再試行）", course.code)
     if not report.touched:
         logger.info("対象はありませんでした")
         return
@@ -67,6 +69,8 @@ def _report(report: FinalizeReport, *, dry_run: bool) -> None:
             parts.append(f"未採点の観点あり: {outcome.provisional} 件")
         if outcome.awaiting_human:
             parts.append(f"人が採点する観点あり: {outcome.awaiting_human} 件")
+        if outcome.ai_pending:
+            parts.append(f"AI 評価待ち: {outcome.ai_pending} 件")
         logger.info("%s [%s] %s", outcome.task.unit_label, outcome.task.title, " / ".join(parts))
     logger.info("合計 %d 件確定、%d 件見送り", report.finalized, report.skipped)
 
@@ -133,10 +137,15 @@ def main(argv: list[str] | None = None) -> int:
         signal.signal(signal.SIGTERM, _stop)
         logger.info("自動確定を開始しました（%.0f 秒ごと、Ctrl-C で停止）", args.interval_seconds)
         while not _stopping:
-            _report(
-                sweep_deadlines(database, course_id=course_id, dry_run=args.dry_run),
-                dry_run=args.dry_run,
-            )
+            try:
+                _report(
+                    sweep_deadlines(database, course_id=course_id, dry_run=args.dry_run),
+                    dry_run=args.dry_run,
+                )
+            except Exception:
+                # **常駐を止めない**（#404）。DB の一時的な不調でプロセスが
+                # 落ちると、systemd が再起動するまで誰も確定しない。
+                logger.exception("自動確定の周回に失敗しました（次の周回で再試行）")
             # 停止要求に長く待たせない。間隔は時間単位の話なので粗くて構わない。
             waited = 0.0
             while waited < args.interval_seconds and not _stopping:

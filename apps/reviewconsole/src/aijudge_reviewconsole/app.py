@@ -1424,6 +1424,16 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
     ) -> Response:
         form = await request.form()
         context = _load(console, me, SubmissionId(submission_id), request)
+        shown_run = str(form.get("run_id", ""))
+        if shown_run and shown_run != str(context.run.id):
+            # **教員が読んだ採点に対してだけ記録する**（#405）。ページを開いた
+            # あとに再採点や AI 段階の採点が届くと、最新の採点は教員が
+            # 読んでいないものになる。そこへ HumanReview を付けると、読んで
+            # いない判定が一致度の証拠になる（ADR 0010）。
+            raise HTTPException(
+                status_code=409,
+                detail="このページを開いたあとに採点が更新されました。読み直してから確定してください。",
+            )
         if context.awaiting_ai:
             # **AI 評価の到着前に確定させない。** 確定すると、直後に届く
             # AI 段階の採点が確定済みの成績を追い越すことになる。

@@ -951,6 +951,40 @@ def test_the_finalize_form_round_trips_as_a_browser_sends_it(world: World) -> No
 
 
 @needs_c_compiler
+def test_the_form_carries_the_run_the_instructor_read(world: World) -> None:
+    """確定は教員が読んだ採点に付く（#405）。
+
+    ページを開いたあとに新しい採点が届いたら、読んでいない採点に
+    HumanReview を付けずに 409 で読み直させる。
+    """
+    _, accepted = _instructor_and_submission(world)
+    world.worker.run_until_empty()
+    body = world.client.get(f"/review/{accepted.submission.id}/reveal").text
+    shown = re.search(r'name="run_id" value="([^"]+)"', body)
+    assert shown is not None, "フォームが読んだ採点を持っていない"
+    with world.database.unit_of_work() as uow:
+        run = uow.runs.latest_for(accepted.submission.id)
+    assert shown.group(1) == str(run.id)
+
+    machine = {score.criterion_id: score.level for score in run.criterion_scores}
+    stale = world.client.post(
+        f"/review/{accepted.submission.id}/finalize",
+        data=_agree_form(world, machine) | {"run_id": "grn_" + "f" * 32},
+        follow_redirects=False,
+    )
+    assert stale.status_code == 409
+    with world.database.unit_of_work() as uow:
+        assert uow.reviews.find_review_for_run(run.id) is None
+
+    current = world.client.post(
+        f"/review/{accepted.submission.id}/finalize",
+        data=_agree_form(world, machine) | {"run_id": str(run.id)},
+        follow_redirects=False,
+    )
+    assert current.status_code == 303, current.text
+
+
+@needs_c_compiler
 def test_the_system_verdict_is_labelled_on_every_option(world: World) -> None:
     """段階を動かしたあとでも「システムは何と言ったか」が分かること。
 
