@@ -724,6 +724,7 @@ version = "0.0.1"
 source = { editable = "packages/webapp" }
 dependencies = [
     { name = "aijudge-core" },
+    { name = "aijudge-identity" },
     { name = "aijudge-submission" },
     { name = "fastapi" },
 ]
@@ -731,6 +732,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "aijudge-core", editable = "packages/core" },
+    { name = "aijudge-identity", editable = "packages/identity" },
     { name = "aijudge-submission", editable = "packages/submission" },
     { name = "fastapi", specifier = ">=0.115" },
 ]
