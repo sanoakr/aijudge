@@ -39,7 +39,7 @@ from aijudge_core import (
 )
 from aijudge_core.ids import CourseId, FinalizationId, TaskId, TenantId, UserId
 from aijudge_persistence import Database
-from aijudge_submission import JobQueue, ReviewRepository
+from aijudge_submission import JobQueue, ReviewStore
 
 from .operations import AdminError, _in_term_order
 
@@ -281,7 +281,7 @@ def pending_counts(database: Database, course_id: CourseId) -> dict[TaskId, int]
 
 
 def _apply(
-    reviews: ReviewRepository,
+    reviews: ReviewStore,
     task: Task,
     *,
     jobs: JobQueue,
