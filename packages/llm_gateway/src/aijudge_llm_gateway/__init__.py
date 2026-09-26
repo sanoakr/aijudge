@@ -15,7 +15,7 @@ from .gateway import (
     StructuredResult,
     extract_json,
 )
-from .injection import instruction_lines, instruction_notice
+from .injection import instruction_lines, instruction_notice, submission_boundary
 from .provider import (
     EmbeddingProvider,
     FallbackProvider,
@@ -162,4 +162,5 @@ __all__ = [
     "extract_json",
     "instruction_lines",
     "instruction_notice",
+    "submission_boundary",
 ]
