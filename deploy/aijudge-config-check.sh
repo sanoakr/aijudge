@@ -138,11 +138,15 @@ fi
 # ずれる ── 1 の検査が unit に対してやっていることを、その先にもやる。
 for name in aijudge-restic-backup.sh aijudge-restic-offbox.sh aijudge-db-backup.sh \
             aijudge-pg-basebackup.sh aijudge-storage-check.sh aijudge-llm-primary-check.sh \
-            aijudge-restic-check.sh aijudge-purge-preview.sh aijudge-notify; do
+            aijudge-config-check.sh aijudge-restic-check.sh aijudge-purge-preview.sh \
+            aijudge-notify; do
     src="${REPO_DIR}/deploy/${name}"
     [ -e "${src}" ] || continue
     cmp -s "${src}" "/usr/local/sbin/${name}" || problems+=("スクリプトがずれている: ${name}")
 done
+# 配る側（#417）。チェックアウトと違えば、署名済みタグからまだ配られていない。
+cmp -s "${REPO_DIR}/deploy/install-units.sh" /usr/local/sbin/aijudge-install-units \
+    || problems+=("スクリプトがずれている: aijudge-install-units（署名済みタグから配られていない）")
 if [ -e "${REPO_DIR}/deploy/lib/llm-primary-check.py" ]; then
     cmp -s "${REPO_DIR}/deploy/lib/llm-primary-check.py" \
         /usr/local/lib/aijudge/llm-primary-check.py \

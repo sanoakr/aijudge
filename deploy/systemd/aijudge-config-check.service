@@ -13,5 +13,6 @@ ConditionPathIsDirectory=/opt/aijudge/deploy/systemd
 
 [Service]
 Type=oneshot
-ExecStart=/opt/aijudge/deploy/aijudge-config-check.sh
+# root で走るので、チェックアウトではなく配られた写しを実行する（#417）。
+ExecStart=/usr/local/sbin/aijudge-config-check.sh
 SyslogIdentifier=aijudge-config-check
