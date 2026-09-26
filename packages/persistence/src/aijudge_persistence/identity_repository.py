@@ -358,6 +358,11 @@ class SqlIdentityRepository:
         ).scalars()
         return _in_term_order(_course(row) for row in rows if row is not None)  # type: ignore[misc]
 
+    def list_all_courses(self) -> tuple[Course, ...]:
+        """**テナントで絞らない。** 理由は Protocol の docstring。"""
+        rows = self._session.execute(select(CourseRow)).scalars()
+        return _in_term_order(_course(row) for row in rows if row is not None)  # type: ignore[misc]
+
     def delete_course(self, course_id: CourseId) -> None:
         """コースと受講登録を消す。**提出が無いことは呼び出し側が確かめる**（#156）。
 

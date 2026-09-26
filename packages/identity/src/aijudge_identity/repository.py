@@ -107,6 +107,20 @@ class IdentityRepository(Protocol):
         """
         ...
 
+    def list_all_courses(self) -> tuple[Course, ...]:
+        """全テナントの全コース。**運用者の処理が使う**（自動確定・KC の利用状況）。
+
+        自動確定は運用者が cron で回すもので、テナントを 1 つずつ挙げさせると
+        テナントを足したときに漏れる。KC はコースをまたいで共有されるので、
+        利用状況も 1 コースやテナントに閉じては数えられない。
+
+        以前は呼び出し側（`aijudge_admin`）が `CourseRow` を直接読んで `Course` を
+        組み立てていた（段階的な立て直し 1-3）。その写しは遅延の減点・KC・
+        ルーブリックの畳み方を読み落としていた ── 使う側がまだ読んでいなかった
+        だけで、読み始めた日に黙って空になる形だった。
+        """
+        ...
+
     def delete_course(self, course_id: CourseId) -> None:
         """コースと、その受講登録を消す（#156）。
 
@@ -314,6 +328,14 @@ class InMemoryIdentityRepository:
         return tuple(
             sorted(
                 (c for c in self._courses.values() if c.tenant_id == tenant_id),
+                key=lambda course: (term_sort_key(course.term), course.code),
+            )
+        )
+
+    def list_all_courses(self) -> tuple[Course, ...]:
+        return tuple(
+            sorted(
+                self._courses.values(),
                 key=lambda course: (term_sort_key(course.term), course.code),
             )
         )
