@@ -284,12 +284,28 @@
   var SCREEN_AFTER_BLUR_MS = 1500;
   var stills = { controller: null, sharing: false };
 
+  // 最後に伝えた共有の状態。**届くまで送り直す** ── 届かないと、共有しているのに
+  // サーバは「共有していない」とみなして提出を断る（1 回の通信の失敗で試験が止まる）。
+  var SCREEN_STATE_RETRY_MS = 5000;
+  var screenLast = { name: null, surface: "" };
+
+  function postScreenState() {
+    if (!rec.sessionId || !screenLast.name) return Promise.resolve(false);
+    var sent = screenLast.name;
+    return send("POST", "/ide/screen/state",
+                { session_id: rec.sessionId, state: sent, surface: screenLast.surface })
+      .then(function (result) { return result.ok; }, function () { return false; })
+      .then(function (ok) {
+        if (!ok && screenLast.name === sent) window.setTimeout(postScreenState, SCREEN_STATE_RETRY_MS);
+        return ok;
+      });
+  }
+
   function screenReport(name, detail) {
     var surface = (detail && detail.surface) || "";
     record("screen", { state: name, surface: surface, reason: (detail && detail.reason) || "" }, true);
-    if (!rec.sessionId) return;
-    send("POST", "/ide/screen/state", { session_id: rec.sessionId, state: name, surface: surface })
-      .catch(function () { /* 状態を送れなくても、次の変化で送り直す */ });
+    screenLast = { name: name, surface: surface };
+    postScreenState();
   }
 
   function uploadStill(blob, meta) {
@@ -800,8 +816,17 @@
       note.textContent = "提出しています…";
       // 行動記録の束ね先を添える。試験の画面の静止画では、サーバがこれで共有の
       // 状態を確かめる（ADR 0027 §3）。
-      send("POST", "/ide/tasks/" + config.tabs[index] + "/submit",
-           { suffix: state[index].suffix, source: text, ide_session_id: rec.sessionId || null })
+      var body = { suffix: state[index].suffix, source: text, ide_session_id: rec.sessionId || null };
+      send("POST", "/ide/tasks/" + config.tabs[index] + "/submit", body)
+        .then(function (result) {
+          // 共有しているのに断られた: 状態が届いていなかった。送り直してから 1 回だけ出し直す。
+          if (result.status === 409 && stills.sharing) {
+            return postScreenState().then(function () {
+              return send("POST", "/ide/tasks/" + config.tabs[index] + "/submit", body);
+            });
+          }
+          return result;
+        })
         .then(function (result) {
           button.disabled = false;
           if (!result.ok) {
