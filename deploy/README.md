@@ -135,6 +135,46 @@ sudo -u aijudge sh -c 'set -a; . /srv/aijudge/config/aijudge.env; set +a; \
     exec /opt/aijudge/deploy/deploy.sh v0.44.0'
 ```
 
+### unit の配布と署名（#417）
+
+unit と、unit が呼ぶ `/usr/local/sbin` のスクリプトは **root が配る**
+（`aijudge-units.service`）。root はチェックアウト（aijudge 所有）の中身を信じず、
+**署名を確かめたタグ**の中身だけを配る。
+
+- root 所有のミラー `/var/lib/aijudge-release/repo.git` を origin から更新する
+- チェックアウトの `.git/HEAD`（コミットのハッシュ）を指す `v*` タグを探す
+- タグの署名を `/etc/aijudge/allowed_signers` で確かめる。**無ければ何も配らずに失敗**
+  し、`OnFailure` でメールが届く
+- そのタグから `git archive` で取り出した `deploy/` を配る
+
+**リリースのタグは署名する**（`git tag -s`。このリポジトリでは `tag.gpgSign=true`
+にしてあるので `git tag -a` でも署名される）。署名していないタグを出すと、コードの
+デプロイは進むが unit とスクリプトは配られない。許可する鍵は `deploy/release-signers`
+にも置いてある（公開鍵。**運用機が信じるのは `/etc/aijudge/allowed_signers` の方**）。
+
+最初の 1 回だけは人が入れる（root で。中身を確かめてから）:
+
+```sh
+# 1. 許可する署名鍵（公開鍵）。deploy/release-signers と同じ内容を、目で確かめて置く
+sudo install -d -m 755 /etc/aijudge
+sudo install -m 644 /dev/stdin /etc/aijudge/allowed_signers < release-signers
+
+# 2. root 所有のミラー
+sudo install -d -m 700 /var/lib/aijudge-release
+sudo git clone --bare --quiet https://github.com/sanoakr/aijudge.git /var/lib/aijudge-release/repo.git
+
+# 3. 署名済みタグから配る側を取り出して置き、1 度走らせる（以後は deploy が起動する）
+TAG=v1.2.3   # 署名済みのタグ
+M='git --git-dir=/var/lib/aijudge-release/repo.git -c gpg.format=ssh -c gpg.ssh.allowedSignersFile=/etc/aijudge/allowed_signers'
+sudo $M verify-tag "$TAG"
+sudo sh -c "$M show $TAG:deploy/install-units.sh > /usr/local/sbin/aijudge-install-units"
+sudo chmod 755 /usr/local/sbin/aijudge-install-units
+sudo /usr/local/sbin/aijudge-install-units
+```
+
+鍵を替えるときは `/etc/aijudge/allowed_signers` に新しい鍵を**足してから**、新しい鍵で
+署名したタグを出す（先に消すと、そのあいだ配布が止まる）。
+
 ### ログを読む（ADR 0016）
 
 運用では `AIJUDGE_LOG_FORMAT=json` を設定する（1 行 1 イベント）。
