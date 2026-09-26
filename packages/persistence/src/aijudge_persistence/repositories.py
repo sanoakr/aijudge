@@ -1661,6 +1661,14 @@ class SqlTaskRepository:
         **提出そのものではなく採点を数えている。** 採点されていない提出は
         入らない ── 通ったかどうかが分からないものを分母に入れると、
         正答率が実際より低く出る。
+
+        **総合点を保留した採点も入れない**（`final_ratio` が NULL・#406）。
+        S6 が止まっている間の暫定の採点は、AI 観点を除いた重みで比例配分した
+        点を `score_ratio` に持つので、数えると実際より高くも低くも出る。
+
+        通ったかは `score_ratio`（評価そのもの）で見る。`final_ratio` は遅延の
+        減点を畳んだ値で、遅れて出したことは課題の難しさではない。教員の
+        訂正はここには入らない（訂正後の評価だけを持つ列が無い）。
         """
         if not version_ids:
             return {}
@@ -1673,6 +1681,7 @@ class SqlTaskRepository:
             .where(
                 GradingRunRow.task_version_id.in_([str(v) for v in version_ids]),
                 GradingRunRow.superseded_by.is_(None),
+                GradingRunRow.final_ratio.is_not(None),
             )
             .group_by(GradingRunRow.task_version_id)
         ).all()

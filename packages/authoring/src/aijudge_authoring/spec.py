@@ -16,7 +16,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Self
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from aijudge_core import (
     HUMAN_SCORED,
@@ -135,8 +135,10 @@ class TaskSpec(BaseModel):
     # 0 を許す理由は `Task.session` と同じ（#60）。
     session: int | None = Field(default=None, ge=0)
     position: int | None = Field(default=None, ge=1)
-    opens_at: datetime | None = None
-    due_at: datetime | None = None
+    # タイムゾーン付きに限る（`Task.due_at` と同じ・#401）。YAML の
+    # `2026-09-25 23:59` は素の値になるので、`+09:00` を付けて書く。
+    opens_at: AwareDatetime | None = None
+    due_at: AwareDatetime | None = None
     max_score: float = Field(default=100.0, gt=0.0)
     # 受け付ける拡張子（#234）。**空ならコースの既定、それも空なら組み込みの
     # 既定（コードとテキスト）。** 写真や PDF を出させる課題は、ここで明示

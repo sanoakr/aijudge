@@ -278,6 +278,30 @@ def test_superseding_twice_is_refused(database: Database) -> None:
         uow.runs.supersede(old_id, GradingRunId("grn_" + "d" * 32))
 
 
+def test_pass_rates_leave_out_a_withheld_total(database: Database) -> None:
+    """総合点を保留した採点は正答率に入れない（#406）。
+
+    S6 停止中の暫定の採点は、AI 観点を除いた重みで比例配分した点を
+    `score_ratio` に持つ。数えると正答率が実際とずれる。
+    """
+    version = a_task_version(1)
+    with database.unit_of_work() as uow:
+        uow.tasks.save_version(version)
+        for index, withheld in enumerate((False, True)):
+            run = a_run(f"grn_{index:032d}", SubmissionId(f"sub_{index:032d}"))
+            run = run.model_copy(
+                update={
+                    "context": run.context.model_copy(update={"task_version_id": version.id}),
+                    "unscored_criteria": (CriterionId("crt_" + "9" * 32),) if withheld else (),
+                }
+            )
+            uow.runs.save(run)
+        uow.commit()
+
+    with database.unit_of_work() as uow:
+        assert uow.tasks.pass_rates((version.id,), threshold=0.5) == {str(version.id): (1, 1)}
+
+
 # --------------------------------------------------------------------------
 # ジョブ
 # --------------------------------------------------------------------------
