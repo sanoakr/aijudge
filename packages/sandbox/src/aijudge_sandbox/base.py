@@ -157,8 +157,11 @@ class LocalWorkspace:
         decode_signal: Callable[[int], str | None] | None = None,
         *,
         apply_host_rlimits: bool = True,
+        release: Callable[[list[str]], None] | None = None,
     ) -> None:
         self.path = path
+        # 時間切れのあとに、包んだ先（コンテナ）を確実に止める後始末（#410）。
+        self._release = release
         self._isolation = isolation
         self._wrap = wrap
         self._decode_signal = decode_signal or _signal_of_negative_code
@@ -221,6 +224,13 @@ class LocalWorkspace:
         finally:
             # 正常終了でも撒かれた孫が残ることがある。必ず掃除する。
             _kill_group(process)
+            if timed_out and self._release is not None:
+                # **殺したのは包んでいるクライアントで、中身ではない**（#410）。
+                # docker では `docker run` を SIGKILL してもコンテナは生き残る
+                # （`--rm` はプロセスが終わるまで効かない）。sleep する提出は
+                # CPU 上限にも掛からないので、時間切れのたびにメモリを抱えた
+                # コンテナが溜まり、試験中にホストを食い潰す。
+                self._release(argv)
 
         duration_ms = int((time.monotonic() - started) * 1000)
         stdout, cut_out = _truncate(raw_out or "", request.limits.output_bytes)
@@ -305,6 +315,7 @@ class LocalSandboxBase:
                 self.wrap,
                 self.decode_signal,
                 apply_host_rlimits=self.apply_host_rlimits,
+                release=self.release,
             )
         finally:
             shutil.rmtree(directory, ignore_errors=True)
@@ -313,3 +324,10 @@ class LocalSandboxBase:
         self, argv: list[str], request: ExecRequest, workdir: Path
     ) -> tuple[list[str], dict[str, str]]:
         raise NotImplementedError
+
+    def release(self, argv: list[str]) -> None:
+        """時間切れのあとの後始末。`wrap` が返した argv を受け取る。
+
+        ホストで直接動かすバックエンドはプロセスグループを殺せば終わるので
+        何もしない。間に別のランタイムが挟まるバックエンドが上書きする。
+        """
