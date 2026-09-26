@@ -20,7 +20,6 @@ from aijudge_core import (
     Task,
     TaskVersion,
     is_valid_term,
-    term_sort_key,
 )
 from aijudge_core.ids import CourseId, TenantId, UserId, derived_id, new_id
 from aijudge_grading import EvaluatorRegistry, load_profile
@@ -115,36 +114,9 @@ def ensure_course(
 
 
 def list_courses(database: Database, tenant_id: TenantId) -> tuple[Course, ...]:
-    from sqlalchemy import select
-
-    from aijudge_persistence.schema import CourseRow
-
-    with database.session() as session:
-        rows = session.execute(
-            select(CourseRow).where(CourseRow.tenant_id == str(tenant_id))
-        ).scalars()
-        # 並びは (学期, コード)。**学期は時系列で並べる**（#167・`term_sort_key`）。
-        return _in_term_order(
-            Course(
-                id=CourseId(row.id),
-                tenant_id=TenantId(row.tenant_id),
-                code=row.code,
-                title=row.title,
-                term=row.term,
-                subject_profile=row.subject_profile,
-                description=row.description,
-                grading_overrides=dict(row.grading_overrides or {}),
-                rubric=tuple(row.rubric or ()),
-                auto_finalize_after_minutes=row.auto_finalize_after_minutes,
-                upload_suffixes=tuple(row.upload_suffixes or ()),
-            )
-            for row in rows
-        )
-
-
-def _in_term_order(courses) -> tuple[Course, ...]:
-    """(学期, コード) 順。規則は `aijudge_core.terms` に置いてある。"""
-    return tuple(sorted(courses, key=lambda course: (term_sort_key(course.term), course.code)))
+    # 並びは (学期, コード)。**学期は時系列で並べる**（#167・`term_sort_key`）。
+    with database.unit_of_work() as uow:
+        return uow.identity.list_courses(tenant_id)
 
 
 # --------------------------------------------------------------------------

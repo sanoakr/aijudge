@@ -41,7 +41,7 @@ from aijudge_core.ids import CourseId, FinalizationId, TaskId, TenantId, UserId
 from aijudge_persistence import Database
 from aijudge_submission import JobQueue, ReviewStore
 
-from .operations import AdminError, _in_term_order
+from .operations import AdminError
 
 logger = logging.getLogger(__name__)
 
@@ -385,31 +385,11 @@ def _courses(database: Database, course_id: CourseId | None) -> tuple[Course, ..
     自動確定は運用者が cron で回すもので、テナントを 1 つずつ挙げさせると
     テナントを足したときに漏れる。
     """
-    from sqlalchemy import select
-
-    from aijudge_persistence.schema import CourseRow
-
-    with database.session() as session:
-        statement = select(CourseRow)
-        if course_id is not None:
-            statement = statement.where(CourseRow.id == str(course_id))
-        # 並びは (学期, コード)。**学期は時系列で並べる**（#167・`term_sort_key`）。
-        return _in_term_order(
-            Course(
-                id=CourseId(row.id),
-                tenant_id=TenantId(row.tenant_id),
-                code=row.code,
-                title=row.title,
-                term=row.term,
-                subject_profile=row.subject_profile,
-                description=row.description,
-                grading_overrides=dict(row.grading_overrides or {}),
-                rubric=tuple(row.rubric or ()),
-                auto_finalize_after_minutes=row.auto_finalize_after_minutes,
-                upload_suffixes=tuple(row.upload_suffixes or ()),
-            )
-            for row in session.execute(statement).scalars()
-        )
+    with database.unit_of_work() as uow:
+        if course_id is None:
+            return uow.identity.list_all_courses()
+        course = uow.identity.get_course(course_id)
+        return () if course is None else (course,)
 
 
 __all__ = [

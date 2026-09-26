@@ -43,7 +43,6 @@ from aijudge_core import KnowledgeComponent, kc_id_for, parse_kc_key
 from aijudge_core.ids import KcId, UserId
 from aijudge_persistence import Database
 
-from .finalization import _courses as _all_course_rows
 from .kc_skeleton import MAX_KC_DEPTH
 from .operations import AdminError
 
@@ -53,7 +52,8 @@ def _all_courses(database: Database):
 
     利用状況も 1 コースに閉じては数えられない。
     """
-    return _all_course_rows(database, None)
+    with database.unit_of_work() as uow:
+        return uow.identity.list_all_courses()
 
 
 @dataclass(frozen=True)
