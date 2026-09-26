@@ -1,6 +1,8 @@
 # 教員コンソール。教員数は少なく大きなアップロード経路も無いので --workers は不要。
 [Unit]
 Description=aiJudge instructor console
+# 失敗したらメールで知らせる（#422）。
+OnFailure=aijudge-notify@%n.service
 PartOf=aijudge.target
 After=network-online.target postgresql.service
 Wants=postgresql.service
@@ -18,6 +20,11 @@ Restart=on-failure
 RestartSec=5
 NoNewPrivileges=yes
 ProtectSystem=strict
+# **Docker に触らせない**（#416）。`aijudge` は採点ワーカーのために docker
+# グループに入っており、docker.sock への書き込みはホストの root と同じである。
+# このプロセスは提出物を動かさない（設計書 I6・ADR 0024）ので要らない ──
+# 入れておくと、ここに RCE が 1 つあれば、そのままホストの root になる。
+InaccessiblePaths=-/var/run/docker.sock -/run/docker.sock
 ProtectHome=yes
 ReadWritePaths=/srv/aijudge /var/lib/aijudge
 PrivateTmp=yes

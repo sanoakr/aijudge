@@ -2,6 +2,8 @@
 # デプロイ済みより新しければ deploy.sh を呼ぶ（詳細は ../README.md）。
 [Unit]
 Description=aiJudge pull-deploy latest v* tag
+# 失敗したらメールで知らせる（#422）。
+OnFailure=aijudge-notify@%n.service
 After=network-online.target postgresql.service
 
 [Service]

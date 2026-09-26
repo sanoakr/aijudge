@@ -4,6 +4,8 @@
 # docker.service にも依存する。
 [Unit]
 Description=aiJudge worker (deterministic phase)
+# 失敗したらメールで知らせる（#422）。
+OnFailure=aijudge-notify@%n.service
 PartOf=aijudge.target
 After=network-online.target postgresql.service docker.service
 Wants=postgresql.service
@@ -18,6 +20,9 @@ ExecStart=/opt/aijudge/.venv/bin/aijudge-worker --phase deterministic --name det
 # journald でこのサービスの行を引くための名札（ADR 0016）。
 SyslogIdentifier=aijudge-worker-det
 Restart=on-failure
+# 停止の要求（SIGTERM）では採点中のジョブをキューへ戻してから止まる（#424）。
+# 戻すのは 1 回の DB 書き込みで済むので、これで足りる。超えたら SIGKILL。
+TimeoutStopSec=60
 RestartSec=5
 NoNewPrivileges=yes
 ProtectSystem=strict

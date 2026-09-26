@@ -38,6 +38,15 @@ if TYPE_CHECKING:
 # セッションの有効期間。学生が 1 コマの授業中に切れない程度、かつ
 # 共用端末に置き去りにされたまま延々と生きない程度。
 DEFAULT_SESSION_HOURS = 12
+# ローカルログインの総当たり抑止（#418）。この時間内の失敗を数える。
+LOGIN_FAILURE_WINDOW_MINUTES = 15
+# 同じ ID への失敗がこれに達したら止める。打ち間違いを数回しても届かない値。
+MAX_LOGIN_FAILURES_PER_ID = 10
+# 同じ送信元からの失敗（ID をまたぐ）がこれに達したら止める。教室の NAT の
+# 後ろから複数人が同時に打ち間違えても届かないよう、ID ごとより大きくする。
+MAX_LOGIN_FAILURES_PER_SOURCE = 50
+# 数えるために読む監査行の上限。窓の中でこれを超えるなら、どちらにせよ攻撃である。
+LOGIN_FAILURE_SCAN_LIMIT = 1000
 TOKEN_BYTES = 32
 
 # API トークンの既定の有効期間。学期 1 つ分より少し長い。
@@ -222,6 +231,14 @@ class AuthService:
         平文トークンを返すのはこの 1 回だけ。保存するのはハッシュなので、
         あとから取り出す方法は無い。
         """
+        if self._throttled(tenant_id, login):
+            # **ID の有無に関わらず同じ応答にする**（列挙を防ぐ）。パスワードも
+            # 確かめない ── 確かめると、止めている間も総当たりが進む。
+            self._record_login_failure(tenant_id, login=login, user_id=None, reason="throttled")
+            raise AuthenticationFailed(
+                "ログインの失敗が続いたため、しばらく受け付けません。"
+                f"{LOGIN_FAILURE_WINDOW_MINUTES} 分ほど待ってから試してください"
+            )
         user = self._repository.find_user_by_login(tenant_id, login)
         if user is None:
             # 存在しない ID でも同じだけ時間を使う。
@@ -247,6 +264,33 @@ class AuthService:
 
         self._record_login_success(user, method="password")
         return self._start_session(user)
+
+    def _throttled(self, tenant_id: TenantId, login: str) -> bool:
+        """最近の失敗が多すぎるか（#418）。
+
+        ローカルのパスワードログインには抑止が無く、失敗は監査に残るだけ
+        だった。テナント管理者はローカルアカウントなので、総当たりの的になる。
+
+        **数えるのは監査ログの失敗の行。** プロセスのメモリで数えると、web を
+        複数プロセスで動かしたとき・再起動したときに数え直しになる。同じ ID への
+        失敗と、同じ送信元からの失敗の両方を見る（ID を替えて回す総当たり）。
+        止めている間の失敗（`throttled`）も数えるので、叩き続ける限り明けない。
+        """
+        since = self._clock() - timedelta(minutes=LOGIN_FAILURE_WINDOW_MINUTES)
+        recent = self._audit.list_recent(
+            tenant_id,
+            action=AuditAction.LOGIN_FAILED,
+            since=since,
+            limit=LOGIN_FAILURE_SCAN_LIMIT,
+        )
+        key = login.strip().lower()
+        by_login = sum(1 for e in recent if str(e.detail.get("login", "")).strip().lower() == key)
+        if by_login >= MAX_LOGIN_FAILURES_PER_ID:
+            return True
+        if self._source_ip is None:
+            return False
+        by_source = sum(1 for e in recent if e.source_ip == self._source_ip)
+        return by_source >= MAX_LOGIN_FAILURES_PER_SOURCE
 
     def login_with_google(
         self, *, tenant_id: TenantId, identity: GoogleOidcIdentity

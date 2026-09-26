@@ -73,6 +73,10 @@ class Limits(BaseModel):
     memory_bytes: int = Field(default=512 * 1024 * 1024, ge=16 * 1024 * 1024)
     processes: int = Field(default=64, ge=1)
     output_bytes: int = Field(default=1024 * 1024, ge=1024)
+    # 作業域に残してよい合計（#430）。`--ulimit=fsize` は 1 ファイルの上限で、
+    # ファイルを大量に作れば合計はいくらでも増える。作業域は DB と同じ
+    # ファイルシステムにあることがある（運用機では `/`）。
+    workspace_bytes: int = Field(default=256 * 1024 * 1024, ge=1024 * 1024)
 
 
 class ExecRequest(BaseModel):
@@ -105,10 +109,12 @@ class ExecResult(BaseModel):
     signal_name: str | None = None
     truncated: bool = False
     isolation: Isolation = Isolation.NONE
+    # 作業域の合計が上限を超えたので中身を消した（#430）。
+    workspace_exceeded: bool = False
 
     @property
     def ok(self) -> bool:
-        return self.exit_code == 0 and not self.timed_out
+        return self.exit_code == 0 and not self.timed_out and not self.workspace_exceeded
 
     @property
     def killed(self) -> bool:
