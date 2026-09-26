@@ -399,6 +399,9 @@ def register_ide_routes(app: FastAPI, deps: IdeDeps, me_dependency: Any) -> None
                 "autosave_ms": AUTOSAVE_INTERVAL_MS,
                 "max_source_bytes": MAX_SOURCE_BYTES,
                 "needs_consent": needs_consent,
+                # 試験中に画面の静止画を撮るか（ADR 0027）。問題セット単位の値なので、
+                # どれか 1 つが撮るならこの画面は撮る。
+                "screen_capture": any(task.screen_capture for task, _ in picked),
                 "unit": wanted or "",
                 **deps.build_context(course_obj, first_task, first_version),
             },

@@ -225,6 +225,7 @@
           return;
         }
         rec.sessionId = result.data.session_id;
+        if (config.screenCapture) screenGate();
         // 開いたときの各タブの内容を全文で撮り、その指紋を hello に載せる。
         // 後から「最初の全文 + 差分」で内容を組み立て直す起点になる
         // （`aijudge_ide.integrity`）。
@@ -258,10 +259,104 @@
   }, REC_SNAPSHOT_MS);
 
   window.addEventListener("focus", function () { record("focus", {}); });
-  window.addEventListener("blur", function () { record("blur", {}); });
+  window.addEventListener("blur", function () {
+    record("blur", {});
+    // 何に切り替えたかが写るよう、少し後に 1 枚（ADR 0027 §2）。
+    if (stills.controller) stills.controller.captureSoon("blur", SCREEN_AFTER_BLUR_MS);
+  });
   document.addEventListener("visibilitychange", function () {
     record("visibility", { state: document.visibilityState }, document.visibilityState === "hidden");
+    if (document.hidden && stills.controller) {
+      stills.controller.captureSoon("blur", SCREEN_AFTER_BLUR_MS);
+    }
   });
+
+  // -- 試験中の画面の静止画（ADR 0027・#444） -----------------------------------
+  //
+  // 撮り方は `screen.js`。ここは共有の開始・停止を画面とサーバに伝え、撮れた
+  // 1 枚を送るだけ。**送れなくても何も止めない**（欠落として残る・ADR 0023 §2）。
+  // 止めるのは「共有が止まった」ときの手動の提出だけで、それはサーバも確かめる。
+
+  // 外からのこの長さ以上の貼り付けで、直前の画面と直後の 1 枚を送る（ADR 0027 §2）。
+  var SCREEN_PASTE_CHARS = 100;
+  var SCREEN_BEFORE_PASTE_MS = 10000;
+  var SCREEN_AFTER_PASTE_MS = 1000;
+  var SCREEN_AFTER_BLUR_MS = 1500;
+  var stills = { controller: null, sharing: false };
+
+  function screenReport(name, detail) {
+    var surface = (detail && detail.surface) || "";
+    record("screen", { state: name, surface: surface, reason: (detail && detail.reason) || "" }, true);
+    if (!rec.sessionId) return;
+    send("POST", "/ide/screen/state", { session_id: rec.sessionId, state: name, surface: surface })
+      .catch(function () { /* 状態を送れなくても、次の変化で送り直す */ });
+  }
+
+  function uploadStill(blob, meta) {
+    if (!rec.sessionId) return;
+    var t = Math.max(0, Math.round(meta.t - rec.t0));
+    fetch("/ide/screen?session_id=" + encodeURIComponent(rec.sessionId) +
+          "&kind=" + encodeURIComponent(meta.kind) + "&t=" + t, {
+      method: "POST",
+      headers: { "Content-Type": "image/jpeg" },
+      body: blob,
+      credentials: "same-origin",
+    }).catch(function () { /* 送れなかった 1 枚は欠落として残る */ });
+  }
+
+  function setSubmitBlocked(flag) {
+    $all(".ide-submit, .ide-attach-submit").forEach(function (el) { el.disabled = flag; });
+  }
+
+  function screenGate() {
+    var gate = $("[data-ide-screen]");
+    var stopped = $("[data-ide-screen-stopped]");
+    if (!gate) return;
+    gate.hidden = false;
+    setReadOnly(true);
+
+    function begin(button) {
+      var error = $("[data-ide-screen-error]");
+      if (error) error.textContent = "";
+      button.disabled = true;
+      window.AijudgeScreen.start({
+        onFrame: uploadStill,
+        onState: function (name, detail) {
+          if (name === "sharing") {
+            stills.sharing = true;
+            gate.hidden = true;
+            if (stopped) stopped.hidden = true;
+            setReadOnly(false);
+          } else {
+            stills.sharing = false;
+            stills.controller = null;
+            if (name === "stopped" && stopped) {
+              stopped.hidden = false;
+              setSubmitBlocked(true);
+            }
+            if (error && name === "wrong_surface") {
+              error.textContent = "画面全体を選んでください（タブやウィンドウだけの共有では受験できません）。";
+            } else if (error && name === "denied") {
+              error.textContent = "共有が許可されませんでした。もう一度押して、画面全体を選んでください。";
+            } else if (error && name === "unsupported") {
+              error.textContent = "このブラウザは画面の共有に対応していません。教室の PC か、Chrome・Edge・Firefox で開いてください。";
+            }
+          }
+          screenReport(name === "sharing" ? "sharing" : name, detail);
+        },
+      }).then(function (controller) {
+        stills.controller = controller;
+        controller.captureSoon("start", 0);
+      }).catch(function () { /* onState が伝えている */ }).then(function () {
+        button.disabled = false;
+      });
+    }
+
+    var start = $("[data-ide-screen-start]");
+    var restart = $("[data-ide-screen-restart]");
+    if (start) start.addEventListener("click", function () { begin(start); });
+    if (restart) restart.addEventListener("click", function () { begin(restart); });
+  }
   // 閉じるときは `sendBeacon` で送る（ページが消えても届く）。
   window.addEventListener("pagehide", function () {
     flushActivity();
@@ -703,7 +798,10 @@
       if (!window.confirm("いまの内容を「" + label + "」として提出しますか？")) return;
       button.disabled = true;
       note.textContent = "提出しています…";
-      send("POST", "/ide/tasks/" + config.tabs[index] + "/submit", { suffix: state[index].suffix, source: text })
+      // 行動記録の束ね先を添える。試験の画面の静止画では、サーバがこれで共有の
+      // 状態を確かめる（ADR 0027 §3）。
+      send("POST", "/ide/tasks/" + config.tabs[index] + "/submit",
+           { suffix: state[index].suffix, source: text, ide_session_id: rec.sessionId || null })
         .then(function (result) {
           button.disabled = false;
           if (!result.ok) {
@@ -1008,6 +1106,12 @@
               { tab: index, len: text.length, hash: hash, origin: origin },
               text.length >= BIG_PASTE_CHARS
             );
+            // 外からの大きな貼り付け: 直前の画面（コピー元が写っていそうな区間）と
+            // 直後の 1 枚を送る（ADR 0027 §2）。
+            if (stills.controller && origin === "external" && text.length >= SCREEN_PASTE_CHARS) {
+              stills.controller.flushRing("paste_before", SCREEN_BEFORE_PASTE_MS);
+              stills.controller.captureSoon("paste_after", SCREEN_AFTER_PASTE_MS);
+            }
             if (text.length >= BIG_PASTE_CHARS) snapshot(index);
           });
         });
