@@ -106,3 +106,38 @@ def test_the_roles_are_explained_behind_the_help(world: World) -> None:
     )
     assert "下位の役割に加えてできること" in folded
     assert "aijudge-admin enrol" in folded
+
+
+# --------------------------------------------------------------------------
+# 問題のページ: 内容と操作をタブで分ける
+# --------------------------------------------------------------------------
+
+
+def _task_page(world: World) -> str:
+    world.register("teacher", Role.INSTRUCTOR)
+    task_id = _import_example(world)
+    return (
+        world.client("teacher").get(f"/manage/courses/{world.course.id}/tasks/{task_id}/edit").text
+    )
+
+
+def test_the_task_page_separates_content_from_operations(world: World) -> None:
+    """保存すると版になる内容と、押すとその場で起きる操作を、別のタブに置く。"""
+    page = _task_page(world)
+
+    assert "data-tabs" in page
+    content = page[page.index('id="tab-content"') : page.index('id="tab-ops"')]
+    ops = page[page.index('id="tab-ops"') :]
+    assert "/revise" in content, "内容の保存は内容のタブにある"
+    assert 'id="schedule"' in ops, "日程は操作のタブにある（#schedule で開く）"
+    assert "/delete" in ops and "/delete" not in content
+
+
+def test_the_content_form_keeps_what_was_typed(world: World) -> None:
+    """内容のフォームはまとめて保存の作法に乗る（断られても書きかけを消さない）。
+    KC の候補は頁を移らずに差し込む ── 頁ごと描き直すと観点の書きかけが消えた。"""
+    page = _task_page(world)
+
+    assert re.search(r'<form method="post" data-save-all', page)
+    assert 'data-swap="#kc-candidates"' in page
+    assert 'id="kc-candidates"' in page

@@ -516,6 +516,39 @@ document.querySelectorAll(".checkrow .nojs").forEach(function (el) { el.remove()
   });
 })();
 
+{# **タブ**（`nav[data-tabs]`・問題のページ）。`#` と連動する ── `#schedule` や保存後の
+   `#saved` で来たら、その場所を含むタブを開く。スクリプトが無ければ全部が縦に並ぶ。 #}
+(function () {
+  var nav = document.querySelector("nav[data-tabs]");
+  if (!nav) return;
+  var links = Array.prototype.slice.call(nav.querySelectorAll("a[href^='#']"));
+  var panels = links.map(function (a) { return document.getElementById(a.getAttribute("href").slice(1)); });
+  function show(panel) {
+    panels.forEach(function (p, i) {
+      if (!p) return;
+      p.hidden = p !== panel;
+      if (p === panel) links[i].setAttribute("aria-current", "page");
+      else links[i].removeAttribute("aria-current");
+    });
+  }
+  function fromHash() {
+    var id = decodeURIComponent(window.location.hash.slice(1));
+    var target = id && document.getElementById(id);
+    var panel = target && (panels.indexOf(target) >= 0 ? target : target.closest(".tab-panel"));
+    show(panel && panels.indexOf(panel) >= 0 ? panel : panels[0]);
+    if (target && panels.indexOf(target) < 0) target.scrollIntoView({ block: "start" });
+  }
+  links.forEach(function (a, i) {
+    a.addEventListener("click", function (event) {
+      event.preventDefault();
+      history.replaceState(null, "", a.getAttribute("href"));
+      show(panels[i]);
+    });
+  });
+  window.addEventListener("hashchange", fromHash);
+  fromHash();
+})();
+
 {# 設定の説明（`_help.html`）。**押しても開く** ── 載せる操作の無いタブレットのため。
    画面の右端で開くと外へはみ出すので、そのときは右に寄せる。Esc と外側を押すと閉じる。 #}
 (function () {
@@ -618,6 +651,8 @@ document.querySelectorAll(".checkrow .nojs").forEach(function (el) { el.remove()
           .then(function () { submitter.disabled = false; });
         return;
       }
+      // 別の送り先を持つボタン（`formaction`）は素のまま送る ── 保存ではない。
+      if (submitter && submitter.hasAttribute("formaction")) { leaving = true; return; }
       event.preventDefault();
       if (button) button.disabled = true;
       say("保存しています…", "");
