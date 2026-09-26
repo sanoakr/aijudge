@@ -36,6 +36,8 @@ root_packages =
     aijudge_webui
     aijudge_ide
     aijudge_runner
+    aijudge_eval_checklist_ai_judge
+    aijudge_eval_submission_compliance
 include_external_packages = True
 
 [importlinter:contract:core-is-independent]
@@ -50,9 +52,7 @@ forbidden_modules =
     aijudge_submission
     aijudge_grading
     aijudge_skill
-    aijudge_portfolio
     aijudge_analytics
-    aijudge_transcription
     aijudge_llm_gateway
     aijudge_sandbox
     aijudge_observation
@@ -62,6 +62,14 @@ forbidden_modules =
     aijudge_telemetry
     aijudge_audit
     aijudge_ide
+    aijudge_eval_code_test_runner
+    aijudge_eval_rubric_ai_judge
+    aijudge_eval_network_test_runner
+    aijudge_eval_text_pattern_check
+    aijudge_eval_checklist_ai_judge
+    aijudge_eval_submission_compliance
+    aijudge_ext_document_text
+    aijudge_ext_image_text
 
 ; ゲートウェイは他サブシステムを知らない。採点の語彙にも依存しない
 ; （依存させると、採点以外から LLM を使うたびに採点が引きずられる）。
@@ -77,9 +85,7 @@ forbidden_modules =
     aijudge_identity
     aijudge_submission
     aijudge_skill
-    aijudge_portfolio
     aijudge_analytics
-    aijudge_transcription
     aijudge_sandbox
 
 ; S4 は「隔離してプロセスを動かす」だけの層。採点も科目も知らない。
@@ -97,9 +103,7 @@ forbidden_modules =
     aijudge_identity
     aijudge_submission
     aijudge_skill
-    aijudge_portfolio
     aijudge_analytics
-    aijudge_transcription
     aijudge_llm_gateway
 
 [importlinter:contract:core-has-no-io]
@@ -239,6 +243,8 @@ source_modules =
     aijudge_ext_document_text
     aijudge_ext_image_text
     aijudge_ide
+    aijudge_eval_checklist_ai_judge
+    aijudge_eval_submission_compliance
 forbidden_modules =
     aijudge_persistence
     sqlalchemy
@@ -253,11 +259,27 @@ source_modules =
     aijudge_grading
     aijudge_authoring
     aijudge_llm_gateway
-    aijudge_analytics
     aijudge_eval_code_test_runner
     aijudge_eval_rubric_ai_judge
+    aijudge_analytics
     aijudge_sandbox
+    aijudge_observation
+    aijudge_submission
+    aijudge_persistence
+    aijudge_identity
+    aijudge_feedback
+    aijudge_toolchain
+    aijudge_skill
+    aijudge_eval_network_test_runner
+    aijudge_eval_text_pattern_check
+    aijudge_ext_document_text
+    aijudge_ext_image_text
+    aijudge_telemetry
+    aijudge_audit
+    aijudge_webui
     aijudge_ide
+    aijudge_eval_checklist_ai_judge
+    aijudge_eval_submission_compliance
 forbidden_modules =
     aijudge_evalrunner
     aijudge_reviewconsole
@@ -318,6 +340,8 @@ forbidden_modules =
     aijudge_ext_document_text
     aijudge_ext_image_text
     aijudge_sandbox
+    aijudge_eval_checklist_ai_judge
+    aijudge_eval_submission_compliance
 
 ; Evaluator が依存してよいのは core・採点プロトコル・LLM ゲートウェイ・S4 の 4 つ。
 ; ゲートウェイを許すのは「AI 評価器は LLM を使う」が普遍だから。
@@ -332,14 +356,14 @@ source_modules =
     aijudge_eval_text_pattern_check
     aijudge_ext_document_text
     aijudge_ext_image_text
+    aijudge_eval_checklist_ai_judge
+    aijudge_eval_submission_compliance
 forbidden_modules =
     aijudge_authoring
     aijudge_identity
     aijudge_submission
     aijudge_skill
-    aijudge_portfolio
     aijudge_analytics
-    aijudge_transcription
 
 ; S7（スキル推定）は採点の実装を知らない。読むのは GradingCompleted が運ぶ
 ; KcOutcome だけで、どの評価器がどう判定したかには触れない。これが
@@ -491,6 +515,8 @@ source_modules =
     aijudge_eval_text_pattern_check
     aijudge_ext_document_text
     aijudge_ext_image_text
+    aijudge_eval_checklist_ai_judge
+    aijudge_eval_submission_compliance
 forbidden_modules =
     aijudge_ide
 
@@ -514,3 +540,35 @@ source_modules =
     aijudge_admin.finalize_cli
 forbidden_modules =
     aijudge_ide
+
+; **評価器どうしは互いを知らない**（ADR 0002「他のプラグインを知らない」・#434）。
+; 共有したい知識は `aijudge_toolchain` や採点プロトコルに置く（言語の表を
+; 独立させたのと同じ理由）。片方が他方を import すると、片方だけを差し替えられない。
+[importlinter:contract:evaluators-do-not-know-each-other]
+name = 評価器・抽出器は互いを import しない
+type = independence
+modules =
+    aijudge_eval_code_test_runner
+    aijudge_eval_rubric_ai_judge
+    aijudge_eval_network_test_runner
+    aijudge_eval_text_pattern_check
+    aijudge_eval_checklist_ai_judge
+    aijudge_eval_submission_compliance
+    aijudge_ext_document_text
+    aijudge_ext_image_text
+
+; **印の計算には、間接にも届かない**（ADR 0023 §4・#434）。上の契約は直接の
+; import だけを禁じる（保存層が IDE の表を実装するので、パッケージ全体を
+; 間接まで禁じると成り立たない）。印（`aijudge_ide.flags`）は保存層も
+; 読まないので、こちらは間接まで閉じられる ── 閉じるために `aijudge_ide` の
+; `__init__` は印を再エクスポートしない。
+[importlinter:contract:grades-cannot-reach-activity-flags]
+name = 成績を作る処理からは、印の計算に間接にも届かない
+type = forbidden
+source_modules =
+    aijudge_grader
+    aijudge_admin.finalization
+    aijudge_admin.finalize_cli
+    aijudge_grading
+forbidden_modules =
+    aijudge_ide.flags
