@@ -21,8 +21,10 @@
 from __future__ import annotations
 
 import logging
+import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -60,14 +62,19 @@ from aijudge_submission import (
     ArtifactStore,
     GradingJob,
     JobReason,
+    follow_up_idempotency_key,
     gradable_contents,
-    job_idempotency_key,
 )
 from aijudge_telemetry import bind
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_LEASE_SECONDS = 900.0
+# 採点中にリースを延ばす間隔の、リース長に対する割合（#399）。3 分の 1 なら、
+# 延長が 2 回続けて失敗（DB の一時的な不調など）してもまだリースは残っている。
+LEASE_RENEWAL_FRACTION = 1 / 3
+# 持ち主でなくなった（リースを失った）ワーカーが結果を捨てたときの記録。
+LEASE_LOST = "lease lost to another worker; result discarded"
 
 
 class PermanentGradingError(Exception):
@@ -148,9 +155,12 @@ class GradingWorker:
                 subject_profile=subject_profile,
                 phase=phase,
             )
+            # **渡すジョブが無くても commit する。** 探す途中で、試行を使い
+            # 切ったリース切れを FAILED にしている（#398）。捨てると次の周回で
+            # また同じ行を見つけ、永久に FAILED にならない。
+            uow.commit()
             if job is None:
                 return None
-            uow.commit()
 
         # ここから先のログには提出の識別子が載る。**web 側のログとの結び目は
         # `submission_id`** ── #60 / #80 では、画面から見えるのは「採点が遅い」
@@ -166,7 +176,8 @@ class GradingWorker:
             started = time.monotonic()
             logger.info("grading started")
             try:
-                run = self._grade(job)
+                with self._keeping_lease(job):
+                    run = self._grade(job)
             except PermanentGradingError as exc:
                 logger.warning("grading rejected the submission: %s", exc)
                 return self._record_failure(job, str(exc), permanent=True)
@@ -174,7 +185,9 @@ class GradingWorker:
                 logger.exception("grading failed")
                 return self._record_failure(job, f"{type(exc).__name__}: {exc}")
 
-            result = WorkResult(job=self._record_success(job, run), run=run)
+            result = self._record_success(job, run)
+            if not result.graded:
+                return result
             logger.info(
                 "grading finished",
                 extra={"duration_ms": round((time.monotonic() - started) * 1000, 1)},
@@ -404,9 +417,68 @@ class GradingWorker:
             # 直らないので、恒久的な失敗として扱う（再試行しても同じ）。
             raise PermanentGradingError(f"コースの採点設定が不正です: {exc}") from exc
 
-    def _record_success(self, job: GradingJob, run: GradingRun) -> GradingJob:
+    # -- リース ------------------------------------------------------------
+
+    @contextmanager
+    def _keeping_lease(self, job: GradingJob) -> Iterator[None]:
+        """採点のあいだ、別スレッドでリースを延ばし続ける（#399）。
+
+        AI 段階は観点ごとに LLM を何度も呼ぶ（1 回 120 秒まで・再試行あり）ので、
+        S6 が遅いと固定のリースを超える。超えると別のワーカーが同じジョブを
+        取り、二重に採点する。延長を止めるのはこのワーカーが死んだときだけ
+        ── それがリースの本来の意味である。
+        """
+        stop = threading.Event()
+        interval = self._lease_seconds * LEASE_RENEWAL_FRACTION
+
+        def renew() -> None:
+            while not stop.wait(interval):
+                try:
+                    if not self.renew_lease(job):
+                        return
+                except Exception:
+                    # 延長の失敗で採点を止めない。次の周回でもう一度試す。
+                    logger.warning("could not renew the lease", exc_info=True)
+
+        keeper = threading.Thread(target=renew, name=f"lease-{job.id}", daemon=True)
+        keeper.start()
+        try:
+            yield
+        finally:
+            stop.set()
+            keeper.join(timeout=interval)
+
+    def renew_lease(self, job: GradingJob) -> bool:
+        """リースを 1 回延ばす。**まだ持っていなければ延ばさず False。**"""
+        with self._database.unit_of_work() as uow:
+            current = uow.jobs.lock(job.id)
+            if current is None or not current.held_by(job):
+                return False
+            uow.jobs.update(current.lease_extended(self._clock(), self._lease_seconds))
+            uow.commit()
+        return True
+
+    def _lease_lost(self, job: GradingJob, current: GradingJob | None) -> WorkResult:
+        """持ち主でなくなったワーカーは**何も書かずに**引き下がる（#399）。
+
+        リースが切れて別のワーカーが取り直した後に結果や失敗を書くと、
+        同じ提出が二重に採点され、先に終わった側の DONE を後の失敗が
+        QUEUED へ戻す。取り直した側が責任を持って終える。
+        """
+        logger.warning(
+            "lease lost before the result was recorded",
+            extra={"held_by": None if current is None else current.worker},
+        )
+        return WorkResult(job=current or job, error=LEASE_LOST)
+
+    # -- 記録 --------------------------------------------------------------
+
+    def _record_success(self, job: GradingJob, run: GradingRun) -> WorkResult:
         now = self._clock()
         with self._database.unit_of_work() as uow:
+            current = uow.jobs.lock(job.id)
+            if current is None or not current.held_by(job):
+                return self._lease_lost(job, current)
             previous = uow.runs.latest_for(job.submission_id)
             uow.runs.save(run)
             if previous is not None and previous.superseded_by is None:
@@ -433,7 +505,7 @@ class GradingWorker:
         # 一致度の標本に混ざる。AI 段階が続くならその後で書く。
         if self._follow_up is None:
             self._record_observations(job, run)
-        return done
+        return WorkResult(job=done, run=run)
 
     def _ai_job(self, job: GradingJob, base: GradingRun, now: datetime) -> GradingJob:
         """決定的評価の結果の上に積む AI 段階のジョブ。"""
@@ -446,9 +518,9 @@ class GradingWorker:
             reason=job.reason,
             phase=GradingPhase.AI,
             base_run_id=base.id,
-            idempotency_key=job_idempotency_key(
-                job.submission_id, job.reason, phase=GradingPhase.AI
-            ),
+            # 元のジョブのキーから作る。再採点の区別（課題の版）が落ちると、
+            # 2 回目の再採点の AI 段階が 1 回目の DONE に吸収される（#397）。
+            idempotency_key=follow_up_idempotency_key(job, GradingPhase.AI),
             available_at=now,
             created_at=now,
             updated_at=now,
@@ -459,6 +531,9 @@ class GradingWorker:
     ) -> WorkResult:
         now = self._clock()
         with self._database.unit_of_work() as uow:
+            current = uow.jobs.lock(job.id)
+            if current is None or not current.held_by(job):
+                return self._lease_lost(job, current)
             updated = job.failed(now, error, permanent=permanent)
             uow.jobs.update(updated)
             uow.commit()
