@@ -333,6 +333,7 @@ uv run aijudge-admin activity purge --apply # 実際に消す
 | `packages/audit` | 誰が成績に届く何を変えたか。追記専用で、操作と同じトランザクションに載る。 |
 | `packages/ide` | ブラウザのエディタ。実行要求・自動保存・作業の記録とその検査。コードは動かさない。 |
 | `packages/webui` | 画面の共通の見た目。CSS と配色の切り替えを 1 か所に置き、両アプリが読む。 |
+| `packages/webapp` | 両 Web アプリが共有する部品（フッターの版と著作権表示、相手の画面への URL、動画の配信）。import してよいのはアプリだけ。 |
 | `apps/studentweb` | 学習者向けアプリ。 |
 | `apps/reviewconsole` | 教員コンソールと `/manage`。 |
 | `apps/grader` | 採点ワーカー。 |
