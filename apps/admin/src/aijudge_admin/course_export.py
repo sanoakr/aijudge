@@ -62,7 +62,7 @@ from aijudge_core import Course, Task, TaskVersion
 from aijudge_core.ids import CourseId, TenantId
 from aijudge_persistence import Database
 
-from .course_definition import load_course_definition
+from .course_definition import UNIT_SCHEDULE_KEYS, load_course_definition
 from .operations import AdminError, course_id_for
 
 __all__ = [
@@ -275,7 +275,10 @@ def _common_fields(
         "session": task.session,
         "position": task.position,
         "opens_at": task.opens_at,
+        "submissions_open_at": task.submissions_open_at,
         "due_at": task.due_at,
+        "grading_starts_at": task.grading_starts_at,
+        "accepts_until": task.accepts_until,
         # 配点は**書かれた版だけ**持ち出す（`TaskVersion.points_declared`）。既定の 100 を
         # 書き出すと、流し直したときに「配点を書いた」ことになる。
         "max_score": version.max_score if version.points_declared else None,
@@ -555,7 +558,7 @@ def _unit_schedules(specs: tuple[TaskSpec, ...]) -> dict[str, dict[str, datetime
     schedules: dict[str, dict[str, datetime]] = {}
     for unit, members in by_unit.items():
         schedule: dict[str, datetime] = {}
-        for field in ("opens_at", "due_at"):
+        for field in UNIT_SCHEDULE_KEYS:
             values = {getattr(spec, field) for spec in members}
             if len(values) == 1:
                 value = values.pop()
@@ -611,7 +614,7 @@ def export_course(
     for entry, spec in zip(entries, specs, strict=True):
         # 回にまとめた日程は課題側から落とす（**既定と同じ値を二重に書かない**）。
         schedule = schedules.get(spec.unit or "", {})
-        for field in ("opens_at", "due_at"):
+        for field in UNIT_SCHEDULE_KEYS:
             value = getattr(spec, field)
             if value is None:
                 continue
