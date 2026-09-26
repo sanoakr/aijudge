@@ -3,6 +3,8 @@
 # （本数の目安は docs/RUNNING.md の実測を参照。受講規模で調整する）。
 [Unit]
 Description=aiJudge worker (AI phase, instance %i)
+# 失敗したらメールで知らせる（#422）。
+OnFailure=aijudge-notify@%n.service
 PartOf=aijudge.target
 After=network-online.target postgresql.service docker.service
 Wants=postgresql.service
@@ -17,6 +19,9 @@ ExecStart=/opt/aijudge/.venv/bin/aijudge-worker --phase ai --name ai%i
 # journald でこのサービスの行を引くための名札（ADR 0016）。
 SyslogIdentifier=aijudge-worker-ai%i
 Restart=on-failure
+# 停止の要求（SIGTERM）では採点中のジョブをキューへ戻してから止まる（#424）。
+# 戻すのは 1 回の DB 書き込みで済むので、これで足りる。超えたら SIGKILL。
+TimeoutStopSec=60
 RestartSec=5
 NoNewPrivileges=yes
 ProtectSystem=strict

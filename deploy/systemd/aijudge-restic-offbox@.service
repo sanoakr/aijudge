@@ -3,6 +3,8 @@
 # 実際のホスト名は `/srv/aijudge/config/aijudge-restic-%i.env` 側に置く。
 [Unit]
 Description=aiJudge restic backup of /srv/aijudge (offbox %i)
+# 失敗したらメールで知らせる（#422）。
+OnFailure=aijudge-notify@%n.service
 After=network-online.target
 Wants=network-online.target
 

@@ -16,8 +16,11 @@
 from __future__ import annotations
 
 import io
+import json
 import logging
 import re
+import subprocess
+import sys
 import xml.etree.ElementTree as ET
 import zipfile
 
@@ -37,6 +40,11 @@ _BLANK_RUN = re.compile(r"\n{3,}")
 # **空文字を返さない。** 空を返すと下流は「本文が無いレポート」と読み、
 # 学習者には 0 点の理由が「白紙」として出る。実際は読めなかっただけである。
 MIN_TEXT_LENGTH = 40
+# 解析を子プロセスで動かすときの上限（#420）。pypdf は学習者の出した PDF を
+# ワーカーのプロセス内で上限なしに読んでいた ── 細工した PDF 1 件で、
+# ワーカーが長時間止まる・メモリを使い切る。実データの PDF は数秒で終わる。
+PARSE_TIMEOUT_SECONDS = 60
+PARSE_MEMORY_BYTES = 1024 * 1024 * 1024
 
 
 class DocumentTextError(Exception):
@@ -61,12 +69,7 @@ class DocumentText:
     def extract(self, artifact: Artifact, payload: bytes) -> Extraction:
         """本文を返す。読めなければ理由を添えて返す（例外にしない）。"""
         try:
-            if artifact.kind is ArtifactKind.PDF:
-                text = _from_pdf(payload)
-            elif artifact.kind is ArtifactKind.DOCX:
-                text = _from_docx(payload)
-            else:  # pragma: no cover - applies_to で弾いている
-                return self._failed(f"{artifact.kind.value} は本文を取り出せる形式ではありません")
+            text = _parse(artifact.kind, payload)
         except DocumentTextError as exc:
             logger.warning("could not read %s (%s): %s", artifact.id, artifact.kind.value, exc)
             return self._failed(str(exc))
@@ -97,12 +100,7 @@ def text_of(payload: bytes, kind: ArtifactKind) -> str:
     同じ抽出を要る ── 別に実装すると、片方だけが壊れた PDF を読めるという
     差が出て、原因の切り分けができなくなる。
     """
-    if kind is ArtifactKind.PDF:
-        text = _from_pdf(payload)
-    elif kind is ArtifactKind.DOCX:
-        text = _from_docx(payload)
-    else:
-        raise DocumentTextError(f"{kind.value} は本文を取り出せる形式ではありません")
+    text = _parse(kind, payload)
     cleaned = _BLANK_RUN.sub("\n\n", text).strip()
     if len(cleaned) < MIN_TEXT_LENGTH:
         # 文字が埋め込まれていない（スキャン画像の PDF）。
@@ -110,6 +108,43 @@ def text_of(payload: bytes, kind: ArtifactKind) -> str:
             "文字が埋め込まれていません（スキャン画像の PDF の可能性があります）"
         )
     return cleaned
+
+
+def _parse(kind: ArtifactKind, payload: bytes) -> str:
+    """文書を解析する。**子プロセスで、時間とメモリの上限を付けて**（#420）。
+
+    上限を超えたら「読めなかった」として扱う（`DocumentTextError`）。採点は
+    ほかの経路と同じく、抽出できなかった提出として続く。
+    """
+    if kind not in (ArtifactKind.PDF, ArtifactKind.DOCX):
+        raise DocumentTextError(f"{kind.value} は本文を取り出せる形式ではありません")
+    try:
+        completed = subprocess.run(
+            [sys.executable, "-m", f"{__name__}._child", kind.value, str(PARSE_MEMORY_BYTES)],
+            input=payload,
+            capture_output=True,
+            timeout=PARSE_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise DocumentTextError(f"解析が {PARSE_TIMEOUT_SECONDS} 秒で終わりませんでした") from exc
+    try:
+        result = json.loads(completed.stdout.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        # 上限で殺された（SIGKILL・SIGSEGV）など。出力が無い。
+        raise DocumentTextError(
+            f"解析が途中で止まりました（終了コード {completed.returncode}）"
+        ) from None
+    if "error" in result:
+        raise DocumentTextError(result["error"])
+    return str(result["text"])
+
+
+def _parse_in_process(kind: ArtifactKind, payload: bytes) -> str:
+    """子プロセスの中で呼ぶ本体。**親から直接呼ばない。**"""
+    if kind is ArtifactKind.PDF:
+        return _from_pdf(payload)
+    return _from_docx(payload)
 
 
 def _from_pdf(payload: bytes) -> str:

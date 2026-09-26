@@ -16,6 +16,7 @@ from .gateway import (
     StructuredResult,
     extract_json,
 )
+from .injection import instruction_lines, instruction_notice
 from .locality import ENV_LOCAL_DOMAINS, is_local_url
 from .provider import (
     EmbeddingProvider,
@@ -178,5 +179,7 @@ __all__ = [
     "default_vision_gateway",
     "default_vision_model",
     "extract_json",
+    "instruction_lines",
+    "instruction_notice",
     "is_local_url",
 ]

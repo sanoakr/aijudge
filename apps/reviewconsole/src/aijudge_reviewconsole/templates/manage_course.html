@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_help.html" import help %}
 {% block title %}共通設定 — {{ course.title }} — aiJudge{% endblock %}
 {% block body %}
 {# **見出しは帯の項目名と同じ語にする**（#300）。ここにあるのは、このコースの
@@ -38,50 +39,48 @@
   </div>
 </div>
 
-<h2 id="course_grace">成績の自動確定</h2>
-<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/auto-finalize" class="card">
-  {# 入力が 1 つなので、ボタンは同じ行の右端に置く。 #}
-  <div class="inline-field">
-    <span class="body">
-      <label for="after_minutes">採点完了から何分で自動確定するか（空欄なら自動確定しない）</label>
-      <input id="after_minutes" name="after_minutes" type="number" step="1" min="1"
-             style="max-width:12rem"
-             value="{{ course.auto_finalize_after_minutes if course.auto_finalize_after_minutes else '' }}">
-    </span>
-    {% if saved_key == 'course_grace' %}<span class="flash" id="saved">{{ saved }}</span>{% endif %}
-    <button type="submit">保存</button>
+{# **設定は 1 つのフォームで、保存ボタンは画面の底に 1 つ**（2026-09-26）。以前は
+   自動確定・提出形式・共通ルーブリック・採点設定がそれぞれ別のフォームで、1 つを
+   保存すると頁が読み直され、他で書きかけていた値が黙って消えた。保存する側は
+   全部を検査してから、変わった項目だけを 1 度に書く（`save_course_settings`）。
+   説明は ⓘ に畳む（`_help.html`）── 状態（警告・雛形から変えているもの）は畳まない。 #}
+<form method="post" id="course-settings" class="card settings" data-save-all
+      action="{{ root_prefix() }}/manage/courses/{{ course.id }}/settings">
+
+  <h3 class="settings-group">成績と提出</h3>
+  <div class="setting" id="course_grace">
+    <div class="setting-name"><label for="after_minutes">成績の自動確定</label>{% call help() %}
+      これは<strong>コースの既定</strong>です。問題セットごとに指定があれば、そちらが効きます。
+      1 日 = 1440 分、2 日 = 2880 分。
+      <br>
+      {# 起点を締切から採点完了に変えた。締切起点だと、締切前に出した学習者は
+         確定まで何日も待つことになり、その間は再提出の判断材料が暫定のまま。 #}
+      <strong>数えるのは提出ごとの採点完了からです</strong>（課題の締切からではありません）。
+      採点は提出直後に終わるので、<strong>締切前に確定し、締切前に出し直せます</strong>
+      — 出し直しは確定に妨げられず、良い方の点が採用されます。
+      <br>
+      猶予を過ぎた提出は、AI の判定のまま確定します。<strong>再確認の依頼が出ている提出と、
+      レビューが必要と判定された提出（コンパイルエラー・合否境界の近傍など）は自動確定しません</strong>
+      — それらは問題セットのページの一括確定か、「再確認の依頼」から個別に確定してください。
+    {% endcall %}</div>
+    <div class="setting-value">
+      採点完了から <input id="after_minutes" name="after_minutes" type="number" step="1" min="1"
+             style="max-width:8rem"
+             value="{{ course.auto_finalize_after_minutes if course.auto_finalize_after_minutes else '' }}"> 分
+      <span class="desc">（空欄なら自動確定しない）</span>
+    </div>
   </div>
-  <p class="desc" style="margin:10px 0 0">
-    これは<strong>コースの既定</strong>です。問題セットごとに指定があれば、そちらが効きます。
-    1 日 = 1440 分、2 日 = 2880 分。
-  </p>
-  <p class="desc">
-    {# 起点を締切から採点完了に変えた。締切起点だと、締切前に出した学習者は
-       確定まで何日も待つことになり、その間は再提出の判断材料が暫定のまま。 #}
-    <strong>数えるのは提出ごとの採点完了からです</strong>（課題の締切からではありません）。
-    採点は提出直後に終わるので、<strong>締切前に確定し、締切前に出し直せます</strong>
-    — 出し直しは確定に妨げられず、良い方の点が採用されます。
-  </p>
-  <p class="desc">
-    猶予を過ぎた提出は、AI の判定のまま確定します。<strong>再確認の依頼が出ている提出と、
-    レビューが必要と判定された提出（コンパイルエラー・合否境界の近傍など）は自動確定しません</strong>
-    — それらは問題セットのページの一括確定か、「再確認の依頼」から個別に確定してください。
-  </p>
-</form>
 
-<h2 id="formats">提出できるファイル形式</h2>
-{# 課題ごとの指定がこれを上書きする（`uploads.allowed_suffixes`）。コースで
-   一度決めておけば個々の課題では触らずに済み、レポート 1 問だけ PDF を
-   許す、といった例外は課題側で足せる。 #}
-<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/upload-formats" class="card">
-  {# **性質で行を分ける。** コードとテキストは本文がそのまま採点器に渡せるが、
-     PDF と画像は読めず、採点の前に変換の段が要る。並べて出すと「1 つ増やす
-     だけ」のつもりで前提が変わる。
-
-     **群は 3 つある**（コード・テキスト / PDF・画像 / 動画）。以前ここには
-     「2 行しかないので」と書いてあったが、動画の群が後から増えている。
-     狭い画面では群名を上に出して、どの群も同じ形にする（`console.css`）。 #}
-  <div class="formats">
+  {# 課題ごとの指定がこれを上書きする（`uploads.allowed_suffixes`）。
+     **性質で行を分ける。** コードとテキストは本文がそのまま採点器に渡せるが、
+     PDF と画像は読めず、採点の前に変換の段が要る。群は 3 つある
+     （コード・テキスト / PDF・画像 / 動画）。 #}
+  <div class="setting" id="formats">
+    <div class="setting-name">提出できるファイル形式{% call help() %}
+      コースの既定です（課題ごとの指定が上書きします）。PDF・画像は本文が直接読めないので、
+      レポートや手書き答案の課題でだけ。
+    {% endcall %}</div>
+    <div class="setting-value formats">
     <div class="rows">
       {% for group, suffixes in suffix_groups %}
       <div class="checkrow">
@@ -103,16 +102,17 @@
       </div>
       {% endfor %}
     </div>
-    {% if saved_key == 'formats' %}<span class="flash" id="saved">{{ saved }}</span>{% endif %}
-    <button type="submit">保存</button>
+    </div>
   </div>
-  <p class="desc" style="margin:8px 0 0">
-    コースの既定です（課題ごとの指定が上書きします）。PDF・画像は本文が直接読めないので、
-    レポートや手書き答案の課題でだけ。
-  </p>
-</form>
 
-<h2 id="rubric">共通ルーブリック</h2>
+  <h3 class="settings-group" id="rubric">共通ルーブリック{% call help() %}
+    {# **課題の宣言が勝つ。** ここはコースに共通の既定で、新しい課題が引き継ぐ。
+       既にある課題は変わらない ── 出題済みの版は書き換えない（P8）。 #}
+    ここで決めた観点を<strong>新しい課題が引き継ぎます</strong>。
+    <strong>既にある課題は変わりません</strong> — 出題済みの採点基準は書き換えないためです。
+    個別に直すには、問題セットのページで課題を開いて「問題文・ルーブリックを直す」から変えてください。
+  {% endcall %}</h3>
+  {% if rubric_is_default %}<p class="desc">いまは組み込みの既定（正しさ＋読みやすさ）です。新しい課題が引き継ぎます。</p>{% endif %}
 {% if rubric_default_is_unscorable %}
 {# **設定が全部正しく見えるのに点が出ない**、という形で現れる不具合を、
    その場で言う。組み込みの既定の「正しさ」はテスト実行が担当するので、
@@ -132,55 +132,32 @@
   <strong>ここで決めた観点は新しい課題が引き継ぎます</strong>（既にある課題は変わりません）。
 </div>
 {% endif %}
-{# **課題の宣言が勝つ。** ここはコースに共通の既定で、新しい課題が引き継ぐ。
-   既にある課題は変わらない ── 出題済みの版は書き換えない（P8）。 #}
-<div class="note">
-  ここで決めた観点を<strong>新しい課題が引き継ぎます</strong>。
-  {% if rubric_is_default %}いまは組み込みの既定（正しさ＋読みやすさ）です。{% endif %}
-  <strong>既にある課題は変わりません</strong> — 出題済みの採点基準は書き換えないためです。
-  個別に直すには、問題セットのページで課題を開いて「問題文・ルーブリックを直す」から変えてください。
-</div>
-<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/rubric" class="card">
+  <div class="settings-block">
   {% with rows = rubric_rows, deterministic = rubric_deterministic, ai_evaluators = rubric_ai_evaluators %}{% include "_rubric_editor.html" %}{% endwith %}
   {% with inherits = false, aggregation = course.rubric_aggregation %}
     {% include "_aggregation_field.html" %}
   {% endwith %}
-  <div class="actions">
-    {% if saved_key == 'rubric' %}<span class="flash" id="saved">{{ saved }}</span>{% endif %}
-    <button type="submit">保存</button>
   </div>
-</form>
 
-<h2 id="grading">採点設定</h2>
-{# **このコースにしか効かない。** 同じ雛形を使う他のコースには影響しないので、
-   教員が変えてよい（`aijudge_grading.overrides`）。 #}
-<div class="note">
-  <strong>ここでの変更はこのコースだけに効きます。</strong>
-  雛形（<span class="mono">{{ course.subject_profile }}</span>）は共有の既定で、ここからは変えません。
-  空欄の項目は雛形のままです。
-  {% if changed %}<br>いま雛形から変えているもの:
+  {# **このコースにしか効かない。** 同じ雛形を使う他のコースには影響しないので、
+     教員が変えてよい（`aijudge_grading.overrides`）。 #}
+  <h3 class="settings-group" id="grading">採点設定{% call help() %}
+    <strong>ここでの変更はこのコースだけに効きます。</strong>
+    雛形（<span class="mono">{{ course.subject_profile }}</span>）は共有の既定で、ここからは変えません。
+    空欄の項目は雛形のままです。
+  {% endcall %}</h3>
+  <p class="desc">{% if changed %}雛形（<span class="mono">{{ course.subject_profile }}</span>）から変えているもの:
     {% for key in changed %}<span class="mono">{{ key }}</span>{% if not loop.last %}, {% endif %}{% endfor %}
-  {% else %}<br>いまは雛形のままです。{% endif %}
-</div>
+  {% else %}雛形（<span class="mono">{{ course.subject_profile }}</span>）のままです。{% endif %}</p>
 
-{% if trial %}
-{# 試走の結果。**設定の取り違えはここでしか現れない** ── `language` を
-   間違えても設定としては正しく、結果は「全員 0 点」になる。 #}
-<div class="note {{ 'warn' if trial.looks_wrong }}">
-  <strong>試走: {{ trial.message }}</strong>
-  {% if trial.looks_wrong %}
-    <br>参照解答が満点になりません。<strong>言語の指定を確かめてください</strong>
-    （課題そのものが誤っている可能性もあります）。
-  {% else %}
-    <br>参照解答が期待どおり通りました。
-  {% endif %}
-  <br><span class="desc">試走は保存されません（採点の履歴には残りません）。</span>
-</div>
-{% endif %}
-
-<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/grading" class="card">
-  <h3>提出プログラムの実行</h3>
-  <div class="field row-form">
+  <div class="setting">
+    <div class="setting-name">提出プログラムの実行{% call help() %}
+      <strong>入門課題なら 2 秒で足ります。数値計算の課題では上げてください。</strong>
+      メモリ（512 MB）・プロセス数・出力量の上限は評価器に固定してあり、ここでは変えられません
+      ── 提出物 1 プロセスに与える資源で、緩めるとホストごと巻き込まれます。
+    {% endcall %}</div>
+    <div class="setting-value">
+      <div class="row-form compact">
     <span><label for="language">言語</label>
       <select id="language" name="language">
         <option value="">雛形のまま（{{ base.evaluator_options.get('code_test_runner', {}).get('language', 'c') }}）</option>
@@ -199,15 +176,21 @@
              style="max-width:8rem"
              placeholder="{{ base.evaluator_options.get('code_test_runner', {}).get('compile_timeout_seconds', 30.0) }}"
              value="{{ overrides.get('evaluator_options', {}).get('code_test_runner', {}).get('compile_timeout_seconds', '') }}"></span>
+      </div>
+    </div>
   </div>
-  <p class="desc">
-    <strong>入門課題なら 2 秒で足ります。数値計算の課題では上げてください。</strong>
-    メモリ（512 MB）・プロセス数・出力量の上限は評価器に固定してあり、ここでは変えられません
-    ── 提出物 1 プロセスに与える資源で、緩めるとホストごと巻き込まれます。
-  </p>
 
-  <h3>AI の判定</h3>
-  <div class="field row-form">
+  <div class="setting">
+    <div class="setting-name">AI の判定{% call help() %}
+      同じ問いを何回か引いて、判定が割れるかどうかで確信度を測ります。多いほど確信度は信用できますが、その分遅くなります。
+      <strong>評価器 1 回の上限はモデルの応答待ちを含みます</strong>（テストケースの実行上限とは別物です）。
+      <br><strong>何を判定させるか（ルーブリックの観点）は課題ごとに決まります。</strong>
+      上の共通ルーブリックが新しい課題の既定になり、個別の課題は
+      問題セットのページの「問題文・ルーブリック・提出形式を直す」から変えられます。
+      ここには観点の設定はありません。
+    {% endcall %}</div>
+    <div class="setting-value">
+      <div class="row-form compact">
     <span><label for="samples">自己一貫性のサンプル数</label>
       <input id="samples" name="samples" type="number" step="1" min="1" max="9" style="max-width:8rem"
              placeholder="{{ base.evaluator_options.get('rubric_ai_judge', {}).get('samples', 3) }}"
@@ -216,18 +199,17 @@
       <input id="timeout_seconds" name="timeout_seconds" type="number" step="1" min="1"
              style="max-width:8rem" placeholder="{{ base.timeout_seconds }}"
              value="{{ overrides.get('timeout_seconds', '') }}"></span>
+      </div>
+    </div>
   </div>
-  <p class="desc">
-    同じ問いを何回か引いて、判定が割れるかどうかで確信度を測ります。多いほど確信度は信用できますが、その分遅くなります。
-    <strong>評価器 1 回の上限はモデルの応答待ちを含みます</strong>（テストケースの実行上限とは別物です）。
-    <br><strong>何を判定させるか（ルーブリックの観点）は課題ごとに決まります。</strong>
-    上の<a href="#rubric">共通ルーブリック</a>が新しい課題の既定になり、個別の課題は
-    問題セットのページの「問題文・ルーブリック・提出形式を直す」から変えられます。
-    ここには観点の設定はありません。
-  </p>
 
-  <h3>人が確認する条件</h3>
-  <div class="field row-form">
+  <div class="setting">
+    <div class="setting-name">人が確認する条件{% call help() %}
+      合否の境が 0.6、幅が 0.05 なら、55〜65% の提出は自動確定せず教員の確認に回ります。
+      確信度の水準を上げるほど、人が見る件数が増えます。
+    {% endcall %}</div>
+    <div class="setting-value">
+      <div class="row-form compact">
     <span><label for="confidence_below">確信度がこれ未満なら人が見る</label>
       <input id="confidence_below" name="confidence_below" type="number" step="0.05" min="0" max="1"
              style="max-width:8rem" placeholder="{{ base.review_policy.confidence_below }}"
@@ -240,30 +222,38 @@
       <input id="boundary_margin" name="boundary_margin" type="number" step="0.01" min="0" max="1"
              style="max-width:8rem" placeholder="{{ base.review_policy.boundary_margin }}"
              value="{{ overrides.get('review_policy', {}).get('boundary_margin', '') }}"></span>
+      </div>
+    </div>
   </div>
-  <p class="desc">
-    合否の境が 0.6、幅が 0.05 なら、55〜65% の提出は自動確定せず教員の確認に回ります。
-    確信度の水準を上げるほど、人が見る件数が増えます。
-  </p>
 
-  <h3>測定</h3>
-  <div class="inline-field">
-    <span class="body">
-      <label for="blind_sample_rate">blind 採点に回す割合（0〜1）</label>
+  <div class="setting">
+    <div class="setting-name"><label for="blind_sample_rate">blind 採点に回す割合</label>{% call help() %}
+      AI を見る前に教員が段階を付ける提出の割合（0〜1）です。一致度の測定にだけ使い、採点そのものは変わりません。
+      0 にすると集めなくなります。
+    {% endcall %}</div>
+    <div class="setting-value">
       <input id="blind_sample_rate" name="blind_sample_rate" type="number" step="0.01" min="0" max="1"
              style="max-width:8rem" placeholder="{{ base.measurement.blind_sample_rate }}"
              value="{{ overrides.get('measurement', {}).get('blind_sample_rate', '') }}">
-    </span>
+    </div>
   </div>
-  <p class="desc" style="margin:10px 0 0">
-    AI を見る前に教員が段階を付ける提出の割合です。一致度の測定にだけ使い、採点そのものは変わりません。
-    0 にすると集めなくなります。
-  </p>
 
-  <h3>使う評価器</h3>
   {# **インストール済みから選ぶ。** 自由入力にすると、存在しない名前で
-     その科目の採点が恒久的に失敗する。説明は評価器が持つ。 #}
-  <div class="field">
+     その科目の採点が恒久的に失敗する。説明は評価器が持つ（`title`）。 #}
+  <div class="setting">
+    <div class="setting-name">使う評価器{% call help() %}
+      <ul class="evaluators">
+        {% for row in deterministic + ai_evaluators %}
+        <li>{{ row.about or '説明がありません' }}（<span class="mono">{{ row.name }}</span>）</li>
+        {% endfor %}
+      </ul>
+      決定的評価が先で、そこで確定した観点は AI に問い合わせません（設計原則 P3）。
+      <strong>外した評価器が担当していた観点は未採点になります</strong> — 総合点は伏せられ、
+      教員の確認待ちになります（設計原則 P2）。
+      ここで変えられないもの:
+      {% for key, why in locked.items() %}<br><span class="mono">{{ key }}</span> — {{ why }}{% endfor %}
+    {% endcall %}</div>
+    <div class="setting-value stacked">
     <div class="checkrow">
       <span class="desc rowlabel">決定的</span>
       <span class="checks">
@@ -282,27 +272,27 @@
         {% endfor %}
       </span>
     </div>
+    </div>
   </div>
-  {# **表記は「説明（評価器コード）」で揃える**（#315）。観点の選択欄と同じ順で
-     読めるようにする ── 選ぶときに要るのは「何を見る評価器か」で、コードは
-     その確認である。 #}
-  {# 提出の遵守が見る値（#316）。**いままで YAML にしか無かった** ── 効いて
-     いるのに画面のどこからも読めず、直すにはサーバ上のファイルを触るしか
-     なかった。上書きはこのコースにしか効かないので教員が触ってよい。
 
-     **提出できる形式（上の「提出できるファイル形式」）とは別のもの。**
+  {# 提出の遵守が見る値（#316）。**提出できる形式（上の欄）とは別のもの。**
      あちらは受理の可否（出せるかどうか）で、こちらは採点 ── 複数許した中から
-     指示どおりのものを選んだかを見る。両方 PDF だけにすれば、こちらは
-     何も判定しない（出せるものが 1 つしか無い）。 #}
-  <h3 id="compliance">提出の遵守（submission_compliance）</h3>
-  <p class="desc" style="margin:0 0 8px">
-    出したか・ファイル名は規則どおりか・形式は指示どおりかを見ます。
-    <strong>本文は読みません。</strong>
-    提出があれば満点から始め、不備 1 つにつき 1 段下げます
-    （提出そのものが無い場合だけ最低段階）。
-    この評価器を使う観点がある課題にだけ効きます。
-  </p>
-  <div class="field">
+     指示どおりのものを選んだかを見る。 #}
+  <div class="setting" id="compliance">
+    <div class="setting-name">提出の遵守{% call help() %}
+      <span class="mono">submission_compliance</span> の設定です。
+      出したか・ファイル名は規則どおりか・形式は指示どおりかを見ます。
+      <strong>本文は読みません。</strong>
+      提出があれば満点から始め、不備 1 つにつき 1 段下げます
+      （提出そのものが無い場合だけ最低段階）。
+      この評価器を使う観点がある課題にだけ効きます。
+      <br>求める形式は、どれも選ばなければ見ません。<strong>選んだうちのどれかに当たれば可</strong>です（複数選べます）。
+      <br>ファイル名の規則は<strong>先頭から照合します</strong>（<span class="mono">^</span> は書かなくても効きます。
+      末尾まで見るには <span class="mono">$</span> を書いてください）。
+      課題文がファイル名を指定していないなら<strong>空にしてください</strong> —
+      書かなければ「見ていません」と採点の理由に残ります。黙って満点にはしません。
+    {% endcall %}</div>
+    <div class="setting-value stacked">
     <div class="checkrow">
       <span class="desc rowlabel">求める形式</span>
       <span class="checks">
@@ -314,43 +304,46 @@
         {% endfor %}
       </span>
     </div>
-    <p class="desc" style="margin:6px 0 0">
-      どれも選ばなければ形式は見ません。<strong>選んだうちのどれかに当たれば可</strong>です
-      （複数選べます）。
-    </p>
-  </div>
-  <div class="field">
-    <label for="filename_pattern">ファイル名の規則（正規表現・空なら見ません）</label>
+      <label for="filename_pattern" class="desc">ファイル名の規則（正規表現・空なら見ません）</label>
     <input id="filename_pattern" name="filename_pattern"
            placeholder="{{ profile.evaluator_options.get('submission_compliance', {}).get('filename_pattern', '^[0-9A-Za-z]+_report[.]pdf$') }}"
            value="{{ overrides.get('evaluator_options', {}).get('submission_compliance', {}).get('filename_pattern', '') }}">
-    <p class="desc" style="margin:6px 0 0">
-      <strong>先頭から照合します</strong>（<span class="mono">^</span> は書かなくても効きます。
-      末尾まで見るには <span class="mono">$</span> を書いてください）。
-      課題文がファイル名を指定していないなら<strong>空にしてください</strong> —
-      書かなければ「見ていません」と採点の理由に残ります。黙って満点にはしません。
-    </p>
+    </div>
   </div>
 
-  <ul class="desc evaluators">
-    {% for row in deterministic + ai_evaluators %}
-    <li>{{ row.about or '説明がありません' }}（<span class="mono">{{ row.name }}</span>）</li>
-    {% endfor %}
-  </ul>
-  <p class="desc">
-    決定的評価が先で、そこで確定した観点は AI に問い合わせません（設計原則 P3）。
-    <strong>外した評価器が担当していた観点は未採点になります</strong> — 総合点は伏せられ、
-    教員の確認待ちになります（設計原則 P2）。
-    ここで変えられないもの:
-    {% for key, why in locked.items() %}<br><span class="mono">{{ key }}</span> — {{ why }}{% endfor %}
-  </p>
+  {# 試走の結果。**設定の取り違えはここでしか現れない** ── `language` を
+     間違えても設定としては正しく、結果は「全員 0 点」になる。
+     **頁を移らずに差し込む**（`data-swap`・`base.html`）── 試行のたびに読み直すと、
+     他の欄の書きかけが消える。 #}
+  <div id="trial-result">
+  {% if trial %}
+  <div class="note {{ 'warn' if trial.looks_wrong }}">
+    <strong>試走: {{ trial.message }}</strong>
+    {% if trial.looks_wrong %}
+      <br>参照解答が満点になりません。<strong>言語の指定を確かめてください</strong>
+      （課題そのものが誤っている可能性もあります）。
+    {% else %}
+      <br>参照解答が期待どおり通りました。
+    {% endif %}
+    <br><span class="desc">試走は保存されません（採点の履歴には残りません）。</span>
+  </div>
+  {% elif trial_note %}
+  <div class="note warn">{{ trial_note }}</div>
+  {% endif %}
+  </div>
 
-  <div class="actions">
-    {% if saved_key == 'grading' %}<span class="flash" id="saved">{{ saved }}</span>{% endif %}
-    <button type="submit" name="action" value="try">この設定で試行</button>
-    <button type="submit" name="action" value="save">保存</button>
+  <div class="deskbar">
+    <span class="spacer save-state">
+      {% if saved_key in ['course_settings', 'unchanged', 'course_grace', 'formats', 'rubric', 'grading'] %}
+      <span class="flash" id="saved">{{ saved }}</span>
+      {% else %}このコースの共通設定です（新しい課題が引き継ぎます）{% endif %}
+    </span>
+    <button type="submit" class="minor" name="action" value="try" data-swap="#trial-result"
+            formaction="{{ root_prefix() }}/manage/courses/{{ course.id }}/grading?action=try">採点設定で試行</button>
+    <button type="submit">設定を保存</button>
   </div>
 </form>
+
 {% if is_admin %}
 {# **複製は「作る」操作**（#170）。だから削除と同じ管理者権限で、置き場所は
    その手前 ── 学期の頭にすることが、コース設定の末尾で終わる形にする。 #}

@@ -383,6 +383,8 @@ JavaScript を切っていると切り替えは出ず、端末の設定に従う
 | `AIJUDGE_OBSERVATION_DIR` | 観測レコード（測定用・任意） | `~/.aijudge/observations` |
 | `AIJUDGE_SANDBOX` | 隔離バックエンド（`auto`/`docker`/`gvisor`/`seatbelt`） | `auto` |
 | `AIJUDGE_SANDBOX_WORKDIR` | 作業域の置き場所。コンテナがマウントするパスであること | `~/.aijudge/work` |
+| `AIJUDGE_SANDBOX_MIN` | これより弱い隔離では提出を動かさない（`none`/`os_sandbox`/`container`/`kernel_isolated`、#414）。**本番では `container` 以上**。自動選択が弱い方へ黙って落ちるのを止める | 未設定（制限なし） |
+| `AIJUDGE_SANDBOX_IMAGES` | コースの採点設定（`evaluator_options.*.image`）から名指しできる、既定以外のイメージ（カンマ区切り、#419）。既定と `AIJUDGE_SANDBOX_IMAGE` は常に使える | 未設定（既定のみ） |
 | `AIJUDGE_SECURE_COOKIES` | セッション Cookie に `Secure` を付ける（`1`/`0`）。未設定なら `X-Forwarded-Proto` で判断 | 未設定 |
 | `AIJUDGE_CONSOLE_URL` | 学習者アプリが出す教員コンソールの場所（#103）。逆プロキシの後ろなど、相手が別ホストのときだけ指定する | 未設定（開いているホスト名 + `AIJUDGE_CONSOLE_PORT`） |
 | `AIJUDGE_LEARNER_URL` | 教員コンソールが出す学習者アプリの場所（#103） | 未設定（開いているホスト名 + `AIJUDGE_LEARNER_PORT`） |

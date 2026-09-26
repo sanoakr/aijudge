@@ -215,6 +215,17 @@ def test_a_job_is_held_only_by_the_worker_that_took_it_last() -> None:
     assert not first.completed(NOW, RUN).held_by(first)
 
 
+def test_a_released_job_goes_back_uncounted() -> None:
+    """止めた側の都合で打ち切った試行は数えない（#424）。"""
+    job = make().reserved(NOW, worker="w1", lease_seconds=60.0)
+    later = NOW + timedelta(seconds=30)
+    released = job.released(later)
+    assert released.state is JobState.QUEUED
+    assert released.attempts == 0
+    assert released.available_at == later
+    assert released.worker is None and released.lease_expires_at is None
+
+
 def test_a_lease_can_be_extended_only_while_running() -> None:
     job = make().reserved(NOW, worker="w1", lease_seconds=60.0)
     later = NOW + timedelta(seconds=50)

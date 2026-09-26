@@ -82,6 +82,8 @@ from aijudge_llm_gateway import (
     PromptTemplate,
     default_gateway,
     default_model,
+    instruction_lines,
+    instruction_notice,
 )
 
 EVALUATOR_ID = "checklist_ai_judge"
@@ -370,6 +372,12 @@ class ChecklistAiJudge:
         for name, hit in found.items():
             if hit is not None:
                 reasons.append(f"「{name}」{hit.line} 行目")
+        # 採点への指示と読める記述があれば人に回す（#411・`rubric_ai_judge` と同じ）。
+        confidence = result.agreement
+        suspected = instruction_lines(source)
+        if suspected:
+            confidence = 0.0
+            reasons.insert(0, instruction_notice(suspected).removesuffix("。"))
 
         return EvaluationOutcome(
             status=EvaluatorStatus.OK,
@@ -383,7 +391,7 @@ class ChecklistAiJudge:
                     score_ratio=criterion.level_for(level).score_ratio,
                     weight=criterion.weight,
                     # 一致度をそのまま確信度にする。割れたら人が見る（P5）。
-                    confidence=result.agreement,
+                    confidence=confidence,
                     # **確定させない。** AI の判定は提案である（P5）。
                     conclusive=False,
                     evidence=evidence,
@@ -400,6 +408,7 @@ class ChecklistAiJudge:
                 "satisfied_weight": satisfied,
                 "total_weight": total,
                 "agreement": result.agreement,
+                "suspected_instruction_lines": list(suspected),
                 "samples": result.samples,
                 "attempts": result.attempts,
                 "provider": result.provider,

@@ -601,6 +601,31 @@ def test_the_reveal_page_shows_the_task_being_graded(world: World) -> None:
     assert render_statement(version.statement) in body, "学習者と違う描画になっている"
 
 
+@needs_c_compiler
+def test_the_reveal_page_shows_how_the_output_differs_from_the_io_set(world: World) -> None:
+    """**確定する人が、入出力セットとの違いをこの画面で見られる。**
+
+    根拠の文（「5 件中 0 件が一致」）だけでは、書式だけ違うのか、まるで
+    違うのかが分からない。期待と実際の出力を、採点の記録から並べる。
+    """
+    learner = world.register("s2400001", role=Role.LEARNER)
+    world.register("instructor", role=Role.INSTRUCTOR)
+    # 平均を小数 2 桁で出す（課題は 3 桁）。値は合っていて書式だけが違う。
+    wrong_format = EXAMPLE_TASK.joinpath("maxmin.c").read_bytes().replace(b"%.3f", b"%.2f")
+    accepted = world.submit(learner, wrong_format)
+    world.login("instructor")
+    world.worker.run_until_empty()
+
+    body = world.client.get(f"/review/{accepted.submission.id}/reveal").text
+
+    assert "入出力セットとの突き合わせ" in body
+    assert "0 / 5 件一致" in body
+    assert "期待する出力" in body
+    assert "2 2 2.000" in body and "2 2 2.00<" in body
+    # 入力は課題の入出力セットから引いてある。
+    assert "-1 0 1 2" in body
+
+
 def test_the_reveal_page_no_longer_asks_for_points(world: World) -> None:
     """要点から文章にする口はやめた（#97）。
 
@@ -923,6 +948,40 @@ def test_the_finalize_form_round_trips_as_a_browser_sends_it(world: World) -> No
         follow_redirects=False,
     )
     assert response.status_code == 303, response.text
+
+
+@needs_c_compiler
+def test_the_form_carries_the_run_the_instructor_read(world: World) -> None:
+    """確定は教員が読んだ採点に付く（#405）。
+
+    ページを開いたあとに新しい採点が届いたら、読んでいない採点に
+    HumanReview を付けずに 409 で読み直させる。
+    """
+    _, accepted = _instructor_and_submission(world)
+    world.worker.run_until_empty()
+    body = world.client.get(f"/review/{accepted.submission.id}/reveal").text
+    shown = re.search(r'name="run_id" value="([^"]+)"', body)
+    assert shown is not None, "フォームが読んだ採点を持っていない"
+    with world.database.unit_of_work() as uow:
+        run = uow.runs.latest_for(accepted.submission.id)
+    assert shown.group(1) == str(run.id)
+
+    machine = {score.criterion_id: score.level for score in run.criterion_scores}
+    stale = world.client.post(
+        f"/review/{accepted.submission.id}/finalize",
+        data=_agree_form(world, machine) | {"run_id": "grn_" + "f" * 32},
+        follow_redirects=False,
+    )
+    assert stale.status_code == 409
+    with world.database.unit_of_work() as uow:
+        assert uow.reviews.find_review_for_run(run.id) is None
+
+    current = world.client.post(
+        f"/review/{accepted.submission.id}/finalize",
+        data=_agree_form(world, machine) | {"run_id": str(run.id)},
+        follow_redirects=False,
+    )
+    assert current.status_code == 303, current.text
 
 
 @needs_c_compiler

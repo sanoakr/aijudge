@@ -51,20 +51,32 @@
 <h2 class="sets-band sets-band-{{ band }}">{{ heading }} <span class="desc">{{ rows | length }} セット</span></h2>
 {% if note %}<p class="desc">{{ note }}</p>{% endif %}
 <nav class="menu sets sets-{{ band }}">
-  {# 学期を通すと 15 行前後になる。**1 セット 1 行に収める**うえ、列を
-     揃える ── 揃っていないと、締切や未確定の数を縦に読み比べられない。 #}
+  {# 学期を通すと 15 行前後になる。**1 セットを 2 段に収める**（2026-09-26）。
+     1 行に 7 列を並べていたので、日付が入ると幅が足りずに折り返し、
+     行ごとに高さが揃わなかった。上段は「どのセットか」と札、下段は小さく
+     問数と日程 ── 下段は列の幅を固定して、締切を縦に読み比べられるようにする。
+     開始が公開と同時なら書かない（同じ時刻を 2 度読ませない）。 #}
   {% for unit in rows %}
   {# 中身が全部学習者に出ていないセットは、行そのものを分ける（#83）──
      セットの中の課題には印を付けたが、**コースに並ぶセット自体**は生きて
      いるものと同じ見た目のままだった。 #}
   <a class="row{% if unit.hidden and unit.hidden == unit.count %} hidden-from-learners{% endif %}"
      href="{{ root_prefix() }}/manage/courses/{{ course.id }}/units/{{ unit.key }}">
-    <b class="c-key">{{ unit.unit or unit.label }}</b>
-    <span class="c-num desc">{% if unit.unit and unit.session is not none %}{{ unit.label }}{% endif %}</span>
-    <span class="c-count desc">{{ unit.count }} 問{% if unit.hidden %}<br><span class="pill no">{% if unit.hidden == unit.count %}出題していません{% else %}うち {{ unit.hidden }} 問は非出題{% endif %}</span>{% endif %}</span>
-    <span class="c-date desc">公開 {% if unit.opens_at %}{{ unit.opens_at | local('%m-%d %H:%M') }}{% else %}<em>未設定</em>{% endif %}</span>
-    <span class="c-date desc">開始 {% if unit.submissions_open_at %}{{ unit.submissions_open_at | local('%m-%d %H:%M') }}{% elif unit.opens_at %}公開と同時{% else %}<em>未設定</em>{% endif %}</span>
-    <span class="c-date desc">締切 {% if unit.due_at %}{{ unit.due_at | local('%m-%d %H:%M') }}{% else %}<em>未設定</em>{% endif %}</span>
+    <span class="s-main">
+      <b class="c-key">{{ unit.unit or unit.label }}</b>
+      {% if unit.unit and unit.session is not none %}<span class="c-num desc">{{ unit.label }}</span>{% endif %}
+      {% if unit.hidden %}<span class="pill no">{% if unit.hidden == unit.count %}出題していません{% else %}{{ unit.hidden }} 問非出題{% endif %}</span>{% endif %}
+    </span>
+    <span class="s-meta desc">
+      <span class="c-count">{{ unit.count }} 問</span>
+      {% if unit.opens_at or unit.submissions_open_at or unit.due_at %}
+      <span class="c-date">公開 {% if unit.opens_at %}{{ unit.opens_at | local('%m-%d %H:%M') }}{% else %}<em>—</em>{% endif %}</span>
+      <span class="c-date">締切 {% if unit.due_at %}{{ unit.due_at | local('%m-%d %H:%M') }}{% else %}<em>—</em>{% endif %}</span>
+      {% if unit.submissions_open_at %}<span class="c-date">開始 {{ unit.submissions_open_at | local('%m-%d %H:%M') }}</span>{% endif %}
+      {% else %}
+      <span class="c-date"><em>日程未設定</em></span>
+      {% endif %}
+    </span>
     <span class="c-open">
       {# 期限が過ぎたのに未確定が残っているのは、自動確定が動いていないか
          異議申立が残っているかのどちらか。どちらも教員が見るべき状態。 #}

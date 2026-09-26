@@ -75,6 +75,12 @@ DEFAULT_LEASE_SECONDS = 900.0
 LEASE_RENEWAL_FRACTION = 1 / 3
 # 持ち主でなくなった（リースを失った）ワーカーが結果を捨てたときの記録。
 LEASE_LOST = "lease lost to another worker; result discarded"
+# 停止を求められて、採点中のジョブをキューへ戻したときの記録（#424）。
+STOPPED = "worker stopped; the job went back to the queue uncounted"
+
+
+class WorkerStopping(Exception):
+    """停止の要求（SIGTERM）で採点を打ち切る。`GradingWorker.interrupt` が投げる。"""
 
 
 class PermanentGradingError(Exception):
@@ -127,6 +133,8 @@ class GradingWorker:
         self._lease_seconds = lease_seconds
         self._clock = clock
         self._profiles: dict[str, SubjectProfile] = {}
+        # いま採点の最中か。停止の要求で打ち切ってよいのはこの間だけ（#424）。
+        self._grading = False
         # 決定的段階のあとに積む AI 段階のジョブ。1 件処理するあいだだけ持つ。
         self._follow_up: tuple[GradingJob, TaskVersion] | None = None
 
@@ -176,8 +184,15 @@ class GradingWorker:
             started = time.monotonic()
             logger.info("grading started")
             try:
-                with self._keeping_lease(job):
-                    run = self._grade(job)
+                self._grading = True
+                try:
+                    with self._keeping_lease(job):
+                        run = self._grade(job)
+                finally:
+                    self._grading = False
+            except WorkerStopping:
+                logger.info("stopping; returning the job to the queue")
+                return self._record_release(job)
             except PermanentGradingError as exc:
                 logger.warning("grading rejected the submission: %s", exc)
                 return self._record_failure(job, str(exc), permanent=True)
@@ -416,6 +431,28 @@ class GradingWorker:
             # 保存時に検査しているので普通は起きない。起きたら人間が直すまで
             # 直らないので、恒久的な失敗として扱う（再試行しても同じ）。
             raise PermanentGradingError(f"コースの採点設定が不正です: {exc}") from exc
+
+    def interrupt(self) -> None:
+        """停止の要求。**採点の最中なら打ち切る**（シグナルハンドラから呼ぶ）。
+
+        止まるのを採点の終わりまで待つと、AI 段階は数分かかるので systemd の
+        停止の待ち時間を超えて SIGKILL され、ジョブは RUNNING のままリースが
+        切れるまで 15 分止まり、試行も 1 回失う（#424）。打ち切って、数えずに
+        戻す。結果の保存中（`_record_success`）には打ち切らない。
+        """
+        if self._grading:
+            raise WorkerStopping
+
+    def _record_release(self, job: GradingJob) -> WorkResult:
+        now = self._clock()
+        with self._database.unit_of_work() as uow:
+            current = uow.jobs.lock(job.id)
+            if current is None or not current.held_by(job):
+                return self._lease_lost(job, current)
+            released = current.released(now)
+            uow.jobs.update(released)
+            uow.commit()
+        return WorkResult(job=released, error=STOPPED)
 
     # -- リース ------------------------------------------------------------
 

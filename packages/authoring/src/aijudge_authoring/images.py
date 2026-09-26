@@ -83,6 +83,24 @@ def content_type(name: str) -> str:
     return SUFFIX_TYPES[suffix_of(name)]
 
 
+def response_headers() -> dict[str, str]:
+    """課題文の画像を返すときのヘッダ。**3 か所の配信で共有する。**
+
+    SVG はスクリプトを持てる（#412）。`<img>` として読まれる限り動かないが、
+    URL を直接開かせると**学生画面とコンソールと同じオリジンで**動き、
+    Cookie 付きで `/console/manage/...` へ POST できた ── 1 コースの教員が
+    貼った SVG で、開いたテナント管理者の権限を使える。`sandbox` の CSP は
+    直接開かれたときにスクリプトとフォーム送信を止め、`<img>` での表示は
+    妨げない。`nosniff` はほかの形式が中身の推測で HTML 扱いされるのを防ぐ。
+    """
+    return {
+        # 中身から名前を導いているので、同じ URL の中身は変わらない。
+        "Cache-Control": "private, max-age=86400",
+        "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+        "X-Content-Type-Options": "nosniff",
+    }
+
+
 def new_name(payload: bytes, filename: str) -> str:
     """保存する名前。**中身から導く。**
 
