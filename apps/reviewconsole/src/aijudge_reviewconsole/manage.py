@@ -4772,10 +4772,14 @@ def register(templates) -> APIRouter:
             accepted=task.accepted_suffixes,
             aggregation=version.aggregation,
             reference_solution=generated.reference_solution,
+            # 生成したのは入出力の組だけ。**他の評価器あてのデータは持ち越す**
+            # （#302・#402）── 作り直すと、同じ課題の項目表や伴走プロセスの
+            # ケースが黙って消える。
             test_cases=tuple(
                 TestCaseSpec(name=case.name, input=case.input, expected=case.expected)
                 for case in generated.test_cases
-            ),
+            )
+            + _kept_cases(version, editing=_io_evaluator_ids(EvaluatorRegistry().load_installed())),
             generated_by=generated.model,
             generation_prompt_version=generated.prompt_id,
         )
@@ -5224,6 +5228,16 @@ def register(templates) -> APIRouter:
         def at(values: list[str], index: int, default: str = "") -> str:
             return values[index] if index < len(values) else default
 
+        # **この欄が直している評価器**（#402）。いまの版で入出力の形を読む
+        # 評価器のデータから取る。既定（`code_test_runner`）に倒すのは入出力の
+        # データがまだ無いときだけ ── 倒すと、別の入出力評価器あてのケースが
+        # 保存のたびに書き換わる。
+        io_ids = _io_evaluator_ids(EvaluatorRegistry().load_installed())
+        io_evaluator = next(
+            (case.evaluator_id for case in version.test_cases if case.evaluator_id in io_ids),
+            CODE_TEST_RUNNER,
+        )
+
         cases: list[TestCaseSpec] = []
         seen: set[str] = set()
         for index in range(len(names)):
@@ -5252,6 +5266,7 @@ def register(templates) -> APIRouter:
                     expected=text_out,
                     hidden=at(hidden, index, "1") != "0",
                     weight=weight,
+                    evaluator=io_evaluator,
                 )
             )
         # **採用した提案だけを足す**（#305）。印を付けなかったものは消える ──
@@ -5280,6 +5295,7 @@ def register(templates) -> APIRouter:
                     expected=at(prop_expected, index).replace("\r\n", "\n"),
                     hidden=True,
                     weight=1.0,
+                    evaluator=io_evaluator,
                 )
             )
 
@@ -5293,15 +5309,12 @@ def register(templates) -> APIRouter:
         # 見るのは**いま欄にあるもの**（#305）── 保存済みで確かめると、
         # 教員が直した解答例ではない別のもので判定することになる。
         if reference:
-            evaluator_id = next(
-                (case.evaluator_id for case in version.test_cases), CODE_TEST_RUNNER
-            )
             candidate = version.model_copy(
                 update={
                     "test_cases": tuple(
                         TestCase(
                             name=case.name,
-                            evaluator_id=evaluator_id,
+                            evaluator_id=io_evaluator,
                             payload={"input": case.input, "expected": case.expected},
                             hidden=case.hidden,
                             weight=case.weight,
@@ -5342,8 +5355,7 @@ def register(templates) -> APIRouter:
             # 直しているのは入出力の組だけで、同じ課題が項目表を持っている
             # ことがある ── 全件を作り直していたので、入出力を 1 文字直すと
             # 項目表が黙って消えた。
-            test_cases=tuple(cases)
-            + _kept_cases(version, editing=_io_evaluator_ids(EvaluatorRegistry().load_installed())),
+            test_cases=tuple(cases) + _kept_cases(version, editing=io_ids),
         )
         return RedirectResponse(
             f"/manage/courses/{course_id}/tasks/{task_id}/edit?saved=tests_revised#saved",
