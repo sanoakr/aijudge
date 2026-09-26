@@ -207,6 +207,8 @@
   <summary>対応済みの判断を訂正する{% if not can_correct %}（担当教員のみ）{% endif %}</summary>
 {% endif %}
 <form method="post" action="{{ root_prefix() }}/review/{{ submission.id }}/finalize{{ '?from=' ~ work_mode if work_mode }}">
+  {# 教員が読んだ採点。確定の時点で最新と違えば 409（#405）。 #}
+  <input type="hidden" name="run_id" value="{{ run.id }}">
   {#
     ラジオの name は**観点ごとに変える**。共有すると、ブラウザは全観点を
     1 つのグループとして扱い、観点をまたいで 1 つしか選べなくなる

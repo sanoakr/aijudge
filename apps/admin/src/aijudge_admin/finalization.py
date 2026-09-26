@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -27,6 +28,7 @@ from aijudge_core import (
     Course,
     Finalization,
     FinalizationSource,
+    GradingPhase,
     Task,
     auto_finalizable,
     blocks_finalization,
@@ -37,9 +39,11 @@ from aijudge_core import (
 )
 from aijudge_core.ids import CourseId, FinalizationId, TaskId, TenantId, UserId
 from aijudge_persistence import Database
-from aijudge_submission import ReviewRepository
+from aijudge_submission import JobQueue, ReviewRepository
 
 from .operations import AdminError, _in_term_order
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -64,6 +68,10 @@ class TaskOutcome:
     # 採点からの猶予がまだ明けていない。**見送りではなく待ちである。**
     # 一緒に数えると、運用者には「積み上がっている」ように見えてしまう。
     not_due: int = 0
+    # AI 段階がまだ届いていない（キューで待っている・再試行中）。これも
+    # **待ち**。確定すると、直後に届く AI の採点が確定済みの run を
+    # supersede し、学習者の表示が「確定」から暫定へ逆戻りする（#400）。
+    ai_pending: int = 0
 
     @property
     def skipped(self) -> int:
@@ -73,6 +81,8 @@ class TaskOutcome:
 @dataclass
 class FinalizeReport:
     outcomes: list[TaskOutcome] = field(default_factory=list)
+    # 失敗して次の周回に回したコース（#404）。
+    failed_courses: list[Course] = field(default_factory=list)
 
     @property
     def finalized(self) -> int:
@@ -134,6 +144,7 @@ def finalize_task(
         outcome = _apply(
             uow.reviews,
             task,
+            jobs=uow.jobs,
             audit=uow.audit,
             tenant_id=_tenant_of(uow, task),
             source=FinalizationSource.INSTRUCTOR_BULK,
@@ -174,29 +185,48 @@ def sweep_deadlines(
     at = now or datetime.now(UTC)
     report = FinalizeReport()
     for course in _courses(database, course_id):
-        with database.unit_of_work() as uow:
-            for task in uow.tasks.list_for_course(course.id):
-                grace = grace_minutes(
-                    task.auto_finalize_after_minutes, course.auto_finalize_after_minutes
-                )
-                if grace is None:
-                    continue
-                report.outcomes.append(
-                    _apply(
-                        uow.reviews,
-                        task,
-                        audit=uow.audit,
-                        tenant_id=course.tenant_id,
-                        source=FinalizationSource.AUTOMATIC,
-                        actor_id=None,
-                        justification=AUTOMATIC_JUSTIFICATION,
-                        at=at,
-                        grace=grace,
-                    )
-                )
-            if not dry_run:
-                uow.commit()
+        # **1 コースの失敗で他のコースを止めない**（#404）。教員の一括確定と
+        # 同じ採点を同時に閉じると、一意制約（`uq_finalizations_run`）で
+        # そのコースの分がロールバックする。何度走らせても同じ結果になる
+        # 処理なので、次の周回で残りが閉じる ── ここでは記録して進む。
+        try:
+            outcomes = _sweep_course(database, course, at=at, dry_run=dry_run)
+        except Exception:
+            logger.exception("自動確定に失敗しました（次の周回で再試行）: %s", course.code)
+            report.failed_courses.append(course)
+            continue
+        report.outcomes.extend(outcomes)
     return report
+
+
+def _sweep_course(
+    database: Database, course: Course, *, at: datetime, dry_run: bool
+) -> list[TaskOutcome]:
+    outcomes: list[TaskOutcome] = []
+    with database.unit_of_work() as uow:
+        for task in uow.tasks.list_for_course(course.id):
+            grace = grace_minutes(
+                task.auto_finalize_after_minutes, course.auto_finalize_after_minutes
+            )
+            if grace is None:
+                continue
+            outcomes.append(
+                _apply(
+                    uow.reviews,
+                    task,
+                    jobs=uow.jobs,
+                    audit=uow.audit,
+                    tenant_id=course.tenant_id,
+                    source=FinalizationSource.AUTOMATIC,
+                    actor_id=None,
+                    justification=AUTOMATIC_JUSTIFICATION,
+                    at=at,
+                    grace=grace,
+                )
+            )
+        if not dry_run:
+            uow.commit()
+    return outcomes
 
 
 def finalize_tasks(
@@ -223,6 +253,7 @@ def finalize_tasks(
                 _apply(
                     uow.reviews,
                     task,
+                    jobs=uow.jobs,
                     audit=uow.audit,
                     tenant_id=_tenant_of(uow, task),
                     source=FinalizationSource.INSTRUCTOR_BULK,
@@ -253,6 +284,7 @@ def _apply(
     reviews: ReviewRepository,
     task: Task,
     *,
+    jobs: JobQueue,
     audit: AuditLog,
     tenant_id: TenantId,
     source: FinalizationSource,
@@ -269,7 +301,7 @@ def _apply(
     """
     automatic = source is FinalizationSource.AUTOMATIC
     finalized = contested = needs_review = provisional = not_due = 0
-    awaiting = 0
+    awaiting = ai_pending = 0
 
     # **自動確定に操作者はいない。** 教員に帰属させると、教員が確定していない
     # ものを確定したことになる ── ADR 0010 が `Finalization` と `HumanReview` を
@@ -283,6 +315,12 @@ def _apply(
     for _submission, run, request in _gradable_rows(reviews.unfinalized_for_task(task.id)):
         if blocks_finalization(request):
             contested += 1
+            continue
+        if jobs.awaiting(run.submission_id, GradingPhase.AI):
+            # AI 段階が届く前の暫定の採点（#400）。一括確定は「AI が判定
+            # できなかった」観点を教員の署名で通す（`bulk_finalizable`）が、
+            # **まだ判定していない**ものはそれと違う ── 待てば届く。
+            ai_pending += 1
             continue
         if automatic and at < (settles_at(run.created_at, grace) or at):
             # **猶予がまだ明けていない。** 提出ごとに数えるので、同じ課題の
@@ -337,6 +375,7 @@ def _apply(
         provisional=provisional,
         awaiting_human=awaiting,
         not_due=not_due,
+        ai_pending=ai_pending,
     )
 
 

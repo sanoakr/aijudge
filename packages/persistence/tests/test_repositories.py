@@ -385,6 +385,34 @@ def test_an_expired_lease_is_handed_to_another_worker(database: Database) -> Non
         assert second.attempts == 2
 
 
+def test_unfinalized_rows_are_not_capped(database: Database) -> None:
+    """確定されない行が溜まっても、後ろの提出が候補から落ちない（#403）。
+
+    以前は 500 行で切っており、要レビューや異議の行が 500 を超えると
+    新しい提出がいつまでも確定されなかった。
+    """
+    version = a_task_version(1)
+    with database.unit_of_work() as uow:
+        uow.tasks.save_version(version)
+        uow.commit()
+    service = a_service(database)
+    count = 510
+    for index in range(count):
+        accepted = service.accept(
+            tenant_id=TENANT,
+            task_version_id=version.id,
+            learner_id=UserId(f"usr_{index:032d}"),
+            subject_profile="cs_lang_c_intro",
+            files=code(f"int main(void){{return {index};}}"),
+        )
+        with database.unit_of_work() as uow:
+            uow.runs.save(a_run(f"grn_{index:032d}", accepted.submission.id))
+            uow.commit()
+
+    with database.unit_of_work() as uow:
+        assert len(uow.reviews.unfinalized_for_task(TASK_ID)) == count
+
+
 def test_a_worker_can_be_limited_to_one_subject(database: Database) -> None:
     service = a_service(database)
     service.accept(

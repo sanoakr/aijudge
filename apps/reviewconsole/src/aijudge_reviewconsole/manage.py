@@ -349,6 +349,8 @@ class _Merged:
     task: object
     finalized: int
     contested: int
+    awaiting_human: int = 0
+    ai_pending: int = 0
 
 
 def _merged(outcomes) -> _Merged:
@@ -356,6 +358,8 @@ def _merged(outcomes) -> _Merged:
         task=outcomes[0].task if outcomes else None,
         finalized=sum(outcome.finalized for outcome in outcomes),
         contested=sum(outcome.contested for outcome in outcomes),
+        awaiting_human=sum(outcome.awaiting_human for outcome in outcomes),
+        ai_pending=sum(outcome.ai_pending for outcome in outcomes),
     )
 
 

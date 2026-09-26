@@ -938,9 +938,14 @@ class SqlReviewRepository:
         )
 
     def unfinalized_for_task(
-        self, task_id: TaskId, *, limit: int = 500
+        self, task_id: TaskId, *, limit: int | None = None
     ) -> tuple[tuple[Submission, GradingRun, ReviewRequest | None], ...]:
         """この課題でまだ確定していない提出。一括確定と自動確定が読む。
+
+        **既定では打ち切らない**（#403）。以前は 500 行で切っていたが、並びは
+        提出時刻順で、確定されない行（要レビュー・異議・暫定・試行）も毎回
+        その中に入る。それが 500 件を超えると、後ろの新しい提出がいつまでも
+        確定の候補に上がらず、未確定の件数も 500 で頭打ちになっていた。
 
         **最新の採点 1 件につき 1 行。** 再採点された提出で古い採点まで
         確定させると、学習者に見えている点と確定した点が食い違う。

@@ -483,7 +483,7 @@ class ReviewRepository(Protocol):
         ...
 
     def unfinalized_for_task(
-        self, task_id: TaskId, *, limit: int = 500
+        self, task_id: TaskId, *, limit: int | None = None
     ) -> tuple[tuple[Submission, GradingRun, ReviewRequest | None], ...]:
         """この課題でまだ確定していない提出。一括確定と自動確定が読む。
 
