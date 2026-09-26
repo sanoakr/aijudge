@@ -406,6 +406,7 @@ are enforced by `import-linter` and fail the build, not the review.
 | `packages/audit` | Who changed something that reaches a grade. Append-only, in the operation's transaction. |
 | `packages/ide` | The browser editor: run requests, autosave, the activity record and its checks. Never runs code. |
 | `packages/webui` | The shared look of the web screens: one stylesheet, one theme switch. Both apps read it. |
+| `packages/webapp` | Parts both web apps share (footer version and copyright, the link to the other app, video streaming). Only the apps may import it. |
 | `apps/studentweb` | The learner app. |
 | `apps/reviewconsole` | The instructor console and `/manage`. |
 | `apps/grader` | The grading worker. |

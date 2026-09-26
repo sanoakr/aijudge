@@ -14,6 +14,8 @@ dependencies = [
     "aijudge-audit",
     "aijudge-telemetry",
     "aijudge-webui",
+    # 両アプリが共有する部品（フッター・相手の URL・動画の配信）。
+    "aijudge-webapp",
     # IDE の作業の記録を読む（`activity.py`）。要約と欠けの計算だけを使う。
     "aijudge-ide",
     "fastapi>=0.115",
@@ -42,3 +44,4 @@ aijudge-submission = { workspace = true }
 aijudge-persistence = { workspace = true }
 aijudge-admin = { workspace = true }
 aijudge-ide = { workspace = true }
+aijudge-webapp = { workspace = true }
