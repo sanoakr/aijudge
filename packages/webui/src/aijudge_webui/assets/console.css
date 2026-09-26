@@ -417,6 +417,27 @@ pre.code.diff .del{display:block;background:var(--shu-soft);color:var(--ink)}
 pre.code.diff .meta{display:block;color:var(--muted)}
 pre.code.diff .same{display:block}
 
+/* 入出力セットとの突き合わせ（確定の画面・`_io_result.html`）。**期待と実際を
+   横に並べる** ── 上下に 2 つの枠で出すと、何行目が違うのかを目で往復して
+   数えることになる。違う行だけに地の色を敷く（問題文の差分と同じ朱）。
+   **空白を潰さない**（`pre-wrap`）。書式違いで落ちたケースでは、空白こそが
+   違いである。 */
+.io-result{margin-top:8px;font-size:.82rem}
+.io-result > summary{cursor:pointer;color:var(--ink-2)}
+.io-case{margin:10px 0 4px}
+.io-case .io-head{margin:0 0 4px;display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline}
+.io-case + .io-case{border-top:1px dashed var(--line-soft);padding-top:10px}
+.io-case p.desc{margin:6px 0 2px}
+.io-case pre.code{max-height:12rem;overflow:auto;margin:0 0 6px}
+table.io-diff{width:100%;border-collapse:collapse;table-layout:fixed;
+  font-family:ui-monospace,"SFMono-Regular",monospace;font-size:.78rem}
+table.io-diff th{text-align:left;font-weight:600;color:var(--muted);
+  border-bottom:1px solid var(--line-soft);padding:2px 6px}
+table.io-diff td{padding:1px 6px;white-space:pre-wrap;word-break:break-all;vertical-align:top}
+table.io-diff .n{width:3em;color:var(--muted);text-align:right}
+table.io-diff tr.differs td:not(.n){background:var(--shu-soft)}
+table.io-diff td.missing{color:var(--muted);font-style:italic}
+
 /* IDE の作業の記録（`activity_*.html`・設計書 §7）。学習者ごとの画面は問題ごとの
    カード、再生は左に組み立てた内容（Monaco・読み取り専用）、右に目印の一覧。 */
 .activity-problem{margin:0 0 18px}

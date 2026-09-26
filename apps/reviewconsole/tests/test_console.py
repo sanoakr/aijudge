@@ -601,6 +601,31 @@ def test_the_reveal_page_shows_the_task_being_graded(world: World) -> None:
     assert render_statement(version.statement) in body, "学習者と違う描画になっている"
 
 
+@needs_c_compiler
+def test_the_reveal_page_shows_how_the_output_differs_from_the_io_set(world: World) -> None:
+    """**確定する人が、入出力セットとの違いをこの画面で見られる。**
+
+    根拠の文（「5 件中 0 件が一致」）だけでは、書式だけ違うのか、まるで
+    違うのかが分からない。期待と実際の出力を、採点の記録から並べる。
+    """
+    learner = world.register("s2400001", role=Role.LEARNER)
+    world.register("instructor", role=Role.INSTRUCTOR)
+    # 平均を小数 2 桁で出す（課題は 3 桁）。値は合っていて書式だけが違う。
+    wrong_format = EXAMPLE_TASK.joinpath("maxmin.c").read_bytes().replace(b"%.3f", b"%.2f")
+    accepted = world.submit(learner, wrong_format)
+    world.login("instructor")
+    world.worker.run_until_empty()
+
+    body = world.client.get(f"/review/{accepted.submission.id}/reveal").text
+
+    assert "入出力セットとの突き合わせ" in body
+    assert "0 / 5 件一致" in body
+    assert "期待する出力" in body
+    assert "2 2 2.000" in body and "2 2 2.00<" in body
+    # 入力は課題の入出力セットから引いてある。
+    assert "-1 0 1 2" in body
+
+
 def test_the_reveal_page_no_longer_asks_for_points(world: World) -> None:
     """要点から文章にする口はやめた（#97）。
 
