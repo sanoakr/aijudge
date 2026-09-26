@@ -47,6 +47,18 @@
   <p class="desc" id="replay-note"></p>
 </div>
 
+{# 試験中の画面の静止画（ADR 0027）。**再生の位置に合わせて、その時点の 1 枚を出す**。
+   外からの貼り付けの行を選ぶと、直前・直後の画面が出る。判定はしない。 #}
+<section class="replay-stills" id="replay-stills" hidden>
+  <h2>画面の静止画 <span class="desc" id="replay-stills-count"></span></h2>
+  <figure>
+    <img id="replay-still" alt="" loading="lazy" style="max-width:100%;border:1px solid var(--line)">
+    <figcaption class="desc" id="replay-still-caption"></figcaption>
+  </figure>
+  <p class="desc">撮ったもの: 5〜15 秒おき・外からの大きな貼り付けの前後・画面を離れた直後。
+    共有が止まっていた区間は、左の一覧に「画面の共有」として出ます。</p>
+</section>
+
 {# 記録そのもの。`<` はすべて逃がしてあるので、学習者のコードがここから抜け出せない。 #}
 <script type="application/json" id="replay-data">{{ replay_json | safe }}</script>
 <script type="application/json" id="replay-config">{{ {"monacoBase": static_url("vendor/monaco-0.52.2/").split("?")[0], "prefix": root_prefix()} | tojson }}</script>
@@ -87,6 +99,26 @@
     tabSel.appendChild(opt);
   }
   tabSel.value = String(Math.min(data.tab || 0, tabCount - 1));
+
+  // その時刻の画面: 直後の 2 秒以内（貼り付けの 1 秒後の 1 枚）まで含めて、いちばん近い 1 枚。
+  var stills = data.stills || [];
+  var stillsEl = document.getElementById("replay-stills");
+  var stillImg = document.getElementById("replay-still");
+  var stillCaption = document.getElementById("replay-still-caption");
+  var STILL_KIND_LABELS = { random: "定期", paste_before: "貼り付けの前", paste_after: "貼り付けの後",
+                            blur: "画面を離れた後", start: "共有の開始" };
+  if (stills.length) {
+    stillsEl.hidden = false;
+    document.getElementById("replay-stills-count").textContent = stills.length + " 枚";
+  }
+  function showStill(t) {
+    if (!stills.length) return;
+    var best = null;
+    stills.forEach(function (s) { if (s.t <= t + 2000 && (!best || s.t >= best.t)) best = s; });
+    if (!best) best = stills[0];
+    if (stillImg.getAttribute("src") !== best.url) stillImg.setAttribute("src", best.url);
+    stillCaption.textContent = clock(best.t) + "  " + (STILL_KIND_LABELS[best.kind] || best.kind);
+  }
 
   function clock(ms) {
     var s = Math.max(0, Math.floor(ms / 1000));
@@ -155,6 +187,7 @@
         if (sub.adopted) parts.push("採用");
         return "提出（" + parts.join("・") + "）";
       case "suggest": return "補完を確定: " + e.word;
+      case "screen": return "画面の共有: " + ({ sharing: "開始", stopped: "停止", denied: "拒否", wrong_surface: "画面全体ではない", unsupported: "非対応" }[e.state] || e.state) + (e.reason ? "（" + e.reason + "）" : "");
       case "blur": return "画面を離れた";
       case "focus": return "画面に戻った";
       case "visibility": return e.state === "hidden" ? "画面が隠れた" : "画面が見えるようになった";
@@ -177,6 +210,7 @@
     var text = state.texts[tab];
     var e = events[i];
     timeEl.textContent = e ? clock(e.t) + (play[i] < e.t - events[0].t ? "（空白を詰めて再生）" : "") : "0:00";
+    showStill(e ? e.t : 0);
     noteEl.textContent = e ? describe(e) : "";
     unknownEl.hidden = !(text === null || text === undefined);
     unknownEl.textContent = unknownEl.hidden ? "" : "この時点の内容は分かりません: " + (state.reasons[tab] || "記録がありません");
@@ -202,7 +236,7 @@
   function jump(index) { slider.value = String(play[index] || 0); show(); }
 
   // 目印の一覧。**打鍵は出さない**（多すぎる）。貼り付け・離席・実行・提出・欠け・印。
-  var marked = { paste: 1, copy: 1, cut: 1, file_load: 1, run: 1, submit: 1, blur: 1, visibility: 1, hello: 1, tab: 1 };
+  var marked = { paste: 1, copy: 1, cut: 1, file_load: 1, run: 1, submit: 1, blur: 1, visibility: 1, hello: 1, tab: 1, screen: 1 };
   var lastSeq = -1;
   events.forEach(function (e, index) {
     var gap = lastSeq >= 0 && e.seq > lastSeq + 1;
@@ -222,7 +256,7 @@
       link.addEventListener("click", function (ev) { ev.stopPropagation(); });
       li.appendChild(link);
     }
-    if ((e.type === "paste" && e.origin !== "internal") || gap) li.className = "attn";
+    if ((e.type === "paste" && e.origin !== "internal") || gap || (e.type === "screen" && e.state !== "sharing")) li.className = "attn";
     li.addEventListener("click", function () { jump(index); });
     marksEl.appendChild(li);
   });

@@ -18,9 +18,13 @@ paths=(/srv/aijudge)
 if [ -n "${AIJUDGE_ACTIVITY_DIR:-}" ] && [ -d "${AIJUDGE_ACTIVITY_DIR}" ]; then
   paths+=("${AIJUDGE_ACTIVITY_DIR}")
 fi
+# 試験中の画面の静止画（作業の記録の下の `stills/`）は**取らない**（ADR 0027 §5・
+# 動画と同じ 2026-09-25 の決定）。通知や他のアプリが写り込むので、消したあとに
+# バックアップに残すと、学習者に告知した保存期間が偽りになる。
 restic backup "${paths[@]}" --tag aijudge-offbox \
   --exclude /srv/aijudge/lost+found \
-  --exclude "/srv/aijudge/.Trash-*"
+  --exclude "/srv/aijudge/.Trash-*" \
+  --exclude 'stills'
 # オフボックスは**本番が壊れても過去 6 ヶ月のどの時点にも戻せる**ように月次を
 # 6 本残す（2026-09-24 決定。以前は 12 本）。
 #

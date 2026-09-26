@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
 
 from aijudge_audit import AuditAction
@@ -48,6 +48,7 @@ from aijudge_ide.flags import Flag, flag_events, shared_paste_flags, submission_
 
 from .audit_context import recorder_for
 from .submissions import adopted_ids, version_max_scores
+from .urls import root_prefix
 
 # 行動記録の本体の置き場所（web と同じ変数・`aijudge_studentweb.cli`）。
 ENV_ACTIVITY_DIR = "AIJUDGE_ACTIVITY_DIR"
@@ -408,13 +409,26 @@ def register(templates: Jinja2Templates) -> APIRouter:
             for e in events
             if e.get("type") == "submit" and str(e.get("submission_id")) in submissions
         }
+        # 試験中の画面の静止画（ADR 0027）。本体は 1 枚ずつ別の経路で配る。
+        prefix = root_prefix()
+        stills = [
+            {
+                "t": still.t,
+                "kind": still.kind,
+                # **経路は短く**。要求のパスはログの文脈に載り、128 文字を超えると
+                # 要求ごと落ちる（コースと学習者を入れると 177 文字になった）。
+                "url": f"{prefix}/activity/stills/{session.id}/{still.name}",
+            }
+            for still in files.stills(session)
+        ]
         _audit(
             request,
             me,
             str(course.id),
             f"{course.id}:{learner_id}",
             "再生",
-            {"session_id": str(session.id)},
+            # 静止画を見せたときは枚数も残す（撮らない課題では今までと同じ行）。
+            {"session_id": str(session.id)} | ({"stills": len(stills)} if stills else {}),
         )
         return templates.TemplateResponse(
             request,
@@ -439,11 +453,39 @@ def register(templates: Jinja2Templates) -> APIRouter:
                         "titles": [title for _task_id, title in tabs],
                         "flags": flags,
                         "submissions": submitted,
+                        "stills": stills,
                         "tab": tab,
                     },
                     ensure_ascii=False,
                     default=str,
                 ).replace("<", "\\u003c"),
+            },
+        )
+
+    @router.get("/activity/stills/{session_id}/{name}")
+    def session_still(request: Request, session_id: str, name: str) -> Response:
+        """静止画を 1 枚配る（ADR 0027 §4）。**そのコースの担当教員だけ**（TA には開けない）。
+
+        コースはセッションから引く（経路を短く保つため）。閲覧の監査は再生の画面を
+        開いたときに残す（1 枚ごとに残すと、1 回の閲覧で数百行になる）。
+        """
+        console = request.app.state.aijudge
+        root = activity_root()
+        with console.database.unit_of_work() as uow:
+            session = uow.ide_activity.get_session(IdeSessionId(session_id))
+        if root is None or session is None:
+            raise HTTPException(status_code=404, detail="画像が見つかりません")
+        _instructor(request, str(session.course_id))
+        payload = ActivityFiles(root).read_still(session, name)
+        if payload is None:
+            raise HTTPException(status_code=404, detail="画像が見つかりません")
+        return Response(
+            content=payload,
+            media_type="image/jpeg",
+            headers={
+                "Cache-Control": "private, max-age=3600",
+                "X-Content-Type-Options": "nosniff",
+                "Content-Security-Policy": "default-src 'none'; sandbox",
             },
         )
 

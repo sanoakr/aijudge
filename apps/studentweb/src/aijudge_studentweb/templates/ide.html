@@ -66,6 +66,28 @@
   <button type="button" class="go" data-ide-consent-accept>確認して始める</button>
 </section>
 
+{# 試験中の画面の静止画（ADR 0027 §3・§6）。**共有するまでエディタを始めない。**
+   何を撮り、誰が見て、何に使わず、いつ消すかを先に言う。 #}
+{% if screen_capture %}
+<section class="note act ide-consent" data-ide-screen hidden>
+  <h2>この試験では画面全体の静止画を撮ります</h2>
+  <ul>
+    <li><strong>撮るもの</strong>: 共有した画面全体の静止画。5〜15 秒おきと、外から大きく貼り付けたときの前後、この画面を離れた直後に撮ります（動画や音声、カメラは撮りません）</li>
+    <li><strong>見られる人</strong>: このコースの担当教員だけです。誰がいつ見たかも記録されます</li>
+    <li><strong>使わないこと</strong>: 自動で減点したり、不正と判定したりはしません。成績の計算にも使いません</li>
+    <li><strong>保存期間</strong>: 締切から 6 か月で消します。バックアップはしません</li>
+    <li><strong>写り込み</strong>: 通知やほかのアプリも写ります。試験の前に、関係のないアプリや通知を閉じてください</li>
+  </ul>
+  <p><strong>共有を止めると提出できなくなります</strong>（再開すれば提出できます。受付終了時の自動提出は行われます）。</p>
+  <p class="note warn" data-ide-screen-error aria-live="polite"></p>
+  <button type="button" class="go" data-ide-screen-start>画面全体を共有して始める</button>
+</section>
+<p class="note warn" data-ide-screen-stopped hidden>
+  <strong>画面の共有が止まっています。</strong>共有を再開するまで提出できません（書いた内容は自動で保存されます）。
+  <button type="button" data-ide-screen-restart>画面の共有を再開する</button>
+</p>
+{% endif %}
+
 <noscript>
   <p class="note warn">エディタを使うには JavaScript を有効にしてください。
   ファイルで提出する場合は、各課題のページから提出できます。</p>
@@ -207,10 +229,12 @@
   "autosaveMs": autosave_ms,
   "maxBytes": max_source_bytes,
   "needsConsent": needs_consent,
+  "screenCapture": screen_capture,
   "courseId": course.id | string,
   "unit": unit,
   "monacoBase": static_url("vendor/monaco-0.52.2/").split("?")[0]
 } | tojson }}</script>
 <script src="{{ static_url('vendor/monaco-0.52.2/vs/loader.js').split('?')[0] }}"></script>
+{% if screen_capture %}<script src="{{ static_url('screen.js') }}"></script>{% endif %}
 <script src="{{ static_url('ide.js') }}"></script>
 {% endblock %}

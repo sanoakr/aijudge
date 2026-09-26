@@ -905,6 +905,21 @@ class IdeEventBatchRow(Base):
     path: Mapped[str] = mapped_column(String(512))
 
 
+class IdeScreenShareRow(Base):
+    """画面の共有の状態（ADR 0027・#444）。セッションごとに最後の 1 つだけ持つ。
+
+    試験の課題で**共有が止まっている間の手動の提出を断る**ために読む。記録
+    （セッション）と一緒に消す。
+    """
+
+    __tablename__ = "ide_screen_shares"
+
+    ide_session_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    state: Mapped[str] = mapped_column(String(16))
+    surface: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(Timestamp)
+
+
 class IdePasteMarkRow(Base):
     """外からの大きな貼り付けの**指紋だけ**（2026-09-25・`aijudge_ide.PasteMark`）。
 

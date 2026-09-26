@@ -14,9 +14,9 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from aijudge_core.ids import CourseId, TenantId, UserId
-from aijudge_ide import EventBatch, IdeSession, IdeSessionId, PasteMark
+from aijudge_ide import EventBatch, IdeSession, IdeSessionId, PasteMark, ScreenShare
 
-from .schema import IdeEventBatchRow, IdePasteMarkRow, IdeSessionRow
+from .schema import IdeEventBatchRow, IdePasteMarkRow, IdeScreenShareRow, IdeSessionRow
 
 
 class SqlActivityIndex:
@@ -118,6 +118,9 @@ class SqlActivityIndex:
         self._session.execute(
             delete(IdePasteMarkRow).where(IdePasteMarkRow.ide_session_id.in_(keys))
         )
+        self._session.execute(
+            delete(IdeScreenShareRow).where(IdeScreenShareRow.ide_session_id.in_(keys))
+        )
         result = self._session.execute(delete(IdeSessionRow).where(IdeSessionRow.id.in_(keys)))
         self._session.flush()
         return int(result.rowcount or 0)  # type: ignore[attr-defined]
@@ -143,6 +146,9 @@ class SqlActivityIndex:
                 delete(IdePasteMarkRow).where(IdePasteMarkRow.ide_session_id.in_(list(rows)))
             )
             self._session.execute(
+                delete(IdeScreenShareRow).where(IdeScreenShareRow.ide_session_id.in_(list(rows)))
+            )
+            self._session.execute(
                 delete(IdeSessionRow).where(IdeSessionRow.course_id == str(course_id))
             )
             self._session.flush()
@@ -165,6 +171,29 @@ class SqlActivityIndex:
             session
             for session in (self.get_session(IdeSessionId(row)) for row in rows)
             if session is not None
+        )
+
+    def set_screen_share(self, share: ScreenShare) -> None:
+        row = self._session.get(IdeScreenShareRow, str(share.ide_session_id))
+        if row is None:
+            row = IdeScreenShareRow(ide_session_id=str(share.ide_session_id))
+            self._session.add(row)
+        row.state = share.state.value
+        row.surface = share.surface
+        row.updated_at = share.updated_at
+        self._session.flush()
+
+    def screen_share(self, session_id: IdeSessionId) -> ScreenShare | None:
+        row = self._session.get(IdeScreenShareRow, str(session_id))
+        if row is None:
+            return None
+        return ScreenShare.model_validate(
+            {
+                "ide_session_id": row.ide_session_id,
+                "state": row.state,
+                "surface": row.surface,
+                "updated_at": row.updated_at,
+            }
         )
 
     def has_consented(self, learner_id: UserId, course_id: CourseId) -> bool:

@@ -11,7 +11,7 @@ from datetime import datetime
 
 from aijudge_core.ids import CourseId, SubmissionId, TaskId, UserId
 
-from .activity import EventBatch, IdeSession, IdeSessionId, PasteMark
+from .activity import EventBatch, IdeSession, IdeSessionId, PasteMark, ScreenShare
 from .buffer import IdeBuffer
 from .links import SubmissionLink
 from .protocols import RunAlreadyPending
@@ -147,6 +147,13 @@ class InMemoryActivityIndex:
         self._sessions: dict[IdeSessionId, IdeSession] = {}
         self._batches: dict[tuple[IdeSessionId, int], EventBatch] = {}
         self._pastes: dict[tuple[IdeSessionId, int, int], PasteMark] = {}
+        self._shares: dict[IdeSessionId, ScreenShare] = {}
+
+    def set_screen_share(self, share: ScreenShare) -> None:
+        self._shares[share.ide_session_id] = share
+
+    def screen_share(self, session_id: IdeSessionId) -> ScreenShare | None:
+        return self._shares.get(session_id)
 
     def start_session(self, session: IdeSession) -> None:
         if session.id in self._sessions:
@@ -220,6 +227,7 @@ class InMemoryActivityIndex:
                 del self._batches[key]
             # 貼り付けの指紋も記録と一緒に消す（残すと、消した記録の痕跡が残る）。
             self._drop_pastes(session_id)
+            self._shares.pop(session_id, None)
         return removed
 
     def delete_for_course(self, course_id: CourseId) -> tuple[IdeSession, ...]:
@@ -229,4 +237,5 @@ class InMemoryActivityIndex:
             for key in [k for k in self._batches if k[0] == session.id]:
                 del self._batches[key]
             self._drop_pastes(session.id)
+            self._shares.pop(session.id, None)
         return doomed

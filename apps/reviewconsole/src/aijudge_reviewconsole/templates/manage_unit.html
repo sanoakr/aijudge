@@ -121,6 +121,21 @@
     </div>
   </div>
 
+  {# 画面の静止画（ADR 0027・#444）。試験で入れる値なので、受け付ける場所の隣に置く。 #}
+  <div class="setting" id="screen-capture">
+    <div class="setting-name">試験中の画面の静止画{% call help() %}
+      この問題セットの<strong>すべての課題</strong>に効きます。学習者は<strong>画面全体を共有しないと受験を始められず</strong>、
+      共有を止めると提出できなくなります（締切時の自動提出は行われます）。
+      5〜15 秒おきと、外からの大きな貼り付け・画面の切り替えの前後に撮ります。
+      見られるのは担当教員だけで、保存期間は動画と同じです。<strong>採点には使いません。</strong>
+    {% endcall %}</div>
+    <div class="setting-value">
+      <label class="check"><input type="checkbox" name="screen_capture" value="1" {{ 'checked' if unit.screen_capture }}>
+        エディタで受験する間、画面全体の静止画を撮る</label>
+      {% if unit.screen_capture_mixed %}<p class="note warn tight">このセットの中で値がばらついています。変えて保存すると、全課題に同じ値が入ります。</p>{% endif %}
+    </div>
+  </div>
+
   {# 答え方（ADR 0026）。**2 つのチェック**（2026-09-24）── 両方（演習の既定）、
      エディタだけ（試験）、ファイルだけ（従来）。両方外すことはできない（保存する側が断る）。 #}
   <div class="setting" id="answer-mode">
@@ -271,7 +286,7 @@
   {# **押す場所を探させない**（KC の画面と同じ `.deskbar`）。画面の底に貼る。 #}
   <div class="deskbar">
     <span class="spacer save-state">
-      {% if saved_key in ['settings', 'unchanged', 'number', 'schedule', 'campus_only', 'answer_mode', 'clear_points', 'completion', 'confidential', 'audience', 'grace'] %}
+      {% if saved_key in ['settings', 'unchanged', 'number', 'schedule', 'campus_only', 'screen_capture', 'answer_mode', 'clear_points', 'completion', 'confidential', 'audience', 'grace'] %}
       <span class="flash" id="saved">{{ saved }}</span>
       {% else %}この問題セットの全課題に反映します{% endif %}
     </span>

@@ -28,7 +28,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import FastAPI, Form, HTTPException, Request, UploadFile
+from fastapi import FastAPI, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
@@ -39,6 +39,7 @@ from aijudge_core import (
     AnswerMode,
     ArtifactKind,
     Course,
+    Role,
     Task,
     TaskVersion,
     allowed_suffixes,
@@ -50,6 +51,8 @@ from aijudge_ide import (
     MAX_BATCH_BYTES,
     MAX_SOURCE_BYTES,
     MAX_STDIN_BYTES,
+    MAX_STILL_BYTES,
+    STILL_KINDS,
     ActivityFiles,
     ActivityRejected,
     BufferTooLarge,
@@ -60,6 +63,8 @@ from aijudge_ide import (
     RefusalReason,
     RunRefused,
     RunRequestId,
+    ScreenShare,
+    ScreenShareState,
     SubmissionLink,
     SubmissionOrigin,
     attachable_suffixes,
@@ -112,6 +117,13 @@ class SessionBody(BaseModel):
     # 告知を読んで「確認して始める」を押したか（ADR 0023 §5）。
     consent: bool = False
     user_agent: str = Field(default="", max_length=1000)
+
+
+class ScreenStateBody(BaseModel):
+    session_id: str = Field(max_length=64)
+    # sharing / stopped / denied / wrong_surface / unsupported（`screen.js` の onState）。
+    state: str = Field(max_length=16)
+    surface: str = Field(default="", max_length=16)
 
 
 class SourceBody(BaseModel):
@@ -198,6 +210,33 @@ def _attempt_no(deps: IdeDeps, submission: Any, task: Task, tenant_id: Any) -> i
     if deps.attempt_number is None:
         return int(submission.attempt)
     return deps.attempt_number(submission, task, tenant_id)
+
+
+#: 共有が止まっているときに手動の提出を断る文言（ADR 0027 §3）。
+SHARE_REQUIRED = (
+    "この試験では、画面全体の共有を続けている間だけ提出できます。"
+    "画面の上の「画面の共有を再開する」から共有し直してください。"
+)
+
+
+def _require_screen_share(deps: IdeDeps, me: Any, task: Task, role: Role, session_id) -> None:
+    """試験の課題では、画面を共有している間だけ手動の提出を受ける（ADR 0027 §3）。
+
+    **見るのは共有の状態だけ**で、画像が届いているかは見ない ── 通信や受け口の
+    不調で試験が止まらないように（ADR 0023 §2）。教員・TA の動作確認は止めない。
+    締切時の自動提出はこの経路を通らない（止めると、ブラウザが落ちた学習者の答案が
+    消える）。
+    """
+    if not task.screen_capture or role is not Role.LEARNER:
+        return
+    share = None
+    if session_id:
+        with deps.state.database.unit_of_work() as uow:
+            session = uow.ide_activity.get_session(IdeSessionId(str(session_id)))
+            if session is not None and session.learner_id == me.user_id:
+                share = uow.ide_activity.screen_share(session.id)
+    if share is None or share.state is not ScreenShareState.SHARING:
+        raise HTTPException(status_code=409, detail=SHARE_REQUIRED)
 
 
 def _require_editor(task: Task) -> None:
@@ -360,6 +399,9 @@ def register_ide_routes(app: FastAPI, deps: IdeDeps, me_dependency: Any) -> None
                 "autosave_ms": AUTOSAVE_INTERVAL_MS,
                 "max_source_bytes": MAX_SOURCE_BYTES,
                 "needs_consent": needs_consent,
+                # 試験中に画面の静止画を撮るか（ADR 0027）。問題セット単位の値なので、
+                # どれか 1 つが撮るならこの画面は撮る。
+                "screen_capture": any(task.screen_capture for task, _ in picked),
                 "unit": wanted or "",
                 **deps.build_context(course_obj, first_task, first_version),
             },
@@ -440,6 +482,7 @@ def register_ide_routes(app: FastAPI, deps: IdeDeps, me_dependency: Any) -> None
         """
         version, course_obj, task_obj, role = deps.gate(request, me, task_version_id)
         _require_editor(task_obj)
+        _require_screen_share(deps, me, task_obj, role, body.ide_session_id)
         chosen = _chosen(deps, task_obj, course_obj, body.suffix)
         if not body.source.strip():
             raise HTTPException(status_code=400, detail="内容が空です")
@@ -525,6 +568,7 @@ def register_ide_routes(app: FastAPI, deps: IdeDeps, me_dependency: Any) -> None
         """
         version, course_obj, task_obj, role = deps.gate(request, me, task_version_id)
         _require_editor(task_obj)
+        _require_screen_share(deps, me, task_obj, role, ide_session_id)
         attach = deps.attachable_for(task_obj, course_obj)
         if not attach or deps.accept_uploads is None:
             raise HTTPException(
@@ -629,6 +673,54 @@ def register_ide_routes(app: FastAPI, deps: IdeDeps, me_dependency: Any) -> None
             uow.commit()
         return JSONResponse({"session_id": str(session.id)}, status_code=201)
 
+    @app.post("/ide/screen/state")
+    def ide_screen_state(body: ScreenStateBody, me: Me) -> JSONResponse:
+        """画面の共有の開始・停止を記録する（ADR 0027 §3）。
+
+        `sharing` 以外（停止・拒否・画面全体でない・非対応）はどれも「共有して
+        いない」として `stopped` で残す。区別は行動記録の `screen` イベントが持つ。
+        """
+        with deps.state.database.unit_of_work() as uow:
+            session = uow.ide_activity.get_session(IdeSessionId(body.session_id))
+            if session is None or session.learner_id != me.user_id:
+                raise HTTPException(status_code=404, detail="記録の束ね先が見つかりません")
+            uow.ide_activity.set_screen_share(
+                ScreenShare(
+                    ide_session_id=session.id,
+                    state=(
+                        ScreenShareState.SHARING
+                        if body.state == "sharing"
+                        else ScreenShareState.STOPPED
+                    ),
+                    surface=body.surface or None,
+                    updated_at=deps.now(),
+                )
+            )
+            uow.commit()
+        return JSONResponse({"state": body.state})
+
+    @app.post("/ide/screen")
+    async def ide_screen_still(
+        request: Request,
+        me: Me,
+        session_id: Annotated[str, Query(max_length=64)],
+        kind: Annotated[str, Query(max_length=16)],
+        t: Annotated[float, Query(ge=0)] = 0.0,
+    ) -> JSONResponse:
+        """静止画を 1 枚受ける（ADR 0027 §2）。本文は JPEG そのもの。
+
+        **受け口は軽く保つ**（行動記録と同じ）。形を確かめてファイルに書くだけ。
+        書けなければ `503 + Retry-After` で、画面は無理に送り直さない（欠落として残る）。
+        """
+        if kind not in STILL_KINDS:
+            raise HTTPException(status_code=400, detail="静止画の種類が不正です")
+        raw = await request.body()
+        if len(raw) > MAX_STILL_BYTES:
+            raise HTTPException(status_code=413, detail="静止画が大きすぎます")
+        if not raw.startswith(b"\xff\xd8\xff"):
+            raise HTTPException(status_code=400, detail="JPEG ではありません")
+        return await run_in_threadpool(_store_still, deps, me, session_id, kind, t, raw)
+
     @app.post("/ide/activity")
     async def ide_activity(request: Request, me: Me) -> JSONResponse:
         """行動記録の 1 バッチを受ける（ADR 0023・設計書 §6.3）。
@@ -662,6 +754,28 @@ def register_ide_routes(app: FastAPI, deps: IdeDeps, me_dependency: Any) -> None
         return await run_in_threadpool(
             _store_batch, deps, me, session_id, seq, events, snapshots, client_time
         )
+
+
+def _store_still(
+    deps: IdeDeps, me: Any, session_id: str, kind: str, t: float, payload: bytes
+) -> JSONResponse:
+    retry = {"Retry-After": str(ACTIVITY_RETRY_AFTER_SECONDS)}
+    with deps.state.database.unit_of_work() as uow:
+        session = uow.ide_activity.get_session(IdeSessionId(session_id))
+    if session is None or session.learner_id != me.user_id:
+        raise HTTPException(status_code=404, detail="記録の束ね先が見つかりません")
+    if deps.state.activity_dir is None:
+        return JSONResponse(
+            {"detail": "記録の置き場所がありません"}, status_code=503, headers=retry
+        )
+    try:
+        name = ActivityFiles(deps.state.activity_dir).write_still(
+            session, kind=kind, t=t, received=deps.now(), payload=payload
+        )
+    except OSError:
+        logger.warning("could not write a screen still", extra={"ide_session_id": session.id})
+        return JSONResponse({"detail": "静止画を書けませんでした"}, status_code=503, headers=retry)
+    return JSONResponse({"stored": name}, status_code=201)
 
 
 def _store_batch(

@@ -55,6 +55,7 @@ def test_the_page_has_one_form_and_one_save_button(world: World) -> None:
         "/completion",
         "/confidential",
         "/auto-finalize",
+        "/screen-capture",
     ):
         assert f'/units/{unit}{gone}"' not in page, f"{gone} の保存ボタンが残っている"
 
@@ -73,6 +74,7 @@ def test_everything_sent_together_is_saved_together(world: World) -> None:
             campus_only="1",
             clear_points="5",
             after_minutes="30",
+            screen_capture="1",
         ),
         follow_redirects=False,
     )
@@ -85,6 +87,7 @@ def test_everything_sent_together_is_saved_together(world: World) -> None:
     assert task.campus_only is True
     assert task.clear_points == 5
     assert task.auto_finalize_after_minutes == 30
+    assert task.screen_capture is True
 
 
 def test_a_refusal_writes_nothing(world: World) -> None:
