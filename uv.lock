@@ -410,6 +410,7 @@ name = "aijudge-grader"
 version = "0.0.1"
 source = { editable = "apps/grader" }
 dependencies = [
+    { name = "aijudge-admin" },
     { name = "aijudge-authoring" },
     { name = "aijudge-core" },
     { name = "aijudge-feedback" },
@@ -423,6 +424,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aijudge-admin", editable = "apps/admin" },
     { name = "aijudge-authoring", editable = "packages/authoring" },
     { name = "aijudge-core", editable = "packages/core" },
     { name = "aijudge-feedback", editable = "packages/feedback" },
