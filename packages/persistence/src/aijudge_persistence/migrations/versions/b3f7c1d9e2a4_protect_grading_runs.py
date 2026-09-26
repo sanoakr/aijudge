@@ -50,8 +50,9 @@ BEGIN
        OR NEW.created_at IS DISTINCT FROM OLD.created_at
        OR (NEW.document - 'superseded_by') IS DISTINCT FROM (OLD.document - 'superseded_by')
     THEN
-        RAISE EXCEPTION 'grading_runs is append-only (ADR 0003): run % may change only superseded_by and final_ratio', OLD.id
-            USING ERRCODE = 'restrict_violation';
+        RAISE EXCEPTION 'grading_runs is append-only (ADR 0003): run %', OLD.id
+            USING ERRCODE = 'restrict_violation',
+                  HINT = 'only superseded_by and final_ratio may change';
     END IF;
     RETURN NEW;
 END;
