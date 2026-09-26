@@ -418,7 +418,11 @@ Me = Annotated[Principal, Depends(require_principal)]
 
 
 def create_app(app_state: StudentApp) -> FastAPI:
-    app = FastAPI(title="aiJudge")
+    # **API の説明ページを出さない**（2026-09-27）。FastAPI の既定では `/docs`・`/redoc`・
+    # `/openapi.json` がログインなしで開き、全ルートと各経路の入力の形が誰にでも読めた
+    # （運用機で 200 を返していた）。使っている人はいない ── API を使う人にはリポジトリの
+    # 文書がある。ルートの写し（`tests/routes_*.txt`）が、戻ったときに落とす。
+    app = FastAPI(title="aiJudge", docs_url=None, redoc_url=None, openapi_url=None)
     app.state.aijudge = app_state
 
     # 共有の CSS（#184）。**セッションを要らない経路にする** ── ここの認証は

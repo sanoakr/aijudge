@@ -86,3 +86,13 @@ def test_the_routes_are_exactly_the_snapshot(tmp_path: Path) -> None:
         + "".join(f"  - 消えた: {line}\n" for line in missing)
         + "".join(f"  + 増えた: {line}\n" for line in added)
     )
+
+
+def test_the_api_description_pages_are_not_served() -> None:
+    """**`/docs`・`/redoc`・`/openapi.json` を出さない**（2026-09-27）。FastAPI の既定では
+    ログインなしで開き、全ルートと各経路の入力の形が誰にでも読めた。"""
+    listed = SNAPSHOT.read_text(encoding="utf-8")
+    for path in (" /docs ", " /redoc ", " /openapi.json "):
+        assert path not in listed, (
+            f"{path.strip()} が戻っている（FastAPI の docs_url 等を None に）"
+        )
