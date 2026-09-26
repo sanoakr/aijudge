@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>画面撮影の実測</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { --bg: #fff; --fg: #1d1d1f; --muted: #6b6b6b; --line: #d8d8d8; --ok: #1a7f37; --ng: #b42318; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #161616; --fg: #ececec; --muted: #9a9a9a; --line: #333; --ok: #5bd07a; --ng: #ff7b72; }
+  }
+  body { background: var(--bg); color: var(--fg); font: 15px/1.6 system-ui, sans-serif; margin: 0 auto; max-width: 880px; padding: 16px; }
+  button { font: inherit; padding: 6px 14px; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { border-bottom: 1px solid var(--line); padding: 4px 6px; text-align: left; font-variant-numeric: tabular-nums; }
+  .muted { color: var(--muted); }
+  .ok { color: var(--ok); font-weight: 600; } .ng { color: var(--ng); font-weight: 600; }
+  pre { white-space: pre-wrap; background: color-mix(in srgb, var(--fg) 6%, transparent); padding: 8px; }
+</style>
+</head>
+<body>
+<h1>画面撮影の実測（#444）</h1>
+<p>本番と同じ撮影の仕組み（<code>screen.js</code>）で、<strong>タブを隠している間も撮れるか</strong>を確かめます。</p>
+<ol>
+  <li>「開始」を押し、<strong>画面全体</strong>を共有する</li>
+  <li>このタブのまま 30 秒待つ</li>
+  <li>別のタブ（またはアプリ）に切り替えて <strong>90 秒</strong>待ち、戻ってくる。途中でウィンドウを最小化してもよい</li>
+  <li>「結果」を押し、表を報告する（画像はどこにも送りません）</li>
+</ol>
+<p>
+  <button id="start">開始</button>
+  <button id="report" disabled>結果</button>
+  <button id="stop" disabled>停止</button>
+</p>
+<p id="status" class="muted">未開始</p>
+<table id="summary" hidden>
+  <thead><tr><th>状態</th><th>撮影数（定期）</th><th>最大の間隔</th><th>離脱の後の撮影</th><th>判定</th></tr></thead>
+  <tbody></tbody>
+</table>
+<h2>記録</h2>
+<pre id="log"></pre>
+<script src="screen.js"></script>
+<script>
+(function () {
+  var shots = [];
+  var switches = [];
+  var controller = null;
+  var info = {};
+  var t0 = performance.now();
+  var log = document.getElementById("log");
+  function note(line) { log.textContent = line + "\n" + log.textContent; }
+  function sec(ms) { return (ms / 1000).toFixed(1) + "s"; }
+
+  document.addEventListener("visibilitychange", function () {
+    var t = performance.now();
+    switches.push({ t: t, hidden: document.hidden });
+    note(sec(t - t0) + (document.hidden ? " 隠れた" : " 戻った"));
+    if (document.hidden && controller) controller.captureSoon("blur", 1500);
+  });
+
+  document.getElementById("start").onclick = function () {
+    AijudgeScreen.start({
+      // 実測では重複を間引かない（画面が動かないと定期撮影が送られず、間隔が測れない）。
+      sameThreshold: -1,
+      onFrame: function (blob, meta) {
+        shots.push({ t: meta.t, kind: meta.kind, hidden: meta.hidden, bytes: blob.size, method: meta.method });
+        note(sec(meta.t - t0) + " " + meta.kind + (meta.hidden ? "（隠れている間）" : "") + " " + Math.round(blob.size / 1024) + "KB " + meta.width + "x" + meta.height);
+      },
+      onState: function (state, detail) {
+        info[state] = detail;
+        document.getElementById("status").textContent = "状態: " + state + " " + JSON.stringify(detail);
+        note(sec(performance.now() - t0) + " state " + state + " " + JSON.stringify(detail));
+      },
+    }).then(function (c) {
+      controller = c;
+      document.getElementById("report").disabled = false;
+      document.getElementById("stop").disabled = false;
+    }).catch(function (e) { note("開始できません: " + e); });
+  };
+  document.getElementById("stop").onclick = function () { if (controller) controller.stop(); };
+
+  document.getElementById("report").onclick = function () {
+    function hiddenAt(t) {
+      var h = false;
+      switches.forEach(function (s) { if (s.t <= t) h = s.hidden; });
+      return h;
+    }
+    var randoms = shots.filter(function (s) { return s.kind === "random"; });
+    var rows = [false, true].map(function (hidden) {
+      var own = randoms.filter(function (s) { return s.hidden === hidden; });
+      var gaps = [];
+      for (var i = 1; i < randoms.length; i++) {
+        if (hiddenAt(randoms[i].t) === hidden && hiddenAt(randoms[i - 1].t) === hidden) gaps.push(randoms[i].t - randoms[i - 1].t);
+      }
+      var max = gaps.length ? Math.max.apply(null, gaps) : null;
+      var blurs = shots.filter(function (s) { return s.kind === "blur"; }).length;
+      var ok = own.length > 0 && max !== null && max <= 20000;
+      return "<tr><td>" + (hidden ? "隠れている間" : "表示中") + "</td><td>" + own.length +
+        "</td><td>" + (max === null ? "—" : sec(max)) + "</td><td>" + (hidden ? blurs : "—") +
+        "</td><td class='" + (ok ? "ok'>撮れている" : "ng'>間引かれている／足りない") + "</td></tr>";
+    });
+    var table = document.getElementById("summary");
+    table.hidden = false;
+    table.querySelector("tbody").innerHTML = rows.join("");
+    note("UA: " + navigator.userAgent);
+    note("共有: " + JSON.stringify(info.sharing || {}));
+  };
+})();
+</script>
+</body>
+</html>
