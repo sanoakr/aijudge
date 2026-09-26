@@ -106,7 +106,9 @@
           <summary>取り消し</summary>
           <form method="post"
                 action="{{ root_prefix() }}/manage/courses/{{ course.id }}/enrolments/{{ row.enrollment.user_id }}/remove"
-                onsubmit="return confirm('{{ row.login }} の受講を取り消します。このコースに入れなくなります（利用者と提出の記録は消えません）。')">
+                data-confirm-title="{{ row.login }} の受講を取り消しますか"
+                data-confirm="このコースに入れなくなります。利用者と提出の記録は消えません。"
+                data-confirm-danger="1">
             <p class="desc">提出の記録は残ります。</p>
             <button type="submit" class="minor">受講の取り消し</button>
           </form>

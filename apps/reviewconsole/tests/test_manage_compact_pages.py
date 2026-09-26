@@ -67,7 +67,7 @@ def test_removing_an_enrolment_is_folded_and_confirmed(world: World) -> None:
     folded = re.search(r'<details class="quiet-danger">(.*?)</details>', page, re.S)
     assert folded, "取り消しが畳まれていない"
     assert f"/enrolments/{learner.user_id}/remove" in folded.group(1)
-    assert "confirm(" in folded.group(1)
+    assert "data-confirm=" in folded.group(1)
     # 畳んだ外側に、取り消しのボタンが出ていない。
     outside = page.replace(folded.group(0), "")
     assert f"/enrolments/{learner.user_id}/remove" not in outside
