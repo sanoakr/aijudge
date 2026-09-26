@@ -15,6 +15,7 @@ from .gateway import (
     StructuredResult,
     extract_json,
 )
+from .injection import instruction_lines, instruction_notice
 from .provider import (
     EmbeddingProvider,
     FallbackProvider,
@@ -159,4 +160,6 @@ __all__ = [
     "default_vision_gateway",
     "default_vision_model",
     "extract_json",
+    "instruction_lines",
+    "instruction_notice",
 ]
