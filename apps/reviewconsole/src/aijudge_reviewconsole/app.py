@@ -32,6 +32,7 @@ from __future__ import annotations
 import os
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
 from typing import Annotated
 from urllib.parse import urlencode
@@ -460,30 +461,16 @@ def _state(request: Request) -> Console:
     return request.app.state.aijudge  # type: ignore[no-any-return]
 
 
-#: `request.state.principal` が「まだ引いていない」ことを表す番兵。
-#: **`None` と区別する** ── 署名の無い要求で毎回引き直すのを避ける。
-_UNRESOLVED: object = object()
-
-
 def current_principal(request: Request) -> Principal | None:
-    """署名から主体を引く。**1 要求につき 1 回だけ。**
+    """Cookie のセッションから主体を引く。1 要求につき 1 回（`aijudge_webapp`）。"""
+    return webapp.current_principal(
+        request, cookie=SESSION_COOKIE, resolve=partial(_resolve_session, request)
+    )
 
-    結果を `request.state` に持たせるのは、帯（#189）が context processor
-    から同じ値を要るため ── そこは依存を通れないので、自分で引くと
-    1 ページあたりセッションの解決が 2 回になる。`resolve` は副作用の
-    無い読み取りなので、要求の中で使い回してよい。
-    """
-    cached = getattr(request.state, "principal", _UNRESOLVED)
-    if cached is not _UNRESOLVED:
-        return cached  # type: ignore[return-value]
 
-    token = request.cookies.get(SESSION_COOKIE, "")
-    principal: Principal | None = None
-    if token:
-        with _state(request).database.unit_of_work() as uow:
-            principal = AuthService(uow.identity, audit=uow.audit).resolve(token)
-    request.state.principal = principal
-    return principal
+def _resolve_session(request: Request, token: str) -> Principal | None:
+    with _state(request).database.unit_of_work() as uow:
+        return AuthService(uow.identity, audit=uow.audit).resolve(token)
 
 
 def require_principal(request: Request) -> Principal:

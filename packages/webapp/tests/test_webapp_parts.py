@@ -17,6 +17,8 @@ import pytest
 from fastapi import HTTPException, Request
 
 import aijudge_webapp as webapp
+from aijudge_core.ids import TenantId, UserId
+from aijudge_identity import Principal
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 VIDEO_BYTES = b"0123456789"
@@ -116,3 +118,60 @@ def test_a_range_is_served_as_partial_content() -> None:
     assert response.status_code == 206
     assert response.headers["content-range"] == f"bytes 2-5/{len(VIDEO_BYTES)}"
     assert response.headers["content-length"] == "4"
+
+
+COOKIE = "aijudge_session"
+ALICE = Principal(
+    user_id=UserId("usr_" + "a" * 32),
+    tenant_id=TenantId("ten_" + "0" * 32),
+    login="s2400001",
+    display_name="s2400001",
+)
+
+
+class _Resolver:
+    """呼ばれた回数を数える `resolve`。"""
+
+    def __init__(self, principal: Principal | None) -> None:
+        self.principal = principal
+        self.tokens: list[str] = []
+
+    def __call__(self, token: str) -> Principal | None:
+        self.tokens.append(token)
+        return self.principal
+
+
+def test_the_principal_is_resolved_once_per_request() -> None:
+    """帯（#189）の context processor と依存が同じ値を使う。引くのは 1 回。"""
+    request = _request({"cookie": f"{COOKIE}=tok"})
+    resolve = _Resolver(ALICE)
+    first = webapp.current_principal(request, cookie=COOKIE, resolve=resolve)
+    second = webapp.current_principal(request, cookie=COOKIE, resolve=resolve)
+    assert first == second == ALICE
+    assert resolve.tokens == ["tok"]
+    assert getattr(request.state, webapp.PRINCIPAL_STATE) == ALICE
+
+
+def test_an_invalid_session_is_remembered_as_none() -> None:
+    """`None` も覚える ── 番兵で「まだ引いていない」と区別する。"""
+    request = _request({"cookie": f"{COOKIE}=expired"})
+    resolve = _Resolver(None)
+    assert webapp.current_principal(request, cookie=COOKIE, resolve=resolve) is None
+    assert webapp.current_principal(request, cookie=COOKIE, resolve=resolve) is None
+    assert resolve.tokens == ["expired"]
+
+
+def test_no_cookie_does_not_touch_the_store() -> None:
+    resolve = _Resolver(ALICE)
+    assert webapp.current_principal(_request(), cookie=COOKIE, resolve=resolve) is None
+    assert resolve.tokens == []
+
+
+def test_each_request_resolves_afresh() -> None:
+    """キャッシュは要求をまたがない（ログアウトした次の要求は引き直す）。"""
+    resolve = _Resolver(ALICE)
+    for _ in range(2):
+        webapp.current_principal(
+            _request({"cookie": f"{COOKIE}=tok"}), cookie=COOKIE, resolve=resolve
+        )
+    assert resolve.tokens == ["tok", "tok"]

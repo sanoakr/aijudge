@@ -88,6 +88,10 @@ grader → admin.justification）を列挙して `ignore_imports` に入れ、�
    → **前半は済み**: 4 つを `packages/webapp` に移した（契約 `webapp-is-for-the-apps`
    で、import できるのはアプリだけ）。`_serve_video` は状態オブジェクトの代わりに
    store を受け取る形にした（両アプリの違いはどちらの属性から取るかだけだった）  
+   → **後半も済み**: `current_principal` も `webapp` に移し、学習者アプリにも要求内の
+   キャッシュを入れた。確かめたこと: 学習者アプリで主体を引くのは要求の冒頭だけで、
+   状態を変えた後に同じ要求で引き直す経路は無い（`resolve` は副作用の無い読み取り）。
+   保存先を開く部分はアプリに残し、関数として渡す（`webapp` は保存層を import しない）  
 1-3. `CourseRow` を直接読む SQL（`operations.list_courses`・`finalization._courses`）を
 保存層のメソッドに置き換える（`kc.py` が `finalization._courses` を import している
 結合もここで解く）

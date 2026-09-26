@@ -26,6 +26,7 @@ import logging
 
 from fastapi import Request
 
+import aijudge_webapp as webapp
 from aijudge_core import Role, Routing, grace_minutes
 from aijudge_core.ids import CourseId
 
@@ -55,7 +56,7 @@ def rail_context(request: Request):
     衝突するとハンドラが渡した値が黙って消える。
     """
     console = getattr(request.app.state, "aijudge", None)
-    principal = getattr(request.state, "principal", None)
+    principal = getattr(request.state, webapp.PRINCIPAL_STATE, None)
     if console is None or principal is None:
         # ログイン前の画面（`/login`・`/auth/…`）。**帯を出すものが無い** ──
         # 誰の担当コースかも決まっていない。

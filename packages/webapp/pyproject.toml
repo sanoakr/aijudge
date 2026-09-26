@@ -1,7 +1,7 @@
 [project]
 name = "aijudge-webapp"
 version = "0.0.1"
-description = "Parts both web apps share: version and copyright footer, counterpart URL, video streaming"
+description = "Parts both web apps share: footer, counterpart URL, video streaming, the request principal"
 requires-python = ">=3.12"
 # `webui` は資産だけを持ち依存を持たない約束なので、HTTP を知る共有部品は
 # こちらに置く（docs/design/staged-refactor.md §2）。**保存層は入れない** ──
@@ -10,6 +10,8 @@ dependencies = [
     "aijudge-core",
     # 動画の Range 配信（`parse_range`・`iter_file`・`StreamingArtifactStore`）。
     "aijudge-submission",
+    # 主体の型（`Principal`）。解決そのもの（保存先を開く）はアプリが渡す。
+    "aijudge-identity",
     "fastapi>=0.115",
 ]
 
@@ -23,3 +25,4 @@ packages = ["src/aijudge_webapp"]
 [tool.uv.sources]
 aijudge-core = { workspace = true }
 aijudge-submission = { workspace = true }
+aijudge-identity = { workspace = true }

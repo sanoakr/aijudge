@@ -344,10 +344,13 @@ def _state(request: Request) -> StudentApp:
 
 
 def current_principal(request: Request) -> Principal | None:
-    """Cookie のセッションから主体を引く。無ければ None。"""
-    token = request.cookies.get(SESSION_COOKIE, "")
-    if not token:
-        return None
+    """Cookie のセッションから主体を引く。1 要求につき 1 回（`aijudge_webapp`）。"""
+    return webapp.current_principal(
+        request, cookie=SESSION_COOKIE, resolve=partial(_resolve_session, request)
+    )
+
+
+def _resolve_session(request: Request, token: str) -> Principal | None:
     with _state(request).database.unit_of_work() as uow:
         return AuthService(uow.identity, audit=uow.audit).resolve(token)
 
