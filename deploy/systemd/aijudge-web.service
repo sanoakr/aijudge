@@ -1,6 +1,8 @@
 # 学習者アプリ。
 [Unit]
 Description=aiJudge learner web
+# 失敗したらメールで知らせる（#422）。
+OnFailure=aijudge-notify@%n.service
 PartOf=aijudge.target
 After=network-online.target postgresql.service
 Wants=postgresql.service

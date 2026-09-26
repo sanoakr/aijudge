@@ -3,6 +3,8 @@
 # （本数の目安は docs/RUNNING.md の実測を参照。受講規模で調整する）。
 [Unit]
 Description=aiJudge worker (AI phase, instance %i)
+# 失敗したらメールで知らせる（#422）。
+OnFailure=aijudge-notify@%n.service
 PartOf=aijudge.target
 After=network-online.target postgresql.service docker.service
 Wants=postgresql.service

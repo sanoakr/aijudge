@@ -119,7 +119,9 @@ error: Your local changes to the following files would be overwritten by checkou
 学生にも教員にも何も起きないので、気づかない。実際に v0.35.1 でこれが起き、
 **8 リリース分（v0.36.0 〜 v0.43.0）がデプロイされないまま 2 日走っていた**。
 
-気づく側の手当てはこれ。CD は失敗を journal にしか残さないので、たまに見る。
+気づく側の手当てはこれ。**失敗した unit はメールで届く**（`OnFailure=aijudge-notify@%n`、#422）。
+学生画面とコンソールの `/login` も 5 分ごとに外から叩き、状態が変わったときに
+知らせる（`aijudge-http-check.timer`）。手で確かめるときは:
 
 ```fish
 systemctl is-failed aijudge-autodeploy.service        # failed なら止まっている

@@ -11,6 +11,8 @@
 # 平常にする理由が無い。サンドボックスは使わないので docker には依存しない。
 [Unit]
 Description=aiJudge event relay (outbox -> subscribers)
+# 失敗したらメールで知らせる（#422）。
+OnFailure=aijudge-notify@%n.service
 PartOf=aijudge.target
 After=network-online.target postgresql.service
 Wants=postgresql.service
