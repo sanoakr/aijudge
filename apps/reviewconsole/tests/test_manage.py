@@ -5080,7 +5080,7 @@ def test_the_unit_page_offers_generation_only_with_components(world: World) -> N
     world.register("boss", Role.ADMIN)
     _use_kc(world, "cs.loops.control.basic", "ループ")
     body = client.get(f"/manage/courses/{world.course.id}/units/{_unit_of(world)}").text
-    assert "AI に課題を作らせる" in body
+    assert "AI にこのセットの課題を作らせる" in body
     assert 'name="kc"' in body
 
 
