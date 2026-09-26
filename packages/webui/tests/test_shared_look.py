@@ -28,6 +28,9 @@ def test_the_assets_are_shipped_with_the_package() -> None:
         "console.css",
         # ブラウザ IDE の画面（`docs/design/online-coding-test.md` §5）。
         "ide.js",
+        # 試験中の画面の静止画（ADR 0027）と、その実測ページ（画像はどこにも送らない）。
+        "screen.js",
+        "screen_probe.html",
         # エディタ本体（Monaco 0.52.2、MIT）。**同じ配信元から配る** ── 外部の
         # CDN から読むと、試験の画面が学外のサービスに依存する（P7）。
         "vendor",
