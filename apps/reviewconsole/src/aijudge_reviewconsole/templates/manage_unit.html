@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_help.html" import help %}
 {% block title %}{{ unit.label }} — {{ course.title }} — aiJudge{% endblock %}
 {% block body %}
 <h1>問題セット {{ unit.unit or unit.label }}</h1>
@@ -27,136 +28,97 @@
 </div>
 {% endif %}
 
-<h2 id="number">回番号</h2>
-<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/units/{{ unit.key }}/number"
-      class="card">
-  <div class="inline-field">
-    <span class="body">
-      <label for="session">第 N 回（並べ替えと表示に使います。採点には効きません）</label>
+{# **設定は 1 つのフォームで、保存ボタンは画面の底に 1 つ**（2026-09-26）。
+   以前は節ごとに保存ボタンがあり（9 つ）、1 つを押すと頁が読み直されて、
+   他の節で書きかけていた値が黙って消えた。保存する側は**変えた項目だけ**を
+   全課題に入れる（`save_unit_settings`）── ばらついている値を、触っていない
+   節の保存で揃えてしまわないため。
+
+   **説明は ⓘ に畳む**（`_help.html`）。1 項目に 2〜5 行の説明が付いて、1 画面に
+   入る設定が 2〜3 個しかなかった。ばらつき・未設定の警告は畳まない ──
+   説明ではなく、いまの状態である。 #}
+<form method="post" id="unit-settings" class="card settings" data-save-all
+      action="{{ root_prefix() }}/manage/courses/{{ course.id }}/units/{{ unit.key }}/settings">
+
+  <h3 class="settings-group">日程</h3>
+  <div class="setting" id="number">
+    <div class="setting-name"><label for="session">回番号</label>{% call help() %}
+      第 N 回。並べ替えと表示に使います。<strong>採点には効きません。</strong>{% endcall %}</div>
+    <div class="setting-value">
       <input id="session" name="session" type="number" min="0" style="max-width:8rem"
              {# **`or` を使わない。** `0` は「未設定」ではなく第 0 回である（#86）。
                `0 or ''` は空になるので、画面を開いて保存し直すだけで
                設定した 0 が消えていた。 #}
              value="{{ unit.session if unit.session is not none else '' }}">
-    </span>
-    {% if saved_key == 'number' %}<span class="flash" id="saved">{{ saved }}</span>{% endif %}
-    <button type="submit">保存</button>
+    </div>
   </div>
-</form>
 
-<h2 id="schedule">日程</h2>
-{# **日程は問題セットの性質。** 課題ごとに違う締切を持てると、同じセットの
-   中で締切がずれ、学習者にも教員にも「この回はいつまでか」が言えなくなる。
-
-   自動確定と回番号は別のフォームにしてある ── 効き方が違うものを 1 つの
-   保存ボタンにまとめると、何が変わったのか教員に分からない。 #}
-<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/units/{{ unit.key }}/schedule"
-      class="card">
-  {# 3 つとも 1 行に収まるので、ボタンも同じ行の右端に置く。 #}
-  <div class="field row-form">
-    <span><label for="opens_at">公開</label>
-      <input id="opens_at" name="opens_at" type="datetime-local"
-             value="{{ unit.opens_at | local('%Y-%m-%dT%H:%M') if unit.opens_at else '' }}"></span>
-    <span><label for="submissions_open_at">提出開始</label>
-      <input id="submissions_open_at" name="submissions_open_at" type="datetime-local"
-             value="{{ unit.submissions_open_at | local('%Y-%m-%dT%H:%M') if unit.submissions_open_at else '' }}"></span>
-    <span><label for="due_at">提出締切</label>
-      <input id="due_at" name="due_at" type="datetime-local"
-             value="{{ unit.due_at | local('%Y-%m-%dT%H:%M') if unit.due_at else '' }}"></span>
-    {# 受付終了（#73）。**締切とは別。** 締切は「ここから減点が始まる」で、
-       こちらは「ここで受け付けを終える」── 間にあるのが減点提出できる時間。 #}
-    <span><label for="accepts_until">受付終了</label>
-      <input id="accepts_until" name="accepts_until" type="datetime-local"
-             value="{{ unit.accepts_until | local('%Y-%m-%dT%H:%M') if unit.accepts_until else '' }}"></span>
-    {# 採点開始は試験のための値（#67）。**締切とは別に持つ** ── 試験の終了と
-       採点の開始はふつう同じ時刻だが、同じ値にすると延長のたびに採点開始も
-       動く。 #}
-    <span><label for="grading_starts_at">採点開始</label>
-      <input id="grading_starts_at" name="grading_starts_at" type="datetime-local"
-             value="{{ unit.grading_starts_at | local('%Y-%m-%dT%H:%M') if unit.grading_starts_at else '' }}"></span>
-    {% if saved_key == 'schedule' %}<span class="flash" id="saved">{{ saved }}</span>{% endif %}
-    <button type="submit">日程を保存</button>
-  </div>
-  <p class="desc" style="margin:10px 0 0">
-    <strong>提出開始が空なら、公開と同時に受け付けます。</strong>
-    公開前の問題セットは学習者の画面に出ません。
-    <strong>受付終了が空なら、締切を過ぎても無期限に受け付けます</strong>（減点は付きます）。
-    時刻を入れると、そこで提出できなくなります。締切から受付終了までが
-    「減点して提出できる時間」です。
-    <br>
-    <strong>採点開始が空なら、提出と同時に採点します</strong>（通常の課題）。
-    <strong>試験では、ここに時刻を入れてください</strong> — テスト実行の結果は
-    「どのケースで落ちたか」を含むので、試験中に返すと答えの一部を返すことになります。
-    採点しないだけで、提出は受け付けます。
-  </p>
-</form>
-
-{# 学内限定（#333）。**日程の隣に置く** ── どちらも「いつ・どこから出せるか」
-   を決める値で、セット単位で決まる。 #}
-<h2 id="campus">受け付ける場所</h2>
-<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/units/{{ unit.key }}/campus-only"
-      class="card">
-  <div class="inline-field">
-    <span class="body desc">
-      <label class="check">
-        <input type="checkbox" name="campus_only" value="1" {{ 'checked' if unit.campus_only }}>
-        <strong>学内からだけ受け付ける</strong>
-      </label>
+  {# **日程は問題セットの性質。** 課題ごとに違う締切を持てると、同じセットの
+     中で締切がずれ、学習者にも教員にも「この回はいつまでか」が言えなくなる。 #}
+  <div class="setting" id="schedule">
+    <div class="setting-name">日程{% call help() %}
+      <strong>提出開始が空なら、公開と同時に受け付けます。</strong>
+      公開前の問題セットは学習者の画面に出ません。
+      <strong>受付終了が空なら、締切を過ぎても無期限に受け付けます</strong>（減点は付きます）。
+      時刻を入れると、そこで提出できなくなります。締切から受付終了までが
+      「減点して提出できる時間」です。
       <br>
+      <strong>採点開始が空なら、提出と同時に採点します</strong>（通常の課題）。
+      <strong>試験では、ここに時刻を入れてください</strong> — テスト実行の結果は
+      「どのケースで落ちたか」を含むので、試験中に返すと答えの一部を返すことになります。
+      採点しないだけで、提出は受け付けます。
+    {% endcall %}</div>
+    <div class="setting-value schedule-grid">
+      <span><label for="opens_at">公開</label>
+        <input id="opens_at" name="opens_at" type="datetime-local"
+               value="{{ unit.opens_at | local('%Y-%m-%dT%H:%M') if unit.opens_at else '' }}"></span>
+      <span><label for="submissions_open_at">提出開始</label>
+        <input id="submissions_open_at" name="submissions_open_at" type="datetime-local"
+               value="{{ unit.submissions_open_at | local('%Y-%m-%dT%H:%M') if unit.submissions_open_at else '' }}"></span>
+      <span><label for="due_at">提出締切</label>
+        <input id="due_at" name="due_at" type="datetime-local"
+               value="{{ unit.due_at | local('%Y-%m-%dT%H:%M') if unit.due_at else '' }}"></span>
+      {# 受付終了（#73）。**締切とは別。** 締切は「ここから減点が始まる」で、
+         こちらは「ここで受け付けを終える」── 間にあるのが減点提出できる時間。 #}
+      <span><label for="accepts_until">受付終了</label>
+        <input id="accepts_until" name="accepts_until" type="datetime-local"
+               value="{{ unit.accepts_until | local('%Y-%m-%dT%H:%M') if unit.accepts_until else '' }}"></span>
+      {# 採点開始は試験のための値（#67）。**締切とは別に持つ** ── 試験の終了と
+         採点の開始はふつう同じ時刻だが、同じ値にすると延長のたびに採点開始も
+         動く。 #}
+      <span><label for="grading_starts_at">採点開始</label>
+        <input id="grading_starts_at" name="grading_starts_at" type="datetime-local"
+               value="{{ unit.grading_starts_at | local('%Y-%m-%dT%H:%M') if unit.grading_starts_at else '' }}"></span>
+    </div>
+  </div>
+
+  <h3 class="settings-group">提出</h3>
+  {# 学内限定（#333）。どちらも「いつ・どこから出せるか」を決める値で、セット単位で決まる。 #}
+  <div class="setting" id="campus">
+    <div class="setting-name">受け付ける場所{% call help() %}
       この問題セットの<strong>すべての課題</strong>に効きます。
       学外からは提出できず、学習者の画面にもそう出ます（教員・TA は学外からも提出できます）。
       <strong>採点や確定には影響しません</strong>（既に出された提出はそのまま扱われます）。
-    </span>
-    {% if saved_key == 'campus_only' %}
-    <span class="flash" id="saved">{{ saved }}</span>{% endif %}
-    <button type="submit">保存</button>
+    {% endcall %}</div>
+    <div class="setting-value">
+      <label class="check"><input type="checkbox" name="campus_only" value="1" {{ 'checked' if unit.campus_only }}>
+        学内からだけ受け付ける</label>
+      {% if unit.campus_mixed %}<p class="note warn tight">このセットの中で値がばらついています。変えて保存すると、全課題に同じ値が入ります。</p>{% endif %}
+      {% if unit.campus_only and not campus_configured %}
+      {# 切り替えただけで守られていると読まれるのが、いちばん高くつく誤解。 #}
+      <p class="note warn tight">
+        <strong>学内の範囲がまだ設定されていないので、この制限は効いていません。</strong>
+        テナント管理者が<a href="{{ root_prefix() }}/manage/campus-networks">学内ネットワーク</a>で
+        範囲を設定するまで、学外からも提出できます。
+      </p>
+      {% endif %}
+    </div>
   </div>
 
-  {% if unit.campus_mixed %}
-  {# **混ざりを黙らせない。** 画面はセット単位で切り替えるので、混ざって
-     いるのは取り込みか移動の結果である。 #}
-  <p class="note warn" style="margin:10px 0 0">
-    <strong>このセットの中で設定がばらついています。</strong>
-    上のチェックを保存すると、セット内のすべての課題に同じ値が入ります。
-  </p>
-  {% endif %}
-
-  {% if unit.campus_only and not campus_configured %}
-  {# 切り替えただけで守られていると読まれるのが、いちばん高くつく誤解。 #}
-  <p class="note warn" style="margin:10px 0 0">
-    <strong>学内の範囲がまだ設定されていないので、この制限は効いていません。</strong>
-    テナント管理者が<a href="{{ root_prefix() }}/manage/campus-networks">学内ネットワーク</a>で
-    範囲を設定するまで、学外からも提出できます。
-  </p>
-  {% endif %}
-</form>
-
-{# 答え方（ADR 0026）。**受け付ける場所の隣に置く** ── どちらも試験で入れる
-   値で、セット単位で決まる。 #}
-<h2 id="answer-mode">答え方</h2>
-{# **2 つのチェック**（2026-09-24）。ファイルとエディタは独立に入れられる ──
-   両方（演習の既定）、エディタだけ（試験。作業の記録を経ない提出を断つ）、
-   ファイルだけ（従来）。両方外すことはできない（保存する側が断る）。 #}
-<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/units/{{ unit.key }}/answer-mode"
-      class="card">
-  <div class="inline-field">
-    <span class="body desc">
-      {# 動画を受ける課題があるセットでは、ファイル選択を外せない（動画の道が無くなる）。
-         外せないチェックは `disabled` だと送信されないので、隠し項目で同じ値を送る。 #}
-      <label class="check tight{{ ' disabled' if file_upload_required }}">
-        <input type="checkbox" name="file_upload" value="1"
-               {{ 'checked' if unit.file_upload or file_upload_required }}
-               {{ 'disabled' if file_upload_required }}>
-        <strong>ファイルを選んで提出する</strong>
-      </label>
-      {% if file_upload_required %}<input type="hidden" name="file_upload" value="1">{% endif %}
-      <br>
-      <label class="check tight{{ ' disabled' if editor_blockers and not unit.editor }}">
-        <input type="checkbox" name="editor" value="1" {{ 'checked' if unit.editor }}
-               {{ 'disabled' if editor_blockers and not unit.editor }}>
-        <strong>ブラウザのエディタで書いて提出する</strong>
-      </label>
-      <br>
+  {# 答え方（ADR 0026）。**2 つのチェック**（2026-09-24）── 両方（演習の既定）、
+     エディタだけ（試験）、ファイルだけ（従来）。両方外すことはできない（保存する側が断る）。 #}
+  <div class="setting" id="answer-mode">
+    <div class="setting-name">答え方{% call help() %}
       この問題セットの<strong>すべての課題</strong>に効きます。両方入れると学習者はどちらでも出せ、
       エディタだけにすると<strong>課題の画面のファイル選択では提出できません</strong>（試験向け）。
       エディタで書けるのは各課題の提出形式のうち .c・.py・.md で、.md はテキストとして書きます。
@@ -164,169 +126,151 @@
       出せない</strong>ので、動画を受ける課題があるセットではファイル選択を外せません。
       プログラムが採点の言語と同じなら、公開サンプルや自分の入力で<strong>試しに実行</strong>できます
       （採点ではなく成績に影響しません。非公開のテストケースでは実行できません）。
-    </span>
-    {% if saved_key == 'answer_mode' %}
-    <span class="flash" id="saved">{{ saved }}</span>{% endif %}
-    <button type="submit">保存</button>
+    {% endcall %}</div>
+    <div class="setting-value">
+      {# 動画を受ける課題があるセットでは、ファイル選択を外せない（動画の道が無くなる）。
+         外せないチェックは `disabled` だと送信されないので、隠し項目で同じ値を送る。 #}
+      <label class="check{{ ' disabled' if file_upload_required }}">
+        <input type="checkbox" name="file_upload" value="1"
+               {{ 'checked' if unit.file_upload or file_upload_required }}
+               {{ 'disabled' if file_upload_required }}>
+        ファイルを選んで提出する</label>
+      {% if file_upload_required %}<input type="hidden" name="file_upload" value="1">{% endif %}
+      <label class="check{{ ' disabled' if editor_blockers and not unit.editor }}">
+        <input type="checkbox" name="editor" value="1" {{ 'checked' if unit.editor }}
+               {{ 'disabled' if editor_blockers and not unit.editor }}>
+        ブラウザのエディタで書いて提出する</label>
+      {% if editor_blockers %}
+      {# **押す前に理由を見せる。** 押してから断られるのでは、どの課題が原因か分からない。 #}
+      <div class="note warn tight">
+        <strong>このセットはエディタで解く形にできません。</strong>
+        エディタにできるのは、提出形式に .c・.py・.md のどれかを含む課題が 1 つ以上ある問題セットです
+        （画像・PDF の課題はエディタの画面から出せます。提出形式は課題ごとの設定で変えられます）。
+        <ul>
+          {% for reason in editor_blockers %}<li>{{ reason }}</li>{% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+      {% if file_upload_required %}
+      <div class="note tight">
+        <strong>動画を受ける課題があるので、ファイル選択は外せません。</strong>
+        動画はエディタの画面から出せず、学習者は課題の画面のファイル選択から出します。
+        <ul>
+          {% for reason in file_upload_required %}<li>{{ reason }}</li>{% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+      {% if unit.editor_mixed or unit.file_upload_mixed %}<p class="note warn tight">このセットの中で値がばらついています。変えて保存すると、全課題に同じ値が入ります。</p>{% endif %}
+    </div>
   </div>
 
-  {% if editor_blockers %}
-  {# **押す前に理由を見せる。** 押してから断られるのでは、どの課題が原因か分からない。 #}
-  <div class="note warn" style="margin:10px 0 0">
-    <strong>このセットはエディタで解く形にできません。</strong>
-    エディタにできるのは、提出形式に .c・.py・.md のどれかを含む課題が 1 つ以上ある問題セットです
-    （画像・PDF の課題はエディタの画面から出せます。提出形式は課題ごとの設定で変えられます）。
-    <ul>
-      {% for reason in editor_blockers %}<li>{{ reason }}</li>{% endfor %}
-    </ul>
-  </div>
-  {% endif %}
-
-  {% if file_upload_required %}
-  <div class="note" style="margin:10px 0 0">
-    <strong>動画を受ける課題があるので、ファイル選択は外せません。</strong>
-    動画はエディタの画面から出せず、学習者は課題の画面のファイル選択から出します。
-    <ul>
-      {% for reason in file_upload_required %}<li>{{ reason }}</li>{% endfor %}
-    </ul>
-  </div>
-  {% endif %}
-
-  {% if unit.editor_mixed or unit.file_upload_mixed %}
-  <p class="note warn" style="margin:10px 0 0">
-    <strong>このセットの中で設定がばらついています。</strong>
-    保存すると、セット内のすべての課題に同じ値が入ります。
-  </p>
-  {% endif %}
-</form>
-
-{# 問題セットのクリア点（2026-09-25）。学習者のコース一覧で、合計点（割合 × 配点）が
-   この値以上のセットに「クリア」が付く。配点は各課題の版の max_score（課題の定義で書く）。 #}
-<h2 id="clear-points">クリア条件</h2>
-<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/units/{{ unit.key }}/clear-points"
-      class="card">
-  <div class="inline-field">
-    <span class="body desc">
-      <label>合計
-        <input type="number" name="clear_points" min="0" step="any" style="width:7em"
-               value="{{ '%g' | format(unit.clear_points) if unit.clear_points is not none }}"> 点以上でクリア
-      </label>
-      <span class="desc">（満点 {{ '%g' | format(points_full | round(1)) }} 点。空欄ならクリアの条件なし）</span>
-      <br>
-      各問題の得点は<strong>割合 × 配点</strong>で、配点は下の一覧のとおりです（課題の定義の <code>max_score</code>）。
-      学習者のコース一覧で、合計がこの値以上の問題セットに<strong>クリア</strong>が付きます。採点は変わりません。
-    </span>
-    {% if saved_key == 'clear_points' %}
-    <span class="flash" id="saved">{{ saved }}</span>{% endif %}
-    <button type="submit">保存</button>
-  </div>
-  {% if unit.clear_points_mixed %}
-  <p class="note warn" style="margin:10px 0 0">
-    <strong>このセットの中で設定がばらついています。</strong>
-    保存すると、セット内のすべての課題に同じ値が入ります。
-  </p>
-  {% endif %}
-</form>
-
-{# 補完の切／入（設計書 §5.3）。**答え方とは別の値** ── 同じエディタでも、試験では
-   切り、演習では入れる。エディタで解かないセットでは効かない。 #}
-<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/units/{{ unit.key }}/completion"
-      class="card" id="completion">
-  <div class="inline-field">
-    <span class="body desc">
-      <label class="check">
-        <input type="checkbox" name="completion" value="1" {{ 'checked' if unit.completion }}>
-        <strong>エディタで補完を出す（演習向け）</strong>
-      </label>
-      <br>
+  {# 補完の切／入（設計書 §5.3）。**答え方とは別の値** ── 同じエディタでも、試験では
+     切り、演習では入れる。エディタで解かないセットでは効かない。 #}
+  <div class="setting" id="completion">
+    <div class="setting-name">エディタの補完{% call help() %}
       入れると、そのファイルの中で使った単語と、言語のキーワード（while・return など）を候補に出します。
       <strong>切っていても</strong>、括弧を閉じる・字下げ・色分けは効きます（試験の既定）。
       AI による補完はありません。
-      {% if not unit.editor %}<br><span class="desc">いまはエディタで解くセットではないので、この設定は効きません。</span>{% endif %}
-    </span>
-    {% if saved_key == 'completion' %}
-    <span class="flash" id="saved">{{ saved }}</span>{% endif %}
-    <button type="submit">保存</button>
+    {% endcall %}</div>
+    <div class="setting-value">
+      <label class="check"><input type="checkbox" name="completion" value="1" {{ 'checked' if unit.completion }}>
+        補完を出す（演習向け）</label>
+      {% if not unit.editor %}<span class="desc">いまはエディタで解くセットではないので効きません。</span>{% endif %}
+      {% if unit.completion_mixed %}<p class="note warn tight">このセットの中で値がばらついています。変えて保存すると、全課題に同じ値が入ります。</p>{% endif %}
+    </div>
   </div>
-  {% if unit.completion_mixed %}
-  <p class="note warn" style="margin:10px 0 0">
-    <strong>このセットの中で設定がばらついています。</strong>
-    保存すると、セット内のすべての課題に同じ値が入ります。
-  </p>
-  {% endif %}
-</form>
 
-{# 公開前に誰に見せるか（試験）。**受け付ける場所の隣に置く** ── どちらも
-   試験で入れる値で、セット単位で決まる（`docs/design/task-visibility.md`）。 #}
-<h2 id="confidential">公開前に見せる相手</h2>
-<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/units/{{ unit.key }}/confidential"
-      class="card">
-  <div class="inline-field">
-    <span class="body desc">
-      <label class="check">
-        <input type="checkbox" name="confidential" value="1" {{ 'checked' if unit.confidential }}>
-        <strong>公開まで教員だけに見せる（試験）</strong>
-      </label>
-      <br>
+  <h3 class="settings-group">見せる相手</h3>
+  {# 公開前に誰に見せるか（試験）。セット単位で決まる（`docs/design/task-visibility.md`）。 #}
+  <div class="setting" id="confidential">
+    <div class="setting-name">公開前に見せる相手{% call help() %}
       入れないと、公開前の問題セットは <strong>TA にも見えます</strong>（質問対応と採点の準備のため）。
       入れると、公開の時刻までは TA の一覧にも課題ページにも出ず、TA は試しに提出することもできません。
       <strong>公開の時刻からは TA にも見えます。</strong>
-    </span>
-    {% if saved_key == 'confidential' %}
-    <span class="flash" id="saved">{{ saved }}</span>{% endif %}
-    <button type="submit">保存</button>
+    {% endcall %}</div>
+    <div class="setting-value">
+      <label class="check"><input type="checkbox" name="confidential" value="1" {{ 'checked' if unit.confidential }}>
+        公開まで教員だけに見せる（試験）</label>
+      {% if unit.confidential_mixed %}<p class="note warn tight">このセットの中で値がばらついています。変えて保存すると、全課題に同じ値が入ります。</p>{% endif %}
+      {% if unit.confidential and not unit.opens_at %}
+      {# 公開の時刻が無い課題は「公開済み」として扱う（`Task.before_open_at`）。
+         チェックだけで守られていると読まれるのが、いちばん高くつく誤解。 #}
+      <p class="note warn tight">
+        <strong>公開の時刻が入っていないので、この設定は効いていません。</strong>
+        公開の時刻が無い問題セットは、はじめから公開されているものとして扱われ、TA にも見えます。
+        上の日程で公開の時刻を入れてください。
+      </p>
+      {% endif %}
+    </div>
   </div>
 
-  {% if unit.confidential_mixed %}
-  <p class="note warn" style="margin:10px 0 0">
-    <strong>このセットの中で設定がばらついています。</strong>
-    上のチェックを保存すると、セット内のすべての課題に同じ値が入ります。
-  </p>
-  {% endif %}
-
-  {% if unit.confidential and not unit.opens_at %}
-  {# 公開の時刻が無い課題は「公開済み」として扱う（`Task.before_open_at`）。
-     チェックだけで守られていると読まれるのが、いちばん高くつく誤解。 #}
-  <p class="note warn" style="margin:10px 0 0">
-    <strong>公開の時刻が入っていないので、この設定は効いていません。</strong>
-    公開の時刻が無い問題セットは、はじめから公開されているものとして扱われ、TA にも見えます。
-    上の日程で公開の時刻を入れてください。
-  </p>
-  {% endif %}
-</form>
-
-{# 出題先（追試など）。**名簿は別の画面で作る** ── ここは選ぶだけ。 #}
-<h2 id="audience">出題先</h2>
-<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/units/{{ unit.key }}/audience"
-      class="card">
-  <div class="inline-field">
-    <span class="body desc">
+  {# 出題先（追試など）。**名簿は別の画面で作る** ── ここは選ぶだけ。 #}
+  <div class="setting" id="audience">
+    <div class="setting-name">出題先{% call help() %}
+      何も選ばなければ<strong>受講者全員</strong>に出ます。選ぶと、選んだ名簿の<strong>どれかに入っている学習者だけ</strong>に出ます。
+      TA と教員には名簿に関係なく見えます。
+    {% endcall %}</div>
+    <div class="setting-value">
       {% if groups %}
+      {# チェックが 0 個だと `groups` が送られず、「全員に戻す」と区別が付かない。欄が出ていることを送る。 #}
+      <input type="hidden" name="audience_shown" value="1">
       {% for row in groups %}
       <label class="check">
         <input type="checkbox" name="groups" value="{{ row.group.name }}"
                {{ 'checked' if row.group.id|string in unit.audience }}>
         {{ row.group.name }} <span class="desc">（{{ row.members }} 名）</span>
-      </label><br>
+      </label>
       {% endfor %}
-      何も選ばなければ<strong>受講者全員</strong>に出ます。選ぶと、選んだ名簿の<strong>どれかに入っている学習者だけ</strong>に出ます。
-      TA と教員には名簿に関係なく見えます。
       {% else %}
-      名簿がまだありません。<strong>受講者全員</strong>に出ます。
+      <span class="desc">名簿がまだありません。<strong>受講者全員</strong>に出ます。</span>
       {% endif %}
-      <br><a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/groups">名簿を作る・直す</a>
-    </span>
-    {% if saved_key == 'audience' %}
-    <span class="flash" id="saved">{{ saved }}</span>{% endif %}
-    {% if groups %}<button type="submit">保存</button>{% endif %}
+      <a class="desc" href="{{ root_prefix() }}/manage/courses/{{ course.id }}/groups">名簿を作る・直す</a>
+      {% if unit.audience_mixed %}<p class="note warn tight">このセットの中で値がばらついています。変えて保存すると、全課題に同じ値が入ります。</p>{% endif %}
+    </div>
   </div>
 
-  {% if unit.audience_mixed %}
-  <p class="note warn" style="margin:10px 0 0">
-    <strong>このセットの中で出題先がばらついています。</strong>
-    上で保存すると、セット内のすべての課題に同じ出題先が入ります。
-  </p>
-  {% endif %}
+  <h3 class="settings-group">成績</h3>
+  {# 問題セットのクリア点（2026-09-25）。学習者のコース一覧で、合計点（割合 × 配点）が
+     この値以上のセットに「クリア」が付く。配点は各課題の版の max_score（課題の定義で書く）。 #}
+  <div class="setting" id="clear-points">
+    <div class="setting-name"><label for="clear_points">クリア条件</label>{% call help() %}
+      各問題の得点は<strong>割合 × 配点</strong>で、配点は下の一覧のとおりです（課題の定義の <code>max_score</code>）。
+      学習者のコース一覧で、合計がこの値以上の問題セットに<strong>クリア</strong>が付きます。採点は変わりません。
+      空欄ならクリアの条件はありません。
+    {% endcall %}</div>
+    <div class="setting-value">
+      合計 <input id="clear_points" type="number" name="clear_points" min="0" step="any" style="width:7em"
+             value="{{ '%g' | format(unit.clear_points) if unit.clear_points is not none }}"> 点以上
+      <span class="desc">（満点 {{ '%g' | format(points_full | round(1)) }} 点）</span>
+      {% if unit.clear_points_mixed %}<p class="note warn tight">このセットの中で値がばらついています。変えて保存すると、全課題に同じ値が入ります。</p>{% endif %}
+    </div>
+  </div>
+
+  <div class="setting" id="grace">
+    <div class="setting-name"><label for="after_minutes">成績の自動確定</label>{% call help() %}
+      採点が終わってから何分で成績を確定するか。空欄なら<a href="{{ root_prefix() }}/manage/courses/{{ course.id }}">共通設定</a>の値が効きます。
+      {# **確定の時刻は提出ごとに違う。** 起点は課題の締切ではなく、その提出の
+         採点が終わった時刻なので、セット単位の「いつ確定するか」は無い。 #}
+      確定は<strong>提出ごと</strong>に、その採点が終わってから数えます。
+    {% endcall %}</div>
+    <div class="setting-value">
+      採点完了から <input id="after_minutes" name="after_minutes" type="number" min="1" step="1"
+             style="max-width:8rem"
+             placeholder="{{ course_grace if course_grace else '設定なし' }}"
+             value="{{ unit.grace if unit.grace is not none and not unit.grace_from_course else '' }}"> 分
+      <span class="desc">（空欄ならコースの設定: {% if course_grace %}{{ course_grace }} 分{% else %}自動確定なし{% endif %}）</span>
+    </div>
+  </div>
+
+  {# **押す場所を探させない**（KC の画面と同じ `.deskbar`）。画面の底に貼る。 #}
+  <div class="deskbar">
+    <span class="spacer save-state">
+      {% if saved_key in ['settings', 'unchanged', 'number', 'schedule', 'campus_only', 'answer_mode', 'clear_points', 'completion', 'confidential', 'audience', 'grace'] %}
+      <span class="flash" id="saved">{{ saved }}</span>
+      {% else %}この問題セットの全課題に反映します{% endif %}
+    </span>
+    <button type="submit">設定を保存</button>
+  </div>
 </form>
 
 {# 試験の一括採点（#67）。**試験モードを解除しない** ── 押したあとに出された
@@ -389,30 +333,6 @@
   {% endif %}
 </div>
 {% endif %}
-
-<h2 id="grace">成績の自動確定</h2>
-<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/units/{{ unit.key }}/auto-finalize"
-      class="card">
-  <div class="inline-field">
-    <span class="body">
-      <label for="after_minutes">採点完了から何分で確定するか（空欄ならコースの設定）</label>
-      <input id="after_minutes" name="after_minutes" type="number" min="1" step="1"
-             style="max-width:10rem"
-             placeholder="{{ course_grace if course_grace else '設定なし' }}"
-             value="{{ unit.grace if unit.grace is not none and not unit.grace_from_course else '' }}">
-    </span>
-    {% if saved_key == 'grace' %}<span class="flash" id="saved">{{ saved }}</span>{% endif %}
-    <button type="submit">保存</button>
-  </div>
-  <p class="desc" style="margin:10px 0 0">
-    いまは<strong>コースの設定</strong>（{% if course_grace %}{{ course_grace }} 分{% else %}自動確定なし{% endif %}）が
-    効いています。<a href="{{ root_prefix() }}/manage/courses/{{ course.id }}">共通設定</a>で変えられます。
-    {# **確定の時刻は提出ごとに違う。** 起点は課題の締切ではなく、その提出の
-       採点が終わった時刻なので、セット単位の「いつ確定するか」は無い。 #}
-    確定は<strong>提出ごと</strong>に、その採点が終わってから数えます。
-  </p>
-</form>
-
 
 
 {% set hidden = tasks | selectattr('withdrawn') | list | length
@@ -518,16 +438,11 @@
 
 {# **束で入れる**（#161）。1 問でも問題セット一括でも同じ入口 ── 中身が
    1 フォルダか複数かの違いしかない。読んだ結果は保存前に確認画面へ出す。 #}
-<h3 id="bundle">zip でまとめて取り込む</h3>
-<form method="post"
-      action="{{ root_prefix() }}/manage/courses/{{ course.id }}/units/{{ unit.key }}/bundle"
-      enctype="multipart/form-data" class="card">
-  <p class="desc" style="margin-top:0">
-    課題ごとのフォルダに <span class="mono">task.yaml</span> を置いた zip を選びます。
-    1 問だけでもかまいません。<strong>読み取った内容を確認してから保存します</strong>
-    （この場では保存しません）。
-  </p>
-  <pre class="code mono" style="margin:0 0 12px"><span class="ln">p1/
+<h3 id="bundle">zip でまとめて取り込む{% call help("zip の中身") %}
+  課題ごとのフォルダに <span class="mono">task.yaml</span> を置いた zip を選びます。
+  1 問だけでもかまいません。<strong>読み取った内容を確認してから保存します</strong>
+  （この場では保存しません）。
+  <pre class="code mono" style="margin:8px 0"><span class="ln">p1/
   task.yaml        課題の宣言（statement・criteria・knowledge_components など）
   statement.md     任意。あれば task.yaml の statement より優先します
   reference.c      任意。参照解答（.c / .py / .java / .txt）
@@ -535,19 +450,20 @@
   tests/case1.out
   images/fig1.png  任意。課題文の images/fig1.png というリンクを書き換えます
 p2/task.yaml</span></pre>
+  ひな形には 2 問ぶん（最小の例と、テストケース・参照解答・画像つきの例）が入っています。
+  書き換えて zip にすれば、そのまま取り込めます。
+{% endcall %}</h3>
+<form method="post"
+      action="{{ root_prefix() }}/manage/courses/{{ course.id }}/units/{{ unit.key }}/bundle"
+      enctype="multipart/form-data" class="card">
   {# **書ける状態のものを渡す**（#171）。上の構造を画面から書き写させると、
      書き写しの失敗が「取り込めません」の 1 行になって返り、何を直せばよいか
      は画面から読めない。ひな形はこのコースに合わせて作る（使える評価器・
      観点コード・知識要素のキーがコメントに入る）。 #}
-  <p class="desc">
-    <a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/units/{{ unit.key }}/bundle/template">
-      ひな形をダウンロード</a>
-    ── 2 問ぶん（最小の例と、テストケース・参照解答・画像つきの例）が入っています。
-    書き換えて zip にすれば、そのまま取り込めます。
-  </p>
   <div class="inline-field">
     <span class="body">
-      <label for="archive">zip（{{ bundle_max_mb }}MB まで）</label>
+      <label for="archive">zip（{{ bundle_max_mb }}MB まで）・
+        <a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/units/{{ unit.key }}/bundle/template">ひな形をダウンロード</a></label>
       <input id="archive" type="file" name="archive" accept=".zip,application/zip" required>
     </span>
     <button type="submit">読み取る</button>
@@ -576,6 +492,7 @@ p2/task.yaml</span></pre>
       {% if clear_plan.deleted %}data-confirm-danger="1"{% endif %}>
   <div class="inline-field">
     <span class="body desc">
+      削除 {{ clear_plan.deleted }} 件・出題の取り下げ {{ clear_plan.withdrawn }} 件{% call help() %}
       課題ごとに振り分けます。
       <strong>提出が 1 件も無い {{ clear_plan.deleted }} 件は削除</strong>し（取り消せません）、
       <strong>提出のある {{ clear_plan.withdrawn }} 件は出題を取り下げます</strong>
@@ -583,6 +500,7 @@ p2/task.yaml</span></pre>
       {% if clear_plan.untouched %}
         既に取り下げてある {{ clear_plan.untouched }} 件はそのままです。
       {% endif %}
+      {% endcall %}
     </span>
     {% if saved_key in ['unit_cleared'] %}
     <span class="flash" id="saved">{{ saved }}</span>{% endif %}
@@ -601,14 +519,13 @@ p2/task.yaml</span></pre>
   <form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/tasks/{{ row.task.id }}/finalize"
         style="margin-top:12px">
     <div class="field">
-      <label for="just-{{ row.task.id }}">確定の根拠（{{ min_reason }} 文字以上・学習者に表示されます）</label>
+      <label for="just-{{ row.task.id }}">確定の根拠（{{ min_reason }} 文字以上・学習者に表示されます）{% call help() %}
+        個別に読んでいない成績を確定させる操作です。再確認の依頼が出ている提出は確定しません。
+      {% endcall %}</label>
       <textarea id="just-{{ row.task.id }}" name="justification" rows="3" required
                 minlength="{{ min_reason }}"
                 placeholder="例: テスト全通の提出について、抽出したものを確認した上で残りを確定します。"></textarea>
     </div>
-    <p class="desc">
-      個別に読んでいない成績を確定させる操作です。再確認の依頼が出ている提出は確定しません。
-    </p>
     <div class="actions"><button type="submit">まとめて確定</button></div>
   </form>
 </details>
@@ -667,20 +584,19 @@ p2/task.yaml</span></pre>
              value="0.3" style="max-width:8rem"></span>
   </div>
   <div class="field">
-    <label for="g-instructions">AI への指示（1 行 1 件・任意）</label>
-    <textarea id="g-instructions" name="instructions" rows="3"
-      placeholder="必ず標準入力から読むこと&#10;標準ライブラリの qsort は使わせないこと&#10;できれば配列の添字を扱う題材にしてほしい"></textarea>
-    <p class="desc" style="margin:4px 0 0">
+    <label for="g-instructions">AI への指示（1 行 1 件・任意）{% call help() %}
       外せない条件は「必ず」、希望は「できれば」と書いてください —
       <strong>強さは書き方で伝わります</strong>。空でも生成できます。
-    </p>
+    {% endcall %}</label>
+    <textarea id="g-instructions" name="instructions" rows="3"
+      placeholder="必ず標準入力から読むこと&#10;標準ライブラリの qsort は使わせないこと&#10;できれば配列の添字を扱う題材にしてほしい"></textarea>
   </div>
-  <p class="desc">
+  <p class="desc">数十秒かかります。できたものは承認するまで出題されません。{% call help() %}
     このコースの既存課題を「似せないための材料」として渡します。
-    生成には十数秒かかります。
+    生成には数十秒かかります。
     <strong>できたものは候補であって課題ではありません</strong> —
     <a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/drafts">未承認の課題（AI 作問）</a>に入り、承認するまで出題されません。
-  </p>
+  {% endcall %}</p>
   <div class="actions">
     {% if saved_key == 'generated' %}<span class="flash" id="saved">{{ saved }}</span>{% endif %}
     <button type="submit">生成</button>

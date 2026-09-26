@@ -505,3 +505,41 @@ details.quiet-danger .desc{font-size:.75rem;margin:0 0 6px;white-space:normal}
 .help:hover .help-body,.help:focus-within .help-body,.help.open .help-body{display:block}
 /* 右端で開くと画面の外へはみ出すので、右に寄せる（`base.html` が付ける）。 */
 .help.flip .help-body{left:auto;right:-8px}
+
+/* 設定の一覧（`form.settings`・2026-09-26）。**名前の列と値の列に分ける** ──
+   説明と入力欄が同じ地に並び、どこが設定なのか読み分けにくかった。名前は太く、
+   補足は小さく灰色。説明そのものは ⓘ に畳む（`_help.html`）。 */
+form.settings{padding:6px 22px 0}
+.settings-group{font-size:.78rem;font-weight:700;color:var(--muted);letter-spacing:.04em;
+  margin:18px 0 0;padding-bottom:4px;border-bottom:1px solid var(--line)}
+.settings-group:first-of-type{margin-top:10px}
+.setting{display:grid;grid-template-columns:11rem minmax(0,1fr);gap:4px 18px;align-items:baseline;
+  padding:10px 0;border-bottom:1px solid var(--line-soft)}
+.setting-name{font-size:.88rem;font-weight:600;color:var(--ink)}
+.setting-name label{display:inline;font-size:inherit;color:inherit;margin:0}
+.setting-value{font-size:.88rem;color:var(--ink);display:flex;flex-wrap:wrap;align-items:center;gap:6px 16px}
+.setting-value > .note,.setting-value > p.note,.setting-value > div.note{flex-basis:100%}
+.setting-value .desc{font-size:.78rem;margin:0}
+.setting-value label.check{display:inline-flex;align-items:center;gap:6px;margin:0;font-size:.88rem;color:var(--ink)}
+.setting-value input[type=number]{font:inherit;padding:5px 8px}
+.schedule-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(12.5rem,1fr));gap:8px 12px}
+.schedule-grid label{display:block;font-size:.75rem;color:var(--muted);margin-bottom:2px}
+.schedule-grid input{width:100%;font:inherit;font-size:.85rem;padding:5px 8px}
+.note.tight{margin:4px 0 0;padding:6px 10px;font-size:.8rem}
+.note.tight ul{margin:4px 0 0}
+form.settings .deskbar{margin:0 -22px;padding:10px 22px}
+.save-state.dirty{color:var(--kin);font-weight:600}
+.save-state.error{color:var(--shu);font-weight:600}
+@media (max-width:760px){
+  .setting{grid-template-columns:1fr}
+}
+/* 共通設定の中の、名前の列を持たない塊（ルーブリックの編集）。 */
+.settings-block{padding:10px 0;border-bottom:1px solid var(--line-soft)}
+.setting-value .row-form.compact{display:flex;flex-wrap:wrap;gap:8px 14px;margin:0}
+.setting-value .row-form.compact label{display:block;font-size:.75rem;color:var(--muted);margin-bottom:2px}
+.setting-value .row-form.compact select,.setting-value .row-form.compact input{font:inherit;font-size:.85rem;padding:5px 8px}
+.setting-value.stacked{flex-direction:column;align-items:flex-start;gap:4px}
+.setting-value.stacked input:not([type=checkbox]){width:100%;font:inherit;font-size:.85rem;padding:5px 8px}
+.setting-value.formats{display:block}
+.settings-group .help{margin-left:6px}
+.help-body ul.evaluators{margin:0 0 6px;padding-left:1.2em}

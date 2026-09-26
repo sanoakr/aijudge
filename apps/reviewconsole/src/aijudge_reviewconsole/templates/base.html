@@ -558,6 +558,97 @@ document.querySelectorAll(".checkrow .nojs").forEach(function (el) { el.remove()
   });
 })();
 
+{# **まとめて保存するフォーム**（`form[data-save-all]`・2026-09-26）。
+
+   1. **断られても書きかけを消さない。** 素の POST だと、検査で断られた時点で
+      エラーの頁に移り、戻らないと入力が残らない。fetch で送り、断られたら
+      理由を保存ボタンの横に出して、頁はそのまま残す。通れば読み直す。
+   2. **書きかけのまま離れるときは確かめる**（`beforeunload`）。別のフォームの
+      ボタン（課題の追加・片付けなど）を押したときも、ここで止まる ── 以前は
+      節ごとの保存ボタンを押すと、他の節の書きかけが黙って消えた。
+
+   スクリプトが無くても、フォームは素のまま送れる。 #}
+(function () {
+  document.querySelectorAll("form[data-save-all]").forEach(function (form) {
+    var dirty = false;
+    var leaving = false;
+    var state = form.querySelector(".save-state");
+    var button = form.querySelector(".deskbar button[type=submit]");
+    function say(text, kind) {
+      if (!state) return;
+      state.textContent = text;
+      state.classList.remove("dirty", "error");
+      if (kind) state.classList.add(kind);
+    }
+    function touched() {
+      dirty = true;
+      say("未保存の変更があります", "dirty");
+    }
+    form.addEventListener("input", touched);
+    form.addEventListener("change", touched);
+    window.addEventListener("beforeunload", function (event) {
+      if (!dirty || leaving) return;
+      event.preventDefault();
+      event.returnValue = "";
+    });
+    form.addEventListener("submit", function (event) {
+      if (!window.fetch || !window.FormData) { leaving = true; return; }
+      var submitter = event.submitter;
+      // **頁を移らずに結果だけ差し込むボタン**（`data-swap`・共通設定の試行）。
+      // 試行は保存しないので、書きかけの印はそのまま残す。
+      if (submitter && submitter.getAttribute("data-swap")) {
+        event.preventDefault();
+        var target = document.querySelector(submitter.getAttribute("data-swap"));
+        var data = new FormData(form);
+        data.append(submitter.name, submitter.value);
+        submitter.disabled = true;
+        fetch(submitter.formAction, { method: "POST", body: data, credentials: "same-origin" })
+          .then(function (response) { return response.text().then(function (html) { return [response, html]; }); })
+          .then(function (pair) {
+            var fresh = new DOMParser().parseFromString(pair[1], "text/html")
+              .querySelector(submitter.getAttribute("data-swap"));
+            if (target && fresh) {
+              target.replaceWith(fresh);
+              fresh.scrollIntoView({ block: "nearest" });
+            } else {
+              say("試行できませんでした（HTTP " + pair[0].status + "）", "error");
+            }
+          })
+          .catch(function () { say("試行できませんでした（通信に失敗しました）", "error"); })
+          .then(function () { submitter.disabled = false; });
+        return;
+      }
+      event.preventDefault();
+      if (button) button.disabled = true;
+      say("保存しています…", "");
+      // `form.action` を使わない。`name="action"` の欄（試行のボタン）があると、
+      // そちらが返ってくる。
+      var url = new URL(form.getAttribute("action") || "", window.location.href).href;
+      fetch(url, { method: "POST", body: new FormData(form), credentials: "same-origin" })
+        .then(function (response) {
+          if (response.ok) {
+            leaving = true;
+            var target = response.url.split("#")[0];
+            // 同じ URL（保存の直後にもう一度保存した）だと、`#` を変えるだけでは読み直さない。
+            if (target === window.location.href.split("#")[0]) window.location.reload();
+            else window.location.assign(target + "#saved");
+            return;
+          }
+          return response.json().catch(function () { return {}; }).then(function (body) {
+            var detail = body && body.detail;
+            if (Array.isArray(detail)) detail = detail.map(function (d) { return d.msg || d; }).join("／");
+            say(detail || "保存できませんでした（HTTP " + response.status + "）", "error");
+            if (button) button.disabled = false;
+          });
+        })
+        .catch(function () {
+          say("保存できませんでした（通信に失敗しました）。入力はそのまま残っています。", "error");
+          if (button) button.disabled = false;
+        });
+    });
+  });
+})();
+
 document.addEventListener("submit", function (event) {
   var form = event.target;
   if (!(form instanceof HTMLFormElement)) return;
