@@ -1,6 +1,8 @@
 # ストレージと WAL アーカイブの健全性確認。**遷移時だけメールする。**
 [Unit]
 Description=aiJudge storage and WAL archive health check
+# 失敗したらメールで知らせる（#422）。
+OnFailure=aijudge-notify@%n.service
 After=postgresql.service
 
 [Service]

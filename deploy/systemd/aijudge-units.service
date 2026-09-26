@@ -14,6 +14,8 @@
 # root への道になる。写しは署名を確かめたタグから配られる。
 [Unit]
 Description=aiJudge install unit files from the checkout
+# 失敗したらメールで知らせる（#422）。
+OnFailure=aijudge-notify@%n.service
 # チェックアウトが読めない状態では意味が無い。
 ConditionPathIsDirectory=/opt/aijudge/.git
 

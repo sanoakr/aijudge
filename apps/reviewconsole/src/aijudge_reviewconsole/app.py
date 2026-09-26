@@ -95,6 +95,7 @@ from aijudge_identity import (
     demo_course_from_env,
     session_cookie_kwargs,
 )
+from aijudge_identity.origin_check import SameOriginMiddleware
 from aijudge_persistence import Database, ObservationFileStore
 from aijudge_submission import (
     ArtifactStore,
@@ -106,6 +107,7 @@ from aijudge_submission import (
 from aijudge_telemetry import RequestContextMiddleware
 
 from .audit_context import request_id_of, source_ip_of
+from .io_results import io_results
 from .overview import digests_for, load_units
 from .rail_context import RAIL_COURSE_ID, rail_context
 from .sampling import is_blind_sample
@@ -626,6 +628,10 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
     allowed = [h.strip() for h in os.environ.get(ENV_ALLOWED_HOSTS, "*").split(",") if h.strip()]
     if allowed and allowed != ["*"]:
         app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed)
+
+    # 状態を変える要求は同じオリジンからだけ（#413）。SameSite=Lax は同じ
+    # サイトの別ホストからの POST を止めない。
+    app.add_middleware(SameOriginMiddleware)
 
     # アクセスログと相関 ID（ADR 0016）。**一番外側に置く** ── `add_middleware`
     # は後から足した方が外になるので、Host 検査より後に書く。弾かれた要求も
@@ -1295,7 +1301,7 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
         return Response(
             content=payload,
             media_type=images.content_type(name),
-            headers={"Cache-Control": "private, max-age=86400"},
+            headers=images.response_headers(),
         )
 
     @app.get("/review/{submission_id}/artifacts/{artifact_id}")
@@ -1387,6 +1393,10 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                     criterion.scored_by_human for criterion in context.task_version.criteria
                 ),
                 "rows": _comparison_rows(context.task_version, context.run, context.mark),
+                # 入出力セットとの突き合わせ。段階を決める人が、**何が違ったのか**を
+                # この画面で見られるように（根拠の文だけでは「書式だけ違う」と
+                # 「まるで違う」が同じに見える）。
+                "io_results": io_results(context.task_version, context.run),
                 "highlights": _highlighted_lines(context.run),
                 "review": context.review,
                 "was_blind": context.mark is not None,
@@ -1419,6 +1429,16 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
     ) -> Response:
         form = await request.form()
         context = _load(console, me, SubmissionId(submission_id), request)
+        shown_run = str(form.get("run_id", ""))
+        if shown_run and shown_run != str(context.run.id):
+            # **教員が読んだ採点に対してだけ記録する**（#405）。ページを開いた
+            # あとに再採点や AI 段階の採点が届くと、最新の採点は教員が
+            # 読んでいないものになる。そこへ HumanReview を付けると、読んで
+            # いない判定が一致度の証拠になる（ADR 0010）。
+            raise HTTPException(
+                status_code=409,
+                detail="このページを開いたあとに採点が更新されました。読み直してから確定してください。",
+            )
         if context.awaiting_ai:
             # **AI 評価の到着前に確定させない。** 確定すると、直後に届く
             # AI 段階の採点が確定済みの成績を追い越すことになる。

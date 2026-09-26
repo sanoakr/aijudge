@@ -37,6 +37,12 @@
   {% if last_finalize.contested %}
     再確認の依頼が出ている {{ last_finalize.contested }} 件は確定していません。
   {% endif %}
+  {% if last_finalize.ai_pending %}
+    AI 評価がまだ届いていない {{ last_finalize.ai_pending }} 件は確定していません（届いてからもう一度確定してください）。
+  {% endif %}
+  {% if last_finalize.awaiting_human %}
+    人が採点する観点が空の {{ last_finalize.awaiting_human }} 件は確定していません（1 件ずつ開いて入力してください）。
+  {% endif %}
 </div>
 {% endif %}
 

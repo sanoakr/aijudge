@@ -9,14 +9,16 @@ CHECK=/usr/local/lib/aijudge/llm-primary-check.py
 
 cd /opt/aijudge || exit 3
 OUT=$("$PY" "$CHECK" 2>&1); RC=$?
-NOW=$([ $RC -eq 0 ] && echo OK || echo NG)
+# **状態は終了コードそのもの**（#426）。OK/NG の 2 値だと、「主系停止（1）」から
+# 「両系停止（2）」への悪化が同じ NG のままで、通知されなかった。
+NOW=$([ $RC -eq 0 ] && echo OK || echo "NG$RC")
 PREV=$(cat "$STATE" 2>/dev/null || echo UNKNOWN)
 printf "%s rc=%s %s\n" "$NOW" "$RC" "$OUT"
 if [ "$NOW" != "$PREV" ]; then
   {
     echo "host      : $(hostname -f)"
     echo "transition: $PREV -> $NOW"
-    echo "exit code : $RC   (1=プライマリ不能・フォールバックで稼働中 / 2=両系不能)"
+    echo "exit code : $RC   (1=プライマリ不能・フォールバックで稼働中 / 2=両系不能 / 3=フォールバック不能)"
     echo "detail    : $OUT"
     echo
     echo "参照: docs/design/disk-and-recovery-plan.md §3.9.5-A"

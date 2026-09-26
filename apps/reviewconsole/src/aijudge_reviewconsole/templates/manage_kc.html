@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_help.html" import help %}
 {% block title %}知識要素 — {{ course.title }} — aiJudge{% endblock %}
 {% block body %}
 <h1 id="kc">知識要素（KC）</h1>
@@ -16,7 +17,11 @@
 
    範囲の説明と 1 つにまとめてある ── 2 つに分けると、同じ「共有」という語が
    離れた場所で別の意味に読まれる。 #}
-<div class="note">
+{# 説明は ⓘ に畳む（2026-09-26）。一覧より先に 6 行の説明が来て、このコースが
+   何を使っているかが画面の下に押し出されていた。**要点の 1 行は残す** ──
+   足さないと作問に候補が出ない、は知らないと詰まる。 #}
+<p class="desc">このコースが作問で使えるのは、<strong>ここで足した知識要素だけ</strong>です（いま {{ chosen_count }} 件）。
+{% call help("知識要素の共有と範囲") %}
   <strong>知識要素は名前空間ごとに共有され、コースには属しません。</strong>
   このコースの科目プロファイルが使えるのは
   {% for n in namespaces %}<span class="mono">{{ n }}</span>{% if not loop.last %}・{% endif %}{% else %}<em>なし</em>{% endfor %}
@@ -27,9 +32,9 @@
   <strong>語彙そのものは骨格（管理者が投入）で決まり、画面から新しい知識要素は作れません</strong>
   ── 同じ概念が別のキーで二重に登録されると習熟度が割れるためです。
   外しても語彙からは消えず、他のコースには影響しません。
-  <br><span class="desc">名前空間そのものを増やすには科目プロファイルの変更が要ります
-  （ブラウザからは増やせません）。</span>
-</div>
+  <br>名前空間そのものを増やすには科目プロファイルの変更が要ります
+  （ブラウザからは増やせません）。
+{% endcall %}</p>
 
 {% if not namespaces %}
 <div class="note warn">
@@ -167,7 +172,11 @@
 {% endif %}
 </form>
 
-<h2 id="vocabulary">名前空間から足す</h2>
+<h2 id="vocabulary">名前空間から足す{% call help() %}
+  分野ごとに開いて、まとめて足す・外すか、個別にチェックします。チェックは
+  分野をまたいで持ち越され、底の「選択したものをこのコースに足す」でまとめて
+  登録します。数字は「このコースに入っている件数／その分野の件数」です。
+{% endcall %}</h2>
 {# **階層ごとに畳む。** 987 件を平らに並べても選べない。分野（`cs.loops`）ごとに
    開き、まとめて足す・外すか、個別にチェックして足す。
 
@@ -180,11 +189,6 @@
    送信ボタンで、押したボタンの値だけが送られる ── 接頭辞が付いた送信は
    サーバ側でチェックを無視する（`_scope_targets`）ので、他の分野で付けた
    チェックを巻き込まない。 #}
-<p class="desc">
-  分野ごとに開いて、まとめて足す・外すか、個別にチェックします。チェックは
-  分野をまたいで持ち越され、底の「選択したものをこのコースに足す」でまとめて
-  登録します。数字は「このコースに入っている件数／その分野の件数」です。
-</p>
 <form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/kc/scope/add" id="scope-add">
 {% for group in groups %}
 <details class="criterion kc-group">
@@ -274,9 +278,11 @@
       data-working="読み取り中… 十数秒かかります">
   <div class="inline-field">
     <span class="body desc">
+      シラバスから、登録済みの語彙の中でこのコースが扱う知識要素を選ばせます。{% call help() %}
       <strong>出てくるのは、登録済みの語彙の中でこのコースが扱う知識要素です。</strong>
       新しいキーは提案されません（一覧に無いものは理由を添えて除かれます）。
       既にこのコースが使っているものも並びます ── このコースが使う範囲を決める材料になります。
+      {% endcall %}
     </span>
     <span class="working flash reading" hidden></span>
     <button type="submit">候補を生成</button>

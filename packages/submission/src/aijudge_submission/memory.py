@@ -279,6 +279,14 @@ class InMemoryReviewRepository:
         review_id = self._by_run.get(run_id)
         return None if review_id is None else self._reviews.get(review_id)
 
+    def reviews_for_run(self, run_id: GradingRunId) -> tuple[HumanReview, ...]:
+        return tuple(
+            sorted(
+                (review for review in self._reviews.values() if review.grading_run_id == run_id),
+                key=lambda review: (review.reviewed_at, review.id),
+            )
+        )
+
     def save_blind_mark(self, mark: BlindMark) -> None:
         if mark.submission_id in self._marks:
             raise ImmutabilityViolation(

@@ -256,8 +256,8 @@ def test_completion_is_switched_for_the_whole_set(world: World) -> None:
     assert _task(world, task_id).editor_completion is True
     assert _task(world, task_id).answer_mode is AnswerMode.UPLOAD  # 答え方は変わらない
     page = client.get(f"/manage/courses/{world.course.id}/units/{unit}").text
-    assert "エディタで補完を出す" in page
-    assert "この設定は効きません" in page
+    assert "補完を出す（演習向け）" in page
+    assert "エディタで解くセットではないので効きません" in page
 
 
 # -- クリア点（2026-09-25）------------------------------------------------------

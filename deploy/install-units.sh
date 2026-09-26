@@ -111,6 +111,10 @@ SBIN_SCRIPTS=(
     aijudge-pg-basebackup.sh
     aijudge-storage-check.sh
     aijudge-llm-primary-check.sh
+    aijudge-http-check.sh
+    aijudge-queue-check.sh
+    aijudge-restic-check.sh
+    aijudge-purge-preview.sh
     aijudge-config-check.sh
     aijudge-notify
 )

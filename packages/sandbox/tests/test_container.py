@@ -12,6 +12,7 @@ Linux + コンテナだけで、その「封じ込められる」という主張
 
 from __future__ import annotations
 
+import os
 import shutil
 from pathlib import Path
 
@@ -33,10 +34,17 @@ FAST = Limits(cpu_seconds=5, wall_seconds=60.0, processes=32)
 
 @pytest.fixture(scope="module")
 def container():
-    """コンテナバックエンド。無ければモジュールごと skip。"""
+    """コンテナバックエンド。無ければモジュールごと skip。
+
+    **ただし `AIJUDGE_SANDBOX` でコンテナを名指ししたときは失敗にする**（#429）。
+    CI はそう指定して走らせる ── skip にすると、docker が壊れても CI は緑の
+    まま、脱出試験は 1 件も走っていない（skip は検証済みではない）。
+    """
     try:
         sandbox = DockerSandbox()
     except SandboxUnavailable as exc:
+        if os.environ.get("AIJUDGE_SANDBOX", "").strip().lower() in ("docker", "gvisor"):
+            pytest.fail(f"AIJUDGE_SANDBOX asks for a container but none is usable: {exc}")
         pytest.skip(f"no container runtime: {exc}")
     return sandbox
 
@@ -190,6 +198,31 @@ def test_an_infinite_loop_is_stopped(container) -> None:
     assert result.killed, f"シグナル終了が検出されていない: {result.exit_code}"
     assert result.timed_out, "時間切れとして分類されていない"
     assert not result.ok
+
+
+def test_a_sleeping_submission_does_not_outlive_its_timeout(container) -> None:
+    """**時間切れの後にコンテナが残らない**（#410）。
+
+    CPU を使わずに待つ提出は `--ulimit=cpu` に掛からない。壁時計で
+    `docker run` のクライアントを殺しても、コンテナは `--memory` ぶんを
+    抱えたまま動き続けていた ── 試し実行を繰り返せばホストのメモリが尽きる。
+    """
+    import subprocess
+
+    from aijudge_sandbox.backends import CONTAINER_LABEL
+
+    with container.workspace() as workspace:
+        result = workspace.run(
+            ExecRequest(argv=("/bin/sleep", "120"), limits=Limits(cpu_seconds=5, wall_seconds=3.0))
+        )
+    assert result.timed_out
+    alive = subprocess.run(
+        ["docker", "ps", "--quiet", "--filter", f"label={CONTAINER_LABEL}"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.split()
+    assert alive == [], f"時間切れの後もコンテナが残っている: {alive}"
 
 
 def test_a_fork_bomb_is_contained(container) -> None:

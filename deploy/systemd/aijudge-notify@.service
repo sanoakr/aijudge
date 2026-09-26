@@ -1,0 +1,17 @@
+# どれかの unit が failed になったら、その unit の状態をメールする（#422）。
+#
+# 各 unit の `OnFailure=aijudge-notify@%n.service` から起動される（%i が失敗した
+# unit 名）。これが無かったあいだ、autodeploy・バックアップ・自動確定の失敗は
+# journal に残るだけで、誰も見ていなかった ── v0.35.1 から 8 リリースが
+# デプロイされないまま 2 日走ったのと同じ種類の見逃しが、バックアップ側でも
+# 起こりうる。
+#
+# root で走る（他の unit の journal を読むため）。実行するのは root 所有の
+# `/usr/local/sbin/aijudge-notify` と systemctl / journalctl だけで、
+# チェックアウトの中のものは実行しない。
+[Unit]
+Description=aiJudge failure notice for %i
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c '{ echo "unit: %i"; echo; systemctl status --no-pager --lines=0 "%i"; echo; journalctl -u "%i" -n 40 --no-pager -o short-iso; } | /usr/local/sbin/aijudge-notify "[$$(hostname -s)] %i failed"'

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_help.html" import help %}
 {% block title %}未承認の課題（AI 作問） — {{ course.title }}{% endblock %}
 {% block body %}
 <h1>未承認の課題（AI 作問）</h1>
@@ -113,8 +114,8 @@
             <br><span class="desc">解答役の読み: {{ row.checks.solvability.understanding }}</span>
           {% endif %}
           {% if not row.checks.solvability.solved %}
-            <br><span class="desc"><strong>解けなかったことは却下の理由ではありません。</strong>
-              課題文が曖昧なのか、単に難しいのかは機械には分かりません。</span>
+            {% call help() %}<strong>解けなかったことは却下の理由ではありません。</strong>
+              課題文が曖昧なのか、単に難しいのかは機械には分かりません。{% endcall %}
           {% endif %}
           {% if row.checks.solvability.unexercised_kcs %}
             <br><span class="desc"><strong>解くのに要らなかった知識要素:
@@ -138,12 +139,12 @@
               <br><span class="desc">{{ "%.2f"|format(item.score) }}
                 {{ item.title or item.task_version_id }}</span>
             {% endfor %}
-            <br><span class="desc">同じ単元なら似るのが当然です。
-              <strong>捨てるかどうかは教員が決めます。</strong></span>
+            {% call help() %}同じ単元なら似るのが当然です。
+              <strong>捨てるかどうかは教員が決めます。</strong>{% endcall %}
           {% endif %}
           {% if row.checks.duplicates.method.value == "lexical" %}
-            <br><span class="desc">字面だけで測っています ──
-              <strong>言い換えた重複は見つかりません。</strong></span>
+            {% call help("測り方") %}字面だけで測っています ──
+              <strong>言い換えた重複は見つかりません。</strong>{% endcall %}
           {% endif %}
         </td>
       </tr>
@@ -162,8 +163,8 @@
               <br><span class="desc">類似度 {{ "%.2f"|format(item.score) }}
                 {{ item.title or item.task_version_id }}</span>
             {% endfor %}
-            <br><span class="desc"><strong>正答率は難しさそのものではありません。</strong>
-              出題時期・任意か必須か・受講者によっても動きます。</span>
+            {% call help() %}<strong>正答率は難しさそのものではありません。</strong>
+              出題時期・任意か必須か・受講者によっても動きます。{% endcall %}
           {% endif %}
         </td>
       </tr>
@@ -186,15 +187,14 @@
     {% if not revision %}
     <div class="inline-field">
       <span class="body">
-        <label for="key-{{ row.draft.id }}">課題キー（採用のときに確定します）</label>
+        <label for="key-{{ row.draft.id }}">課題キー{% call help() %}
+          <strong>内容の分かる名前にしてください</strong>（例: <span class="mono">nstring</span>）。
+          採用すると<strong>あとから変えられません</strong> — 提出も採点の記録もこの鍵で繋がります。
+        {% endcall %}</label>
         <input id="key-{{ row.draft.id }}" name="key_suffix"
                value="{{ row.draft.spec.key.rsplit('/', 1)[-1] }}" style="max-width:16rem">
       </span>
     </div>
-    <p class="desc" style="margin:6px 0 12px">
-      <strong>内容の分かる名前にしてください</strong>（例: <span class="mono">nstring</span>）。
-      採用すると<strong>あとから変えられません</strong> — 提出も採点の記録もこの鍵で繋がります。
-    </p>
     <div class="inline-field">
       <span class="body">
         <label for="title-{{ row.draft.id }}">題名</label>
@@ -210,7 +210,10 @@
        （そもそも課題にならない）。 #}
     <div class="inline-field">
       <span class="body">
-        <label for="unit-{{ row.draft.id }}">出題する問題セット</label>
+        <label for="unit-{{ row.draft.id }}">出題する問題セット{% call help() %}
+          <strong>日程は選んだセットに揃います</strong>（公開・提出開始・締切・自動確定の猶予）。
+          並びはそのセットの末尾に入ります。
+        {% endcall %}</label>
         <select id="unit-{{ row.draft.id }}" name="unit">
           <option value="{{ row.draft.unit }}">
             {% if row.draft.unit %}いまのまま（{{ row.draft.unit }}）{% else %}決めない（どのセットにも出しません）{% endif %}
@@ -221,10 +224,6 @@
         </select>
       </span>
     </div>
-    <p class="desc" style="margin:6px 0 0">
-      <strong>日程は選んだセットに揃います</strong>（公開・提出開始・締切・自動確定の猶予）。
-      並びはそのセットの末尾に入ります。
-    </p>
     <div class="actions">
       {# **捨てるのは取り消せない**（ADR 0019）。却下の理由は聞かない ──
          記録しないのだから、書かせる意味が無い。 #}
@@ -282,22 +281,22 @@
              value="0.3" style="max-width:8rem"></span>
   </div>
   <div class="field">
-    <label for="g-instructions">AI への指示（1 行 1 件・任意）</label>
-    <textarea id="g-instructions" name="instructions" rows="3"
-      placeholder="必ず標準入力から読むこと&#10;標準ライブラリの qsort は使わせないこと&#10;できれば配列の添字を扱う題材にしてほしい"></textarea>
-    <p class="desc" style="margin:4px 0 0">
+    <label for="g-instructions">AI への指示（1 行 1 件・任意）{% call help() %}
       外せない条件は「必ず」、希望は「できれば」と書いてください —
       <strong>強さは書き方で伝わります</strong>。空でも生成できます。
-    </p>
+    {% endcall %}</label>
+    <textarea id="g-instructions" name="instructions" rows="3"
+      placeholder="必ず標準入力から読むこと&#10;標準ライブラリの qsort は使わせないこと&#10;できれば配列の添字を扱う題材にしてほしい"></textarea>
   </div>
-  <p class="desc">
+  <p class="desc">数十秒かかります。できたものは上の一覧に入り、承認するまで出題されません。
+  {% call help() %}
     このコースの既存課題を「似せないための材料」として渡します。
-    生成には十数秒かかります。
+    生成には数十秒かかります。
     <strong>できたものは候補であって課題ではありません</strong> —
     この一覧に入り、承認するまで出題されません。
     <strong>出題する問題セットは承認のときに決めます</strong> ── 使えるかどうかは
     作ってみないと分からないので、先に決めると、却下したときにそのセットに残骸が並びます。
-  </p>
+  {% endcall %}</p>
   <div class="actions">
     {% if saved_key == 'generated' %}<span class="flash" id="saved">{{ saved }}</span>{% endif %}
     <button type="submit">生成</button>

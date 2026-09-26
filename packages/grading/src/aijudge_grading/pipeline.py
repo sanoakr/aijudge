@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -125,6 +126,16 @@ def _apply(
             continue
         out[ArtifactId(extraction.artifact_id)] = extraction.text
     return out
+
+
+#: 評価器の `raw_output` のうち、再現のために `model_params` へ写す値（#407）。
+REPORTED_PARAMS = ("samples", "provider")
+
+
+def profile_hash(profile: SubjectProfile) -> str:
+    """実際に効いた科目プロファイルのハッシュ（#407）。キーの順に依存しない。"""
+    canonical = json.dumps(profile.model_dump(mode="json"), sort_keys=True, ensure_ascii=False)
+    return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 class GradingPipeline:
@@ -242,12 +253,21 @@ class GradingPipeline:
         # 出したのかを GradingContext に残す。
         model_ids: dict[str, str] = {}
         prompt_versions: dict[str, str] = {}
+        model_params: dict[str, object] = {}
 
         def record_provenance(evaluator_id: str, outcome: EvaluationOutcome) -> None:
             if outcome.model_id:
                 model_ids[evaluator_id] = outcome.model_id
             if outcome.prompt_id:
                 prompt_versions[evaluator_id] = outcome.prompt_id
+            # **実際に効いた設定を残す**（#407）。プロファイルの設定と、評価器が
+            # 報告した実行時の値（自己一貫性の標本数・応答したプロバイダ）。
+            params: dict[str, object] = dict(self._profile.evaluator_options.get(evaluator_id, {}))
+            for key in REPORTED_PARAMS:
+                if key in outcome.raw_output:
+                    params[key] = outcome.raw_output[key]
+            if params:
+                model_params[evaluator_id] = params
 
         if base is not None:
             # 土台の結果を引き継ぐ。**重みはルーブリックから取り直す。**
@@ -262,6 +282,7 @@ class GradingPipeline:
                 scores.append(score.model_copy(update={"weight": weight}))
             model_ids.update(base.context.model_ids)
             prompt_versions.update(base.context.prompt_versions)
+            model_params.update(base.context.model_params)
 
         # --- 2. 決定的評価 -------------------------------------------------
         for evaluator_id in [] if phase is GradingPhase.AI else self._profile.deterministic:
@@ -411,7 +432,9 @@ class GradingPipeline:
                 input_hash=compute_input_hash(submission, contents),
                 prompt_versions=prompt_versions,
                 model_ids=model_ids,
+                model_params=model_params,
                 pipeline_version=PIPELINE_VERSION,
+                profile_hash=profile_hash(self._profile),
             ),
             evaluator_results=tuple(results),
             criterion_scores=final,
