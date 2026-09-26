@@ -1,0 +1,21 @@
+{# 設定の説明を畳む部品（2026-09-26）。
+
+   **設定の画面では、説明が設定を押し流していた。** 1 項目に 2〜5 行の説明が付き、
+   1 画面に入る設定が 2〜3 個しかなかった。説明と入力欄が同じ地に並ぶので、
+   どこが設定なのかも読み分けにくかった。説明は捨てずに畳む ── 書いてあるのは
+   「なぜそうなるか」で、要るときには要る。
+
+   使い方:
+
+       {% from "_help.html" import help %}
+       <label for="x">名前</label>{% call help() %}説明（HTML 可）{% endcall %}
+
+   **マウスを載せても、押しても開く**（CSS の :hover / :focus-within と、base.html の
+   小さなスクリプト）。タブレットには載せるという操作が無いので、押す道が要る。
+   スクリプトが無くても、載せる・フォーカスする（Tab）で読める。
+
+   **説明の文字は HTML に残る。** 隠すのは見た目だけで、テストも検索もそのまま効く。 #}
+{% macro help(label="説明") -%}
+<span class="help"><button type="button" class="help-btn" aria-label="{{ label }}"
+  aria-expanded="false">?</button><span class="help-body" role="note">{{ caller() }}</span></span>
+{%- endmacro %}

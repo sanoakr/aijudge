@@ -946,9 +946,14 @@ class SqlReviewRepository:
         )
 
     def unfinalized_for_task(
-        self, task_id: TaskId, *, limit: int = 500
+        self, task_id: TaskId, *, limit: int | None = None
     ) -> tuple[tuple[Submission, GradingRun, ReviewRequest | None], ...]:
         """この課題でまだ確定していない提出。一括確定と自動確定が読む。
+
+        **既定では打ち切らない**（#403）。以前は 500 行で切っていたが、並びは
+        提出時刻順で、確定されない行（要レビュー・異議・暫定・試行）も毎回
+        その中に入る。それが 500 件を超えると、後ろの新しい提出がいつまでも
+        確定の候補に上がらず、未確定の件数も 500 で頭打ちになっていた。
 
         **最新の採点 1 件につき 1 行。** 再採点された提出で古い採点まで
         確定させると、学習者に見えている点と確定した点が食い違う。
@@ -1685,6 +1690,14 @@ class SqlTaskRepository:
         **提出そのものではなく採点を数えている。** 採点されていない提出は
         入らない ── 通ったかどうかが分からないものを分母に入れると、
         正答率が実際より低く出る。
+
+        **総合点を保留した採点も入れない**（`final_ratio` が NULL・#406）。
+        S6 が止まっている間の暫定の採点は、AI 観点を除いた重みで比例配分した
+        点を `score_ratio` に持つので、数えると実際より高くも低くも出る。
+
+        通ったかは `score_ratio`（評価そのもの）で見る。`final_ratio` は遅延の
+        減点を畳んだ値で、遅れて出したことは課題の難しさではない。教員の
+        訂正はここには入らない（訂正後の評価だけを持つ列が無い）。
         """
         if not version_ids:
             return {}
@@ -1697,6 +1710,7 @@ class SqlTaskRepository:
             .where(
                 GradingRunRow.task_version_id.in_([str(v) for v in version_ids]),
                 GradingRunRow.superseded_by.is_(None),
+                GradingRunRow.final_ratio.is_not(None),
             )
             .group_by(GradingRunRow.task_version_id)
         ).all()

@@ -20,7 +20,9 @@
 | `polkit/49-aijudge.rules` | `aijudge` グループが sudo なしで unit を起動停止できるようにする |
 | `aijudge.env.example` | `EnvironmentFile` の雛形。値を埋めて `/srv/aijudge/config/aijudge.env` に置く |
 | `aijudge-restic-backup.sh` | `/srv/aijudge` を restic でバックアップする（target 1・オンボックス） |
-| `aijudge-restic-offbox.sh` | 同じものをオフボックスの受け先へ（`@target2` / `@target3`。月次を 12 本残す） |
+| `aijudge-restic-offbox.sh` | 同じものをオフボックスの受け先へ（`@target2` / `@target3`。月次を 6 本残す） |
+| `aijudge-restic-check.sh` | 受け先の `restic check`（中身も一部読む）と最新スナップショットの鮮度（週次・失敗はメール、#427） |
+| `aijudge-purge-preview.sh` | 保存期間を過ぎた動画・作業の記録の下見。あればメール（週次。消すのは人、#427） |
 | `aijudge-restic.env.example` | restic 専用の `EnvironmentFile` の雛形。パスワードを本体の env から隔離する |
 | `aijudge-db-backup.sh` | `pg_dump -Fc`（論理・日次）。**`deploy.sh` もデプロイ直前に呼ぶ** |
 | `aijudge-pg-basebackup.sh` | 物理ベースバックアップ（PITR の土台・週次）と、不要になった WAL の掃除 |
@@ -119,7 +121,9 @@ error: Your local changes to the following files would be overwritten by checkou
 学生にも教員にも何も起きないので、気づかない。実際に v0.35.1 でこれが起き、
 **8 リリース分（v0.36.0 〜 v0.43.0）がデプロイされないまま 2 日走っていた**。
 
-気づく側の手当てはこれ。CD は失敗を journal にしか残さないので、たまに見る。
+気づく側の手当てはこれ。**失敗した unit はメールで届く**（`OnFailure=aijudge-notify@%n`、#422）。
+学生画面とコンソールの `/login` も 5 分ごとに外から叩き、状態が変わったときに
+知らせる（`aijudge-http-check.timer`）。手で確かめるときは:
 
 ```fish
 systemctl is-failed aijudge-autodeploy.service        # failed なら止まっている
@@ -135,6 +139,91 @@ sudo -u aijudge sh -c 'set -a; . /srv/aijudge/config/aijudge.env; set +a; \
     exec /opt/aijudge/deploy/deploy.sh v0.44.0'
 ```
 
+**いまは 3 か所で塞いである**（#423）。`deploy.sh` は `UV_FROZEN=1` で
+ロックを書き換えず、作業ツリーが dirty なら checkout の前に止まる。CI は
+`uv sync --locked` で、`pyproject` と `uv.lock` がずれた時点で落ちる。
+
+### デプロイ済みの版と、失敗したときの再試行
+
+`deploy.sh` は**最後（疎通確認）まで通ったときだけ** `/var/lib/aijudge/deployed-tag`
+にタグを書く（#421）。autodeploy はこれを見て判定するので、checkout の後で
+migration や `uv sync` が落ちても「最新がデプロイ済み」には見えず、次の周回
+（5 分後）にもう一度同じタグを試す。
+
+```fish
+sudo cat /var/lib/aijudge/deployed-tag                 # 最後まで通った版
+sudo -u aijudge git -C /opt/aijudge describe --tags   # 作業ツリーの版（途中で落ちると先に進んでいる）
+```
+
+2 つが違うなら、デプロイは途中で落ちている。`journalctl -u aijudge-autodeploy` を読む。
+
+### 切り戻し（#425）
+
+新しい版に問題があったときは、**固定ファイルに前の版を書く**。autodeploy は
+固定があればそのタグを入れ、最新を追わない ── 固定しないまま古いタグを
+手で入れても、5 分以内に最新へ戻される。
+
+```fish
+# 1. 前の版に固定する（次の周回で deploy.sh がその版を入れる）
+echo v1.28.0 | sudo -u aijudge tee /var/lib/aijudge/deploy-pin
+# すぐ入れたいときは手で流してもよい
+sudo -u aijudge sh -c 'set -a; . /srv/aijudge/config/aijudge.env; set +a; \
+    exec /opt/aijudge/deploy/deploy.sh v1.28.0'
+
+# 2. 直ったタグを出したら固定を外す（最新を追う状態に戻る）
+sudo -u aijudge rm /var/lib/aijudge/deploy-pin
+```
+
+**migration は戻さない。** 移行は前方にしか書いていない（`downgrade` は
+あっても試していない）ので、スキーマを変えた版から戻すときは、コードだけ
+戻して古いコードが新しいスキーマで動くかを確かめるか、デプロイ直前の
+ダンプ（`aijudge-db-backup.sh`）から戻す。ダンプから戻すと、その後の提出と
+採点は失われる ── どちらを取るかは人が決める。
+
+移行はロックを 10 秒までしか待たない（`migrations/env.py` の `lock_timeout`）。
+長いトランザクションの後ろで ALTER が待つ間に、全てのクエリがその後ろに
+並んで画面ごと止まるのを防ぐためで、待てなければ移行が失敗し、上の再試行に乗る。
+
+### unit の配布と署名（#417）
+
+unit と、unit が呼ぶ `/usr/local/sbin` のスクリプトは **root が配る**
+（`aijudge-units.service`）。root はチェックアウト（aijudge 所有）の中身を信じず、
+**署名を確かめたタグ**の中身だけを配る。
+
+- root 所有のミラー `/var/lib/aijudge-release/repo.git` を origin から更新する
+- チェックアウトの `.git/HEAD`（コミットのハッシュ）を指す `v*` タグを探す
+- タグの署名を `/etc/aijudge/allowed_signers` で確かめる。**無ければ何も配らずに失敗**
+  し、`OnFailure` でメールが届く
+- そのタグから `git archive` で取り出した `deploy/` を配る
+
+**リリースのタグは署名する**（`git tag -s`。このリポジトリでは `tag.gpgSign=true`
+にしてあるので `git tag -a` でも署名される）。署名していないタグを出すと、コードの
+デプロイは進むが unit とスクリプトは配られない。許可する鍵は `deploy/release-signers`
+にも置いてある（公開鍵。**運用機が信じるのは `/etc/aijudge/allowed_signers` の方**）。
+
+最初の 1 回だけは人が入れる（root で。中身を確かめてから）:
+
+```sh
+# 1. 許可する署名鍵（公開鍵）。deploy/release-signers と同じ内容を、目で確かめて置く
+sudo install -d -m 755 /etc/aijudge
+sudo install -m 644 /dev/stdin /etc/aijudge/allowed_signers < release-signers
+
+# 2. root 所有のミラー
+sudo install -d -m 700 /var/lib/aijudge-release
+sudo git clone --bare --quiet https://github.com/sanoakr/aijudge.git /var/lib/aijudge-release/repo.git
+
+# 3. 署名済みタグから配る側を取り出して置き、1 度走らせる（以後は deploy が起動する）
+TAG=v1.2.3   # 署名済みのタグ
+M='git --git-dir=/var/lib/aijudge-release/repo.git -c gpg.format=ssh -c gpg.ssh.allowedSignersFile=/etc/aijudge/allowed_signers'
+sudo $M verify-tag "$TAG"
+sudo sh -c "$M show $TAG:deploy/install-units.sh > /usr/local/sbin/aijudge-install-units"
+sudo chmod 755 /usr/local/sbin/aijudge-install-units
+sudo /usr/local/sbin/aijudge-install-units
+```
+
+鍵を替えるときは `/etc/aijudge/allowed_signers` に新しい鍵を**足してから**、新しい鍵で
+署名したタグを出す（先に消すと、そのあいだ配布が止まる）。
+
 ### ログを読む（ADR 0016）
 
 運用では `AIJUDGE_LOG_FORMAT=json` を設定する（1 行 1 イベント）。
@@ -142,16 +231,16 @@ unit には `SyslogIdentifier` が付いているので、サービス単位で�
 
 ```fish
 # 採点ワーカーの失敗だけ
-journalctl -u aijudge-worker-ai@1 -o cat | jq 'select(.level == "ERROR")'
+journalctl -u aijudge-worker-ai@1 -o cat | jq -R 'fromjson? | select(.level == "ERROR")'
 
 # **1 つの提出について、web とワーカーの両方の行を集める。**
 # 突き合わせの鍵は submission_id ── これが無かったので、#60 / #80 では
 # 画面から「採点が遅い」としか見えなかった（docs/RUNNING.md）。
 journalctl -t aijudge-web -t aijudge-worker-det -t aijudge-worker-ai1 -o cat \
-  | jq 'select(.submission_id == "SUB-ID")'
+  | jq -R 'fromjson? | select(.submission_id == "SUB-ID")'
 
 # 1 リクエストの中で起きたこと（学生の問い合わせに付いてくる X-Request-ID から）
-journalctl -t aijudge-web -o cat | jq 'select(.request_id == "REQ-ID")'
+journalctl -t aijudge-web -o cat | jq -R 'fromjson? | select(.request_id == "REQ-ID")'
 ```
 
 保存期間は 90 日（`journald/aijudge.conf`）。**成績に関わる「誰が何を変えたか」は
@@ -193,7 +282,13 @@ sudo -u aijudge bash -c 'set -a; source /srv/aijudge/config/aijudge-restic.env; 
 sudo cp deploy/systemd/aijudge-restic-backup.{service,timer} /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now aijudge-restic-backup.timer
+
+# 受け先の検査（週次・#427）。受け先ごとに 1 本。失敗はメールで届く
+sudo systemctl enable --now aijudge-restic-check@aijudge-restic.timer
 ```
+
+`aijudge-config-check` は、受け先の env ファイルがあるのに timer が有効で
+ない系統を NG として知らせる（有効にし忘れは、失敗しないので他では気づけない）。
 
 target 2（オフボックス）は同じ形の env ファイルをもう 1 組（別リポジトリ・別パスワード）用意し、
 別名の timer をもう一つ足すこと（v1 では target 1 のみをここに含める）。

@@ -1,6 +1,8 @@
 # 締切を過ぎた成績を確定する。`--once` で 1 回走って終わる（timer が呼ぶ）。
 [Unit]
 Description=aiJudge finalize (close grades past the deadline)
+# 失敗したらメールで知らせる（#422）。
+OnFailure=aijudge-notify@%n.service
 After=network-online.target postgresql.service
 Wants=postgresql.service
 
@@ -15,6 +17,11 @@ ExecStart=/opt/aijudge/.venv/bin/aijudge-finalize --once
 SyslogIdentifier=aijudge-finalize
 NoNewPrivileges=yes
 ProtectSystem=strict
+# **Docker に触らせない**（#416）。`aijudge` は採点ワーカーのために docker
+# グループに入っており、docker.sock への書き込みはホストの root と同じである。
+# このプロセスは提出物を動かさない（設計書 I6・ADR 0024）ので要らない ──
+# 入れておくと、ここに RCE が 1 つあれば、そのままホストの root になる。
+InaccessiblePaths=-/var/run/docker.sock -/run/docker.sock
 ProtectHome=yes
 ReadWritePaths=/srv/aijudge /var/lib/aijudge
 PrivateTmp=yes

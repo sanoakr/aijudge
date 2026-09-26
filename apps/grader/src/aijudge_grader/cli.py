@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import signal
 import sys
@@ -31,6 +32,8 @@ from aijudge_telemetry import configure_logging
 from .feedback import build_feedback_generator
 from .worker import GradingWorker
 
+logger = logging.getLogger(__name__)
+
 REPO_ROOT = Path(__file__).resolve().parents[4]
 
 ENV_ARTIFACT_DIR = "AIJUDGE_ARTIFACT_DIR"
@@ -42,11 +45,15 @@ DEFAULT_ARTIFACT_DIR = Path.home() / ".aijudge" / "artifacts"
 DEFAULT_OBSERVATION_DIR = Path.home() / ".aijudge" / "observations"
 
 _stopping = False
+_worker: GradingWorker | None = None
 
 
 def _stop(*_: object) -> None:
     global _stopping
     _stopping = True
+    if _worker is not None:
+        # 採点の最中なら打ち切って、ジョブを数えずにキューへ戻す（#424）。
+        _worker.interrupt()
 
 
 def build_worker(args: argparse.Namespace) -> tuple[GradingWorker, Database]:
@@ -132,19 +139,21 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"  失敗: {error}", file=sys.stderr)
             return 1 if errors else 0
 
+        global _worker
+        _worker = worker
         signal.signal(signal.SIGINT, _stop)
         signal.signal(signal.SIGTERM, _stop)
-        print(f"ワーカー {args.name} を開始しました（Ctrl-C で停止）")
+        logger.info("ワーカー %s を開始しました", args.name)
         while not _stopping:
             result = worker.run_once(subject_profile=args.subject, phase=phase)
             if result is None:
                 time.sleep(args.poll_seconds)
                 continue
             if result.graded:
-                print(f"採点しました: {result.job.submission_id}")
+                logger.info("採点しました: %s", result.job.submission_id)
             else:
-                print(f"失敗: {result.job.submission_id}: {result.error}", file=sys.stderr)
-        print("停止しました")
+                logger.warning("失敗: %s: %s", result.job.submission_id, result.error)
+        logger.info("停止しました")
         return 0
     finally:
         database.dispose()

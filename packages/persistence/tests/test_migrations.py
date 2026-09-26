@@ -100,7 +100,20 @@ def test_the_migrations_also_build_the_postgres_shape() -> None:
     finally:
         engine.dispose()
 
-    command.upgrade(_config(url), "head")
+    # **移行の宛先も同じ URL にする。** `migrations/env.py` は設定の URL より
+    # `AIJUDGE_DATABASE_URL`（無ければ既定値）を優先する。渡さないと、移行は
+    # 別の DB（手元なら既定の `aijudge`）に当たり、空のテスト用 DB と比べて
+    # 全部の表が「無い」と言われる ── CI は両方に同じ値を入れているので
+    # 通っていたが、手元では意図しない DB に移行を当てていた。
+    previous = os.environ.get("AIJUDGE_DATABASE_URL")
+    os.environ["AIJUDGE_DATABASE_URL"] = url
+    try:
+        command.upgrade(_config(url), "head")
+    finally:
+        if previous is None:
+            os.environ.pop("AIJUDGE_DATABASE_URL", None)
+        else:
+            os.environ["AIJUDGE_DATABASE_URL"] = previous
     engine = sa.create_engine(url)
     try:
         with engine.connect() as connection:
@@ -108,3 +121,61 @@ def test_the_migrations_also_build_the_postgres_shape() -> None:
     finally:
         engine.dispose()
     assert diff == []
+
+
+@pytest.mark.skipif(
+    not os.environ.get("AIJUDGE_TEST_DATABASE_URL", "").startswith("postgresql"),
+    reason="PostgreSQL が要る（AIJUDGE_TEST_DATABASE_URL で指定）",
+)
+def test_grading_runs_accept_only_supersession_and_final_ratio() -> None:
+    """採点結果の不変性を DB でも守る（ADR 0003・#408）。
+
+    許すのは `superseded_by`（と文書の同名のキー）と `final_ratio` の更新だけ。
+    """
+    import json
+
+    url = os.environ["AIJUDGE_TEST_DATABASE_URL"]
+    engine = sa.create_engine(url)
+    with engine.begin() as connection:
+        connection.execute(sa.text("DROP SCHEMA public CASCADE"))
+        connection.execute(sa.text("CREATE SCHEMA public"))
+    engine.dispose()
+    previous = os.environ.get("AIJUDGE_DATABASE_URL")
+    os.environ["AIJUDGE_DATABASE_URL"] = url
+    try:
+        command.upgrade(_config(url), "head")
+    finally:
+        if previous is None:
+            os.environ.pop("AIJUDGE_DATABASE_URL", None)
+        else:
+            os.environ["AIJUDGE_DATABASE_URL"] = previous
+
+    engine = sa.create_engine(url)
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                sa.text(
+                    "INSERT INTO grading_runs (id, submission_id, task_version_id, subject_profile,"
+                    " input_hash, score_ratio, confidence, routing, created_at, document)"
+                    " VALUES ('grn_1', 'sub_1', 'tsv_1', 'p', 'h', 0.5, 1.0, 'auto', now(),"
+                    " CAST(:doc AS jsonb))"
+                ),
+                {"doc": json.dumps({"id": "grn_1", "score_ratio": 0.5})},
+            )
+        with engine.begin() as connection:
+            connection.execute(
+                sa.text(
+                    "UPDATE grading_runs SET superseded_by = 'grn_2', final_ratio = 0.4,"
+                    ' document = document || \'{"superseded_by": "grn_2"}\'::jsonb'
+                    " WHERE id = 'grn_1'"
+                )
+            )
+        for statement in (
+            "UPDATE grading_runs SET score_ratio = 1.0 WHERE id = 'grn_1'",
+            "UPDATE grading_runs SET document = document || '{\"score_ratio\": 1.0}'::jsonb"
+            " WHERE id = 'grn_1'",
+        ):
+            with pytest.raises(sa.exc.DBAPIError, match="append-only"), engine.begin() as c:
+                c.execute(sa.text(statement))
+    finally:
+        engine.dispose()

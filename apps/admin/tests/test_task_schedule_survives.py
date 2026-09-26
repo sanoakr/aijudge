@@ -218,6 +218,7 @@ KEPT = {
     "editor_completion",
     "file_upload",
     "clear_points",
+    "screen_capture",
 }
 # 版を保存する側が決める（`save_task` は触らない）。
 DECIDED_ELSEWHERE = {"current_version_id"}

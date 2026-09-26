@@ -48,6 +48,72 @@ def test_every_workspace_package_is_listed_in_the_forbidden_contract() -> None:
         )
 
 
+def _workspace_modules(*kinds: str) -> set[str]:
+    """`packages/*` などのうち、pyproject を持つものの import 名。"""
+    modules: set[str] = set()
+    for kind in kinds:
+        for manifest in sorted((REPO_ROOT / kind).glob("*/pyproject.toml")):
+            with manifest.open("rb") as handle:
+                modules.add(_distribution_to_module(tomllib.load(handle)["project"]["name"]))
+    return modules
+
+
+def _listed(section: str, key: str) -> set[str]:
+    return set(_import_linter_config()[f"importlinter:contract:{section}"][key].split())
+
+
+def test_every_workspace_member_is_a_root_package() -> None:
+    """**評価器と抽出器も登録する**（#433）。
+
+    以前は `packages/*` しか照合しておらず、`checklist_ai_judge` と
+    `submission_compliance` が `.importlinter` のどこにも無いまま、どの契約も
+    掛からずに入っていた ── lint-imports は緑で、何も保証していなかった。
+    """
+    config = _import_linter_config()
+    roots = set(config["importlinter"]["root_packages"].split())
+    members = _workspace_modules("packages", "evaluators", "extractors", "apps")
+    missing = members - roots
+    assert not missing, f"not registered in .importlinter root_packages: {sorted(missing)}"
+
+
+def test_every_evaluator_is_under_the_evaluator_contracts() -> None:
+    plugins = _workspace_modules("evaluators", "extractors")
+    for section, key in (
+        ("evaluators-depend-on-core-and-protocol-only", "source_modules"),
+        ("evaluators-do-not-know-each-other", "modules"),
+        ("engine-does-not-know-evaluators", "forbidden_modules"),
+        ("grading-does-not-know-ide", "source_modules"),
+        ("subsystems-do-not-know-the-store", "source_modules"),
+    ):
+        missing = plugins - _listed(section, key)
+        assert not missing, f"{section}.{key} is missing {sorted(missing)}"
+
+
+def test_no_package_below_the_apps_may_import_an_app() -> None:
+    """合成ルート（apps）より下の層は、全部が apps 禁止の対象に入る（#434）。"""
+    below = _workspace_modules("packages", "evaluators", "extractors")
+    missing = below - _listed("subsystems-do-not-depend-on-apps", "source_modules")
+    assert not missing, f"subsystems-do-not-depend-on-apps is missing {sorted(missing)}"
+    apps = _workspace_modules("apps")
+    assert apps <= _listed("subsystems-do-not-depend-on-apps", "forbidden_modules")
+
+
+def test_contracts_name_only_modules_that_exist() -> None:
+    """存在しないモジュールを名指しする契約は、何も守っていない（#434）。"""
+    config = _import_linter_config()
+    known = _workspace_modules("packages", "evaluators", "extractors", "apps")
+    for section in config.sections():
+        if not section.startswith("importlinter:contract:"):
+            continue
+        for key in ("source_modules", "forbidden_modules", "modules"):
+            if key not in config[section]:
+                continue
+            for module in config[section][key].split():
+                if not module.startswith("aijudge_"):
+                    continue
+                assert module.split(".")[0] in known, f"{section} names {module}, which is gone"
+
+
 def test_the_measurement_contract_is_declared() -> None:
     """測定が採点に依存しない契約が `.importlinter` にあること。
 

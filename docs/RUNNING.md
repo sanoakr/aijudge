@@ -108,7 +108,7 @@ AIJUDGE_LOG_FORMAT=json AIJUDGE_LOG_LEVEL=DEBUG uv run aijudge-worker --once
 
 ```fish
 journalctl -t aijudge-web -t aijudge-worker-det -t aijudge-worker-ai1 -o cat \
-  | jq 'select(.submission_id == "SUB-ID")'
+  | jq -R 'fromjson? | select(.submission_id == "SUB-ID")'
 ```
 
 1 リクエストの中で起きたことは `request_id` で引く。応答の `X-Request-ID`
@@ -383,6 +383,14 @@ JavaScript を切っていると切り替えは出ず、端末の設定に従う
 | `AIJUDGE_OBSERVATION_DIR` | 観測レコード（測定用・任意） | `~/.aijudge/observations` |
 | `AIJUDGE_SANDBOX` | 隔離バックエンド（`auto`/`docker`/`gvisor`/`seatbelt`） | `auto` |
 | `AIJUDGE_SANDBOX_WORKDIR` | 作業域の置き場所。コンテナがマウントするパスであること | `~/.aijudge/work` |
+| `AIJUDGE_SANDBOX_IMAGE` | 提出物を動かすコンテナのイメージ | `gcc:14-bookworm` |
+| `AIJUDGE_SANDBOX_I_KNOW_THIS_IS_UNSAFE` | `AIJUDGE_SANDBOX=unsafe`（隔離なし）を使うための 2 つ目の許可（`yes`）。**実提出を採点する機械では決して入れない** | 未設定 |
+| `AIJUDGE_MAX_UPLOAD_BYTES` | 学生画面が 1 回の提出で受け付ける大きさ（動画は別の上限） | 20 MiB |
+| `AIJUDGE_JUDGE_SAMPLES` | AI 評価器（`rubric_ai_judge`・`checklist_ai_judge`）の自己一貫性の標本数。一致度が確信度になる | `3` |
+| `AIJUDGE_ADMIN_PASSWORD` | `aijudge-admin staff` の `--password` を省いたときに使う初期パスワード（CLI のみ） | 未設定 |
+| `AIJUDGE_S3_ENDPOINT` / `AIJUDGE_S3_BUCKET` / `AIJUDGE_S3_ACCESS_KEY` / `AIJUDGE_S3_SECRET_KEY` | S3 互換ストレージに提出物を置く場合（`ObjectArtifactStore`）。**学内の MinIO を想定**。既定の構成は使わない（提出物はファイルシステム） | 未設定 |
+| `AIJUDGE_SANDBOX_MIN` | これより弱い隔離では提出を動かさない（`none`/`os_sandbox`/`container`/`kernel_isolated`、#414）。**本番では `container` 以上**。自動選択が弱い方へ黙って落ちるのを止める | 未設定（制限なし） |
+| `AIJUDGE_SANDBOX_IMAGES` | コースの採点設定（`evaluator_options.*.image`）から名指しできる、既定以外のイメージ（カンマ区切り、#419）。既定と `AIJUDGE_SANDBOX_IMAGE` は常に使える | 未設定（既定のみ） |
 | `AIJUDGE_SECURE_COOKIES` | セッション Cookie に `Secure` を付ける（`1`/`0`）。未設定なら `X-Forwarded-Proto` で判断 | 未設定 |
 | `AIJUDGE_CONSOLE_URL` | 学習者アプリが出す教員コンソールの場所（#103）。逆プロキシの後ろなど、相手が別ホストのときだけ指定する | 未設定（開いているホスト名 + `AIJUDGE_CONSOLE_PORT`） |
 | `AIJUDGE_LEARNER_URL` | 教員コンソールが出す学習者アプリの場所（#103） | 未設定（開いているホスト名 + `AIJUDGE_LEARNER_PORT`） |

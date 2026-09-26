@@ -92,6 +92,9 @@ class UnitGroup:
     # `campus_only` と同じく、混ざりは別に持って黙らせない。
     confidential: bool = False
     confidential_mixed: bool = False
+    # 試験中に画面の静止画を撮るか（ADR 0027）。全課題がそうなら真。混ざりも持つ。
+    screen_capture: bool = False
+    screen_capture_mixed: bool = False
     # **いま誰に見えているか**（2026-09-25）。`learners`（学生に公開中）・`staff`
     # （未公開・TA まで）・`instructors`（教員のみ・TA にも未公開）。一覧を分けて出す ──
     # 誤って公開した、公開し忘れた、に気づけるように。判定は `may_see` と同じ事実で、
@@ -240,6 +243,9 @@ def load_units(
                 confidential=bool(tasks) and all(task.confidential_until_open for task in tasks),
                 confidential_mixed=any(task.confidential_until_open for task in tasks)
                 and not all(task.confidential_until_open for task in tasks),
+                screen_capture=bool(tasks) and all(task.screen_capture for task in tasks),
+                screen_capture_mixed=any(task.screen_capture for task in tasks)
+                and not all(task.screen_capture for task in tasks),
                 audience=_common_audience(tasks),
                 audience_mixed=len({task.audience_group_ids for task in tasks}) > 1,
                 editor=bool(tasks) and all(task.answer_mode is AnswerMode.EDITOR for task in tasks),

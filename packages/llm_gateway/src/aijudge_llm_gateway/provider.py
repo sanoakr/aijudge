@@ -13,6 +13,7 @@ import urllib.error
 import urllib.request
 from typing import Protocol, runtime_checkable
 
+from .locality import is_local_url
 from .types import (
     ChatMessage,
     EmbeddingRequest,
@@ -153,7 +154,7 @@ class OllamaProvider:
         base_url: str = "http://localhost:11434",
         *,
         name: str = "ollama",
-        local: bool = True,
+        local: bool | None = None,
         constrained_decoding: bool = True,
         vision: bool = True,
     ) -> None:
@@ -162,7 +163,9 @@ class OllamaProvider:
         self.capabilities = ProviderCapabilities(
             constrained_decoding=constrained_decoding,
             vision=vision,
-            local=local,
+            # **宛先から決める**（#415）。既定を True にしていたので、学外の
+            # URL を書いても学内として扱われた。明示の指定は試験用に残す。
+            local=is_local_url(self._base_url) if local is None else local,
         )
 
     def complete(self, request: LlmRequest) -> LlmResponse:

@@ -49,7 +49,11 @@ install -m 755 \
     "${DEPLOY_DIR}/aijudge-storage-check.sh" \
     "${DEPLOY_DIR}/aijudge-llm-primary-check.sh" \
     "${DEPLOY_DIR}/aijudge-notify" \
+    "${DEPLOY_DIR}/aijudge-config-check.sh" \
     /usr/local/sbin/
+# 配る側（#417）。以後は署名済みタグから自分自身を配り直す。署名の検証に要る
+# ミラーと許可リストは deploy/README.md「unit の配布と署名」の手順で置く。
+install -m 755 "${DEPLOY_DIR}/install-units.sh" /usr/local/sbin/aijudge-install-units
 install -d -m 755 /usr/local/lib/aijudge
 install -m 644 "${DEPLOY_DIR}/lib/llm-primary-check.py" /usr/local/lib/aijudge/
 # 検査が書く状態ファイルの置き場所（無いと遷移が毎回 UNKNOWN になる）。

@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import signal
 import sys
@@ -27,6 +28,8 @@ from aijudge_sandbox import SandboxError
 from aijudge_telemetry import configure_logging
 
 from .runner import CodeRunner
+
+logger = logging.getLogger(__name__)
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 
@@ -108,11 +111,11 @@ def main(argv: list[str] | None = None) -> int:
 
         signal.signal(signal.SIGINT, _stop)
         signal.signal(signal.SIGTERM, _stop)
-        print(f"runner {args.name} を開始しました（sandbox: {sandbox.name}、Ctrl-C で停止）")
+        logger.info("runner %s を開始しました（sandbox: %s）", args.name, sandbox.name)
         while not _stopping:
             if runner.run_once() is None:
                 time.sleep(args.poll_seconds)
-        print("停止しました")
+        logger.info("停止しました")
         return 0
     finally:
         database.dispose()

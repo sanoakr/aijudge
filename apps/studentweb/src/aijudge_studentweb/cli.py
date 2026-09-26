@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import sys
 from pathlib import Path
@@ -30,6 +31,8 @@ from aijudge_submission import FilesystemArtifactStore, FilesystemUploadSessions
 from aijudge_telemetry import configure_logging, uvicorn_log_config
 
 from .app import StudentApp, create_app
+
+logger = logging.getLogger(__name__)
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 ENV_ARTIFACT_DIR = "AIJUDGE_ARTIFACT_DIR"
@@ -240,8 +243,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--create-schema", action="store_true", help="開発用")
     args = parser.parse_args(argv)
 
-    print(f"→ http://{args.host}:{args.port}/  (workers={args.workers})")
-    print("採点は aijudge-worker が行います（別プロセスで起動してください）")
+    # **ログに出す**（#431）。常駐プロセスの標準出力に JSON でない行が混ざると、
+    # `journalctl -o cat | jq` がそこで止まる。
+    logger.info(
+        "listening on http://%s:%s/ (workers=%s)（採点は aijudge-worker が行う）",
+        args.host,
+        args.port,
+        args.workers,
+    )
 
     if args.workers > 1:
         if args.create_schema:

@@ -372,3 +372,48 @@ def test_a_paste_shared_with_other_learners_is_marked(world: World, root) -> Non
     shared = world.client("teacher").get(f"/courses/{world.course.id}/activity/{first.user_id}")
     assert ">ほかの学生と同じ内容の貼り付け</a>" in shared.text
     assert "ほかの学生 1 人も同じ内容" in shared.text
+
+
+# -- 試験中の画面の静止画（ADR 0027） -------------------------------------------
+
+JPEG = b"\xff\xd8\xff\xe0" + b"\x01" * 32
+
+
+def _replay_data(page: str) -> dict:
+    import json
+    import re
+
+    match = re.search(
+        r'<script type="application/json" id="replay-data">(.*?)</script>', page, re.S
+    )
+    assert match
+    return json.loads(match.group(1))
+
+
+def test_the_replay_shows_the_stills_and_only_instructors_can_open_them(world: World, root) -> None:
+    world.register("teacher", Role.INSTRUCTOR)
+    world.register("ta", Role.ASSISTANT)
+    learner = world.register("s2400001", Role.LEARNER)
+    session = _record(world, learner, root)
+    files = ActivityFiles(root)
+    name = files.write_still(session, kind="paste_before", t=1500, received=NOW, payload=JPEG)
+    base = f"/courses/{world.course.id}/activity/{learner.user_id}/{session.id}"
+
+    page = world.client("teacher").get(base)
+    assert page.status_code == 200
+    (still,) = _replay_data(page.text)["stills"]
+    assert still["kind"] == "paste_before" and still["t"] == 1500
+    stills = f"/activity/stills/{session.id}"
+    assert still["url"].endswith(f"{stills}/{name}")
+    assert len(f"{stills}/{name}") <= 128, "ログの文脈に載らない長さ"
+
+    image = world.client("teacher").get(f"{stills}/{name}")
+    assert image.status_code == 200
+    assert image.content == JPEG
+    assert image.headers["content-type"] == "image/jpeg"
+    assert "sandbox" in image.headers["content-security-policy"]
+
+    # TA には開けない（ADR 0027 §4）。名前の形が違えば読まない。
+    assert world.client("ta").get(f"{stills}/{name}").status_code in (403, 404)
+    assert world.client("teacher").get(f"{stills}/..%2F..%2Fsecret.jpg").status_code == 404
+    assert world.client("teacher").get(f"{stills}/x.jpg").status_code == 404

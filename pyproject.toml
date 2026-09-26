@@ -1,6 +1,6 @@
 [project]
 name = "aijudge"
-version = "1.28.1"
+version = "1.31.0"
 description = "AI-assisted assessment platform for STEM coursework"
 readme = "README.md"
 license = "Apache-2.0"
@@ -20,7 +20,9 @@ dependencies = [
     "aijudge-reviewconsole",
     "aijudge-sandbox",
     "aijudge-submission",
-    "aijudge-persistence",
+    # **本番の DB ドライバはここで入れる**（#428）。dev グループにしか無かった
+    # ので、本番を dev 抜きで入れた瞬間に PostgreSQL へ接続できなくなる作りだった。
+    "aijudge-persistence[postgres]",
     "aijudge-grader",
     "aijudge-identity",
     "aijudge-studentweb",
@@ -138,7 +140,6 @@ strict = true
 
 [dependency-groups]
 dev = [
-    "psycopg[binary]>=3.2",
     "pytest-asyncio>=1.4.0",
 ]
 docs = [

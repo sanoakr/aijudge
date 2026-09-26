@@ -21,9 +21,13 @@ paths=(/srv/aijudge)
 if [ -n "${AIJUDGE_ACTIVITY_DIR:-}" ] && [ -d "${AIJUDGE_ACTIVITY_DIR}" ]; then
   paths+=("${AIJUDGE_ACTIVITY_DIR}")
 fi
+# 試験中の画面の静止画（作業の記録の下の `stills/`）は**取らない**（ADR 0027 §5・
+# 動画と同じ 2026-09-25 の決定）。通知や他のアプリが写り込むので、消したあとに
+# バックアップに残すと、学習者に告知した保存期間が偽りになる。
 restic backup "${paths[@]}" --tag aijudge-auto \
   --exclude /srv/aijudge/lost+found \
-  --exclude '/srv/aijudge/.Trash-*'
+  --exclude '/srv/aijudge/.Trash-*' \
+  --exclude 'stills'
 # **`--group-by host,tags`**。restic の既定は「対象のパスの組」ごとに世代を数える
 # ので、対象に作業の記録を足した日に古い組ができ、その組は新しいスナップショットが
 # 来ないまま最後の世代が残り続ける（保持期間を過ぎても消えない）。タグで束ねる。
