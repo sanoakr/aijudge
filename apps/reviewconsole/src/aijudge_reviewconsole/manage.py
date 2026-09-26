@@ -2980,7 +2980,7 @@ def register(templates) -> APIRouter:
         return Response(
             content=payload,
             media_type=images.content_type(name),
-            headers={"Cache-Control": "private, max-age=86400"},
+            headers=images.response_headers(),
         )
 
     # -- 束（zip）で課題を入れる（#161）------------------------------------
