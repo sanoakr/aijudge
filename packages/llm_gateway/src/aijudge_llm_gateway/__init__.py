@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 
 from .gateway import (
@@ -15,6 +16,7 @@ from .gateway import (
     StructuredResult,
     extract_json,
 )
+from .locality import ENV_LOCAL_DOMAINS, is_local_url
 from .provider import (
     EmbeddingProvider,
     FallbackProvider,
@@ -66,6 +68,9 @@ ENV_VISION_FALLBACK_BASE_URL = "AIJUDGE_LLM_VISION_FALLBACK_BASE_URL"
 ENV_FALLBACK_BASE_URL = "AIJUDGE_LLM_FALLBACK_BASE_URL"
 
 
+logger = logging.getLogger(__name__)
+
+
 def default_model() -> str:
     return os.environ.get(ENV_MODEL, DEFAULT_MODEL)
 
@@ -77,11 +82,27 @@ def default_gateway() -> LlmGateway:
     そちらに切り替える（`FallbackProvider` 参照）。
     """
     primary = OllamaProvider(os.environ.get(ENV_BASE_URL, DEFAULT_BASE_URL), name="primary")
-    fallback_url = os.environ.get(ENV_FALLBACK_BASE_URL)
+    return LlmGateway(_with_fallback(primary, os.environ.get(ENV_FALLBACK_BASE_URL), "fallback"))
+
+
+def _with_fallback(primary: OllamaProvider, fallback_url: str | None, name: str) -> Provider:
+    """従系を足す。**学内と認められない従系は足さない**（P7・#415）。
+
+    足すと `FallbackProvider` が構成の時点で例外を出し、ワーカーが起動
+    できなくなる ── 決定的評価まで止まる（P2）。従系を落として主系だけで
+    動かし、理由を記録する。直すのは `AIJUDGE_LLM_LOCAL_DOMAINS` の設定である。
+    """
     if not fallback_url:
-        return LlmGateway(primary)
-    secondary = OllamaProvider(fallback_url, name="fallback")
-    return LlmGateway(FallbackProvider(primary, secondary))
+        return primary
+    secondary = OllamaProvider(fallback_url, name=name)
+    if secondary.capabilities.local != primary.capabilities.local:
+        logger.error(
+            "LLM fallback %s is not a permitted local host (set %s); running without it",
+            fallback_url,
+            ENV_LOCAL_DOMAINS,
+        )
+        return primary
+    return FallbackProvider(primary, secondary)
 
 
 def default_vision_model() -> str:
@@ -116,11 +137,9 @@ def default_vision_gateway() -> LlmGateway:
     if not vision_url:
         return default_gateway()
     primary = OllamaProvider(vision_url, name="vision")
-    fallback_url = os.environ.get(ENV_VISION_FALLBACK_BASE_URL)
-    if not fallback_url:
-        return LlmGateway(primary)
-    secondary = OllamaProvider(fallback_url, name="vision-fallback")
-    return LlmGateway(FallbackProvider(primary, secondary))
+    return LlmGateway(
+        _with_fallback(primary, os.environ.get(ENV_VISION_FALLBACK_BASE_URL), "vision-fallback")
+    )
 
 
 __all__ = [
@@ -159,4 +178,5 @@ __all__ = [
     "default_vision_gateway",
     "default_vision_model",
     "extract_json",
+    "is_local_url",
 ]
