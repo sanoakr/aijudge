@@ -1,0 +1,10 @@
+# 週 1 回（#427）。バックアップの時間帯を避ける。
+[Unit]
+Description=aiJudge restic check (aijudge-restic-target3), weekly
+
+[Timer]
+OnCalendar=Sun *-*-* 05:50:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

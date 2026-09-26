@@ -1,0 +1,16 @@
+# restic の受け先の検査（#427）。`%i` は EnvironmentFile の名前:
+#   aijudge-restic（オンボックス）/ aijudge-restic-target2 / aijudge-restic-target3
+[Unit]
+Description=aiJudge restic check and freshness (%i)
+OnFailure=aijudge-notify@%n.service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=aijudge
+Group=aijudge
+EnvironmentFile=/srv/aijudge/config/%i.env
+ExecStart=/usr/local/sbin/aijudge-restic-check.sh
+Nice=10
+IOSchedulingClass=idle

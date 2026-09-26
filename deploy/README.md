@@ -20,7 +20,9 @@
 | `polkit/49-aijudge.rules` | `aijudge` グループが sudo なしで unit を起動停止できるようにする |
 | `aijudge.env.example` | `EnvironmentFile` の雛形。値を埋めて `/srv/aijudge/config/aijudge.env` に置く |
 | `aijudge-restic-backup.sh` | `/srv/aijudge` を restic でバックアップする（target 1・オンボックス） |
-| `aijudge-restic-offbox.sh` | 同じものをオフボックスの受け先へ（`@target2` / `@target3`。月次を 12 本残す） |
+| `aijudge-restic-offbox.sh` | 同じものをオフボックスの受け先へ（`@target2` / `@target3`。月次を 6 本残す） |
+| `aijudge-restic-check.sh` | 受け先の `restic check`（中身も一部読む）と最新スナップショットの鮮度（週次・失敗はメール、#427） |
+| `aijudge-purge-preview.sh` | 保存期間を過ぎた動画・作業の記録の下見。あればメール（週次。消すのは人、#427） |
 | `aijudge-restic.env.example` | restic 専用の `EnvironmentFile` の雛形。パスワードを本体の env から隔離する |
 | `aijudge-db-backup.sh` | `pg_dump -Fc`（論理・日次）。**`deploy.sh` もデプロイ直前に呼ぶ** |
 | `aijudge-pg-basebackup.sh` | 物理ベースバックアップ（PITR の土台・週次）と、不要になった WAL の掃除 |
@@ -193,7 +195,13 @@ sudo -u aijudge bash -c 'set -a; source /srv/aijudge/config/aijudge-restic.env; 
 sudo cp deploy/systemd/aijudge-restic-backup.{service,timer} /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now aijudge-restic-backup.timer
+
+# 受け先の検査（週次・#427）。受け先ごとに 1 本。失敗はメールで届く
+sudo systemctl enable --now aijudge-restic-check@aijudge-restic.timer
 ```
+
+`aijudge-config-check` は、受け先の env ファイルがあるのに timer が有効で
+ない系統を NG として知らせる（有効にし忘れは、失敗しないので他では気づけない）。
 
 target 2（オフボックス）は同じ形の env ファイルをもう 1 組（別リポジトリ・別パスワード）用意し、
 別名の timer をもう一つ足すこと（v1 では target 1 のみをここに含める）。

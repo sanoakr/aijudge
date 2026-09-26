@@ -19,6 +19,8 @@ Wants=aijudge-finalize.timer
 Wants=aijudge-runner@1.service aijudge-runner@2.service
 Wants=aijudge-runner@3.service aijudge-runner@4.service
 Wants=aijudge-ide-close.timer
+# 保存期間を過ぎたものの下見（#427）。消すのは人。
+Wants=aijudge-purge-preview.timer
 After=network-online.target postgresql.service
 
 [Install]
