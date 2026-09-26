@@ -1,0 +1,10 @@
+# 5 分ごと。締切直前の詰まりに間に合わせる。
+[Unit]
+Description=aiJudge grading queue check, every 5 minutes
+
+[Timer]
+OnCalendar=*:2/5
+Persistent=true
+
+[Install]
+WantedBy=timers.target

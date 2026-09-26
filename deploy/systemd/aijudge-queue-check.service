@@ -1,0 +1,11 @@
+# 採点キューの滞留・失敗とワーカーの停止。**遷移時だけメールする**（#426）。
+[Unit]
+Description=aiJudge grading queue and worker check
+OnFailure=aijudge-notify@%n.service
+After=postgresql.service
+
+[Service]
+Type=oneshot
+User=aijudge
+EnvironmentFile=/srv/aijudge/config/aijudge.env
+ExecStart=/usr/local/sbin/aijudge-queue-check.sh
