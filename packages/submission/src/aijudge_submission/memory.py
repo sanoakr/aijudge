@@ -373,9 +373,13 @@ class InMemoryJobQueue:
             return None
         # 古い順に取る。締切前でも先に出した学習者が先に返る。
         candidates.sort(key=lambda job: (job.available_at, job.created_at, job.id))
-        reserved = candidates[0].reserved(now, worker=worker, lease_seconds=lease_seconds)
-        self._items[reserved.id] = reserved
-        return reserved
+        for candidate in candidates:
+            taken = candidate.taken(now, worker=worker, lease_seconds=lease_seconds)
+            self._items[taken.id] = taken
+            if taken.state is JobState.RUNNING:
+                return taken
+            # 試行を使い切ったリース切れ。FAILED にして次を探す（#398）。
+        return None
 
     def update(self, job: GradingJob) -> None:
         if job.id not in self._items:
@@ -383,6 +387,10 @@ class InMemoryJobQueue:
         self._items[job.id] = job
 
     def get(self, job_id: GradingJobId) -> GradingJob | None:
+        return self._items.get(job_id)
+
+    def lock(self, job_id: GradingJobId) -> GradingJob | None:
+        # 単一スレッドの実装なので、読むだけで足りる。
         return self._items.get(job_id)
 
     def find_by_idempotency_key(self, key: str) -> GradingJob | None:
