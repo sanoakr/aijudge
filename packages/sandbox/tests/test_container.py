@@ -192,6 +192,31 @@ def test_an_infinite_loop_is_stopped(container) -> None:
     assert not result.ok
 
 
+def test_a_sleeping_submission_does_not_outlive_its_timeout(container) -> None:
+    """**時間切れの後にコンテナが残らない**（#410）。
+
+    CPU を使わずに待つ提出は `--ulimit=cpu` に掛からない。壁時計で
+    `docker run` のクライアントを殺しても、コンテナは `--memory` ぶんを
+    抱えたまま動き続けていた ── 試し実行を繰り返せばホストのメモリが尽きる。
+    """
+    import subprocess
+
+    from aijudge_sandbox.backends import CONTAINER_LABEL
+
+    with container.workspace() as workspace:
+        result = workspace.run(
+            ExecRequest(argv=("/bin/sleep", "120"), limits=Limits(cpu_seconds=5, wall_seconds=3.0))
+        )
+    assert result.timed_out
+    alive = subprocess.run(
+        ["docker", "ps", "--quiet", "--filter", f"label={CONTAINER_LABEL}"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.split()
+    assert alive == [], f"時間切れの後もコンテナが残っている: {alive}"
+
+
 def test_a_fork_bomb_is_contained(container) -> None:
     """**実提出を通す前提条件。** `--pids-limit` で頭打ちになること。
 
