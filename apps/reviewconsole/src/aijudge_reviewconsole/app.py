@@ -106,6 +106,7 @@ from aijudge_submission import (
 from aijudge_telemetry import RequestContextMiddleware
 
 from .audit_context import request_id_of, source_ip_of
+from .io_results import io_results
 from .overview import digests_for, load_units
 from .rail_context import RAIL_COURSE_ID, rail_context
 from .sampling import is_blind_sample
@@ -1387,6 +1388,10 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                     criterion.scored_by_human for criterion in context.task_version.criteria
                 ),
                 "rows": _comparison_rows(context.task_version, context.run, context.mark),
+                # 入出力セットとの突き合わせ。段階を決める人が、**何が違ったのか**を
+                # この画面で見られるように（根拠の文だけでは「書式だけ違う」と
+                # 「まるで違う」が同じに見える）。
+                "io_results": io_results(context.task_version, context.run),
                 "highlights": _highlighted_lines(context.run),
                 "review": context.review,
                 "was_blind": context.mark is not None,

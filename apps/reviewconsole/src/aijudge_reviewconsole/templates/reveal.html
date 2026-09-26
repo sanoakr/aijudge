@@ -66,6 +66,8 @@
         <span class="desc">この観点は採点されませんでした。</span>
       {% endif %}
     </p>
+    {% set io = io_results.get(row.criterion.id) if io_results else none %}
+    {% if io %}{% include "_io_result.html" %}{% endif %}
   </div>
 {% endfor %}
 </div>
