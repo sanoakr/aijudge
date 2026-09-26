@@ -15,8 +15,6 @@ from __future__ import annotations
 
 import contextlib
 import os
-import re
-import tomllib
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -27,12 +25,13 @@ from typing import Annotated
 from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+import aijudge_webapp as webapp
 import aijudge_webui as webui
 from aijudge_authoring import images, render_statement
 from aijudge_core import (
@@ -95,8 +94,6 @@ from aijudge_submission import (
     TooLarge,
     UploadSessionError,
     artifact_storage_key,
-    iter_file,
-    parse_range,
 )
 from aijudge_telemetry import RequestContextMiddleware
 
@@ -105,56 +102,7 @@ from .ide import IdeDeps, register_ide_routes
 from .progress import EMPTY, load_progress
 from .visibility import ResultView, build_result_view
 
-
-def _read_app_version() -> str:
-    """release-tagging（ルート pyproject の version、`v<version>` タグ）を読む。
-
-    デプロイは `git checkout --detach vX.Y.Z` した作業木からそのまま起動する
-    ので、リポジトリルートの `pyproject.toml` がデプロイ済みタグを表す。
-    `apps/studentweb/pyproject.toml` 自身にも `version` はあるが、
-    こちらは `0.0.1` に固定されたプレースホルダで運用しない（`name` で見分ける）。
-    フッターの表示を壊す理由にはならないので、読めなければ "unknown" とする。
-    """
-    for parent in Path(__file__).resolve().parents:
-        candidate = parent / "pyproject.toml"
-        if not candidate.is_file():
-            continue
-        try:
-            data = tomllib.loads(candidate.read_text())
-        except (OSError, tomllib.TOMLDecodeError):
-            continue
-        project = data.get("project")
-        if isinstance(project, dict) and project.get("name") == "aijudge":
-            version = project.get("version")
-            if isinstance(version, str):
-                return version
-    return "unknown"
-
-
-def _read_copyright_notice() -> str:
-    """`LICENSE` の Copyright 行を読んで著作権表示を作る（#145）。
-
-    表記を手で書き写すと `LICENSE` と footer がいずれずれる。
-    開始年は `LICENSE` の記載のまま、終了年は表示時点の年（同じなら 1 年だけ
-    出す）。読めなければ空文字を返す（フッターの他の表示を道連れにしない）。
-    """
-    for parent in Path(__file__).resolve().parents:
-        candidate = parent / "LICENSE"
-        if not candidate.is_file():
-            continue
-        match = re.search(
-            r"^\s*Copyright\s+(\d{4})\s+(.+?)\s*$", candidate.read_text(), re.MULTILINE
-        )
-        if match is None:
-            return ""
-        start_year, holder = match.group(1), match.group(2)
-        current_year = str(datetime.now(UTC).year)
-        years = start_year if start_year == current_year else f"{start_year}–{current_year}"
-        return f"© {years} {holder}"
-    return ""
-
-
-APP_VERSION = _read_app_version()
+APP_VERSION = webapp.read_app_version()
 
 
 # 見た目は `packages/webui` が 1 か所で持つ（#184）。テンプレートの探索先に
@@ -182,7 +130,7 @@ TEMPLATES.env.globals["app_version"] = APP_VERSION
 # 日時は UTC で保存し、表示だけ機関の時刻に直す（`aijudge_webui.local_filter`）。
 # テンプレートで `strftime` を直に呼ばない ── 呼ぶと UTC のまま出る。
 TEMPLATES.env.filters["local"] = webui.local_filter
-TEMPLATES.env.globals["copyright_notice"] = _read_copyright_notice()
+TEMPLATES.env.globals["copyright_notice"] = webapp.read_copyright_notice()
 # デモコースの帯を出すのに使う（#194）。環境変数を読むだけの純関数。
 TEMPLATES.env.globals["is_demo_course"] = _is_demo_course
 # 消した動画の文面（ADR 0020）。**両アプリで同じ値を使う**ので、テンプレートに
@@ -663,7 +611,7 @@ def create_app(app_state: StudentApp) -> FastAPI:
                 "has_grading_access": any(
                     row["role"] in (Role.ASSISTANT, Role.INSTRUCTOR, Role.ADMIN) for row in rows
                 ),
-                "console_url": counterpart_url(
+                "console_url": webapp.counterpart_url(
                     request, configured=app_state.console_url, port=app_state.console_port
                 ),
             },
@@ -1472,7 +1420,7 @@ def create_app(app_state: StudentApp) -> FastAPI:
             # 違う。410 は「あったが、もう無い」である。
             raise HTTPException(status_code=410, detail=PURGED_MESSAGE)
         if artifact.kind is ArtifactKind.VIDEO:
-            return _serve_video(app_state, request, artifact, artifact_id)
+            return webapp.serve_video(app_state.video_store, request, artifact, artifact_id)
         try:
             payload = app_state.store.get(artifact.storage_key)
         except Exception as exc:
@@ -1763,52 +1711,6 @@ def _tenant(raw: str):
 
 
 DEFAULT_TENANT = "ten_" + "0" * 32
-
-
-# ホスト名として通す形（#116）。**ヘッダの中身を信用しない。**
-_HOSTNAME = re.compile(r"^[A-Za-z0-9.\-]{1,253}$")
-
-
-def counterpart_url(request: Request, *, configured: str, port: int) -> str:
-    """相手側アプリの場所（#114）。
-
-    **ブラウザが今いるホスト名をそのまま使う。** セッション Cookie は
-    ホスト単位（`Domain` を付けていない・ポートは無視される）なので、
-    起動時に決め打ちした名前へ渡すと、その名前で開いていない人の Cookie は
-    付いていかない ── 1 台が `localhost`・IP・短い名前・FQDN・tailnet 名の
-    どれでも応じる以上、「どの名前で来たか」は起動時には決まらない。
-
-    `configured` が入っていればそちらを優先する。逆プロキシの後ろや、
-    本当に別のホストに置いてある運用では、名前を知っているのは運用者の
-    ほうだから（その場合セッションは共有されない ── 別のホストなら Cookie は
-    そもそも届かない）。
-
-    **ヘッダは検査してから使う**（#116）。`Host` も `X-Forwarded-*` も
-    クライアントが決められるので、素通しすると 2 つ通る:
-
-    - `X-Forwarded-Proto: javascript` と `%0a` を含むホスト名で
-      `javascript://x%0aalert(1)/…` が作れる（改行が `//` のコメントを終わらせる）
-    - リンク先が攻撃者のホストになり、同じ見た目のログイン画面に渡せる
-
-    いま被害者に踏ませるのは難しい（ブラウザは自分が開いた URL の `Host` しか
-    送らない）。**難しいことと塞がっていることは別である** ── 共有キャッシュや、
-    外部入力を `X-Forwarded-*` に写す逆プロキシがあれば成立し、逆プロキシは
-    #103 の次の段でまさに前に立てるものである。
-    """
-    if configured:
-        return configured
-    scheme = request.headers.get("x-forwarded-proto") or request.url.scheme
-    if scheme not in ("http", "https"):
-        # 知らないスキームは使わない（`javascript:` を href に置かせない）。
-        scheme = "https" if request.url.scheme == "https" else "http"
-    forwarded = request.headers.get("x-forwarded-host")
-    host = (forwarded or request.url.hostname or "localhost").split(":")[0]
-    if not _HOSTNAME.match(host):
-        # 形の合わない名前は、そもそも自分のものではない。
-        host = request.url.hostname or "localhost"
-        if not _HOSTNAME.match(host):
-            host = "localhost"
-    return f"{scheme}://{host}:{port}"
 
 
 def my_mastery_rows(app_state: StudentApp, me, course) -> tuple:
@@ -2206,46 +2108,6 @@ def _submission_view(
 # 画面に埋め込んでよい種別。**それ以外はダウンロードさせる** ── 学習者が
 # 出したファイルをインラインで返すと、ブラウザが中身を解釈しうる（#75）。
 _INLINE_KINDS = (ArtifactKind.IMAGE, ArtifactKind.PDF, ArtifactKind.VIDEO)
-
-
-def _serve_video(
-    app_state: StudentApp, request: Request, artifact: object, artifact_id: str
-) -> Response:
-    """動画を Range 対応でストリーム配信する。**全体をメモリに読まない。**"""
-    store = app_state.video_store
-    if store is None:
-        raise HTTPException(status_code=404, detail="提出物が見つかりません")
-    key = artifact.storage_key  # type: ignore[attr-defined]
-    filename = artifact.filename  # type: ignore[attr-defined]
-    try:
-        size = store.size(key)
-    except Exception as exc:
-        raise HTTPException(status_code=404, detail="提出物が見つかりません") from exc
-    headers = {
-        "Accept-Ranges": "bytes",
-        "Content-Disposition": content_disposition("inline", filename, artifact_id),
-        "X-Content-Type-Options": "nosniff",
-        "Cache-Control": "private, max-age=300",
-    }
-    media_type = content_type_for(artifact.filename)  # type: ignore[attr-defined]
-    span = parse_range(request.headers.get("range"), size)
-    if span is None:
-        return StreamingResponse(
-            iter_file(store.open_read(key)),
-            media_type=media_type,
-            headers={**headers, "Content-Length": str(size)},
-        )
-    start, end = span
-    return StreamingResponse(
-        iter_file(store.open_read(key), start=start, length=end - start + 1),
-        status_code=206,
-        media_type=media_type,
-        headers={
-            **headers,
-            "Content-Range": f"bytes {start}-{end}/{size}",
-            "Content-Length": str(end - start + 1),
-        },
-    )
 
 
 def _submitted_files(submission: Submission) -> tuple[dict[str, object], ...]:

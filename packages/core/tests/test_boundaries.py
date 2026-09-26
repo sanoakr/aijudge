@@ -98,6 +98,18 @@ def test_no_package_below_the_apps_may_import_an_app() -> None:
     assert apps <= _listed("subsystems-do-not-depend-on-apps", "forbidden_modules")
 
 
+def test_only_the_apps_may_import_the_shared_web_parts() -> None:
+    """`webapp`（両 Web アプリの共有部品）より下の層は、全部が禁止の対象に入る（#437）。
+
+    パッケージを足したときに契約へ足し忘れると、そのパッケージだけ HTTP の
+    部品を import できてしまう。`subsystems-do-not-depend-on-apps` と同じ照合。
+    """
+    below = _workspace_modules("packages", "evaluators", "extractors") - {"aijudge_webapp"}
+    missing = below - _listed("webapp-is-for-the-apps", "source_modules")
+    assert not missing, f"webapp-is-for-the-apps is missing {sorted(missing)}"
+    assert _listed("webapp-is-for-the-apps", "forbidden_modules") == {"aijudge_webapp"}
+
+
 def test_contracts_name_only_modules_that_exist() -> None:
     """存在しないモジュールを名指しする契約は、何も守っていない（#434）。"""
     config = _import_linter_config()

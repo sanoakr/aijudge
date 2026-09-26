@@ -39,6 +39,7 @@ members = [
     "aijudge-submission",
     "aijudge-telemetry",
     "aijudge-toolchain",
+    "aijudge-webapp",
     "aijudge-webui",
 ]
 
@@ -77,6 +78,7 @@ dependencies = [
     { name = "aijudge-submission" },
     { name = "aijudge-telemetry" },
     { name = "aijudge-toolchain" },
+    { name = "aijudge-webapp" },
     { name = "aijudge-webui" },
 ]
 
@@ -132,6 +134,7 @@ requires-dist = [
     { name = "aijudge-submission", editable = "packages/submission" },
     { name = "aijudge-telemetry", editable = "packages/telemetry" },
     { name = "aijudge-toolchain", editable = "packages/toolchain" },
+    { name = "aijudge-webapp", editable = "packages/webapp" },
     { name = "aijudge-webui", editable = "packages/webui" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.27" },
     { name = "import-linter", marker = "extra == 'dev'", specifier = ">=2.0" },
@@ -568,6 +571,7 @@ dependencies = [
     { name = "aijudge-persistence" },
     { name = "aijudge-submission" },
     { name = "aijudge-telemetry" },
+    { name = "aijudge-webapp" },
     { name = "aijudge-webui" },
     { name = "fastapi" },
     { name = "jinja2" },
@@ -588,6 +592,7 @@ requires-dist = [
     { name = "aijudge-persistence", editable = "packages/persistence" },
     { name = "aijudge-submission", editable = "packages/submission" },
     { name = "aijudge-telemetry", editable = "packages/telemetry" },
+    { name = "aijudge-webapp", editable = "packages/webapp" },
     { name = "aijudge-webui", editable = "packages/webui" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "jinja2", specifier = ">=3.1" },
@@ -664,6 +669,7 @@ dependencies = [
     { name = "aijudge-submission" },
     { name = "aijudge-telemetry" },
     { name = "aijudge-toolchain" },
+    { name = "aijudge-webapp" },
     { name = "aijudge-webui" },
     { name = "fastapi" },
     { name = "jinja2" },
@@ -683,6 +689,7 @@ requires-dist = [
     { name = "aijudge-submission", editable = "packages/submission" },
     { name = "aijudge-telemetry", editable = "packages/telemetry" },
     { name = "aijudge-toolchain", editable = "packages/toolchain" },
+    { name = "aijudge-webapp", editable = "packages/webapp" },
     { name = "aijudge-webui", editable = "packages/webui" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "jinja2", specifier = ">=3.1" },
@@ -710,6 +717,23 @@ source = { editable = "packages/telemetry" }
 name = "aijudge-toolchain"
 version = "0.0.1"
 source = { editable = "packages/toolchain" }
+
+[[package]]
+name = "aijudge-webapp"
+version = "0.0.1"
+source = { editable = "packages/webapp" }
+dependencies = [
+    { name = "aijudge-core" },
+    { name = "aijudge-submission" },
+    { name = "fastapi" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aijudge-core", editable = "packages/core" },
+    { name = "aijudge-submission", editable = "packages/submission" },
+    { name = "fastapi", specifier = ">=0.115" },
+]
 
 [[package]]
 name = "aijudge-webui"

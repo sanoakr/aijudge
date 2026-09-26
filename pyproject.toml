@@ -39,6 +39,7 @@ dependencies = [
     "aijudge-telemetry",
     "aijudge-audit",
     "aijudge-webui",
+    "aijudge-webapp",
     "aijudge-ide",
     "aijudge-runner",
 ]
@@ -85,6 +86,7 @@ aijudge-skill = { workspace = true }
 aijudge-telemetry = { workspace = true }
 aijudge-audit = { workspace = true }
 aijudge-webui = { workspace = true }
+aijudge-webapp = { workspace = true }
 aijudge-ide = { workspace = true }
 aijudge-runner = { workspace = true }
 
@@ -124,6 +126,7 @@ known-first-party = [
     "aijudge_telemetry",
     "aijudge_audit",
     "aijudge_webui",
+    "aijudge_webapp",
     "aijudge_ide",
     "aijudge_runner",
 ]
