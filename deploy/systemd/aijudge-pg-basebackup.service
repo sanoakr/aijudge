@@ -5,6 +5,8 @@
 # `aijudge-pg-basebackup.sh` の冒頭にある。
 [Unit]
 Description=aiJudge PostgreSQL base backup for PITR (weekly)
+# 失敗したらメールで知らせる（#422）。
+OnFailure=aijudge-notify@%n.service
 After=postgresql.service
 Wants=postgresql.service
 

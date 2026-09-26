@@ -42,11 +42,15 @@ DEFAULT_ARTIFACT_DIR = Path.home() / ".aijudge" / "artifacts"
 DEFAULT_OBSERVATION_DIR = Path.home() / ".aijudge" / "observations"
 
 _stopping = False
+_worker: GradingWorker | None = None
 
 
 def _stop(*_: object) -> None:
     global _stopping
     _stopping = True
+    if _worker is not None:
+        # 採点の最中なら打ち切って、ジョブを数えずにキューへ戻す（#424）。
+        _worker.interrupt()
 
 
 def build_worker(args: argparse.Namespace) -> tuple[GradingWorker, Database]:
@@ -132,6 +136,8 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"  失敗: {error}", file=sys.stderr)
             return 1 if errors else 0
 
+        global _worker
+        _worker = worker
         signal.signal(signal.SIGINT, _stop)
         signal.signal(signal.SIGTERM, _stop)
         print(f"ワーカー {args.name} を開始しました（Ctrl-C で停止）")

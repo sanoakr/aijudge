@@ -417,6 +417,10 @@ class ReviewRepository(Protocol):
 
     def find_review_for_run(self, run_id: GradingRunId) -> HumanReview | None: ...
 
+    def reviews_for_run(self, run_id: GradingRunId) -> tuple[HumanReview, ...]:
+        """この採点の確認を**古い順に全部**（#275）。訂正の履歴を画面に出すため。"""
+        ...
+
     def save_blind_mark(self, mark: BlindMark) -> None:
         """blind 採点を保存する。既にあれば拒否する。
 
@@ -441,12 +445,6 @@ class ReviewRepository(Protocol):
         """依頼に対応した教員レビューを結びつける。"""
         ...
 
-    def requested_for_course(
-        self, course_id: CourseId, *, include_resolved: bool = False, limit: int = 200
-    ) -> tuple[tuple[Submission, GradingRun, ReviewRequest], ...]:
-        """学習者が再確認を依頼した提出。教員の待ち行列。"""
-        ...
-
     # -- 成績の確定 --
 
     def save_finalization(self, finalization: Finalization) -> None:
@@ -468,6 +466,31 @@ class ReviewRepository(Protocol):
         """
         ...
 
+
+@runtime_checkable
+class CourseReviewQueries(Protocol):
+    """コース・課題を単位にした読み取り（#435）。**保存層だけが実装する。**
+
+    どれも提出を課題 → コースの経路で絞るので、課題の表と結合する。課題は
+    別のサブシステム（`aijudge_authoring`）の記録で、インメモリの
+    `ReviewRepository` はそれを持たない ── 以前はこれらを `ReviewRepository`
+    に置いていたので、インメモリ実装は `@runtime_checkable` の Protocol を
+    満たしておらず（`isinstance` が偽）、画面は SQL の具象メソッドを直接
+    呼んでいた。分けて、どちらが何を約束するかを型に言わせる。
+    """
+
+    def pending_for_course(
+        self, course_id: CourseId, *, include_decided: bool = False, limit: int = 200
+    ) -> tuple[tuple[Submission, GradingRun], ...]:
+        """このコースで教員の確認を待っている提出（最新の採点 1 件につき 1 行）。"""
+        ...
+
+    def requested_for_course(
+        self, course_id: CourseId, *, include_resolved: bool = False, limit: int = 200
+    ) -> tuple[tuple[Submission, GradingRun, ReviewRequest], ...]:
+        """学習者が再確認を依頼した提出。教員の待ち行列。"""
+        ...
+
     def attention_counts_for_course(self, course_id: CourseId) -> AttentionCounts:
         """このコースの「人待ち」の件数（#189）。
 
@@ -483,7 +506,7 @@ class ReviewRepository(Protocol):
         ...
 
     def unfinalized_for_task(
-        self, task_id: TaskId, *, limit: int = 500
+        self, task_id: TaskId, *, limit: int | None = None
     ) -> tuple[tuple[Submission, GradingRun, ReviewRequest | None], ...]:
         """この課題でまだ確定していない提出。一括確定と自動確定が読む。
 
@@ -491,6 +514,16 @@ class ReviewRepository(Protocol):
         未対応の異議申立を判定できるよう、依頼も一緒に返す。
         """
         ...
+
+
+@runtime_checkable
+class ReviewStore(ReviewRepository, CourseReviewQueries, Protocol):
+    """保存層のレビューの記録が満たすもの（1 件ずつの操作 + コース単位の読み取り）。
+
+    コース単位の読み取りを使う処理（一括確定・自動確定・画面の一覧）はこれを
+    受け取る。インメモリの `ReviewRepository` は渡せない ── 渡せないことが
+    型で分かるのが、分けた目的である（#435）。
+    """
 
 
 @runtime_checkable

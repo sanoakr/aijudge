@@ -107,6 +107,26 @@ def _signal_of_negative_code(code: int) -> str | None:
         return None
 
 
+def _workspace_size(root: Path) -> int:
+    """作業域の合計バイト数。シンボリックリンクはたどらない。"""
+    total = 0
+    for directory, _dirs, files in os.walk(root):
+        for name in files:
+            with contextlib.suppress(OSError):
+                total += os.lstat(os.path.join(directory, name)).st_size
+    return total
+
+
+def _empty(root: Path) -> None:
+    """作業域の中身を消す（作業域そのものは残す）。"""
+    for entry in root.iterdir():
+        if entry.is_dir() and not entry.is_symlink():
+            shutil.rmtree(entry, ignore_errors=True)
+        else:
+            with contextlib.suppress(OSError):
+                entry.unlink()
+
+
 def _truncate(text: str, cap: int) -> tuple[str, bool]:
     if len(text) <= cap:
         return text, False
@@ -157,8 +177,11 @@ class LocalWorkspace:
         decode_signal: Callable[[int], str | None] | None = None,
         *,
         apply_host_rlimits: bool = True,
+        release: Callable[[list[str]], None] | None = None,
     ) -> None:
         self.path = path
+        # 時間切れのあとに、包んだ先（コンテナ）を確実に止める後始末（#410）。
+        self._release = release
         self._isolation = isolation
         self._wrap = wrap
         self._decode_signal = decode_signal or _signal_of_negative_code
@@ -221,12 +244,30 @@ class LocalWorkspace:
         finally:
             # 正常終了でも撒かれた孫が残ることがある。必ず掃除する。
             _kill_group(process)
+            if timed_out and self._release is not None:
+                # **殺したのは包んでいるクライアントで、中身ではない**（#410）。
+                # docker では `docker run` を SIGKILL してもコンテナは生き残る
+                # （`--rm` はプロセスが終わるまで効かない）。sleep する提出は
+                # CPU 上限にも掛からないので、時間切れのたびにメモリを抱えた
+                # コンテナが溜まり、試験中にホストを食い潰す。
+                self._release(argv)
 
         duration_ms = int((time.monotonic() - started) * 1000)
         stdout, cut_out = _truncate(raw_out or "", request.limits.output_bytes)
         stderr, cut_err = _truncate(raw_err or "", request.limits.output_bytes)
 
         code = process.returncode if process.returncode is not None else -1
+        exceeded = _workspace_size(self.path) > request.limits.workspace_bytes
+        if exceeded:
+            # **残させない**（#430）。上限を超えたものを抱えたまま次の実行へ
+            # 進むと、作業域のあるファイルシステム（DB と同じことがある）が
+            # 積み上がる。中身を消して失敗にする ── 続く実行はファイルが
+            # 無くて失敗するが、それがこの提出の正しい扱いである。
+            _empty(self.path)
+            stderr = (
+                f"{stderr}\n[sandbox] the workspace grew past "
+                f"{request.limits.workspace_bytes} bytes and was cleared"
+            ).lstrip("\n")
         signal_name = self._decode_signal(code)
         if signal_name is not None:
             # CPU 上限やメモリ上限で殺されたのは時間切れと同じ意味。
@@ -241,6 +282,7 @@ class LocalWorkspace:
             signal_name=signal_name,
             truncated=cut_out or cut_err,
             isolation=self._isolation,
+            workspace_exceeded=exceeded,
         )
 
 
@@ -305,6 +347,7 @@ class LocalSandboxBase:
                 self.wrap,
                 self.decode_signal,
                 apply_host_rlimits=self.apply_host_rlimits,
+                release=self.release,
             )
         finally:
             shutil.rmtree(directory, ignore_errors=True)
@@ -313,3 +356,10 @@ class LocalSandboxBase:
         self, argv: list[str], request: ExecRequest, workdir: Path
     ) -> tuple[list[str], dict[str, str]]:
         raise NotImplementedError
+
+    def release(self, argv: list[str]) -> None:
+        """時間切れのあとの後始末。`wrap` が返した argv を受け取る。
+
+        ホストで直接動かすバックエンドはプロセスグループを殺せば終わるので
+        何もしない。間に別のランタイムが挟まるバックエンドが上書きする。
+        """

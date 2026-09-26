@@ -1,0 +1,11 @@
+# 学生画面とコンソールの外形監視。**遷移時だけメールする**（#422）。
+[Unit]
+Description=aiJudge learner and console /login check
+OnFailure=aijudge-notify@%n.service
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=aijudge
+EnvironmentFile=/srv/aijudge/config/aijudge.env
+ExecStart=/usr/local/sbin/aijudge-http-check.sh

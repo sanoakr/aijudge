@@ -1470,6 +1470,36 @@ def test_a_statement_image_is_served_to_the_enrolled_learner(world: World) -> No
     assert response.content == b"fake png bytes"
 
 
+def test_an_svg_statement_image_cannot_run_script_when_opened(world: World) -> None:
+    """**SVG を直接開かせてもスクリプトは動かない**（#412）。
+
+    同じオリジンで動けば、Cookie 付きでコンソールの管理操作へ POST できる。
+    `<img>` での表示は妨げない（CSP の sandbox は直接開いたときにだけ効く）。
+    """
+    from aijudge_authoring import images
+
+    world.register("s2400001")
+    world.login("s2400001")
+    svg = b'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'
+    name = images.new_name(svg, "figure.svg")
+    world.store.put(images.storage_key(str(COURSE), name), svg)
+
+    response = world.client.get(f"/images/{COURSE}/{name}")
+    assert response.status_code == 200
+    assert "sandbox" in response.headers["content-security-policy"]
+    assert response.headers["x-content-type-options"] == "nosniff"
+
+
+def test_a_post_from_another_host_is_refused(world: World) -> None:
+    """同じサイトの別ホストからの POST を断る（#413）。SameSite=Lax では通っていた。"""
+    world.register("s2400001")
+    world.login("s2400001")
+    response = world.client.post(
+        "/logout", headers={"Origin": "https://other.ryukoku.ac.jp"}, follow_redirects=False
+    )
+    assert response.status_code == 403
+
+
 def test_a_statement_image_is_not_served_to_someone_outside_the_course(world: World) -> None:
     """**存在と権限を区別しない。** 404 にして、コース ID の存在自体を漏らさない。"""
     from aijudge_authoring import images
