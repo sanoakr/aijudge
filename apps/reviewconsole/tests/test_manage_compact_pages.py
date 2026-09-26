@@ -164,3 +164,35 @@ def test_the_kc_picker_helpers_are_never_submitted() -> None:
     assert 'setAttribute("name"' not in script
     # 送られない欄の入力は、書きかけに数えない。
     assert "!event.target.name" in base
+
+
+# --------------------------------------------------------------------------
+# 担当コースの一覧: 件数の列を揃える（2026-09-27）
+# --------------------------------------------------------------------------
+
+
+def test_every_course_row_has_the_same_six_counts_in_order(world: World) -> None:
+    """件数は幅を固定した 6 列の格子に並ぶ（`console.css` の `.menu.courses .stats`）。
+
+    **項目の数と順が列の定義と揃っていること**が前提 ── 1 つ足して列を足し忘れると、
+    またコースごとに列がずれる。格子の列数とここの数を一緒に直すこと。
+    """
+    from pathlib import Path
+
+    import aijudge_webui
+
+    world.register("teacher", Role.INSTRUCTOR)
+    page = world.client("teacher").get("/").text
+
+    blocks = re.findall(r'<span class="meta stats">(.*?)</span>\s*</a>', page, re.S)
+    assert blocks, "担当コースの件数が見つからない"
+    for block in blocks:
+        labels = [
+            re.sub(r"<[^>]+>|\d+|\s+", "", cell)
+            for cell in re.findall(r"<span[^>]*>(.*?)</span>", block, re.S)
+        ]
+        assert labels == ["問題セット", "課題", "名", "未確定", "異議", "未承認"]
+
+    css = (Path(aijudge_webui.ASSETS_DIR) / "console.css").read_text(encoding="utf-8")
+    columns = re.search(r"\.menu\.courses \.stats\{[^}]*grid-template-columns:([^;}]+)", css)
+    assert columns and len(columns.group(1).split()) == len(labels), "格子の列数が項目と違う"

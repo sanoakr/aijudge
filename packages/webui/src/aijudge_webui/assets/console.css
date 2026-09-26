@@ -205,8 +205,24 @@ h3:first-child{margin-top:0}
    ページ幅いっぱいに使う。段組みにすると、コースごとの数字を横に
    読み比べられない。 */
 .menu.courses .row .what{flex-direction:row;flex-wrap:wrap;align-items:baseline;gap:2px 12px}
+/* 名前の側の補足（コード・学期・次の締切）は段落の余白を持たせない ── `.desc` の
+   下余白が入ると、狭い幅で 1 項目ずつ段が開き、行の高さがコースごとに揃わない。 */
+.menu.courses .row .what .desc{margin:0}
 .stats{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:2px 16px;
   font-size:.85rem;color:var(--muted)}
+/* **件数は列を揃える**（2026-09-27）。流し込み（flex）だと、コース名の長さと数字の
+   桁（5 と 14）で項目の始まりが行ごとにずれ、コースどうしを縦に読み比べられなかった。
+   幅を固定した 6 列の格子にして各列を右に寄せ、数字は等幅にする ── 行をまたいで
+   数字の右端とラベルが揃う。 */
+.menu.courses .stats{display:grid;gap:2px 12px;justify-content:end;flex:0 0 auto;
+  grid-template-columns:6.5rem 4.5rem 3.5rem 5rem 4rem 5rem}
+.menu.courses .stats > span{text-align:right;white-space:nowrap}
+/* **幅が足りなければ、件数を次の行へ回す。** 名前の側を縮めると、コース名が 1 文字
+   ずつ折れる（幅 1000px で実測）。回した件数も右に寄せるので、列は揃ったまま。 */
+.menu.courses .row{flex-wrap:wrap;row-gap:6px}
+.menu.courses .row .what{flex:1 1 18rem;min-width:0}
+.menu.courses .row .stats{margin-left:auto}
+.stats b{font-variant-numeric:tabular-nums}
 .stats b{color:var(--ink);font-weight:700}
 .stats .attn{color:var(--shu)}
 .stats .attn b{color:var(--shu)}
@@ -363,7 +379,7 @@ form[data-working] button[disabled]{opacity:.55;cursor:progress}
   .menu .meta{text-align:left;white-space:normal;margin-top:6px}
   .menu.courses .row .what{display:flex;flex-wrap:wrap;gap:2px 10px}
   /* 件数は横に並べて折り返す ── 縦に積むと 1 コースで 6 行使う。 */
-  .menu .meta.stats{display:flex;flex-wrap:wrap;gap:4px 12px}
+  .menu .meta.stats,.menu.courses .stats{display:flex;flex-wrap:wrap;gap:4px 12px}
 
   /* 横に並べた入力欄は折り返す。**縮まない行が 1 つあると頁ごと横に動く**
      ── 観点の「コード・重み・評価順」がそれで、実測で `main` の最小幅を
