@@ -486,3 +486,22 @@ details.quiet-danger > summary::-webkit-details-marker{display:none}
 details.quiet-danger > summary:hover{color:var(--ink-2);text-decoration:underline}
 details.quiet-danger[open] > form{margin:6px 0 0;max-width:16rem}
 details.quiet-danger .desc{font-size:.75rem;margin:0 0 6px;white-space:normal}
+
+/* 設定の説明を畳む部品（`_help.html`）。**説明は捨てずに畳む** ── 1 項目に 2〜5 行の
+   説明が付いて、1 画面に入る設定が 2〜3 個しかなかった。載せても押しても開く
+   （押す道はタブレットのため・`base.html`）。開いた説明は浮かせて、下の設定を
+   押し下げない。 */
+.help{position:relative;display:inline-block;vertical-align:baseline;margin-left:4px}
+.help-btn{all:unset;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;
+  width:1.05rem;height:1.05rem;border-radius:50%;border:1px solid var(--line);
+  font-size:.68rem;font-weight:700;line-height:1;color:var(--muted);cursor:help;
+  background:var(--surface)}
+.help-btn:hover,.help-btn:focus-visible,.help.open .help-btn{color:var(--ai);border-color:var(--ai)}
+.help-btn:focus-visible{outline:2px solid var(--ai);outline-offset:1px}
+.help-body{display:none;position:absolute;z-index:30;top:calc(100% + 6px);left:-8px;
+  width:max-content;max-width:min(34rem,86vw);padding:10px 12px;border-radius:4px;
+  background:var(--surface);border:1px solid var(--line);box-shadow:0 6px 20px rgb(0 0 0 / .14);
+  font-size:.8rem;font-weight:400;line-height:1.6;color:var(--ink-2);white-space:normal;text-align:left}
+.help:hover .help-body,.help:focus-within .help-body,.help.open .help-body{display:block}
+/* 右端で開くと画面の外へはみ出すので、右に寄せる（`base.html` が付ける）。 */
+.help.flip .help-body{left:auto;right:-8px}
