@@ -141,3 +141,26 @@ def test_the_content_form_keeps_what_was_typed(world: World) -> None:
     assert re.search(r'<form method="post" data-save-all', page)
     assert 'data-swap="#kc-candidates"' in page
     assert 'id="kc-candidates"' in page
+
+
+# --------------------------------------------------------------------------
+# 知識要素の選び方（`.kcpick` の拡張・base.html）
+# --------------------------------------------------------------------------
+
+
+def test_the_kc_picker_helpers_are_never_submitted() -> None:
+    """絞り込み欄と「選択中だけ」は**送らない**。名前を持たせると、フォームの
+    保存に紛れ込み、書きかけの印（未保存の変更）まで立てる。"""
+    from pathlib import Path
+
+    import aijudge_reviewconsole
+
+    base = (Path(aijudge_reviewconsole.__file__).parent / "templates" / "base.html").read_text(
+        encoding="utf-8"
+    )
+    start = base.index('document.querySelectorAll(".kcpick")')
+    script = base[start : base.index("})();", start)]
+    assert ".name =" not in script
+    assert 'setAttribute("name"' not in script
+    # 送られない欄の入力は、書きかけに数えない。
+    assert "!event.target.name" in base

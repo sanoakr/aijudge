@@ -555,3 +555,18 @@ nav.tabs a{padding:8px 16px;font-size:.9rem;color:var(--ink-2);text-decoration:n
 nav.tabs a:hover{background:var(--surface-2)}
 nav.tabs a[aria-current]{background:var(--surface);border-color:var(--line);color:var(--ink);font-weight:600;
   border-bottom:2px solid var(--surface)}
+
+/* 知識要素の選び方の補助（`base.html` の `.kcpick` の拡張）。選んだものは札で上に並べ、
+   一覧は絞り込める。**`label` は `display:contents` なので `hidden` では消えない** ──
+   詳細度の高い `.off` で消す。 */
+.kcpick label.off{display:none}
+.kcpick-bar{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;margin:0 0 6px}
+.kcpick-filter{flex:1 1 14rem;max-width:22rem;font:inherit;font-size:.85rem;padding:5px 8px}
+.kcpick-chips{display:flex;flex-wrap:wrap;gap:4px 6px;margin:0 0 6px}
+.kc-chip{all:unset;box-sizing:border-box;display:inline-flex;align-items:baseline;gap:4px;
+  padding:2px 8px;border:1px solid var(--ai);border-radius:999px;background:var(--ai-soft);
+  font-size:.75rem;color:var(--ink);cursor:pointer}
+.kc-chip .mono{font-size:.72rem}
+.kc-chip .x{color:var(--muted);margin-left:2px}
+.kc-chip:hover .x,.kc-chip:focus-visible .x{color:var(--shu)}
+.kc-chip:focus-visible{outline:2px solid var(--ai);outline-offset:1px}

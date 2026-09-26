@@ -363,17 +363,16 @@
   <h2>分類</h2>
   <div class="card">
   <div class="subsection">
-  <h3>問う知識要素</h3>
+  <h3>問う知識要素{% call help() %}
+    この課題の成績がどの知識要素の習熟度に効くかを決めます。
+    <strong>付いていない課題の成績は、どの知識要素にも記録されません。</strong>
+    付け外しは新しい版になります（過去の採点は元の版のまま）。
+  {% endcall %}</h3>
   {# **課題に付いた知識要素だけが習熟度を動かす**（#292）。付いていない課題の
      成績は、どの知識要素にも記録されない。候補はこのコースが使うものだけ
      （`_course_kcs`）。AI の候補は書きかけの問題文で出せる（`kc-candidates`）。 #}
   <input type="hidden" name="kc_form" value="1">
-  <p class="desc" style="margin:0 0 8px">
-    この課題の成績がどの知識要素の習熟度に効くかを決めます。
-    <strong>付いていない課題の成績は、どの知識要素にも記録されません。</strong>
-    付け外しは新しい版になります（過去の採点は元の版のまま）。
-  </p>
-  {% if course_kcs %}
+    {% if course_kcs %}
   <div class="kcpick">
     {% for k in course_kcs %}
     <label>
