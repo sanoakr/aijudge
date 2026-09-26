@@ -516,6 +516,99 @@ document.querySelectorAll(".checkrow .nojs").forEach(function (el) { el.remove()
   });
 })();
 
+{# **知識要素の選び方**（`.kcpick`・2026-09-26）。数が多いと、何を選んだかを確かめるのに
+   一覧をスクロールするしかなかった。次の 3 つを足す（スクリプトが無ければ元の一覧のまま）:
+
+   1. 選んだものを一覧の上に札で並べる。× で外せる
+   2. キーと名前で絞り込む（送らない欄 ── 名前を持たせない）
+   3. 「選択中だけ」に切り替える
+
+   **並びは変えない。** 選んだ順に上へ動かすと、押した行が指の下から逃げる。 #}
+(function () {
+  document.querySelectorAll(".kcpick").forEach(function (list) {
+    var boxes = Array.prototype.slice.call(list.querySelectorAll("input[type=checkbox]"));
+    if (!boxes.length) return;
+    var bar = document.createElement("div");
+    bar.className = "kcpick-bar";
+    var filter = document.createElement("input");
+    filter.type = "search";
+    filter.className = "kcpick-filter";
+    filter.placeholder = "キー・名前で絞り込む";
+    filter.setAttribute("aria-label", "知識要素を絞り込む");
+    var onlyLabel = document.createElement("label");
+    onlyLabel.className = "check tight";
+    var only = document.createElement("input");
+    only.type = "checkbox";
+    onlyLabel.appendChild(only);
+    onlyLabel.appendChild(document.createTextNode(" 選択中だけ"));
+    var count = document.createElement("span");
+    count.className = "desc kcpick-count";
+    bar.appendChild(filter);
+    bar.appendChild(onlyLabel);
+    bar.appendChild(count);
+    var chips = document.createElement("div");
+    chips.className = "kcpick-chips";
+    list.parentNode.insertBefore(bar, list);
+    list.parentNode.insertBefore(chips, list);
+
+    function textOf(box) {
+      var label = box.closest("label");
+      return (label ? label.textContent : box.value).toLowerCase();
+    }
+    function refresh() {
+      var words = filter.value.toLowerCase().split(/\s+/).filter(Boolean);
+      var chosen = boxes.filter(function (box) { return box.checked; });
+      var shown = 0;
+      boxes.forEach(function (box) {
+        var label = box.closest("label");
+        var text = textOf(box);
+        var visible = (!only.checked || box.checked) &&
+          words.every(function (w) { return text.indexOf(w) >= 0; });
+        if (label) label.classList.toggle("off", !visible);
+        if (visible) shown += 1;
+      });
+      count.textContent = chosen.length + " 件を選択中" +
+        (shown < boxes.length ? "（" + boxes.length + " 件中 " + shown + " 件を表示）" : "（全 " + boxes.length + " 件）");
+      chips.textContent = "";
+      chosen.forEach(function (box) {
+        var chip = document.createElement("button");
+        chip.type = "button";
+        chip.className = "kc-chip";
+        var key = document.createElement("span");
+        key.className = "mono";
+        key.textContent = box.value;
+        chip.appendChild(key);
+        var name = box.closest("label") && box.closest("label").querySelector(".desc");
+        if (name) {
+          var n = document.createElement("span");
+          n.textContent = " " + name.textContent;
+          chip.appendChild(n);
+        }
+        var x = document.createElement("span");
+        x.className = "x";
+        x.setAttribute("aria-hidden", "true");
+        x.textContent = "×";
+        chip.appendChild(x);
+        chip.setAttribute("aria-label", box.value + " を外す");
+        chip.addEventListener("click", function () {
+          box.checked = false;
+          box.dispatchEvent(new Event("change", { bubbles: true }));
+        });
+        chips.appendChild(chip);
+      });
+      chips.hidden = !chosen.length;
+    }
+    filter.addEventListener("input", refresh);
+    // 絞り込み欄で Enter を押しても、フォームを送らない。
+    filter.addEventListener("keydown", function (event) {
+      if (event.key === "Enter") event.preventDefault();
+    });
+    only.addEventListener("change", refresh);
+    boxes.forEach(function (box) { box.addEventListener("change", refresh); });
+    refresh();
+  });
+})();
+
 {# **タブ**（`nav[data-tabs]`・問題のページ）。`#` と連動する ── `#schedule` や保存後の
    `#saved` で来たら、その場所を含むタブを開く。スクリプトが無ければ全部が縦に並ぶ。 #}
 (function () {
@@ -613,7 +706,9 @@ document.querySelectorAll(".checkrow .nojs").forEach(function (el) { el.remove()
       state.classList.remove("dirty", "error");
       if (kind) state.classList.add(kind);
     }
-    function touched() {
+    function touched(event) {
+      // 送られない欄（KC の絞り込みなど）は書きかけに数えない。
+      if (event && event.target && !event.target.name) return;
       dirty = true;
       say("未保存の変更があります", "dirty");
     }
