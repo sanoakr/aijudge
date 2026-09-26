@@ -198,6 +198,26 @@ class GradingJob(BaseModel):
             and self.attempts == holder.attempts
         )
 
+    def released(self, now: datetime) -> GradingJob:
+        """採点を途中でやめて、**試行に数えずに**キューへ戻す（#424）。
+
+        ワーカーを止める（デプロイの再起動）ときに使う。止めた側の都合で
+        落ちた試行を数えると、デプロイ 2 回と LLM の一時的な失敗 1 回で
+        上限に届き、採点が FAILED になる。すぐに取れる状態に戻す。
+        """
+        if self.state is not JobState.RUNNING:
+            raise ValueError(f"cannot release a {self.state} job")
+        return self.model_copy(
+            update={
+                "state": JobState.QUEUED,
+                "attempts": max(0, self.attempts - 1),
+                "available_at": now,
+                "lease_expires_at": None,
+                "worker": None,
+                "updated_at": now,
+            }
+        )
+
     def lease_extended(self, now: datetime, lease_seconds: float) -> GradingJob:
         """採点中のリースを延ばす（#399）。
 

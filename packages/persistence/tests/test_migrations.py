@@ -100,7 +100,20 @@ def test_the_migrations_also_build_the_postgres_shape() -> None:
     finally:
         engine.dispose()
 
-    command.upgrade(_config(url), "head")
+    # **移行の宛先も同じ URL にする。** `migrations/env.py` は設定の URL より
+    # `AIJUDGE_DATABASE_URL`（無ければ既定値）を優先する。渡さないと、移行は
+    # 別の DB（手元なら既定の `aijudge`）に当たり、空のテスト用 DB と比べて
+    # 全部の表が「無い」と言われる ── CI は両方に同じ値を入れているので
+    # 通っていたが、手元では意図しない DB に移行を当てていた。
+    previous = os.environ.get("AIJUDGE_DATABASE_URL")
+    os.environ["AIJUDGE_DATABASE_URL"] = url
+    try:
+        command.upgrade(_config(url), "head")
+    finally:
+        if previous is None:
+            os.environ.pop("AIJUDGE_DATABASE_URL", None)
+        else:
+            os.environ["AIJUDGE_DATABASE_URL"] = previous
     engine = sa.create_engine(url)
     try:
         with engine.connect() as connection:
