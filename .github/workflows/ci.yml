@@ -22,7 +22,8 @@ jobs:
     # 増やすなら別の手が要る。
     services:
       postgres:
-        image: postgres:17-alpine
+        # **本番と同じ版にする**（#429）。本番は PostgreSQL 18。
+        image: postgres:18-alpine
         env:
           POSTGRES_USER: aijudge
           POSTGRES_PASSWORD: aijudge
@@ -43,8 +44,11 @@ jobs:
         with:
           enable-cache: true
 
+      # **`--locked`: uv.lock が pyproject とずれていたら落とす**（#423）。
+      # 無いと CI はずれを黙って直して緑になり、本番の deploy だけが
+      # uv.lock の書き換えで止まる（v0.35.1 から 8 リリース気づかなかった）。
       - name: Sync dependencies
-        run: uv sync --extra dev
+        run: uv sync --locked --extra dev
 
       - name: Lint
         run: uv run ruff check .
@@ -91,8 +95,11 @@ jobs:
         with:
           enable-cache: true
 
+      # **`--locked`: uv.lock が pyproject とずれていたら落とす**（#423）。
+      # 無いと CI はずれを黙って直して緑になり、本番の deploy だけが
+      # uv.lock の書き換えで止まる（v0.35.1 から 8 リリース気づかなかった）。
       - name: Sync dependencies
-        run: uv sync --extra dev
+        run: uv sync --locked --extra dev
 
       - name: Measure agreement against instructor marking
         env:

@@ -10,7 +10,16 @@ set -euo pipefail
 
 TAG="${1:?tag required}"
 REPO_DIR="${AIJUDGE_REPO_DIR:-/opt/aijudge}"
+# デプロイが**最後まで通った**版の記録（#421）。autodeploy はこれを見る。
+# `git describe` で判定していたので、checkout の後で migration が落ちると
+# 「最新がデプロイ済み」に見え、二度と再試行されなかった。
+STATE_FILE="${AIJUDGE_DEPLOY_STATE:-/var/lib/aijudge/deployed-tag}"
 cd "${REPO_DIR}"
+
+# **uv.lock を書き換えさせない**（#423）。`uv run` は既定で lock を取り直す
+# ので、版がずれていると deploy 自身が uv.lock を書き換え、次の checkout が
+# 中断する（v0.35.1 から 8 リリース、黙って古い版が動き続けた）。
+export UV_FROZEN=1
 
 # **環境が無いまま走らせない**（#345）。同じスクリプトを手動と CD で共有して
 # いても、**環境まで同じとは限らない** ── systemd の unit は
@@ -31,6 +40,14 @@ flock -n 9 || { echo "deploy already running"; exit 0; }
 
 git fetch --tags --prune
 git rev-parse "refs/tags/${TAG}^{commit}" >/dev/null   # タグの実在を先に確かめる
+
+# **作業ツリーが汚れていたら止める**（#423）。汚れていれば checkout が中断
+# するか、手で直したものを黙って上書きする。どちらも人が見るべき状態である。
+if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+    echo "the checkout at ${REPO_DIR} has local changes; refusing to deploy:" >&2
+    git status --short --untracked-files=no >&2
+    exit 1
+fi
 
 # デプロイ直前のダンプ（ロールバックの保険）。無ければスキップするだけにして、
 # バックアップ未設定の環境でもデプロイ自体は止めない。
@@ -63,15 +80,11 @@ fi
 # migration の後に restart。**ワーカーも必ず入れ替える** ── 古いワーカーが
 # 新コードの採点行を読めずに詰まった事故が過去に 2 回ある
 # （docs/RUNNING.md #60/#80）。
+#
+# AI ワーカーと runner は `PartOf=aijudge.target` なので、target の restart で
+# 入れ替わる。**もう一度 restart しない**（#424）── 以前は 2 回目を掛けて
+# いたので、採点中のジョブが 1 回のデプロイで 2 度打ち切られていた。
 systemctl restart aijudge.target
-if systemctl list-units 'aijudge-worker-ai@*' --state=loaded -q | grep -q .; then
-    systemctl restart 'aijudge-worker-ai@*'
-fi
-# IDE の runner も入れ替える（AI ワーカーと同じ理由 ── 古いコードの runner が
-# 新しい実行要求の行を読めずに詰まる）。無い機械では何もしない。
-if systemctl list-units 'aijudge-runner@*' --state=loaded -q | grep -q .; then
-    systemctl restart 'aijudge-runner@*'
-fi
 systemctl try-restart aijudge-finalize.timer
 systemctl try-restart aijudge-ide-close.timer
 
@@ -97,5 +110,9 @@ if [ -n "${AIJUDGE_LEARNER_URL:-}" ]; then
     done
 fi
 systemctl is-active --quiet aijudge-web aijudge-review aijudge-worker-det
+
+# 最後まで通ったときだけ記録する（#421）。途中で落ちれば記録は前の版のまま
+# なので、次の周回で autodeploy がもう一度この版を試す。
+printf '%s\n' "${TAG}" > "${STATE_FILE}.tmp" && mv "${STATE_FILE}.tmp" "${STATE_FILE}"
 
 echo "deployed ${TAG} ($(git rev-parse --short HEAD))"

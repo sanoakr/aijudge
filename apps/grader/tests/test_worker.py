@@ -378,6 +378,36 @@ def test_a_worker_that_lost_its_lease_records_nothing(world: World) -> None:
 
 
 @needs_c_compiler
+def test_stopping_mid_grade_returns_the_job_uncounted(world: World) -> None:
+    """停止の要求で採点を打ち切ったら、数えずにキューへ戻す（#424）。
+
+    SIGKILL まで待つと、ジョブは RUNNING のまま 15 分止まり、試行も失う。
+    """
+    from aijudge_grader.worker import STOPPED
+
+    accepted = world.submit()
+
+    def interrupted(job):
+        world.worker.interrupt()  # シグナルが採点の最中に届いた
+        raise AssertionError("interrupt did not stop grading")
+
+    world.worker._grade = interrupted  # type: ignore[method-assign]
+    result = world.worker.run_once()
+
+    assert result is not None and result.error == STOPPED
+    with world.database.unit_of_work() as uow:
+        (job,) = [j for j in [uow.jobs.get(result.job.id)] if j is not None]
+        assert job.state is JobState.QUEUED
+        assert job.attempts == 0
+        assert not uow.runs.list_for(accepted.submission.id)
+
+
+def test_an_idle_worker_is_not_interrupted(world: World) -> None:
+    """採点していないときの停止要求は、ループの終わりを待つだけ。"""
+    world.worker.interrupt()
+
+
+@needs_c_compiler
 def test_the_lease_is_renewed_only_while_held(world: World) -> None:
     world.submit()
     with world.database.unit_of_work() as uow:

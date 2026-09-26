@@ -12,6 +12,7 @@ Linux + コンテナだけで、その「封じ込められる」という主張
 
 from __future__ import annotations
 
+import os
 import shutil
 from pathlib import Path
 
@@ -33,10 +34,17 @@ FAST = Limits(cpu_seconds=5, wall_seconds=60.0, processes=32)
 
 @pytest.fixture(scope="module")
 def container():
-    """コンテナバックエンド。無ければモジュールごと skip。"""
+    """コンテナバックエンド。無ければモジュールごと skip。
+
+    **ただし `AIJUDGE_SANDBOX` でコンテナを名指ししたときは失敗にする**（#429）。
+    CI はそう指定して走らせる ── skip にすると、docker が壊れても CI は緑の
+    まま、脱出試験は 1 件も走っていない（skip は検証済みではない）。
+    """
     try:
         sandbox = DockerSandbox()
     except SandboxUnavailable as exc:
+        if os.environ.get("AIJUDGE_SANDBOX", "").strip().lower() in ("docker", "gvisor"):
+            pytest.fail(f"AIJUDGE_SANDBOX asks for a container but none is usable: {exc}")
         pytest.skip(f"no container runtime: {exc}")
     return sandbox
 
