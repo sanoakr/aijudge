@@ -1,6 +1,8 @@
 # 締切を過ぎた成績を確定する。`--once` で 1 回走って終わる（timer が呼ぶ）。
 [Unit]
 Description=aiJudge finalize (close grades past the deadline)
+# 失敗したらメールで知らせる（#422）。
+OnFailure=aijudge-notify@%n.service
 After=network-online.target postgresql.service
 Wants=postgresql.service
 

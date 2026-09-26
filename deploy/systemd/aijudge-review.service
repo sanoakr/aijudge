@@ -1,6 +1,8 @@
 # 教員コンソール。教員数は少なく大きなアップロード経路も無いので --workers は不要。
 [Unit]
 Description=aiJudge instructor console
+# 失敗したらメールで知らせる（#422）。
+OnFailure=aijudge-notify@%n.service
 PartOf=aijudge.target
 After=network-online.target postgresql.service
 Wants=postgresql.service

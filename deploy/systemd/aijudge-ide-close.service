@@ -4,6 +4,8 @@
 # timer は `aijudge.target` の `Wants=` で起動する（2026-09-24）。
 [Unit]
 Description=aiJudge IDE close (submit the latest autosave when a set closes)
+# 失敗したらメールで知らせる（#422）。
+OnFailure=aijudge-notify@%n.service
 After=network-online.target postgresql.service
 Wants=postgresql.service
 
