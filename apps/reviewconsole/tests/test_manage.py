@@ -6275,7 +6275,7 @@ def test_the_settings_page_offers_a_trial(world: World) -> None:
     """`language` の取り違えは設定の検査では捕まらない。試す道具を置く。"""
     world.register("teacher", Role.INSTRUCTOR)
     body = world.client("teacher").get(f"/manage/courses/{world.course.id}").text
-    assert "この設定で試行" in body
+    assert "採点設定で試行" in body
     assert "このコースだけに効きます" in body
 
 
