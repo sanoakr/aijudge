@@ -16,7 +16,7 @@ from .gateway import (
     StructuredResult,
     extract_json,
 )
-from .injection import instruction_lines, instruction_notice
+from .injection import instruction_lines, instruction_notice, submission_boundary
 from .locality import ENV_LOCAL_DOMAINS, is_local_url
 from .provider import (
     EmbeddingProvider,
@@ -182,4 +182,5 @@ __all__ = [
     "instruction_lines",
     "instruction_notice",
     "is_local_url",
+    "submission_boundary",
 ]

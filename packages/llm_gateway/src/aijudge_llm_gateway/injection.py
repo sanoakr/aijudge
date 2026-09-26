@@ -17,7 +17,11 @@ AI 評価器は提出物をプロンプトに埋め込む。提出物の中に�
 
 from __future__ import annotations
 
+import hashlib
 import re
+
+# 境界文字列に使う提出物のハッシュの桁数（16 進）。64 ビットあれば当て推量では届かない。
+_BOUNDARY_HEX_DIGITS = 16
 
 # 行動を求める語尾（付けて・付けよ・与えて・選べ …）。
 # **括弧で包む。** 包まないと前の式と連結したとき選択肢が外に漏れ、
@@ -75,4 +79,17 @@ def instruction_notice(lines: tuple[int, ...]) -> str:
     return f"[要確認] 提出物の {shown} 行目{more}に、採点への指示と読める記述があります。"
 
 
-__all__ = ["instruction_lines", "instruction_notice"]
+def submission_boundary(text: str) -> str:
+    """提出物をプロンプトの中で囲む境界文字列。
+
+    **推測できないこと**と**再現できること**を両立させるため、提出物そのものの
+    ハッシュから作る。乱数にすると同じ提出が呼ぶたびに違う文面になり、採点の
+    再現（P8）が崩れる。固定の文字列にすると、このリポジトリは読めるので、
+    学習者が境界を閉じて「ここから先は採点者の指示」と書ける。自分のハッシュを
+    自分の中に書くことはできないので、提出物が境界を偽装することはできない。
+    """
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    return f"SUBMISSION-{digest[:_BOUNDARY_HEX_DIGITS]}"
+
+
+__all__ = ["instruction_lines", "instruction_notice", "submission_boundary"]

@@ -282,7 +282,7 @@ def test_the_run_records_which_model_and_prompt_produced_it(task_version) -> Non
     run = _pipeline(judge).run(task_version, *_wire(task_version.reference_solution))
 
     assert run.context.model_ids == {"rubric_ai_judge": "stub"}
-    assert run.context.prompt_versions == {"rubric_ai_judge": "rubric_criterion_judge_ja@2"}
+    assert run.context.prompt_versions == {"rubric_ai_judge": "rubric_criterion_judge_ja@3"}
 
 
 def test_grading_survives_the_llm_being_unavailable(task_version) -> None:
