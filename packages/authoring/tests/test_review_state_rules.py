@@ -1,6 +1,6 @@
 """課題版のレビュー状態の規則（`TaskRepository.record_review`）を固定する。
 
-以前は `aijudge_admin.task_review` の `approve`・`reject`・`pending_reviews`（保存層を
+以前は `aijudge_course_admin.task_review` の `approve`・`reject`・`pending_reviews`（保存層を
 呼ぶだけの包み）を通して確かめていた。承認・却下の入口が画面の下書きだけになり
 （#522・ADR 0019）、包みは使われなくなったので消した。**規則は保存層に残る**ので、
 ここで直に確かめる。
