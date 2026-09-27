@@ -349,6 +349,38 @@ def _declared_version(
     )
 
 
+def rekeyed_version(version: TaskVersion, *, course_id: CourseId, key: str) -> TaskVersion:
+    """保存済みの版を、**別の鍵の課題の同じ版番号**として写す（移動とコピー）。
+
+    ID はすべて鍵から導かれる（課題・版は `(コース, 鍵)`、観点は鍵と観点コード）
+    ので、鍵を変えるとは ID を全部付け替えることである。付け替えの規則は
+    `build_task_version` と同じものをここ 1 か所で使う ── 移動の側で ID を
+    組み立てると、導き方を変えた日に片方だけが古い規則で ID を作る。
+
+    **中身は宣言に戻さずにそのまま運ぶ。** `TaskSpec` を通すと、宣言に欄の無い
+    もの（手書きの可否・書き起こしの確認・出所と承認・評価器ごとの検証データ）が
+    落ちる。
+    """
+    from .importers.sharif_judge import _criterion_id
+
+    version_id = TaskVersionId(derived_id("tsv", str(course_id), key, str(version.version)))
+    return version.model_copy(
+        update={
+            "id": version_id,
+            "task_id": TaskId(derived_id("tsk", str(course_id), key)),
+            "source_key": key,
+            "criteria": tuple(
+                criterion.model_copy(update={"id": _criterion_id(key, criterion.code)})
+                for criterion in version.criteria
+            ),
+            "q_matrix": tuple(
+                entry.model_copy(update={"task_version_id": version_id})
+                for entry in version.q_matrix
+            ),
+        }
+    )
+
+
 def q_matrix_for(keys: tuple[str, ...], task_version_id: TaskVersionId) -> tuple[QMatrixEntry, ...]:
     """宣言した KC を Q-matrix の行にする（設計原則 P6）。
 

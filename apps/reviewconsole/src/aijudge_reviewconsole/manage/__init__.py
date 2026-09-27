@@ -140,6 +140,9 @@ from aijudge_course_admin.syllabus import (
     read_document,
     to_markdown,
 )
+from aijudge_course_admin.task_relocation import compose_key, key_name, learner_submission_count
+from aijudge_course_admin.task_relocation import copy_task as copy_task_as
+from aijudge_course_admin.task_relocation import move_task as relocate_task
 from aijudge_course_admin.task_verifier import TaskVerifier, outputs_for
 from aijudge_course_admin.tasks import clear_unit
 from aijudge_course_admin.tasks import delete as delete_task
@@ -767,7 +770,13 @@ def _key_of(task, version) -> str:
     if version.source_key:
         return str(version.source_key)
     for candidate in _key_candidates(task):
-        if derived_id("tsk", candidate) == str(task.id):
+        # **ID の形は 2 つある。** 鍵を持つ版のある課題はコースを混ぜた ID に
+        # 移したが（`a1c4e77b90d2`）、鍵を持たない課題は導き直せないので古い形の
+        # まま残した。どちらでも当たりを確かめる。
+        if str(task.id) in (
+            derived_id("tsk", str(task.course_id), candidate),
+            derived_id("tsk", candidate),
+        ):
             return candidate
     raise HTTPException(
         status_code=409,
@@ -805,7 +814,9 @@ SAVED_MESSAGES: dict[str, str] = {
     "unchanged": "変更はありませんでした",
     "course_settings": "保存しました",
     "schedule": "日程を保存しました（この問題セットの全課題に反映）",
-    "moved": "課題を移しました（日程は移動先に揃えました）",
+    "moved": "課題を移しました（キーを付け替え、日程は移動先に揃えました）",
+    "renamed": "課題キーを変えました",
+    "copied": "課題をコピーしました（元の課題はそのまま残っています）",
     "grace": "保存しました",
     "number": "保存しました",
     "course_grace": "保存しました",
@@ -1601,20 +1612,6 @@ def _first_error(exc: ValidationError) -> str:
     return "指定が不正です"
 
 
-def _compose_key(unit: str, suffix: str) -> str:
-    """問題セットの鍵と、その中での鍵を繋ぐ。
-
-    `ex02` + `p8` → `ex02/p8`。まとまりが無い課題（未分類）は後半だけを
-    鍵にする。後半に `/` が入っていればそれを尊重する ── 取り込み済みの
-    課題と鍵を揃えたい場合があり、そこで縛ると直す手段が無くなる。
-    """
-    if not suffix:
-        return ""
-    if not unit or suffix.startswith(f"{unit}/"):
-        return suffix
-    return f"{unit}/{suffix}"
-
-
 def _unit_href(course_id: str, task) -> str:
     """その課題が属する回のページ。
 
@@ -1872,7 +1869,7 @@ def generate_task(
                 avoid.append(version.statement)
 
     head = siblings[0] if siblings else None
-    full_key = _compose_key(head.unit if head else unit, key_suffix.strip())
+    full_key = compose_key(head.unit if head else unit, key_suffix.strip())
     if not full_key:
         raise HTTPException(status_code=400, detail="課題キーを入力してください")
 
@@ -2211,6 +2208,12 @@ def _task_page(
             # 書き直せなかった理由（`?why=`）。知らせの隣に出す。
             "why": why,
             "other_units": others,
+            # 移動・名前の変更・コピー（2026-09-27）。**学生の提出があれば移せない**
+            # ので、画面はそのときコピーを出す（判定は `move_task` がもう一度する）。
+            "key_name": (key_name(version.source_key or "", task.unit) if task and version else ""),
+            "learner_submissions": (
+                learner_submission_count(_console(request).database, task.id) if task else 0
+            ),
             # 属する問題セットと、そこと日程が揃っているか（#325）。
             "own_unit": own_unit,
             # **ばらつきの判定は問題セットのものを使う**（`UnitGroup.mixed`）。
@@ -4091,7 +4094,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
                 spec.model_copy(
                     update={
                         "statement": statement,
-                        "key": _compose_key(group.unit or "", spec.key),
+                        "key": compose_key(group.unit or "", spec.key),
                         "unit": group.unit,
                         "session": group.session,
                     }
@@ -5311,7 +5314,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         # `ex02/p8` の `ex02/` は動かず、教員が打つのは `p8` だけである。
         # 打たせると `ex2/p8` のような取り違えが混ざり、鍵は同一性そのもの
         # なので、取り違えたぶんは別の課題として増える。
-        full_key = key.strip() or _compose_key(unit.strip(), key_suffix.strip())
+        full_key = key.strip() or compose_key(unit.strip(), key_suffix.strip())
         if not full_key:
             raise HTTPException(status_code=400, detail="課題キーを入力してください")
 
@@ -5766,71 +5769,76 @@ def register(templates: Jinja2Templates) -> APIRouter:
         course_id: str,
         task_id: str,
         unit: Annotated[str, Form()] = "",
+        name: Annotated[str, Form()] = "",
     ) -> Response:
-        """課題を別の問題セットへ移す。**日程は移った先に揃える。**
+        """課題を別の問題セットへ移す（`name` を変えれば名前の変更も）。
 
-        セットの中で締切がずれると、学習者にも教員にも「この回はいつまでか」
-        が言えなくなる（`set_unit_schedule` と同じ理由）。移した課題だけが
-        元の締切を持ち続けると、まさにその状態になる。
+        **キーを付け替える**（`<問題セット>/<名前>`・2026-09-27）。頭は問題セットを
+        表すので、付け替えないと test5 にある課題のキーが `test4/…` のままになる。
+        課題 ID はキーから導かれるので、**学生の提出がある課題は移せない**
+        ── 規則と付け替えは `aijudge_course_admin.task_relocation` が持つ。
+        お試しの提出は妨げず、付け替えのときに消える。
 
-        **提出済みでも移せる。** 日程はもともと学期の途中で動くもので
-        （ADR 0013 の減点は run に記録済みなので、既に付いた成績は動かない）、
-        セットの日程を変える操作は提出の有無を問わず既に許してある。移動だけ
-        禁じると、同じことが遠回りにしかできない。
-
-        **鍵は変えない。** `TaskId` が鍵から導かれる（`derived_id("tsk", key)`）
-        ので、`ex02/p8` を `ex03/p8` にすることは移動ではなく**別の課題を作る
-        こと**である。鍵の前半は「どこで作られたか」の記録として残る。
+        **日程は移った先に揃える。** セットの中で締切がずれると、学習者にも
+        教員にも「この回はいつまでか」が言えなくなる（`set_unit_schedule` と
+        同じ理由）。
         """
         from ..app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
         console = _console(request)
+        task = _task_of(console, course, task_id)
 
-        target = unit.strip()
-        if not target:
-            raise HTTPException(status_code=400, detail="移動先の問題セットを選んでください")
+        try:
+            moved = relocate_task(
+                console.database,
+                task_id=task.id,
+                unit=unit,
+                name=name,
+                artifact_store=console.store,
+            )
+        except AdminError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-        with console.database.unit_of_work() as uow:
-            task = uow.tasks.get_task(TaskId(task_id))
-            if task is None or task.course_id != course.id:
-                raise HTTPException(status_code=404, detail="課題が見つかりません")
-            if (task.unit or "") == target:
-                raise HTTPException(status_code=400, detail="すでにその問題セットにあります")
-
-            siblings = [
-                other
-                for other in uow.tasks.list_for_course(course.id)
-                if other.id != task.id and unit_key(other) == quote(target, safe="")
-            ]
-            # **移動先の先頭から日程を引き継ぐ。** 空のセットへ移す場合は
-            # 引き継ぐ相手が居ないので、いまの日程のまま入る（セットの日程を
-            # あとから入れれば全課題に行き渡る）。
-            head = sorted(siblings, key=lambda item: item.sort_key)[0] if siblings else None
-            update: dict[str, object] = {"unit": target}
-            if head is not None:
-                update |= {
-                    "session": head.session,
-                    "opens_at": head.opens_at,
-                    "submissions_open_at": head.submissions_open_at,
-                    "due_at": head.due_at,
-                    "auto_finalize_after_minutes": head.auto_finalize_after_minutes,
-                }
-            # 並びは移動先の末尾。差し込む位置まで選ばせると、移動 1 回に
-            # 決めることが 2 つになる（並べ替えは移動後に前後で動かせる）。
-            #
-            # **番号を持たない課題も数に入れる。** 以前は画面から足した課題の
-            # `position` が空のままで、番号だけを見て 1 を振ると末尾どころか
-            # 先頭に入った。いまは足すときに末尾へ振り（#484）、既存の空も
-            # 移行で埋めたので、件数で数えるのは念のための守りである。
-            positions = [other.position for other in siblings if other.position is not None]
-            update["position"] = max(len(siblings), max(positions, default=0)) + 1
-            uow.tasks.save_task(task.model_copy(update=update))
-            uow.commit()
-
+        # 同じセットの中で名前だけ変えたなら課題の画面へ、移したなら移動先へ。
+        # **元の URL はもう無い**（課題 ID が変わった）。
+        if moved.task.unit == task.unit:
+            return RedirectResponse(
+                f"/manage/courses/{course_id}/tasks/{moved.task.id}/edit?saved=renamed#saved",
+                status_code=303,
+            )
         return RedirectResponse(
-            f"/manage/courses/{course_id}/units/{quote(target, safe='')}?saved=moved#saved",
+            f"/manage/courses/{course_id}/units/{unit_key(moved.task)}?saved=moved#saved",
+            status_code=303,
+        )
+
+    @router.post("/courses/{course_id}/tasks/{task_id}/copy")
+    def copy_task_to_unit(
+        request: Request,
+        course_id: str,
+        task_id: str,
+        unit: Annotated[str, Form()] = "",
+        name: Annotated[str, Form()] = "",
+    ) -> Response:
+        """課題を名前を付けて別の問題セットへ**コピー**する。元は残る。
+
+        学生の提出がある課題は移せないので、別のセットで使うにはこちらを通る
+        （2026-09-27）。写すのは中身（全版）と設定で、提出と採点は写さない。
+        """
+        from ..app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+        task = _task_of(console, course, task_id)
+
+        try:
+            copied = copy_task_as(console.database, task_id=task.id, unit=unit, name=name)
+        except AdminError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return RedirectResponse(
+            f"/manage/courses/{course_id}/tasks/{copied.task.id}/edit?saved=copied#saved",
             status_code=303,
         )
 
@@ -7575,7 +7583,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
             key = draft.spec.key
         else:
             suffix = str(form.get("key_suffix") or "").strip()
-            key = _compose_key(unit, suffix) or draft.spec.key
+            key = compose_key(unit, suffix) or draft.spec.key
         if not key:
             raise HTTPException(status_code=400, detail="課題キーを入力してください")
 

@@ -23,8 +23,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from aijudge_authoring.statement import render_statement
-from aijudge_core import Course, ReviewState, Role
-from aijudge_core.ids import CourseId, TaskId, TaskVersionId, TenantId
+from aijudge_core import Course, ReviewState, Role, Submission, SubmissionState
+from aijudge_core.ids import CourseId, SubmissionId, TaskId, TaskVersionId, TenantId, UserId
 from aijudge_course_admin.operations import ensure_course
 from aijudge_identity import AuthenticationFailed, AuthService
 from aijudge_persistence import Database
@@ -6713,7 +6713,7 @@ def test_a_task_moves_to_another_unit_and_takes_that_unit_schedule(world: World)
     """
     world.register("teacher", Role.INSTRUCTOR)
     client = world.client("teacher")
-    _add_task(client, str(world.course.id), "ex04", "p1")
+    _add_task(client, str(world.course.id), "ex04", "q1")
     _add_task(client, str(world.course.id), "ex05", "p1")
     client.post(
         f"/manage/courses/{world.course.id}/units/ex05/schedule",
@@ -6728,61 +6728,129 @@ def test_a_task_moves_to_another_unit_and_takes_that_unit_schedule(world: World)
 
     response = client.post(
         f"/manage/courses/{world.course.id}/tasks/{moving.id}/unit",
-        data={"unit": "ex05"},
+        data={"unit": "ex05", "name": "q1"},
         follow_redirects=False,
     )
     assert response.status_code == 303
     with world.database.unit_of_work() as uow:
-        moved = uow.tasks.get_task(moving.id)
-        head = next(
-            t
-            for t in uow.tasks.list_for_course(world.course.id)
-            if t.unit == "ex05" and t.id != moving.id
-        )
-    assert moved.unit == "ex05"
+        in_target = [t for t in uow.tasks.list_for_course(world.course.id) if t.unit == "ex05"]
+    head = next(t for t in in_target if t.position == 1)
+    moved = next(t for t in in_target if t.id != head.id)
     assert moved.due_at == head.due_at
     assert moved.opens_at == head.opens_at
     # 並びは移動先の末尾。画面から足した課題も位置を持つ（#484。以前は空で、
     # 番号だけ見ると先頭に入ってしまうので件数でも数えていた）。
-    assert head.position == 1
     assert moved.position == 2
 
 
-def test_moving_a_task_keeps_its_identity(world: World) -> None:
-    """**移動しても同じ課題のまま。** `TaskId` は課題キーから導かれるので
-    （`derived_id("tsk", key)`）、鍵が動けばそれは別の課題であり、過去の
-    提出との対応が切れる（P8）。移動は所属だけを変える。
+def test_moving_a_task_rekeys_it_to_the_target_unit(world: World) -> None:
+    """**キーの頭は問題セット。** 移すと付け替わる（2026-09-27、network の
+    `test4/echoClient` が test5 に移っても頭が残った）。課題 ID はキーから
+    導かれるので、移した課題は新しい ID になり、元の ID では引けない。
     """
     world.register("teacher", Role.INSTRUCTOR)
     client = world.client("teacher")
-    _add_task(client, str(world.course.id), "ex04", "p1")
-    _add_task(client, str(world.course.id), "ex05", "p1")
+    _add_task(client, str(world.course.id), "test4", "echoClient")
+    _add_task(client, str(world.course.id), "test5", "echoClient5")
     with world.database.unit_of_work() as uow:
-        moving = next(t for t in uow.tasks.list_for_course(world.course.id) if t.unit == "ex04")
-        before = uow.tasks.latest_version(moving.id).source_key
+        moving = next(t for t in uow.tasks.list_for_course(world.course.id) if t.unit == "test4")
 
-    client.post(f"/manage/courses/{world.course.id}/tasks/{moving.id}/unit", data={"unit": "ex05"})
+    response = client.post(
+        f"/manage/courses/{world.course.id}/tasks/{moving.id}/unit",
+        data={"unit": "test5", "name": "echoClient_comments.py"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
     with world.database.unit_of_work() as uow:
-        # 同じ ID で引けること自体が、鍵が動いていないことの確認になる。
-        moved = uow.tasks.get_task(moving.id)
-        assert moved is not None
-        assert uow.tasks.latest_version(moved.id).source_key == before
+        assert uow.tasks.get_task(moving.id) is None
+        keys = {
+            uow.tasks.latest_version(t.id).source_key
+            for t in uow.tasks.list_for_course(world.course.id)
+        }
+    assert keys == {"test5/echoClient5", "test5/echoClient_comments.py"}
 
 
-def test_a_task_cannot_be_moved_to_the_unit_it_is_already_in(world: World) -> None:
-    """押しても何も起きない操作を選択肢に出さない（画面でも候補から外している）。"""
+def test_renaming_a_task_in_place_returns_to_its_new_page(world: World) -> None:
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    _add_task(client, str(world.course.id), "test5", "echoClient")
+    with world.database.unit_of_work() as uow:
+        task = uow.tasks.list_for_course(world.course.id)[0]
+
+    response = client.post(
+        f"/manage/courses/{world.course.id}/tasks/{task.id}/unit",
+        data={"unit": "test5", "name": "echoClient_comments.py"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert "saved=renamed" in response.headers["location"]
+    page = client.get(response.headers["location"].split("#")[0])
+    assert page.status_code == 200
+    assert "課題キーを変えました" in page.text
+
+
+def test_a_task_with_learner_submissions_is_copied_not_moved(world: World) -> None:
+    """**提出のある課題は移せない**（成績が課題版を指す）。画面はコピーを出す。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    _add_task(client, str(world.course.id), "ex1", "p2")
+    _add_task(client, str(world.course.id), "ex3", "p1")
+    with world.database.unit_of_work() as uow:
+        task = next(t for t in uow.tasks.list_for_course(world.course.id) if t.unit == "ex1")
+        version = uow.tasks.latest_version(task.id)
+        uow.submissions.save(
+            Submission(
+                id=SubmissionId("sub_" + "7" * 32),
+                task_version_id=version.id,
+                learner_id=UserId("usr_" + "8" * 32),
+                state=SubmissionState.DRAFT,
+                attempt=1,
+                created_at=datetime.now(UTC),
+            )
+        )
+        uow.commit()
+
+    refused = client.post(
+        f"/manage/courses/{world.course.id}/tasks/{task.id}/unit", data={"unit": "ex3"}
+    )
+    assert refused.status_code == 409
+
+    body = client.get(f"/manage/courses/{world.course.id}/tasks/{task.id}/edit").text
+    assert "名前を付けてコピーする" in body
+    assert f"/tasks/{task.id}/unit" not in body, "移せない課題に移動のフォームが出ている"
+
+    copied = client.post(
+        f"/manage/courses/{world.course.id}/tasks/{task.id}/copy",
+        data={"unit": "ex3", "name": "p2_again"},
+        follow_redirects=False,
+    )
+    assert copied.status_code == 303
+    with world.database.unit_of_work() as uow:
+        assert uow.tasks.get_task(task.id) is not None, "コピーで元の課題が消えた"
+        keys = {
+            uow.tasks.latest_version(t.id).source_key
+            for t in uow.tasks.list_for_course(world.course.id)
+        }
+    assert "ex3/p2_again" in keys and "ex1/p2" in keys
+
+
+def test_a_task_cannot_be_moved_to_where_it_already_is(world: World) -> None:
+    """同じセット・同じ名前への移動は何も変えない。黙って成功にしない。"""
     world.register("teacher", Role.INSTRUCTOR)
     client = world.client("teacher")
     _add_task(client, str(world.course.id), "ex04", "p1")
     with world.database.unit_of_work() as uow:
         task = uow.tasks.list_for_course(world.course.id)[0]
     response = client.post(
-        f"/manage/courses/{world.course.id}/tasks/{task.id}/unit", data={"unit": "ex04"}
+        f"/manage/courses/{world.course.id}/tasks/{task.id}/unit",
+        data={"unit": "ex04", "name": "p1"},
     )
-    assert response.status_code == 400
+    assert response.status_code == 409
 
 
-def test_the_move_form_lists_only_the_other_units(world: World) -> None:
+def test_the_move_form_offers_the_current_unit_for_a_rename(world: World) -> None:
+    """**同じセットのまま名前だけ変えられる。** いまのセットも選択肢に出し、
+    名前の欄にはいまの名前（頭を外したもの）を入れておく。"""
     world.register("teacher", Role.INSTRUCTOR)
     client = world.client("teacher")
     _add_task(client, str(world.course.id), "ex04", "p1")
@@ -6790,9 +6858,11 @@ def test_the_move_form_lists_only_the_other_units(world: World) -> None:
     with world.database.unit_of_work() as uow:
         task = next(t for t in uow.tasks.list_for_course(world.course.id) if t.unit == "ex04")
     body = client.get(f"/manage/courses/{world.course.id}/tasks/{task.id}/edit").text
-    form = body[body.index("別の問題セットへ移す") :]
+    form = body[body.index("問題セットを移す・名前を変える") :]
+    form = form[: form.index("</form>")]
     assert 'value="ex05"' in form
-    assert 'value="ex04"' not in form
+    assert 'value="ex04" selected' in form
+    assert 'name="name" value="p1"' in form
 
 
 def test_the_task_page_says_whether_the_rubric_is_the_course_one(world: World) -> None:

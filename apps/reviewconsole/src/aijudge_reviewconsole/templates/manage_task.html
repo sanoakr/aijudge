@@ -751,31 +751,61 @@
     </form>
   </details>
 
-  {# 別の問題セットへ移す。**日程は移動先に揃う** ── セットの中で締切がずれると
-     「この回はいつまでか」が言えなくなる。移動先を選ぶときに、その回の締切を
-     並べて出しておく（移動してから気づくことにならないように）。 #}
-  {% if other_units %}
+  {# 別の問題セットへ移す・名前を変える・コピーする（2026-09-27）。**キーは
+     <問題セット>/<名前>** で、移すと付け替わる。課題 ID はキーから導かれるので、
+     学生の提出がある課題は移せない ── そのときはコピーだけを出す（判定は
+     `aijudge_course_admin.task_relocation` がもう一度する）。**日程は移動先に揃う**
+     ので、移動先を選ぶときにその回の締切を並べて出しておく。 #}
+  {% if version and version.source_key and (own_unit or other_units) %}
+  {% macro unit_options() %}
+    {% if own_unit %}<option value="{{ own_unit.unit or own_unit.label }}" selected>{{ own_unit.unit or own_unit.label }}（いまのセット）</option>{% endif %}
+    {% for group in other_units %}
+    <option value="{{ group.unit or group.label }}">{{ group.unit or group.label }}
+      — 締切 {% if group.due_at %}{{ group.due_at | local('%m-%d %H:%M') }}{% else %}未設定{% endif %}</option>
+    {% endfor %}
+  {% endmacro %}
+  {% if not learner_submissions %}
   <form class="op" method="post"
         action="{{ root_prefix() }}/manage/courses/{{ course.id }}/tasks/{{ task.id }}/unit"
-        data-confirm-title="別の問題セットへ移しますか"
-        data-confirm="この課題の日程（公開・提出開始・締切・自動確定の猶予）は移動先のセットの値に置き換わります。">
-    <div class="op-name"><label for="move-unit">別の問題セットへ移す</label>{% call help() %}
-      <strong>日程は移動先のセットに揃います</strong>（公開・提出開始・締切・自動確定の猶予）。
-      並びは移動先の末尾に入ります。課題キー{% if version and version.source_key %}
-      <span class="mono">{{ version.source_key }}</span>{% endif %}は変わりません
-      — 課題 ID がこの鍵から導かれるので（<span class="mono">derived_id</span>）、
-      変えると<strong>別の課題になり</strong>、過去の提出との対応が切れます。
-    {% endcall %}</div>
+        data-confirm-title="課題を移しますか（名前を変えますか）"
+        data-confirm="課題キーが付け替わります。別のセットへ移すと、日程（公開・提出開始・締切・自動確定の猶予）は移動先のセットの値に置き換わります。お試しの提出は消えます。">
+    <div class="op-name"><label for="move-unit">問題セットを移す・名前を変える</label>{% call help() %}
+      課題キーは <span class="mono">&lt;問題セット&gt;/&lt;名前&gt;</span> です（いまは
+      <span class="mono">{{ version.source_key }}</span>）。<strong>移すとキーが付け替わります</strong>。
+      同じセットのまま名前だけ変えることもできます。
+      <span class="sep">·</span> <strong>日程は移動先のセットに揃い</strong>、並びは移動先の末尾に入ります。
+      <span class="sep">·</span> 学生の提出がある課題は移せません（コピーになります）。
+      お試しの提出（教員・TA の動作確認）は移すときに消えます。
+    {% endcall %}
+      {% if saved_key in ['renamed', 'copied'] %}{% set flash.shown = true %}<span class="flash" id="saved">{{ note }}</span>{% endif %}</div>
     <div class="op-act">
-      <select id="move-unit" name="unit">
-        {% for group in other_units %}
-        <option value="{{ group.unit or group.label }}">{{ group.unit or group.label }}
-          — 締切 {% if group.due_at %}{{ group.due_at | local('%m-%d %H:%M') }}{% else %}未設定{% endif %}</option>
-        {% endfor %}
-      </select>
-      <button type="submit" class="minor">移動</button>
+      <select id="move-unit" name="unit">{{ unit_options() }}</select>
+      <span class="mono">/</span>
+      <input name="name" value="{{ key_name }}" aria-label="名前" required style="max-width:14rem">
+      <button type="submit" class="minor">移す</button>
     </div>
   </form>
+  {% else %}
+  <form class="op" method="post"
+        action="{{ root_prefix() }}/manage/courses/{{ course.id }}/tasks/{{ task.id }}/copy"
+        data-confirm-title="課題をコピーしますか"
+        data-confirm="中身（全版）と設定を写した新しい課題ができます。元の課題と提出・成績はそのまま残ります。">
+    <div class="op-name"><label for="copy-unit">名前を付けてコピーする</label>{% call help() %}
+      この課題には学生の提出が {{ learner_submissions }} 件あるので、<strong>移すことはできません</strong>
+      — 課題 ID はキー（<span class="mono">{{ version.source_key }}</span>）から導かれ、
+      付け替えると過去の成績が何の課題の点なのか辿れなくなります。
+      <span class="sep">·</span> 別のセットで使うときは、名前を付けてコピーしてください。
+      写すのは中身と設定で、提出と採点は写しません。
+    {% endcall %}
+      {% if saved_key in ['copied'] %}{% set flash.shown = true %}<span class="flash" id="saved">{{ note }}</span>{% endif %}</div>
+    <div class="op-act">
+      <select id="copy-unit" name="unit">{{ unit_options() }}</select>
+      <span class="mono">/</span>
+      <input name="name" value="" placeholder="{{ key_name }}_2" aria-label="コピーの名前" required style="max-width:14rem">
+      <button type="submit" class="minor">コピー</button>
+    </div>
+  </form>
+  {% endif %}
   {% endif %}
 
   {# 版の履歴と、戻す操作（#319）。**版は積まれている**（P8）のに画面から
