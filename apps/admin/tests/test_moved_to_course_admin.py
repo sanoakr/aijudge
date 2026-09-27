@@ -2,7 +2,7 @@
 
 `AdminError` は `aijudge_course_admin.errors` に移った（段階 3-1）。
 
-移す間は旧い名前（`aijudge_admin.AdminError`・`aijudge_admin.operations.AdminError`）
+移す間は旧い名前（`aijudge_admin.AdminError`・`aijudge_course_admin.operations.AdminError`）
 でも同じクラスを指す。**別のクラスになると、旧い名前で `except` している
 コンソールが新しい場所から投げられた例外を取り逃がし、400 の代わりに 500 を返す。**
 """
@@ -48,6 +48,7 @@ MOVED_MODULES = (
     "grading_settings",
     "tasks",
     "courses",
+    "operations",
 )
 
 

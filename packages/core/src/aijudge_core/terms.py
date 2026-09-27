@@ -2,7 +2,7 @@
 
 `Course.term` は自由文字列だったので表記がゆれた。ゆれは表示の問題では
 **ない** ── コースの同一性は (テナント, コード, 学期) で、ID はそこから
-導かれる（`aijudge_admin.operations.ensure_course`）。`2025-後期` と
+導かれる（`aijudge_course_admin.operations.ensure_course`）。`2025-後期` と
 `2025後期` は同じ授業のつもりでも別のコースになり、受講登録も提出も
 別々に積まれる。
 
