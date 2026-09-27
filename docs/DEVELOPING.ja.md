@@ -264,11 +264,11 @@ P5 に反する）。免除しても `agreed` は真のまま ── 不同意�
 ```fish
 aijudge-admin task draft  --course <id> --key gen/ex01 --author <id> \
     --kc cs.loops.termination --model <下書き役> --solver-model <解答役>
-aijudge-admin task review list
-aijudge-admin task review decide --version <id> --reviewer <id> \
-    --reject --reason "入出力の形式が課題文にない"
 aijudge-admin task review rate --course <id>
 ```
+
+`task draft` が保存するのは**課題ではなく下書き**である。承認・却下はコンソールの
+「未承認の課題（AI 作問）」だけで行い（#522）、CLI には承認・却下の口が無い。
 
 生成は易しい方の半分である。生成された課題が使えるかどうかを決めるのは
 **それを捨てる仕組み**で、教員が注意を払う前に走る。

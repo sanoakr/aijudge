@@ -1,56 +1,34 @@
-"""作問とレビューの口を固定する（S2、設計方針 §5）。
+"""作問の口を固定する（S2、設計方針 §5・#522）。
 
-固定したいのは 4 つ。
+固定したいのは 3 つ。
 
-保存しても出題されない 生成物は IN_REVIEW で止まる（設計原則 P5）。
-門が落ちても捨てない  捨てると、門が厳しすぎることに誰も気づけない。
-ID を出さない        レビュー一覧は KC を可読なキーで出す。
-理由なく却下できない  CLI からも塞がっている。
+保存しても出題されない  生成物は下書き（`TaskDraftRecord`）になり、課題にはならない
+                        （設計原則 P5・ADR 0019）。
+承認は画面で           下書きはコンソールの「未承認の課題（AI 作問）」に並ぶ。
+                        CLI に承認・却下の口は無い（規則を 2 か所に書かない）。
+門が落ちても捨てない    捨てると、門が厳しすぎることに誰も気づけない。
 """
 
 from __future__ import annotations
 
+import argparse
 from datetime import UTC, datetime
 
 import pytest
 
-from aijudge_admin.authoring_cli import cmd_task_review_decide, cmd_task_review_list
-from aijudge_core import (
-    Course,
-    KnowledgeComponent,
-    Provenance,
-    QMatrixEntry,
-    ReviewState,
-    RubricCriterion,
-    RubricLevel,
-    Task,
-    TaskVersion,
-)
-from aijudge_core.ids import (
-    CourseId,
-    CriterionId,
-    KcId,
-    TaskId,
-    TaskVersionId,
-    TenantId,
-    UserId,
-)
+import aijudge_admin.authoring_cli as module
+from aijudge_admin.authoring_cli import cmd_task_draft, register
+from aijudge_authoring import GateOutcome, VerificationReport
+from aijudge_authoring.drafting import DraftTestCase, TaskDraft, draft_to_spec
+from aijudge_core import Course, KnowledgeComponent
+from aijudge_core.ids import CourseId, KcId, TenantId, UserId
+from aijudge_course_admin.drafting import DraftResult
 from aijudge_persistence import Database
 
 TENANT = TenantId("ten_" + "0" * 32)
 COURSE = CourseId("crs_" + "1" * 32)
 INSTRUCTOR = UserId("usr_" + "2" * 32)
-VERSION = TaskVersionId("tsv_" + "3" * 32)
 KC = KcId("kc_" + "4" * 32)
-
-
-class Args:
-    def __init__(self, database: Database, **kwargs) -> None:
-        self.database_url = "sqlite+pysqlite:///:memory:"
-        self.create_schema = True
-        self._database = database
-        for key, value in kwargs.items():
-            setattr(self, key, value)
 
 
 @pytest.fixture
@@ -58,8 +36,6 @@ def database(monkeypatch):
     made = Database.connect("sqlite+pysqlite:///:memory:", create=True)
 
     # CLI は自分で接続を開く。テストではインメモリ DB を共有させる。
-    import aijudge_admin.authoring_cli as module
-
     monkeypatch.setattr(module, "_open", lambda args: made)
     monkeypatch.setattr(made, "dispose", lambda: None)
 
@@ -79,102 +55,121 @@ def database(monkeypatch):
                 id=KC, namespace="cs", path=("loops", "termination"), label="ループの停止"
             )
         )
-        uow.tasks.save_task(Task(id=TaskId("tsk_" + "3" * 32), course_id=COURSE, title="生成課題"))
-        uow.tasks.save_version(_version())
         uow.commit()
     yield made
     made.engine.dispose()
 
 
-def _version() -> TaskVersion:
-    return TaskVersion(
-        id=VERSION,
-        task_id=TaskId("tsk_" + "3" * 32),
-        version=1,
-        subject_profile="cs_lang_c_intro",
-        statement="## 課題 ##\n\n書きなさい。",
-        criteria=(
-            RubricCriterion(
-                id=CriterionId("crt_" + "5" * 32),
-                code="correctness",
-                title="正しさ",
-                description="テスト実行で判定する。",
-                weight=1.0,
-                levels=(
-                    RubricLevel(level=0, label="未達", descriptor="通らない", score_ratio=0.0),
-                    RubricLevel(level=1, label="達成", descriptor="通る", score_ratio=1.0),
-                ),
+class _Drafter:
+    """モデルを呼ばない作問役。"""
+
+    def __init__(self, *a: object, **kw: object) -> None: ...
+
+    def draft(self, blueprint, *, key):
+        draft = TaskDraft(
+            title="生成された課題",
+            statement="## 生成 ##\n\n2 つの整数を読み、和を出力しなさい。",
+            reference_solution="int main(void){return 0;}",
+            test_cases=(
+                DraftTestCase(name="case1", input="1 2", expected="3"),
+                DraftTestCase(name="case2", input="2 3", expected="5"),
             ),
-        ),
-        q_matrix=(QMatrixEntry(task_version_id=VERSION, kc_id=KC),),
-        max_score=100.0,
-        provenance=Provenance(
-            authored_by=INSTRUCTOR,
-            generated_by="stub",
-            generation_prompt_version="task_draft_ja@1",
-            review_state=ReviewState.IN_REVIEW,
-        ),
-        created_at=datetime(2026, 8, 29, tzinfo=UTC),
-    )
-
-
-def test_the_queue_shows_components_by_their_readable_key(database, capsys) -> None:
-    """**ID のまま出さない。** `kc_4444…` は教員に何も伝えない。"""
-    assert cmd_task_review_list(Args(database)) == 0
-    out = capsys.readouterr().out
-    assert "cs.loops.termination" in out
-    assert str(KC) not in out
-
-
-def test_approving_from_the_cli_publishes(database, capsys) -> None:
-    args = Args(database, version=str(VERSION), reviewer=str(INSTRUCTOR), reject=False, reason=None)
-    assert cmd_task_review_decide(args) == 0
-    assert "approved" in capsys.readouterr().out
-
-    with database.unit_of_work() as uow:
-        assert uow.tasks.get_version(VERSION).is_published
-
-
-def test_rejecting_without_a_reason_is_refused_from_the_cli(database, capsys) -> None:
-    args = Args(database, version=str(VERSION), reviewer=str(INSTRUCTOR), reject=True, reason=None)
-    assert cmd_task_review_decide(args) == 1
-    assert "理由" in capsys.readouterr().err
-
-    with database.unit_of_work() as uow:
-        # 何も起きていない。
-        assert uow.tasks.get_version(VERSION).provenance.review_state is ReviewState.IN_REVIEW
-
-
-def test_rejecting_with_a_reason_records_it(database, capsys) -> None:
-    args = Args(
-        database,
-        version=str(VERSION),
-        reviewer=str(INSTRUCTOR),
-        reject=True,
-        reason="入出力の形式が課題文にない",
-    )
-    assert cmd_task_review_decide(args) == 0
-
-    with database.unit_of_work() as uow:
-        provenance = uow.tasks.get_version(VERSION).provenance
-    assert provenance.review_state is ReviewState.REJECTED
-    assert provenance.reject_reason == "入出力の形式が課題文にない"
-
-
-def test_an_unregistered_component_is_named_as_such(database, capsys) -> None:
-    """**黙って空にしない。** 「KC が無い課題」と区別が付かなくなる。"""
-    with database.unit_of_work() as uow:
-        stray = TaskVersionId("tsv_" + "9" * 32)
-        version = _version().model_copy(
-            update={
-                "id": stray,
-                "task_id": TaskId("tsk_" + "9" * 32),
-                "q_matrix": (QMatrixEntry(task_version_id=stray, kc_id=KcId("kc_" + "e" * 32)),),
-            }
         )
-        uow.tasks.save_task(Task(id=version.task_id, course_id=COURSE, title="別"))
-        uow.tasks.save_version(version)
-        uow.commit()
+        return DraftResult(
+            spec=draft_to_spec(draft, blueprint, key=key),
+            draft=draft,
+            prompt_id="task_draft_ja@2",
+            model="stub-model",
+        )
 
-    assert cmd_task_review_list(Args(database)) == 0
-    assert "未登録" in capsys.readouterr().out
+
+class _FailingVerifier:
+    """門 1 が落ちた、と言う検査役（サンドボックスを使わない）。"""
+
+    def verify(self, version):
+        return VerificationReport(
+            reference_passes=GateOutcome.FAILED, reference_detail="参照解答が case1 を通らない"
+        )
+
+
+def _args(**overrides: object) -> argparse.Namespace:
+    values: dict[str, object] = {
+        "course": str(COURSE),
+        "key": "gen/ex01",
+        "author": str(INSTRUCTOR),
+        "kc": ["cs.loops.termination"],
+        "profile_name": "cs_lang_c_intro",
+        "language": "c",
+        "difficulty": "standard",
+        "instruction": None,
+        "constraint": None,
+        "test_cases": 2,
+        "model": None,
+        "solver_model": None,
+        "no_solvability": True,
+        "embedding_model": None,
+        "no_duplicates": True,
+        "dry_run": False,
+    }
+    values.update(overrides)
+    return argparse.Namespace(**values)
+
+
+def test_a_generated_task_is_saved_as_a_draft_not_a_task(database, monkeypatch, capsys) -> None:
+    """**下書きになる。** 画面の「未承認の課題」に並び、承認するまで課題は無い。
+
+    門が落ちても捨てない（1 を返して知らせるが、保存はする）。
+    """
+    monkeypatch.setattr(module, "TaskDrafter", _Drafter)
+    monkeypatch.setattr(module, "_verifier", lambda args, profile: _FailingVerifier())
+
+    assert cmd_task_draft(_args()) == 1
+    out = capsys.readouterr().out
+    assert "下書きとして保存しました" in out
+    assert "未承認の課題" in out
+
+    with database.unit_of_work() as uow:
+        drafts = uow.tasks.list_drafts(COURSE)
+        tasks = uow.tasks.list_for_course(COURSE)
+    assert tasks == (), "課題が作られている（承認するまで課題にしない）"
+    assert len(drafts) == 1
+    draft = drafts[0]
+    assert draft.generated_by == "stub-model"
+    assert draft.generation_prompt_version == "task_draft_ja@2"
+    assert draft.created_by == INSTRUCTOR
+    assert draft.unit == "", "出題先は承認のときに決める"
+    assert draft.checks is not None
+    assert draft.checks.verification.reference_passes is GateOutcome.FAILED
+
+
+def test_a_dry_run_saves_nothing(database, monkeypatch, capsys) -> None:
+    monkeypatch.setattr(module, "TaskDrafter", _Drafter)
+    monkeypatch.setattr(module, "_verifier", lambda args, profile: _FailingVerifier())
+
+    cmd_task_draft(_args(dry_run=True))
+
+    with database.unit_of_work() as uow:
+        assert uow.tasks.list_drafts(COURSE) == ()
+
+
+def test_the_cli_has_no_approval_of_its_own() -> None:
+    """**承認・却下は画面だけ**（#522）。残るのは承認率だけ。"""
+    parser = argparse.ArgumentParser()
+    register(parser.add_subparsers(dest="task_command"))
+    for gone in (["review", "list"], ["review", "decide", "--version", "x", "--reviewer", "y"]):
+        with pytest.raises(SystemExit):
+            parser.parse_args(gone)
+    assert parser.parse_args(["review", "rate", "--course", str(COURSE)]).review_command == "rate"
+
+
+def test_the_draft_time_is_recent(database, monkeypatch) -> None:
+    """作った時刻を下書きに残す（一覧の並びと出所）。"""
+    monkeypatch.setattr(module, "TaskDrafter", _Drafter)
+    monkeypatch.setattr(module, "_verifier", lambda args, profile: _FailingVerifier())
+    before = datetime.now(UTC)
+
+    cmd_task_draft(_args())
+
+    with database.unit_of_work() as uow:
+        (draft,) = uow.tasks.list_drafts(COURSE)
+    assert draft.created_at >= before

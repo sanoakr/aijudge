@@ -1,22 +1,26 @@
-"""作問とレビューの操作（`aijudge-admin task draft` / `review`）。
+"""作問の操作（`aijudge-admin task draft` / `review rate`）。
 
 **検査を通す順序をここに固定する**（設計方針 §5）。
 
-    draft   生成 → 門 1・門 2 → 解答可能性 → 保存（IN_REVIEW）
-    review  待ち行列を出す / 1 件を承認・却下する / 承認率を出す
+    draft        生成 → 門 1・門 2 → 解答可能性 → 重複 → **下書き**として保存
+    review rate  承認率を出す
 
 `--dry-run` を既定にしない代わりに、**保存しても出題はされない** ──
-生成物は `IN_REVIEW` で止まり、教員が承認するまで動かない（設計原則 P5）。
+生成物は下書き（`TaskDraftRecord`）になり、コンソールの「未承認の課題（AI 作問）」
+で教員が承認するまで課題にならない（設計原則 P5・ADR 0019）。
+
+**承認・却下は画面だけで行う**（#522）。以前は `review list` / `review decide` が
+あり、生成物を「承認待ちの課題版」として保存していたが、その版は画面から承認
+できず、承認の規則も CLI と画面の 2 か所に分かれていた。
 """
 
 from __future__ import annotations
 
 import argparse
-import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
-from aijudge_authoring import TaskChecks, build_task_version
+from aijudge_authoring import DraftKind, TaskChecks, TaskDraftRecord, build_task_version
 from aijudge_authoring.difficulty import (
     DEFAULT_PASS_THRESHOLD,
     DifficultyEstimate,
@@ -24,7 +28,7 @@ from aijudge_authoring.difficulty import (
     estimate,
 )
 from aijudge_authoring.drafting import Blueprint, Difficulty
-from aijudge_core import Task, position_for
+from aijudge_core import new_id
 from aijudge_core.ids import CourseId, TaskVersionId, UserId
 from aijudge_grading import EvaluatorRegistry, load_profile
 from aijudge_persistence import Database
@@ -32,7 +36,7 @@ from aijudge_persistence import Database
 from .drafting import TaskDrafter
 from .duplicates import DuplicateChecker
 from .solvability import SolvabilityChecker
-from .task_review import approval_rate, approve, build_packet, pending_reviews, reject
+from .task_review import approval_rate, build_packet
 from .task_verifier import TaskVerifier
 
 
@@ -107,91 +111,42 @@ def cmd_task_draft(args: argparse.Namespace) -> int:
         print("\n--dry-run のため保存していません。")
         return 0
 
+    # **課題にはしない。下書きとして置く**（#321・#522）。画面の作問と同じ形にし、
+    # コンソールの「未承認の課題（AI 作問）」で承認できるようにする。検査の結果は
+    # 下書きが持つ（課題版はまだ無い）。出題先は承認のときに決める（#84）。
+    draft = TaskDraftRecord(
+        id=new_id("dft"),
+        course_id=CourseId(args.course),
+        kind=DraftKind.NEW,
+        spec=result.spec,
+        generated_by=result.model,
+        generation_prompt_version=result.prompt_id,
+        created_by=UserId(args.author),
+        created_at=datetime.now(UTC),
+        checks=TaskChecks(
+            verification=verification,
+            solvability=solvability,
+            declared_kcs=blueprint.knowledge_components,
+            duplicates=duplicates,
+            difficulty=difficulty,
+            checked_at=datetime.now(UTC),
+        ),
+        subject_profile=args.profile_name,
+        readability_weight=result.spec.readability_weight,
+    )
     database = _open(args)
     try:
         with database.unit_of_work() as uow:
-            if uow.tasks.get_task(version.task_id) is None:
-                uow.tasks.save_task(
-                    Task(
-                        id=version.task_id,
-                        course_id=CourseId(args.course),
-                        title=result.draft.title,
-                        # 問題セットを持たない課題の末尾に置く（#484）。
-                        position=position_for(
-                            None,
-                            unit=None,
-                            current=None,
-                            siblings=uow.tasks.list_for_course(CourseId(args.course)),
-                        ),
-                    )
-                )
-            uow.tasks.save_version(version)
-            # **検査の結果を残す。** 残さないとレビュー画面に出せず、
-            # 教員には「検査した」としか示せない（何が生き残ったかが要る）。
-            uow.tasks.save_checks(
-                version.id,
-                TaskChecks(
-                    verification=verification,
-                    solvability=solvability,
-                    declared_kcs=blueprint.knowledge_components,
-                    duplicates=duplicates,
-                    difficulty=difficulty,
-                    checked_at=datetime.now(UTC),
-                ),
-            )
+            uow.tasks.save_draft(draft)
             uow.commit()
     finally:
         database.dispose()
 
-    print(f"\n保存しました: {version.id}")
-    print("**まだ出題されません。** `aijudge-admin task review` で承認してください。")
+    print(f"\n下書きとして保存しました: {draft.id}")
+    print("**まだ出題されません。** コンソールの「未承認の課題（AI 作問）」で承認してください。")
     # 門を通らなかったものも保存する。**捨てると門が厳しすぎることに
     # 誰も気づけない**（生き残った変異は課題の欠陥とは限らない）。
     return 0 if packet.clean else 1
-
-
-def cmd_task_review_list(args: argparse.Namespace) -> int:
-    database = _open(args)
-    try:
-        with database.unit_of_work() as uow:
-            waiting = pending_reviews(uow.tasks)
-            for version in waiting:
-                keys = _kc_keys(uow, version)
-                print(f"{version.id}  {version.subject_profile}")
-                print(f"  出所: {version.provenance.generated_by or '教員が作成'}")
-                print(f"  知識要素: {'・'.join(keys) if keys else '登録なし'}")
-    finally:
-        database.dispose()
-    if not waiting:
-        print("レビュー待ちはありません。")
-    return 0
-
-
-def cmd_task_review_decide(args: argparse.Namespace) -> int:
-    database = _open(args)
-    try:
-        with database.unit_of_work() as uow:
-            version_id = TaskVersionId(args.version)
-            if args.reject:
-                updated = reject(
-                    uow.tasks,
-                    version_id,
-                    reviewer=UserId(args.reviewer),
-                    reason=args.reason,
-                )
-            else:
-                updated = approve(uow.tasks, version_id, reviewer=UserId(args.reviewer))
-            uow.commit()
-    except ValueError as exc:
-        print(f"できません: {exc}", file=sys.stderr)
-        return 1
-    finally:
-        database.dispose()
-
-    print(f"{updated.id}: {updated.provenance.review_state.value}")
-    if updated.provenance.reject_reason:
-        print(f"  理由: {updated.provenance.reject_reason}")
-    return 0
 
 
 def cmd_task_review_rate(args: argparse.Namespace) -> int:
@@ -211,20 +166,6 @@ def cmd_task_review_rate(args: argparse.Namespace) -> int:
 
 def _open(args: argparse.Namespace) -> Database:
     return Database.connect(args.database_url, create=args.create_schema)
-
-
-def _kc_keys(uow, version) -> tuple[str, ...]:
-    """ID を可読な正準キーに直す。
-
-    **ID のまま出さない**（`kc_9f3a…` は教員に何も伝えない）。KC が
-    登録されていなければその旨を出す ── 黙って空にすると「KC が無い課題」と
-    区別が付かない。
-    """
-    keys: list[str] = []
-    for entry in version.q_matrix:
-        kc = uow.skills.get_kc(entry.kc_id)
-        keys.append(kc.key if kc is not None else f"{entry.kc_id}（未登録）")
-    return tuple(keys)
 
 
 def _estimate_difficulty(uow, duplicates) -> DifficultyEstimate | None:
@@ -270,7 +211,9 @@ def _all_versions(uow, course_id: CourseId) -> tuple:
 
 def register(task_parser) -> None:
     """`aijudge-admin task` に作問とレビューを足す。"""
-    draft = task_parser.add_parser("draft", help="AI に課題を作らせる（要レビュー）")
+    draft = task_parser.add_parser(
+        "draft", help="AI に課題を作らせる（下書きになる。承認は画面で）"
+    )
     draft.add_argument("--course", required=True)
     draft.add_argument("--key", required=True, help="課題キー（例 gen/ex01）")
     draft.add_argument("--author", required=True, help="作問を指示した教員の利用者 ID")
@@ -306,18 +249,9 @@ def register(task_parser) -> None:
     draft.add_argument("--dry-run", action="store_true", help="保存しない")
     draft.set_defaults(func=cmd_task_draft)
 
-    review = task_parser.add_parser("review", help="生成された課題のレビュー")
+    # 承認・却下は画面だけ（#522）。ここに残すのは承認率だけ。
+    review = task_parser.add_parser("review", help="生成された課題の承認率")
     review_sub = review.add_subparsers(dest="review_command", required=True)
-
-    listing = review_sub.add_parser("list", help="レビュー待ちの一覧")
-    listing.set_defaults(func=cmd_task_review_list)
-
-    decide = review_sub.add_parser("decide", help="1 件を承認または却下する")
-    decide.add_argument("--version", required=True, help="課題版 ID")
-    decide.add_argument("--reviewer", required=True, help="教員の利用者 ID")
-    decide.add_argument("--reject", action="store_true", help="却下する（既定は承認）")
-    decide.add_argument("--reason", default=None, help="却下の理由（却下には必須）")
-    decide.set_defaults(func=cmd_task_review_decide)
 
     rate = review_sub.add_parser("rate", help="承認率（Phase 4 の基準 60%%）")
     rate.add_argument("--course", required=True)
