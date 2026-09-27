@@ -244,7 +244,7 @@
 <form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/drafts/generate"
       class="card" data-working="生成中… 数十秒かかります（このまま待ってください）">
   <div class="field">
-    <label>問う知識要素（1 つ以上・登録済みのものから選びます）</label>
+    <label>問う知識要素（1 つ以上）</label>
     {# 1 項目 1 行の格子（#224）。**`.checks` に戻さない** ── あれは拡張子の
        ための部品で、幅の違う 2 つ組を流すと隣の項目と混ざって読めなくなる。 #}
     <div class="kcpick">
@@ -256,8 +256,10 @@
       </label>
       {% endfor %}
     </div>
+    {# 課題の知識要素の欄と同じ書き方にそろえる（#529）。 #}
     <p class="desc" style="margin:6px 0 0">
-      足りないものは<a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/kc">知識要素</a>から追加してください。
+      選べるのは、<strong>このコースに登録済みの知識要素だけ</strong>です。見つからないものは
+      <a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/kc">コースの知識要素</a>で登録してください。
     </p>
   </div>
   <div class="field">

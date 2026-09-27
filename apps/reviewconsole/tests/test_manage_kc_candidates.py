@@ -81,3 +81,47 @@ def test_candidates_come_with_their_evidence_and_reasons(world: World, monkeypat
     assert "削除の候補" in candidates
     assert "入出力と分岐だけの課題" in candidates
     assert f'name="kc" value="{COMPILE_LINK}"' not in candidates
+
+    # **3 列の格子（`.kcpick`）に入れない**（#529）。根拠の行がマスを占めて列が
+    # ずれていた。候補ごとに 1 行（`li.kc-cand`）。
+    block = candidates[: candidates.index("削除の候補")]
+    assert 'class="kcpick"' not in block
+    assert block.count('<li class="kc-cand') == 2
+    # 印は上の一覧と連動させる目印を持つ（連動はスクリプト・`base.html`）。
+    assert f'data-kc-mirror="{BRANCHING}"' in block
+    # 付いているものは印の代わりに ✓。
+    assert '<li class="kc-cand attached">' in block
+
+
+def test_the_task_page_says_only_course_components_can_be_chosen(world: World) -> None:
+    """**選べるのはコースに登録済みのものだけ、と画面に書く**（#529）。
+
+    以前はテンプレートのコメントにしかなく、KC のページへのリンクは 1 件も
+    登録していないときにしか出なかった。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    task_id = _import_example(world)
+    with world.database.unit_of_work() as uow:
+        course = uow.identity.get_course(world.course.id)
+        uow.identity.save_course(course.model_copy(update={"knowledge_components": (BRANCHING,)}))
+        uow.commit()
+
+    page = (
+        world.client("teacher").get(f"/manage/courses/{world.course.id}/tasks/{task_id}/edit").text
+    )
+
+    assert "このコースに登録済みの知識要素だけ" in page
+    assert f'href="/manage/courses/{world.course.id}/kc"' in page
+
+
+def test_the_page_script_links_candidates_to_the_list(world: World) -> None:
+    """候補の印と上の一覧の印をつなぐ仕掛けが、差し込みのあとにも掛かる。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    task_id = _import_example(world)
+
+    page = (
+        world.client("teacher").get(f"/manage/courses/{world.course.id}/tasks/{task_id}/edit").text
+    )
+
+    assert "data-kc-mirror" in page
+    assert "aijudge:swapped" in page

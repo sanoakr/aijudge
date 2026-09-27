@@ -383,6 +383,13 @@
      成績は、どの知識要素にも記録されない。候補はこのコースが使うものだけ
      （`_course_kcs`）。AI の候補は書きかけの問題文で出せる（`kc-candidates`）。 #}
   <input type="hidden" name="kc_form" value="1">
+  {# **選べるのはこのコースに登録済みのものだけ、と書く**（#529）。コメントにしか
+     書いておらず、探している知識要素が無いときにどこで足せばよいか分からなかった。
+     リンクはいつも出す（以前は 1 件も無いときだけ）。 #}
+  <p class="desc" style="margin:0 0 6px">
+    選べるのは、<strong>このコースに登録済みの知識要素だけ</strong>です。見つからないものは
+    <a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/kc">コースの知識要素</a>で登録してください。
+  </p>
     {% if course_kcs %}
   <div class="kcpick">
     {% for k in course_kcs %}
@@ -394,8 +401,7 @@
     {% endfor %}
   </div>
   {% else %}
-  <p class="desc">このコースはまだ知識要素を使っていません。
-    <a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/kc">知識要素</a>で足すか、下の候補から付けてください。</p>
+  <p class="desc">このコースはまだ知識要素を登録していません。</p>
   {% endif %}
   {% if task %}
   <div class="actions" style="justify-content:flex-start">
@@ -427,24 +433,29 @@
     <p class="kc-cand-head">追加の候補（この課題を解くのに使うもの）</p>
     {# **根拠を添える**（P4）。「なぜこれか」が無いと、教員は候補を 1 件ずつ
        問題文と照らし直すことになる。 #}
-    <div class="kcpick">
+    {# **`.kcpick` に入れない**（#529）。あれは「印・キー・名前」の 3 列の格子で、
+       根拠（4 つ目）と「既に付いています」の行がマスを占めて以降の行がずれた。
+       候補ごとに 1 行目（印・キー・名前）と 2 行目（根拠）を持つ一覧にする。
+
+       **印は上の一覧と連動させる。** 別々の印だと、候補で付けても上の一覧と
+       選択中の札に出ず、何が付くのか分からなかった。スクリプトが上の一覧の
+       同じ知識要素を見つけたら、候補の印から `name` を外して値を送らないように
+       し（同じ値を 2 つ送らない）、押されたら上の印を切り替える。スクリプトが
+       無ければ、候補の印はそのまま `kc` を送る。 #}
+    <ul class="kc-cands">
       {% for c in kc_candidates.suggested %}
-      {% if c.attached %}
-      <div class="kc-cand attached">
-        <span class="k">{{ c.key }}</span>
-        <span class="desc">{{ c.label }} · 既に付いています</span>
+      <li class="kc-cand{{ ' attached' if c.attached }}">
+        {% if c.attached %}
+        <span class="kc-cand-mark" title="既に付いています" aria-hidden="true">✓</span>
+        {% else %}
+        <input type="checkbox" name="kc" value="{{ c.key }}" id="kc-cand-{{ loop.index }}" data-kc-mirror="{{ c.key }}">
+        {% endif %}
+        <label class="k" {% if not c.attached %}for="kc-cand-{{ loop.index }}"{% endif %}>{{ c.key }}</label>
+        <span class="desc">{{ c.label }}{% if c.attached %} · 既に付いています{% endif %}</span>
         <span class="kc-why">{{ c.evidence }}</span>
-      </div>
-      {% else %}
-      <label class="kc-cand">
-        <input type="checkbox" name="kc" value="{{ c.key }}">
-        <span class="k">{{ c.key }}</span>
-        <span class="desc">{{ c.label }}</span>
-        <span class="kc-why">{{ c.evidence }}</span>
-      </label>
-      {% endif %}
+      </li>
       {% endfor %}
-    </div>
+    </ul>
     {% endif %}
     {# **削除の候補は印を置かない。** 外すのは上の一覧の印で ── 同じ値のチェック欄が
        2 つあると、片方だけ外しても送られる値が残る。 #}

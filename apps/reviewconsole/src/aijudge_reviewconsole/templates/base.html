@@ -609,6 +609,50 @@ document.querySelectorAll(".checkrow .nojs").forEach(function (el) { el.remove()
   });
 })();
 
+{# **AI の候補の印を、上の一覧の印と連動させる**（#529）。候補（`data-kc-mirror`）は
+   別の印だったので、候補で付けても上の一覧と選択中の札に出ず、何が付くのか
+   分からなかった。上の一覧（`.kcpick`）に同じ知識要素があれば、候補の印から
+   `name` を外して値を送らないようにし（同じ値を 2 つ送らない）、どちらを押しても
+   両方を揃える。候補は差し込まれて現れるので、頁を開いたときと差し込みのたびに
+   結び直す。スクリプトが無ければ候補の印はそのまま `kc` を送る。 #}
+(function () {
+  function mainBox(mirror) {
+    var form = mirror.form || document;
+    var boxes = form.querySelectorAll('.kcpick input[type=checkbox][name="kc"]');
+    for (var i = 0; i < boxes.length; i++) {
+      if (boxes[i].value === mirror.getAttribute("data-kc-mirror")) return boxes[i];
+    }
+    return null;
+  }
+  function link(root) {
+    (root || document).querySelectorAll("input[data-kc-mirror]").forEach(function (mirror) {
+      var main = mainBox(mirror);
+      if (!main) return;
+      mirror.removeAttribute("name");
+      mirror.checked = main.checked;
+    });
+  }
+  document.addEventListener("change", function (event) {
+    var box = event.target;
+    if (!(box instanceof HTMLInputElement) || box.type !== "checkbox") return;
+    if (box.hasAttribute("data-kc-mirror")) {
+      var main = mainBox(box);
+      if (main && main.checked !== box.checked) {
+        main.checked = box.checked;
+        main.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      return;
+    }
+    if (box.name === "kc" && box.closest(".kcpick")) {
+      document.querySelectorAll("input[data-kc-mirror]").forEach(function (mirror) {
+        if (mirror.getAttribute("data-kc-mirror") === box.value) mirror.checked = box.checked;
+      });
+    }
+  });
+  document.addEventListener("aijudge:swapped", function (event) { link(event.detail); });
+  link(document);
+})();
+
 {# **タブ**（`nav[data-tabs]`・問題のページ）。`#` と連動する ── `#schedule` や保存後の
    `#saved` で来たら、その場所を含むタブを開く。スクリプトが無ければ全部が縦に並ぶ。 #}
 (function () {
@@ -737,6 +781,8 @@ document.querySelectorAll(".checkrow .nojs").forEach(function (el) { el.remove()
               .querySelector(submitter.getAttribute("data-swap"));
             if (target && fresh) {
               target.replaceWith(fresh);
+              // 差し込んだものに仕掛けを掛け直す合図（#529・知識要素の候補の連動）。
+              document.dispatchEvent(new CustomEvent("aijudge:swapped", { detail: fresh }));
               fresh.scrollIntoView({ block: "nearest" });
             } else {
               say("試行できませんでした（HTTP " + pair[0].status + "）", "error");

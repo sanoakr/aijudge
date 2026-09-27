@@ -57,12 +57,26 @@
 </div>
 {% elif saved_key == 'kc_scoped' %}<div class="note saved">{{ saved }}</div>{% endif %}
 
+{# **キーワードで探す**（#529）。KC は数百件あり、目で追えない。キーと名前の
+   部分一致で、下の 2 つ（このコースが使う表・名前空間から足す一覧）を
+   ブラウザの中で絞る。サーバには問い合わせない。**隠れた行のチェックは残る**
+   ── 「まとめて足す」は分野をまたいだ 1 つの選択なので、絞り込みで消さない。
+   JS が無ければ欄ごと出さない（`hidden` を JS が外す）。 #}
+<div class="field kc-search" id="kc-search-field" hidden>
+  <label for="kc-search">キーワードで探す{% call help() %}
+    キー（例 <span class="mono">cs.loops</span>）と名前の一部で絞ります。大文字と小文字は区別しません。
+    絞っても、隠れた行でチェックしたものは選んだまま残ります。
+  {% endcall %}</label>
+  <input type="search" id="kc-search" placeholder="例: ループ / cs.loops" autocomplete="off">
+  <p class="desc" id="kc-search-count" aria-live="polite"></p>
+</div>
+
 <h2 id="scope">このコースが使う知識要素（{{ chosen_count }} 件）</h2>
 {# **外すのは明示の操作**。チェックして「選択したものを外す」。このコースの
    課題が使っているものにはチェックが無く、理由（課題の件数）が出る。 #}
 <form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/kc/scope/remove">
 {# 携帯では行を積む（`table.stack`）。キーは塊の先頭に立つので見出し無し。 #}
-<table class="stack">
+<table class="stack" id="kc-scope-table">
   <thead><tr>
     <th class="fit">外す</th>
     <th class="grow">キー</th><th class="fit">名前</th>
@@ -71,7 +85,7 @@
   </tr></thead>
   <tbody>
   {% for row in rows %}
-    <tr>
+    <tr data-kc="{{ (row.kc.key ~ ' ' ~ row.kc.label) | lower }}">
       <td class="fit" data-label="外す">
         {% if row.removable %}
         <input type="checkbox" name="kc" value="{{ row.kc.key }}">
@@ -191,7 +205,7 @@
    チェックを巻き込まない。 #}
 <form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/kc/scope/add" id="scope-add">
 {% for group in groups %}
-<details class="criterion kc-group">
+<details class="criterion kc-group" data-kc-group="{{ (group.prefix ~ ' ' ~ (group.label or '')) | lower }}">
   <summary>
     <b class="mono">{{ group.prefix }}</b>
     {% if group.label %}<span>{{ group.label }}</span>{% endif %}
@@ -213,7 +227,7 @@
     <table class="stack">
       <tbody>
       {% for kc in group.kcs %}
-        <tr>
+        <tr data-kc="{{ (kc.key ~ ' ' ~ kc.label) | lower }}">
           <td class="fit">
             {% if kc.key in chosen_keys %}<span class="pill">このコースで使用中</span>
             {% else %}<input type="checkbox" name="kc" value="{{ kc.key }}" id="kc-{{ kc.key }}">{% endif %}
@@ -266,6 +280,45 @@
     refresh();
   });
   refresh();
+})();
+</script>
+<script>
+(function () {
+  // キーワードで絞る（#529）。行は data-kc（キーと名前・小文字）で当てる。
+  var field = document.getElementById("kc-search-field");
+  var input = document.getElementById("kc-search");
+  var count = document.getElementById("kc-search-count");
+  if (!field || !input) return;
+  field.hidden = false;
+  var groups = Array.prototype.slice.call(document.querySelectorAll("details.kc-group"));
+  var wasOpen = groups.map(function (group) { return group.open; });
+  var scopeRows = document.querySelectorAll("#kc-scope-table > tbody > tr[data-kc]");
+  function apply() {
+    var q = input.value.trim().toLowerCase();
+    var inCourse = 0, inVocabulary = 0;
+    scopeRows.forEach(function (row) {
+      var hit = !q || row.dataset.kc.indexOf(q) !== -1;
+      row.hidden = !hit;
+      if (hit) inCourse += 1;
+    });
+    groups.forEach(function (group, i) {
+      // 分野の名前に当たれば、その分野は丸ごと出す。
+      var whole = !q || group.dataset.kcGroup.indexOf(q) !== -1;
+      var hits = 0;
+      group.querySelectorAll("tr[data-kc]").forEach(function (row) {
+        var hit = whole || row.dataset.kc.indexOf(q) !== -1;
+        row.hidden = !hit;
+        if (hit) hits += 1;
+      });
+      group.hidden = hits === 0;
+      group.open = q ? hits > 0 : wasOpen[i];
+      inVocabulary += hits;
+    });
+    count.textContent = q
+      ? "このコース " + inCourse + " 件・名前空間から " + inVocabulary + " 件が当たりました"
+      : "";
+  }
+  input.addEventListener("input", apply);
 })();
 </script>
 
