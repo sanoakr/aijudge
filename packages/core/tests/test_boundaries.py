@@ -353,7 +353,7 @@ def test_the_activity_record_cannot_reach_grades() -> None:
         ("importlinter:contract:grading-does-not-know-ide", {"aijudge_grading"}),
         (
             "importlinter:contract:grades-do-not-read-activity",
-            {"aijudge_grader", "aijudge_admin.finalization"},
+            {"aijudge_grader", "aijudge_course_admin.finalization"},
         ),
     ):
         assert config.has_section(section), f"{section} が .importlinter から消えている"

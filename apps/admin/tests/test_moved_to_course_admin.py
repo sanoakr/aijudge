@@ -49,6 +49,7 @@ MOVED_MODULES = (
     "tasks",
     "courses",
     "operations",
+    "finalization",
 )
 
 
