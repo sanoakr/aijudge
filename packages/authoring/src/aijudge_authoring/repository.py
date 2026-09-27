@@ -19,7 +19,7 @@ from collections.abc import Iterable
 from typing import Protocol, runtime_checkable
 
 from aijudge_core import ReviewState, Task, TaskVersion
-from aijudge_core.ids import CourseId, TaskId, TaskVersionId, UserId
+from aijudge_core.ids import CourseId, TaskId, TaskVersionId
 
 from .draft_store import TaskDraftRecord
 from .verification import TaskChecks
@@ -110,17 +110,6 @@ class TaskRepository(Protocol):
         """教員のレビュー待ちの課題版。**生成物が溜まる場所。**"""
         ...
 
-    def record_review(
-        self, version_id: TaskVersionId, *, approved: bool, reviewer: UserId, reason: str | None
-    ) -> TaskVersion:
-        """レビューの結果を書き戻す。
-
-        `save_version` と分けてあるのは、**動いてよい項目が違う**からである
-        （`REVIEW_FIELDS`）。同じ口にすると、レビューのつもりで問題文を
-        差し替えられる ── 出題済みの課題が黙って変わる。
-        """
-        ...
-
     def save_checks(self, version_id: TaskVersionId, checks: TaskChecks) -> None:
         """課題版に対して走らせた検査の結果を残す。
 
@@ -201,12 +190,14 @@ VOLATILE_FIELDS = frozenset({"created_at", "points_declared"})
 # 側がここを見ると、答えは常に「違う」になる。
 IDENTITY_FIELDS = frozenset({"id", "version"})
 
-# 出所のうち、レビューで動いてよい項目。
+# 出所のうち、レビューの結果を表す項目。「同じ内容か」の比較から外す。
 #
-# **動いてよいのはここだけである。** `authored_by` / `generated_by` /
+# **比べるのは出所の事実だけ。** `authored_by` / `generated_by` /
 # `generation_prompt_version` は「この課題がどこから来たか」という事実で、
-# 後から書き換われば承認率の測定が意味を失う（誰が書いたことにもできる）。
-# 一方 `review_state` は状態機械そのもので、動かなければレビューが成立しない。
+# 変われば別の内容である（誰が書いたことにもできる）。レビューの結果は採点の
+# 基準ではないので、同じ版を承認済みで入れ直しても「内容が違う」にしない。
+# 以前は版のレビューを書き戻す口（`record_review`）が動かす項目でもあったが、
+# 承認は下書きを採用する形になり（ADR 0019・#522）、その口は消した。
 REVIEW_FIELDS = frozenset({"review_state", "reviewed_by", "reject_reason"})
 
 
@@ -419,22 +410,6 @@ class InMemoryTaskRepository:
             for vid in self._order
             if self._versions[vid].provenance.review_state is ReviewState.IN_REVIEW
         )
-
-    def record_review(
-        self, version_id: TaskVersionId, *, approved: bool, reviewer: UserId, reason: str | None
-    ) -> TaskVersion:
-        version = self._versions.get(version_id)
-        if version is None:
-            raise TaskStoreError(f"課題版が見つかりません: {version_id}")
-        updated = version.model_copy(
-            update={
-                "provenance": version.provenance.reviewed(
-                    approved=approved, reviewer=reviewer, reason=reason
-                )
-            }
-        )
-        self._versions[version_id] = updated
-        return updated
 
     def list_for_course(self, course_id: CourseId) -> tuple[Task, ...]:
         return tuple(
