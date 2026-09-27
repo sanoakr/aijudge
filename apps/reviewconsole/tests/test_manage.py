@@ -6858,7 +6858,7 @@ def test_the_move_form_offers_the_current_unit_for_a_rename(world: World) -> Non
     with world.database.unit_of_work() as uow:
         task = next(t for t in uow.tasks.list_for_course(world.course.id) if t.unit == "ex04")
     body = client.get(f"/manage/courses/{world.course.id}/tasks/{task.id}/edit").text
-    form = body[body.index("問題セットを移す・名前を変える") :]
+    form = body[body.index('for="move-unit">問題セットを移す・名前を変える') :]
     form = form[: form.index("</form>")]
     assert 'value="ex05"' in form
     assert 'value="ex04" selected' in form

@@ -209,3 +209,35 @@ def test_copying_needs_a_free_name(database: Database, course) -> None:
         copy_task(database, task_id=saved.task.id, unit="ex1", name="p2")
     with pytest.raises(AdminError, match="名前"):
         copy_task(database, task_id=saved.task.id, unit="ex3", name=" ")
+
+
+def test_a_title_that_was_the_key_follows_the_new_key(database: Database, course) -> None:
+    """**見出しの無い課題の題名はキーそのもの**（`_title_of`）。移したら付いていく。"""
+    saved = save_task(
+        database,
+        course_id=course.id,
+        spec=TaskSpec(key="test4/echoClient", statement="見出しの無い本文", unit="test4"),
+        subject_profile="cs_lang_c_intro",
+        authored_by=TEACHER,
+    )
+    assert saved.task.title == "test4/echoClient"
+
+    moved = move_task(database, task_id=saved.task.id, unit="test5", name="echoClient_comments.py")
+    assert moved.task.title == "test5/echoClient_comments.py"
+
+    copied = copy_task(database, task_id=moved.task.id, unit="test6", name="again")
+    assert copied.task.title == "test6/again"
+
+
+def test_a_title_the_instructor_chose_is_kept(database: Database, course) -> None:
+    saved = save_task(
+        database,
+        course_id=course.id,
+        spec=TaskSpec(
+            key="test4/echoClient", title="echoClient.py", statement="本文", unit="test4"
+        ),
+        subject_profile="cs_lang_c_intro",
+        authored_by=TEACHER,
+    )
+    moved = move_task(database, task_id=saved.task.id, unit="test5")
+    assert moved.task.title == "echoClient.py"

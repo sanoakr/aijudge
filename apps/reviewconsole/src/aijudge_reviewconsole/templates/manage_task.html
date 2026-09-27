@@ -146,7 +146,7 @@
   {% if task %}
     <p class="desc" style="margin:0">
       課題キー <span class="mono">{{ version.source_key or '(記録なし)' }}</span>
-      <span class="sep">·</span> キーは変えられません（同一性の鍵で、変えると別の課題になります）
+      <span class="sep">·</span> キーは「問題セットを移す・名前を変える」で変えられます（学生の提出が無い課題だけ）
       {# **いつの版かを出す。** 訂正すると版が上がるが、番号だけでは新旧が
          読めない ── 同じ題名の課題が並んでいるときはなおさら（#54）。 #}
       <br>いま <strong>{{ version.version }} 版</strong>
