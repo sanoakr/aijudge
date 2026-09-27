@@ -1,23 +1,16 @@
-"""生成された課題の教員レビューの規則を固定する（S2、設計方針 §5）。
+"""生成された課題の承認率の規則を固定する（S2、設計方針 §5）。
 
-固定したいのは 5 つ。
-
-理由なく却下できない 却下理由は作問改善の材料で、Phase 4 の分母でもある。
-二度は変えられない  承認済みを後から却下できると、出題済みの課題が
-                    「承認されていない」ことになる。やり直しは新しい版（P8）。
-レビューは問題文を触らない `save_version` と別の口にしてある。
-生成物だけを数える  手書きの課題を分母に入れると承認率がいくらでも高く出る。
+生成物だけを数える    手書きの課題を分母に入れると承認率がいくらでも高く出る。
 測れていないは合格でない ADR 0005 と同じ規則を作問にも当てる。
+
+承認・却下の規則（`record_review`）は `packages/authoring/tests/test_review_state_rules.py`。
 """
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
 
-import pytest
-
-from aijudge_admin import ApprovalRate, approval_rate, approve, pending_reviews, reject
-from aijudge_authoring import InMemoryTaskRepository, TaskImmutabilityViolation
+from aijudge_admin import ApprovalRate, approval_rate
 from aijudge_core import (
     Provenance,
     ReviewState,
@@ -61,95 +54,6 @@ def _version(suffix: str, *, generated: bool, state: ReviewState) -> TaskVersion
         ),
         created_at=datetime(2026, 8, 29, tzinfo=UTC),
     )
-
-
-def _repo(*versions: TaskVersion) -> InMemoryTaskRepository:
-    repository = InMemoryTaskRepository()
-    for version in versions:
-        repository.save_version(version)
-    return repository
-
-
-# -- 導線 -------------------------------------------------------------------
-
-
-def test_generated_tasks_wait_in_the_queue() -> None:
-    repository = _repo(
-        _version("a", generated=True, state=ReviewState.IN_REVIEW),
-        _version("b", generated=False, state=ReviewState.APPROVED),
-    )
-    waiting = pending_reviews(repository)
-    assert [v.id for v in waiting] == [TaskVersionId("tsv_" + "a" * 32)]
-
-
-def test_approving_publishes_the_version() -> None:
-    version = _version("a", generated=True, state=ReviewState.IN_REVIEW)
-    repository = _repo(version)
-
-    updated = approve(repository, version.id, reviewer=INSTRUCTOR)
-    assert updated.provenance.review_state is ReviewState.APPROVED
-    assert updated.provenance.reviewed_by == INSTRUCTOR
-    assert updated.is_published
-    assert pending_reviews(repository) == ()
-
-
-def test_rejecting_keeps_the_reason() -> None:
-    """**却下理由は捨てない**（設計方針 §5）。生成改善の材料になる。"""
-    version = _version("a", generated=True, state=ReviewState.IN_REVIEW)
-    repository = _repo(version)
-
-    updated = reject(
-        repository, version.id, reviewer=INSTRUCTOR, reason="入出力の形式が課題文にない"
-    )
-    assert updated.provenance.review_state is ReviewState.REJECTED
-    assert updated.provenance.reject_reason == "入出力の形式が課題文にない"
-
-
-def test_rejecting_without_a_reason_is_refused() -> None:
-    version = _version("a", generated=True, state=ReviewState.IN_REVIEW)
-    repository = _repo(version)
-    with pytest.raises(ValueError, match="理由"):
-        reject(repository, version.id, reviewer=INSTRUCTOR, reason="   ")
-
-
-def test_a_decided_version_cannot_be_decided_again() -> None:
-    """やり直しは新しい版から（P8）。
-
-    後から覆せると、既に出題した課題が「承認されていない」ことになりうる。
-    """
-    version = _version("a", generated=True, state=ReviewState.IN_REVIEW)
-    repository = _repo(version)
-    approve(repository, version.id, reviewer=INSTRUCTOR)
-
-    with pytest.raises(ValueError, match="already approved"):
-        reject(repository, version.id, reviewer=INSTRUCTOR, reason="やっぱり駄目")
-
-
-def test_reviewing_does_not_let_the_statement_change() -> None:
-    """レビューの口は問題文を触らない。
-
-    同じ口にすると、レビューのつもりで出題済みの課題が黙って変わる。
-    問題文の差し替えは `save_version` を通り、そこは不変性が拒む（P8）。
-    """
-    version = _version("a", generated=True, state=ReviewState.IN_REVIEW)
-    repository = _repo(version)
-    approve(repository, version.id, reviewer=INSTRUCTOR)
-
-    with pytest.raises(TaskImmutabilityViolation):
-        repository.save_version(version.model_copy(update={"statement": "## 別の課題 ##\n\n別"}))
-
-
-def test_approving_is_not_blocked_by_immutability() -> None:
-    """**承認そのものは通る。** レビュー状態は採点の基準ではない。
-
-    `substantive` がレビューの項目を含んでいた頃は、承認した瞬間に
-    「内容が違う」と拒否されてレビューが成立しなかった。
-    """
-    version = _version("a", generated=True, state=ReviewState.IN_REVIEW)
-    repository = _repo(version)
-    approved = approve(repository, version.id, reviewer=INSTRUCTOR)
-    # 保存し直しても弾かれない（同じ課題の同じ内容だから）。
-    repository.save_version(approved)
 
 
 # -- 承認率 -----------------------------------------------------------------
