@@ -589,15 +589,14 @@ forbidden_modules =
 ; **アプリどうしは import しない**（段階的な立て直し・段階 0-2、#438）。
 ;
 ; アプリは合成の根（composition root）で、互いを知らない ── 業務の処理を共有したいなら
-; packages に置く（`docs/design/staged-refactor.md` §2）。ところが実際には、教員
-; コンソールと採点ワーカーが `aijudge_admin`（CLI のアプリ）をライブラリとして使っている。
+; packages に置く（`docs/design/staged-refactor.md` §2）。
 ;
-; **いまある依存だけを例外として列挙し、それ以外を禁止する。** これ以上増やさない
-; ことを先に固定する。例外は段階 3（`apps/admin` → `packages/course_admin`）で 1 本ずつ
-; 消える。使われなくなった例外は `unmatched_ignore_imports_alerting = error` が落とす
-; （消し忘れた例外が、新しい依存の抜け道にならないように）。
+; **例外は無い。** 以前は教員コンソールと採点ワーカーが `aijudge_admin`（CLI のアプリ）を
+; ライブラリとして使っており、その依存（最大 18 本）だけを例外として列挙していた。
+; 段階 3 で業務処理を `packages/course_admin` に移し、段階 3-6a で最後の 17 本
+; （コンソール → admin）を消した。例外を足すなら、それは業務処理を packages に移す合図。
 [importlinter:contract:apps-are-independent]
-name = アプリどうしは import しない（例外はいまある依存だけ）
+name = アプリどうしは import しない
 type = independence
 modules =
     aijudge_reviewconsole
@@ -606,25 +605,6 @@ modules =
     aijudge_admin
     aijudge_evalrunner
     aijudge_runner
-ignore_imports =
-    aijudge_reviewconsole.api -> aijudge_admin
-    aijudge_reviewconsole.api -> aijudge_admin.groups
-    aijudge_reviewconsole.app -> aijudge_admin
-    aijudge_reviewconsole.manage -> aijudge_admin
-    aijudge_reviewconsole.manage -> aijudge_admin.answer_mode
-    aijudge_reviewconsole.manage -> aijudge_admin.bundles
-    aijudge_reviewconsole.manage -> aijudge_admin.course_definition
-    aijudge_reviewconsole.manage -> aijudge_admin.drafting
-    aijudge_reviewconsole.manage -> aijudge_admin.groups
-    aijudge_reviewconsole.manage -> aijudge_admin.revision
-    aijudge_reviewconsole.manage -> aijudge_admin.roster
-    aijudge_reviewconsole.manage -> aijudge_admin.rubric
-    aijudge_reviewconsole.manage -> aijudge_admin.syllabus
-    aijudge_reviewconsole.manage -> aijudge_admin.task_verifier
-    aijudge_reviewconsole.manage -> aijudge_admin.tasks
-    aijudge_reviewconsole.manage -> aijudge_admin.test_cases
-    aijudge_reviewconsole.overview -> aijudge_admin
-unmatched_ignore_imports_alerting = error
 
 ; 2 つの Web アプリが共有する部品（段階的な立て直し 1-2、#437）。
 ; **使ってよいのは合成ルートだけ。** サブシステムが HTTP の要求や応答の形を

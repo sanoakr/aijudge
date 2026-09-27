@@ -45,7 +45,6 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 import aijudge_webapp as webapp
 import aijudge_webui as webui
-from aijudge_admin import pending_counts
 from aijudge_audit import AuditAction, AuditRecorder
 from aijudge_authoring import images, render_statement
 from aijudge_core import (
@@ -84,6 +83,7 @@ from aijudge_core.ids import (
     SubmissionId,
     TenantId,
 )
+from aijudge_course_admin.finalization import pending_counts
 from aijudge_grading import load_profile, project_observations
 from aijudge_identity import (
     DEFAULT_LOGIN_LABEL,
