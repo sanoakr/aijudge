@@ -6672,9 +6672,9 @@ def test_a_task_moves_to_another_unit_and_takes_that_unit_schedule(world: World)
     assert moved.unit == "ex05"
     assert moved.due_at == head.due_at
     assert moved.opens_at == head.opens_at
-    # 並びは移動先の末尾。**番号を持たない課題も数に入れる** ── 画面から
-    # 足した課題は `position` が空なので、番号だけ見ると先頭に入ってしまう。
-    assert head.position is None
+    # 並びは移動先の末尾。画面から足した課題も位置を持つ（#484。以前は空で、
+    # 番号だけ見ると先頭に入ってしまうので件数でも数えていた）。
+    assert head.position == 1
     assert moved.position == 2
 
 

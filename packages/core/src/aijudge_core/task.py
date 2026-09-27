@@ -343,6 +343,10 @@ class SubmissionWindow(StrEnum):
     CLOSED = "closed"
 
 
+# 回・位置を持たない課題を並びの末尾へ送るための値。
+_UNORDERED = 10**6
+
+
 class Task(BaseModel):
     """課題そのもの。版をまたいだ同一性を担う。
 
@@ -597,13 +601,54 @@ class Task(BaseModel):
         return self.unit or "未分類"
 
     @property
-    def sort_key(self) -> tuple[int, str, int]:
-        """一覧の並び順。回がある課題を先に、無いものを後に。"""
+    def sort_key(self) -> tuple[int, str, int, str]:
+        """一覧の並び順。回がある課題を先に、無いものを後に。
+
+        **最後に ID で同点を割る**（#484）。位置の無い課題が同じ問題セットに
+        2 つあると、以前は並びが DB の返す順に任され、読み直すたびに
+        入れ替わりえた（SQLite と PostgreSQL でも違う）。ID に意味のある順は
+        無いが、どこで読んでも同じ順になる。位置は足すときに振るので
+        （`position_for`）、ここに来るのは移行の前に作られた課題だけのはず。
+        """
         return (
-            self.session if self.session is not None else 10**6,
+            self.session if self.session is not None else _UNORDERED,
             self.unit or "",
-            self.position if self.position is not None else 10**6,
+            self.position if self.position is not None else _UNORDERED,
+            str(self.id),
         )
+
+
+def position_for(
+    requested: int | None,
+    *,
+    unit: str | None,
+    current: Task | None,
+    siblings: Iterable[Task],
+) -> int:
+    """保存する課題の位置。指定 → いまの位置 → 問題セットの末尾の次（#484）。
+
+    **位置を指定せずに足した課題は末尾に置く。** 空のままにすると同じセットの
+    中で並びが決まらず、「上へ」「下へ」がどれを末尾と見るかも決まらない。
+    画面・API・取り込みのどこから足しても同じ位置になるよう、規則はここ
+    1 か所に置く。
+
+    **問題セットを移したときは、いまの位置を運ばない。** 移る前のセットでの
+    番号なので、移った先の課題と重なりうる。
+
+    `siblings` はコースの課題（自分を含んでよい。自分は数えない）。空のセット
+    なら 1。
+    """
+    if requested is not None:
+        return requested
+    if current is not None and current.position is not None and current.unit == unit:
+        return current.position
+    own = None if current is None else current.id
+    positions = [
+        task.position
+        for task in siblings
+        if task.unit == unit and task.position is not None and task.id != own
+    ]
+    return max(positions, default=0) + 1
 
 
 def effective_max_score(version: TaskVersion, history: Iterable[TaskVersion]) -> float:

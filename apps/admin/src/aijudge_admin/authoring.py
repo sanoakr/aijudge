@@ -16,7 +16,14 @@ from dataclasses import dataclass
 
 from aijudge_authoring import TaskSpec, build_task_version
 from aijudge_authoring.repository import TaskStoreError, content
-from aijudge_core import AnswerMode, ReviewState, Task, TaskVersion, normalize_suffixes
+from aijudge_core import (
+    AnswerMode,
+    ReviewState,
+    Task,
+    TaskVersion,
+    normalize_suffixes,
+    position_for,
+)
 from aijudge_core.ids import CourseId, UserId
 from aijudge_persistence import Database
 
@@ -152,7 +159,15 @@ def save_task(
             title=spec.title or _title_of(spec),
             unit=spec.unit,
             session=spec.session,
-            position=spec.position,
+            # **位置を書かなければ、いまの位置を残す。** 新しい課題なら同じ問題
+            # セットの末尾に置く（#484）。空のまま保存すると、そのセットの中で
+            # 並びが決まらない。
+            position=position_for(
+                spec.position,
+                unit=spec.unit,
+                current=existing,
+                siblings=uow.tasks.list_for_course(course_id),
+            ),
             # **入れ直しで締切を消さない。** 教員が画面で入れた値を、流し込みの
             # 再実行が黙って消すと成績の期限が飛ぶ。明示された場合だけ上書きする。
             opens_at=spec.opens_at or (existing.opens_at if existing else None),
