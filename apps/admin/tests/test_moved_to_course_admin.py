@@ -50,6 +50,8 @@ MOVED_MODULES = (
     "courses",
     "operations",
     "finalization",
+    "kc_skeleton",
+    "kc",
 )
 
 

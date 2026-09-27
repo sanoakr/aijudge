@@ -2925,7 +2925,7 @@ def register(templates) -> APIRouter:
                     else _default_rubric_criteria()
                 ),
                 "rubric_is_default": not course.rubric,
-                # **生成は登録済み KC からの選択だけ**（`aijudge_admin.kc` の
+                # **生成は登録済み KC からの選択だけ**（`aijudge_course_admin.kc` の
                 # 規則 4）。引退したものは選ばせない。
                 # **このコースが使う範囲だけ出す。** 同じ名前空間を複数の
                 # コースが使うほど関係のない候補が増え、C の科目に
@@ -4094,7 +4094,7 @@ def register(templates) -> APIRouter:
         別々のシラバスがコースの中に並ぶことになり、どちらが本当か分からない。
 
         候補は候補のまま知識要素のページに戻す。**ここから直接は登録しない**
-        （`aijudge_admin.kc` の規則 4 ── AI には KC を作らせない）。教員が
+        （`aijudge_course_admin.kc` の規則 4 ── AI には KC を作らせない）。教員が
         1 件ずつ追加フォームに取り込み、確かめてから登録する（`draft_candidate`）。
         """
         from .app import require_principal
@@ -4604,7 +4604,7 @@ def register(templates) -> APIRouter:
 
         **KC は登録済みからの選択だけ。** モデルはもっともらしいキーを
         いくらでも作るので、自由入力にすると体系が静かに荒れる
-        （`aijudge_admin.kc` の規則 4）。
+        （`aijudge_course_admin.kc` の規則 4）。
 
         `avoid_similar_to` にはこのコースの既存課題を入れる ── 「似せない」
         材料が無いと、既存課題の言い換えが出てくる。
@@ -4726,7 +4726,7 @@ def register(templates) -> APIRouter:
             assert_registered(
                 console.database,
                 chosen,
-                # **範囲の検査も同じ関門に通す**（`aijudge_admin.kc`）── 画面で
+                # **範囲の検査も同じ関門に通す**（`aijudge_course_admin.kc`）── 画面で
                 # 絞るだけにすると、API 経由の投入が素通りする。
                 course_keys=course.knowledge_components,
             )
@@ -5221,7 +5221,7 @@ def register(templates) -> APIRouter:
 
         採点結果は課題版を指しているので（P8）、提出のある課題を消すと過去の
         成績の出所が失われる。知識要素で決めたのと同じ区別で
-        （`aijudge_admin.kc`）、使われたものは取り下げ、一度も使われていない
+        （`aijudge_course_admin.kc`）、使われたものは取り下げ、一度も使われていない
         ものだけを消す。
         """
         from .app import require_principal
@@ -7358,7 +7358,7 @@ def register(templates) -> APIRouter:
         **引退・削除と違って教員が直せる。** あちらは他のコースが使って
         いるものを取り上げる操作なので管理者に限るが、名前を直すのは
         取り上げる操作ではない。正しい名前を知っているのは科目の専門家で
-        あり（`aijudge_admin.kc` の冒頭）、キーは動かないので壊れない。
+        あり（`aijudge_course_admin.kc` の冒頭）、キーは動かないので壊れない。
         間違えても、もう一度直せる。
         """
         from .app import require_principal
@@ -7392,7 +7392,7 @@ def register(templates) -> APIRouter:
         引退させて残すと、コースをまたいで共有される一覧に、誰の役にも
         立たない行が永久に並ぶ。
 
-        使われている KC は消さない ── 判定は `aijudge_admin.kc.delete` が
+        使われている KC は消さない ── 判定は `aijudge_course_admin.kc.delete` が
         持つ（利用状況を数えられるのはあちら）。
 
         引退と同じく管理者のみ。**コースをまたいで効く。**

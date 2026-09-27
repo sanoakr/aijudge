@@ -15,7 +15,7 @@
   `superseded_by`（別の KC に寄せる）で済むよう、KC 自体は namespace を
   跨いだ親子関係を持たない設計にしてある。
 
-体系が荒れないようにするための規則（`aijudge_admin.kc` が強制する）:
+体系が荒れないようにするための規則（`aijudge_course_admin.kc` が強制する）:
 
   1. namespace は科目プロファイルが宣言したものだけ。教員は増やせない
   2. 新しい KC は**既存 KC の子**としてのみ足せる（孤立キーを作らせない）
@@ -104,7 +104,7 @@ class KnowledgeComponent(BaseModel):
 def kc_id_for(key: str) -> KcId:
     """正準キーから KC の ID を導く。**ここが唯一の導出点。**
 
-    課題（`q_matrix_for`）と体系（`aijudge_admin.kc`）が別々に導出すると、
+    課題（`q_matrix_for`）と体系（`aijudge_course_admin.kc`）が別々に導出すると、
     片方の綴りを直したときにもう片方が追随しない。
     """
     return KcId(derived_id("kc", key))
@@ -127,7 +127,7 @@ def parse_kc_key(key: str) -> tuple[str, tuple[str, ...]]:
 def is_valid_kc_key(key: str) -> bool:
     """正準キーとして通る形か（**規則の置き場所はここ 1 つ**・#157）。
 
-    登録の手前（`aijudge_admin.kc.register`）は `parse_kc_key` が見ているが、
+    登録の手前（`aijudge_course_admin.kc.register`）は `parse_kc_key` が見ているが、
     AI が出した候補は**どこも見ていなかった** ── 日本語を含むキーが生成 →
     一覧 → 採用 → フォームまで素通りし、最後の登録で初めて弾かれていた。
     教員は往復し終えてから断られることになる。
