@@ -173,7 +173,7 @@ class IdentityRepository(Protocol):
     # -- 出題先の名簿（`docs/design/task-visibility.md`） --
     #
     # **規則は持たない。** 名簿に入れてよいのが受講者だけであること、出題先
-    # として使われているグループを消させないことは `aijudge_admin.groups` が
+    # として使われているグループを消させないことは `aijudge_course_admin.groups` が
     # 確かめる。保存層は言われたものを保存する（`delete_course` と同じ分担）。
 
     def save_group(self, group: CourseGroup) -> None:

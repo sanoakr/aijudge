@@ -161,6 +161,9 @@ grader → admin.justification）を列挙して `ignore_imports` に入れ、�
    **3-2b 済み**: `syllabus`（PDF の抽出器に依存するので、評価器と抽出器にも
    `py.typed` を置いた）。**3-2c 済み**: `test_cases`・`task_verifier`。**3-2 完了**  
 3-3. `operations` → `rubric`, `groups`, `profiles`, `grading_settings`, `tasks`, `courses`  
+   → **3-3a 済み**: `rubric`・`profiles`・`groups`（保存層を使わない 3 つ）。
+   strict の mypy が要る最小限の注釈だけ足した。`groups` は `uow` を `object` で
+   受けたまま ── `UnitOfWork` の型を付けるのは 3-3b（移動と改善を混ぜない）  
 3-4. `finalization`（**import 契約 `grades-do-not-read-activity`・
 `grades-cannot-reach-activity-flags` と `test_boundaries` の名前を同時に書き換える**）→ `kc`  
 3-5. `authoring` → `bundle_plan`, `bundles`, `course_copy`, `course_definition`  

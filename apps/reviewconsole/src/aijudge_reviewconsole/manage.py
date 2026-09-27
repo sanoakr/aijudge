@@ -18,7 +18,7 @@
 
 そこで #146 で編集できる範囲を絞った ── **未参照のものだけ直接編集・改名
 でき、参照中のものへの唯一の操作は「複製して編集」**（`/manage/subjects`）。
-判定は `aijudge_admin.profiles` が持ち、この層は画面と繋ぐだけ。判定を画面に
+判定は `aijudge_course_admin.profiles` が持ち、この層は画面と繋ぐだけ。判定を画面に
 写すと、食い違ったときに「画面では編集できるのに保存が拒否される」形で出る。
 コース設定の画面（`_course_page`）から雛形を書く口は、以前どおり無い
 ── そこで触るのはコースごとの上書き（`aijudge_grading.overrides`）。
@@ -2334,7 +2334,7 @@ def register(templates) -> APIRouter:
     # コースの採点まで変わる（ADR 0002 の「コードと同じ扱いでレビューを通す」）。
     #
     # 未参照のものだけ直接編集・改名でき、参照中のものへの唯一の操作は
-    # 「複製して編集」。この判定は `aijudge_admin.profiles` が持ち、ここは
+    # 「複製して編集」。この判定は `aijudge_course_admin.profiles` が持ち、ここは
     # 画面と繋ぐだけ ── 判定を画面側に写すと、2 つが食い違ったときに
     # 「画面では編集できるのに保存が拒否される」形で現れる。
 
@@ -3489,7 +3489,7 @@ def register(templates) -> APIRouter:
         """**問題セットの出題先を置き換える**（追試など）。何も選ばなければ受講者全員。
 
         API（`PUT /api/courses/{id}/units/{unit}/audience`）と**同じ関数**を通す
-        （`aijudge_admin.groups.set_audience`）── 名簿の検証と監査の記録を経路
+        （`aijudge_course_admin.groups.set_audience`）── 名簿の検証と監査の記録を経路
         ごとに書かない。
         """
         from .app import require_principal

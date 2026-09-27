@@ -55,6 +55,8 @@ dev = [
     "import-linter>=2.0",
     "ruff>=0.6",
     "mypy>=1.11",
+    # `yaml` の型情報。`course_admin`（科目プロファイルの編集）が strict の mypy に掛かる。
+    "types-pyyaml>=6.0.12.20260906",
 ]
 
 [tool.uv.workspace]

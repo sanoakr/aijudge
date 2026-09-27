@@ -1,4 +1,4 @@
-"""出題先の名簿を操作する規則（`aijudge_admin.groups`）。
+"""出題先の名簿を操作する規則（`aijudge_course_admin.groups`）。
 
 画面・API・CLI はすべてここを通るので、規則はここで固定する。
 
