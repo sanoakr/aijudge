@@ -30,6 +30,13 @@ AIJUDGE_TEST_DATABASE_URL=postgresql+psycopg://aijudge:aijudge@localhost:5432/ai
 **PostgreSQL でしか捕まらないものは `[postgres]` のテストに置く** ── 行ロック
 （SQLite に無い）、列の長さ（SQLite は `VARCHAR(n)` の n を見ない）、JSONB。
 
+CI はテストを**並列に**流す（`uv run pytest -n auto --dist loadfile`、pytest-xdist）。
+1 プロセスでは 15〜30 分かかっていた。手元でも同じコマンドで流せる。PostgreSQL の
+接続先を渡すと、直下の `conftest.py` が worker ごとに DB を分ける
+（`<DB 名>_gw0`、`<DB 名>_gw1`、…）── テストは表を消しては作り直すので、1 つの DB を
+共有すると別の worker のテストを壊す。**この DB は毎回消して作り直す**ので、接続先は
+使い捨てのサーバーだけにする。運用機へのトンネルの先には決して向けない。
+
 ### 利用ガイドのサイト
 
 `docs/guide/` は利用者向けガイド（学生・TA・教員）で、`main` に入ると

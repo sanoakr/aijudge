@@ -31,6 +31,15 @@ AIJUDGE_TEST_DATABASE_URL=postgresql+psycopg://aijudge:aijudge@localhost:5432/ai
 locking (SQLite has none), column widths (SQLite ignores the `n` in
 `VARCHAR(n)`), and JSONB behaviour.
 
+CI runs the suite **in parallel** (`uv run pytest -n auto --dist loadfile`,
+pytest-xdist); one process took 15–30 minutes there. The same command works
+locally. With a PostgreSQL URL set, the root `conftest.py` gives each worker its
+own database, `<database>_gw0`, `<database>_gw1`, … — the tests drop and recreate
+tables, so workers sharing one database would break each other's tests. Those
+databases are **dropped and recreated at the start of every run**, so point the
+URL only at a throwaway server, never at one reached through a tunnel to a real
+deployment.
+
 ### User guide site
 
 `docs/guide/` is the user guide (learners, TAs, instructors), published to
