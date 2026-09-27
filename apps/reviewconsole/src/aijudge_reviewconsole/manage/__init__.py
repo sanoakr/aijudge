@@ -33,6 +33,13 @@
 締切からの猶予（`auto_finalize_after_hours`）の設定がそれである
 （ADR 0010）。**猶予は科目プロファイルではなくコースに持つ** ── 締切と
 同じ性質の運用値で、教員が学期中に決めるものだから。
+
+**このパッケージは画面の領域ごとに分けていく途中**（段階的な立て直しの段階 4、
+地図は `docs/design/manage-split-map.md`）。移した領域のモジュールは
+`register(router, templates)` を持ち、ここの `register()` がそれを**元のルートが
+あった位置で**呼ぶ。FastAPI は登録順にパスを照合するので（`/tasks/new` と
+`/tasks/{task_id}` など）、呼ぶ位置を変えると別のハンドラが応答しうる ── 順序は
+`apps/reviewconsole/tests/routes_reviewconsole.txt` の写しが見張る。
 """
 
 from __future__ import annotations
@@ -160,10 +167,10 @@ from aijudge_identity.network import MAX_CIDRS, CampusNetworkSettings
 from aijudge_identity.oidc import DEFAULT_LOGIN_LABEL, LOGIN_LABEL_MAX, OidcSettings
 from aijudge_submission import SubmissionService
 
-from . import access, mastery
-from .audit_context import recorder_for, source_ip_of
-from .overview import empty_unit, find_unit, load_units, unit_key
-from .urls import RedirectResponse
+from .. import access, mastery
+from ..audit_context import recorder_for, source_ip_of
+from ..overview import empty_unit, find_unit, load_units, unit_key
+from ..urls import RedirectResponse
 
 # ルータは `register()` の中で毎回作る。モジュール階層に置くと、
 # `create_app` を 2 回呼んだときに同じ経路が二重に登録される
@@ -1109,7 +1116,7 @@ def _update_unit(
     request: Request, course_id: str, unit: str, *, update: dict, saved: str
 ) -> Response:
     """問題セット内の全課題に同じ更新を当てる。"""
-    from .app import require_principal
+    from ..app import require_principal
 
     me = require_principal(request)
     _require_instructor(request, me, CourseId(course_id))
@@ -1835,7 +1842,7 @@ def generate_task(
     `aijudge-authoring` が担う（ADR 0008）。ここが返すのは候補であって
     課題ではない。
     """
-    from .app import require_principal
+    from ..app import require_principal
 
     me = require_principal(request)
     course = _require_instructor(request, me, CourseId(course_id))
@@ -2698,7 +2705,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         ── 「作成者を機械的に教員にする」だけでは、管理者自身が実際に
         教えるとは限らない（コースを立てるのと教えるのは別の役目）。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         _require_admin(request, me)
@@ -2803,7 +2810,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
 
     @router.get("/users/new", response_class=HTMLResponse)
     def new_user_form(request: Request) -> Response:
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         _require_admin(request, me)
@@ -2826,7 +2833,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         トークンでやっているのと同じ約束。コースへの受講登録はここでは
         行わない（既存の受講者一覧画面が、既存利用者を対象にそれをやる）。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         _require_admin(request, me)
@@ -2897,7 +2904,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         `local=1` は `login_kind=local` の旧名。**受け続ける** ── 運用の
         手元に残った URL が黙って全件に戻ると、絞ったつもりの一覧を読む。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         _require_admin(request, me)
@@ -2950,7 +2957,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
     @router.get("/users/{user_id}", response_class=HTMLResponse)
     def user_detail(request: Request, user_id: str, saved: str = "") -> Response:
         """1 人の属性と、どのコースにどの役割で居るか（#144）。"""
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         _require_admin(request, me)
@@ -3000,7 +3007,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         管理者が次の管理者を決められる ── 利用者の作成画面が同じ例外を
         既に開けている（#127）のと同じ扱い。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         _require_admin(request, me)
@@ -3041,7 +3048,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         コースの受講者一覧（`set_role`）と**同じ規則**を通す ── `admin` は
         画面から配れない。入口が 2 つあるので、規則を写さずに同じ関数を呼ぶ。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         _require_admin(request, me)
@@ -3085,7 +3092,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
     @router.post("/users/{user_id}/disable")
     def disable_user(request: Request, user_id: str) -> Response:
         """利用者を無効化する。**削除ではない**（`AuthService.disable`）。"""
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         _require_admin(request, me)
@@ -3118,7 +3125,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         `manage_new_user_created.html` が「再発行のみ可能」と書いていた
         その再発行がこれ。平文はレスポンス以外のどこにも残さない。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         _require_admin(request, me)
@@ -3185,7 +3192,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         **判定は保存済みの値で行う。** 入力欄の中身で判定すると、保存前の
         文字列で「学内です」と出して、保存に失敗しても気づけない。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         _require_admin(request, me)
@@ -3217,7 +3224,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         もらうほうがよい ── 無視された行があることに気づかないまま試験を
         迎えるのが、いちばん高くつく形である。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         _require_admin(request, me)
@@ -3257,7 +3264,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
 
     @router.get("/oidc-settings", response_class=HTMLResponse)
     def oidc_settings_form(request: Request, saved: str = "") -> Response:
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         _require_admin(request, me)
@@ -3292,7 +3299,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         「一度だけ表示」とは違い、こちらは管理者自身が入力した値なので、
         常に伏せておくだけでよい（見せ直す約束はしない）。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         _require_admin(request, me)
@@ -3361,7 +3368,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
 
     @router.get("/subjects", response_class=HTMLResponse)
     def subject_list(request: Request, saved: str = "") -> Response:
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         _require_admin(request, me)
@@ -3387,7 +3394,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         単に灰色にするだけでは、教員は「バグか」「権限が無いだけか」を
         判別できない（#146）。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         _require_admin(request, me)
@@ -3415,7 +3422,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
     @router.post("/subjects/{name}", response_class=HTMLResponse)
     async def save_subject(request: Request, name: str) -> Response:
         """全文を保存する。**参照中なら `AdminError` で拒否される**（profiles.py）。"""
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         _require_admin(request, me)
@@ -3470,7 +3477,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         description: Annotated[str, Form()] = "",
     ) -> Response:
         """複製して、複製先の編集画面へ渡す（#146 の「複製して編集」）。"""
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         _require_admin(request, me)
@@ -3501,7 +3508,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
     @router.post("/subjects/{name}/rename")
     def rename_subject(request: Request, name: str, new_name: Annotated[str, Form()]) -> Response:
         """改名する。**未参照のときだけ**（参照中は採点が止まるので拒否）。"""
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         _require_admin(request, me)
@@ -3545,7 +3552,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
 
     @router.get("/account/password", response_class=HTMLResponse)
     def account_password_form(request: Request) -> Response:
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         _require_local_account(me)
@@ -3562,7 +3569,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         new_password: Annotated[str, Form()],
         new_password_confirm: Annotated[str, Form()],
     ) -> Response:
-        from .app import SESSION_COOKIE, require_principal
+        from ..app import SESSION_COOKIE, require_principal
 
         me = require_principal(request)
         _require_local_account(me)
@@ -3615,7 +3622,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         分けてある（`unit_settings`）。1 枚に積むと、教員は「ex03 の締切を
         直す」ために縦に長い画面を目で探すことになる。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
@@ -3644,7 +3651,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         持つ属性であって、それ自体の記録は無い。最初の 1 問を足した時点で
         回が実在する。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         _require_instructor(request, me, CourseId(course_id))
@@ -3659,7 +3666,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         たいてい「いまの回」で、その単位で開けることが構成の分かりやすさに
         直結する。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         course, role = _require_reader(request, me, CourseId(course_id))
@@ -3857,7 +3864,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         **教員が押したときだけ動く。** 自動で戻すなら上限を設けた意味が無い
         ── 直っていない原因で回し続けることになる。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
@@ -3892,7 +3899,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         そのものはワーカーが走らせる（提出時と同じ経路）。ここで採点を
         起動すると、レビュー画面が採点器を呼ぶ構造に戻る（ADR 0007）。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
@@ -3935,7 +3942,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         JavaScript（`base.html`）が行う。JavaScript が無い場合はここへ来ない
         ── 課題の編集画面はそう言う（`<noscript>`）。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
@@ -3958,7 +3965,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
 
         返すのは本文の断片だけ。保存はしない ── 版が上がるのは「保存」で行う。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         _require_instructor(request, me, CourseId(course_id))
@@ -3972,7 +3979,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         画面に出るので、絶対 URL を埋め込むとどちらかのホスト名が課題文に
         焼き付く。相対パスなら、開いている側が自分で返す。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
@@ -4011,7 +4018,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
 
         権限は取り込みと同じ（担当教員以上・#102）。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
@@ -4039,7 +4046,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
     @router.post("/courses/{course_id}/units/{unit}/bundle", response_class=HTMLResponse)
     async def read_task_bundle(request: Request, course_id: str, unit: str) -> Response:
         """zip を読んで、**何が起きるかを見せる**。まだ保存しない。"""
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
@@ -4132,7 +4139,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         未承認の版を画面から承認する経路が無い穴があった。**承認が要るのは
         AI の生成物だけ**（設計原則 P5）。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
@@ -4172,7 +4179,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         規則は `aijudge_course_admin.tasks` に置いてある ── 画面と CLI の両方から
         使うので、どちらが正しいかを問わずに済むよう 1 か所にする。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
@@ -4263,7 +4270,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         ここで確かめる**（`aijudge_course_admin.answer_mode`）。画面は理由を先に見せて押せなくするが、
         それは表示の都合であって境界ではない（#146）。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         by_file = bool(file_upload.strip())
         by_editor = bool(editor.strip())
@@ -4361,7 +4368,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         （`aijudge_course_admin.groups.set_audience`）── 名簿の検証と監査の記録を経路
         ごとに書かない。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
@@ -4389,7 +4396,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
     def groups_page(request: Request, course_id: str, saved: str = "") -> Response:
         """出題先の名簿。**受講者の画面とは別にする** ── 受講は「このコースの
         一員か」、名簿は「そのうち誰に出すか」で、別の問いである。"""
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
@@ -4408,7 +4415,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         まま、どれが知らない login かを言って突き返す ── 一部だけ登録されると、
         漏れた学生に気づけない。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
@@ -4448,7 +4455,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         request: Request, course_id: str, name: Annotated[str, Form()] = ""
     ) -> Response:
         """名簿を消す。**出題先として使われていれば消さない**（先に出題先から外す）。"""
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
@@ -4552,7 +4559,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         **どれか 1 つでも断られたら何も書かない。** 出題先も同じ作業単位で書く。
         検査は個別の経路と同じ関数を通す（`_answer_mode_update` など）。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
@@ -4661,7 +4668,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         **書くのは変わった項目だけ**（監査の記録もそれだけ）。組み込みの既定の
         ルーブリックを開いて保存し直しただけで、既定が明示の宣言に化けない。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
@@ -4774,7 +4781,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         自動確定が始まる。既定で自動確定させると、設定を知らない教員の
         コースで成績が勝手に閉じる。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
@@ -4807,7 +4814,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
 
     @router.get("/courses/{course_id}/basics", response_class=HTMLResponse)
     def basics(request: Request, course_id: str, saved: str = "") -> Response:
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
@@ -4839,7 +4846,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         読み取りと登録を分ける ── 出てきたものを教員が確かめてから保存する
         （モデルが整えた文であって、シラバスそのものではない）。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
@@ -4893,7 +4900,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         あの 2 つは（テナント・コード・学期）でコースの同一性を作っており、
         変えると別のコースになる。作り直しは新しいコースの追加で行う。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
@@ -4928,7 +4935,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         （`aijudge_course_admin.kc` の規則 4 ── AI には KC を作らせない）。教員が
         1 件ずつ追加フォームに取り込み、確かめてから登録する（`draft_candidate`）。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
@@ -4976,7 +4983,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         規則は `aijudge_course_admin.courses` に置いてある（画面と CLI の両方から
         使うので、どちらが正しいかを問わずに済むよう 1 か所にする）。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         _require_admin(request, me)
@@ -5012,7 +5019,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         規則は `aijudge_course_admin.course_copy` に置いてある（何を引き継ぎ、何を
         引き継がないかは運用の判断で、画面の都合ではない）。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         _require_admin(request, me)
@@ -5076,7 +5083,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         既にある課題は変わらない ── 出題済みの版は書き換えない（P8）。
         個別に直したい課題は、その課題の訂正から観点を宣言する。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
@@ -5131,7 +5138,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         コースで一度決めておけば個々の課題では触らずに済み、レポート 1 問だけ
         PDF を許す、といった例外は課題側で足せる（`uploads.allowed_suffixes`）。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
@@ -5161,7 +5168,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         未対応の異議申立は確定しない。そこは 1 件ずつ読むべきものとして
         待ち行列に残す。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         _require_instructor(request, me, CourseId(course_id))
@@ -5213,7 +5220,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         未対応の異議申立は確定しない。そこは 1 件ずつ読むべきものとして
         「再確認の依頼」に残す。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         _require_instructor(request, me, CourseId(course_id))
@@ -5294,7 +5301,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         ごとに違う締切を持てると、同じセットの中で締切がずれる。変えたい
         ときはセットの日程を変える（`set_unit_schedule`）。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
@@ -5435,7 +5442,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         「変えられる」ことではない。**黙らせない**ために、生成した版は承認待ち
         にし（P5）、承認するまで学習者には 1 つ前の承認済みが出続ける（#48）。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
@@ -5528,7 +5535,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         **確定済みの提出は動かさない**（`_regradable`）。過去の採点も消えない
         ── 新しい採点が終わった時点で旧採点に `superseded_by` が入る（P8）。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
@@ -5588,7 +5595,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         （`aijudge_course_admin.kc`）、使われたものは取り下げ、一度も使われていない
         ものだけを消す。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
@@ -5610,7 +5617,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
 
         提出があれば断り、取り下げを案内する（規則の置き場所を 1 つにする）。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
@@ -5635,7 +5642,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         ルーブリックと問題文は横幅いっぱいで読むものなので、一覧の中に
         畳んで置くと段階の説明が読めない。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         course, role = _require_reader(request, me, CourseId(course_id))
@@ -5704,7 +5711,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
     @router.get("/courses/{course_id}/units/{unit}/tasks/new", response_class=HTMLResponse)
     def new_task(request: Request, course_id: str, unit: str) -> Response:
         """課題を追加する画面。訂正と同じ形。"""
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
@@ -5723,7 +5730,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         あって、教員が意識するのは前後関係だけである。数字で持たせると、
         1 問差し込むたびに全部を打ち直すことになる。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         _require_instructor(request, me, CourseId(course_id))
@@ -5775,7 +5782,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         ので、`ex02/p8` を `ex03/p8` にすることは移動ではなく**別の課題を作る
         こと**である。鍵の前半は「どこで作られたか」の記録として残る。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
@@ -5833,7 +5840,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         保存してからでないと出せないと、問題文を書く手が止まる。フォームを
         丸ごと受け取り、問題文と選択中の知識要素はそのまま画面に戻す。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
@@ -5882,7 +5889,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         起きる。参照解答が無い課題は確かめようが無いので、そのまま保存する
         （画面はそう言っている）。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
@@ -6074,7 +6081,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         課題・版）を経路に並べると 140 字になり、運用ログが識別子として
         受け付ける長さ（128 字）を超える（`aijudge_telemetry.context`）。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
@@ -6134,7 +6141,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         見付かるが、「毎年ここで質問が来る」は教員しか知らない。作問の指示と
         同じ扱いで、必須事項の列ではない（`aijudge_course_admin.revision` の冒頭）。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
@@ -6239,7 +6246,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         版は上がらない。**日程は課題の内容ではない**ので、直しても過去の
         採点基準は変わらない（P8 の対象外）。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
@@ -6296,7 +6303,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         言えないといけない（ADR 0013）ので、まとめて保存しても日程の記録は日程の記録。
         変わっていないものは記録しない（触っていない値の行を積まない）。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
@@ -6391,7 +6398,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         版を作らずに変えられ、それを課題単位に細かくしたもの。適用した値は採点の
         記録（`model_params`）に残る。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
@@ -6440,7 +6447,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         テストケースが整合している」までで、両方が同じ勘違いをしていれば
         そのまま通る（`TaskVerifier`）。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
@@ -6498,7 +6505,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         黙ってモデルの書いた出力に落とすと、確かめていないものが確かめた顔で
         入る（`docs/RUNNING.md`・ADR 0006）。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
@@ -6589,7 +6596,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         妥当かどうかは提出物を読まないと分からず、それは採点そのものである。
         だから門は無く、代わりに判定は確定させない（AI 評価器の側・P5）。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
@@ -6691,7 +6698,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
 
         観点が行数ぶん並ぶので、フォーム全体を読む。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
@@ -6790,7 +6797,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         受講者を、このコースが使う KC で切ったものにすぎない ── 値そのものには
         担当外の科目で得た観測も入っている。画面にそう書く。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         course, _ = _require_enrolment_manager(request, me, CourseId(course_id))
@@ -6836,7 +6843,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         自分の課題では説明できない値を説明しようとすることになる。外から来た
         ぶんは**件数だけ**出す（担当していないコースの課題名は成績に近い）。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         course, _ = _require_enrolment_manager(request, me, CourseId(course_id))
@@ -6906,7 +6913,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         入らなかったかを、その場で言う。** 「保存しました」だけだと、
         名簿の半分が未登録だったことに学期が始まってから気づく。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         course, _ = _require_enrolment_manager(request, me, CourseId(course_id))
@@ -6983,7 +6990,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         自分を学習者に落とすとそのコースが見えなくなり、戻す手段が無い
         （受講の取り消しと同じ理由）。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         _require_enrolment_manager(request, me, CourseId(course_id))
@@ -7031,7 +7038,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         パスワードの配布が必要なので、ここでは作らず CLI に回す
         （画面に平文を出すと端末の履歴や画面共有に残る）。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         _require_enrolment_manager(request, me, CourseId(course_id))
@@ -7098,7 +7105,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
     @router.post("/courses/{course_id}/enrolments/{user_id}/remove")
     def remove_enrolment(request: Request, course_id: str, user_id: str) -> Response:
         """受講を取り消す。**利用者は消さない。**"""
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         _require_instructor(request, me, CourseId(course_id))
@@ -7123,7 +7130,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
 
         項目が多いので、フォーム全体を読む（宣言した引数では追いつかない）。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
@@ -7173,7 +7180,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         **コースをまたいで共有される語彙である。** 同じ名前空間を使う他の
         コースにも同じものが見えるので、どれだけ使われているかを添える。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
@@ -7192,7 +7199,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         引退は管理者のみ。**コースをまたいで効く**操作で、1 コースの教員が
         他のコースの語彙を畳めてはいけない。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         _require_instructor(request, me, CourseId(course_id))
@@ -7226,7 +7233,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         **教員にも出す** ── 管理者だけに出すと、依頼する側が形式を知る手段が
         画面に無い。中身は静的で、学習者のデータは含まない。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         require_principal(request)
         return Response(
@@ -7243,7 +7250,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         選ばれたものだけなので、ここですることは範囲に入れることだけ。万一
         未登録のキーが来たら断る（画面を経ない POST）。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
@@ -7275,7 +7282,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         **語彙への登録ではない。** 名前空間に既にあるものを、このコースの
         作問候補に入れるだけ。無いキーは黙って落とさず断る。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
@@ -7307,7 +7314,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         Q-matrix は壊れない。**このコースの課題が使っているものは外さない**
         ── 外すと Q-matrix が課題の中身と食い違う。残した数は結果に出す。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
@@ -7349,7 +7356,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         あり（`aijudge_course_admin.kc` の冒頭）、キーは動かないので壊れない。
         間違えても、もう一度直せる。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         _require_instructor(request, me, CourseId(course_id))
@@ -7385,7 +7392,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
 
         引退と同じく管理者のみ。**コースをまたいで効く。**
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         _require_instructor(request, me, CourseId(course_id))
@@ -7415,7 +7422,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         あちらは評価器の指名とタイムアウトを持つ採点の設定で、壊すと全員の
         採点が止まる。課題を承認するかどうかは、まさに教員が決めることである。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
@@ -7537,7 +7544,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         改訂の下書き（#306）は**キーを変えられない** ── 同じ課題の書き直しで
         あって別の課題ではない。採用すると新しい版になる。
         """
-        from .app import require_principal
+        from ..app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))

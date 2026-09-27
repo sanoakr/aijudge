@@ -22,7 +22,7 @@ blind 抽出に当たった提出だけ、教員の段階を先に取る:
 blind 画面のレスポンスには AI の判定を一切含めない。CSS で隠すのでは
 不十分（ページのソースを見れば分かる）。これはテストで固定してある。
 
-`/manage` にコース・課題・受講の管理を載せている（`manage.py`）。学期中に
+`/manage` にコース・課題・受講の管理を載せている（`manage/`）。学期中に
 発生する作業（締切の設定、受講者の追加、課題の追加）を教員がターミナルで
 行うのは現実的でないため。**科目プロファイルは表示だけで編集させない。**
 """
@@ -838,7 +838,7 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                     if console.last_clear is not None and console.last_clear[0] == str(course.id)
                     else None
                 ),
-                # TA にはコースの設定を開かせない（`manage.py` の権限と揃える）。
+                # TA にはコースの設定を開かせない（`manage/` の権限と揃える）。
                 # **テナント管理者は受講登録が無くても管理できる**（#128）。
                 "can_manage": me.is_tenant_admin
                 or (enrollment is not None and enrollment.role in INSTRUCTOR_ROLES),
@@ -1037,7 +1037,7 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 "manual_total": sum(1 for row in open_rows if row["manual"]),
                 "waiting_total": sum(1 for row in open_rows if not row["manual"]),
                 "contested": len(rows),
-                # 一括確定は担当教員以上（`manage.py` の権限と揃える）。
+                # 一括確定は担当教員以上（`manage/` の権限と揃える）。
                 # **テナント管理者は受講登録が無くても管理できる**（#128）。
                 "can_manage": me.is_tenant_admin
                 or (enrollment is not None and enrollment.role in INSTRUCTOR_ROLES),

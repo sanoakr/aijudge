@@ -97,7 +97,7 @@
 
 {# 追加は一覧の直下に、1 行で。新しい問題セットは鍵を決めて開くところから
    始まる ── 課題を 1 問も持たないセットでもページは開き、そこが最初の
-   1 問を足す場所になる（manage.py の unit_settings）。 #}
+   1 問を足す場所になる（manage/ の unit_settings）。 #}
 {% if can_manage %}
 <form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/units" class="addline">
   <label for="unit" class="desc">問題セットを追加</label>

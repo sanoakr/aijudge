@@ -140,7 +140,7 @@ def _build(console, request: Request, principal) -> Rail:
         if not grades:
             return tenant_rail(is_admin=is_admin)
 
-        # TA にはコースの設定を出さない（`manage.py` の権限と揃える）。
+        # TA にはコースの設定を出さない（`manage/` の権限と揃える）。
         # **テナント管理者は受講登録が無くても管理できる**（#128）。
         can_manage = is_admin or (enrollment is not None and enrollment.role in INSTRUCTOR_ROLES)
         counts = uow.reviews.attention_counts_for_course(course_id)
