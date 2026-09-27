@@ -215,7 +215,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
     def _instructor(request: Request, course_id: str):
         # 管理画面と同じ「教員だけ」の判定を使う（TA には開けない）。
         from .app import require_principal
-        from .manage import _require_instructor
+        from .manage.common import _require_instructor
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))

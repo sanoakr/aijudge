@@ -34,7 +34,7 @@ GET /manage/courses/{course_id}/mastery aijudge_reviewconsole.manage.learners:ma
 GET /manage/courses/{course_id}/mastery/{user_id} aijudge_reviewconsole.manage.learners:mastery_for_learner
 GET /manage/courses/{course_id}/tasks/{task_id}/edit aijudge_reviewconsole.manage.tasks:edit_task
 GET /manage/courses/{course_id}/units/{unit} aijudge_reviewconsole.manage.units:unit_settings
-GET /manage/courses/{course_id}/units/{unit}/bundle/template aijudge_reviewconsole.manage:bundle_template
+GET /manage/courses/{course_id}/units/{unit}/bundle/template aijudge_reviewconsole.manage.bundles:bundle_template
 GET /manage/courses/{course_id}/units/{unit}/tasks/new aijudge_reviewconsole.manage.tasks:new_task
 GET /manage/oidc-settings aijudge_reviewconsole.manage.users:oidc_settings_form
 GET /manage/subjects aijudge_reviewconsole.manage.subjects:subject_list
@@ -100,8 +100,8 @@ POST /manage/courses/{course_id}/units aijudge_reviewconsole.manage.units:open_u
 POST /manage/courses/{course_id}/units/{unit}/answer-mode aijudge_reviewconsole.manage.units:set_unit_answer_mode
 POST /manage/courses/{course_id}/units/{unit}/audience aijudge_reviewconsole.manage.units:set_unit_audience
 POST /manage/courses/{course_id}/units/{unit}/auto-finalize aijudge_reviewconsole.manage.units:set_unit_grace
-POST /manage/courses/{course_id}/units/{unit}/bundle aijudge_reviewconsole.manage:read_task_bundle
-POST /manage/courses/{course_id}/units/{unit}/bundle/confirm aijudge_reviewconsole.manage:save_task_bundle
+POST /manage/courses/{course_id}/units/{unit}/bundle aijudge_reviewconsole.manage.bundles:read_task_bundle
+POST /manage/courses/{course_id}/units/{unit}/bundle/confirm aijudge_reviewconsole.manage.bundles:save_task_bundle
 POST /manage/courses/{course_id}/units/{unit}/campus-only aijudge_reviewconsole.manage.units:set_unit_campus_only
 POST /manage/courses/{course_id}/units/{unit}/clear aijudge_reviewconsole.manage.units:clear_unit_route
 POST /manage/courses/{course_id}/units/{unit}/clear-points aijudge_reviewconsole.manage.units:set_unit_clear_points

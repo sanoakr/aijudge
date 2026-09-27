@@ -574,3 +574,36 @@ def test_inputs_are_not_proposed_without_a_reference_solution(world: World) -> N
     )
     assert response.status_code == 200
     assert "解答例が空です" in response.text
+
+
+# -- 束（zip）を読む（段階 4-14 の前に厚くする・地図の表）------------------------
+
+
+def test_reading_a_bundle_previews_without_saving(world: World) -> None:
+    """**読むだけで保存しない。** 確認画面を返し、課題はまだ 1 件も無い。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    template = client.get(f"/manage/courses/{world.course.id}/units/ex09/bundle/template")
+
+    response = client.post(
+        f"/manage/courses/{world.course.id}/units/ex09/bundle",
+        files={"archive": ("bundle.zip", template.content, "application/zip")},
+    )
+
+    assert response.status_code == 200
+    assert "<!doctype html>" in response.text.lower()
+    with world.database.unit_of_work() as uow:
+        assert not uow.tasks.list_for_course(world.course.id)
+
+
+def test_a_bundle_that_is_not_a_zip_or_is_missing_is_refused(world: World) -> None:
+    world.register("teacher", Role.INSTRUCTOR)
+    world.register("ta", Role.ASSISTANT)
+    url = f"/manage/courses/{world.course.id}/units/ex09/bundle"
+    broken = world.client("teacher").post(
+        url, files={"archive": ("bundle.zip", b"not a zip", "application/zip")}
+    )
+    assert broken.status_code == 400 and "zip として読めません" in broken.text
+    empty = world.client("teacher").post(url)
+    assert empty.status_code == 400 and "ファイルが空です" in empty.text
+    assert world.client("ta").post(url).status_code == 403
