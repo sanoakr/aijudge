@@ -528,3 +528,49 @@ def test_completion_is_switched_for_the_whole_unit(world: World) -> None:
     client.post(url, data={"completion": ""})
     with world.database.unit_of_work() as uow:
         assert not any(uow.tasks.get_task(TaskId(t)).editor_completion for t in (first, second))
+
+
+# -- 参照解答・入力の提案（段階 4-11 の前に厚くする・地図の表）--------------------
+
+
+def test_the_ai_data_routes_are_for_instructors_and_known_tasks(world: World) -> None:
+    world.register("teacher", Role.INSTRUCTOR)
+    world.register("ta", Role.ASSISTANT)
+    task_id = _import_example(world)
+    base = f"/manage/courses/{world.course.id}/tasks"
+    for path in ("reference-solution", "test-cases/propose"):
+        assert world.client("ta").post(f"{base}/{task_id}/{path}").status_code == 403
+        missing = world.client("teacher").post(f"{base}/tsk_{'0' * 32}/{path}")
+        assert missing.status_code == 404
+
+
+def test_a_failed_reference_solution_says_why_on_the_page(world: World, monkeypatch) -> None:
+    """**S6 が落ちても画面は返る**（P2）。理由をそのまま出し、何も保存しない。"""
+    from aijudge_course_admin.test_cases import SolutionWriter
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("connection refused")
+
+    monkeypatch.setattr(SolutionWriter, "write", boom)
+    world.register("teacher", Role.INSTRUCTOR)
+    task_id = _import_example(world)
+    before = _versions(world, task_id)
+
+    response = world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/tasks/{task_id}/reference-solution"
+    )
+
+    assert response.status_code == 200
+    assert "解答例を書けませんでした: connection refused" in response.text
+    assert _versions(world, task_id) == before
+
+
+def test_inputs_are_not_proposed_without_a_reference_solution(world: World) -> None:
+    """解答例が無いと期待出力を作れない。提案を呼ぶ前に止めて、そう言う。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    task_id = _import_example(world)
+    response = world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/tasks/{task_id}/test-cases/propose"
+    )
+    assert response.status_code == 200
+    assert "解答例が空です" in response.text

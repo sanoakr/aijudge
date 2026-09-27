@@ -2555,7 +2555,7 @@ def test_writing_a_solution_does_not_save_anything(world: World, monkeypatch) ->
         before = uow.tasks.latest_version(TaskId(task_id))
 
     monkeypatch.setattr(
-        "aijudge_reviewconsole.manage.SolutionWriter.write",
+        "aijudge_reviewconsole.manage.task_data.SolutionWriter.write",
         lambda self, statement, language="c": SimpleNamespace(
             solution="/* AI が書いた */\nint main(void){return 0;}\n",
             prompt_id="p",
@@ -2597,7 +2597,7 @@ def test_a_proposal_takes_its_expected_output_from_running_the_solution(
         before = uow.tasks.latest_version(TaskId(task_id))
 
     monkeypatch.setattr(
-        "aijudge_reviewconsole.manage.InputProposer.propose",
+        "aijudge_reviewconsole.manage.task_data.InputProposer.propose",
         lambda self, statement, reference, language="c", count=5: SimpleNamespace(
             cases=(
                 SimpleNamespace(name="caseX", input="5 6\n", why="普通の値"),
@@ -2608,7 +2608,7 @@ def test_a_proposal_takes_its_expected_output_from_running_the_solution(
         ),
     )
     monkeypatch.setattr(
-        "aijudge_reviewconsole.manage.outputs_for",
+        "aijudge_reviewconsole.manage.task_data.outputs_for",
         lambda registry, profile, version, reference, inputs, *, evaluator_id: tuple(
             SimpleNamespace(
                 name=name,
@@ -4829,7 +4829,7 @@ def _stub_writer(monkeypatch, *, fails: bool = False) -> None:
 
     # 新しい課題（`manage.tasks`）と、あとからテストを足す経路の両方が作る。
     # 段階 4 でモジュールが分かれたので、両方の場所を差し替える。
-    for target in ("manage", "manage.tasks"):
+    for target in ("manage.task_data", "manage.tasks"):
         monkeypatch.setattr(f"aijudge_reviewconsole.{target}.TestCaseWriter", _Writer)
 
 
