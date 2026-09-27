@@ -62,6 +62,10 @@ MOVED_MODULES = (
     "duplicates",
     "solvability",
     "task_review",
+    "activity_purge",
+    "video_purge",
+    "demo_seed",
+    "demo_reset",
 )
 
 

@@ -255,7 +255,7 @@ class ActivityIndex(Protocol):
     def delete_sessions(self, session_ids: Sequence[IdeSessionId]) -> int:
         """セッションとその索引を消す。消したセッションの数を返す。
 
-        **本体（ファイル）を消してから呼ぶ**（`aijudge_admin.activity_purge`）。
+        **本体（ファイル）を消してから呼ぶ**（`aijudge_course_admin.activity_purge`）。
         逆にすると、索引が無くなって本体を辿れないファイルが残る。
         """
         ...
