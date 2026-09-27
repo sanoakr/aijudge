@@ -575,9 +575,18 @@ form.settings .deskbar{margin:0 -22px;padding:10px 22px}
 
 /* 知識要素の AI の候補（#496）。追加の候補は根拠を添え、削除の候補は理由を添える。 */
 .kc-cand-head{margin:10px 0 4px;font-size:.82rem;font-weight:700;color:var(--ink)}
-.kc-cand{display:grid;grid-template-columns:auto auto minmax(0,1fr);gap:0 8px;align-items:baseline}
+/* AI の知識要素の候補（#529）。**`.kcpick` の格子に入れない** ── 根拠の行が
+   マスを占めて列がずれた。候補ごとに 1 行目（印・キー・名前）と 2 行目（根拠）。 */
+.kc-cands{list-style:none;margin:0;padding:0}
+.kc-cand{display:grid;grid-template-columns:1.6rem minmax(0,max-content) minmax(0,1fr);
+  gap:2px 8px;align-items:baseline;padding:6px 0;border-top:1px solid var(--line)}
+.kc-cand:first-child{border-top:0}
+.kc-cand input[type=checkbox]{width:auto;margin:0;justify-self:center}
+.kc-cand .k{font-family:var(--font-mono);font-size:.8rem;overflow-wrap:anywhere;cursor:pointer}
+.kc-cand.attached .k{cursor:default}
+.kc-cand .desc{margin:0;font-size:.82rem}
 .kc-cand .kc-why{grid-column:2 / -1}
-.kc-cand.attached{padding-left:1.6rem}
+.kc-cand-mark{justify-self:center;font-size:.85rem;color:var(--ink-2)}
 .kc-why{display:block;font-size:.78rem;color:var(--ink-2)}
 .kc-remove{margin:0;padding-left:1.2em}
 .kc-remove li{margin:2px 0}

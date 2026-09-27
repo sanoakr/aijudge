@@ -5196,6 +5196,35 @@ def test_taking_a_revision_becomes_a_new_version(world: World, monkeypatch) -> N
     assert after.source_key == before.source_key
 
 
+def test_the_kc_page_can_be_searched(world: World) -> None:
+    """**キーワードで探せる**（#529）。KC は数百件あり、目で追えない。
+
+    絞り込みはブラウザの中で行うので、ここでは材料（検索欄と、行ごとの
+    キー・名前の小文字）が揃っていることを見る。
+    """
+    _seed(world)
+    world.register("boss", Role.ADMIN)
+    client = world.client("boss")
+    _use_kc(world, "cs.loops.control.basic", "ループ")
+
+    page = client.get(f"/manage/courses/{world.course.id}/kc").text
+
+    assert 'id="kc-search"' in page
+    assert 'data-kc="cs.loops.control.basic ループ"' in page
+    assert "data-kc-group=" in page
+
+
+def test_the_drafts_page_says_only_course_components_can_be_chosen(world: World) -> None:
+    """AI 作問の知識要素の欄も、課題の欄と同じ書き方にする（#529）。"""
+    _seed(world)
+    world.register("boss", Role.ADMIN)
+    _use_kc(world, "cs.loops.control.basic", "ループ")
+
+    page = world.client("boss").get(f"/manage/courses/{world.course.id}/drafts").text
+
+    assert "このコースに登録済みの知識要素だけ" in page
+
+
 def test_generation_is_offered_only_with_components(world: World) -> None:
     """**骨格を置かずに始める。** 知識要素が 1 件も無い状態が出発点である。
 
