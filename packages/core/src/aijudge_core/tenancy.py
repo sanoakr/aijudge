@@ -135,7 +135,7 @@ class CourseGroup(BaseModel):
 
     受講登録とは別の層である ── 受講は「このコースの一員か」で、グループは
     「そのうち誰にこの課題を出すか」。名簿に入れられるのはそのコースの学習者
-    だけ（`aijudge_admin.groups` が確かめる）。
+    だけ（`aijudge_course_admin.groups` が確かめる）。
 
     名前はコース内で一意。API はグループを名前で指す（スクリプトが ID を
     引き直さずに済むように）。

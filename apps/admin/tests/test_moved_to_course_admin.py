@@ -42,6 +42,9 @@ MOVED_MODULES = (
     "syllabus",
     "test_cases",
     "task_verifier",
+    "rubric",
+    "profiles",
+    "groups",
 )
 
 

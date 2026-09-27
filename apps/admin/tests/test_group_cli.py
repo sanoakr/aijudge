@@ -1,7 +1,7 @@
 """出題先の名簿を CLI から流す入口（`aijudge-admin group` / `unit audience`）。
 
 規則そのもの（一部だけ登録しない・学習者だけ・使用中は消せない）は
-`aijudge_admin.groups` にあり、画面と API と共有している（`test_groups.py`）。
+`aijudge_course_admin.groups` にあり、画面と API と共有している（`test_groups.py`）。
 ここで確かめるのは**入口の側** ── ファイルの読み方、何が起きたかを出すこと、
 失敗を終了コードで返すこと、監査の操作者を偽らないこと。
 """

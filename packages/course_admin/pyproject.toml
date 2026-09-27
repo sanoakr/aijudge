@@ -19,6 +19,8 @@ dependencies = [
     "aijudge-ext-document-text",
     # 課題の検査（`task_verifier`）で、参照解答と変異を採点の評価器に通す。
     "aijudge-grading",
+    # 名簿の変更は監査に残す（`groups`・ADR 0016）。
+    "aijudge-audit",
 ]
 
 [build-system]
@@ -35,3 +37,4 @@ aijudge-llm-gateway = { workspace = true }
 aijudge-ide = { workspace = true }
 aijudge-ext-document-text = { workspace = true }
 aijudge-grading = { workspace = true }
+aijudge-audit = { workspace = true }

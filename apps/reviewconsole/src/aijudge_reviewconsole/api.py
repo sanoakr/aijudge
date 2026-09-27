@@ -197,7 +197,7 @@ def register() -> APIRouter:
     # -- 出題先の名簿（`docs/design/task-visibility.md` §3.5）--------------
     #
     # グループは**名前**で指す。スクリプトが ID を引き直さずに済む。
-    # 画面（`/manage`）と同じ関数（`aijudge_admin.groups`）を通るので、
+    # 画面（`/manage`）と同じ関数（`aijudge_course_admin.groups`）を通るので、
     # 名簿の検証と監査の記録は経路によらず同じになる。
 
     @router.get("/courses/{course_id}/groups")
