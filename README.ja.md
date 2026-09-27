@@ -224,6 +224,19 @@ uv run aijudge-admin course diff --file network/2026/assignments/course.yaml
 （定義が読めない・まだ流していない）です。**「判定できない」を成功にしません**
 ── 公開の手順がこれを門に使うためです。
 
+`snapshot` は、どちらか一方を**項目ごとの値**に開いて JSON で出します。
+`--file` は定義ファイル側、`--course` は DB 側で、DB 側は項目ごとに「いまの値に
+なった時刻」（課題の版と監査記録から）も付きます。両側を同じ規則で開くので、
+定義ファイルの書き方（`problem_dir` か直書きか、日程を回に書くか課題に書くか）は
+差になりません。ファイルとコンソールの両方で直す運用で両者を揃えるための入口で、
+同期する側は「前回揃えた状態」と各側を比べ、**同じ項目が両側で動いたときだけ**
+時刻を見ます。
+
+```fish
+uv run aijudge-admin course snapshot --file network/2026/assignments/course.yaml
+uv run aijudge-admin course snapshot --course <id>
+```
+
 **動画の提出は課題の締切から 6 ヶ月で消します**（ADR 0020）。起点が提出でも
 成績確定でもなく締切なので、**問題セット単位でまとまって消え**、最も早い回でも
 その学期の疑義より後になります。消えるのはファイルだけで、`Artifact` の行も
