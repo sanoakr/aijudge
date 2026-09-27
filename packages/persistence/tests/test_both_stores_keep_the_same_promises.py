@@ -3,13 +3,20 @@
 `ReviewRepository` は `@runtime_checkable` なのに、インメモリ実装は 3 つの
 メソッドを持たず `isinstance` が偽だった。画面は SQL の具象メソッドを直接
 呼び、Protocol は実態を言っていなかった。ここで両方を突き合わせる。
+
+課題・KC も同じだった（段階 2-1）: 課題の削除・埋め込み、KC の保存・削除・
+一覧は SQL にだけあり、どの Protocol も言っていなかった。
 """
 
 from __future__ import annotations
 
 import pytest
 
+from aijudge_audit import AuditLog, InMemoryAuditLog
+from aijudge_authoring import InMemoryTaskRepository, TaskRepository, TaskStore, TaskUsageQueries
+from aijudge_identity import IdentityRepository, InMemoryIdentityRepository
 from aijudge_persistence import Database
+from aijudge_skill import InMemorySkillRepository, SkillRepository
 from aijudge_submission import (
     ArtifactStore,
     CourseReviewQueries,
@@ -35,6 +42,10 @@ PAIRS = [
     (ReviewRepository, InMemoryReviewRepository, "reviews"),
     (JobQueue, InMemoryJobQueue, "jobs"),
     (Outbox, InMemoryOutbox, "outbox"),
+    (TaskRepository, InMemoryTaskRepository, "tasks"),
+    (IdentityRepository, InMemoryIdentityRepository, "identity"),
+    (SkillRepository, InMemorySkillRepository, "skills"),
+    (AuditLog, InMemoryAuditLog, "audit"),
 ]
 
 
@@ -66,5 +77,18 @@ def test_only_the_sql_reviews_offer_the_course_queries() -> None:
     try:
         with database.unit_of_work() as uow:
             assert isinstance(uow.reviews, ReviewStore)
+    finally:
+        database.dispose()
+
+
+def test_only_the_sql_tasks_count_their_use() -> None:
+    """提出の件数と通過率は保存層だけ。**インメモリが「0 件」と答えられないことを
+    固定する** ── 答えられると、提出のある課題を消せることになる。
+    """
+    assert not isinstance(InMemoryTaskRepository(), TaskUsageQueries)
+    database = Database.connect("sqlite+pysqlite:///:memory:", create=True)
+    try:
+        with database.unit_of_work() as uow:
+            assert isinstance(uow.tasks, TaskStore)
     finally:
         database.dispose()

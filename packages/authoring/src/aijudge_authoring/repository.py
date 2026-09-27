@@ -131,6 +131,61 @@ class TaskRepository(Protocol):
 
     def get_checks(self, version_id: TaskVersionId) -> TaskChecks | None: ...
 
+    def delete_task(self, task_id: TaskId) -> None:
+        """課題と全版を消す。**提出が無いことは呼び出し側が確かめる**
+        （`TaskUsageQueries.submission_count`）。
+
+        版に紐づく検査結果と埋め込みも一緒に消す ── 残すと、存在しない版を
+        指すものが溜まる。規則（提出があれば消さない）の置き場所は
+        `aijudge_admin.tasks.delete` の 1 か所で、保存先は言われたものを消す。
+        """
+        ...
+
+    def save_embedding(
+        self,
+        version_id: TaskVersionId,
+        *,
+        model: str,
+        subject_profile: str,
+        vector: tuple[float, ...],
+    ) -> None:
+        """課題版の埋め込みを残す（重複の検出）。同じ版・同じモデルなら上書きする。"""
+        ...
+
+    def list_embeddings(self, *, model: str, subject_profile: str) -> dict[str, tuple[float, ...]]:
+        """同じモデル・同じ科目のベクトルだけを返す（課題版 ID → ベクトル）。
+
+        **モデルを跨いで混ぜない。** 次元が同じでも意味空間が違うので、
+        混ぜると無関係な課題が似ていることになる。
+        """
+        ...
+
+
+@runtime_checkable
+class TaskUsageQueries(Protocol):
+    """課題が**どれだけ使われたか**の読み取り。保存層だけが実装する。
+
+    提出と採点の表との結合で答えるもので、課題の保存先だけでは答えられない。
+    インメモリの課題の保存先は提出を知らないので、持たせると「提出 0 件」と
+    答えるしかなく、提出のある課題を消せることになる（#464 の
+    `CourseReviewQueries` と同じ理由で分けた）。
+    """
+
+    def submission_count(self, task_id: TaskId) -> int:
+        """この課題（全版）に対する提出の件数。**消してよいかの判定に使う。**"""
+        ...
+
+    def pass_rates(
+        self, version_ids: tuple[TaskVersionId, ...], *, threshold: float
+    ) -> dict[str, tuple[int, int]]:
+        """課題版ごとの `(採点数, 通った数)`。難度推定の材料。"""
+        ...
+
+
+@runtime_checkable
+class TaskStore(TaskRepository, TaskUsageQueries, Protocol):
+    """保存層の課題の口。課題の保存と、その利用状況の読み取りの両方を持つ。"""
+
 
 # 不変性の比較から外す項目。採点の基準ではないもの。
 #
@@ -232,6 +287,8 @@ class InMemoryTaskRepository:
         self._versions: dict[TaskVersionId, TaskVersion] = {}
         self._order: list[TaskVersionId] = []
         self._checks: dict[TaskVersionId, TaskChecks] = {}
+        # (課題版 ID, モデル) → (科目, ベクトル)。保存層の主キーと同じ形。
+        self._embeddings: dict[tuple[str, str], tuple[str, tuple[float, ...]]] = {}
         # 承認待ちの下書き（#321）。**課題とは別に持つ** ── 承認するまで課題は
         # 存在しない（`draft_store` の冒頭）。
         self._drafts: dict[str, TaskDraftRecord] = {}
@@ -322,6 +379,39 @@ class InMemoryTaskRepository:
 
     def get_checks(self, version_id: TaskVersionId) -> TaskChecks | None:
         return self._checks.get(version_id)
+
+    def delete_task(self, task_id: TaskId) -> None:
+        version_ids = {vid for vid, version in self._versions.items() if version.task_id == task_id}
+        for vid in version_ids:
+            del self._versions[vid]
+            self._checks.pop(vid, None)
+        self._order = [vid for vid in self._order if vid not in version_ids]
+        wanted = {str(vid) for vid in version_ids}
+        self._embeddings = {
+            key: value for key, value in self._embeddings.items() if key[0] not in wanted
+        }
+        self._tasks.pop(task_id, None)
+
+    def save_embedding(
+        self,
+        version_id: TaskVersionId,
+        *,
+        model: str,
+        subject_profile: str,
+        vector: tuple[float, ...],
+    ) -> None:
+        key = (str(version_id), model)
+        # 保存層は既存の行の科目を書き換えない。同じにしておく。
+        stored = self._embeddings.get(key)
+        profile = subject_profile if stored is None else stored[0]
+        self._embeddings[key] = (profile, tuple(float(v) for v in vector))
+
+    def list_embeddings(self, *, model: str, subject_profile: str) -> dict[str, tuple[float, ...]]:
+        return {
+            vid: vector
+            for (vid, stored_model), (profile, vector) in self._embeddings.items()
+            if stored_model == model and profile == subject_profile
+        }
 
     def list_versions_in_review(self) -> tuple[TaskVersion, ...]:
         return tuple(

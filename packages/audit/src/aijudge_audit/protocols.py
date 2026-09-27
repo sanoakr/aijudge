@@ -13,13 +13,14 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from aijudge_core.ids import TenantId
 
 from .event import AuditAction, AuditEvent
 
 
+@runtime_checkable
 class AuditLog(Protocol):
     """追記専用の監査記録。
 
