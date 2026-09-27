@@ -14,6 +14,16 @@ import pytest
 
 from aijudge_audit import AuditLog, InMemoryAuditLog
 from aijudge_authoring import InMemoryTaskRepository, TaskRepository, TaskStore, TaskUsageQueries
+from aijudge_ide import (
+    ActivityIndex,
+    BufferStore,
+    InMemoryActivityIndex,
+    InMemoryBufferStore,
+    InMemoryRunQueue,
+    InMemorySubmissionLinkStore,
+    RunQueue,
+    SubmissionLinkStore,
+)
 from aijudge_identity import IdentityRepository, InMemoryIdentityRepository
 from aijudge_persistence import Database
 from aijudge_skill import InMemorySkillRepository, SkillRepository
@@ -46,6 +56,10 @@ PAIRS = [
     (IdentityRepository, InMemoryIdentityRepository, "identity"),
     (SkillRepository, InMemorySkillRepository, "skills"),
     (AuditLog, InMemoryAuditLog, "audit"),
+    (RunQueue, InMemoryRunQueue, "run_requests"),
+    (BufferStore, InMemoryBufferStore, "ide_buffers"),
+    (SubmissionLinkStore, InMemorySubmissionLinkStore, "ide_links"),
+    (ActivityIndex, InMemoryActivityIndex, "ide_activity"),
 ]
 
 

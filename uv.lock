@@ -39,6 +39,7 @@ members = [
     "aijudge-submission",
     "aijudge-telemetry",
     "aijudge-toolchain",
+    "aijudge-unit-of-work",
     "aijudge-webapp",
     "aijudge-webui",
 ]
@@ -78,6 +79,7 @@ dependencies = [
     { name = "aijudge-submission" },
     { name = "aijudge-telemetry" },
     { name = "aijudge-toolchain" },
+    { name = "aijudge-unit-of-work" },
     { name = "aijudge-webapp" },
     { name = "aijudge-webui" },
 ]
@@ -135,6 +137,7 @@ requires-dist = [
     { name = "aijudge-submission", editable = "packages/submission" },
     { name = "aijudge-telemetry", editable = "packages/telemetry" },
     { name = "aijudge-toolchain", editable = "packages/toolchain" },
+    { name = "aijudge-unit-of-work", editable = "packages/unit_of_work" },
     { name = "aijudge-webapp", editable = "packages/webapp" },
     { name = "aijudge-webui", editable = "packages/webui" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.27" },
@@ -719,6 +722,29 @@ source = { editable = "packages/telemetry" }
 name = "aijudge-toolchain"
 version = "0.0.1"
 source = { editable = "packages/toolchain" }
+
+[[package]]
+name = "aijudge-unit-of-work"
+version = "0.0.1"
+source = { editable = "packages/unit_of_work" }
+dependencies = [
+    { name = "aijudge-audit" },
+    { name = "aijudge-authoring" },
+    { name = "aijudge-ide" },
+    { name = "aijudge-identity" },
+    { name = "aijudge-skill" },
+    { name = "aijudge-submission" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aijudge-audit", editable = "packages/audit" },
+    { name = "aijudge-authoring", editable = "packages/authoring" },
+    { name = "aijudge-ide", editable = "packages/ide" },
+    { name = "aijudge-identity", editable = "packages/identity" },
+    { name = "aijudge-skill", editable = "packages/skill" },
+    { name = "aijudge-submission", editable = "packages/submission" },
+]
 
 [[package]]
 name = "aijudge-webapp"
