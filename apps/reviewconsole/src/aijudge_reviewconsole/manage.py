@@ -4176,7 +4176,7 @@ def register(templates) -> APIRouter:
         権限はコースの作成・削除と同じ**テナント管理者** ── コースを作る
         操作である。
 
-        規則は `aijudge_admin.course_copy` に置いてある（何を引き継ぎ、何を
+        規則は `aijudge_course_admin.course_copy` に置いてある（何を引き継ぎ、何を
         引き継がないかは運用の判断で、画面の都合ではない）。
         """
         from .app import require_principal
