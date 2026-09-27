@@ -458,6 +458,21 @@ def test_the_run_records_the_settings_that_produced_it(world: World) -> None:
 
 
 @needs_c_compiler
+def test_a_tasks_own_time_limit_is_applied_and_recorded(world: World) -> None:
+    """課題ごとの実行上限（#491）が採点に効き、採点の記録に残る（P8）。"""
+    with world.database.unit_of_work() as uow:
+        task = uow.tasks.get_task(world.task_version.task_id)
+        uow.tasks.save_task(task.model_copy(update={"case_timeout_seconds": 12.5}))
+        uow.commit()
+    accepted = world.submit()
+    world.worker.run_until_empty()
+    with world.database.unit_of_work() as uow:
+        run = uow.runs.latest_for(accepted.submission.id)
+
+    assert run.context.model_params["code_test_runner"]["case_timeout_seconds"] == 12.5
+
+
+@needs_c_compiler
 def test_every_regrade_runs_its_own_ai_phase(world: World) -> None:
     """2 回目以降の再採点でも AI 段階が走る（#397）。
 

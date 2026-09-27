@@ -8,7 +8,7 @@ Evaluator は entry point で発見し、科目プロファイル（subjects/*.y
 from __future__ import annotations
 
 from .observations import project_observations
-from .overrides import ALLOWED_KEYS, LOCKED_KEYS, OverrideError
+from .overrides import ALLOWED_KEYS, LOCKED_KEYS, OverrideError, with_task_case_timeout
 from .overrides import effective as effective_profile
 from .pipeline import (
     PIPELINE_VERSION,
@@ -71,4 +71,5 @@ __all__ = [
     "project_observations",
     "reads_test_cases",
     "test_case_shape",
+    "with_task_case_timeout",
 ]

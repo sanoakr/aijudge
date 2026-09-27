@@ -123,6 +123,7 @@ from aijudge_core import (
     DIVISIONS,
     HUMAN_SCORED,
     MAX_GROUP_NAME_LENGTH,
+    MAX_TASK_CASE_TIMEOUT_SECONDS,
     MIN_JUSTIFICATION_LENGTH,
     SUFFIX_GROUPS,
     Aggregation,
@@ -145,8 +146,8 @@ from aijudge_core import (
     parse_cidrs,
 )
 from aijudge_core.ids import CourseId, TaskId, TaskVersionId, UserId, derived_id
+from aijudge_eval_code_test_runner import DEFAULT_CASE_TIMEOUT_SECONDS, LANGUAGES
 from aijudge_eval_code_test_runner import EVALUATOR_ID as CODE_TEST_RUNNER
-from aijudge_eval_code_test_runner import LANGUAGES
 from aijudge_grading import (
     LOCKED_KEYS,
     EvaluatorRegistry,
@@ -846,6 +847,7 @@ SAVED_MESSAGES: dict[str, str] = {
     # **版は上がらない。** 日程は課題の内容ではないので、直しても過去の
     # 採点基準は変わらない（ADR 0013・P8 の対象外）。
     "task_schedule": "この課題の日程を保存しました（版は上がりません）",
+    "task_case_timeout": "この課題の実行時間の上限を保存しました（版は上がりません）",
     "task_deleted": "課題を削除しました（提出が 1 件も無いもの）",
     "unit_cleared": "問題セットを片付けました",
     "released": "いままでの提出を採点に回しました（以後の提出はまた採点開始時刻まで待ちます）",
@@ -1461,6 +1463,33 @@ def _effective_profile_of(console, course, version):
         )
     except OverrideError:
         return base
+
+
+#: 入出力を実際に走らせる評価器。課題ごとの実行上限（#491）はこれらにだけ意味がある。
+_RUNS_CODE = (CODE_TEST_RUNNER, "network_test_runner")
+
+
+def _case_timeout_view(effective, task) -> dict[str, object] | None:
+    """課題ページの「実行時間の上限」欄に出す値（#491）。
+
+    空欄のとき何秒になるか（科目・コースの既定）を並べて出す ── 出さないと、
+    延ばすべきかどうかを教員が判断できない。評価器は科目の予算
+    （`timeout_seconds`）で頭打ちにするので、それも出す。
+    """
+    if task is None or effective is None:
+        return None
+    runners = [name for name in _RUNS_CODE if name in effective.deterministic]
+    if not runners:
+        return None
+    default = effective.evaluator_options.get(runners[0], {}).get(
+        "case_timeout_seconds", DEFAULT_CASE_TIMEOUT_SECONDS
+    )
+    return {
+        "value": task.case_timeout_seconds,
+        "default": default,
+        "budget": effective.timeout_seconds,
+        "max": min(MAX_TASK_CASE_TIMEOUT_SECONDS, effective.timeout_seconds),
+    }
 
 
 def _evaluator_rows(registry, kind) -> list[dict[str, str]]:
@@ -5007,6 +5036,8 @@ def register(templates) -> APIRouter:
                 "published": published,
                 # 版の履歴（新しい順）。戻せる先を選ぶために出す（#319）。
                 "history": history,
+                # この課題の実行時間の上限（#491）。コードを走らせない課題には出さない。
+                "case_timeout": _case_timeout_view(effective, task),
                 # 提出の件数。**0 のときだけ削除を出す**（#51）。
                 "submissions": _submission_count(_console(request), task),
                 # 学習者に出る形（#105）。**保存済みの版を描いて出す。**
@@ -5957,6 +5988,64 @@ def register(templates) -> APIRouter:
             uow.commit()
         return RedirectResponse(
             f"/manage/courses/{course_id}/tasks/{task_id}/edit?saved=task_schedule#saved",
+            status_code=303,
+        )
+
+    @router.post("/courses/{course_id}/tasks/{task_id}/case-timeout")
+    def set_task_case_timeout(
+        request: Request,
+        course_id: str,
+        task_id: str,
+        case_timeout_seconds: Annotated[str, Form()] = "",
+    ) -> Response:
+        """**この課題だけ**テストケース 1 件の実行時間の上限を変える（#491）。
+
+        数値計算のように、正しい解でも時間のかかる問題のため。空欄は既定
+        （科目・コースの値）に戻す。版は上がらない ── 上限はコースの採点設定でも
+        版を作らずに変えられ、それを課題単位に細かくしたもの。適用した値は採点の
+        記録（`model_params`）に残る。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+        task = _task_of(console, course, task_id)
+
+        raw = case_timeout_seconds.strip()
+        try:
+            seconds = float(raw) if raw else None
+            updated = Task.model_validate(task.model_dump() | {"case_timeout_seconds": seconds})
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "実行時間の上限は 0 より大きく "
+                    f"{MAX_TASK_CASE_TIMEOUT_SECONDS:g} 秒以下の数で入れてください"
+                ),
+            ) from None
+
+        with console.database.unit_of_work() as uow:
+            uow.tasks.save_task(updated)
+            recorder_for(uow, request, me).record(
+                AuditAction.TASK_UPDATED,
+                target_type="task",
+                target_id=str(task.id),
+                summary="課題の実行時間の上限を変えた",
+                detail={
+                    "course_id": course_id,
+                    "field": "case_timeout_seconds",
+                    "changed": {
+                        "case_timeout_seconds": {
+                            "before": task.case_timeout_seconds,
+                            "after": seconds,
+                        }
+                    },
+                },
+            )
+            uow.commit()
+        return RedirectResponse(
+            f"/manage/courses/{course_id}/tasks/{task_id}/edit?saved=task_case_timeout#saved",
             status_code=303,
         )
 

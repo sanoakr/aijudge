@@ -119,6 +119,7 @@ from .submission import (
 )
 from .task import (
     HUMAN_SCORED,
+    MAX_TASK_CASE_TIMEOUT_SECONDS,
     Aggregation,
     AnswerMode,
     Provenance,
@@ -167,6 +168,7 @@ __all__ = [
     "GATE_ZERO",
     "HUMAN_SCORED",
     "MAX_GROUP_NAME_LENGTH",
+    "MAX_TASK_CASE_TIMEOUT_SECONDS",
     "MIN_JUSTIFICATION_LENGTH",
     "PURGED_MESSAGE",
     "SCHEMA_VERSION",

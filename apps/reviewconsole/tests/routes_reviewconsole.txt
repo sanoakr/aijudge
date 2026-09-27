@@ -77,6 +77,7 @@ POST /manage/courses/{course_id}/rubric aijudge_reviewconsole.manage:save_course
 POST /manage/courses/{course_id}/settings aijudge_reviewconsole.manage:save_course_settings
 POST /manage/courses/{course_id}/statement-preview aijudge_reviewconsole.manage:statement_preview
 POST /manage/courses/{course_id}/tasks aijudge_reviewconsole.manage:add_task
+POST /manage/courses/{course_id}/tasks/{task_id}/case-timeout aijudge_reviewconsole.manage:set_task_case_timeout
 POST /manage/courses/{course_id}/tasks/{task_id}/delete aijudge_reviewconsole.manage:delete_task_route
 POST /manage/courses/{course_id}/tasks/{task_id}/finalize aijudge_reviewconsole.manage:finalize_remaining
 POST /manage/courses/{course_id}/tasks/{task_id}/items/edit aijudge_reviewconsole.manage:edit_item_list

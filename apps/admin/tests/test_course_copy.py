@@ -162,6 +162,24 @@ def test_the_schedule_is_not_carried_over(world) -> None:
     assert task.due_at is None
 
 
+def test_the_time_limit_is_carried_over(world) -> None:
+    """実行時間の上限は写す（#491）。日程と違い、問題そのものの性質である。"""
+    database, course = world
+    save_task(
+        database,
+        course_id=course.id,
+        spec=_spec(case_timeout_seconds=30.0),
+        subject_profile=course.subject_profile,
+        authored_by=TEACHER,
+    )
+
+    copied = _duplicate(database, course)
+
+    with database.unit_of_work() as uow:
+        task = uow.tasks.list_for_course(copied.course.id)[0]
+    assert task.case_timeout_seconds == 30.0
+
+
 def test_nobody_is_enrolled_in_the_copy(world) -> None:
     """学期が変われば履修者は変わる。**受講登録は空にする。**"""
     database, course = world

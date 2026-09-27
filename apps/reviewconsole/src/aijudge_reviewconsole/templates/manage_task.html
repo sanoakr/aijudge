@@ -22,7 +22,8 @@
    （`test_manage.py` の「知らせは必ずどこかに出る」が両方を数える）。 #}
 {% set FLASH_HOMES = ['task', 'tests_added', 'tests_revised', 'items_revised',
                       'regraded', 'restored_version', 'withdrawn', 'restored',
-                      'revision_none', 'revision_failed', 'task_schedule'] %}
+                      'revision_none', 'revision_failed', 'task_schedule',
+                      'task_case_timeout'] %}
 {% set flash = namespace(shown=false) %}
 {% if note and saved_key not in FLASH_HOMES %}
 {% set flash.shown = true %}
@@ -648,6 +649,30 @@
   </div>
   
 </form>
+{% if case_timeout %}
+{# この課題だけの実行時間の上限（#491）。版は上がらない（提出形式と同じ運用値）。 #}
+<h2 id="case-timeout">実行時間の上限{% call help() %}
+    テストケース 1 件を動かしてよい時間です。数値計算のように、正しい解でも時間のかかる
+    問題だけ延ばしてください。<strong>空欄なら既定（{{ '%g' % case_timeout.default }} 秒）</strong>で、
+    これは科目とコースの採点設定から来ています。
+    <br>
+    上限は {{ '%g' % case_timeout.max }} 秒までです（ケース数を掛けた時間だけ採点が占有されます）。
+    IDE の試し実行にも同じ上限が効きます。<strong>この保存で版は上がりません</strong> —
+    使った上限は採点の記録に残ります。
+  {% endcall %}</h2>
+<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/tasks/{{ task.id }}/case-timeout"
+      class="card">
+  <div class="field row-form">
+    <span><label for="t-case_timeout_seconds">1 ケースの上限（秒）</label>
+      <input id="t-case_timeout_seconds" name="case_timeout_seconds" type="number"
+             min="0.1" max="{{ '%g' % case_timeout.max }}" step="0.1" style="max-width:8rem"
+             placeholder="{{ '%g' % case_timeout.default }}"
+             value="{{ '%g' % case_timeout.value if case_timeout.value is not none else '' }}"></span>
+    {% if saved_key in ['task_case_timeout'] %}{% set flash.shown = true %}<span class="flash" id="saved">{{ note }}</span>{% endif %}
+    <button type="submit">上限を保存</button>
+  </div>
+</form>
+{% endif %}
 {% endif %}
 
 {# 既存の課題を現在の基準に合わせて書き直す（#306）。**必ず承認待ちになる** ──

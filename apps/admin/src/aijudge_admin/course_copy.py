@@ -196,6 +196,9 @@ def _copy_tasks(
                     test_cases=_test_cases(version),
                     criteria=rubric.from_criteria(version.criteria),
                     knowledge_components=keys,
+                    # 実行時間の上限は**写す**（#491）。問題そのものの性質で、
+                    # 日程と違って学期が変わっても同じ。
+                    case_timeout_seconds=task.case_timeout_seconds,
                 )
             )
 
