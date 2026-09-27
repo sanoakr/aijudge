@@ -200,29 +200,63 @@ def test_an_infinite_loop_is_stopped(container) -> None:
     assert not result.ok
 
 
-def test_a_sleeping_submission_does_not_outlive_its_timeout(container) -> None:
+def _record_names(container, monkeypatch) -> list[str]:
+    """このテストが起動したコンテナの名前を集める。
+
+    ラベル（`CONTAINER_LABEL`）で数えると、並列に流れている他のテストの
+    コンテナまで数えてしまう（#489）。名前は `wrap` が 1 回ごとに振る。
+    """
+    names: list[str] = []
+    wrap = container.wrap
+
+    def recording(argv, request, workdir):
+        command, env = wrap(argv, request, workdir)
+        names.extend(arg.removeprefix("--name=") for arg in command if arg.startswith("--name="))
+        return command, env
+
+    monkeypatch.setattr(container, "wrap", recording)
+    return names
+
+
+def test_a_sleeping_submission_does_not_outlive_its_timeout(container, monkeypatch) -> None:
     """**時間切れの後にコンテナが残らない**（#410）。
 
     CPU を使わずに待つ提出は `--ulimit=cpu` に掛からない。壁時計で
     `docker run` のクライアントを殺しても、コンテナは `--memory` ぶんを
     抱えたまま動き続けていた ── 試し実行を繰り返せばホストのメモリが尽きる。
+    いまは中の `timeout` が止める（#489）ので、コンテナは自分で終わる。
     """
     import subprocess
 
-    from aijudge_sandbox.backends import CONTAINER_LABEL
-
+    names = _record_names(container, monkeypatch)
     with container.workspace() as workspace:
         result = workspace.run(
             ExecRequest(argv=("/bin/sleep", "120"), limits=Limits(cpu_seconds=5, wall_seconds=3.0))
         )
     assert result.timed_out
+    assert len(names) == 1
     alive = subprocess.run(
-        ["docker", "ps", "--quiet", "--filter", f"label={CONTAINER_LABEL}"],
+        ["docker", "ps", "--quiet", "--filter", f"name=^{names[0]}$"],
         capture_output=True,
         text=True,
         check=True,
     ).stdout.split()
-    assert alive == [], f"時間切れの後もコンテナが残っている: {alive}"
+    assert alive == [], f"時間切れの後もコンテナが残っている: {names[0]}"
+
+
+def test_starting_the_container_is_not_counted_against_the_limit(container) -> None:
+    """持ち時間がコンテナの起動より短くても、すぐ終わる提出は時間切れにならない（#489）。
+
+    以前は `docker run` のクライアントに上限を掛けていたので、0.1 秒の上限は
+    起動だけで使い切った（`docker run` は runc でも 0.3 秒前後、gVisor はさらに
+    重い）。0.5 秒では手元の速い機械だと起動が間に合い、直す前でも通ってしまった。
+    """
+    with container.workspace() as workspace:
+        result = workspace.run(
+            ExecRequest(argv=("/bin/true",), limits=Limits(cpu_seconds=1, wall_seconds=0.1))
+        )
+    assert result.ok, result
+    assert not result.timed_out
 
 
 def test_a_fork_bomb_is_contained(container) -> None:
