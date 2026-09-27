@@ -29,6 +29,7 @@ from fastapi import Request
 import aijudge_webapp as webapp
 from aijudge_core import Role, Routing, grace_minutes
 from aijudge_core.ids import CourseId
+from aijudge_identity import INSTRUCTOR_ROLES
 
 from .rail import Rail, RailGroup, RailItem, course_rail, tenant_rail
 from .urls import root_prefix
@@ -141,9 +142,7 @@ def _build(console, request: Request, principal) -> Rail:
 
         # TA にはコースの設定を出さない（`manage.py` の権限と揃える）。
         # **テナント管理者は受講登録が無くても管理できる**（#128）。
-        can_manage = is_admin or (
-            enrollment is not None and enrollment.role in (Role.INSTRUCTOR, Role.ADMIN)
-        )
+        can_manage = is_admin or (enrollment is not None and enrollment.role in INSTRUCTOR_ROLES)
         counts = uow.reviews.attention_counts_for_course(course_id)
         tasks = {str(task.id): task for task in uow.tasks.list_for_course(course_id)}
 

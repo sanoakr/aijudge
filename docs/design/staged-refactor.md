@@ -81,6 +81,13 @@ grader → admin.justification）を列挙して `ignore_imports` に入れ、�
 
 1-1. **認可を 1 か所に**: `_require_instructor`（manage・api・app の 4 版）を
 `access` に寄せる。404 の文言の違いは引数で残す（振る舞いを変えない）  
+   → **済み**: 規則は `AuthService.require_instructor`（`aijudge_identity`・一員でなければ
+   `PermissionDenied`、一員だが教員でなければ下位の `NotAnInstructor`）と役割の集合
+   `INSTRUCTOR_ROLES` に置いた。HTTP への読み替え（404/403 と文言）は
+   `aijudge_reviewconsole.access` の 1 か所で、4 つの旧い関数はその薄い包みとして残した
+   （呼び出し側は書き換えていない）。役割を直に並べていた比較 7 か所も同じ集合を指す。
+   `packages/access` は新設しなかった ── 判定は既に `require_membership`・`require_grader`
+   を持つ `AuthService` の仲間で、HTTP を知る部分はコンソールの外で使われていない  
 1-2. **画面の共通部品**（`webapp`）: 完全に同じもの（`counterpart_url`、
 `_read_copyright_notice`、`_read_app_version`、`_serve_video`）から。
 `current_principal` は**キャッシュの有無が違う**ので、共通化は別の PR にし、

@@ -157,12 +157,18 @@ from aijudge_grading import (
     test_case_shape,
 )
 from aijudge_grading.overrides import diff
-from aijudge_identity import AuthenticationFailed, AuthService, PermissionDenied, Principal
+from aijudge_identity import (
+    INSTRUCTOR_ROLES,
+    AuthenticationFailed,
+    AuthService,
+    PermissionDenied,
+    Principal,
+)
 from aijudge_identity.network import MAX_CIDRS, CampusNetworkSettings
 from aijudge_identity.oidc import DEFAULT_LOGIN_LABEL, LOGIN_LABEL_MAX, OidcSettings
 from aijudge_submission import SubmissionService
 
-from . import mastery
+from . import access, mastery
 from .audit_context import recorder_for, source_ip_of
 from .overview import empty_unit, find_unit, load_units, unit_key
 from .urls import RedirectResponse
@@ -281,29 +287,17 @@ def _require_reader(request: Request, me: Principal, course_id: CourseId) -> tup
 
 def _can_edit(role: Role) -> bool:
     """課題や設定を**変えて**よい役割か。TA は読むだけ（#102）。"""
-    return role in (Role.INSTRUCTOR, Role.ADMIN)
+    return role in INSTRUCTOR_ROLES
 
 
 def _require_instructor(request: Request, me: Principal, course_id: CourseId) -> Course:
     """そのコースの教員であること。**TA には開けない。**
 
     締切と受講の変更は成績に直接効く。採点を分担する TA と、履修の管理を
-    する教員は別の権限である。
+    する教員は別の権限である。判定と応答の規則は `access.require_instructor`
+    に 1 つだけある（段階的な立て直し 1-1）。
     """
-    console = _console(request)
-    with console.database.unit_of_work() as uow:
-        auth = AuthService(uow.identity, audit=uow.audit)
-        try:
-            role = auth.require_membership(course_id, me.user_id)
-        except PermissionDenied as exc:
-            # 存在と権限を区別しない（コースを列挙させない）。
-            raise HTTPException(status_code=404, detail="コースが見つかりません") from exc
-        if role not in (Role.INSTRUCTOR, Role.ADMIN):
-            raise HTTPException(status_code=403, detail="この操作には担当教員の権限が必要です")
-        course = uow.identity.get_course(course_id)
-    if course is None:
-        raise HTTPException(status_code=404, detail="コースが見つかりません")
-    return course
+    return access.require_instructor(_console(request), me, course_id)
 
 
 def _require_enrolment_manager(
@@ -329,7 +323,7 @@ def _require_enrolment_manager(
             role = None
         course = uow.identity.get_course(course_id)
 
-    if role in (Role.INSTRUCTOR, Role.ADMIN):
+    if role in INSTRUCTOR_ROLES:
         if course is None:
             raise HTTPException(status_code=404, detail="コースが見つかりません")
         return course, role

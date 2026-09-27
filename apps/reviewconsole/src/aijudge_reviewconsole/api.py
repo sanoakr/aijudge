@@ -24,10 +24,10 @@ from pydantic import BaseModel, Field
 from aijudge_admin import AdminError, save_task
 from aijudge_admin import groups as audience
 from aijudge_authoring import TaskSpec
-from aijudge_core import Role
 from aijudge_core.ids import CourseId
-from aijudge_identity import AuthService, PermissionDenied, Principal
+from aijudge_identity import INSTRUCTOR_ROLES, AuthService, Principal
 
+from . import access
 from .audit_context import recorder_for
 from .overview import unit_key
 
@@ -126,7 +126,7 @@ def register() -> APIRouter:
                 # 管理者の API トークンが自分の触っていないコースを
                 # 一覧から落としてしまう。
                 role = auth.role_in(course.id, me.user_id)
-                if role not in (Role.INSTRUCTOR, Role.ADMIN):
+                if role not in INSTRUCTOR_ROLES:
                     continue
                 out.append(
                     {
@@ -302,20 +302,8 @@ def register() -> APIRouter:
 
 
 def _require_instructor(console, me: Principal, course_id: CourseId):
-    """そのコースの教員であること。**TA には開けない**（画面と同じ規則）。"""
-    with console.database.unit_of_work() as uow:
-        auth = AuthService(uow.identity, audit=uow.audit)
-        try:
-            role = auth.require_membership(course_id, me.user_id)
-        except PermissionDenied as exc:
-            # 存在と権限を区別しない（コースを列挙させない）。
-            raise HTTPException(status_code=404, detail="コースが見つかりません") from exc
-        if role not in (Role.INSTRUCTOR, Role.ADMIN):
-            raise HTTPException(status_code=403, detail="この操作には担当教員の権限が必要です")
-        course = uow.identity.get_course(course_id)
-    if course is None:
-        raise HTTPException(status_code=404, detail="コースが見つかりません")
-    return course
+    """そのコースの教員であること。**TA には開けない**（画面と同じ規則・`access`）。"""
+    return access.require_instructor(console, me, course_id)
 
 
 __all__ = ["TaskResponse", "register", "require_token"]

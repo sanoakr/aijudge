@@ -25,7 +25,7 @@ from aijudge_core import Course, Enrollment, Role
 from aijudge_core.ids import ApiTokenId, CourseId, SessionId, TenantId, UserId, new_id
 
 from .demo import demo_course_from_env, enrol_into_demo_course
-from .errors import AuthenticationFailed, PermissionDenied
+from .errors import AuthenticationFailed, NotAnInstructor, PermissionDenied
 from .models import ApiToken, Principal, Session, User, UserState
 from .passwords import hash_password, needs_rehash, verify_password
 from .repository import IdentityRepository
@@ -63,6 +63,10 @@ _DUMMY_HASH = hash_password("dummy-password-for-constant-time-comparison")
 
 
 logger = logging.getLogger(__name__)
+
+
+#: 課題・日程・受講を**変えて**よい役割（担当教員）。TA は読むだけ（#102）。
+INSTRUCTOR_ROLES: frozenset[Role] = frozenset({Role.INSTRUCTOR, Role.ADMIN})
 
 
 class AuthService:
@@ -554,6 +558,24 @@ class AuthService:
         # がここで弾かれてしまう（#128）。
         if role not in (Role.INSTRUCTOR, Role.ASSISTANT, Role.ADMIN):
             raise PermissionDenied("採点の権限がありません")
+        return role
+
+    def require_instructor(self, course_id: CourseId, user_id: UserId) -> Role:
+        """このコースの担当教員であることを要求する。**TA には許さない**（#102）。
+
+        締切・受講・課題の変更は成績に直接効く。採点を分担する TA と、履修と
+        出題を管理する教員は別の権限である。テナント管理者は受講登録なしで
+        `ADMIN` として通る（`role_in`・#128）。
+
+        一員でなければ `PermissionDenied`、一員だが教員でなければ
+        `NotAnInstructor`（その下位）を投げる ── 画面が 404 と 403 を分けるため。
+
+        以前はこの判定がコンソールの 4 か所（manage・api・app の 2 つ）に別々に
+        書かれていた（段階的な立て直し 1-1）。
+        """
+        role = self.require_membership(course_id, user_id)
+        if role not in INSTRUCTOR_ROLES:
+            raise NotAnInstructor("担当教員の権限がありません")
         return role
 
     def courses_for(self, tenant_id: TenantId, user_id: UserId) -> tuple[Course, ...]:
