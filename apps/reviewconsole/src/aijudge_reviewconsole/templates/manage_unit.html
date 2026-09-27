@@ -561,74 +561,13 @@ p2/task.yaml</span></pre>
 {% endif %}
 
 <h2 id="generate">AI にこのセットの課題を作らせる</h2>
-{% if kcs %}
-{# **いちばん時間の掛かる操作。** 参照解答・テストケース・変異テストまで
-   回るので数十秒かかる。押し直すと倍払って倍待つ。 #}
-<form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/units/{{ unit.key }}/generate"
-      class="card" data-working="生成中… 数十秒かかります（このまま待ってください）">
-  <div class="field">
-    <label>問う知識要素（1 つ以上・登録済みのものから選びます）</label>
-    {# 1 項目 1 行の格子（#224）。**`.checks` に戻さない** ── あれは拡張子の
-       ための部品で、幅の違う 2 つ組を流すと隣の項目と混ざって読めなくなる。 #}
-    <div class="kcpick">
-      {% for k in kcs %}
-      <label>
-        <input type="checkbox" name="kc" value="{{ k.key }}">
-        <span class="k">{{ k.key }}</span>
-        <span class="desc">{{ k.label }}</span>
-      </label>
-      {% endfor %}
-    </div>
-    <p class="desc" style="margin:6px 0 0">
-      足りないものは<a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/kc">知識要素</a>から追加してください。
-    </p>
-  </div>
-  <div class="field">
-    <label for="g-key">課題キー</label>
-    <div class="keyline">
-      {% if unit.unit %}<span class="fixed mono">{{ unit.unit }}/</span>{% endif %}
-      <input id="g-key" name="key_suffix" required placeholder="nstring" style="max-width:12rem">
-    </div>
-  </div>
-  <div class="field row-form">
-    <span><label for="g-difficulty">難度</label>
-      <select id="g-difficulty" name="difficulty">
-        {% for d in difficulties %}
-        <option value="{{ d }}" {{ 'selected' if d == 'standard' }}>{{ d }}</option>
-        {% endfor %}
-      </select></span>
-    <span><label for="g-cases">テストケース数</label>
-      <input id="g-cases" name="test_cases" type="number" min="2" max="20" value="5"
-             style="max-width:6rem"></span>
-    <span><label for="g-weight">読みやすさの重み</label>
-      <input id="g-weight" name="readability_weight" type="number" step="0.05" min="0" max="0.95"
-             value="0.3" style="max-width:8rem"></span>
-  </div>
-  <div class="field">
-    <label for="g-instructions">AI への指示（1 行 1 件・任意）{% call help() %}
-      外せない条件は「必ず」、希望は「できれば」と書いてください —
-      <strong>強さは書き方で伝わります</strong>。空でも生成できます。
-    {% endcall %}</label>
-    <textarea id="g-instructions" name="instructions" rows="3"
-      placeholder="必ず標準入力から読むこと&#10;標準ライブラリの qsort は使わせないこと&#10;できれば配列の添字を扱う題材にしてほしい"></textarea>
-  </div>
-  <p class="desc">数十秒かかります。できたものは承認するまで出題されません。{% call help() %}
-    このコースの既存課題を「似せないための材料」として渡します。
-    生成には数十秒かかります。
-    <strong>できたものは候補であって課題ではありません</strong> —
-    <a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/drafts">未承認の課題（AI 作問）</a>に入り、承認するまで出題されません。
-  {% endcall %}</p>
-  <div class="actions">
-    {% if saved_key == 'generated' %}<span class="flash" id="saved">{{ saved }}</span>{% endif %}
-    <button type="submit">生成</button>
-  </div>
-</form>
-{% else %}
-<div class="note warn">
-  <strong>知識要素が登録されていないので生成できません。</strong>
-  何を問う課題かを決めずに生成させると、既存の課題と見分けの付かないものが出ます。
-  <a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/kc">知識要素</a>から追加してください。
+{# **AI 作問の入口は作問ページ 1 つ**（#522）。ここから作らせるときは、このセットを
+   出題先の候補に選んだ状態で作問ページへ送る（承認のときに変えられる・#84）。 #}
+<div class="card">
+  <p class="desc" style="margin:0">
+    AI 作問は「<a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/drafts?unit={{ unit.key }}#generate">未承認の課題（AI 作問）</a>」で行います。
+    このセットを出題先の候補に選んだ状態で開きます。できた課題は承認するまで出題されません。
+  </p>
 </div>
-{% endif %}
 
 {% endblock %}

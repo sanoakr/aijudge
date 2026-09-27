@@ -4668,15 +4668,16 @@ def test_the_drafting_form_offers_only_the_selected_components(world: World) -> 
     for key, label in (("cs.loops.control.basic", "ループ"), ("cs.loops.control.python", "Python")):
         _use_kc(world, key, label)
 
-    unit = _unit_of(world)
-    body = client.get(f"/manage/courses/{world.course.id}/units/{unit}").text
+    # 生成フォームは作問ページにある（#522）。
+    drafts = f"/manage/courses/{world.course.id}/drafts"
+    body = client.get(drafts).text
     assert "cs.loops.control.python" in body  # 足したものは両方出る
 
     client.post(
         f"/manage/courses/{world.course.id}/kc/scope/remove",
         data={"kc": ["cs.loops.control.python"]},
     )
-    body = client.get(f"/manage/courses/{world.course.id}/units/{unit}").text
+    body = client.get(drafts).text
     assert "cs.loops.control.basic" in body
     assert "cs.loops.control.python" not in body
 
@@ -5006,9 +5007,16 @@ def test_a_generated_task_is_saved_awaiting_approval(monkeypatch, world: World) 
 
     monkeypatch.setattr("aijudge_reviewconsole.manage.TaskDrafter", _Drafter)
 
+    unit = _unit_of(world)
     response = client.post(
-        f"/manage/courses/{world.course.id}/units/{_unit_of(world)}/generate",
-        data={"key_suffix": "p9", "kc": ["cs.loops.control.basic"], "readability_weight": "0.3"},
+        f"/manage/courses/{world.course.id}/drafts/generate",
+        data={
+            "key_suffix": "p9",
+            "kc": ["cs.loops.control.basic"],
+            "readability_weight": "0.3",
+            # 出題先の候補（#522）。承認のときに変えられる。
+            "unit": unit,
+        },
         follow_redirects=False,
     )
     assert response.status_code == 303, response.text
@@ -5021,6 +5029,7 @@ def test_a_generated_task_is_saved_awaiting_approval(monkeypatch, world: World) 
     assert len(drafts) == 1
     assert drafts[0].generated_by == "stub-model"
     assert drafts[0].generation_prompt_version == "task_draft_ja@2"
+    assert drafts[0].unit == unit, "出題先の候補が下書きに入っていない"
     # 取り込んだ課題（1 件）以外は増えていない。
     assert len(tasks_now) == 1
 
@@ -5030,10 +5039,40 @@ def test_generation_needs_a_registered_component(world: World) -> None:
     world.register("teacher", Role.INSTRUCTOR)
     _import_example(world)
     response = world.client("teacher").post(
-        f"/manage/courses/{world.course.id}/units/{_unit_of(world)}/generate",
-        data={"key_suffix": "p9", "kc": ["cs.made.up"]},
+        f"/manage/courses/{world.course.id}/drafts/generate",
+        data={"key_suffix": "p9", "kc": ["cs.made.up"], "unit": _unit_of(world)},
     )
     assert response.status_code == 400
+
+
+def test_ai_authoring_has_one_entry_on_the_drafts_page(world: World) -> None:
+    """**AI 作問の入口は作問ページ 1 つ**（#522）。
+
+    問題セットの画面には生成フォームを置かず、そのセットを出題先の候補に
+    選んだ状態で作問ページへ送る。以前は両方にフォームがあり、#84 で作問の
+    区分を作ったあとも問題セットの側が残っていた。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    _import_example(world)
+    _use_kc(world, "cs.loops.control.basic", "ループ")
+    client = world.client("teacher")
+    unit = _unit_of(world)
+
+    unit_page = client.get(f"/manage/courses/{world.course.id}/units/{unit}").text
+    assert f"/units/{unit}/generate" not in unit_page, "問題セットの画面に生成フォームが残っている"
+    link = f"/manage/courses/{world.course.id}/drafts?unit={unit}#generate"
+    assert link in unit_page
+
+    drafts_page = client.get(f"/manage/courses/{world.course.id}/drafts?unit={unit}").text
+    assert re.search(rf'<option value="{re.escape(unit)}"\s+selected', drafts_page), (
+        "作問ページで出題先の候補が選ばれていない"
+    )
+
+    gone = client.post(
+        f"/manage/courses/{world.course.id}/units/{unit}/generate",
+        data={"key_suffix": "p9", "kc": ["cs.loops.control.basic"]},
+    )
+    assert gone.status_code in (404, 405)
 
 
 def test_the_unit_page_marks_a_task_that_is_not_approved(world: World) -> None:
@@ -5157,20 +5196,24 @@ def test_taking_a_revision_becomes_a_new_version(world: World, monkeypatch) -> N
     assert after.source_key == before.source_key
 
 
-def test_the_unit_page_offers_generation_only_with_components(world: World) -> None:
-    """**骨格を置かずに始める。** 知識要素が 1 件も無い状態が出発点である。"""
+def test_generation_is_offered_only_with_components(world: World) -> None:
+    """**骨格を置かずに始める。** 知識要素が 1 件も無い状態が出発点である。
+
+    生成フォームは作問ページにある（#522）。
+    """
     world.register("teacher", Role.INSTRUCTOR)
     _import_example(world)
     client = world.client("teacher")
+    drafts = f"/manage/courses/{world.course.id}/drafts"
 
-    body = client.get(f"/manage/courses/{world.course.id}/units/{_unit_of(world)}").text
+    body = client.get(drafts).text
     assert "知識要素が登録されていないので生成できません" in body
 
     _seed(world)
     world.register("boss", Role.ADMIN)
     _use_kc(world, "cs.loops.control.basic", "ループ")
-    body = client.get(f"/manage/courses/{world.course.id}/units/{_unit_of(world)}").text
-    assert "AI にこのセットの課題を作らせる" in body
+    body = client.get(drafts).text
+    assert "AI に課題を作らせる" in body
     assert 'name="kc"' in body
 
 
@@ -5507,11 +5550,10 @@ def test_the_long_running_forms_say_that_the_model_is_working(world: World) -> N
     world.register("boss", Role.ADMIN)
     client = world.client("boss")
     _import_example(world)
-    # 作問の欄は、問える知識要素が 1 つ以上あって初めて出る。
+    # 作問の欄は、問える知識要素が 1 つ以上あって初めて出る。作問ページにだけある（#522）。
     _use_kc(world, "cs.loops.control.basic", "ループ")
-    unit = _unit_of(world)
 
-    body = client.get(f"/manage/courses/{world.course.id}/units/{unit}").text
+    body = client.get(f"/manage/courses/{world.course.id}/drafts").text
     assert 'data-working="生成中…' in body
     # 仕掛けは 1 か所（base.html）にあり、テンプレートは属性を書くだけ。
     assert "onsubmit=" not in body
@@ -5524,9 +5566,8 @@ def test_the_progress_is_not_reported_as_a_number(world: World) -> None:
     client = world.client("boss")
     _import_example(world)
     _use_kc(world, "cs.loops.control.basic", "ループ")
-    unit = _unit_of(world)
 
-    body = client.get(f"/manage/courses/{world.course.id}/units/{unit}").text
+    body = client.get(f"/manage/courses/{world.course.id}/drafts").text
     assert "<progress" not in body
 
 

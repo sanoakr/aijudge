@@ -711,7 +711,7 @@ def capture(state: Path, playwright: Any, login_url: str) -> None:
     s.shot("in-unit-schedule", between=("h2:has-text('日程')", "h2:has-text('成績の自動確定')"))
     s.shot("in-unit-tasks", between=("h2:has-text('この問題セットの課題')", "h3:has-text('zip')"))
     s.shot("in-unit-bundle", between=("h3:has-text('zip')", "h2:has-text('片付ける')"))
-    s.shot("in-unit-generate", between=("h2:has-text('AI に課題')", None), height=700)
+    # AI 作問のフォームは作問ページにだけある（#522）。`in-drafts` が写す。
     page.goto(f"{CONSOLE}/manage/courses/{course}/units/ex01/tasks/new")
     s.shot("in-task-new", full=True)
     page.goto(f"{CONSOLE}/manage/courses/{course}/drafts")
