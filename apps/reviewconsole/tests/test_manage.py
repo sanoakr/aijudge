@@ -5301,7 +5301,7 @@ def test_candidates_come_from_the_course_basics(monkeypatch, world: World) -> No
         data={"title": world.course.title, "description": "## 到達目標\n\n配列を扱える"},
     )
     reader = _proposal("cs.loops.control.arrays")
-    monkeypatch.setattr("aijudge_reviewconsole.manage.SyllabusReader", reader)
+    monkeypatch.setattr("aijudge_reviewconsole.manage.kc.SyllabusReader", reader)
 
     body = client.post(f"/manage/courses/{world.course.id}/kc/candidates").text
     assert "cs.loops.control.arrays" in body
@@ -5329,7 +5329,7 @@ def test_the_candidates_are_built_from_the_saved_description(monkeypatch, world:
                 unit_keys=unit_keys,
             )
 
-    monkeypatch.setattr("aijudge_reviewconsole.manage.SyllabusReader", _Recording)
+    monkeypatch.setattr("aijudge_reviewconsole.manage.kc.SyllabusReader", _Recording)
     client.post(f"/manage/courses/{world.course.id}/kc/candidates")
     assert "ポインタと再帰を扱う" in made[0]
     assert "計算機科学入門" in made[0]
@@ -5359,7 +5359,7 @@ def test_what_the_gate_dropped_is_shown_with_its_reason(world: World, monkeypatc
     _with_basics(world, client)
 
     monkeypatch.setattr(
-        "aijudge_reviewconsole.manage.SyllabusReader",
+        "aijudge_reviewconsole.manage.kc.SyllabusReader",
         _proposal(
             "cs.loops.control.arrays",
             discarded=(
@@ -5424,7 +5424,7 @@ def test_candidates_can_be_adopted_in_bulk(monkeypatch, world: World) -> None:
     for key, label in (("cs.loops.control.arrays", "配列"), ("cs.loops.control.recursion", "再帰")):
         register_kc(world.database, key=key, label=label, namespaces=("cs",))
     monkeypatch.setattr(
-        "aijudge_reviewconsole.manage.SyllabusReader",
+        "aijudge_reviewconsole.manage.kc.SyllabusReader",
         _proposal("cs.loops.control.arrays", "cs.loops.control.recursion"),
     )
     body = client.post(f"/manage/courses/{world.course.id}/kc/candidates").text
@@ -5478,7 +5478,7 @@ def test_a_component_this_course_does_not_use_is_offered_as_existing(
     )
 
     monkeypatch.setattr(
-        "aijudge_reviewconsole.manage.SyllabusReader",
+        "aijudge_reviewconsole.manage.kc.SyllabusReader",
         _proposal("cs.loops.control.arrays", "cs.loops.control.recursion"),
     )
     body = client.post(f"/manage/courses/{world.course.id}/kc/candidates").text

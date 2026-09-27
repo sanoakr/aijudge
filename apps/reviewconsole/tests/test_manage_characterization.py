@@ -434,3 +434,46 @@ def test_only_a_tenant_admin_renames_a_profile(world: World, tmp_path) -> None:
 
     assert response.status_code == 403
     assert (profiles / "cs_unused.yaml").exists()
+
+
+# -- KC の名前・説明の修正（段階 4-5 の前に厚くする・地図の表）--------------------
+
+
+def _kc_world(world: World) -> str:
+    from test_manage import _seed, _use_kc
+
+    _seed(world)
+    world.register("boss", Role.ADMIN)
+    world.register("teacher", Role.INSTRUCTOR)
+    world.register("ta", Role.ASSISTANT)
+    _use_kc(world, "cs.loops.control.basic", "ルーブ")
+    return f"/manage/courses/{world.course.id}/kc/edit"
+
+
+def test_editing_a_kc_trims_the_key_and_returns_to_the_kc_page(world: World) -> None:
+    url = _kc_world(world)
+    response = world.client("teacher").post(
+        url, data={"key": " cs.loops.control.basic ", "label": "ループ"}, follow_redirects=False
+    )
+    assert response.status_code == 303
+    assert response.headers["location"].endswith(
+        f"/manage/courses/{world.course.id}/kc?saved=kc_edited#saved"
+    )
+
+
+def test_a_ta_does_not_edit_a_kc(world: World) -> None:
+    url = _kc_world(world)
+    response = world.client("ta").post(url, data={"key": "cs.loops.control.basic", "label": "x"})
+    assert response.status_code == 403
+
+
+def test_an_unknown_kc_or_an_empty_label_is_refused(world: World) -> None:
+    url = _kc_world(world)
+    client = world.client("teacher")
+    unknown = client.post(url, data={"key": "cs.no.such.kc", "label": "x"})
+    assert unknown.status_code == 400
+    empty = client.post(url, data={"key": "cs.loops.control.basic", "label": ""})
+    assert empty.status_code == 400
+    # 断ったあとも名前は元のまま。
+    page = client.get(f"/manage/courses/{world.course.id}/kc").text
+    assert "ルーブ" in page

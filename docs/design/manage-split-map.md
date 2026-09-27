@@ -112,7 +112,8 @@
 | 4-2 | #537 | `manage.py` → `manage/__init__.py`（モジュール名はそのまま） | — |
 | 4-3 準備 | #541 | ルートの横取りのテスト（写しは並べ替えて比べるので順序を見ない）、科目プロファイルの改名の特性テスト | — |
 | 4-3 | #545 | A1 を `users.py`（利用者・学内ネットワーク・OIDC・自分のパスワード）と `subjects.py` へ。共有する権限の確かめとパンくずは `common.py`、保存後の文言は `messages.py` | `__init__` 6,631・`users` 675・`subjects` 254・`common` 85・`messages` 106 |
-| 4-4 | この PR | A2 を `learners.py`（受講者・役割・習熟度）へ。コースの権限確認（`_require_reader`・`_require_instructor`）・コースの KC・役割の数は `common.py` へ。`SAVED_MESSAGES` の説明コメント 2 つが `MAX_UNKNOWN_SHOWN` の上に取り違えて置かれていたのを `messages.py` に戻した | `__init__` 6,151・`learners` 460・`common` 151 |
+| 4-4 | #546 | A2 を `learners.py`（受講者・役割・習熟度）へ。コースの権限確認（`_require_reader`・`_require_instructor`）・コースの KC・役割の数は `common.py` へ。`SAVED_MESSAGES` の説明コメント 2 つが `MAX_UNKNOWN_SHOWN` の上に取り違えて置かれていたのを `messages.py` に戻した | `__init__` 6,151・`learners` 460・`common` 151 |
+| 4-5 | この PR | A3 を `kc.py`（KC の一覧・引退・採用・範囲・名前の修正・削除、シラバスからの候補）へ。候補（`propose_kcs`）は基本情報の近くにあったが、KC の本体の位置に寄せた。先に `kc/edit` の特性テスト 3 件（TA は 403・存在しないキーと空の名前は 400・キーの前後の空白を落として戻る） | `__init__` 5,679・`kc` 504 |
 
 移し方（4-3 で決めた）: 領域のモジュールは `register(router, templates)` を持ち、`__init__` の
 `register()` が元のルートの位置で呼ぶ。`__init__` は `common`・`messages` から同じ名前で
