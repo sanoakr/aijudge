@@ -36,7 +36,12 @@ from aijudge_sandbox import (
 
 # コンテナ内でコンパイルするので、ホストの cc は要らない。
 # イメージ（既定 gcc:14-bookworm）が持っている。
-FAST = Limits(cpu_seconds=5, wall_seconds=60.0, processes=32)
+# プロセス数は運用と同じ 64（`code_test_runner` の `_MAX_PROCESSES`・`Limits` の既定）。
+# **gVisor では 32 でコンパイルが通らない**（#502 で実測）。`--pids-limit` は
+# 中のプロセスだけでなく、gVisor 本体（Sentry）がホスト上で使うスレッドにも
+# 掛かるので、中で使える数が runc より少ない ── 32 では `collect2` が
+# `posix_spawnp: Cannot allocate memory` で落ち、64 なら通った。
+FAST = Limits(cpu_seconds=5, wall_seconds=60.0, processes=64)
 
 
 # 試す runtime。`None` は docker の既定（runc）。
@@ -111,7 +116,8 @@ def test_a_program_runs_in_the_container(container) -> None:
         result = workspace.run(ExecRequest(argv=("/bin/echo", "hello"), limits=FAST))
     assert result.ok, result.stderr
     assert result.stdout.strip() == "hello"
-    assert result.isolation is Isolation.CONTAINER
+    # 結果に残る隔離の水準は、使った runtime のもの（採点結果の `isolation`）。
+    assert result.isolation is container.isolation
 
 
 def test_the_submission_does_not_run_as_root(container) -> None:
