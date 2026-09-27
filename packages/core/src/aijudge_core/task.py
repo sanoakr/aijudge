@@ -141,6 +141,11 @@ def effective_aggregation(
 # レビューへ回る ── 静かに間違った点が出るのではなく、止まる側に倒れる。
 HUMAN_SCORED = "__human__"
 
+#: 課題ごとの実行時間の上限の天井（秒・#491）。1 ケースの上限なので、ケース数を
+#: 掛けた時間だけワーカーを占める。さらに評価器は科目の予算（`timeout_seconds`）で
+#: 頭打ちにする。
+MAX_TASK_CASE_TIMEOUT_SECONDS = 60.0
+
 
 class RubricCriterion(BaseModel):
     """ルーブリックの 1 観点。AI 評価器はこの単位で 1 回呼ばれる（§04）。"""
@@ -470,6 +475,16 @@ class Task(BaseModel):
     # 止まる。**既定は撮らない**（演習では撮らない）。`tasks.document` に入るので
     # 列は増えない。
     screen_capture: bool = False
+    # テストケース 1 件の実行時間の上限（秒・#491）。**この課題だけ**科目・コースの
+    # 既定（`evaluator_options.<評価器>.case_timeout_seconds`）を上書きする。数値計算の
+    # ように、正しい解でも時間のかかる問題のため。None は既定のまま。
+    #
+    # 版ではなく課題に持つ（提出形式と同じ運用値）── 上限はコースの採点設定でも
+    # 版を作らずに変えられ、それを課題単位に細かくしたものだから。適用した値は
+    # 採点の記録（`model_params`）に評価器の設定として残る（P8）。
+    case_timeout_seconds: float | None = Field(
+        default=None, gt=0.0, le=MAX_TASK_CASE_TIMEOUT_SECONDS
+    )
     # 出題先（追試など）。**空は受講者全員**（従来どおり）。複数を持てば、
     # いずれかの名簿に入っている学習者に出す（和集合）。
     #

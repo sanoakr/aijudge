@@ -20,6 +20,7 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validato
 
 from aijudge_core import (
     HUMAN_SCORED,
+    MAX_TASK_CASE_TIMEOUT_SECONDS,
     Aggregation,
     Provenance,
     QMatrixEntry,
@@ -155,6 +156,12 @@ class TaskSpec(BaseModel):
     # しないと提出できない ── 既定はコード課題に合わせてあるので、画像課題は
     # 定義の側で言う必要がある。
     accepted_suffixes: tuple[str, ...] = ()
+    # テストケース 1 件の実行時間の上限（秒・#491）。**None なら科目・コースの既定。**
+    # 数値計算のように時間のかかる問題だけ書く。問題そのものの性質なので、定義に
+    # 書けるようにし、コースの複製でも写す（日程と違い、学期が変わっても同じ）。
+    case_timeout_seconds: float | None = Field(
+        default=None, gt=0.0, le=MAX_TASK_CASE_TIMEOUT_SECONDS
+    )
     # AI が担当する「読みやすさ」の重み。0 なら観点を作らない。
     readability_weight: float = Field(default=0.0, ge=0.0, lt=1.0)
     # 観点の畳み方（AND / OR）。**None ならコースの設定に従う。**

@@ -98,6 +98,37 @@ def effective(
     return profile
 
 
+#: 決定的評価器が共有する、テストケース 1 件の実行上限の設定名（#491）。
+#: `code_test_runner`・`network_test_runner` とも同じ名前で読む。知らない評価器は
+#: 読まずに捨てる（設定は評価器ごとの辞書なので、他に影響しない）。
+CASE_TIMEOUT_OPTION = "case_timeout_seconds"
+
+
+def with_task_case_timeout(profile: SubjectProfile, seconds: float | None) -> SubjectProfile:
+    """課題ごとの実行上限（`Task.case_timeout_seconds`）を重ねる（#491）。
+
+    重ね方は「科目 ← コース ← 課題」。コースの上書き（`effective`）の**後で**呼ぶ。
+    None なら何も変えない（同じものを返す）。
+
+    **採点ワーカーと IDE の試し実行の両方がこれを通す。** 片方だけだと、IDE で
+    動いたものが採点で時間切れになる（設計書 §4.2 の「同じ上限」）。
+
+    エンジンは評価器を知らないので、どの評価器が読むかは決めず、決定的評価器の
+    全部に同じ名前で渡す（`CASE_TIMEOUT_OPTION`）。
+    """
+    if seconds is None:
+        return profile
+    return effective(
+        profile,
+        {
+            "evaluator_options": {
+                evaluator_id: {CASE_TIMEOUT_OPTION: seconds}
+                for evaluator_id in profile.deterministic
+            }
+        },
+    )
+
+
 def diff(base: SubjectProfile, overrides: dict[str, Any] | None) -> dict[str, tuple[Any, Any]]:
     """雛形から何が変わっているか。画面に「雛形のまま／変更あり」を出すのに使う。"""
     if not overrides:
@@ -111,4 +142,12 @@ def diff(base: SubjectProfile, overrides: dict[str, Any] | None) -> dict[str, tu
     }
 
 
-__all__ = ["ALLOWED_KEYS", "LOCKED_KEYS", "OverrideError", "diff", "effective"]
+__all__ = [
+    "ALLOWED_KEYS",
+    "CASE_TIMEOUT_OPTION",
+    "LOCKED_KEYS",
+    "OverrideError",
+    "diff",
+    "effective",
+    "with_task_case_timeout",
+]

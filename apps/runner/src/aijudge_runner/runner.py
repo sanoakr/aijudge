@@ -32,7 +32,13 @@ from aijudge_eval_code_test_runner import (
     OPTION_CASE_TIMEOUT,
     OPTION_COMPILE_TIMEOUT,
 )
-from aijudge_grading import OverrideError, SubjectProfile, effective_profile, load_profile
+from aijudge_grading import (
+    OverrideError,
+    SubjectProfile,
+    effective_profile,
+    load_profile,
+    with_task_case_timeout,
+)
 from aijudge_ide import (
     DEFAULT_LEASE_SECONDS,
     EDITOR_FORMATS,
@@ -207,6 +213,11 @@ class CodeRunner:
             course = None if task is None else uow.identity.get_course(task.course_id)
 
         profile = self._profile(version.subject_profile, course)
+        # 課題の実行上限も**採点ワーカーと同じ重ね方**（#491）。重ねないと、
+        # 時間のかかる問題が IDE でだけ時間切れになる。
+        profile = with_task_case_timeout(
+            profile, None if task is None else task.case_timeout_seconds
+        )
         # **採点がテストを走らせる課題だけ**実行させる。走らせない課題
         # （レポート・画像）には言語も上限も決まっていない。
         if EVALUATOR_ID not in profile.deterministic:

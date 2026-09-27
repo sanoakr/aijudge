@@ -111,6 +111,26 @@ def test_problem_dir_fills_what_the_yaml_does_not_say(tmp_path: Path) -> None:
     assert imported.readability_weight == 0.3
 
 
+def test_a_task_can_declare_its_own_time_limit(database: Database, tmp_path: Path) -> None:
+    """定義に書いた実行時間の上限が課題に入り、書かずに流し直しても消えない（#491）。"""
+    root = tmp_path / "limit"
+    root.mkdir()
+    with_limit = DEFINITION.replace(
+        "    readability_weight: 0.3\n",
+        "    readability_weight: 0.3\n    case_timeout_seconds: 30\n",
+        1,
+    )
+    assert with_limit != DEFINITION
+    first = _apply(database, _write_definition(root, with_limit))
+    tasks, _ = _tasks(database, first.course.id)
+    assert {t.case_timeout_seconds for t in tasks.values()} == {None, 30.0}
+
+    (root / "course.yaml").write_text(DEFINITION, encoding="utf-8")
+    _apply(database, root / "course.yaml")
+    tasks, _ = _tasks(database, first.course.id)
+    assert {t.case_timeout_seconds for t in tasks.values()} == {None, 30.0}
+
+
 def test_unit_schedule_is_the_default_and_the_task_wins(tmp_path: Path) -> None:
     """`units:` の日程は回の既定で、課題が自分の値を書けばそちらが勝つ。"""
     definition = load_course_definition(_write_definition(tmp_path))

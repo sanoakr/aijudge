@@ -56,6 +56,7 @@ from aijudge_grading import (
     grading_completed_event,
     load_profile,
     project_observations,
+    with_task_case_timeout,
 )
 from aijudge_persistence import Database, ObservationFileStore
 from aijudge_submission import (
@@ -263,6 +264,11 @@ class GradingWorker:
         # （`aijudge_grading.overrides`）。上書きが無ければ雛形そのもので、
         # 今までと同じ挙動になる。
         profile = self._profile(job.subject_profile, course)
+        # **課題の実行上限を重ねる**（#491）。数値計算のように時間のかかる問題だけ
+        # 上限を延ばす。IDE の試し実行（`aijudge_runner`）も同じ関数を通す。
+        profile = with_task_case_timeout(
+            profile, None if task is None else task.case_timeout_seconds
+        )
         # 観点の畳み方（AND / OR）。**課題の指定がコースの既定を上書きする。**
         # 解決はここでやる ── パイプラインはコースを知らない（締切と同じで、
         # 採点エンジンに運用値を持ち込まない）。

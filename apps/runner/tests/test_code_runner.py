@@ -226,6 +226,19 @@ def test_the_courses_overrides_apply_as_they_do_in_grading(world: World) -> None
     assert world.sandbox.requests[-1].limits == grading_limits(7.0)
 
 
+def test_the_tasks_own_limit_wins_as_it_does_in_grading(world: World) -> None:
+    """課題の実行上限はコースの上書きより優先する（#491・科目 ← コース ← 課題）。"""
+    world.set_course({"evaluator_options": {"code_test_runner": {"case_timeout_seconds": 7}}})
+    with world.database.unit_of_work() as uow:
+        task = uow.tasks.get_task(world.version.task_id)
+        uow.tasks.save_task(task.model_copy(update={"case_timeout_seconds": 20.0}))
+        uow.commit()
+    world.ask()
+    world.runner.run_once()
+
+    assert world.sandbox.requests[-1].limits == grading_limits(20.0)
+
+
 def test_a_compile_error_is_reported_as_such(tmp_path: Path) -> None:
     sandbox = FakeSandbox(
         [

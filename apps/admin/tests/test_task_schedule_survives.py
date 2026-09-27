@@ -204,7 +204,7 @@ def test_revising_a_campus_only_task_keeps_the_restriction(world) -> None:
 # 「作り直しで引き継ぐか」を決めさせるため。決めずに足すと、既定値に戻る
 # （`withdrawn`・`campus_only` で実際にそうなった）。
 FROM_THE_SPEC = {"id", "course_id", "title", "unit", "session", "position"}
-FROM_THE_SPEC_OR_KEPT = {"opens_at", "due_at", "accepted_suffixes"}
+FROM_THE_SPEC_OR_KEPT = {"opens_at", "due_at", "accepted_suffixes", "case_timeout_seconds"}
 KEPT = {
     "submissions_open_at",
     "grading_starts_at",
@@ -335,3 +335,16 @@ def test_revising_a_task_keeps_its_clear_points(world) -> None:
     with database.unit_of_work() as uow:
         after = uow.tasks.get_task(saved.task.id)
     assert after.clear_points == 60.0, "直したらクリア点が外れている"
+
+
+def test_revising_a_task_keeps_its_case_timeout(world) -> None:
+    """時間のかかる問題を 1 つ直しても、実行時間の上限が既定に戻らない（#491）。"""
+    database, course = world
+    saved = _save(database, course, "本文")
+    _schedule_the_unit(database, saved.task.id, case_timeout_seconds=30.0)
+
+    _save(database, course, "本文（誤字を直した）")
+
+    with database.unit_of_work() as uow:
+        after = uow.tasks.get_task(saved.task.id)
+    assert after.case_timeout_seconds == 30.0, "直したら実行時間の上限が戻っている"
