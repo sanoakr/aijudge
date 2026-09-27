@@ -167,6 +167,10 @@ grader → admin.justification）を列挙して `ignore_imports` に入れ、�
    → **3-3b 済み**: `course_admin` を契約 `unit-of-work-is-for-the-apps` の例外にし
    （例外はこれだけ、と境界テストで固定）、`groups` の `uow` を `UnitOfWork` で
    型付けした。`type: ignore` 15 個が消え、strict の mypy が呼び先を確かめる  
+   → **3-3c 済み**: `aijudge_unit_of_work.Store`（`unit_of_work()` だけを持つ Protocol）を
+   足した。残る `grading_settings`・`tasks`・`courses`・`operations` は `Database` を
+   受けて `unit_of_work()` を開くだけなので、引数の型を `Store` にすれば移せる。
+   置き場所は `UnitOfWork` の隣（2026-09-27 にユーザーと決めた）  
 3-4. `finalization`（**import 契約 `grades-do-not-read-activity`・
 `grades-cannot-reach-activity-flags` と `test_boundaries` の名前を同時に書き換える**）→ `kc`  
 3-5. `authoring` → `bundle_plan`, `bundles`, `course_copy`, `course_definition`  
