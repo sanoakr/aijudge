@@ -19,7 +19,9 @@ jobs:
     #
     # 接続数は既定（100）のまま。同時実行のテストは 4 スレッドで 24 件を
     # 取り合うだけなので足りる ── `services` に `command` は渡せないため、
-    # 増やすなら別の手が要る。
+    # 増やすなら別の手が要る。テストは並列（`-n auto`、runner は 4 コア）だが、
+    # worker は DB を分けて持ち（直下の `conftest.py`）、同時に使う接続は
+    # worker の数 × 数本に留まる。
     services:
       postgres:
         # **本番と同じ版にする**（#429）。本番は PostgreSQL 18。
@@ -77,7 +79,14 @@ jobs:
           # 保存実装のテストを PostgreSQL にも当てる（#243）。設定が無いと
           # SQLite の側だけが走る。
           AIJUDGE_TEST_DATABASE_URL: postgresql+psycopg://aijudge:aijudge@localhost:5432/aijudge
-        run: uv run pytest
+        # **並列に流す**（pytest-xdist）。1 プロセスでは 15〜30 分かかり、
+        # 突出して遅いテストは無かった（最長 6.7 秒・上位 40 件で全体の 2 割）ので、
+        # 並列がそのまま効く。4 並列の手元の実測: 1 プロセス（SQLite のみ）8 分 →
+        # PostgreSQL 込みで 3 分 10 秒。
+        #
+        # `loadfile`: 同じファイルのテストは同じ worker で流す。モジュール単位の
+        # 準備を worker の数だけ作り直さずに済み、実測でも `load` より速かった。
+        run: uv run pytest -n auto --dist loadfile
 
   # 採点精度の測定。教員採点データはリポジトリに置けない（個人情報）ので、
   # ランナーに用意がある場合だけ実測する。

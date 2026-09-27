@@ -47,6 +47,8 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
+    # CI はテストを並列に流す（`-n auto`）。worker ごとの DB は直下の `conftest.py`。
+    "pytest-xdist>=3.6",
     "httpx>=0.27",
     "import-linter>=2.0",
     "ruff>=0.6",
