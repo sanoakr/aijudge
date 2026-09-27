@@ -105,9 +105,10 @@ from aijudge_submission import (
 )
 from aijudge_telemetry import RequestContextMiddleware
 
-from . import access
+from . import access, notices
 from .audit_context import request_id_of, source_ip_of
 from .io_results import io_results
+from .notices import Notices
 from .overview import digests_for, load_units
 from .rail_context import RAIL_COURSE_ID, rail_context
 from .sampling import is_blind_sample
@@ -289,30 +290,10 @@ class Console:
         self.learner_url = learner_url.rstrip("/")
         self.learner_port = learner_port
         self._rates: dict[str, float] = {}
-        # 直近に足した課題。管理画面が「何が起きたか」を返すために持つ。
-        # コースを添えるのは Console が全利用者で共有だから。
-        self.last_task: tuple[str, object] | None = None
-        # 直近のテストケース生成の失敗を (course_id, task_id, 理由) で持つ。
-        # **理由を持つのは、決めつけないため**（#52）。
-        self.last_test_case_error: tuple[str, str, str] | None = None
-        # 直近の再採点の結果を (course_id, 件数) で持つ。
-        self.last_regrade: tuple[str, int] | None = None
-        # 直近の一括確定の結果を (course_id, outcome) で持つ。
-        # **コースを添えるのは Console が全利用者で共有だから。** 添えないと、
-        # 別のコースの教員に他コースの課題名が出る。
-        self.last_finalize: tuple[str, object] | None = None
-        # 直前に片付けた問題セットの内訳（#59）。**件数だけでは足りない** ──
-        # 削除と取り下げが混ざるので、何がどちらになったかを画面に出す。
-        self.last_clear: tuple[str, object] | None = None
-        # 直前の AI 改訂で何を直したと言っているか（#306）: (course_id, task_id, 変更点)。
-        # **差分と一緒に読ませる** ── 何を直したつもりなのかが分からないと、
-        # 教員は書き換わった問題文を頭から読み直すことになる。
-        self.last_revision: tuple[str, str, tuple[str, ...]] | None = None
-        # 直前に採点へ回した件数（#67）。**0 件だったことも伝える** ──
-        # 押したのに何も起きなかったのが正常なのか異常なのか分からない。
-        self.last_release: tuple[str, int] | None = None
-        # 直前の知識要素の足す・外す（#289）: (course_id, "added"|"removed", 件数, 残した件数)。
-        self.last_kc_scope: tuple[str, str, int, int] | None = None
+        # 保存のあとに一度だけ出す知らせ（`aijudge_reviewconsole.notices`）。
+        # 以前は `last_*` の 8 属性でコース単位に持ち、読んでも消さなかったので、
+        # 同じコースの別の教員にも出て、開き直すたびに出続けた。
+        self.notices = Notices()
 
     def blind_sample_rate(self, subject_profile: str) -> float:
         """科目プロファイルが宣言した blind 抽出率。
@@ -833,11 +814,7 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 # 足りない** ── 1 回の操作で課題ごとに削除と取り下げに
                 # 分かれるので、何がどちらになったのかが言えなくなる。
                 # 片付けた直後の着地点がこの画面なので、ここに出す。
-                "last_clear": (
-                    console.last_clear[1]
-                    if console.last_clear is not None and console.last_clear[0] == str(course.id)
-                    else None
-                ),
+                "last_clear": console.notices.take(me.user_id, course.id, notices.UNIT_CLEARED),
                 # TA にはコースの設定を開かせない（`manage/` の権限と揃える）。
                 # **テナント管理者は受講登録が無くても管理できる**（#128）。
                 "can_manage": me.is_tenant_admin
@@ -1042,12 +1019,7 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 "can_manage": me.is_tenant_admin
                 or (enrollment is not None and enrollment.role in INSTRUCTOR_ROLES),
                 "min_reason": MIN_JUSTIFICATION_LENGTH,
-                "last_finalize": (
-                    console.last_finalize[1]
-                    if console.last_finalize is not None
-                    and console.last_finalize[0] == str(course.id)
-                    else None
-                ),
+                "last_finalize": console.notices.take(me.user_id, course.id, notices.FINALIZED),
             },
         )
 

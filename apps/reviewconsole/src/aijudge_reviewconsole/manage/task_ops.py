@@ -27,6 +27,7 @@ from aijudge_course_admin.tasks import delete as delete_task
 from aijudge_course_admin.tasks import withdraw as withdraw_task
 from aijudge_submission import SubmissionService
 
+from .. import notices
 from ..audit_context import recorder_for
 from ..overview import unit_key
 from ..urls import RedirectResponse
@@ -100,7 +101,7 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
 
         # 表示のために保持する。**コースを添える**（Console は全利用者で共有で、
         # 添えないと別コースの教員に他コースの課題名が出る）。
-        console.last_finalize = (str(course_id), outcome)
+        console.notices.put(me.user_id, course_id, notices.FINALIZED, outcome)
         return RedirectResponse(_unit_href(course_id, task), status_code=303)
 
     @router.post("/courses/{course_id}/tasks/{task_id}/regrade")
@@ -160,7 +161,7 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
                 task_version_id=version.id,
             )
             queued += 1
-        console.last_regrade = (str(course.id), queued)
+        console.notices.put(me.user_id, course.id, notices.REGRADED, queued, scope=task_id)
         return RedirectResponse(
             f"/manage/courses/{course_id}/tasks/{task_id}/edit?saved=regraded#saved",
             status_code=303,

@@ -39,6 +39,7 @@ from aijudge_course_admin.test_cases import TestCaseWriter
 from aijudge_eval_code_test_runner import EVALUATOR_ID as CODE_TEST_RUNNER
 from aijudge_grading import EvaluatorRegistry, load_profile
 
+from .. import notices
 from ..overview import unit_key
 from ..urls import RedirectResponse
 from .common import (
@@ -335,7 +336,7 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
                 )
                 uow.commit()
 
-        console.last_task = (str(course.id), saved)
+        console.notices.put(me.user_id, course.id, notices.TASK_SAVED, saved)
         # テストで確定できる科目なのにテストケースが無いなら、そう言う。
         if saved.version.test_cases or CODE_TEST_RUNNER not in profile.deterministic:
             landed = "task"

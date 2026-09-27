@@ -25,6 +25,7 @@ from aijudge_course_admin.kc import usage as kc_usage
 from aijudge_course_admin.syllabus import SyllabusReader
 from aijudge_grading import load_profile
 
+from .. import notices
 from ..urls import RedirectResponse
 from .common import _console, _is_admin, _require_instructor
 from .messages import SAVED_MESSAGES
@@ -69,10 +70,10 @@ def _kc_page(
     chosen = set(course.knowledge_components)
     # 直前の足す・外すの結果（件数）。画面に出したら消す。
     scope_result = None
-    if console.last_kc_scope and console.last_kc_scope[0] == str(course.id):
-        _cid, action, changed, kept = console.last_kc_scope
+    taken = console.notices.take(me.user_id, course.id, notices.KC_SCOPE)
+    if taken is not None:
+        action, changed, kept = taken
         scope_result = {"action": action, "changed": changed, "kept": kept}
-        console.last_kc_scope = None
     return templates.TemplateResponse(
         request,
         "manage_kc.html",
@@ -357,7 +358,7 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
         except AdminError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         added = _scope_in(console, course, keys)
-        console.last_kc_scope = (str(course.id), "added", added, 0)
+        console.notices.put(me.user_id, course.id, notices.KC_SCOPE, ("added", added, 0))
         return RedirectResponse(
             f"/manage/courses/{course_id}/kc?saved=kc_scoped#saved", status_code=303
         )
@@ -389,7 +390,7 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
         except AdminError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         added = _scope_in(console, course, keys)
-        console.last_kc_scope = (str(course.id), "added", added, 0)
+        console.notices.put(me.user_id, course.id, notices.KC_SCOPE, ("added", added, 0))
         return RedirectResponse(
             f"/manage/courses/{course_id}/kc?saved=kc_scoped#saved", status_code=303
         )
@@ -428,7 +429,9 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
                     course.model_copy(update={"knowledge_components": remaining})
                 )
                 uow.commit()
-        console.last_kc_scope = (str(course.id), "removed", removed, len(kept))
+        console.notices.put(
+            me.user_id, course.id, notices.KC_SCOPE, ("removed", removed, len(kept))
+        )
         return RedirectResponse(
             f"/manage/courses/{course_id}/kc?saved=kc_scoped#saved", status_code=303
         )

@@ -20,6 +20,7 @@ from test_manage import world as world  # フィクスチャを借りる
 
 from aijudge_core import ArtifactKind, GradingPhase, Role
 from aijudge_core.ids import TaskId
+from aijudge_reviewconsole.notices import JOBS_RELEASED, UNIT_CLEARED
 
 
 def _add_task(world: World, client, *, unit: str, suffix: str, position: str = "") -> str:
@@ -234,7 +235,11 @@ def test_a_regrade_with_nothing_on_an_older_version_queues_nothing(world: World)
 
     assert response.status_code == 303
     assert response.headers["location"].endswith(f"/tasks/{task_id}/edit?saved=regraded#saved")
-    assert world.console.last_regrade == (str(world.course.id), 0)
+    # 件数は操作した本人の課題の画面に一度だけ出る（`notices`・0 件でも言う）。
+    page = client.get(response.headers["location"].split("#")[0]).text
+    assert "0 件をこの版で採点し直します" in page
+    again = client.get(response.headers["location"].split("#")[0]).text
+    assert "0 件を" not in again
 
 
 def test_a_task_with_submissions_is_not_deleted(world: World) -> None:
@@ -271,7 +276,7 @@ def test_a_task_without_submissions_is_deleted(world: World) -> None:
 
 def test_clearing_a_unit_deletes_unused_tasks_and_withdraws_used_ones(world: World) -> None:
     """**削除と取り下げを 1 操作で振り分ける**（#59）。"""
-    world.register("teacher", Role.INSTRUCTOR)
+    teacher = world.register("teacher", Role.INSTRUCTOR)
     learner = world.register("s2400001", Role.LEARNER)
     client = world.client("teacher")
     unused = _add_task(world, client, unit="ex09", suffix="p1")
@@ -287,7 +292,7 @@ def test_clearing_a_unit_deletes_unused_tasks_and_withdraws_used_ones(world: Wor
     with world.database.unit_of_work() as uow:
         assert uow.tasks.get_task(TaskId(unused)) is None
         assert uow.tasks.get_task(TaskId(used)).withdrawn
-    report = world.console.last_clear[1]
+    report = world.console.notices.take(teacher.user_id, world.course.id, UNIT_CLEARED)
     assert len(report.deleted) == 1 and len(report.withdrawn) == 1
 
 
@@ -306,7 +311,7 @@ def test_clearing_a_unit_with_no_submissions_returns_to_the_course(world: World)
 
 def test_failed_jobs_are_put_back_in_the_queue(world: World) -> None:
     """**教員が押したときだけ動く**（#80）。上限まで落ちたジョブを流し直す。"""
-    world.register("teacher", Role.INSTRUCTOR)
+    teacher = world.register("teacher", Role.INSTRUCTOR)
     learner = world.register("s2400001", Role.LEARNER)
     client = world.client("teacher")
     task_id = _add_task(world, client, unit="ex01", suffix="p1")
@@ -325,7 +330,7 @@ def test_failed_jobs_are_put_back_in_the_queue(world: World) -> None:
 
     assert response.status_code == 303
     assert "saved=retried" in response.headers["location"]
-    assert world.console.last_release == (str(world.course.id), 1)
+    assert world.console.notices.take(teacher.user_id, world.course.id, JOBS_RELEASED) == 1
     with world.database.unit_of_work() as uow:
         assert not uow.jobs.failed_for([accepted.submission.id])
 

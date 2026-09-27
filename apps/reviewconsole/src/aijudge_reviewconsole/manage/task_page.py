@@ -32,6 +32,7 @@ from aijudge_eval_code_test_runner import DEFAULT_CASE_TIMEOUT_SECONDS
 from aijudge_eval_code_test_runner import EVALUATOR_ID as CODE_TEST_RUNNER
 from aijudge_grading import EvaluatorRegistry, load_profile, test_case_shape
 
+from .. import notices
 from ..overview import load_units
 from .common import _console, _course_kcs, _kc_keys_of
 from .grading_views import (
@@ -397,7 +398,7 @@ def _save_revision(
             )
         )
         uow.commit()
-    console.last_task = (str(course.id), saved)
+    console.notices.put(me.user_id, course.id, notices.TASK_SAVED, saved)
     return saved
 
 
@@ -553,7 +554,7 @@ def _task_page(
                 or course.upload_suffixes
                 or DEFAULT_UPLOAD_SUFFIXES
             ),
-            "note": note or SAVED_MESSAGES.get(saved),
+            "note": note or _saved_note(request, me, course, task, saved),
             # 直前に何を保存したか（#309）。**その場所を開いて返す** ──
             # 観点の中の欄から保存したのに畳まれた画面が返ると、直した
             # ものがどこへ行ったのか分からない。JavaScript が無くても効く。
@@ -612,7 +613,7 @@ def _task_page(
             # 訂正した版で採点し直せる件数（確定済みは数えない）。
             "regradable": _regradable(_console(request), task, published),
             # 直近の生成の失敗理由。**そのまま出す**（決めつけない・#52）。
-            "test_case_error": _test_case_error(request, course, task),
+            "test_case_error": _test_case_error(request, me, course, task),
             # 学習者に出ている版。教員が見ている版と違うことがある（#48）。
             "published": published,
             # 版の履歴（新しい順）。戻せる先を選ぶために出す（#319）。
@@ -636,21 +637,33 @@ def _task_page(
     )
 
 
-def _test_case_error(request: Request, course, task) -> str | None:
-    """直近のテストケース生成の失敗理由。**この課題のものだけ。**
+def _test_case_error(request: Request, me, course, task) -> str | None:
+    """直近のテストケース生成の失敗理由。**この課題のものだけ、操作した本人に一度だけ。**
 
-    `Console` は全利用者で共有なので、コースと課題を突き合わせる ── 添えないと
-    別の課題の失敗が出る。
+    知らせは（利用者, コース, 種類, 課題）ごとに置いてある（`aijudge_reviewconsole.notices`）
+    ── 課題を範囲に入れないと、別の課題の画面を先に開いたときにそこで消費される。
     """
     if task is None:
         return None
-    recorded = getattr(_console(request), "last_test_case_error", None)
-    if recorded is None:
-        return None
-    course_id, task_id, reason = recorded
-    if course_id != str(course.id) or task_id != str(task.id):
-        return None
-    return reason
+    reason = _console(request).notices.take(
+        me.user_id, course.id, notices.TEST_CASE_ERROR, scope=task.id
+    )
+    return None if reason is None else str(reason)
+
+
+def _saved_note(request: Request, me, course, task, saved: str) -> str | None:
+    """保存後の文言。**再採点は件数を添える**（#67 と同じく、0 件も伝える）。
+
+    件数は以前から `Console.last_regrade` に置いていたが、画面はそれを読んでおらず、
+    何件を採点し直したのかが教員に届いていなかった（2026-09-28 に気づいた）。
+    """
+    message = SAVED_MESSAGES.get(saved)
+    if saved != "regraded" or task is None:
+        return message
+    queued = _console(request).notices.take(me.user_id, course.id, notices.REGRADED, scope=task.id)
+    if queued is None:
+        return message
+    return f"{queued} 件を{message}"
 
 
 def _wants_tests(request: Request, course, version=None) -> bool:
