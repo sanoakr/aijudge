@@ -139,7 +139,7 @@
   <section class="taskform">
   <div class="taskform-head">
     <b>この問題の内容</b>
-    <span class="desc">問題・提出・採点・分類を{% if task %}まとめて保存すると<strong>新しい版</strong>になります{% else %}書いて保存します{% endif %}</span>
+    <span class="desc">{% if task %}問題・採点・分類をまとめて保存すると<strong>新しい版</strong>になります{% else %}問題・提出・採点・分類を書いて保存します{% endif %}</span>
   </div>
 
   <div class="card">

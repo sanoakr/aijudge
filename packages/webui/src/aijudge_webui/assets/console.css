@@ -107,9 +107,13 @@ tr.hidden-from-learners:hover > td{opacity:1}
 .taskform-foot > .desc{flex:1 1 16rem}
 /* 枠の中の箱は最後のものも下に余白を残さない（枠の padding が受ける）。 */
 .taskform > .card:last-of-type{margin-bottom:0}
-/* 枠の中の大項目。**頁の見出しより弱く、小項目より強く** ── 枠に入った時点で
-   「この問題の内容」の下の段なので、頁の h2 と同じ強さでは段が読めない。 */
-.taskform > h2{font-size:1rem;margin:20px 4px 8px;color:var(--ink)}
+/* 枠の中の大項目（問題・提出・採点・分類）。**頁の見出しより弱く、小項目より強く** ──
+   枠に入った時点で「この問題の内容」の下の段なので、頁の h2 と同じ強さでは段が読めない。
+   字の大きさだけでは中の項目（問題文・テストケース…）と差が付かず、どこからが採点の話か
+   読めなかったので、設定の一覧のカテゴリ（`.settings-group`）と同じ帯にそろえた（2026-09-27）。 */
+.taskform > h2{font-size:.95rem;font-weight:700;letter-spacing:.06em;color:var(--ink);
+  background:var(--ai-soft);border-left:4px solid var(--ai);border-radius:3px;
+  margin:22px 0 10px;padding:6px 12px}
 .taskform > h2:first-of-type{margin-top:4px}
 
 /* 箱の先頭の小項目は罫線を引かない（#308）。大項目ごとに箱で区切るように
@@ -529,9 +533,15 @@ details.quiet-danger .desc{font-size:.75rem;margin:0 0 6px;white-space:normal}
    説明と入力欄が同じ地に並び、どこが設定なのか読み分けにくかった。名前は太く、
    補足は小さく灰色。説明そのものは ⓘ に畳む（`_help.html`）。 */
 form.settings{padding:6px 22px 0}
-.settings-group{font-size:.78rem;font-weight:700;color:var(--muted);letter-spacing:.04em;
-  margin:18px 0 0;padding-bottom:4px;border-bottom:1px solid var(--line)}
-.settings-group:first-of-type{margin-top:10px}
+/* カテゴリ（日程・提出・見せる相手など）。**項目名より小さく・薄くしない**（2026-09-27）──
+   以前は .78rem の灰色で、太字の項目名（.88rem）より弱く、どれがカテゴリか読めなかった。
+   左のレールの大項目（`.railgrp .gh`）と同じ書き方にそろえる: 全幅の帯・藍の淡い地・
+   一段大きい太字。**藍は文字色に使わない**（藍は「押して移る」の色・案 3）── 帯の地と
+   左の縦線で示す。 */
+.settings-group{font-family:var(--font-display);font-size:.95rem;font-weight:700;color:var(--ink);
+  letter-spacing:.06em;background:var(--ai-soft);border-left:4px solid var(--ai);border-radius:3px;
+  margin:26px -12px 4px;padding:6px 12px}
+.settings-group:first-of-type{margin-top:12px}
 .setting{display:grid;grid-template-columns:11rem minmax(0,1fr);gap:4px 18px;align-items:baseline;
   padding:10px 0;border-bottom:1px solid var(--line-soft)}
 .setting-name{font-size:.88rem;font-weight:600;color:var(--ink)}
@@ -589,7 +599,7 @@ details.op-more[open] .open-hint{visibility:hidden}
    ボタンは副次の見た目（`button.minor`）。削除だけ朱の文字にする。 */
 .danger-zone{display:flex;flex-wrap:wrap;align-items:center;gap:8px 18px;margin:18px 0 0;
   padding:10px 14px;border:1px dashed var(--line);border-radius:4px}
-.danger-zone-label{font-size:.75rem;font-weight:700;color:var(--muted);letter-spacing:.04em;margin-right:auto}
+.danger-zone-label{font-size:.82rem;font-weight:700;color:var(--ink-2);letter-spacing:.04em;margin-right:auto}
 .danger-zone form{display:flex;align-items:center;gap:6px;margin:0}
 button.minor.danger{color:var(--shu);border-color:var(--shu)}
 
