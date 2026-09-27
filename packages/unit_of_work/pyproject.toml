@@ -1,0 +1,31 @@
+[project]
+name = "aijudge-unit-of-work"
+version = "0.0.1"
+description = "The unit-of-work protocol over all thirteen repositories"
+requires-python = ">=3.12"
+# **Protocol だけを持つ。実装は持たない**（実装は `aijudge_persistence`）。
+# サブシステムどうしは import しない約束なので、各サブシステムの Protocol を
+# 束ねる型はどのサブシステムにも置けない（docs/design/staged-refactor.md 段階 2-2）。
+dependencies = [
+    "aijudge-submission",
+    "aijudge-authoring",
+    "aijudge-identity",
+    "aijudge-skill",
+    "aijudge-audit",
+    "aijudge-ide",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/aijudge_unit_of_work"]
+
+[tool.uv.sources]
+aijudge-submission = { workspace = true }
+aijudge-authoring = { workspace = true }
+aijudge-identity = { workspace = true }
+aijudge-skill = { workspace = true }
+aijudge-audit = { workspace = true }
+aijudge-ide = { workspace = true }

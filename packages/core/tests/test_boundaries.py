@@ -110,6 +110,18 @@ def test_only_the_apps_may_import_the_shared_web_parts() -> None:
     assert _listed("webapp-is-for-the-apps", "forbidden_modules") == {"aijudge_webapp"}
 
 
+def test_only_the_apps_may_import_the_whole_unit_of_work() -> None:
+    """全リポジトリの UnitOfWork（段階 2-2）より下の層は、全部が禁止の対象に入る。
+
+    各サブシステムの Protocol を全部知っている型なので、足し忘れたパッケージは
+    これを通して他のサブシステムの口を手に入れられる。
+    """
+    below = _workspace_modules("packages", "evaluators", "extractors") - {"aijudge_unit_of_work"}
+    missing = below - _listed("unit-of-work-is-for-the-apps", "source_modules")
+    assert not missing, f"unit-of-work-is-for-the-apps is missing {sorted(missing)}"
+    assert _listed("unit-of-work-is-for-the-apps", "forbidden_modules") == {"aijudge_unit_of_work"}
+
+
 def test_contracts_name_only_modules_that_exist() -> None:
     """存在しないモジュールを名指しする契約は、何も守っていない（#434）。"""
     config = _import_linter_config()

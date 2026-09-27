@@ -121,6 +121,16 @@ grader → admin.justification）を列挙して `ignore_imports` に入れ、�
    適合性のテストを 4 つに広げた  
 2-2. `UnitOfWork` の Protocol を 13 リポジトリに広げる（保存層だけが満たすものは
 別の Protocol に）。適合性のテスト（#464 の形）を全リポジトリに  
+   → **済み**: `aijudge_submission` からは他のサブシステムの Protocol を import
+   できない（`subsystems-are-independent`）ので、束ねる型だけを持つ
+   `packages/unit_of_work` を新設した。`UnitOfWork`（13 リポジトリ・インメモリでも
+   満たせる型）と `StoreUnitOfWork`（`reviews: ReviewStore`・`tasks: TaskStore`）。
+   契約 `unit-of-work-is-for-the-apps` で import できるのはアプリだけ ──
+   段階 3 の `course_admin` はここに例外を足す。`aijudge_submission.UnitOfWork`
+   （5 つ）は提出の受付が使う狭い口として残した。適合性のテストは Protocol の
+   注釈を読んで 13 を 1 つずつ確かめ、IDE の 4 つもインメモリ側に加えた。
+   13 を持つインメモリの UnitOfWork はまだ無い（`course_admin` をインメモリで
+   試すなら要る）  
 2-3. mypy を `packages/submission` と `packages/persistence` に広げる（#435・#429 の残り）
 
 ### 段階 3: `apps/admin` → `packages/course_admin`（6〜8 PR）
