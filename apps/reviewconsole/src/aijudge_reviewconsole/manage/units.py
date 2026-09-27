@@ -44,6 +44,7 @@ from aijudge_course_admin.finalization import finalize_tasks, pending_counts
 from aijudge_course_admin.tasks import clear_unit
 from aijudge_grading import EvaluatorRegistry
 
+from .. import notices
 from ..audit_context import recorder_for
 from ..overview import empty_unit, find_unit, load_units, unit_key
 from ..urls import RedirectResponse
@@ -177,7 +178,7 @@ def _clear_plan(console, course, group) -> dict[str, int]:
     }
 
 
-def _exam_state(console, course, group, now: datetime) -> dict[str, object]:
+def _exam_state(console, course, group, now: datetime, *, user_id) -> dict[str, object]:
     """試験の問題セットの状態（#67）。
 
     **落ちたジョブを必ず出す。** 一括採点で 90 名分が一斉に流れて一部が
@@ -198,11 +199,7 @@ def _exam_state(console, course, group, now: datetime) -> dict[str, object]:
     return {
         "waiting_jobs": waiting,
         "failed_jobs": failed,
-        "last_release": (
-            console.last_release[1]
-            if console.last_release is not None and console.last_release[0] == str(course.id)
-            else None
-        ),
+        "last_release": console.notices.take(user_id, course.id, notices.JOBS_RELEASED),
     }
 
 
@@ -473,7 +470,7 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
                     if not row["withdrawn"] and (row["published"] is not None)
                 ),
                 # 試験の一括採点（#67）。待機中の件数と、落ちたジョブ。
-                **_exam_state(console, course, group, now),
+                **_exam_state(console, course, group, now, user_id=me.user_id),
                 "min_reason": MIN_JUSTIFICATION_LENGTH,
                 # コースの既定。問題セットで指定しなければこれが効く。
                 "course_grace": course.auto_finalize_after_minutes,
@@ -502,17 +499,8 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
                     EvaluatorRegistry().load_installed(), EvaluatorKind.DETERMINISTIC
                 ),
                 "PROVISIONAL": GradeWindow.PROVISIONAL,
-                "last_task": (
-                    console.last_task[1]
-                    if console.last_task is not None and console.last_task[0] == str(course.id)
-                    else None
-                ),
-                "last_finalize": (
-                    console.last_finalize[1]
-                    if console.last_finalize is not None
-                    and console.last_finalize[0] == str(course.id)
-                    else None
-                ),
+                "last_task": console.notices.take(me.user_id, course.id, notices.TASK_SAVED),
+                "last_finalize": console.notices.take(me.user_id, course.id, notices.FINALIZED),
             },
         )
 
@@ -544,7 +532,7 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
                 uow.jobs.update(job.retried(now))
             uow.commit()
 
-        console.last_release = (str(course.id), len(failed))
+        console.notices.put(me.user_id, course.id, notices.JOBS_RELEASED, len(failed))
         return RedirectResponse(
             f"/manage/courses/{course_id}/units/{group.key}?saved=retried#saved",
             status_code=303,
@@ -580,7 +568,7 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
             released = uow.jobs.release_waiting([s.id for s in submissions], now)
             uow.commit()
 
-        console.last_release = (str(course.id), released)
+        console.notices.put(me.user_id, course.id, notices.JOBS_RELEASED, released)
         return RedirectResponse(
             f"/manage/courses/{course_id}/units/{group.key}?saved=released#saved",
             status_code=303,
@@ -607,7 +595,7 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
 
         # **何がどうなったかを持ち帰る。** 件数だけでは、消えたのか残ったのか
         # 教員に分からない。
-        console.last_clear = (str(course.id), report)
+        console.notices.put(me.user_id, course.id, notices.UNIT_CLEARED, report)
         if not report.withdrawn and not report.untouched:
             # 全部消えたのでセットのページはもう無い。**コースのトップへ戻す**
             # （#82）── 以前は `/manage/courses/{id}`、つまり共通ルーブリックや
@@ -1039,5 +1027,5 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
 
         # 表示のために保持する。**コースを添える**（Console は全利用者で共有で、
         # 添えないと別コースの教員に他コースの課題名が出る）。
-        console.last_finalize = (str(course_id), _merged(outcomes))
+        console.notices.put(me.user_id, course_id, notices.FINALIZED, _merged(outcomes))
         return RedirectResponse(f"/courses/{course_id}/finalize", status_code=303)

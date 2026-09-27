@@ -22,6 +22,7 @@ from aijudge_course_admin.test_cases import InputProposer, SolutionWriter, TestC
 from aijudge_eval_code_test_runner import EVALUATOR_ID as CODE_TEST_RUNNER
 from aijudge_grading import EvaluatorRegistry, load_profile, test_case_shape
 
+from .. import notices
 from ..overview import unit_key
 from ..urls import RedirectResponse
 from .common import _console, _require_instructor
@@ -177,10 +178,12 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
             # 決めつけていたが、実際に出たとき S6 は動いており、応答が長さで
             # 切れていた（#52）。根拠の無い原因を書くと、言われたとおり確かめた
             # 教員は何も見つけられない。
-            console.last_test_case_error = (
-                str(course.id),
-                task_id,
+            console.notices.put(
+                me.user_id,
+                course.id,
+                notices.TEST_CASE_ERROR,
                 f"{type(exc).__name__}: {exc}",
+                scope=task_id,
             )
             return RedirectResponse(
                 f"/manage/courses/{course_id}/tasks/{task_id}/edit?saved=tests_failed#saved",

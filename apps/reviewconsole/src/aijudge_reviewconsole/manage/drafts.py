@@ -31,6 +31,7 @@ from aijudge_course_admin.task_relocation import compose_key
 from aijudge_course_admin.task_verifier import TaskVerifier
 from aijudge_grading import EvaluatorRegistry, load_profile
 
+from .. import notices
 from ..overview import load_units, unit_key
 from ..urls import RedirectResponse
 from .common import _console, _course_kcs, _normalized_unit, _require_instructor
@@ -486,7 +487,7 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
             uow.tasks.delete_draft(draft_id)
             uow.commit()
 
-        console.last_task = (str(course.id), saved)
+        console.notices.put(me.user_id, course.id, notices.TASK_SAVED, saved)
         return RedirectResponse(
             f"/manage/courses/{course_id}/drafts?saved=draft_approved#saved", status_code=303
         )
