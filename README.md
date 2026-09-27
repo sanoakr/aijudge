@@ -275,6 +275,20 @@ statements, test cases and reference solutions, for unpublished units too.
 been applied) — **"cannot tell" is not a pass**, because a publishing step gates
 on it.
 
+`snapshot` opens either side into per-field values as JSON — `--file` for the
+definition, `--course` for the database, where each field also carries the time
+it took its current value (from the task versions and the audit log). Both sides
+go through the same normalisation, so the way a file happens to be written
+(`problem_dir` or inline, schedules on the unit or on the task) never shows up
+as a difference. It is what keeps the file and the database in step when both
+are edited: a sync job compares each side against the last synced state and
+only has to look at timestamps when the same field moved on both sides.
+
+```fish
+uv run aijudge-admin course snapshot --file network/2026/assignments/course.yaml
+uv run aijudge-admin course snapshot --course <id>
+```
+
 **Video submissions are kept for six months after the task's deadline** and are
 then deleted by hand (ADR 0020). The anchor is the deadline, not the submission
 or the finalisation, so a whole unit expires on one day — and even the earliest

@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 from datetime import UTC, datetime
@@ -39,6 +40,7 @@ from . import authoring_cli, groups
 from .activity_purge import plan_activity_purge, purge_activity
 from .course_definition import apply_course_definition
 from .course_export import DiffState, diff_course, export_course
+from .course_snapshot import snapshot_course, snapshot_definition
 from .courses import delete_course
 from .demo_reset import reset_demo_course
 from .demo_seed import seed_demo_course
@@ -230,6 +232,29 @@ def cmd_course_diff(args: argparse.Namespace) -> int:
         file=sys.stderr,
     )
     return 1
+
+
+def cmd_course_snapshot(args: argparse.Namespace) -> int:
+    """コースを項目ごとの値に開いて JSON で出す（`course_snapshot`）。**何も書かない。**
+
+    `--file` は定義ファイル側（DB に触れない）、`--course` は DB 側（更新時刻つき）。
+    定義ファイルと DB を、コンソールでの編集も含めて揃える側が読む。
+    """
+    try:
+        if args.file:
+            snapshot = snapshot_definition(Path(args.file).expanduser(), tenant_id=_tenant(args))
+        else:
+            database = _database(args)
+            try:
+                snapshot = snapshot_course(database, CourseId(args.course))
+            finally:
+                database.dispose()
+    except AdminError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    json.dump(snapshot, sys.stdout, ensure_ascii=False, sort_keys=True)
+    sys.stdout.write("\n")
+    return 0
 
 
 _DIFF_LABELS = {
@@ -1122,6 +1147,14 @@ def build_parser() -> argparse.ArgumentParser:
     diff = course.add_parser("diff", help="定義（YAML）と DB の差を見る（何も書かない）")
     diff.add_argument("--file", required=True, help="コースの定義ファイル（course.yaml）")
     diff.set_defaults(func=cmd_course_diff)
+
+    snapshot = course.add_parser(
+        "snapshot", help="項目ごとの値（DB 側は更新時刻つき）を JSON で出す（何も書かない）"
+    )
+    snapshot_source = snapshot.add_mutually_exclusive_group(required=True)
+    snapshot_source.add_argument("--file", help="コースの定義ファイル（course.yaml）")
+    snapshot_source.add_argument("--course", help="コース ID（DB 側）")
+    snapshot.set_defaults(func=cmd_course_snapshot)
 
     course.add_parser("list", help="一覧").set_defaults(func=cmd_course_list)
     # 削除は**課題があっても消えるが、学習者の提出があれば消えない**
