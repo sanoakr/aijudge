@@ -25,10 +25,10 @@ from aijudge_core import (
     position_for,
 )
 from aijudge_core.ids import CourseId, UserId
+from aijudge_course_admin.errors import AdminError
 from aijudge_persistence import Database
 
 from .kc import assert_registered
-from .operations import AdminError
 from .rubric import from_stored
 
 

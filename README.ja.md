@@ -361,7 +361,7 @@ uv run aijudge-admin activity purge --apply # 実際に消す
 ```fish
 uv run pytest
 uv run ruff check .
-uv run mypy packages/core/src packages/submission/src packages/persistence/src packages/unit_of_work/src
+uv run mypy packages/core/src packages/submission/src packages/persistence/src packages/unit_of_work/src packages/course_admin/src
 uv run lint-imports
 ```
 

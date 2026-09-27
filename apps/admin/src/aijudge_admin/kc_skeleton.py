@@ -21,7 +21,7 @@ from pathlib import Path
 
 import yaml
 
-from .operations import AdminError
+from aijudge_course_admin.errors import AdminError
 
 # 分野 . 単位 . 知識要素。**名前空間は階層に数えない。**
 MAX_KC_DEPTH = 3

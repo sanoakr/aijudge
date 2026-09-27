@@ -41,6 +41,7 @@ dependencies = [
     "aijudge-webui",
     "aijudge-webapp",
     "aijudge-unit-of-work",
+    "aijudge-course-admin",
     "aijudge-ide",
     "aijudge-runner",
 ]
@@ -91,6 +92,7 @@ aijudge-audit = { workspace = true }
 aijudge-webui = { workspace = true }
 aijudge-webapp = { workspace = true }
 aijudge-unit-of-work = { workspace = true }
+aijudge-course-admin = { workspace = true }
 aijudge-ide = { workspace = true }
 aijudge-runner = { workspace = true }
 
@@ -132,6 +134,7 @@ known-first-party = [
     "aijudge_webui",
     "aijudge_webapp",
     "aijudge_unit_of_work",
+    "aijudge_course_admin",
     "aijudge_ide",
     "aijudge_runner",
 ]

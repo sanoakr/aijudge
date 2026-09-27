@@ -60,10 +60,11 @@ from aijudge_authoring.importers.sharif_judge import (
 )
 from aijudge_core import Course, Task, TaskVersion
 from aijudge_core.ids import CourseId, TenantId
+from aijudge_course_admin.errors import AdminError
 from aijudge_persistence import Database
 
 from .course_definition import UNIT_SCHEDULE_KEYS, load_course_definition
-from .operations import AdminError, course_id_for
+from .operations import course_id_for
 
 __all__ = [
     "CourseDifference",

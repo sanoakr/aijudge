@@ -24,12 +24,12 @@ from pathlib import Path
 
 from aijudge_core import Course
 from aijudge_core.ids import TenantId, UserId
+from aijudge_course_admin.errors import AdminError
 from aijudge_identity import DemoCourse
 from aijudge_persistence import Database
 
 from .courses import delete_course
 from .demo_seed import seed_demo_course
-from .operations import AdminError
 
 __all__ = ["DemoReset", "reset_demo_course"]
 

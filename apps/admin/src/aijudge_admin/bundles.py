@@ -35,8 +35,7 @@ import yaml
 
 from aijudge_authoring import TaskSpec
 from aijudge_authoring import images as image_module
-
-from .operations import AdminError
+from aijudge_course_admin.errors import AdminError
 
 # 束の上限。課題はテキストとテストケースなので小さい。大きいものは事故か攻撃
 # （廃止された zip 取り込みの値をそのまま使う）。

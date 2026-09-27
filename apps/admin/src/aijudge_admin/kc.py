@@ -41,10 +41,10 @@ from datetime import UTC, datetime
 from aijudge_authoring.similarity import lexical, overlap
 from aijudge_core import KnowledgeComponent, kc_id_for, parse_kc_key
 from aijudge_core.ids import KcId, UserId
+from aijudge_course_admin.errors import AdminError
 from aijudge_persistence import Database
 
 from .kc_skeleton import MAX_KC_DEPTH
-from .operations import AdminError
 
 
 def _all_courses(database: Database):

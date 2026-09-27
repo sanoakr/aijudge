@@ -16,9 +16,8 @@ from dataclasses import dataclass, field
 
 from aijudge_core import Task
 from aijudge_core.ids import CourseId, TaskId
+from aijudge_course_admin.errors import AdminError
 from aijudge_persistence import Database
-
-from .operations import AdminError
 
 
 def withdraw(database: Database, *, task_id: TaskId, restore: bool = False) -> Task:

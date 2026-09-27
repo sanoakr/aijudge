@@ -13,7 +13,7 @@ uv sync --extra dev
 
 uv run pytest          # tests
 uv run ruff check .    # lint
-uv run mypy packages/core/src packages/submission/src packages/persistence/src packages/unit_of_work/src
+uv run mypy packages/core/src packages/submission/src packages/persistence/src packages/unit_of_work/src packages/course_admin/src
 uv run lint-imports    # module boundary contracts
 ```
 

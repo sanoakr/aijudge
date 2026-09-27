@@ -59,7 +59,7 @@ jobs:
         run: uv run ruff format --check .
 
       - name: Type check
-        run: uv run mypy packages/core/src packages/submission/src packages/persistence/src packages/unit_of_work/src
+        run: uv run mypy packages/core/src packages/submission/src packages/persistence/src packages/unit_of_work/src packages/course_admin/src
 
       # Architectural boundaries are a build failure, not a review comment.
       # See docs/adr/0001-modular-monolith.md

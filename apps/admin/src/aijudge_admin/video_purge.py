@@ -28,10 +28,9 @@ from datetime import datetime
 from aijudge_audit import AuditAction, AuditRecorder
 from aijudge_core import ArtifactKind, Course, video_retention_expires_at
 from aijudge_core.ids import ArtifactId, CourseId, SubmissionId, TenantId, UserId
+from aijudge_course_admin.errors import AdminError
 from aijudge_persistence import Database
 from aijudge_submission import StreamingArtifactStore
-
-from .operations import AdminError
 
 __all__ = ["PurgeCandidate", "PurgeOutcome", "PurgePlan", "plan_video_purge", "purge_videos"]
 

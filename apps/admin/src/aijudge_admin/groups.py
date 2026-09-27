@@ -21,8 +21,7 @@ from dataclasses import dataclass
 from aijudge_audit import AuditAction, AuditRecorder
 from aijudge_core import Course, CourseGroup, Role, Task, new_id
 from aijudge_core.ids import CourseGroupId
-
-from .operations import AdminError
+from aijudge_course_admin.errors import AdminError
 
 # 監査記録の `detail` に並べる login の上限。`detail` は 4000 字まで
 # （`aijudge_audit.MAX_DETAIL_CHARS`）で、名簿を丸ごと写す場所ではない。

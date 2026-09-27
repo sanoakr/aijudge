@@ -39,12 +39,13 @@ from aijudge_audit import AuditAction
 from aijudge_authoring import TaskSpec, build_task_version, content
 from aijudge_core import Course, Task, TaskVersion, normalize_suffixes
 from aijudge_core.ids import CourseId, TenantId
+from aijudge_course_admin.errors import AdminError
 from aijudge_persistence import Database
 
 from .authoring import _title_of
 from .course_definition import UNIT_SCHEDULE_KEYS, load_course_definition
 from .course_export import _export_spec
-from .operations import _IMPORTER, AdminError, course_id_for
+from .operations import _IMPORTER, course_id_for
 
 __all__ = ["SNAPSHOT_FORMAT", "snapshot_course", "snapshot_definition"]
 
