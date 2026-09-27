@@ -1976,13 +1976,15 @@ def test_kc_candidates_come_from_the_courses_own_components(world: World, monkey
 
     world.register("teacher", Role.INSTRUCTOR)
     task_id = _import_example(world)
+
     # 語彙には登録済み、このコースでは使っていない知識要素。
-    monkeypatch.setattr(
-        "aijudge_reviewconsole.manage.list_for_namespaces",
-        lambda database, namespaces, include_deprecated: [
-            SimpleNamespace(key="cs.loops.termination", label="ループの停止")
-        ],
-    )
+    # コースの KC（`_course_kcs`）は段階 4-4 で `manage.common` に移った。両方を
+    # 差し替えないと、移す前と同じ条件にならない。
+    def fake_vocabulary(database, namespaces, include_deprecated=False):
+        return [SimpleNamespace(key="cs.loops.termination", label="ループの停止")]
+
+    for target in ("manage", "manage.common"):
+        monkeypatch.setattr(f"aijudge_reviewconsole.{target}.list_for_namespaces", fake_vocabulary)
     monkeypatch.setattr(
         "aijudge_reviewconsole.manage.TaskKcReader.select",
         lambda self, statement, *, vocabulary, current, reference_solution: TaskKcResult(
