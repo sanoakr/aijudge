@@ -8,10 +8,17 @@
 
 from __future__ import annotations
 
+from collections import Counter
+
 from fastapi import HTTPException, Request
 
-from aijudge_core import Role
-from aijudge_identity import Principal
+from aijudge_core import Course, Role
+from aijudge_core.ids import CourseId
+from aijudge_course_admin.kc import allowed_namespaces, list_for_namespaces
+from aijudge_grading import load_profile
+from aijudge_identity import AuthService, PermissionDenied, Principal
+
+from .. import access
 
 
 def _console(request: Request):
@@ -83,3 +90,62 @@ def _require_grantable(role: Role) -> Role:
             ),
         )
     return role
+
+
+def _require_reader(request: Request, me: Principal, course_id: CourseId) -> tuple[Course, Role]:
+    """そのコースの**採点者以上**（TA を含む）。読むだけの画面はここを通す。
+
+    TA が課題を読めないと、学習者の質問にも自分が採点している提出にも
+    答えられない ── **読むことと直すことは別の権限である**（#102）。
+    公開前の課題も読める：採点は公開前に用意されるものだから。
+
+    返り値に役割を含めるのは、画面が「直せるかどうか」で描き分けるため。
+    権限の判定をテンプレート側でやり直させない。
+    """
+    console = _console(request)
+    with console.database.unit_of_work() as uow:
+        auth = AuthService(uow.identity, audit=uow.audit)
+        try:
+            role = auth.require_membership(course_id, me.user_id)
+        except PermissionDenied as exc:
+            # 存在と権限を区別しない（コースを列挙させない）。
+            raise HTTPException(status_code=404, detail="コースが見つかりません") from exc
+        if role is Role.LEARNER:
+            raise HTTPException(status_code=403, detail="この画面には採点者の権限が必要です")
+        course = uow.identity.get_course(course_id)
+    if course is None:
+        raise HTTPException(status_code=404, detail="コースが見つかりません")
+    return course, role
+
+
+def _require_instructor(request: Request, me: Principal, course_id: CourseId) -> Course:
+    """そのコースの教員であること。**TA には開けない。**
+
+    締切と受講の変更は成績に直接効く。採点を分担する TA と、履修の管理を
+    する教員は別の権限である。判定と応答の規則は `access.require_instructor`
+    に 1 つだけある（段階的な立て直し 1-1）。
+    """
+    return access.require_instructor(_console(request), me, course_id)
+
+
+def _course_kcs(console, course):
+    """このコースが作問で選べる知識要素 ── **コースに足したものだけ**（#289）。
+    引退したものは出さない ── 選べば課題に付いてしまう。
+    """
+    namespaces = allowed_namespaces(
+        load_profile(console.profiles_dir / f"{course.subject_profile}.yaml")
+    )
+    kcs = list_for_namespaces(console.database, namespaces, include_deprecated=False)
+    chosen = set(course.knowledge_components)
+    return [kc for kc in kcs if kc.key in chosen]
+
+
+def _role_counts(enrollments) -> list[dict[str, object]]:
+    """役割ごとの人数。**0 名の役割も並べる。**
+
+    総数だけでは、TA を登録し忘れているのか 0 名が正しいのかが読み取れない。
+    並びは `Role` の宣言順にする（多い順にすると、コースを開くたびに順番が
+    変わって目で追えない）。
+    """
+    counted = Counter(str(enrollment.role.value) for enrollment in enrollments)
+    return [{"role": role.value, "count": counted.get(role.value, 0)} for role in Role]

@@ -31,14 +31,18 @@ def test_candidates_come_with_their_evidence_and_reasons(world: World, monkeypat
             )
         )
         uow.commit()
-    monkeypatch.setattr(
-        "aijudge_reviewconsole.manage.list_for_namespaces",
-        lambda database, namespaces, include_deprecated: [
+
+    # コースの KC（`_course_kcs`）は段階 4-4 で `manage.common` に移った。両方を
+    # 差し替えないと、移す前と同じ条件にならない。
+    def fake_vocabulary(database, namespaces, include_deprecated=False):
+        return [
             SimpleNamespace(key=BRANCHING, label="分岐"),
             SimpleNamespace(key=CONSOLE_IO, label="コンソール入出力"),
             SimpleNamespace(key=COMPILE_LINK, label="コンパイルとリンク"),
-        ],
-    )
+        ]
+
+    for target in ("manage", "manage.common"):
+        monkeypatch.setattr(f"aijudge_reviewconsole.{target}.list_for_namespaces", fake_vocabulary)
     seen: dict = {}
 
     def select(self, statement, *, vocabulary, current, reference_solution):

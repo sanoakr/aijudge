@@ -111,7 +111,8 @@
 | 4-1 | #536 | `register()` の中の補助 24 個をモジュール直下へ（4 つは `templates` を引数に）、`_propose` を削除 | — |
 | 4-2 | #537 | `manage.py` → `manage/__init__.py`（モジュール名はそのまま） | — |
 | 4-3 準備 | #541 | ルートの横取りのテスト（写しは並べ替えて比べるので順序を見ない）、科目プロファイルの改名の特性テスト | — |
-| 4-3 | この PR | A1 を `users.py`（利用者・学内ネットワーク・OIDC・自分のパスワード）と `subjects.py` へ。共有する権限の確かめとパンくずは `common.py`、保存後の文言は `messages.py` | `__init__` 6,631・`users` 675・`subjects` 254・`common` 85・`messages` 106 |
+| 4-3 | #545 | A1 を `users.py`（利用者・学内ネットワーク・OIDC・自分のパスワード）と `subjects.py` へ。共有する権限の確かめとパンくずは `common.py`、保存後の文言は `messages.py` | `__init__` 6,631・`users` 675・`subjects` 254・`common` 85・`messages` 106 |
+| 4-4 | この PR | A2 を `learners.py`（受講者・役割・習熟度）へ。コースの権限確認（`_require_reader`・`_require_instructor`）・コースの KC・役割の数は `common.py` へ。`SAVED_MESSAGES` の説明コメント 2 つが `MAX_UNKNOWN_SHOWN` の上に取り違えて置かれていたのを `messages.py` に戻した | `__init__` 6,151・`learners` 460・`common` 151 |
 
 移し方（4-3 で決めた）: 領域のモジュールは `register(router, templates)` を持ち、`__init__` の
 `register()` が元のルートの位置で呼ぶ。`__init__` は `common`・`messages` から同じ名前で
