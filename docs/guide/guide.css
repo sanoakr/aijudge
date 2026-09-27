@@ -19,3 +19,20 @@
 }
 .md-typeset h2 code { color: inherit; background: rgba(255,255,255,.18); }
 .md-typeset h2 .headerlink { color: var(--md-primary-bg-color); opacity: .7; }
+/* 小見出し（h3）も帯にする（#538）。節の中の小見出しが増え、長い節の中で
+   切れ目が本文に埋もれるようになった。ただし節（h2）と取り違えないように、
+   **3 つの違いで階層を示す**: 字が小さい（h2 1.5625em に対して 1.15em）、
+   地は主色の淡い色（h2 は主色そのもの）、文字は本文の色（h2 は白抜き）。
+   左の縦線は主色で、同じ系統の見出しであることを示す。淡い色は
+   color-mix で主色から作るので、昼夜どちらの配色でも主色に追随する。 */
+.md-typeset h3 {
+  font-size: 1.15em;
+  font-weight: 700;
+  background: color-mix(in srgb, var(--md-primary-fg-color) 12%, transparent);
+  border-left: 4px solid var(--md-primary-fg-color);
+  color: var(--md-typeset-color);
+  padding: .3em .7em;
+  border-radius: 0 4px 4px 0;
+  margin-top: 1.8em;
+}
+.md-typeset h3 .headerlink { color: var(--md-primary-fg-color); }
