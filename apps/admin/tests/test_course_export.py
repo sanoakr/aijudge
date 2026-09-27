@@ -14,11 +14,12 @@ from pathlib import Path
 import pytest
 import yaml
 
-from aijudge_admin import AdminError, DiffState, course_id_for, diff_course, export_course
-from aijudge_admin.course_definition import apply_course_definition
-from aijudge_admin.operations import _IMPORTER
 from aijudge_authoring import TaskSpec, build_task_version
 from aijudge_core.ids import TenantId
+from aijudge_course_admin.course_definition import apply_course_definition
+from aijudge_course_admin.course_export import DiffState, diff_course, export_course
+from aijudge_course_admin.errors import AdminError
+from aijudge_course_admin.operations import _IMPORTER, course_id_for
 from aijudge_persistence import Database
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -128,7 +129,7 @@ def applied(tmp_path: Path):
 
 
 def _specs(path: Path) -> dict[str, TaskSpec]:
-    from aijudge_admin.course_definition import load_course_definition
+    from aijudge_course_admin.course_definition import load_course_definition
 
     return {spec.key: spec for spec in load_course_definition(path).tasks}
 
@@ -275,7 +276,7 @@ def test_diff_finds_what_only_the_database_has(applied, tmp_path: Path) -> None:
     database, source = applied
     course_id = course_id_for(TENANT, "prog2", "2026-後期")
 
-    from aijudge_admin import save_task
+    from aijudge_course_admin.authoring import save_task
 
     save_task(
         database,
@@ -294,7 +295,7 @@ def test_diff_finds_a_statement_edited_in_the_console(applied, tmp_path: Path) -
     database, source = applied
     course_id = course_id_for(TENANT, "prog2", "2026-後期")
 
-    from aijudge_admin import save_task
+    from aijudge_course_admin.authoring import save_task
 
     save_task(
         database,
@@ -409,7 +410,7 @@ def test_re_export_drops_a_reference_solution_that_was_removed(applied, tmp_path
     書き出しが古いファイルを残すと、**消したはずの参照解答が読み直しで
     生き返る**。実測（2026-09-22）で 2 度目の書き出しが自己検算で止まった。
     """
-    from aijudge_admin import save_task
+    from aijudge_course_admin.authoring import save_task
 
     database, _ = applied
     course_id = course_id_for(TENANT, "prog2", "2026-後期")

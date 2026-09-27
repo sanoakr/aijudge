@@ -11,10 +11,10 @@ from pathlib import Path
 
 import pytest
 
-from aijudge_admin.demo_seed import demo_definition_path, seed_demo_course
-from aijudge_admin.operations import AdminError
 from aijudge_core import AnswerMode
 from aijudge_core.ids import TenantId, UserId
+from aijudge_course_admin.demo_seed import demo_definition_path, seed_demo_course
+from aijudge_course_admin.operations import AdminError
 from aijudge_persistence import Database
 
 REPO_ROOT = Path(__file__).resolve().parents[3]

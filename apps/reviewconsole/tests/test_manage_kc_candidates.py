@@ -12,8 +12,8 @@ from types import SimpleNamespace
 from test_manage import World, _import_example
 from test_manage import world as world  # フィクスチャを借りる
 
-from aijudge_admin.syllabus import KcNotUsed, KcUse, TaskKcResult
 from aijudge_core import Role
+from aijudge_course_admin.syllabus import KcNotUsed, KcUse, TaskKcResult
 
 BRANCHING = "cs.sdf.fundamentals.branching"
 CONSOLE_IO = "cs.sdf.fundamentals.console_io"

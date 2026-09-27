@@ -20,10 +20,12 @@ from pathlib import Path
 
 import pytest
 
-from aijudge_admin import SolvabilityChecker, TaskVerifier, build_packet
 from aijudge_authoring.solvability import SolvabilityOutcome
 from aijudge_core import Provenance, RubricCriterion, RubricLevel, TaskVersion, TestCase
 from aijudge_core.ids import CriterionId, TaskId, TaskVersionId, UserId
+from aijudge_course_admin.solvability import SolvabilityChecker
+from aijudge_course_admin.task_review import build_packet
+from aijudge_course_admin.task_verifier import TaskVerifier
 from aijudge_grading import EvaluatorRegistry, load_profile
 from aijudge_llm_gateway import LlmGateway, ScriptedProvider
 

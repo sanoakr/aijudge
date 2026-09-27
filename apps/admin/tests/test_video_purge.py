@@ -17,11 +17,11 @@ from pathlib import Path
 
 import pytest
 
-from aijudge_admin.course_definition import apply_course_definition
-from aijudge_admin.video_purge import plan_video_purge, purge_videos
 from aijudge_audit import AuditAction
 from aijudge_core import Artifact, ArtifactKind, ArtifactRole, Submission, SubmissionState
 from aijudge_core.ids import ArtifactId, SubmissionId, TenantId, UserId
+from aijudge_course_admin.course_definition import apply_course_definition
+from aijudge_course_admin.video_purge import plan_video_purge, purge_videos
 from aijudge_persistence import Database
 from aijudge_submission import FilesystemArtifactStore
 

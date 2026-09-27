@@ -16,9 +16,11 @@ from pathlib import Path
 import pytest
 from sqlalchemy import func, select
 
-from aijudge_admin import AdminError, delete_course, ensure_course
 from aijudge_core import ArtifactKind, Role
 from aijudge_core.ids import CourseId, TenantId, UserId
+from aijudge_course_admin.courses import delete_course
+from aijudge_course_admin.errors import AdminError
+from aijudge_course_admin.operations import ensure_course
 from aijudge_persistence import Database, schema
 from aijudge_submission import FilesystemArtifactStore, IncomingFile, SubmissionService
 

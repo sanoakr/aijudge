@@ -22,9 +22,9 @@ from pathlib import Path
 
 import pytest
 
-from aijudge_admin.task_verifier import outputs_for
 from aijudge_core import Provenance, RubricCriterion, RubricLevel, TaskVersion
 from aijudge_core.ids import CriterionId, TaskId, TaskVersionId, UserId
+from aijudge_course_admin.task_verifier import outputs_for
 from aijudge_grading import EvaluatorRegistry, load_profile
 
 REPO_ROOT = Path(__file__).resolve().parents[3]

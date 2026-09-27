@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 
-from aijudge_admin.revision import PROMPT, TaskReviser, _instructions_section
+from aijudge_course_admin.revision import PROMPT, TaskReviser, _instructions_section
 from aijudge_llm_gateway import LlmGateway, ScriptedProvider
 
 CRITERIA = (("正しさ", "すべてのテストケースを通ること"),)

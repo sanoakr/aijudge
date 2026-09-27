@@ -15,8 +15,10 @@ from pathlib import Path
 
 import pytest
 
-from aijudge_admin import ensure_course
-from aijudge_admin.groups import (
+from aijudge_audit import AuditRecorder
+from aijudge_core import Role, Task, new_id
+from aijudge_core.ids import TaskId, TenantId, UserId
+from aijudge_course_admin.groups import (
     GroupInUse,
     GroupNotFound,
     UnknownLogins,
@@ -25,9 +27,7 @@ from aijudge_admin.groups import (
     replace_group_members,
     set_audience,
 )
-from aijudge_audit import AuditRecorder
-from aijudge_core import Role, Task, new_id
-from aijudge_core.ids import TaskId, TenantId, UserId
+from aijudge_course_admin.operations import ensure_course
 from aijudge_identity import AuthService
 from aijudge_persistence import Database
 

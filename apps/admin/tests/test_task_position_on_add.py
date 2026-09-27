@@ -16,9 +16,10 @@ from pathlib import Path
 
 import pytest
 
-from aijudge_admin import ensure_course, import_tasks, save_task
 from aijudge_authoring import TaskSpec
 from aijudge_core.ids import TenantId, UserId
+from aijudge_course_admin.authoring import save_task
+from aijudge_course_admin.operations import ensure_course, import_tasks
 from aijudge_persistence import Database
 
 REPO_ROOT = Path(__file__).resolve().parents[3]

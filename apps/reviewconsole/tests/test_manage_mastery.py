@@ -28,7 +28,7 @@ NOW = datetime(2026, 9, 16, 9, 0, tzinfo=UTC)
 
 
 def _kc(world: World, key: str, label: str) -> KcId:
-    from aijudge_admin import register_kc
+    from aijudge_course_admin.kc import register as register_kc
 
     return register_kc(world.database, key=key, label=label, namespaces=("cs",), seeding=True).id
 

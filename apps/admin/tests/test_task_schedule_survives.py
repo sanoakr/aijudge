@@ -25,10 +25,11 @@ from pathlib import Path
 
 import pytest
 
-from aijudge_admin import ensure_course, save_task
 from aijudge_authoring import TaskSpec
 from aijudge_core import AnswerMode, Task
 from aijudge_core.ids import TenantId, UserId
+from aijudge_course_admin.authoring import save_task
+from aijudge_course_admin.operations import ensure_course
 from aijudge_persistence import Database
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -230,7 +231,7 @@ def test_every_field_of_a_task_is_accounted_for() -> None:
     removed = known - set(Task.model_fields)
 
     assert not added, (
-        f"Task に {sorted(added)} が足された。save_task（aijudge_admin.authoring）で"
+        f"Task に {sorted(added)} が足された。save_task（aijudge_course_admin.authoring）で"
         "既存の値を引き継ぐかを決めて、このファイルの集合に足すこと"
     )
     assert not removed, f"Task から {sorted(removed)} が無くなった。集合から外すこと"

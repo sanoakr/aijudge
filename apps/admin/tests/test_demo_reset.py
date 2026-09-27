@@ -14,9 +14,6 @@ from pathlib import Path
 
 import pytest
 
-from aijudge_admin.demo_reset import reset_demo_course
-from aijudge_admin.demo_seed import seed_demo_course
-from aijudge_admin.operations import AdminError
 from aijudge_core import (
     Artifact,
     ArtifactKind,
@@ -27,6 +24,9 @@ from aijudge_core import (
     SubmissionState,
 )
 from aijudge_core.ids import ArtifactId, SubmissionId, TenantId, UserId
+from aijudge_course_admin.demo_reset import reset_demo_course
+from aijudge_course_admin.demo_seed import seed_demo_course
+from aijudge_course_admin.operations import AdminError
 from aijudge_identity import AuthService, DemoCourse
 from aijudge_persistence import Database
 

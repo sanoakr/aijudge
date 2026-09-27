@@ -19,9 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from aijudge_admin import finalize_task, pending_counts, sweep_deadlines
 from aijudge_admin.finalize_cli import main as finalize_main
-from aijudge_admin.operations import AdminError, ensure_course
 from aijudge_core import (
     ArtifactKind,
     CriterionScore,
@@ -52,6 +50,8 @@ from aijudge_core.ids import (
     TenantId,
     UserId,
 )
+from aijudge_course_admin.finalization import finalize_task, pending_counts, sweep_deadlines
+from aijudge_course_admin.operations import AdminError, ensure_course
 from aijudge_persistence import Database
 from aijudge_submission import (
     ImmutabilityViolation,
@@ -375,7 +375,7 @@ def test_one_failing_course_does_not_stop_the_sweep(
     database: Database, course, monkeypatch
 ) -> None:
     """1 コースの失敗（一括確定との競合など）で他のコースを止めない（#404）。"""
-    from aijudge_admin import finalization
+    from aijudge_course_admin import finalization
 
     other, _ = ensure_course(
         database,

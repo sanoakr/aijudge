@@ -22,10 +22,10 @@ from urllib.parse import quote
 import pytest
 from fastapi.testclient import TestClient
 
-from aijudge_admin import ensure_course
 from aijudge_authoring.statement import render_statement
 from aijudge_core import Course, ReviewState, Role
 from aijudge_core.ids import CourseId, TaskId, TaskVersionId, TenantId
+from aijudge_course_admin.operations import ensure_course
 from aijudge_identity import AuthenticationFailed, AuthService
 from aijudge_persistence import Database
 from aijudge_reviewconsole import SESSION_COOKIE, Console, create_app
@@ -918,7 +918,7 @@ def test_changing_password_succeeds_and_revokes_every_session(world: World) -> N
 
 
 def _import_example(world: World) -> str:
-    from aijudge_admin import import_tasks, list_tasks
+    from aijudge_course_admin.operations import import_tasks, list_tasks
 
     import_tasks(
         world.database,
@@ -1460,9 +1460,9 @@ def test_a_task_that_names_a_test_driven_evaluator_can_edit_its_cases(world: Wor
     「決定論的か」では広すぎる（提出の遵守は入出力セットを持たない）ので、
     読むかどうかは評価器の宣言で見る（`reads_test_cases`）。
     """
-    from aijudge_admin import save_task
     from aijudge_authoring import TaskSpec
     from aijudge_authoring.spec import CriterionSpec, LevelSpec
+    from aijudge_course_admin.authoring import save_task
 
     world.register("teacher", Role.INSTRUCTOR)
     saved = save_task(
@@ -1535,9 +1535,9 @@ def test_an_assistant_reads_the_input_output_set_but_cannot_change_it(world: Wor
     assert refused.status_code in (403, 404), refused.status_code
 
     # 0 件の課題では、判定できないことを言う（「AI が判定します」ではない）。
-    from aijudge_admin import save_task
     from aijudge_authoring import TaskSpec
     from aijudge_authoring.spec import CriterionSpec, LevelSpec
+    from aijudge_course_admin.authoring import save_task
 
     empty = save_task(
         world.database,
@@ -1582,9 +1582,9 @@ def test_a_compliance_criterion_does_not_ask_for_an_input_output_set(world: Worl
     レポート課題の画面に永久に空の欄が並ぶ ── 埋まらない欄は、埋め忘れなのか
     そういうものなのかを画面から区別できない。
     """
-    from aijudge_admin import save_task
     from aijudge_authoring import TaskSpec
     from aijudge_authoring.spec import CriterionSpec, LevelSpec
+    from aijudge_course_admin.authoring import save_task
 
     world.register("teacher", Role.INSTRUCTOR)
     saved = save_task(
@@ -1799,9 +1799,9 @@ def test_data_no_criterion_uses_is_called_unused(world: World) -> None:
     消える ── 観点を宣言する前に作られた課題や、評価器を付け替えた課題で
     起きる。消すのではなく、使われていないと言う。
     """
-    from aijudge_admin import save_task
     from aijudge_authoring import TaskSpec
     from aijudge_authoring.spec import CriterionSpec, LevelSpec, TestCaseSpec
+    from aijudge_course_admin.authoring import save_task
 
     world.register("teacher", Role.INSTRUCTOR)
     saved = save_task(
@@ -1972,7 +1972,7 @@ def test_kc_candidates_come_from_the_courses_own_components(world: World, monkey
 
     落としたものは黙って消さず、件数と行き先（コースの知識要素で足す）を言う。
     """
-    from aijudge_admin.syllabus import DiscardedCandidate, TaskKcResult
+    from aijudge_course_admin.syllabus import DiscardedCandidate, TaskKcResult
 
     world.register("teacher", Role.INSTRUCTOR)
     task_id = _import_example(world)
@@ -2259,8 +2259,8 @@ def test_a_task_in_a_mixed_unit_says_so(world: World) -> None:
     使う（`UnitGroup.mixed`）── 違う理屈で書くと、片方が「ばらついている」と
     言い、もう片方が「揃っている」と出る。
     """
-    from aijudge_admin import save_task
     from aijudge_authoring import TaskSpec
+    from aijudge_course_admin.authoring import save_task
     from aijudge_reviewconsole.overview import unit_key
 
     world.register("teacher", Role.INSTRUCTOR)
@@ -2674,9 +2674,9 @@ def test_only_the_proposals_you_tick_are_kept(world: World, monkeypatch) -> None
 
 def _task_with_items(world: World, *, items: tuple[str, ...] = ()) -> str:
     """項目表で採点する観点を持つ課題（レポート）。"""
-    from aijudge_admin import save_task
     from aijudge_authoring import TaskSpec
     from aijudge_authoring.spec import CriterionSpec, LevelSpec, TestCaseSpec
+    from aijudge_course_admin.authoring import save_task
 
     saved = save_task(
         world.database,
@@ -2791,9 +2791,9 @@ def test_editing_one_kind_of_data_keeps_the_other(world: World) -> None:
     保存は版を作り直す操作なので、渡さなかった検証データは消える。消えても
     例外は出ず、採点の段になって「検証データが無い」として現れる。
     """
-    from aijudge_admin import save_task
     from aijudge_authoring import TaskSpec
     from aijudge_authoring.spec import CriterionSpec, LevelSpec, TestCaseSpec
+    from aijudge_course_admin.authoring import save_task
 
     world.register("teacher", Role.INSTRUCTOR)
     saved = save_task(
@@ -2885,9 +2885,9 @@ def test_editing_the_io_set_keeps_the_companion_cases_intact(world: World) -> No
     入出力を 1 文字直すと全ケースが `code_test_runner` あてに作り直され、
     ポートや同梱ファイルが消えていた（v1.14.0 と同じ型の事故）。
     """
-    from aijudge_admin import save_task
     from aijudge_authoring import TaskSpec
     from aijudge_authoring.spec import CriterionSpec, LevelSpec, TestCaseSpec
+    from aijudge_course_admin.authoring import save_task
 
     world.register("teacher", Role.INSTRUCTOR)
     companion = {
@@ -2995,9 +2995,9 @@ def _task_with_tests(world: World, author: str = "teacher") -> str:
 
     作者は既定で `teacher` ── 版の同一性は作者も見る（`substantive`）ので、
     別の人が同じ内容を保存すると版が上がる。"""
-    from aijudge_admin import save_task
     from aijudge_authoring import TaskSpec
     from aijudge_authoring.spec import TestCaseSpec
+    from aijudge_course_admin.authoring import save_task
 
     saved = save_task(
         world.database,
@@ -4481,7 +4481,7 @@ def _use_kc(world: World, key: str, label: str = "") -> None:
     画面から語彙は増やせない（2026-09-13 決定）ので、テストでは `register_kc`
     で骨格を置き、範囲への追加だけを画面（`kc/scope/add`）で行う。
     """
-    from aijudge_admin import register_kc
+    from aijudge_course_admin.kc import register as register_kc
 
     parts = key.split(".")
     for depth in range(2, len(parts) + 1):
@@ -4506,7 +4506,7 @@ def _seed(world: World) -> None:
     何度呼んでも増えない（`register_kc` は既にあるものを返す）ので、
     各テストの冒頭で気軽に呼べる。
     """
-    from aijudge_admin import register_kc
+    from aijudge_course_admin.kc import register as register_kc
 
     for key, label in (("cs.loops", "ループ"), ("cs.loops.control", "制御")):
         register_kc(world.database, key=key, label=label, namespaces=("cs",), seeding=True)
@@ -4615,7 +4615,7 @@ def test_a_new_course_uses_nothing_until_the_instructor_adds_something(world: Wo
     _seed(world)
     world.register("boss", Role.ADMIN)
     client = world.client("boss")
-    from aijudge_admin import register_kc
+    from aijudge_course_admin.kc import register as register_kc
 
     register_kc(world.database, key="cs.loops.control.basic", label="ループ", namespaces=("cs",))
 
@@ -4633,7 +4633,7 @@ def test_a_whole_branch_can_be_added_and_removed_at_once(world: World) -> None:
     _seed(world)
     world.register("boss", Role.ADMIN)
     client = world.client("boss")
-    from aijudge_admin import register_kc
+    from aijudge_course_admin.kc import register as register_kc
 
     for key in ("cs.io", "cs.io.formatted"):
         register_kc(world.database, key=key, label=key, namespaces=("cs",), seeding=True)
@@ -4690,8 +4690,8 @@ def test_a_component_the_course_still_uses_cannot_be_removed(
     外すと、その課題が問う知識要素が Q-matrix と食い違う。理由を添えて残す。
     """
     _seed(world)
-    from aijudge_admin import save_task
     from aijudge_authoring import TaskSpec
+    from aijudge_course_admin.authoring import save_task
 
     world.register("boss", Role.ADMIN)
     client = world.client("boss")
@@ -4762,8 +4762,8 @@ def test_an_unused_component_is_deleted_from_the_page(world: World) -> None:
 def test_the_delete_control_is_hidden_for_a_used_component(world: World) -> None:
     """**使われているものには出さない。** 押せない操作を見せない。"""
     _seed(world)
-    from aijudge_admin import save_task
     from aijudge_authoring import TaskSpec
+    from aijudge_course_admin.authoring import save_task
 
     world.register("boss", Role.ADMIN)
     client = world.client("boss")
@@ -4806,8 +4806,8 @@ def test_only_an_admin_can_retire_a_component(world: World) -> None:
 
 
 def _stub_writer(monkeypatch, *, fails: bool = False) -> None:
-    from aijudge_admin.test_cases import GenerationResult
     from aijudge_authoring.drafting import DraftTestCase
+    from aijudge_course_admin.test_cases import GenerationResult
 
     class _Writer:
         def __init__(self, *a, **kw) -> None: ...
@@ -4986,8 +4986,8 @@ def test_a_generated_task_is_saved_awaiting_approval(monkeypatch, world: World) 
         def __init__(self, *a, **kw) -> None: ...
 
         def draft(self, blueprint, *, key):
-            from aijudge_admin.drafting import DraftResult
             from aijudge_authoring.drafting import draft_to_spec
+            from aijudge_course_admin.drafting import DraftResult
 
             draft = TaskDraft(
                 title="生成された課題",
@@ -5259,7 +5259,7 @@ def _proposal(*keys: str, discarded=()):
     `apps/admin/tests/test_syllabus_prompt.py` の側で見て、ここでは
     落とした結果が画面にどう出るかだけを見る。
     """
-    from aijudge_admin.syllabus import KcHint, ProposalResult, SyllabusProposal
+    from aijudge_course_admin.syllabus import KcHint, ProposalResult, SyllabusProposal
 
     class _Reader:
         last_units: tuple[str, ...] = ()
@@ -5349,7 +5349,7 @@ def test_what_the_gate_dropped_is_shown_with_its_reason(world: World, monkeypatc
     （`apps/admin/tests/test_syllabus_prompt.py`）、ここで見るのは画面に
     出ることだけである。
     """
-    from aijudge_admin.syllabus import DiscardedCandidate
+    from aijudge_course_admin.syllabus import DiscardedCandidate
 
     _seed(world)
     world.register("teacher", Role.INSTRUCTOR)
@@ -5417,7 +5417,7 @@ def test_candidates_can_be_adopted_in_bulk(monkeypatch, world: World) -> None:
         f"/manage/courses/{world.course.id}/basics/apply",
         data={"title": world.course.title, "description": "配列と再帰を扱える"},
     )
-    from aijudge_admin import register_kc
+    from aijudge_course_admin.kc import register as register_kc
 
     for key, label in (("cs.loops.control.arrays", "配列"), ("cs.loops.control.recursion", "再帰")):
         register_kc(world.database, key=key, label=label, namespaces=("cs",))
@@ -6449,7 +6449,7 @@ def test_the_rubric_is_saved_in_the_order_the_instructor_gave() -> None:
     画面の行の並びではなく、行に書いた「評価順」で決める ── 上下ボタンだと
     1 手ごとに保存が要り、10 観点を並べ替えるのに 10 往復になる。
     """
-    from aijudge_admin import rubric
+    from aijudge_course_admin import rubric
 
     rows = [
         {"code": "readable", "title": "読める", "weight": "0.4", "order": "2", "levels": ""},
@@ -7332,7 +7332,7 @@ def test_a_trial_is_not_counted_as_unfinalised(world: World) -> None:
     """**閉じる対象に出さない。** 成績ではないので、いつまでも減らない
     未確定として残り続けてはいけない。
     """
-    from aijudge_admin.finalization import pending_counts
+    from aijudge_course_admin.finalization import pending_counts
 
     world.register("teacher", Role.INSTRUCTOR)
     task, _submission = _trial_submission(world, Role.INSTRUCTOR)
@@ -8070,7 +8070,7 @@ def test_the_template_downloads_as_a_zip(world: World) -> None:
     assert "attachment" in response.headers["content-disposition"]
     assert "ex06-template.zip" in response.headers["content-disposition"]
     # 返ったものがそのまま取り込めること（構造の定義とひな形が繋がっている）。
-    from aijudge_admin.bundles import read_bundle
+    from aijudge_course_admin.bundles import read_bundle
 
     assert [task.leaf for task in read_bundle(response.content)] == ["p1", "p2"]
 
@@ -8148,7 +8148,7 @@ def test_checks_across_branches_are_added_together(world: World) -> None:
     _seed(world)
     world.register("boss", Role.ADMIN)
     client = world.client("boss")
-    from aijudge_admin import register_kc
+    from aijudge_course_admin.kc import register as register_kc
 
     for key in ("cs.io", "cs.io.formatted"):
         register_kc(world.database, key=key, label=key, namespaces=("cs",), seeding=True)
@@ -8183,7 +8183,7 @@ def test_a_branch_button_leaves_checks_in_other_branches_alone(world: World) -> 
     _seed(world)
     world.register("boss", Role.ADMIN)
     client = world.client("boss")
-    from aijudge_admin import register_kc
+    from aijudge_course_admin.kc import register as register_kc
 
     for key in ("cs.io", "cs.io.formatted"):
         register_kc(world.database, key=key, label=key, namespaces=("cs",), seeding=True)

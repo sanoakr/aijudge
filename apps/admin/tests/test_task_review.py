@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from aijudge_admin import ApprovalRate, approval_rate
 from aijudge_core import (
     Provenance,
     ReviewState,
@@ -19,6 +18,7 @@ from aijudge_core import (
     TaskVersion,
 )
 from aijudge_core.ids import CriterionId, TaskId, TaskVersionId, UserId
+from aijudge_course_admin.task_review import ApprovalRate, approval_rate
 
 INSTRUCTOR = UserId("usr_" + "1" * 32)
 AUTHOR = UserId("usr_" + "2" * 32)

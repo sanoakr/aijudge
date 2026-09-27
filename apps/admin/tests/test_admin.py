@@ -15,22 +15,20 @@ from pathlib import Path
 
 import pytest
 
-from aijudge_admin import (
-    AdminError,
-    RosterError,
+from aijudge_admin.cli import main
+from aijudge_core import Role
+from aijudge_core.ids import CourseId, TenantId
+from aijudge_course_admin.errors import AdminError
+from aijudge_course_admin.operations import (
     create_staff,
     enrol_roster,
     ensure_course,
     import_tasks,
     list_courses,
     list_tasks,
-    parse_roster,
     set_password,
-    write_credentials,
 )
-from aijudge_admin.cli import main
-from aijudge_core import Role
-from aijudge_core.ids import CourseId, TenantId
+from aijudge_course_admin.roster import RosterError, parse_roster, write_credentials
 from aijudge_identity import AuthService, verify_password
 from aijudge_persistence import Database
 
@@ -126,7 +124,7 @@ def test_comments_and_blank_lines_are_ignored() -> None:
 
 def test_generated_passwords_avoid_confusable_characters() -> None:
     """手で配る前提なので 0/O・1/l/I を混ぜない。"""
-    from aijudge_admin import generate_password
+    from aijudge_course_admin.roster import generate_password
 
     for _ in range(50):
         assert not set(generate_password(20)) & set("0O1lI")

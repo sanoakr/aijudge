@@ -721,7 +721,7 @@ _HEADER = """\
 # 課題を直したら export し直して PR を出す。ずれていないかは
 # `aijudge-admin course diff --file <このファイル>` で確かめる。
 #
-# 形式は aiJudge の apps/admin/src/aijudge_admin/course_definition.py 冒頭。
+# 形式は aiJudge の packages/course_admin/src/aijudge_course_admin/course_definition.py 冒頭。
 """
 
 

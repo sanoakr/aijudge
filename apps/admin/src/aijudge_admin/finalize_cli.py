@@ -28,10 +28,9 @@ import time
 from datetime import UTC, datetime
 
 from aijudge_core.ids import CourseId
+from aijudge_course_admin.finalization import FinalizeReport, sweep_deadlines
 from aijudge_persistence import ENV_DATABASE_URL, Database
 from aijudge_telemetry import configure_logging
-
-from .finalization import FinalizeReport, sweep_deadlines
 
 logger = logging.getLogger(__name__)
 

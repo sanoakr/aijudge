@@ -11,7 +11,7 @@ import json
 
 import pytest
 
-from aijudge_admin.justification import DRAFT_PROMPT, JustificationWriter
+from aijudge_course_admin.justification import DRAFT_PROMPT, JustificationWriter
 from aijudge_llm_gateway import LlmGateway, PolicyViolation, ScriptedProvider
 
 JUDGEMENTS = "- 出力の正しさ: 達成（全ケース通過）\n- 変数名と構造: 概ね"

@@ -14,8 +14,8 @@ from __future__ import annotations
 from test_manage import PROFILES, TENANT, World
 from test_manage import world as world  # フィクスチャを借りる
 
-from aijudge_admin import ensure_course
 from aijudge_core import Role
+from aijudge_course_admin.operations import ensure_course
 
 
 def _image_course(world: World):

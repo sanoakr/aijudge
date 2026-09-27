@@ -16,9 +16,9 @@ from pathlib import Path
 
 import pytest
 
-from aijudge_admin.activity_purge import plan_activity_purge, purge_activity
 from aijudge_core import Course, Enrollment, Role, Task
 from aijudge_core.ids import CourseId, TaskId, TenantId, UserId, new_id
+from aijudge_course_admin.activity_purge import plan_activity_purge, purge_activity
 from aijudge_ide import ActivityFiles, EventBatch, IdeSession, IdeSessionId, make_buffer
 from aijudge_persistence import Database
 

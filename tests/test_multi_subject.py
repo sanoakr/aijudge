@@ -22,9 +22,10 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from aijudge_admin import enrol_roster, ensure_course, import_tasks, parse_roster
 from aijudge_core import ArtifactKind
 from aijudge_core.ids import TenantId
+from aijudge_course_admin.operations import enrol_roster, ensure_course, import_tasks
+from aijudge_course_admin.roster import parse_roster
 from aijudge_grader import GradingWorker
 from aijudge_grading import EvaluatorRegistry
 from aijudge_persistence import Database
@@ -134,12 +135,12 @@ class Campus:
             self._set_password(login)
 
     def _set_password(self, login: str) -> None:
-        from aijudge_admin import set_password
+        from aijudge_course_admin.operations import set_password
 
         set_password(self.database, tenant_id=TENANT, login=login, password=PASSWORD)
 
     def tasks_of(self, course_id):
-        from aijudge_admin import list_tasks
+        from aijudge_course_admin.operations import list_tasks
 
         return list_tasks(self.database, course_id)
 

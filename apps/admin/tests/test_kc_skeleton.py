@@ -18,15 +18,12 @@ from pathlib import Path
 
 import pytest
 
-from aijudge_admin import (
-    AdminError,
-    list_for_namespaces,
-    load_skeleton,
-    register_kc,
-    seed_kcs,
-    suggest_similar,
-)
 from aijudge_core.ids import UserId
+from aijudge_course_admin.errors import AdminError
+from aijudge_course_admin.kc import list_for_namespaces, suggest_similar
+from aijudge_course_admin.kc import register as register_kc
+from aijudge_course_admin.kc import seed as seed_kcs
+from aijudge_course_admin.kc_skeleton import load_skeleton
 from aijudge_persistence import Database
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
