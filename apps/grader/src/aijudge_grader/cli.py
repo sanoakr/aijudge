@@ -23,8 +23,8 @@ import sys
 import time
 from pathlib import Path
 
-from aijudge_admin.justification import JustificationWriter
 from aijudge_core import GradingPhase
+from aijudge_course_admin.justification import JustificationWriter
 from aijudge_persistence import ENV_DATABASE_URL, Database, ObservationFileStore
 from aijudge_submission import FilesystemArtifactStore
 from aijudge_telemetry import configure_logging

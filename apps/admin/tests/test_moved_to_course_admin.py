@@ -1,4 +1,6 @@
-"""`AdminError` は `aijudge_course_admin.errors` に移った（段階 3-1）。
+"""`apps/admin` から `aijudge_course_admin` へ移したものが、旧い名前でも同じものを指す。
+
+`AdminError` は `aijudge_course_admin.errors` に移った（段階 3-1）。
 
 移す間は旧い名前（`aijudge_admin.AdminError`・`aijudge_admin.operations.AdminError`）
 でも同じクラスを指す。**別のクラスになると、旧い名前で `except` している
@@ -6,6 +8,8 @@
 """
 
 from __future__ import annotations
+
+import importlib
 
 import pytest
 
@@ -27,3 +31,16 @@ def test_a_moved_module_raises_what_the_old_name_catches() -> None:
     assert tasks.AdminError is AdminError
     with pytest.raises(aijudge_admin.AdminError):
         raise tasks.AdminError("x")
+
+
+MOVED_MODULES = ("roster", "answer_mode", "justification", "drafting", "revision")
+
+
+@pytest.mark.parametrize("name", MOVED_MODULES)
+def test_a_moved_module_is_the_same_module_under_the_old_name(name: str) -> None:
+    """段階 3-2。**旧い名前は同じモジュールを指す**（写しではない）ので、テストが
+    旧い名前で属性を差し替えても新しい場所に効く。
+    """
+    old = importlib.import_module(f"aijudge_admin.{name}")
+    new = importlib.import_module(f"aijudge_course_admin.{name}")
+    assert old is new

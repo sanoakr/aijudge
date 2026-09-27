@@ -607,7 +607,6 @@ modules =
     aijudge_evalrunner
     aijudge_runner
 ignore_imports =
-    aijudge_grader.cli -> aijudge_admin.justification
     aijudge_reviewconsole.api -> aijudge_admin
     aijudge_reviewconsole.api -> aijudge_admin.groups
     aijudge_reviewconsole.app -> aijudge_admin

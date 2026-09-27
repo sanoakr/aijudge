@@ -153,6 +153,12 @@ grader → admin.justification）を列挙して `ignore_imports` に入れ、�
    mypy の対象にも最初から加えた  
 3-2. 葉のモジュール: `roster`, `answer_mode`, `drafting`, `revision`, `syllabus`,
 `test_cases`, `task_verifier`, `justification`（grader はこれを新しい場所から使う）  
+   → **3 本に分けた**（計 1850 行で、目安の 800 行を超えるため）。
+   **3-2a 済み**: `roster`・`answer_mode`・`justification`・`drafting`・`revision`。
+   旧い場所には `sys.modules` を差し替える互換を残した（再エクスポートでなく同じ
+   モジュールを指すので、旧い名前での `monkeypatch` も効く）。grader は
+   `justification` を新しい場所から使い、`admin` への依存と契約の例外が 1 本消えた。
+   残りは 3-2b（`syllabus`）、3-2c（`test_cases`・`task_verifier`）  
 3-3. `operations` → `rubric`, `groups`, `profiles`, `grading_settings`, `tasks`, `courses`  
 3-4. `finalization`（**import 契約 `grades-do-not-read-activity`・
 `grades-cannot-reach-activity-flags` と `test_boundaries` の名前を同時に書き換える**）→ `kc`  

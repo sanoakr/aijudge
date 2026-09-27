@@ -256,6 +256,20 @@ requires-dist = [{ name = "pydantic", specifier = ">=2.8" }]
 name = "aijudge-course-admin"
 version = "0.0.1"
 source = { editable = "packages/course_admin" }
+dependencies = [
+    { name = "aijudge-authoring" },
+    { name = "aijudge-core" },
+    { name = "aijudge-ide" },
+    { name = "aijudge-llm-gateway" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aijudge-authoring", editable = "packages/authoring" },
+    { name = "aijudge-core", editable = "packages/core" },
+    { name = "aijudge-ide", editable = "packages/ide" },
+    { name = "aijudge-llm-gateway", editable = "packages/llm_gateway" },
+]
 
 [[package]]
 name = "aijudge-eval-checklist-ai-judge"
@@ -428,9 +442,9 @@ name = "aijudge-grader"
 version = "0.0.1"
 source = { editable = "apps/grader" }
 dependencies = [
-    { name = "aijudge-admin" },
     { name = "aijudge-authoring" },
     { name = "aijudge-core" },
+    { name = "aijudge-course-admin" },
     { name = "aijudge-feedback" },
     { name = "aijudge-grading" },
     { name = "aijudge-observation" },
@@ -442,9 +456,9 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "aijudge-admin", editable = "apps/admin" },
     { name = "aijudge-authoring", editable = "packages/authoring" },
     { name = "aijudge-core", editable = "packages/core" },
+    { name = "aijudge-course-admin", editable = "packages/course_admin" },
     { name = "aijudge-feedback", editable = "packages/feedback" },
     { name = "aijudge-grading", editable = "packages/grading" },
     { name = "aijudge-observation", editable = "packages/observation" },
