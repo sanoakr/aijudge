@@ -41,6 +41,7 @@ from .spec import (
     TaskSpec,
     TestCaseSpec,
     build_task_version,
+    rekeyed_version,
 )
 from .statement import render_markdown, render_statement
 from .verification import (
@@ -89,6 +90,7 @@ __all__ = [
     "build_task_version",
     "content",
     "mutate",
+    "rekeyed_version",
     "render_markdown",
     "render_statement",
     "sharif_judge",
