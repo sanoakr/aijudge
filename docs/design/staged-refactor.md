@@ -183,6 +183,10 @@ grader → admin.justification）を列挙して `ignore_imports` に入れ、�
    ままだと、契約は中身の無い互換を見張ることになる。**3-4b 済み**: `kc`・`kc_skeleton`
    （`kc` が `kc_skeleton` を使うので一緒に）。**3-4 完了**  
 3-5. `authoring` → `bundle_plan`, `bundles`, `course_copy`, `course_definition`  
+   → **5 本に分けた**（依存される側から、1 本 800 行以内）: 3-5a `authoring`・`bundle_plan`、
+   3-5b `bundles`、3-5c `course_definition`・`course_copy`、3-5d `course_export`、
+   3-5e `course_snapshot`（#498 で足したもの）。`course_admin` は `admin` を import
+   できないので、依存先が先に移っていないと移せない。**3-5a 済み**  
 3-6. 呼び出し側（reviewconsole・grader・admin の CLI）を新しい場所に張り替え、
 再エクスポートと `ignore_imports` を消す。`apps/admin` は CLI だけになる
 

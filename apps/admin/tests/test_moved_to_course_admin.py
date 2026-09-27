@@ -52,6 +52,8 @@ MOVED_MODULES = (
     "finalization",
     "kc_skeleton",
     "kc",
+    "authoring",
+    "bundle_plan",
 )
 
 
