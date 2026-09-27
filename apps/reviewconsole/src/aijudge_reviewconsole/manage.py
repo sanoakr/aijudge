@@ -3123,7 +3123,7 @@ def register(templates) -> APIRouter:
     # 瞬間に何十件も入る操作にしない ── まとまった投入で怖いのは「押したら
     # 何件変わったか分からない」ことである。
     #
-    # 受け取る構造はこのシステム自身の語彙（`aijudge_admin.bundles`）。
+    # 受け取る構造はこのシステム自身の語彙（`aijudge_course_admin.bundles`）。
     # 移行元の形式をここに持ち込まない ── 一度その形で入口を作り、廃止した。
 
     @router.get("/courses/{course_id}/units/{unit}/bundle/template")

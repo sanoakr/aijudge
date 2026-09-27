@@ -54,6 +54,7 @@ MOVED_MODULES = (
     "kc",
     "authoring",
     "bundle_plan",
+    "bundles",
 )
 
 
