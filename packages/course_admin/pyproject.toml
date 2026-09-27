@@ -1,0 +1,17 @@
+[project]
+name = "aijudge-course-admin"
+version = "0.0.1"
+description = "Course administration: the business operations behind the admin CLI and the console"
+requires-python = ">=3.12"
+# コース運営の業務処理の移し先（docs/design/staged-refactor.md 段階 3）。いまの
+# `apps/admin` の中身を葉から順に移す。**保存層は入れない** ── 保存先は
+# `aijudge_unit_of_work` の Protocol 越しに受け取る（契約
+# `subsystems-do-not-know-the-store`）。依存は移すものに合わせて足していく。
+dependencies = []
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/aijudge_course_admin"]

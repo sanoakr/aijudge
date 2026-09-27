@@ -38,10 +38,9 @@ from aijudge_core import (
     settles_at,
 )
 from aijudge_core.ids import CourseId, FinalizationId, TaskId, TenantId, UserId
+from aijudge_course_admin.errors import AdminError
 from aijudge_persistence import Database
 from aijudge_submission import JobQueue, ReviewStore
-
-from .operations import AdminError
 
 logger = logging.getLogger(__name__)
 

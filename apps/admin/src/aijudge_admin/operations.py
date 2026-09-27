@@ -23,16 +23,15 @@ from aijudge_core import (
     position_for,
 )
 from aijudge_core.ids import CourseId, TenantId, UserId, derived_id, new_id
+
+# 例外は `aijudge_course_admin.errors` に移した（段階 3-1）。旧い名前で import して
+# いる呼び出し側のために残す（段階 3-6 で消す）。
+from aijudge_course_admin.errors import AdminError
 from aijudge_grading import EvaluatorRegistry, load_profile
 from aijudge_identity import AuthenticationFailed, AuthService, UserState
 from aijudge_persistence import Database
 
 from .roster import RosterEntry, generate_password
-
-
-class AdminError(Exception):
-    """操作を続けられない。"""
-
 
 # --------------------------------------------------------------------------
 # コース

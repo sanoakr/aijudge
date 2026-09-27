@@ -15,10 +15,10 @@ from pathlib import Path
 
 from aijudge_core import Course
 from aijudge_core.ids import TenantId, UserId
+from aijudge_course_admin.errors import AdminError
 from aijudge_persistence import Database
 
 from .course_definition import apply_course_definition
-from .operations import AdminError
 
 __all__ = ["DemoSeed", "demo_definition_path", "seed_demo_course"]
 

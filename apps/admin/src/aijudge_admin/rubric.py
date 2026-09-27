@@ -26,8 +26,7 @@
 from __future__ import annotations
 
 from aijudge_authoring import CriterionSpec, LevelSpec
-
-from .operations import AdminError
+from aijudge_course_admin.errors import AdminError
 
 # 段階を書かなかった観点に与える既定。4 段にしてあるのは部分点を表すため
 # （0/1 の二値にすると「動くが読めない」が満点か 0 点かになる）。

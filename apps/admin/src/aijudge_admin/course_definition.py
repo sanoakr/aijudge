@@ -66,11 +66,12 @@ from aijudge_authoring import TaskSpec
 from aijudge_authoring.importers import sharif_judge
 from aijudge_core import AnswerMode, Course, Task
 from aijudge_core.ids import TenantId, UserId
+from aijudge_course_admin.errors import AdminError
 from aijudge_persistence import Database
 
 from .answer_mode import editor_blockers, file_upload_required
 from .authoring import save_task
-from .operations import AdminError, ensure_course
+from .operations import ensure_course
 
 __all__ = [
     "AppliedCourse",

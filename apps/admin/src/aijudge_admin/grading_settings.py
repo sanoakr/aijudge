@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from aijudge_core import Course, TaskVersion
+from aijudge_course_admin.errors import AdminError
 from aijudge_grading import (
     EvaluatorRegistry,
     GradingPipeline,
@@ -32,8 +33,6 @@ from aijudge_grading import (
     load_profile,
 )
 from aijudge_persistence import Database
-
-from .operations import AdminError
 
 
 @dataclass(frozen=True)

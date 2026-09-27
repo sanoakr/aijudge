@@ -27,10 +27,9 @@ from pathlib import Path
 
 from aijudge_core import Course
 from aijudge_core.ids import CourseId, SubmissionId, is_id
+from aijudge_course_admin.errors import AdminError
 from aijudge_persistence import Database
 from aijudge_submission import StreamingArtifactStore
-
-from .operations import AdminError
 
 # 行動記録の本体の置き場所（web と同じ変数・`aijudge_studentweb.cli`）。
 ENV_ACTIVITY_DIR = "AIJUDGE_ACTIVITY_DIR"

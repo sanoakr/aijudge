@@ -32,10 +32,9 @@ from pathlib import Path
 from aijudge_audit import AuditAction, AuditRecorder
 from aijudge_core import Course, Task, autosave_expires_at, video_retention_expires_at
 from aijudge_core.ids import CourseId, TaskId, TenantId, UserId
+from aijudge_course_admin.errors import AdminError
 from aijudge_ide import ActivityFiles, IdeSession
 from aijudge_persistence import Database
-
-from .operations import AdminError
 
 __all__ = [
     "ActivityPurgeOutcome",

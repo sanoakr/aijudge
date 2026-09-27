@@ -145,6 +145,12 @@ grader → admin.justification）を列挙して `ignore_imports` に入れ、�
 
 3-1. 例外（`AdminError`）を `course_admin.errors` に。多くのモジュールが
 `operations` に依存しているのはこれのためだけ  
+   → **済み**: `packages/course_admin`（`aijudge_course_admin`）を新設し、
+   `AdminError` を `errors` に移した。`admin` の 19 モジュールは新しい場所から
+   取り、うち 15 は `operations` への依存が消えた。旧い名前（`operations`・
+   `aijudge_admin`）は再エクスポートで残し、同じクラスであることをテストで固定した
+   （コンソールが旧い名前で `except` している）。保存層を import しない契約に入れ、
+   mypy の対象にも最初から加えた  
 3-2. 葉のモジュール: `roster`, `answer_mode`, `drafting`, `revision`, `syllabus`,
 `test_cases`, `task_verifier`, `justification`（grader はこれを新しい場所から使う）  
 3-3. `operations` → `rubric`, `groups`, `profiles`, `grading_settings`, `tasks`, `courses`  

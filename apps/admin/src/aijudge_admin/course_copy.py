@@ -37,11 +37,12 @@ from aijudge_authoring import TaskSpec
 from aijudge_authoring import images as statement_images
 from aijudge_core import Course, ReviewState
 from aijudge_core.ids import CourseId, UserId
+from aijudge_course_admin.errors import AdminError
 from aijudge_persistence import Database
 
 from . import rubric
 from .authoring import save_task
-from .operations import AdminError, course_id_for, ensure_course
+from .operations import course_id_for, ensure_course
 
 
 @dataclass(frozen=True)

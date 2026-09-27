@@ -19,6 +19,8 @@ dependencies = [
     # 答え方を `editor` にしてよいかの検査（`answer_mode.py`）で、エディタで
     # 書ける形式の表を読む。
     "aijudge-ide",
+    # 業務処理の移し先（段階 3）。移したものは旧い場所から再エクスポートする。
+    "aijudge-course-admin",
 ]
 
 [project.scripts]
@@ -33,6 +35,7 @@ build-backend = "hatchling.build"
 packages = ["src/aijudge_admin"]
 
 [tool.uv.sources]
+aijudge-course-admin = { workspace = true }
 aijudge-core = { workspace = true }
 aijudge-identity = { workspace = true }
 aijudge-authoring = { workspace = true }

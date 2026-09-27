@@ -32,9 +32,8 @@ from pathlib import Path
 import yaml
 
 from aijudge_core import Course
+from aijudge_course_admin.errors import AdminError
 from aijudge_grading import EvaluatorRegistry, SubjectProfile
-
-from .operations import AdminError
 
 # プロファイル名に許す形。ファイル名になるので、パス区切りや空白は入れない。
 # 既存の名前（`cs_lang_c_intro`・`report_ja`）と同じ書き方に揃える。
