@@ -867,13 +867,9 @@ SAVED_MESSAGES: dict[str, str] = {
     # 利用者を参照しているので、行は残したまま状態を倒し、セッションを切る。
     "disabled": "利用者を無効化しました（記録は残ります。セッションも切りました）",
     "course_deleted": "コースを削除しました（学習者の提出はありませんでした）",
-    # 束の取り込み（#161）。**未承認で入ったことを黙らせない** ── 出題されて
-    # いると思ったまま学期が進む形が、いちばん高くつく。
-    "bundle_in_review": (
-        "取り込みました。**未承認なので、まだ学習者には出ません** —— "
-        "「未承認の課題（AI 作問）」から中身を確かめて承認してください"
-    ),
-    "bundle_saved": "取り込みました（承認済みとして入れたので、日程の範囲で出題されます）",
+    # 束の取り込み（#161）。**承認済みで入る**（#522）── 人が書いたものは、
+    # どの経路（画面・`course apply`・ディレクトリの取り込み）でも承認済みで入る。
+    "bundle_saved": "取り込みました（日程の範囲で出題されます）",
     "tenant_admin_granted": "テナント管理者にしました（すべてのコースで教員として扱われます）",
     "tenant_admin_revoked": "テナント管理者から外しました（役割はコースごとの受講で決まります）",
     "grading": "採点設定を保存しました",
@@ -3252,13 +3248,15 @@ def register(templates) -> APIRouter:
         course_id: str,
         unit: str,
         specs: Annotated[str, Form()],
-        approved: Annotated[str, Form()] = "",
     ) -> Response:
         """確認した束を保存する。**保存は既存の経路（`save_task`）を通す。**
 
-        承認済みで入れるかどうかはここで選ぶ（#161）。既定は未承認 ──
-        中身は他所で書かれたもので、このシステムでは誰も読んでいない。
-        承認するまで学習者には出ない（#48）。
+        **承認済みで入る**（#522）。束は教員が問題セットのひな形を埋めて
+        アップロードするもので、入れる本人が書き、確認画面で読んでいる。
+        以前は既定を未承認にしていたが（#161「他所で書かれたもの」）、同じ中身を
+        `course apply` やディレクトリの取り込みで入れると承認済みになる不整合と、
+        未承認の版を画面から承認する経路が無い穴があった。**承認が要るのは
+        AI の生成物だけ**（設計原則 P5）。
         """
         from .app import require_principal
 
@@ -3274,7 +3272,6 @@ def register(templates) -> APIRouter:
         except Exception as exc:
             raise HTTPException(status_code=400, detail=f"読み取れませんでした: {exc}") from None
 
-        review_state = ReviewState.APPROVED if approved.strip() else ReviewState.IN_REVIEW
         for spec in parsed:
             try:
                 save_task(
@@ -3285,14 +3282,12 @@ def register(templates) -> APIRouter:
                     authored_by=me.user_id,
                     revise=True,
                     course_rubric=course.rubric,
-                    review_state=review_state,
                 )
             except AdminError as exc:
                 raise HTTPException(status_code=409, detail=f"{spec.key}: {exc}") from None
 
-        saved_key = "bundle_saved" if review_state is ReviewState.APPROVED else "bundle_in_review"
         return RedirectResponse(
-            f"/manage/courses/{course.id}/units/{group.key}?saved={saved_key}#saved",
+            f"/manage/courses/{course.id}/units/{group.key}?saved=bundle_saved#saved",
             status_code=303,
         )
 

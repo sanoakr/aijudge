@@ -7524,12 +7524,16 @@ def test_a_broken_bundle_is_refused_with_the_reason(world: World) -> None:
     assert "zip" in response.text
 
 
-def test_confirming_the_bundle_saves_it_unapproved_by_default(world: World) -> None:
-    """中身は他所で書かれたもの。**このシステムでは誰も読んでいない**（#48）。"""
-    world.register("teacher", Role.INSTRUCTOR)
+def test_confirming_the_bundle_saves_it_approved(world: World) -> None:
+    """**承認済みで入る**（#522）。束は教員がひな形を埋めて入れるもので、
+    `course apply` やディレクトリの取り込みと同じく人が書いたもの。承認が要るのは
+    AI の生成物だけ ── 以前の既定（未承認）は、画面から承認する経路が無かった。
+    """
+    teacher = world.register("teacher", Role.INSTRUCTOR)
     client = world.client("teacher")
     unit = "ex06"
     preview = _upload(client, world, _bundle({"p9/task.yaml": BUNDLED_TASK}), unit).text
+    assert 'name="approved"' not in preview, "承認済みにするかを選ばせる印が残っている"
     specs = re.search(r'name="specs" value="([^"]*)"', preview)
     assert specs is not None
 
@@ -7540,6 +7544,7 @@ def test_confirming_the_bundle_saves_it_unapproved_by_default(world: World) -> N
     )
 
     assert response.status_code == 303
+    assert "saved=bundle_saved" in response.headers["location"]
     with world.database.unit_of_work() as uow:
         task = next(
             item
@@ -7548,33 +7553,12 @@ def test_confirming_the_bundle_saves_it_unapproved_by_default(world: World) -> N
         )
         version = uow.tasks.latest_version(task.id)
     assert version is not None
-    assert version.provenance.review_state is ReviewState.IN_REVIEW
-    # **生成物のふりをさせない**（承認率の統計が AI の承認率でなくなる）。
+    assert version.provenance.review_state is ReviewState.APPROVED
+    assert version.is_published
+    # 承認したのは取り込んだ本人。**生成物のふりはさせない**（承認率の統計が
+    # AI の承認率でなくなる）。
+    assert version.provenance.reviewed_by == teacher.user_id
     assert version.provenance.generated_by is None
-
-
-def test_the_bundle_can_be_taken_in_as_approved(world: World) -> None:
-    """以前この科目で使っていた課題を戻す場合。"""
-    world.register("teacher", Role.INSTRUCTOR)
-    client = world.client("teacher")
-    unit = "ex06"
-    preview = _upload(client, world, _bundle({"p9/task.yaml": BUNDLED_TASK}), unit).text
-    specs = html.unescape(re.search(r'name="specs" value="([^"]*)"', preview).group(1))
-
-    client.post(
-        f"/manage/courses/{world.course.id}/units/{unit}/bundle/confirm",
-        data={"specs": specs, "approved": "1"},
-        follow_redirects=False,
-    )
-
-    with world.database.unit_of_work() as uow:
-        task = next(
-            item
-            for item in uow.tasks.list_for_course(world.course.id)
-            if item.title.endswith("問題")
-        )
-        version = uow.tasks.latest_version(task.id)
-    assert version is not None and version.provenance.review_state is ReviewState.APPROVED
 
 
 def test_the_same_bundle_twice_adds_nothing(world: World) -> None:
