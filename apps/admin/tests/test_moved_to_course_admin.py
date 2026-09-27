@@ -33,7 +33,14 @@ def test_a_moved_module_raises_what_the_old_name_catches() -> None:
         raise tasks.AdminError("x")
 
 
-MOVED_MODULES = ("roster", "answer_mode", "justification", "drafting", "revision")
+MOVED_MODULES = (
+    "roster",
+    "answer_mode",
+    "justification",
+    "drafting",
+    "revision",
+    "syllabus",
+)
 
 
 @pytest.mark.parametrize("name", MOVED_MODULES)

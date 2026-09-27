@@ -259,6 +259,7 @@ source = { editable = "packages/course_admin" }
 dependencies = [
     { name = "aijudge-authoring" },
     { name = "aijudge-core" },
+    { name = "aijudge-ext-document-text" },
     { name = "aijudge-ide" },
     { name = "aijudge-llm-gateway" },
 ]
@@ -267,6 +268,7 @@ dependencies = [
 requires-dist = [
     { name = "aijudge-authoring", editable = "packages/authoring" },
     { name = "aijudge-core", editable = "packages/core" },
+    { name = "aijudge-ext-document-text", editable = "extractors/document_text" },
     { name = "aijudge-ide", editable = "packages/ide" },
     { name = "aijudge-llm-gateway", editable = "packages/llm_gateway" },
 ]

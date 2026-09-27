@@ -158,7 +158,8 @@ grader → admin.justification）を列挙して `ignore_imports` に入れ、�
    旧い場所には `sys.modules` を差し替える互換を残した（再エクスポートでなく同じ
    モジュールを指すので、旧い名前での `monkeypatch` も効く）。grader は
    `justification` を新しい場所から使い、`admin` への依存と契約の例外が 1 本消えた。
-   残りは 3-2b（`syllabus`）、3-2c（`test_cases`・`task_verifier`）  
+   **3-2b 済み**: `syllabus`（PDF の抽出器に依存するので、評価器と抽出器にも
+   `py.typed` を置いた）。残りは 3-2c（`test_cases`・`task_verifier`）  
 3-3. `operations` → `rubric`, `groups`, `profiles`, `grading_settings`, `tasks`, `courses`  
 3-4. `finalization`（**import 契約 `grades-do-not-read-activity`・
 `grades-cannot-reach-activity-flags` と `test_boundaries` の名前を同時に書き換える**）→ `kc`  
