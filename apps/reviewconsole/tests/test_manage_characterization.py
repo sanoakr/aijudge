@@ -127,7 +127,7 @@ def _make_group(world: World, client, name: str) -> None:
 
 
 def _group_names(world: World) -> list[str]:
-    from aijudge_admin import groups as audience
+    from aijudge_course_admin import groups as audience
 
     with world.database.unit_of_work() as uow:
         return [row.group.name for row in audience.list_groups(uow, world.course)]

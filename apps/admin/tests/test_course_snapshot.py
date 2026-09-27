@@ -15,13 +15,12 @@ from pathlib import Path
 import pytest
 from test_course_export import PROFILES, TENANT, _database, _write_source
 
-from aijudge_admin import course_id_for
 from aijudge_admin.cli import main
-from aijudge_admin.course_definition import apply_course_definition, load_course_definition
-from aijudge_admin.course_snapshot import snapshot_course, snapshot_definition
-from aijudge_admin.operations import _IMPORTER
 from aijudge_audit import AuditAction, AuditRecorder
 from aijudge_core import Task
+from aijudge_course_admin.course_definition import apply_course_definition, load_course_definition
+from aijudge_course_admin.course_snapshot import snapshot_course, snapshot_definition
+from aijudge_course_admin.operations import _IMPORTER, course_id_for
 from aijudge_persistence import Database
 
 COURSE_ID = course_id_for(TENANT, "prog2", "2026-後期")

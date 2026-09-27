@@ -12,13 +12,12 @@ from pathlib import Path
 
 import pytest
 
-from aijudge_admin import ensure_course
-from aijudge_admin.authoring import save_task
-from aijudge_admin.operations import AdminError
-from aijudge_admin.tasks import clear_unit
 from aijudge_authoring import TaskSpec
 from aijudge_core import Submission, SubmissionState
 from aijudge_core.ids import SubmissionId, TenantId, UserId
+from aijudge_course_admin.authoring import save_task
+from aijudge_course_admin.operations import AdminError, ensure_course
+from aijudge_course_admin.tasks import clear_unit
 from aijudge_persistence import Database
 
 REPO_ROOT = Path(__file__).resolve().parents[3]

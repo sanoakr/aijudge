@@ -12,10 +12,10 @@ from pathlib import Path
 
 import pytest
 
-from aijudge_admin.course_definition import apply_course_definition, load_course_definition
-from aijudge_admin.operations import AdminError, ensure_course
 from aijudge_core import HUMAN_SCORED, AnswerMode
 from aijudge_core.ids import TenantId, UserId
+from aijudge_course_admin.course_definition import apply_course_definition, load_course_definition
+from aijudge_course_admin.operations import AdminError, ensure_course
 from aijudge_persistence import Database
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -263,7 +263,7 @@ def test_a_missing_problem_dir_is_named(tmp_path: Path) -> None:
 
 def test_the_template_is_a_valid_definition(tmp_path: Path) -> None:
     """配るひな形は、そのまま流せる形でなければならない（教員が埋めて管理者に渡す）。"""
-    from aijudge_admin.course_definition import course_template
+    from aijudge_course_admin.course_definition import course_template
 
     text = course_template()
     for problem in ("p2", "p3"):

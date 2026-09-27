@@ -15,8 +15,8 @@ import zipfile
 
 import pytest
 
-from aijudge_admin import AdminError
-from aijudge_admin.bundles import MAX_ARCHIVE_ENTRIES, read_bundle
+from aijudge_course_admin.bundles import MAX_ARCHIVE_ENTRIES, read_bundle
+from aijudge_course_admin.errors import AdminError
 
 MINIMAL = "statement: |\n  ## [必須] 最大値 ##\n\n  本文\n"
 
@@ -235,7 +235,7 @@ def test_the_template_reads_back_as_two_tasks() -> None:
     忘れれば、このテストが落ちる（教員のところで「取り込めません」の 1 行に
     なって現れる前に）。
     """
-    from aijudge_admin.bundles import template_bundle
+    from aijudge_course_admin.bundles import template_bundle
 
     tasks = read_bundle(template_bundle(unit="ex06"))
 
@@ -258,7 +258,7 @@ def test_the_template_does_not_write_a_key() -> None:
 
     ひな形に書かないこと自体が説明になる。
     """
-    from aijudge_admin.bundles import template_bundle
+    from aijudge_course_admin.bundles import template_bundle
 
     archive = zipfile.ZipFile(io.BytesIO(template_bundle()))
     for name in ("p1/task.yaml", "p2/task.yaml"):
@@ -273,7 +273,7 @@ def test_the_template_carries_the_values_this_course_can_use() -> None:
     キーの形も決まっている（#157）ので、一覧が手元にあるかどうかで
     書きやすさが変わる。
     """
-    from aijudge_admin.bundles import template_bundle
+    from aijudge_course_admin.bundles import template_bundle
 
     payload = template_bundle(
         unit="ex06",
@@ -293,7 +293,7 @@ def test_the_template_carries_the_values_this_course_can_use() -> None:
 
 def test_the_template_says_so_when_the_course_has_nothing_yet() -> None:
     """**空欄にしない。** 空欄は「まだ無い」のか「壊れている」のか読めない。"""
-    from aijudge_admin.bundles import template_bundle
+    from aijudge_course_admin.bundles import template_bundle
 
     archive = zipfile.ZipFile(io.BytesIO(template_bundle()))
     minimal = archive.read("p1/task.yaml").decode("utf-8")
@@ -307,7 +307,7 @@ def test_the_readme_explains_every_file_and_the_limits() -> None:
     手順しか書いていなかったので、ファイルごとの書式は `task.yaml` の
     コメントに散っており、2 つのファイルを行き来しないと全体が掴めなかった。
     """
-    from aijudge_admin.bundles import (
+    from aijudge_course_admin.bundles import (
         MAX_ARCHIVE_BYTES,
         MAX_ARCHIVE_ENTRIES,
         MAX_EXTRACTED_BYTES,
@@ -333,7 +333,7 @@ def test_the_readme_explains_how_to_place_several_test_cases() -> None:
     コードを読まないと分からない ── 見せるケースや重みの違うケースを作ろうと
     した教員が、書いたのに効かない理由を画面から知る手段が無い。
     """
-    from aijudge_admin.bundles import template_bundle
+    from aijudge_course_admin.bundles import template_bundle
 
     archive = zipfile.ZipFile(io.BytesIO(template_bundle()))
     readme = archive.read("README.md").decode("utf-8")
@@ -348,7 +348,7 @@ def test_the_readme_explains_how_to_place_several_test_cases() -> None:
 
 def test_the_template_shows_two_test_cases() -> None:
     """README に「複数置ける」と書くだけでなく、実物で見せる。"""
-    from aijudge_admin.bundles import template_bundle
+    from aijudge_course_admin.bundles import template_bundle
 
     names = zipfile.ZipFile(io.BytesIO(template_bundle())).namelist()
 

@@ -15,9 +15,9 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from aijudge_admin import ensure_course
 from aijudge_core import Role
 from aijudge_core.ids import CourseId, TenantId
+from aijudge_course_admin.operations import ensure_course
 from aijudge_identity import AuthService
 from aijudge_persistence import Database
 from aijudge_reviewconsole import SESSION_COOKIE, Console, create_app

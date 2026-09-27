@@ -18,13 +18,13 @@ from pathlib import Path
 
 import pytest
 
-from aijudge_admin import TaskVerifier
-from aijudge_admin.drafting import TaskDrafter
 from aijudge_authoring.drafting import Blueprint, Difficulty
 from aijudge_authoring.spec import build_task_version
 from aijudge_authoring.verification import GateOutcome
 from aijudge_core import ReviewState
 from aijudge_core.ids import CourseId, UserId
+from aijudge_course_admin.drafting import TaskDrafter
+from aijudge_course_admin.task_verifier import TaskVerifier
 from aijudge_grading import EvaluatorRegistry, load_profile
 from aijudge_llm_gateway import LlmGateway, ScriptedProvider
 
@@ -211,7 +211,7 @@ def test_the_course_outline_reaches_the_prompt() -> None:
     """KC は「何を問うか」を決めるが、「どこまでを既習として書いてよいか」は
     決めない。到達目標を渡すと、その範囲の外に出た課題文が減る。
     """
-    from aijudge_admin.drafting import _course_section
+    from aijudge_course_admin.drafting import _course_section
 
     section = _course_section(
         Blueprint(
@@ -249,7 +249,7 @@ def test_a_course_without_an_outline_gets_no_section() -> None:
     """**空の節を渡さない。** モデルは「範囲の指定が無い」ではなく
     「範囲は空」と読む余地がある。書かれていない条件は書かないことで伝える。
     """
-    from aijudge_admin.drafting import _course_section
+    from aijudge_course_admin.drafting import _course_section
 
     assert (
         _course_section(

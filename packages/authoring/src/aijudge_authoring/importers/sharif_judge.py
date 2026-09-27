@@ -101,7 +101,7 @@ def collect_test_cases(
 
     ただし「0 件でよい」の判断はここではしない。呼び出し側が
     「自動採点できない課題を黙って作らない」を判断する
-    （`aijudge_admin.import_tasks` の `require_test_cases`）。ここで
+    （`aijudge_course_admin.operations.import_tasks` の `require_test_cases`）。ここで
     例外にすると、その判断を呼び出し側から奪うことになる。
 
     対応が壊れている場合（input はあるのに output が無い）は例外にする。

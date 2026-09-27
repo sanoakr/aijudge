@@ -30,14 +30,13 @@ from aijudge_authoring.difficulty import (
 from aijudge_authoring.drafting import Blueprint, Difficulty
 from aijudge_core import new_id
 from aijudge_core.ids import CourseId, TaskVersionId, UserId
+from aijudge_course_admin.drafting import TaskDrafter
+from aijudge_course_admin.duplicates import DuplicateChecker
+from aijudge_course_admin.solvability import SolvabilityChecker
+from aijudge_course_admin.task_review import approval_rate, build_packet
+from aijudge_course_admin.task_verifier import TaskVerifier
 from aijudge_grading import EvaluatorRegistry, load_profile
 from aijudge_persistence import Database
-
-from .drafting import TaskDrafter
-from .duplicates import DuplicateChecker
-from .solvability import SolvabilityChecker
-from .task_review import approval_rate, build_packet
-from .task_verifier import TaskVerifier
 
 
 def _verifier(args: argparse.Namespace, subject_profile: str) -> TaskVerifier:

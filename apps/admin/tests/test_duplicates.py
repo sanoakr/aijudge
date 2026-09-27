@@ -12,10 +12,10 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from aijudge_admin import DuplicateChecker
 from aijudge_authoring.similarity import SimilarityMethod
 from aijudge_core import Provenance, RubricCriterion, RubricLevel, TaskVersion
 from aijudge_core.ids import CriterionId, TaskId, TaskVersionId
+from aijudge_course_admin.duplicates import DuplicateChecker
 from aijudge_llm_gateway import LlmError, LlmGateway, ScriptedProvider
 from aijudge_persistence import Database
 

@@ -19,9 +19,9 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from aijudge_admin import ensure_course
 from aijudge_core import ArtifactKind, Role
 from aijudge_core.ids import TenantId
+from aijudge_course_admin.operations import ensure_course
 from aijudge_grader import GradingWorker
 from aijudge_grading import EvaluatorRegistry
 from aijudge_identity import AuthService

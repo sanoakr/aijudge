@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import json
 
-from aijudge_admin.syllabus import PROMPT, SyllabusReader
+from aijudge_course_admin.syllabus import PROMPT, SyllabusReader
 from aijudge_llm_gateway import LlmGateway, ScriptedProvider
 
 EXISTING = ("cs.sdf.fundamentals.formatted_io", "cs.sdf.fundamentals.loops")
@@ -53,7 +53,7 @@ def test_the_version_moved_with_the_wording() -> None:
 def test_an_empty_object_is_not_a_valid_answer() -> None:
     """候補の欄は**必須**（#496）。既定値があると Schema が空の `{}` を許し、
     小さいモデルがそれを返して「候補 0 件」として黙って通っていた。"""
-    from aijudge_admin.syllabus import SyllabusProposal
+    from aijudge_course_admin.syllabus import SyllabusProposal
 
     assert "knowledge_components" in SyllabusProposal.model_json_schema()["required"]
 

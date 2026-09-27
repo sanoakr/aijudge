@@ -16,21 +16,18 @@ from pathlib import Path
 
 import pytest
 
-from aijudge_admin import (
-    AdminError,
-    assert_registered,
-    delete_kc,
-    edit_kc,
-    ensure_course,
-    kc_usage,
-    list_for_namespaces,
-    register_kc,
-    restore_kc,
-    retire_kc,
-    save_task,
-)
 from aijudge_authoring import TaskSpec
 from aijudge_core.ids import TenantId, UserId
+from aijudge_course_admin.authoring import save_task
+from aijudge_course_admin.errors import AdminError
+from aijudge_course_admin.kc import assert_registered, list_for_namespaces
+from aijudge_course_admin.kc import delete as delete_kc
+from aijudge_course_admin.kc import edit as edit_kc
+from aijudge_course_admin.kc import register as register_kc
+from aijudge_course_admin.kc import restore as restore_kc
+from aijudge_course_admin.kc import retire as retire_kc
+from aijudge_course_admin.kc import usage as kc_usage
+from aijudge_course_admin.operations import ensure_course
 from aijudge_persistence import Database
 
 REPO_ROOT = Path(__file__).resolve().parents[3]

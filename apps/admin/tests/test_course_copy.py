@@ -16,16 +16,14 @@ from pathlib import Path
 
 import pytest
 
-from aijudge_admin import (
-    AdminError,
-    duplicate_course,
-    ensure_course,
-    register_kc,
-    save_task,
-)
 from aijudge_authoring import TaskSpec, images
 from aijudge_core import ReviewState, Role
 from aijudge_core.ids import TenantId, UserId
+from aijudge_course_admin.authoring import save_task
+from aijudge_course_admin.course_copy import duplicate_course
+from aijudge_course_admin.errors import AdminError
+from aijudge_course_admin.kc import register as register_kc
+from aijudge_course_admin.operations import ensure_course
 from aijudge_identity import AuthService
 from aijudge_persistence import Database
 from aijudge_submission import InMemoryArtifactStore

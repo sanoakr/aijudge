@@ -16,7 +16,6 @@ from pathlib import Path
 
 import pytest
 
-from aijudge_admin import TaskVerifier
 from aijudge_authoring import GateOutcome
 from aijudge_core import (
     Provenance,
@@ -26,6 +25,7 @@ from aijudge_core import (
     TestCase,
 )
 from aijudge_core.ids import CriterionId, TaskId, TaskVersionId, UserId
+from aijudge_course_admin.task_verifier import TaskVerifier
 from aijudge_grading import EvaluatorRegistry, load_profile
 
 REPO_ROOT = Path(__file__).resolve().parents[3]

@@ -26,25 +26,15 @@ from pathlib import Path
 from aijudge_audit import AuditAction, AuditRecorder
 from aijudge_core import DIVISIONS, Role
 from aijudge_core.ids import CourseId, TenantId
-from aijudge_identity import (
-    DEFAULT_TOKEN_DAYS,
-    ENV_DEMO_COURSE,
-    AuthenticationFailed,
-    AuthService,
-    demo_course_from_env,
-)
-from aijudge_persistence import ENV_DATABASE_URL, Database
-from aijudge_telemetry import configure_logging
-
-from . import authoring_cli, groups
-from .activity_purge import plan_activity_purge, purge_activity
-from .course_definition import apply_course_definition
-from .course_export import DiffState, diff_course, export_course
-from .course_snapshot import snapshot_course, snapshot_definition
-from .courses import delete_course
-from .demo_reset import reset_demo_course
-from .demo_seed import seed_demo_course
-from .operations import (
+from aijudge_course_admin import groups
+from aijudge_course_admin.activity_purge import plan_activity_purge, purge_activity
+from aijudge_course_admin.course_definition import apply_course_definition
+from aijudge_course_admin.course_export import DiffState, diff_course, export_course
+from aijudge_course_admin.course_snapshot import snapshot_course, snapshot_definition
+from aijudge_course_admin.courses import delete_course
+from aijudge_course_admin.demo_reset import reset_demo_course
+from aijudge_course_admin.demo_seed import seed_demo_course
+from aijudge_course_admin.operations import (
     _IMPORTER,
     AdminError,
     create_staff,
@@ -56,9 +46,20 @@ from .operations import (
     list_tasks,
     set_password,
 )
-from .roster import RosterError, load_roster, write_credentials
-from .tasks import clear_unit
-from .video_purge import plan_video_purge, purge_videos
+from aijudge_course_admin.roster import RosterError, load_roster, write_credentials
+from aijudge_course_admin.tasks import clear_unit
+from aijudge_course_admin.video_purge import plan_video_purge, purge_videos
+from aijudge_identity import (
+    DEFAULT_TOKEN_DAYS,
+    ENV_DEMO_COURSE,
+    AuthenticationFailed,
+    AuthService,
+    demo_course_from_env,
+)
+from aijudge_persistence import ENV_DATABASE_URL, Database
+from aijudge_telemetry import configure_logging
+
+from . import authoring_cli
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 DEFAULT_TENANT = "ten_" + "0" * 32
@@ -800,7 +801,7 @@ def cmd_user_disable(args: argparse.Namespace) -> int:
 
 
 def cmd_password(args: argparse.Namespace) -> int:
-    from .roster import generate_password
+    from aijudge_course_admin.roster import generate_password
 
     password = args.password or generate_password()
     database = _database(args)
@@ -826,8 +827,8 @@ def cmd_kc_seed(args: argparse.Namespace) -> int:
     **何度走らせても増えない。** 骨格ファイルを直して足したときは、
     もう一度これを走らせれば差分だけが入る。
     """
-    from .kc import seed as seed_kcs
-    from .kc_skeleton import load_skeleton, skeleton_dir
+    from aijudge_course_admin.kc import seed as seed_kcs
+    from aijudge_course_admin.kc_skeleton import load_skeleton, skeleton_dir
 
     path = args.file or (skeleton_dir(args.profiles) / f"{args.namespace}.yaml")
     if not path.exists():

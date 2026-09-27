@@ -29,8 +29,8 @@ def _stub_drafter(monkeypatch) -> None:
         def __init__(self, *a, **kw) -> None: ...
 
         def draft(self, blueprint, *, key):
-            from aijudge_admin.drafting import DraftResult
             from aijudge_authoring.drafting import draft_to_spec
+            from aijudge_course_admin.drafting import DraftResult
 
             draft = TaskDraft(
                 title="生成された課題",

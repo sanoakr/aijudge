@@ -17,7 +17,7 @@ import json
 
 import pytest
 
-from aijudge_admin.syllabus import (
+from aijudge_course_admin.syllabus import (
     MAX_TASK_KCS,
     TASK_KC_PROMPT,
     TaskKcReader,

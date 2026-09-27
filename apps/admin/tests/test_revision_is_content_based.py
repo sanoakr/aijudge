@@ -29,9 +29,12 @@ from pathlib import Path
 
 import pytest
 
-from aijudge_admin import PlannedChange, ensure_course, plan_bundle, register_kc, save_task
 from aijudge_authoring import TaskSpec
 from aijudge_core.ids import TenantId, UserId
+from aijudge_course_admin.authoring import save_task
+from aijudge_course_admin.bundle_plan import PlannedChange, plan_bundle
+from aijudge_course_admin.kc import register as register_kc
+from aijudge_course_admin.operations import ensure_course
 from aijudge_persistence import Database
 
 REPO_ROOT = Path(__file__).resolve().parents[3]

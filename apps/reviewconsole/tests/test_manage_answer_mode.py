@@ -14,13 +14,13 @@ import pytest
 from test_manage import World, _import_example, _unit_of
 from test_manage import world as world  # フィクスチャを借りる
 
-from aijudge_admin.answer_mode import editor_blockers
 from aijudge_core import AnswerMode, Role
 from aijudge_core.ids import TaskId
+from aijudge_course_admin.answer_mode import editor_blockers
 
 
 def _pair(world: World):
-    from aijudge_admin import list_tasks
+    from aijudge_course_admin.operations import list_tasks
 
     return list_tasks(world.database, world.course.id)[0]
 
@@ -213,7 +213,7 @@ def test_a_mixed_set_can_use_the_editor(world: World) -> None:
 
 def test_a_video_task_keeps_file_upload(world: World) -> None:
     """**動画を受ける課題があれば、ファイル選択は外せない**。動画はエディタから出せない。"""
-    from aijudge_admin.answer_mode import file_upload_required
+    from aijudge_course_admin.answer_mode import file_upload_required
 
     task, version = _pair(world_with_example(world))
     video = task.model_copy(update={"accepted_suffixes": (".mp4",), "title": "実演の動画"})

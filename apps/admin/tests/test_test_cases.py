@@ -14,7 +14,7 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from aijudge_admin.test_cases import PROMPT, GeneratedCases, TestCaseWriter
+from aijudge_course_admin.test_cases import PROMPT, GeneratedCases, TestCaseWriter
 from aijudge_llm_gateway import LlmGateway, ScriptedProvider
 
 _PAYLOAD = {

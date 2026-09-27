@@ -17,8 +17,8 @@ from pathlib import Path
 import pytest
 
 from aijudge_admin.cli import main
-from aijudge_admin.operations import ensure_course
 from aijudge_core.ids import TenantId
+from aijudge_course_admin.operations import ensure_course
 from aijudge_persistence import Database
 
 REPO_ROOT = Path(__file__).resolve().parents[3]

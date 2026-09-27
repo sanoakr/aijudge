@@ -197,7 +197,7 @@ def test_an_auto_submission_is_marked_in_the_list(world: World, root) -> None:
     world.register("teacher", Role.INSTRUCTOR)
     learner = world.register("s2400001", Role.LEARNER)
     _import_example(world)
-    from aijudge_admin import list_tasks
+    from aijudge_course_admin.operations import list_tasks
 
     task, version = list_tasks(world.database, world.course.id)[0]
     service = SubmissionService(world.database.unit_of_work, FilesystemArtifactStore(root / "a"))
@@ -238,8 +238,8 @@ def test_an_auto_submission_is_marked_in_the_list(world: World, root) -> None:
 
 def _two_problems(world: World) -> list[str]:
     """課題を 2 つ用意し、それぞれの課題版 ID を返す（hello の `tasks` に載せる）。"""
-    from aijudge_admin import list_tasks
     from aijudge_core.ids import TaskId, TaskVersionId
+    from aijudge_course_admin.operations import list_tasks
 
     _import_example(world)
     (task, version) = list_tasks(world.database, world.course.id)[0]
