@@ -339,11 +339,12 @@ returned. See [ADR 0013](adr/0013-lateness-is-a-deduction-not-a-criterion.md).
 ```fish
 aijudge-admin task draft  --course <id> --key gen/ex01 --author <id> \
     --kc cs.loops.termination --model <drafter> --solver-model <other>
-aijudge-admin task review list
-aijudge-admin task review decide --version <id> --reviewer <id> \
-    --reject --reason "the statement never gives the input format"
 aijudge-admin task review rate --course <id>
 ```
+
+`task draft` saves a **draft**, not a task. Instructors approve or drop it on the
+console's "未承認の課題（AI 作問）" page, which is the only place approval
+happens (#522); the CLI has no approve or reject command.
 
 Drafting is the easy half. What decides whether a generated task is usable is
 what throws it away, and that runs before an instructor spends attention on it.
