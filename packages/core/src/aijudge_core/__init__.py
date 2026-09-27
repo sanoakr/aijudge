@@ -20,12 +20,10 @@ from .access import in_audience, may_see, may_submit_before_open
 from .events import (
     EVENT_TYPES,
     SCHEMA_VERSION,
-    CredentialIssued,
     DomainEvent,
     GradingCompleted,
     SkillStateUpdated,
     SubmissionCreated,
-    TaskPublished,
 )
 from .extraction import (
     Extraction,
@@ -192,7 +190,6 @@ __all__ = [
     "CourseGroup",
     "Credential",
     "CredentialExport",
-    "CredentialIssued",
     "CriterionEvidence",
     "CriterionScore",
     "DomainEvent",
@@ -237,7 +234,6 @@ __all__ = [
     "SubmissionState",
     "SubmissionWindow",
     "Task",
-    "TaskPublished",
     "TaskVersion",
     "Tenant",
     "TestCase",
