@@ -1,6 +1,6 @@
 [project]
 name = "aijudge"
-version = "1.36.42"
+version = "1.36.43"
 description = "AI-assisted assessment platform for STEM coursework"
 readme = "README.md"
 license = "Apache-2.0"
