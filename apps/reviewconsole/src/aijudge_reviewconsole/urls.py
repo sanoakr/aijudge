@@ -32,7 +32,7 @@ def prefixed(path: str) -> str:
 class RedirectResponse(_BaseRedirectResponse):
     """`fastapi.responses.RedirectResponse` の差し替え。絶対パスに接頭辞を足す。
 
-    呼び出し側（`app.py` / `manage.py` の 40 か所超）は import 元を変えるだけで、
+    呼び出し側（`app.py` / `manage/` の 40 か所超）は import 元を変えるだけで、
     引数の書き方は一切変えなくてよい。
     """
 
