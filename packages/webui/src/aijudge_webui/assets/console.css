@@ -644,3 +644,8 @@ nav.tabs a[aria-current]{background:var(--surface);border-color:var(--line);colo
 .kc-chip .x{color:var(--muted);margin-left:2px}
 .kc-chip:hover .x,.kc-chip:focus-visible .x{color:var(--shu)}
 .kc-chip:focus-visible{outline:2px solid var(--ai);outline-offset:1px}
+
+/* 課題キーの列（#543）。`.fit` は折り返さないが、キーは長くなりうる
+   （`test5/echoClient_comments.py`）── 問題セットの区切り（`/` の後ろの <wbr>）で
+   折り返し、それでも長い名前はどこでも切ってよい。表が本文の枠を越えるよりよい。 */
+td.task-key{white-space:normal;overflow-wrap:anywhere;font-size:.85em;min-width:7em;max-width:12em}

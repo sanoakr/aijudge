@@ -38,7 +38,7 @@
   <tbody>
   {% for row in tasks %}
     <tr class="row-link" data-href="{{ root_prefix() }}/manage/courses/{{ course.id }}/tasks/{{ row.task.id }}/edit">
-      <td class="fit mono">{{ row.version.source_key or '—' }}</td>
+      <td class="fit mono task-key">{% if row.version.source_key %}{% for part in row.version.source_key.split('/') %}{% if not loop.first %}/<wbr>{% endif %}{{ part }}{% endfor %}{% else %}—{% endif %}</td>
       <td class="grow">
         <a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/tasks/{{ row.task.id }}/edit">{{ row.task.title }}</a>
         {% if row.duplicate_title %}<span class="pill attn">同じ題名が複数</span>{% endif %}
