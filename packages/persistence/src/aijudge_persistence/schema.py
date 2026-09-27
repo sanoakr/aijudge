@@ -29,6 +29,7 @@ SQL で集約の中身を検索するようになったときで、そのとき�
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import (
     JSON,
@@ -51,7 +52,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 JsonType = JSON().with_variant(JSONB(), "postgresql")
 
 
-class UtcDateTime(TypeDecorator):
+class UtcDateTime(TypeDecorator[datetime]):
     """常に timezone 付きの UTC で読み書きする日時。
 
     PostgreSQL の `TIMESTAMP WITH TIME ZONE` は aware な値を返すが、
@@ -117,7 +118,7 @@ class SubmissionRow(Base):
     # 写しが元とずれる余地は構造的に無い。
     is_trial: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0", index=True)
     # Submission 全体（artifacts を含む）。読むときは丸ごと。
-    document: Mapped[dict] = mapped_column(JsonType)
+    document: Mapped[dict[str, Any]] = mapped_column(JsonType)
 
     __table_args__ = (
         # 「この学習者のこの課題の提出一覧」が最頻のクエリ。
@@ -168,7 +169,7 @@ class GradingRunRow(Base):
     routing: Mapped[str] = mapped_column(String(32), index=True)
     superseded_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(Timestamp, index=True)
-    document: Mapped[dict] = mapped_column(JsonType)
+    document: Mapped[dict[str, Any]] = mapped_column(JsonType)
 
     __table_args__ = (
         # 「この提出の最新の採点」— レビューと学生の結果表示が使う。
@@ -198,7 +199,7 @@ class HumanReviewRow(Base):
     # 保留されないため、NULL にはならない。
     final_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
     reviewed_at: Mapped[datetime] = mapped_column(Timestamp, index=True)
-    document: Mapped[dict] = mapped_column(JsonType)
+    document: Mapped[dict[str, Any]] = mapped_column(JsonType)
 
     __table_args__ = (
         # **1 採点に確認が複数ありうる**（#275）。以前は `grading_run_id` に
@@ -239,7 +240,7 @@ class FinalizationRow(Base):
     # 確定させた人。自動確定では NULL。
     actor_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     finalized_at: Mapped[datetime] = mapped_column(Timestamp, index=True)
-    document: Mapped[dict] = mapped_column(JsonType)
+    document: Mapped[dict[str, Any]] = mapped_column(JsonType)
 
     __table_args__ = (
         # 1 採点につき確定は 1 つ。二度確定できると成績が二つ存在する。
@@ -263,7 +264,7 @@ class ReviewRequestRow(Base):
     requested_at: Mapped[datetime] = mapped_column(Timestamp, index=True)
     # 対応した教員レビュー。NULL なら未対応 = 教員の待ち行列に出る。
     resolved_by: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
-    document: Mapped[dict] = mapped_column(JsonType)
+    document: Mapped[dict[str, Any]] = mapped_column(JsonType)
 
     __table_args__ = (
         # 同じ採点に二重に依頼を出させない。
@@ -283,7 +284,7 @@ class BlindMarkRow(Base):
     submission_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     grader_id: Mapped[str] = mapped_column(String(64), index=True)
     marked_at: Mapped[datetime] = mapped_column(Timestamp)
-    document: Mapped[dict] = mapped_column(JsonType)
+    document: Mapped[dict[str, Any]] = mapped_column(JsonType)
 
 
 class GradingJobRow(Base):
@@ -303,7 +304,7 @@ class GradingJobRow(Base):
     lease_expires_at: Mapped[datetime | None] = mapped_column(Timestamp, nullable=True)
     created_at: Mapped[datetime] = mapped_column(Timestamp)
     updated_at: Mapped[datetime] = mapped_column(Timestamp)
-    document: Mapped[dict] = mapped_column(JsonType)
+    document: Mapped[dict[str, Any]] = mapped_column(JsonType)
 
     __table_args__ = (
         # 二重投入で GPU を二度回さないための一意制約。
@@ -331,7 +332,7 @@ class OutboxRow(Base):
     type: Mapped[str] = mapped_column(String(64), index=True)
     occurred_at: Mapped[datetime] = mapped_column(Timestamp, index=True)
     published_at: Mapped[datetime | None] = mapped_column(Timestamp, nullable=True, index=True)
-    document: Mapped[dict] = mapped_column(JsonType)
+    document: Mapped[dict[str, Any]] = mapped_column(JsonType)
 
     __table_args__ = (Index("ix_outbox_pending", "published_at", "occurred_at"),)
 
@@ -385,7 +386,7 @@ class OidcSettingsRow(Base):
     # 責務。`aijudge_identity` の `OidcSettings` は常に平文を扱う）。
     client_secret_encrypted: Mapped[str] = mapped_column(Text)
     # 1 機関が複数ドメインを許すこともあるので単一値にしない。
-    allowed_domains: Mapped[list] = mapped_column(JsonType)
+    allowed_domains: Mapped[list[Any]] = mapped_column(JsonType)
     issuer: Mapped[str] = mapped_column(String(256))
     # ログイン画面のボタンの文言（#209）。**機関ごとの呼び名が入る欄なので、
     # 既定値はモデル側（`aijudge_identity`）が持ち、ここには書かない。**
@@ -454,21 +455,21 @@ class CourseRow(Base):
     # コースの概要・到達目標（Markdown）。シラバスから写して置く。
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     # このコースの共通ルーブリック（観点の宣言）。NULL・空なら組み込みの既定。
-    rubric: Mapped[list | None] = mapped_column(JsonType, nullable=True)
+    rubric: Mapped[list[Any] | None] = mapped_column(JsonType, nullable=True)
     # 共通ルーブリックの畳み方（"or" / "and"）。NULL なら "or"（既定・従来の挙動）。
     rubric_aggregation: Mapped[str | None] = mapped_column(String(16), nullable=True)
     # このコースが使う知識要素の正準キー。**空（NULL）なら名前空間の全部。**
-    knowledge_components: Mapped[list | None] = mapped_column(JsonType, nullable=True)
+    knowledge_components: Mapped[list[Any] | None] = mapped_column(JsonType, nullable=True)
     # このコースだけの採点設定の上書き。NULL・空なら雛形のまま。
-    grading_overrides: Mapped[dict | None] = mapped_column(JsonType, nullable=True)
+    grading_overrides: Mapped[dict[str, Any] | None] = mapped_column(JsonType, nullable=True)
     # 締切から何分で成績を自動確定するか。NULL なら自動確定しない。
     auto_finalize_after_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # この科目の既定の提出ファイル形式（`[".c", ".pdf"]`）。NULL・空なら
     # 組み込みの既定。**課題ごとの指定が上書きする**（uploads.py）。
-    upload_suffixes: Mapped[list | None] = mapped_column(JsonType, nullable=True)
+    upload_suffixes: Mapped[list[Any] | None] = mapped_column(JsonType, nullable=True)
     # 遅延の減点の段（`[{"after_hours": 24, "ratio": 0.3}, ...]`）。
     # NULL・空なら遅延を見ない。**評価器の設定ではない**（評価と独立）。
-    late_penalty_steps: Mapped[list | None] = mapped_column(JsonType, nullable=True)
+    late_penalty_steps: Mapped[list[Any] | None] = mapped_column(JsonType, nullable=True)
 
     __table_args__ = (UniqueConstraint("tenant_id", "code", "term", name="uq_courses_code_term"),)
 
@@ -540,7 +541,7 @@ class TaskRow(Base):
     unit: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     session: Mapped[int | None] = mapped_column(Integer, nullable=True)
     position: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    document: Mapped[dict] = mapped_column(JsonType)
+    document: Mapped[dict[str, Any]] = mapped_column(JsonType)
 
     __table_args__ = (Index("ix_tasks_course_order", "course_id", "session", "position"),)
 
@@ -558,7 +559,7 @@ class TaskVersionRow(Base):
     allow_handwriting: Mapped[bool] = mapped_column(Boolean, default=False)
     statement: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(Timestamp)
-    document: Mapped[dict] = mapped_column(JsonType)
+    document: Mapped[dict[str, Any]] = mapped_column(JsonType)
 
     __table_args__ = (
         UniqueConstraint("task_id", "version", name="uq_task_version"),
@@ -580,7 +581,7 @@ class KnowledgeComponentRow(Base):
     key: Mapped[str] = mapped_column(String(256), index=True)
     label: Mapped[str] = mapped_column(String(256))
     parent_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    document: Mapped[dict] = mapped_column(JsonType)
+    document: Mapped[dict[str, Any]] = mapped_column(JsonType)
 
     __table_args__ = (UniqueConstraint("key", name="uq_kc_key"),)
 
@@ -601,7 +602,7 @@ class SkillStateRow(Base):
     model: Mapped[str] = mapped_column(String(32))
     observation_count: Mapped[int] = mapped_column(Integer)
     updated_at: Mapped[datetime] = mapped_column(Timestamp, index=True)
-    document: Mapped[dict] = mapped_column(JsonType)
+    document: Mapped[dict[str, Any]] = mapped_column(JsonType)
 
     __table_args__ = (
         # 「この学習者の習熟度一覧」— ポートフォリオ（S8）が使う。
@@ -621,7 +622,7 @@ class CampusNetworkRow(Base):
     tenant_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     #: CIDR の並び。JSON で持つ ── 行に割ると順序の維持だけのために
     #: 連番が要り、設定の読み書きが 1 件の更新で済まなくなる。
-    cidrs: Mapped[dict] = mapped_column(JsonType)
+    cidrs: Mapped[dict[str, Any]] = mapped_column(JsonType)
     updated_at: Mapped[datetime] = mapped_column(Timestamp)
 
 
@@ -666,7 +667,7 @@ class TaskChecksRow(Base):
     task_version_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     usable: Mapped[bool] = mapped_column(Boolean, index=True)
     checked_at: Mapped[datetime | None] = mapped_column(Timestamp, nullable=True)
-    document: Mapped[dict] = mapped_column(JsonType)
+    document: Mapped[dict[str, Any]] = mapped_column(JsonType)
 
 
 class TaskDraftRow(Base):
@@ -689,7 +690,7 @@ class TaskDraftRow(Base):
     kind: Mapped[str] = mapped_column(String(16), index=True)
     task_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(Timestamp, index=True)
-    document: Mapped[dict] = mapped_column(JsonType)
+    document: Mapped[dict[str, Any]] = mapped_column(JsonType)
 
 
 class TaskEmbeddingRow(Base):
@@ -711,7 +712,7 @@ class TaskEmbeddingRow(Base):
     model: Mapped[str] = mapped_column(String(128), primary_key=True)
     subject_profile: Mapped[str] = mapped_column(String(64), index=True)
     dimensions: Mapped[int] = mapped_column(Integer)
-    vector: Mapped[list] = mapped_column(JsonType)
+    vector: Mapped[list[Any]] = mapped_column(JsonType)
 
 
 class AuditEventRow(Base):
@@ -758,7 +759,7 @@ class AuditEventRow(Base):
     target_id: Mapped[str] = mapped_column(String(128))
 
     summary: Mapped[str] = mapped_column(String(500))
-    detail: Mapped[dict] = mapped_column(JsonType)
+    detail: Mapped[dict[str, Any]] = mapped_column(JsonType)
 
     # 運用ログと突き合わせるための鍵（ADR 0016）。
     request_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
@@ -796,7 +797,7 @@ class RunRequestRow(Base):
     created_at: Mapped[datetime] = mapped_column(Timestamp)
     finished_at: Mapped[datetime | None] = mapped_column(Timestamp, nullable=True)
     lease_expires_at: Mapped[datetime | None] = mapped_column(Timestamp, nullable=True)
-    document: Mapped[dict] = mapped_column(JsonType)
+    document: Mapped[dict[str, Any]] = mapped_column(JsonType)
 
     __table_args__ = (
         # **1 人が同時に待てるのは 1 件**（ADR 0024 §1）。画面でボタンを

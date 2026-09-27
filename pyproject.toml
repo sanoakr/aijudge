@@ -146,6 +146,12 @@ addopts = "-q"
 python_version = "3.12"
 strict = true
 
+# boto3 はオブジェクトストレージを使うときだけの任意の依存（`s3` extra）で、
+# 型の情報を持たない。入っていない環境でも型検査を通す。
+[[tool.mypy.overrides]]
+module = ["boto3", "boto3.*", "botocore.*"]
+ignore_missing_imports = true
+
 [dependency-groups]
 dev = [
     "pytest-asyncio>=1.4.0",

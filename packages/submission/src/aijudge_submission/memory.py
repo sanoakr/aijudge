@@ -20,6 +20,7 @@ from datetime import datetime
 from aijudge_core import (
     BlindMark,
     Finalization,
+    GradingPhase,
     GradingRun,
     HumanReview,
     ReviewRequest,
@@ -40,7 +41,7 @@ from aijudge_core.ids import (
     UserId,
 )
 
-from .jobs import GradingJob, GradingPhase, JobState
+from .jobs import GradingJob, JobState
 from .protocols import (
     ImmutabilityViolation,
     RunDecision,

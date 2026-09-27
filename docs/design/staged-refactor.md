@@ -132,6 +132,12 @@ grader → admin.justification）を列挙して `ignore_imports` に入れ、�
    13 を持つインメモリの UnitOfWork はまだ無い（`course_admin` をインメモリで
    試すなら要る）  
 2-3. mypy を `packages/submission` と `packages/persistence` に広げる（#435・#429 の残り）
+   → **済み**: 大半（80 件中 34 件）は、どの package も `py.typed` を持たず、
+   import 先が型の無いものとして扱われていたためだった。全 package に置いた。
+   残りは `dict`・`list` の型引数と使われていない `type: ignore` で、実際の
+   食い違いは 1 件（習熟度の推移で `model` を文字列のまま `SkillPoint` に渡していた。
+   pydantic が変換するので害は無かった）。CI の mypy は core・submission・
+   persistence・unit_of_work。compose の PostgreSQL も本番・CI と同じ 18 にした  
 
 ### 段階 3: `apps/admin` → `packages/course_admin`（6〜8 PR）
 
