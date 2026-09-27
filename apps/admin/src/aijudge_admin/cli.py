@@ -782,7 +782,7 @@ def cmd_token_revoke(args: argparse.Namespace) -> int:
 def cmd_user_disable(args: argparse.Namespace) -> int:
     """利用者を無効化する（#237）。**消すのではない。**
 
-    規則は `aijudge_admin.operations.disable_user` にあり、画面の
+    規則は `aijudge_course_admin.operations.disable_user` にあり、画面の
     `/manage/users` と同じ `AuthService.disable` を通す ── CLI 側に
     書き直さない（#210 と同じ作法）。
     """

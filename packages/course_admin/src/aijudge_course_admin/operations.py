@@ -1,0 +1,515 @@
+"""管理操作の中身。CLI から切り離してテストできるようにしてある。
+
+**すべて冪等**であることが要点。学期の頭に何度も流し直すもので、
+2 回目で「既にある」と落ちたり、パスワードが再生成されて配った紙が
+無効になったりしては使えない。
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from aijudge_audit import AuditAction, AuditRecorder
+from aijudge_authoring.importers import sharif_judge
+from aijudge_authoring.repository import TaskStoreError
+from aijudge_core import (
+    DIVISIONS,
+    Course,
+    Role,
+    Task,
+    TaskVersion,
+    is_valid_term,
+    position_for,
+)
+from aijudge_core.ids import CourseId, TenantId, UserId, derived_id, new_id
+
+# 例外は `aijudge_course_admin.errors` に移した（段階 3-1）。旧い名前で import して
+# いる呼び出し側のために残す（段階 3-6 で消す）。
+from aijudge_course_admin.errors import AdminError
+from aijudge_course_admin.roster import RosterEntry, generate_password
+from aijudge_grading import EvaluatorRegistry, load_profile
+from aijudge_identity import AuthenticationFailed, AuthService, UserState
+from aijudge_unit_of_work import Store
+
+# --------------------------------------------------------------------------
+# コース
+# --------------------------------------------------------------------------
+
+
+def course_id_for(tenant_id: TenantId, code: str, term: str) -> CourseId:
+    """コースの ID を (テナント, コースコード, 学期) から導く。**ここが唯一の導出点。**
+
+    コースの同一性はこの 3 つで、同じ授業を二度作らないのはこの性質による
+    （取り込みを流し直しても増えない）。**導出を書き写すと、複製（#170）の
+    ような「既にあるか先に確かめてから作る」操作が、確かめる ID と作る ID を
+    別々に組み立てることになる** ── そして食い違えば、既にあるコースを
+    黙って上書きする。
+    """
+    return CourseId(derived_id("crs", str(tenant_id), code, term))
+
+
+def ensure_course(
+    database: Store,
+    *,
+    tenant_id: TenantId,
+    code: str,
+    title: str,
+    term: str,
+    subject_profile: str,
+    profiles_dir: Path,
+) -> tuple[Course, bool]:
+    """コースを用意する。既にあれば題名とプロファイルだけ更新する。
+
+    科目プロファイルの実在を**ここで**確かめる。存在しない名前でコースを
+    作れてしまうと、提出は受け付けられるのに採点が恒久的に失敗する
+    （ワーカーは `PermanentGradingError` にするしかない）。
+    """
+    # **学期の形をここで確かめる**（#167）。画面も CLI もこの関数を通るので、
+    # 検査は 1 か所で足りる ── そして 1 か所でしかできない。学期は
+    # course_id の素材（下の `derived_id`）なので、表記がゆれると同じ授業の
+    # つもりで別のコースができ、**あとから直せない**（ID を変えることは
+    # 別のコースを作ることで、採点結果は課題版を、課題版はコースを指す）。
+    if not is_valid_term(term):
+        raise AdminError(
+            f"学期 {term!r} の形が不正です。`年度-区分` の形で書きます"
+            f"（例 2026-前期）。区分は {'・'.join(DIVISIONS)} のいずれかです。"
+        )
+
+    profile_path = profiles_dir / f"{subject_profile}.yaml"
+    if not profile_path.is_file():
+        raise AdminError(
+            f"科目プロファイル {subject_profile!r} がありません（{profile_path}）。"
+            "先に subjects/ に置いてください"
+        )
+    try:
+        load_profile(profile_path, EvaluatorRegistry().load_installed())
+    except Exception as exc:
+        raise AdminError(f"科目プロファイル {subject_profile!r} が不正です: {exc}") from exc
+
+    course_id = course_id_for(tenant_id, code, term)
+    with database.unit_of_work() as uow:
+        existing = uow.identity.get_course(course_id)
+        if existing is None:
+            course = Course(
+                id=course_id,
+                tenant_id=tenant_id,
+                code=code,
+                title=title,
+                term=term,
+                subject_profile=subject_profile,
+            )
+        else:
+            # **既にあるコースは題名とプロファイルだけ直す。** 器を作り直すと
+            # 概要・共通ルーブリック・提出できる形式・遅延の減点といった、
+            # ブラウザで入れた運用値が既定に戻る ── 学期途中に `course create`
+            # や定義の流し直しをした日に、締切の減点が黙って消えていた。
+            course = existing.model_copy(
+                update={"title": title, "subject_profile": subject_profile}
+            )
+        uow.identity.save_course(course)
+        uow.commit()
+    return course, existing is None
+
+
+def list_courses(database: Store, tenant_id: TenantId) -> tuple[Course, ...]:
+    # 並びは (学期, コード)。**学期は時系列で並べる**（#167・`term_sort_key`）。
+    with database.unit_of_work() as uow:
+        return uow.identity.list_courses(tenant_id)
+
+
+# --------------------------------------------------------------------------
+# 受講者
+# --------------------------------------------------------------------------
+
+
+@dataclass
+class EnrolReport:
+    created: list[tuple[str, str]] = field(default_factory=list)
+    """(login, password)。**新規に作った利用者だけ。**"""
+
+    enrolled: list[str] = field(default_factory=list)
+    """新たにこのコースに登録した login。"""
+
+    already: list[str] = field(default_factory=list)
+    """既に利用者があり、受講登録も済んでいた login。"""
+
+    @property
+    def total(self) -> int:
+        return len(self.created) + len(self.enrolled) + len(self.already)
+
+
+def enrol_roster(
+    database: Store,
+    *,
+    tenant_id: TenantId,
+    course_id: CourseId,
+    entries: tuple[RosterEntry, ...],
+    dry_run: bool = False,
+) -> EnrolReport:
+    """名簿の全員を利用者として用意し、コースに登録する。
+
+    **既にある利用者のパスワードは変えない。** 変えると、配ったパスワードが
+    名簿を流し直すたびに無効になる。役割の変更（学生 → TA）は反映する。
+    """
+    report = EnrolReport()
+
+    with database.unit_of_work() as uow:
+        if uow.identity.get_course(course_id) is None:
+            raise AdminError(f"コース {course_id} がありません。先に course create してください")
+
+        auth = AuthService(uow.identity, audit=uow.audit)
+        for entry in entries:
+            user = uow.identity.find_user_by_login(tenant_id, entry.login)
+            if user is None:
+                password = entry.password or generate_password(entry.password_length)
+                if not dry_run:
+                    principal = auth.register(
+                        tenant_id=tenant_id,
+                        login=entry.login,
+                        display_name=entry.display_name,
+                        password=password,
+                        email=entry.email,
+                    )
+                    user_id = principal.user_id
+                else:
+                    user_id = UserId(new_id("usr"))
+                report.created.append((entry.login, password))
+            else:
+                user_id = user.id
+                existing = uow.identity.find_enrollment(course_id, user_id)
+                if existing is not None and existing.role is entry.role:
+                    report.already.append(entry.login)
+                    continue
+                report.enrolled.append(entry.login)
+
+            if not dry_run:
+                auth.enroll(
+                    tenant_id=tenant_id,
+                    course_id=course_id,
+                    user_id=user_id,
+                    role=entry.role,
+                )
+
+        if dry_run:
+            uow.rollback()
+        else:
+            uow.commit()
+    return report
+
+
+def set_password(database: Store, *, tenant_id: TenantId, login: str, password: str) -> None:
+    """パスワードを再発行する。既存のセッションは切れる。
+
+    平文を保存していないので「思い出す」ことはできない。忘れた学生に対する
+    正しい操作はこれ（再発行）である。
+    """
+    from aijudge_identity import hash_password
+
+    with database.unit_of_work() as uow:
+        user = uow.identity.find_user_by_login(tenant_id, login)
+        if user is None:
+            raise AdminError(f"利用者 {login!r} がいません")
+        uow.identity.save_user(user.model_copy(update={"password_hash": hash_password(password)}))
+        # 乗っ取られていた場合の復旧手段はこれしかない。
+        from datetime import UTC, datetime
+
+        uow.identity.revoke_sessions_for(user.id, datetime.now(UTC))
+        uow.commit()
+
+
+def disable_user(database: Store, *, tenant_id: TenantId, login: str) -> str:
+    """利用者を無効化する（#237）。**消すのではない。**
+
+    過去の提出と採点が参照しているので、行は残す（`UserState`）── 退学・
+    異動と同じ扱いで、画面の `/manage/users` と同じ規則である
+    （`AuthService.disable`）。ここで書き直さない。
+
+    **CLI に入口があるのは、作る側が CLI だけだからである**（#175 の
+    `staff`、名簿の取り込み）。作った本人が止められないと、打ち間違いの
+    口座も検証用の一時利用者も片付けられない ── 画面の側はテナント管理者
+    専用で、サーバに入れる人はその権限の外側にいる（#210 と同じ形）。
+
+    戻すのは表示名。「誰を止めたか」を呼び出し側が言えるようにするため。
+    """
+    with database.unit_of_work() as uow:
+        user = uow.identity.find_user_by_login(tenant_id, login)
+        if user is None:
+            raise AdminError(f"利用者 {login!r} がありません")
+        if user.state is UserState.DISABLED:
+            raise AdminError(f"利用者 {login!r} は既に無効です")
+        AuthService(uow.identity, audit=uow.audit).disable(user.id)
+        # 操作者は `system`（ADR 0016）── CLI は認証された主体を持たない。
+        AuditRecorder.for_system(uow.audit, tenant_id=tenant_id).record(
+            AuditAction.USER_DISABLED,
+            target_type="user",
+            target_id=str(user.id),
+            summary="利用者を無効化した（CLI）",
+            detail={"login": user.login},
+        )
+        uow.commit()
+        return user.display_name
+
+
+def create_staff(
+    database: Store,
+    *,
+    tenant_id: TenantId,
+    login: str,
+    display_name: str,
+    password: str | None = None,
+    course_id: CourseId | None = None,
+    role: Role = Role.INSTRUCTOR,
+    email: str | None = None,
+) -> bool:
+    """教員・TA を作る。既にあれば受講登録だけ行う。
+
+    **パスワードは新規に作るときだけ要る**（#175）。既存の利用者に対しては
+    受講登録しかしないので、渡された値は使い道が無い ── 以前は呼び出し側
+    （`aijudge-admin staff`）が**何をするか決まる前に**必須にしていたため、
+    受講登録を足すだけの操作でも使い捨ての文字列を書かされ、しかもその値は
+    捨てられていた。要るかどうかは利用者を引いた後にしか分からないので、
+    検査もここに置く。
+    """
+    with database.unit_of_work() as uow:
+        auth = AuthService(uow.identity, audit=uow.audit)
+        # **コースの実在を先に確かめる**（#175）。確かめないと、受講登録の
+        # INSERT が外部キー違反で落ち、教員には SQLAlchemy の生の
+        # トレースバックが出る ── 実際に起きた（`--course` にコースの
+        # *コード* を渡した。ID を取る欄である）。`enrol_roster` は同じ
+        # 場面で理由を言って断っているので、そちらに揃える。
+        if course_id is not None and uow.identity.get_course(course_id) is None:
+            raise AdminError(
+                f"コース {course_id!r} がありません。"
+                "`--course` はコースの ID（`crs_…`）を取ります ── "
+                "`aijudge-admin course list` で確かめてください"
+                "（コースコードではありません）。"
+            )
+        user = uow.identity.find_user_by_login(tenant_id, login)
+        created = user is None
+        if user is None:
+            if not password:
+                raise AdminError(
+                    f"利用者 {login!r} はまだいません。新しく作るにはパスワードが要ります"
+                    "（--password か AIJUDGE_ADMIN_PASSWORD）。"
+                )
+            try:
+                principal = auth.register(
+                    tenant_id=tenant_id,
+                    login=login,
+                    display_name=display_name,
+                    password=password,
+                    email=email,
+                )
+            except AuthenticationFailed as exc:
+                raise AdminError(str(exc)) from exc
+            user_id = principal.user_id
+        else:
+            user_id = user.id
+        if course_id is not None:
+            auth.enroll(tenant_id=tenant_id, course_id=course_id, user_id=user_id, role=role)
+        elif role is Role.ADMIN:
+            # `--role admin` だけで（`--course` 無しで）テナント管理者を
+            # 作れるようにする。管理者はコースの受講ではなくテナント単位の
+            # 属性（#128）なので、ダミーのコースを経由させる必要が無い。
+            auth.set_tenant_admin(user_id, admin=True)
+        uow.commit()
+    return created
+
+
+# --------------------------------------------------------------------------
+# 課題
+# --------------------------------------------------------------------------
+
+
+@dataclass
+class ImportedTask:
+    key: str
+    title: str
+    test_cases: int
+    # 決定的評価器が担当する観点があるか。無ければ AI 観点だけで、
+    # 教員の確定が前提になる（サーバ課題・レポート課題・自己採点課題）。
+    auto_graded: bool
+    # 何回目のまとまりか。一覧の階層化に使う。
+    unit: str | None = None
+    session: int | None = None
+
+
+@dataclass
+class ImportReport:
+    imported: list[ImportedTask] = field(default_factory=list)
+
+    skipped: list[tuple[str, str]] = field(default_factory=list)
+    """(課題名, 理由)。取り込めなかったもの。**黙って消さない。**"""
+
+    @property
+    def review_only(self) -> list[ImportedTask]:
+        """自動テストがまだ無い課題。
+
+        「取り込めなかった」ではなく「取り込めたが AI 観点だけ」。
+        運用者がその違いを見落とさないよう、別に数えて出す。
+        """
+        return [task for task in self.imported if not task.auto_graded]
+
+
+def import_tasks(
+    database: Store,
+    *,
+    course_id: CourseId,
+    directory: Path,
+    profiles_dir: Path,
+    readability_weight: float = 0.0,
+    evaluator_id: str | None = None,
+    require_test_cases: bool = False,
+    dry_run: bool = False,
+) -> ImportReport:
+    """Sharif Judge の課題ディレクトリを取り込む。
+
+    `directory` は問題ディレクトリ（`desc.md` を含む）でも、その親
+    （`p1/ p2/ p3/` を含む）でも、さらにその親（`ex1/ ex2/ ...`）でもよい。
+    運用者が手元にあるディレクトリをそのまま渡せるようにするため。
+
+    **同じ内容の再取り込みは冪等**（課題 ID を課題ディレクトリ名から決定的に
+    導くため）。問題文を直した場合だけ「内容が違う」として拒否される。
+    その場合は版を上げる操作が別に要る（P8）。
+
+    テストケースが 0 件の課題も取り込む。それは「自動採点できない課題」では
+    なく「**まだ**自動採点できない課題」で、実在する（HTTP サーバ課題・
+    自己採点課題・レポート課題）。取り込み器がそういう課題を AI 観点だけで
+    構成するので、決定的評価器が永久に判定しない観点は生まれない。
+
+    `require_test_cases` を真にすると 0 件の課題を拒否する。取り込み対象を
+    間違えた（空のディレクトリを渡した）ことに気づくための安全装置で、
+    運用の既定ではない。
+    """
+    with database.unit_of_work() as uow:
+        course = uow.identity.get_course(course_id)
+    if course is None:
+        raise AdminError(f"コース {course_id} がありません")
+
+    problem_dirs = _find_problem_dirs(directory)
+    if not problem_dirs:
+        raise AdminError(f"{directory} に desc.md を持つ問題ディレクトリがありません")
+
+    # **名前から位置が取れる問題（`pN`）を先に入れる**（#484）。取れない問題は
+    # 問題セットの末尾に置くので、先に入れると `p1` と同じ 1 番を取り合う
+    # （名前の順では `extra` が `p1` より前に来る）。
+    problem_dirs = tuple(sorted(problem_dirs, key=lambda d: sharif_judge.parse_unit(d)[2] is None))
+
+    report = ImportReport()
+    for problem_dir in problem_dirs:
+        key = f"{problem_dir.parent.name}/{problem_dir.name}"
+        try:
+            version = sharif_judge.import_problem(
+                problem_dir,
+                course_id=course_id,
+                subject_profile=course.subject_profile,
+                authored_by=_IMPORTER,
+                readability_weight=readability_weight,
+                # 指定が無ければ取り込み器の既定（空文字も「指定なし」）。
+                evaluator_id=evaluator_id or sharif_judge.DEFAULT_EVALUATOR,
+            )
+        except Exception as exc:
+            report.skipped.append((key, f"{type(exc).__name__}: {exc}"))
+            continue
+
+        if require_test_cases and not version.test_cases:
+            report.skipped.append(
+                (key, "テストケースが 0 件（--require-test-cases が指定されている）")
+            )
+            continue
+
+        unit, session, position = sharif_judge.parse_unit(problem_dir)
+        if not dry_run:
+            _save(database, course_id, version, key, unit, session, position)
+        report.imported.append(
+            ImportedTask(
+                key=key,
+                title=_title_of(version),
+                test_cases=len(version.test_cases),
+                auto_graded=bool(version.test_cases),
+                unit=unit,
+                session=session,
+            )
+        )
+    return report
+
+
+_IMPORTER = UserId(derived_id("usr", "aijudge-admin-importer"))
+
+
+def _title_of(version: TaskVersion) -> str:
+    title, _ = sharif_judge.parse_title(version.statement)
+    return title
+
+
+def _save(
+    database: Store,
+    course_id: CourseId,
+    version: TaskVersion,
+    key: str,
+    unit: str | None = None,
+    session: int | None = None,
+    position: int | None = None,
+) -> None:
+    with database.unit_of_work() as uow:
+        existing = uow.tasks.get_task(version.task_id)
+        uow.tasks.save_task(
+            Task(
+                id=version.task_id,
+                course_id=course_id,
+                title=_title_of(version),
+                unit=unit,
+                session=session,
+                # 名前から位置が取れない問題（`pN` でない）は末尾に置く（#484）。
+                position=position_for(
+                    position,
+                    unit=unit,
+                    current=existing,
+                    siblings=uow.tasks.list_for_course(course_id),
+                ),
+                # 取り込み直しで締切を消さない。教員が設定した値を残す。
+                opens_at=None if existing is None else existing.opens_at,
+                due_at=None if existing is None else existing.due_at,
+            )
+        )
+        try:
+            uow.tasks.save_version(version)
+        except TaskStoreError as exc:
+            raise AdminError(
+                f"{key}: 保存済みの課題と内容が違います。問題文を直したなら"
+                f"版を上げる必要があります（過去の採点基準は書き換えない、P8）: {exc}"
+            ) from exc
+        uow.commit()
+
+
+def _find_problem_dirs(directory: Path) -> tuple[Path, ...]:
+    """`desc.md` を持つディレクトリを探す。深さは 2 段まで。
+
+    深く掘らないのは、無関係な `desc.md`（過去年度の控えなど）を
+    巻き込まないため。運用者が渡した場所の直下と孫までに留める。
+    """
+    if not directory.is_dir():
+        raise AdminError(f"{directory} がありません")
+    if (directory / "desc.md").is_file():
+        return (directory,)
+
+    found: list[Path] = []
+    for child in sorted(p for p in directory.iterdir() if p.is_dir()):
+        if (child / "desc.md").is_file():
+            found.append(child)
+            continue
+        for grandchild in sorted(p for p in child.iterdir() if p.is_dir()):
+            if (grandchild / "desc.md").is_file():
+                found.append(grandchild)
+    return tuple(found)
+
+
+def list_tasks(database: Store, course_id: CourseId) -> tuple[tuple[Task, TaskVersion], ...]:
+    with database.unit_of_work() as uow:
+        rows = []
+        for task in uow.tasks.list_for_course(course_id):
+            version = uow.tasks.latest_version(task.id)
+            if version is not None:
+                rows.append((task, version))
+    return tuple(rows)

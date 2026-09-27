@@ -25,6 +25,8 @@ dependencies = [
     "aijudge-unit-of-work",
     # コースの削除で動画の保存先を片付ける（`courses`）。
     "aijudge-submission",
+    # 利用者の作成・パスワード・名簿（`operations`）。
+    "aijudge-identity",
 ]
 
 [build-system]
@@ -44,3 +46,4 @@ aijudge-grading = { workspace = true }
 aijudge-audit = { workspace = true }
 aijudge-unit-of-work = { workspace = true }
 aijudge-submission = { workspace = true }
+aijudge-identity = { workspace = true }
