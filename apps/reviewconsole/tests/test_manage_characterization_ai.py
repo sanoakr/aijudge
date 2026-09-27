@@ -111,7 +111,7 @@ def test_reading_a_syllabus_fills_the_form_without_saving(monkeypatch, world: Wo
     world.register("teacher", Role.INSTRUCTOR)
     before = _course_title(world)
     monkeypatch.setattr(
-        "aijudge_reviewconsole.manage.SyllabusReader.read_basics",
+        "aijudge_reviewconsole.manage.course.SyllabusReader.read_basics",
         lambda self, body: SimpleNamespace(title="整えた題名", markdown="## 概要\n\n整えた本文"),
     )
 
@@ -135,7 +135,7 @@ def test_reading_falls_back_to_plain_markdown_when_the_model_is_down(
     def _down(self, body):
         raise ConnectionError("S6 down")
 
-    monkeypatch.setattr("aijudge_reviewconsole.manage.SyllabusReader.read_basics", _down)
+    monkeypatch.setattr("aijudge_reviewconsole.manage.course.SyllabusReader.read_basics", _down)
 
     response = world.client("teacher").post(
         f"/manage/courses/{world.course.id}/basics/read", data={"text": SYLLABUS}
