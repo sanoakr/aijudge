@@ -99,11 +99,8 @@ from .task_review import (
     ApprovalRate,
     ReviewPacket,
     approval_rate,
-    approve,
     build_packet,
     gate_advice,
-    pending_reviews,
-    reject,
 )
 from .task_verifier import DEFAULT_MUTATION_LIMIT, CaseRun, TaskVerifier, outputs_for
 
@@ -149,7 +146,6 @@ __all__ = [
     "TrialResult",
     "allowed_namespaces",
     "approval_rate",
-    "approve",
     "assert_registered",
     "build_packet",
     "course_id_for",
@@ -178,12 +174,10 @@ __all__ = [
     "outputs_for",
     "parse_roster",
     "pending_counts",
-    "pending_reviews",
     "plan_bundle",
     "read_bundle",
     "read_profile_text",
     "register_kc",
-    "reject",
     "rename_profile",
     "restore_kc",
     "retire_kc",

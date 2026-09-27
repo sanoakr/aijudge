@@ -13,13 +13,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from aijudge_authoring import TaskRepository
 from aijudge_authoring.difficulty import DifficultyEstimate
 from aijudge_authoring.similarity import DuplicateReport
 from aijudge_authoring.solvability import SolvabilityReport
 from aijudge_authoring.verification import VerificationReport
 from aijudge_core import ReviewState, TaskVersion
-from aijudge_core.ids import TaskVersionId, UserId
 
 # Phase 4 の合格基準（設計方針 §9.2）。**ここを緩めるなら ADR に書くこと。**
 APPROVAL_RATE_GATE = 0.60
@@ -87,26 +85,6 @@ class ApprovalRate:
                 "**測れていないことは合格ではありません。**"
             )
         return "\n".join(lines)
-
-
-def pending_reviews(repository: TaskRepository) -> tuple[TaskVersion, ...]:
-    return repository.list_versions_in_review()
-
-
-def approve(
-    repository: TaskRepository, version_id: TaskVersionId, *, reviewer: UserId
-) -> TaskVersion:
-    return repository.record_review(version_id, approved=True, reviewer=reviewer, reason=None)
-
-
-def reject(
-    repository: TaskRepository, version_id: TaskVersionId, *, reviewer: UserId, reason: str
-) -> TaskVersion:
-    """却下する。**理由は必須**（コア側でも検証している）。
-
-    理由は作問の改善に還流させる材料で、捨てると生成が同じ誤りを繰り返す。
-    """
-    return repository.record_review(version_id, approved=False, reviewer=reviewer, reason=reason)
 
 
 def approval_rate(versions: tuple[TaskVersion, ...]) -> ApprovalRate:
