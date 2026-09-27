@@ -848,6 +848,7 @@ SAVED_MESSAGES: dict[str, str] = {
     # 採点基準は変わらない（ADR 0013・P8 の対象外）。
     "task_schedule": "この課題の日程を保存しました（版は上がりません）",
     "task_case_timeout": "この課題の実行時間の上限を保存しました（版は上がりません）",
+    "task_settings": "この問題の設定を保存しました（版は上がりません）",
     "task_deleted": "課題を削除しました（提出が 1 件も無いもの）",
     "unit_cleared": "問題セットを片付けました",
     "released": "いままでの提出を採点に回しました（以後の提出はまた採点開始時刻まで待ちます）",
@@ -1464,6 +1465,11 @@ def _effective_profile_of(console, course, version):
     except OverrideError:
         return base
 
+
+#: 実行時間の上限（#491）が範囲外のときの知らせ。
+_CASE_TIMEOUT_REFUSED = (
+    f"実行時間の上限は 0 より大きく {MAX_TASK_CASE_TIMEOUT_SECONDS:g} 秒以下の数で入れてください"
+)
 
 #: 入出力を実際に走らせる評価器。課題ごとの実行上限（#491）はこれらにだけ意味がある。
 _RUNS_CODE = (CODE_TEST_RUNNER, "network_test_runner")
@@ -5991,6 +5997,99 @@ def register(templates) -> APIRouter:
             status_code=303,
         )
 
+    @router.post("/courses/{course_id}/tasks/{task_id}/settings")
+    async def save_task_settings(request: Request, course_id: str, task_id: str) -> Response:
+        """「この問題の設定」をまとめて保存する（日程・提出形式・実行時間の上限）。
+
+        問題のページの操作のタブを詰めたとき（2026-09-27）、版を上げない 3 つの値を
+        1 枚のフォームにした。**版は上がらない** ── どれも課題の内容ではない。
+
+        **監査は変わったものごとに、今までと同じ文言で残す**（`set_task_schedule`・
+        `set_task_case_timeout` と同じ `summary`・`field`）。締切は誰がいつ動かしたかを
+        言えないといけない（ADR 0013）ので、まとめて保存しても日程の記録は日程の記録。
+        変わっていないものは記録しない（触っていない値の行を積まない）。
+        """
+        from .app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+        task = _task_of(console, course, task_id)
+        form = await request.form()
+
+        def text(name: str) -> str:
+            return str(form.get(name) or "")
+
+        schedule = {
+            name: _parse_when(text(name))
+            for name in (
+                "opens_at",
+                "submissions_open_at",
+                "due_at",
+                "grading_starts_at",
+                "accepts_until",
+            )
+        }
+        update: dict[str, object] = dict(schedule)
+        # 提出形式。印（`formats`）付きで来たときだけ置き換え、空は断る（`_chosen_suffixes`）。
+        if form.get("formats"):
+            update["accepted_suffixes"] = _chosen_suffixes(
+                [str(v) for v in form.getlist("suffix")], "1", course
+            )
+        # 実行時間の上限は**欄があるときだけ**（コードを走らせない課題には出さない）。
+        if "case_timeout_seconds" in form:
+            raw = text("case_timeout_seconds").strip()
+            try:
+                update["case_timeout_seconds"] = float(raw) if raw else None
+            except ValueError:
+                raise HTTPException(status_code=400, detail=_CASE_TIMEOUT_REFUSED) from None
+        try:
+            # **`model_copy` を使わない。** 検証を走らせないので、締切が公開より
+            # 前の課題がそのまま保存される（`set_task_schedule` と同じ理由）。
+            updated = Task.model_validate(task.model_dump() | update)
+        except ValidationError as exc:
+            if any(e["loc"] == ("case_timeout_seconds",) for e in exc.errors()):
+                raise HTTPException(status_code=400, detail=_CASE_TIMEOUT_REFUSED) from None
+            raise HTTPException(status_code=400, detail=_first_error(exc)) from None
+
+        def changed(names) -> dict[str, dict[str, object]]:
+            return {
+                name: {
+                    "before": _plain(getattr(task, name)),
+                    "after": _plain(getattr(updated, name)),
+                }
+                for name in names
+                if getattr(task, name) != getattr(updated, name)
+            }
+
+        records = [
+            ("課題の日程を変えた", "task_schedule", changed(schedule)),
+            ("課題の提出形式を変えた", "accepted_suffixes", changed(["accepted_suffixes"])),
+            (
+                "課題の実行時間の上限を変えた",
+                "case_timeout_seconds",
+                changed(["case_timeout_seconds"]),
+            ),
+        ]
+        with console.database.unit_of_work() as uow:
+            uow.tasks.save_task(updated)
+            recorder = recorder_for(uow, request, me)
+            for summary, field, diff in records:
+                if not diff:
+                    continue
+                recorder.record(
+                    AuditAction.TASK_UPDATED,
+                    target_type="task",
+                    target_id=str(task.id),
+                    summary=summary,
+                    detail={"course_id": course_id, "field": field, "changed": diff},
+                )
+            uow.commit()
+        return RedirectResponse(
+            f"/manage/courses/{course_id}/tasks/{task_id}/edit?saved=task_settings#saved",
+            status_code=303,
+        )
+
     @router.post("/courses/{course_id}/tasks/{task_id}/case-timeout")
     def set_task_case_timeout(
         request: Request,
@@ -6017,13 +6116,7 @@ def register(templates) -> APIRouter:
             seconds = float(raw) if raw else None
             updated = Task.model_validate(task.model_dump() | {"case_timeout_seconds": seconds})
         except ValueError:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "実行時間の上限は 0 より大きく "
-                    f"{MAX_TASK_CASE_TIMEOUT_SECONDS:g} 秒以下の数で入れてください"
-                ),
-            ) from None
+            raise HTTPException(status_code=400, detail=_CASE_TIMEOUT_REFUSED) from None
 
         with console.database.unit_of_work() as uow:
             uow.tasks.save_task(updated)
@@ -6359,7 +6452,14 @@ def register(templates) -> APIRouter:
             criteria=criteria,
             aggregation=aggregation,
             position=int(position) if position.strip() else task.position,
-            accepted=_chosen_suffixes(suffix, formats, course),
+            # **欄が無ければ、いまの値を引き継ぐ**（2026-09-27）。既存の課題の提出形式は
+            # 「この問題の設定」に移したので、内容のフォームは形式を送らない。コースの
+            # 既定に落とすと、問題文を直すたびに教員が選んだ形式が消える。
+            accepted=(
+                _chosen_suffixes(suffix, formats, course)
+                if formats or suffix
+                else task.accepted_suffixes
+            ),
             knowledge_components=components,
             # **テストと参照解答も引き継ぐ**（#262）。観点と同じ理由で、
             # 結果はもっと悪い ── 観点が消えれば採点されない観点が出るだけ

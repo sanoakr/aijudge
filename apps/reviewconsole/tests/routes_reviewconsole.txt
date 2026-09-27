@@ -89,6 +89,7 @@ POST /manage/courses/{course_id}/tasks/{task_id}/restore aijudge_reviewconsole.m
 POST /manage/courses/{course_id}/tasks/{task_id}/revise aijudge_reviewconsole.manage:revise_task
 POST /manage/courses/{course_id}/tasks/{task_id}/revise-with-ai aijudge_reviewconsole.manage:revise_task_with_ai
 POST /manage/courses/{course_id}/tasks/{task_id}/schedule aijudge_reviewconsole.manage:set_task_schedule
+POST /manage/courses/{course_id}/tasks/{task_id}/settings aijudge_reviewconsole.manage:save_task_settings
 POST /manage/courses/{course_id}/tasks/{task_id}/test-cases aijudge_reviewconsole.manage:add_test_cases
 POST /manage/courses/{course_id}/tasks/{task_id}/test-cases/edit aijudge_reviewconsole.manage:edit_test_cases
 POST /manage/courses/{course_id}/tasks/{task_id}/test-cases/propose aijudge_reviewconsole.manage:propose_test_cases

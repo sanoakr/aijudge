@@ -563,6 +563,36 @@ form.settings .deskbar{margin:0 -22px;padding:10px 22px}
 .settings-group .help{margin-left:6px}
 .help-body ul.evaluators{margin:0 0 6px;padding-left:1.2em}
 
+/* 問題のページの「操作」（2026-09-27）。**1 行 1 操作**で、左が何をするか、右が押すもの。
+   以前は操作ごとにカードと朱の大きなボタンがあり、縦に長く、どれも同じ重さに見えた。
+   入力の要る操作は `details.op-more` で、開いたときだけ欄を出す。 */
+.card.ops{padding:6px 22px 8px}
+.op{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 16px;
+  padding:10px 0;border-bottom:1px solid var(--line-soft);margin:0}
+.ops > .op:last-child,.ops > details.op-more:last-child{border-bottom:0}
+.op-name{font-size:.88rem;font-weight:600;color:var(--ink);min-width:12rem;flex:1}
+.op-name label{display:inline;font-size:inherit;color:inherit;margin:0}
+.op-desc{display:block;font-size:.78rem;font-weight:400;color:var(--muted);margin-top:2px}
+.op-act{display:flex;align-items:center;gap:10px;flex:none}
+.op-act select{font:inherit;font-size:.85rem;padding:5px 8px;max-width:18rem}
+.op.attn .op-desc{color:var(--kin);font-weight:600}
+details.op-more{border-bottom:1px solid var(--line-soft)}
+details.op-more > summary.op{cursor:pointer;list-style:none;border-bottom:0}
+details.op-more > summary::-webkit-details-marker{display:none}
+details.op-more > summary .op-name::before{content:"▸";color:var(--muted);margin-right:6px}
+details.op-more[open] > summary .op-name::before{content:"▾"}
+details.op-more[open] .open-hint{visibility:hidden}
+.op-body{padding:0 0 12px 1.1rem}
+.op-body label{display:block;font-size:.85rem;color:var(--ink-2);margin-bottom:4px}
+.op-body textarea{width:100%}
+/* 取り下げと削除。**目に入っても押したくならない形** ── 点線の枠に小さく並べ、
+   ボタンは副次の見た目（`button.minor`）。削除だけ朱の文字にする。 */
+.danger-zone{display:flex;flex-wrap:wrap;align-items:center;gap:8px 18px;margin:18px 0 0;
+  padding:10px 14px;border:1px dashed var(--line);border-radius:4px}
+.danger-zone-label{font-size:.75rem;font-weight:700;color:var(--muted);letter-spacing:.04em;margin-right:auto}
+.danger-zone form{display:flex;align-items:center;gap:6px;margin:0}
+button.minor.danger{color:var(--shu);border-color:var(--shu)}
+
 /* タブ（問題のページ）。**内容と操作を分ける** ── 保存すると新しい版になる内容と、
    押すとその場で起きる操作が、縦に並ぶと 1 回の保存の範囲が読めなかった。 */
 nav.tabs{display:flex;gap:2px;border-bottom:2px solid var(--line);margin:0 0 18px}

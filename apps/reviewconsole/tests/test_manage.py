@@ -1670,11 +1670,12 @@ def test_the_page_is_ordered_the_way_a_task_is_written(world: World) -> None:
     )
     order = [
         body.index("問題文に貼る画像"),
-        body.index("提出できるファイル形式"),
         body.index("ルーブリック（この課題の観点）"),
         body.index("問う知識要素"),
     ]
     assert order == sorted(order), order
+    # 既存の課題の提出形式は、版を上げない設定として操作のタブにある（2026-09-27）。
+    assert body.index('id="tab-ops"') < body.index("提出できる形式")
     # 学習者に出る形は畳んでおく（書き始める前に読むものではない）。
     assert '<details class="card" id="preview">' in body
 
@@ -1696,8 +1697,11 @@ def test_the_task_page_groups_its_sections_into_boxes(world: World) -> None:
     body = _main(
         world.client("teacher").get(f"/manage/courses/{world.course.id}/tasks/{task_id}/edit").text
     )
-    for major in ("<h2>問題</h2>", "<h2>提出</h2>", "<h2>採点</h2>", "<h2>分類</h2>"):
+    for major in ("<h2>問題</h2>", "<h2>採点</h2>", "<h2>分類</h2>"):
         assert major in body, major
+    # 既存の課題の「提出」は版を上げない値なので、内容のフォームには無い
+    # （操作のタブの「この問題の設定」にある・2026-09-27）。
+    assert "<h2>提出</h2>" not in body
     # 大項目は箱の外、中身は箱の中。
     assert body.index("<h2>問題</h2>") < body.index("問題文に貼る画像")
     # フォームは 1 つ（編集の本体）。採点材料の送信先は別に置いた空フォーム。
@@ -1777,16 +1781,15 @@ def test_the_four_boxes_are_one_save(world: World) -> None:
         world.client("teacher").get(f"/manage/courses/{world.course.id}/tasks/{task_id}/edit").text
     )
     frame = body[body.index('<section class="taskform">') : body.index("</section>")]
-    for major in ("<h2>問題</h2>", "<h2>提出</h2>", "<h2>採点</h2>", "<h2>分類</h2>"):
+    for major in ("<h2>問題</h2>", "<h2>採点</h2>", "<h2>分類</h2>"):
         assert major in frame, f"{major} が保存の枠の外にある"
     # 保存は枠の足元。**枠の外に出すと、どこまでを保存するのか読めなくなる。**
     assert "taskform-foot" in frame
     # 押せる保存はこの 1 つだけ（欄の説明が同じ語を使うのは構わない ──
     # 「この欄はそれでは保存されない」と言うために要る）。
     assert frame.count('<button type="submit">この問題を保存して更新する</button>') == 1
-    # 枠から下は別の操作（押すとその場で起きる）。
-    assert "<h2>この問題への操作</h2>" in body
-    assert body.index("</section>") < body.index("<h2>この問題への操作</h2>")
+    # 枠から下は別の操作（押すとその場で起きる）。見出しはタブの名前が担う。
+    assert body.index("</section>") < body.index('id="tab-ops"')
 
 
 def test_data_no_criterion_uses_is_called_unused(world: World) -> None:
