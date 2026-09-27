@@ -99,3 +99,19 @@ class StoreUnitOfWork(UnitOfWork, Protocol):
 
     @property
     def tasks(self) -> TaskStore: ...
+
+
+@runtime_checkable
+class Store(Protocol):
+    """UnitOfWork を開けるもの（段階的な立て直し 3-3）。
+
+    業務処理（`aijudge_course_admin`）は保存層の `Database` を import できない
+    （契約 `subsystems-do-not-know-the-store`）。いままで `database: Database` と
+    書いていた引数を、この型で受ける。`Database` は `unit_of_work()` を持つので、
+    呼び出し側はそのまま `Database` を渡せばよい。
+
+    **持たせるのは `unit_of_work()` だけ。** 移す業務処理が `Database` から使って
+    いたのはこれだけだった（2026-09-27 に数えた）。要るものが出てきたら足す。
+    """
+
+    def unit_of_work(self) -> StoreUnitOfWork: ...

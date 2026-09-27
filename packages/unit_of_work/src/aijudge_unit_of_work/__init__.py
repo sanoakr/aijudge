@@ -17,6 +17,6 @@
 
 from __future__ import annotations
 
-from .protocols import StoreUnitOfWork, UnitOfWork
+from .protocols import Store, StoreUnitOfWork, UnitOfWork
 
-__all__ = ["StoreUnitOfWork", "UnitOfWork"]
+__all__ = ["Store", "StoreUnitOfWork", "UnitOfWork"]

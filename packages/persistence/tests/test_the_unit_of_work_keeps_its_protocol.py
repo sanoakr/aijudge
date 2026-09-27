@@ -14,7 +14,7 @@ from typing import get_type_hints
 import pytest
 
 from aijudge_persistence import Database
-from aijudge_unit_of_work import StoreUnitOfWork, UnitOfWork
+from aijudge_unit_of_work import Store, StoreUnitOfWork, UnitOfWork
 
 # 13 のリポジトリ。**数を固定する** ── 保存層に足して Protocol に足し忘れると、
 # ここが落ちる（下の突き合わせは Protocol に書いたものしか見ない）。
@@ -66,3 +66,18 @@ def test_the_store_narrows_only_the_queries_that_need_the_tables() -> None:
     narrow = _repositories(StoreUnitOfWork)
     changed = {name for name in wide if narrow[name] is not wide[name]}
     assert changed == {"reviews", "tasks"}
+
+
+def test_the_database_is_a_store() -> None:
+    """業務処理は `Database` を `Store` として受け取る（段階 3-3）。
+
+    `Store` が言う `unit_of_work()` を `Database` が持ち、開いたものが
+    `StoreUnitOfWork` を満たすこと。
+    """
+    database = Database.connect("sqlite+pysqlite:///:memory:", create=True)
+    try:
+        assert isinstance(database, Store)
+        with database.unit_of_work() as opened:
+            assert isinstance(opened, StoreUnitOfWork)
+    finally:
+        database.dispose()
