@@ -25,7 +25,7 @@ GET /manage/campus-networks aijudge_reviewconsole.manage.users:campus_networks_f
 GET /manage/course-template.yaml aijudge_reviewconsole.manage.course:course_template_download
 GET /manage/courses/{course_id} aijudge_reviewconsole.manage.course:course_settings
 GET /manage/courses/{course_id}/basics aijudge_reviewconsole.manage.course:basics
-GET /manage/courses/{course_id}/drafts aijudge_reviewconsole.manage:draft_queue
+GET /manage/courses/{course_id}/drafts aijudge_reviewconsole.manage.drafts:draft_queue
 GET /manage/courses/{course_id}/enrolments aijudge_reviewconsole.manage.learners:enrolments
 GET /manage/courses/{course_id}/groups aijudge_reviewconsole.manage.groups:groups_page
 GET /manage/courses/{course_id}/images/{name} aijudge_reviewconsole.manage.groups:statement_image
@@ -56,8 +56,8 @@ POST /manage/courses/{course_id}/auto-finalize aijudge_reviewconsole.manage.cour
 POST /manage/courses/{course_id}/basics/apply aijudge_reviewconsole.manage.course:apply_basics
 POST /manage/courses/{course_id}/basics/read aijudge_reviewconsole.manage.course:read_basics
 POST /manage/courses/{course_id}/delete aijudge_reviewconsole.manage.course:delete_course_route
-POST /manage/courses/{course_id}/drafts/generate aijudge_reviewconsole.manage:generate_without_unit
-POST /manage/courses/{course_id}/drafts/{draft_id} aijudge_reviewconsole.manage:decide_draft
+POST /manage/courses/{course_id}/drafts/generate aijudge_reviewconsole.manage.drafts:generate_without_unit
+POST /manage/courses/{course_id}/drafts/{draft_id} aijudge_reviewconsole.manage.drafts:decide_draft
 POST /manage/courses/{course_id}/duplicate aijudge_reviewconsole.manage.course:duplicate_course_route
 POST /manage/courses/{course_id}/enrolments aijudge_reviewconsole.manage.learners:add_enrolments
 POST /manage/courses/{course_id}/enrolments/{user_id}/remove aijudge_reviewconsole.manage.learners:remove_enrolment

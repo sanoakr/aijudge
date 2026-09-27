@@ -48,7 +48,7 @@ def _stub_drafter(monkeypatch) -> None:
                 model="stub-model",
             )
 
-    monkeypatch.setattr("aijudge_reviewconsole.manage.TaskDrafter", _Drafter)
+    monkeypatch.setattr("aijudge_reviewconsole.manage.drafts.TaskDrafter", _Drafter)
 
 
 # --------------------------------------------------------------------------
