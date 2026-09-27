@@ -24,7 +24,7 @@ from aijudge_authoring.difficulty import (
     estimate,
 )
 from aijudge_authoring.drafting import Blueprint, Difficulty
-from aijudge_core import Task
+from aijudge_core import Task, position_for
 from aijudge_core.ids import CourseId, TaskVersionId, UserId
 from aijudge_grading import EvaluatorRegistry, load_profile
 from aijudge_persistence import Database
@@ -116,6 +116,13 @@ def cmd_task_draft(args: argparse.Namespace) -> int:
                         id=version.task_id,
                         course_id=CourseId(args.course),
                         title=result.draft.title,
+                        # 問題セットを持たない課題の末尾に置く（#484）。
+                        position=position_for(
+                            None,
+                            unit=None,
+                            current=None,
+                            siblings=uow.tasks.list_for_course(CourseId(args.course)),
+                        ),
                     )
                 )
             uow.tasks.save_version(version)

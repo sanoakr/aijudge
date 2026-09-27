@@ -5448,9 +5448,10 @@ def register(templates) -> APIRouter:
             # 並びは移動先の末尾。差し込む位置まで選ばせると、移動 1 回に
             # 決めることが 2 つになる（並べ替えは移動後に前後で動かせる）。
             #
-            # **番号を持たない課題も数に入れる。** 画面から足した課題は
+            # **番号を持たない課題も数に入れる。** 以前は画面から足した課題の
             # `position` が空のままで、番号だけを見て 1 を振ると末尾どころか
-            # 先頭に入る（`move_task` が並べ替えで番号を補うのと同じ事情）。
+            # 先頭に入った。いまは足すときに末尾へ振り（#484）、既存の空も
+            # 移行で埋めたので、件数で数えるのは念のための守りである。
             positions = [other.position for other in siblings if other.position is not None]
             update["position"] = max(len(siblings), max(positions, default=0)) + 1
             uow.tasks.save_task(task.model_copy(update=update))

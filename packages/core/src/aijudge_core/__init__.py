@@ -133,6 +133,7 @@ from .task import (
     effective_aggregation,
     effective_max_score,
     max_scores_by_version,
+    position_for,
 )
 from .tenancy import MAX_GROUP_NAME_LENGTH, Course, CourseGroup, Enrollment, Role, Tenant
 from .terms import (
@@ -279,6 +280,7 @@ __all__ = [
     "parse_kc_key",
     "parse_term",
     "penalty_crosses_boundary",
+    "position_for",
     "prefix_of",
     "renormalize",
     "resolve_conflicts",

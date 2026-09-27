@@ -20,6 +20,7 @@ from aijudge_core import (
     Task,
     TaskVersion,
     is_valid_term,
+    position_for,
 )
 from aijudge_core.ids import CourseId, TenantId, UserId, derived_id, new_id
 from aijudge_grading import EvaluatorRegistry, load_profile
@@ -392,6 +393,11 @@ def import_tasks(
     if not problem_dirs:
         raise AdminError(f"{directory} に desc.md を持つ問題ディレクトリがありません")
 
+    # **名前から位置が取れる問題（`pN`）を先に入れる**（#484）。取れない問題は
+    # 問題セットの末尾に置くので、先に入れると `p1` と同じ 1 番を取り合う
+    # （名前の順では `extra` が `p1` より前に来る）。
+    problem_dirs = tuple(sorted(problem_dirs, key=lambda d: sharif_judge.parse_unit(d)[2] is None))
+
     report = ImportReport()
     for problem_dir in problem_dirs:
         key = f"{problem_dir.parent.name}/{problem_dir.name}"
@@ -456,7 +462,13 @@ def _save(
                 title=_title_of(version),
                 unit=unit,
                 session=session,
-                position=position,
+                # 名前から位置が取れない問題（`pN` でない）は末尾に置く（#484）。
+                position=position_for(
+                    position,
+                    unit=unit,
+                    current=existing,
+                    siblings=uow.tasks.list_for_course(course_id),
+                ),
                 # 取り込み直しで締切を消さない。教員が設定した値を残す。
                 opens_at=None if existing is None else existing.opens_at,
                 due_at=None if existing is None else existing.due_at,

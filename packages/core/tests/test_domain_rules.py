@@ -516,6 +516,57 @@ def test_a_session_can_be_the_zeroth() -> None:
         Task(id=TaskId("tsk_" + "3" * 32), course_id=course, title="不正", session=-1)
 
 
+def test_tasks_without_a_position_are_ordered_by_id() -> None:
+    """**位置の無い課題どうしも並びが決まる**（#484）。
+
+    以前は同点で、並びが DB の返す順に任されていた。ID に意味のある順は無いが、
+    どこで読んでも同じ順になる。
+    """
+    from aijudge_core import Task
+    from aijudge_core.ids import CourseId, TaskId
+
+    course = CourseId("crs_" + "0" * 32)
+    later = Task(id=TaskId("tsk_" + "b" * 32), course_id=course, title="b", unit="ex1")
+    earlier = Task(id=TaskId("tsk_" + "a" * 32), course_id=course, title="a", unit="ex1")
+    placed = Task(id=TaskId("tsk_" + "c" * 32), course_id=course, title="c", unit="ex1", position=9)
+
+    assert sorted([later, placed, earlier], key=lambda task: task.sort_key) == [
+        placed,
+        earlier,
+        later,
+    ]
+
+
+def test_a_task_added_without_a_position_goes_to_the_end_of_its_unit() -> None:
+    """指定 → いまの位置 → 問題セットの末尾の次（#484）。"""
+    from aijudge_core import Task, position_for
+    from aijudge_core.ids import CourseId, TaskId
+
+    course = CourseId("crs_" + "0" * 32)
+
+    def task(n: int, unit: str | None, position: int | None) -> Task:
+        return Task(
+            id=TaskId(f"tsk_{n:032d}"),
+            course_id=course,
+            title=str(n),
+            unit=unit,
+            position=position,
+        )
+
+    siblings = [task(1, "ex1", 1), task(2, "ex1", 4), task(3, "ex2", 7), task(4, "ex1", None)]
+
+    # 末尾は番号の最大の次。**番号の飛びは詰めない**、他のセットは数えない。
+    assert position_for(None, unit="ex1", current=None, siblings=siblings) == 5
+    assert position_for(None, unit="ex3", current=None, siblings=siblings) == 1
+    assert position_for(None, unit=None, current=None, siblings=siblings) == 1
+    # 指定が勝つ。
+    assert position_for(2, unit="ex1", current=None, siblings=siblings) == 2
+    # 保存し直しは、いまの位置を残す（自分は末尾の計算に入れない）。
+    assert position_for(None, unit="ex1", current=siblings[1], siblings=siblings) == 4
+    # **セットを移したら、いまの位置は運ばない。** 移った先の末尾へ。
+    assert position_for(None, unit="ex2", current=siblings[0], siblings=siblings) == 8
+
+
 def test_the_submission_window_has_three_usable_states() -> None:
     """**締切では閉じない。** 閉じるのは受付終了である（#73・ADR 0013）。
 
