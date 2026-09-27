@@ -21,7 +21,7 @@
 模型は増やさない ── 読み終えた時点で、あとは `TaskSpec` が 1 つあるだけ。
 
 **ここでは何も保存しない。** 読んで、何が起きるかを言うだけ。保存は
-`aijudge_admin.authoring.save_task`（画面・API・CLI と同じ経路）が行う。
+`aijudge_course_admin.authoring.save_task`（画面・API・CLI と同じ経路）が行う。
 """
 
 from __future__ import annotations

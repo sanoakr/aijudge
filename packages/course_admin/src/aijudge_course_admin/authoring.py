@@ -1,0 +1,268 @@
+"""課題を足す操作。**画面・API・CLI がここを共有する。**
+
+経路ごとに組み立て方が分かれると、「画面から作った課題だけ観点が 1 つ
+足りない」が起きる。実際に起きた ── zip 取り込みだけ `readability_weight` が
+0.0 固定で、画面から入れた課題には AI 観点が付かなかった（`TaskSpec` の
+docstring 参照）。
+
+**冪等。** 同じ `key` に同じ内容を入れ直しても課題は増えず、締切も消えない。
+移行では同じディレクトリを何度も流すことになるので、これは必須の性質である。
+内容が違う場合は拒否する ── 過去の採点基準を書き換えないため（P8）。
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
+
+from aijudge_authoring import TaskSpec, build_task_version
+from aijudge_authoring.repository import TaskStoreError, content
+from aijudge_core import (
+    AnswerMode,
+    ReviewState,
+    Task,
+    TaskVersion,
+    normalize_suffixes,
+    position_for,
+)
+from aijudge_core.ids import CourseId, UserId
+from aijudge_course_admin.errors import AdminError
+from aijudge_course_admin.kc import assert_registered
+from aijudge_course_admin.rubric import from_stored
+from aijudge_unit_of_work import Store
+
+
+@dataclass(frozen=True)
+class SavedTask:
+    """保存の結果。**何が起きたかを呼び出し元に返す。**
+
+    「保存しました」だけだと、流し込みが 100 件のうち何件を新しく作ったのか
+    運用者に分からない。移行を二度流したときに気づけるようにする。
+    """
+
+    task: Task
+    version: TaskVersion
+    created: bool
+    """この課題がこの呼び出しで初めて作られたか。"""
+
+    @property
+    def test_cases(self) -> int:
+        return len(self.version.test_cases)
+
+    @property
+    def auto_graded(self) -> bool:
+        return bool(self.version.test_cases)
+
+
+def save_task(
+    database: Store,
+    *,
+    course_id: CourseId,
+    spec: TaskSpec,
+    subject_profile: str,
+    authored_by: UserId,
+    revise: bool = False,
+    course_rubric: tuple[dict[str, Any], ...] = (),
+    generated_by: str | None = None,
+    generation_prompt_version: str | None = None,
+    review_state: ReviewState | None = None,
+) -> SavedTask:
+    """課題を保存する。既にあれば内容の同一性を確かめ、無ければ作る。
+
+    `revise=True` は**訂正**。出題済みの版は書き換えず、版を 1 つ上げて
+    新しい `TaskVersion` を作る（P8）。過去の採点がどの基準で付いたのかを
+    後から辿れなくなるので、既存の版に上書きはしない。内容が同じなら
+    版は上がらない（何度押しても増えない）。
+    """
+    # **登録済みの KC しか名指しできない**（`kc.assert_registered`）。
+    # 綴り違いが静かに新しい KC を作ると、Q-matrix は同じものを 2 つに
+    # 割ったまま habits を積み上げる（設計原則 P6 が壊れる）。
+    # **課題の宣言が勝つ。** 宣言が無ければコースの共通ルーブリック、
+    # それも無ければ組み込みの既定（正しさ＋読みやすさ）。
+    if not spec.criteria and course_rubric:
+        # 観点を宣言する課題では `readability_weight` は使えない（両方書けると
+        # どちらが効くのか読めない・`TaskSpec` の検証）。読みやすさを入れたい
+        # なら、共通ルーブリックの観点として書く。
+        spec = spec.model_copy(
+            update={"criteria": from_stored(course_rubric), "readability_weight": 0.0}
+        )
+
+    # **コースが使う範囲まで見る。** 宣言していなければ名前空間の全部
+    # （後方互換）。API 経由の投入もここを通るので、画面で絞るだけにしない。
+    with database.unit_of_work() as uow:
+        course = uow.identity.get_course(course_id)
+    assert_registered(
+        database,
+        spec.knowledge_components,
+        course_keys=None if course is None else course.knowledge_components,
+    )
+    # 採点のプロファイル（#195）。**課題が指定していればそれ、無ければ
+    # コースの既定。** 既存の課題は誰も指定していないので、これまでと同じ
+    # 値になる ── 移行は要らない。
+    profile = spec.subject_profile or subject_profile
+    # **出所を落とさない。** `generated_by` を渡さないと `Provenance` は
+    # 「教員が書いた」になり、版は承認待ちにならずそのまま出題可能になる
+    # （`ReviewState`）。生成物が誰の検査も通らずに出る経路ができる（P5）。
+    version = build_task_version(
+        spec,
+        course_id=course_id,
+        subject_profile=profile,
+        authored_by=authored_by,
+        generated_by=generated_by,
+        generation_prompt_version=generation_prompt_version,
+        review_state=review_state,
+    )
+    if revise:
+        with database.unit_of_work() as uow:
+            latest = uow.tasks.latest_version(version.task_id)
+        if latest is not None:
+            if content(latest) == content(version):
+                # 直すつもりで問題文・観点・テストケースは何も変えなかった
+                # 場合。版は増やさず latest をそのまま使う。
+                #
+                # **早期リターンはしない。** 以前はここで `SavedTask` を返して
+                # 抜けていたが、それだと下の `Task` の組み立て（日程・並び・
+                # 受付拡張子・取り下げの引き継ぎ）が一度も走らない ──
+                # `TaskVersion` の中身を変えずに `opens_at` だけ直しても、
+                # 課題側の値は何一つ反映されなかった（実際に起きた。
+                # 2026-09-24、network の ex2/p2-p5 の opens_at を
+                # 16:00→16:45 に直したのに反映されず、小テストと演習課題の
+                # 開放が重なった）。`version` を `latest` に差し替えて下の
+                # 共通経路へ進めば、`save_version` は同一内容として黙って
+                # 冪等に扱う（`TaskStoreError` にならない）ので、版は増えない。
+                #
+                # **`substantive` では比べられない**（`content` の docstring）。
+                # 候補は版 1 として組まれ、`latest` は版 2 以上なので、ID も
+                # 版番号も必ず食い違う ── 比較は常に「内容が違う」を返し、
+                # 何も直していない訂正が版を増やしていた。
+                version = latest
+            else:
+                version = build_task_version(
+                    spec,
+                    course_id=course_id,
+                    subject_profile=profile,
+                    authored_by=authored_by,
+                    version=latest.version + 1,
+                    # **出所を落とさない。** ここで渡し忘れると、訂正で生成した
+                    # 中身が「教員が書いた」ことになり、承認待ちにならずそのまま
+                    # 出題される ── 上で一度渡しているぶんは、この作り直しで
+                    # 捨てられていた（設計原則 P5）。
+                    generated_by=generated_by,
+                    generation_prompt_version=generation_prompt_version,
+                    review_state=review_state,
+                )
+    with database.unit_of_work() as uow:
+        existing = uow.tasks.get_task(version.task_id)
+        task = Task(
+            id=version.task_id,
+            course_id=course_id,
+            title=spec.title or _title_of(spec),
+            unit=spec.unit,
+            session=spec.session,
+            # **位置を書かなければ、いまの位置を残す。** 新しい課題なら同じ問題
+            # セットの末尾に置く（#484）。空のまま保存すると、そのセットの中で
+            # 並びが決まらない。
+            position=position_for(
+                spec.position,
+                unit=spec.unit,
+                current=existing,
+                siblings=uow.tasks.list_for_course(course_id),
+            ),
+            # **入れ直しで締切を消さない。** 教員が画面で入れた値を、流し込みの
+            # 再実行が黙って消すと成績の期限が飛ぶ。明示された場合だけ上書きする。
+            opens_at=spec.opens_at or (existing.opens_at if existing else None),
+            due_at=spec.due_at or (existing.due_at if existing else None),
+            # **`TaskSpec` が持たない日程も引き継ぐ。**
+            #
+            # 引き継いでいたのは公開と締切の 2 つだけだった。残り 4 つは
+            # 作り直しのたびに既定（空）へ戻っていたので、問題セットで日程を
+            # 揃えたあとに課題を 1 つ直すと、その課題だけ提出開始・受付終了・
+            # 採点開始・猶予が抜け、問題セットの画面が「日程が課題ごとに
+            # ばらついています」と言い続けた。**教員は揃えたのに、揃えた
+            # 操作が揃えたものを壊していた。**
+            #
+            # ここに並ぶのは「課題が持つが、課題の内容ではない」値である
+            # （日程は問題セットで決める・`aijudge_core.task.Task`）。
+            # `spec` に欄が無い以上、既存の値を運ぶ以外に正しい既定は無い。
+            #
+            # 提出開始・採点開始・受付終了は定義ファイルからも書ける
+            # （`TaskSpec`）。書かれていれば公開・締切と同じく上書きし、
+            # 書かれていなければ既存の値を運ぶ。
+            submissions_open_at=spec.submissions_open_at
+            or (existing.submissions_open_at if existing else None),
+            grading_starts_at=spec.grading_starts_at
+            or (existing.grading_starts_at if existing else None),
+            accepts_until=spec.accepts_until or (existing.accepts_until if existing else None),
+            auto_finalize_after_minutes=(
+                existing.auto_finalize_after_minutes if existing else None
+            ),
+            # **取り下げも引き継ぐ。** 同じ取りこぼしで、こちらは結果が重い ──
+            # 取り下げた課題の誤字を直すと、`withdrawn` が既定に戻って
+            # 学習者に出直していた（取り下げは削除ではない・#83）。
+            withdrawn=existing.withdrawn if existing else False,
+            # **学内限定も引き継ぐ**（#333）。同じ取りこぼしがあり、学内限定の
+            # 課題を 1 つ直すと、その課題だけ学外から出せるようになっていた。
+            # 欄を足したら引き継ぐかを決めること ──
+            # `tests/test_task_schedule_survives.py` が欄の一覧を固定している。
+            campus_only=existing.campus_only if existing else False,
+            # 公開まで教員だけに見せるか（試験）。引き継がないと、試験の課題を
+            # 1 つ直した瞬間にその課題だけ公開前の TA に見える。
+            confidential_until_open=(existing.confidential_until_open if existing else False),
+            # 出題先も。引き継がないと、追試の課題を 1 つ直した瞬間にその課題
+            # だけ受講者全員に見える。
+            audience_group_ids=existing.audience_group_ids if existing else (),
+            # 答え方も（ADR 0026）。引き継がないと、試験の課題を 1 つ直した瞬間に
+            # その課題だけエディタから外れ、ファイル提出の画面に戻る。
+            answer_mode=existing.answer_mode if existing else AnswerMode.UPLOAD,
+            # 補完の切／入も。引き継がないと、試験の課題を直した瞬間にその課題
+            # だけ補完が既定（切）に戻る ── 演習では入れていた補完が消える。
+            editor_completion=existing.editor_completion if existing else False,
+            # ファイル提出の可否も。引き継がないと、「エディタだけ」の試験の課題を
+            # 1 つ直した瞬間にその課題だけファイルで出せるようになる。
+            file_upload=existing.file_upload if existing else True,
+            # クリア点も。引き継がないと、課題を 1 つ直した瞬間にその課題だけ
+            # セットの値から外れ、画面が「設定がばらついています」と言い出す。
+            clear_points=existing.clear_points if existing else None,
+            # 画面の静止画（ADR 0027）。引き継がないと、試験の課題を 1 つ直した
+            # 瞬間にその課題だけ撮らなくなる。
+            screen_capture=existing.screen_capture if existing else False,
+            # 実行時間の上限も（#491）。引き継がないと、時間のかかる問題の文面を
+            # 1 つ直した瞬間に上限が既定（2 秒など）へ戻り、正しい提出が時間切れになる。
+            # 提出形式と同じく、**明示された場合だけ上書きする**。定義を流し直しても、
+            # 画面で延ばした上限を既定へ戻さない。
+            case_timeout_seconds=spec.case_timeout_seconds
+            or (existing.case_timeout_seconds if existing else None),
+            # 締切と同じ理由で、**明示された場合だけ上書きする**（#234）。
+            # 教員が画面で広げた拡張子を、定義の流し込みが黙って狭めない。
+            accepted_suffixes=normalize_suffixes(spec.accepted_suffixes)
+            or (existing.accepted_suffixes if existing else ()),
+        )
+        uow.tasks.save_task(task)
+        try:
+            uow.tasks.save_version(version)
+        except TaskStoreError as exc:
+            raise AdminError(
+                f"{spec.key}: 保存済みの課題と内容が違います。問題文を直したなら"
+                f"版を上げる必要があります（過去の採点基準は書き換えない、P8）: {exc}"
+            ) from exc
+        uow.commit()
+
+    return SavedTask(task=task, version=version, created=existing is None)
+
+
+def _title_of(spec: TaskSpec) -> str:
+    """問題文の見出しから題名を取る。取れなければキーで代用する。
+
+    題名が無いと一覧が課題 ID の羅列になり、教員がどれを触っているのか
+    分からなくなる。
+    """
+    from aijudge_authoring.importers.sharif_judge import ImportError_, parse_title
+
+    try:
+        title, _tag = parse_title(spec.statement)
+    except ImportError_:
+        return spec.key
+    return title
+
+
+__all__ = ["SavedTask", "save_task"]

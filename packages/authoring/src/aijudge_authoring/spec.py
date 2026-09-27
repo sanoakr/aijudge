@@ -142,7 +142,7 @@ class TaskSpec(BaseModel):
     due_at: AwareDatetime | None = None
     # 公開・締切以外の日程（意味は `aijudge_core.task.Task` の同名の欄）。
     # **None は「書いていない」であって「空にする」ではない** ── 保存では
-    # 既存の値を残す（`opens_at` と同じ・`aijudge_admin.authoring.save_task`）。
+    # 既存の値を残す（`opens_at` と同じ・`aijudge_course_admin.authoring.save_task`）。
     # 定義ファイルから書けないと、課題文を先に配って提出は演習時間に開ける
     # 運用（提出開始）や試験の採点開始・受付終了を、毎回コンソールで入れ直す
     # ことになり、正本の `course.yaml` に記録が残らない（2026-09-25、prog2 の
