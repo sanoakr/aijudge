@@ -22,6 +22,7 @@ from aijudge_audit import AuditAction, AuditRecorder
 from aijudge_core import Course, CourseGroup, Role, Task, new_id
 from aijudge_core.ids import CourseGroupId, UserId
 from aijudge_course_admin.errors import AdminError
+from aijudge_unit_of_work import UnitOfWork
 
 # 監査記録の `detail` に並べる login の上限。`detail` は 4000 字まで
 # （`aijudge_audit.MAX_DETAIL_CHARS`）で、名簿を丸ごと写す場所ではない。
@@ -89,31 +90,31 @@ class MembersReplaced:
     members: tuple[str, ...]
 
 
-def list_groups(uow: object, course: Course) -> tuple[GroupSummary, ...]:
-    tasks = uow.tasks.list_for_course(course.id)  # type: ignore[attr-defined]
+def list_groups(uow: UnitOfWork, course: Course) -> tuple[GroupSummary, ...]:
+    tasks = uow.tasks.list_for_course(course.id)
     return tuple(
         GroupSummary(
             group=group,
-            members=len(uow.identity.group_members(group.id)),  # type: ignore[attr-defined]
+            members=len(uow.identity.group_members(group.id)),
             used_by=sum(1 for task in tasks if group.id in task.audience_group_ids),
         )
-        for group in uow.identity.list_groups(course.id)  # type: ignore[attr-defined]
+        for group in uow.identity.list_groups(course.id)
     )
 
 
-def members_of(uow: object, group: CourseGroup) -> tuple[str, ...]:
+def members_of(uow: UnitOfWork, group: CourseGroup) -> tuple[str, ...]:
     """名簿を login の順で。"""
-    ids = uow.identity.group_members(group.id)  # type: ignore[attr-defined]
+    ids = uow.identity.group_members(group.id)
     logins = []
     for user_id in ids:
-        user = uow.identity.get_user(user_id)  # type: ignore[attr-defined]
+        user = uow.identity.get_user(user_id)
         if user is not None:
             logins.append(user.login)
     return tuple(sorted(logins))
 
 
 def replace_group_members(
-    uow: object,
+    uow: UnitOfWork,
     recorder: AuditRecorder,
     *,
     course: Course,
@@ -131,7 +132,7 @@ def replace_group_members(
         id=CourseGroupId(new_id("grp")), tenant_id=course.tenant_id, course_id=course.id, name=name
     ).name
 
-    users = uow.identity.list_users(course.tenant_id, wanted)  # type: ignore[attr-defined]
+    users = uow.identity.list_users(course.tenant_id, wanted)
     by_login = {user.login: user for user in users}
     unknown = [
         login
@@ -141,7 +142,7 @@ def replace_group_members(
     if unknown:
         raise UnknownLogins(unknown)
 
-    group = uow.identity.find_group(course.id, group_name)  # type: ignore[attr-defined]
+    group = uow.identity.find_group(course.id, group_name)
     created = group is None
     if group is None:
         group = CourseGroup(
@@ -150,13 +151,11 @@ def replace_group_members(
             course_id=course.id,
             name=group_name,
         )
-        uow.identity.save_group(group)  # type: ignore[attr-defined]
+        uow.identity.save_group(group)
 
     before = set(members_of(uow, group))
     after = set(wanted)
-    uow.identity.set_group_members(  # type: ignore[attr-defined]
-        group.id, frozenset(by_login[login].id for login in wanted)
-    )
+    uow.identity.set_group_members(group.id, frozenset(by_login[login].id for login in wanted))
     added = tuple(sorted(after - before))
     removed = tuple(sorted(before - after))
 
@@ -187,17 +186,15 @@ def replace_group_members(
     )
 
 
-def delete_group(uow: object, recorder: AuditRecorder, *, course: Course, name: str) -> None:
+def delete_group(uow: UnitOfWork, recorder: AuditRecorder, *, course: Course, name: str) -> None:
     group = _find(uow, course, name)
     using = [
-        task
-        for task in uow.tasks.list_for_course(course.id)  # type: ignore[attr-defined]
-        if group.id in task.audience_group_ids
+        task for task in uow.tasks.list_for_course(course.id) if group.id in task.audience_group_ids
     ]
     if using:
         raise GroupInUse(group.name, using)
-    members = len(uow.identity.group_members(group.id))  # type: ignore[attr-defined]
-    uow.identity.delete_group(group.id)  # type: ignore[attr-defined]
+    members = len(uow.identity.group_members(group.id))
+    uow.identity.delete_group(group.id)
     recorder.record(
         AuditAction.GROUP_DELETED,
         target_type="course_group",
@@ -208,7 +205,7 @@ def delete_group(uow: object, recorder: AuditRecorder, *, course: Course, name: 
 
 
 def set_audience(
-    uow: object,
+    uow: UnitOfWork,
     recorder: AuditRecorder,
     *,
     course: Course,
@@ -235,7 +232,7 @@ def set_audience(
             raise GroupError("別のコースの課題が混じっています")
         # **作り直して検証を通す**（`model_copy` は検証を走らせない・`_update_unit`）。
         updated = Task.model_validate(task.model_dump() | {"audience_group_ids": ids})
-        uow.tasks.save_task(updated)  # type: ignore[attr-defined]
+        uow.tasks.save_task(updated)
         saved.append(updated)
 
     recorder.record(
@@ -261,15 +258,15 @@ def set_audience(
     return tuple(saved)
 
 
-def _find(uow: object, course: Course, name: str) -> CourseGroup:
-    group: CourseGroup | None = uow.identity.find_group(course.id, name)  # type: ignore[attr-defined]
+def _find(uow: UnitOfWork, course: Course, name: str) -> CourseGroup:
+    group: CourseGroup | None = uow.identity.find_group(course.id, name)
     if group is None:
         raise GroupNotFound(name)
     return group
 
 
-def _is_learner(uow: object, course: Course, user_id: UserId) -> bool:
-    enrollment = uow.identity.find_enrollment(course.id, user_id)  # type: ignore[attr-defined]
+def _is_learner(uow: UnitOfWork, course: Course, user_id: UserId) -> bool:
+    enrollment = uow.identity.find_enrollment(course.id, user_id)
     return enrollment is not None and enrollment.role is Role.LEARNER
 
 

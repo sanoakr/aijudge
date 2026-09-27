@@ -164,6 +164,9 @@ grader → admin.justification）を列挙して `ignore_imports` に入れ、�
    → **3-3a 済み**: `rubric`・`profiles`・`groups`（保存層を使わない 3 つ）。
    strict の mypy が要る最小限の注釈だけ足した。`groups` は `uow` を `object` で
    受けたまま ── `UnitOfWork` の型を付けるのは 3-3b（移動と改善を混ぜない）  
+   → **3-3b 済み**: `course_admin` を契約 `unit-of-work-is-for-the-apps` の例外にし
+   （例外はこれだけ、と境界テストで固定）、`groups` の `uow` を `UnitOfWork` で
+   型付けした。`type: ignore` 15 個が消え、strict の mypy が呼び先を確かめる  
 3-4. `finalization`（**import 契約 `grades-do-not-read-activity`・
 `grades-cannot-reach-activity-flags` と `test_boundaries` の名前を同時に書き換える**）→ `kc`  
 3-5. `authoring` → `bundle_plan`, `bundles`, `course_copy`, `course_definition`  

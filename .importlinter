@@ -666,7 +666,11 @@ forbidden_modules =
 ; 13 のリポジトリを束ねる UnitOfWork の Protocol（段階的な立て直し 2-2）。
 ; **使ってよいのは合成ルートだけ。** 各サブシステムの Protocol を全部知っている
 ; 型なので、サブシステムが import すると `subsystems-are-independent` を
-; この package 越しに迂回できてしまう。段階 3 の `course_admin` はここに例外を足す。
+; この package 越しに迂回できてしまう。
+;
+; **例外は `course_admin` だけ**（段階 3-3b）。コース運営の業務処理は、課題・名簿・
+; 監査を 1 つのトランザクションで書く（ADR 0016）ので全部の口が要り、保存層は
+; import できない（`subsystems-do-not-know-the-store`）── Protocol 越しに受け取る。
 [importlinter:contract:unit-of-work-is-for-the-apps]
 name = 全リポジトリの UnitOfWork を import するのはアプリだけ
 type = forbidden
@@ -697,7 +701,6 @@ source_modules =
     aijudge_ide
     aijudge_eval_checklist_ai_judge
     aijudge_eval_submission_compliance
-    aijudge_course_admin
 forbidden_modules =
     aijudge_unit_of_work
 

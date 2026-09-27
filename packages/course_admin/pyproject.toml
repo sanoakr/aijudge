@@ -21,6 +21,8 @@ dependencies = [
     "aijudge-grading",
     # 名簿の変更は監査に残す（`groups`・ADR 0016）。
     "aijudge-audit",
+    # 保存先は Protocol 越しに受け取る（段階 3-3b・契約 `unit-of-work-is-for-the-apps` の例外）。
+    "aijudge-unit-of-work",
 ]
 
 [build-system]
@@ -38,3 +40,4 @@ aijudge-ide = { workspace = true }
 aijudge-ext-document-text = { workspace = true }
 aijudge-grading = { workspace = true }
 aijudge-audit = { workspace = true }
+aijudge-unit-of-work = { workspace = true }
