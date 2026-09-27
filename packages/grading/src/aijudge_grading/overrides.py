@@ -21,7 +21,7 @@ ADR 0002 が避けたかったのは「1 人の操作で全員の採点が止ま
 種別が宣言と一致することを確かめる（起動時と同じ検査）。**これで捕まらない
 誤りが 1 つある** ── `language` の取り違えは設定として正しく、結果は
 「全員 0 点」で原因が提出側に見える。関門にはできないので、実際に 1 件
-走らせて確かめる道具（`aijudge_admin.grading_settings.try_settings`）を
+走らせて確かめる道具（`aijudge_course_admin.grading_settings.try_settings`）を
 別に置いてある。
 """
 

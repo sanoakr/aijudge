@@ -317,7 +317,7 @@ class SubmissionRepository(Protocol):
         """提出と、それを指す記録を消す（#156）。
 
         **提出を消すのはコースを丸ごと消すときだけ。** 学習者の提出が
-        1 件でもあるコースは消せない（規則は `aijudge_admin.courses`）ので、
+        1 件でもあるコースは消せない（規則は `aijudge_course_admin.courses`）ので、
         ここに届くのは教員の動作確認（trial、#108）だけになる。
 
         採点結果・確定・再確認の依頼・blind 採点・キューの行も一緒に消す

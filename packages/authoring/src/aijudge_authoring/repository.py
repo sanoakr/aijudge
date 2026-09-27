@@ -137,7 +137,7 @@ class TaskRepository(Protocol):
 
         版に紐づく検査結果と埋め込みも一緒に消す ── 残すと、存在しない版を
         指すものが溜まる。規則（提出があれば消さない）の置き場所は
-        `aijudge_admin.tasks.delete` の 1 か所で、保存先は言われたものを消す。
+        `aijudge_course_admin.tasks.delete` の 1 か所で、保存先は言われたものを消す。
         """
         ...
 

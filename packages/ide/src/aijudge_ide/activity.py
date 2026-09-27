@@ -263,7 +263,7 @@ class ActivityIndex(Protocol):
     def delete_for_course(self, course_id: CourseId) -> tuple[IdeSession, ...]:
         """このコースのセッションと索引を消し、消したセッションを返す。
 
-        **コースを消すときにだけ使う**（`aijudge_admin.courses`）。返したセッションの
+        **コースを消すときにだけ使う**（`aijudge_course_admin.courses`）。返したセッションの
         本体（ファイル）は呼び出し側が消す ── 索引だけ消してファイルを残すと、
         学習者の記録が誰にも辿れないまま残る。
         """

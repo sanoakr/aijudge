@@ -23,6 +23,8 @@ dependencies = [
     "aijudge-audit",
     # 保存先は Protocol 越しに受け取る（段階 3-3b・契約 `unit-of-work-is-for-the-apps` の例外）。
     "aijudge-unit-of-work",
+    # コースの削除で動画の保存先を片付ける（`courses`）。
+    "aijudge-submission",
 ]
 
 [build-system]
@@ -41,3 +43,4 @@ aijudge-ext-document-text = { workspace = true }
 aijudge-grading = { workspace = true }
 aijudge-audit = { workspace = true }
 aijudge-unit-of-work = { workspace = true }
+aijudge-submission = { workspace = true }

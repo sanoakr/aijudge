@@ -3300,7 +3300,7 @@ def register(templates) -> APIRouter:
     def clear_unit_route(request: Request, course_id: str, unit: str) -> Response:
         """問題セットを丸ごと片付ける。**課題ごとに削除か取り下げか**（#59）。
 
-        規則は `aijudge_admin.tasks` に置いてある ── 画面と CLI の両方から
+        規則は `aijudge_course_admin.tasks` に置いてある ── 画面と CLI の両方から
         使うので、どちらが正しいかを問わずに済むよう 1 か所にする。
         """
         from .app import require_principal
@@ -4140,7 +4140,7 @@ def register(templates) -> APIRouter:
         権限はコースの作成と同じ**テナント管理者**。担当教員には開けない
         ── コースを消すのは、そのコースの中の操作ではない。
 
-        規則は `aijudge_admin.courses` に置いてある（画面と CLI の両方から
+        規則は `aijudge_course_admin.courses` に置いてある（画面と CLI の両方から
         使うので、どちらが正しいかを問わずに済むよう 1 か所にする）。
         """
         from .app import require_principal
@@ -5242,7 +5242,7 @@ def register(templates) -> APIRouter:
 
     @router.post("/courses/{course_id}/tasks/{task_id}/delete")
     def delete_task_route(request: Request, course_id: str, task_id: str) -> Response:
-        """**提出が 1 件も無い課題だけを消す。** 判定は `aijudge_admin.tasks`。
+        """**提出が 1 件も無い課題だけを消す。** 判定は `aijudge_course_admin.tasks`。
 
         提出があれば断り、取り下げを案内する（規則の置き場所を 1 つにする）。
         """
