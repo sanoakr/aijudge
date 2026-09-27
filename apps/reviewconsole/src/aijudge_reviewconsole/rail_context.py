@@ -161,7 +161,7 @@ def _split_unfinalized(course, tasks: dict, counts) -> tuple[int, int]:
 
     自動確定されないのは、猶予（課題かコースの `auto_finalize_after_minutes`）が
     無い課題と、レビュー方針が人の目を求めた採点（`Routing.REVIEW_REQUIRED`）。
-    規則は自動確定（`aijudge_admin.finalization`）と同じ事実から取る。内訳が
+    規則は自動確定（`aijudge_course_admin.finalization`）と同じ事実から取る。内訳が
     無い（古い実装）ときは全部を手動として数える ── 待ちを手動と言う方が、
     手動を待ちと言うより安全である。
     """

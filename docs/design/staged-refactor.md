@@ -178,6 +178,9 @@ grader → admin.justification）を列挙して `ignore_imports` に入れ、�
    を `Store` に）。**3-3 完了**  
 3-4. `finalization`（**import 契約 `grades-do-not-read-activity`・
 `grades-cannot-reach-activity-flags` と `test_boundaries` の名前を同時に書き換える**）→ `kc`  
+   → **3-4a 済み**: `finalization` を移し（`database` は `Store`）、契約 2 本と
+   `test_boundaries` の名前を `aijudge_course_admin.finalization` に書き換えた。旧い名前の
+   ままだと、契約は中身の無い互換を見張ることになる。残りは 3-4b（`kc`・`kc_skeleton`）  
 3-5. `authoring` → `bundle_plan`, `bundles`, `course_copy`, `course_definition`  
 3-6. 呼び出し側（reviewconsole・grader・admin の CLI）を新しい場所に張り替え、
 再エクスポートと `ignore_imports` を消す。`apps/admin` は CLI だけになる
