@@ -355,3 +355,82 @@ def test_the_course_template_is_yaml(world: World) -> None:
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("application/x-yaml")
     assert response.text.strip()
+
+
+# -- 科目プロファイルの改名（段階 4-3 の前に厚くする・地図の表）------------------
+
+
+def _profiles_with_unused(world: World, tmp_path) -> object:
+    profiles = tmp_path / "subjects"
+    profiles.mkdir()
+    (profiles / "cs_unused.yaml").write_text(
+        "# なぜこの値なのかの記録\nname: cs_unused\ndeterministic: []\n", encoding="utf-8"
+    )
+    # コースが参照しているもの（参照中は改名できない）。
+    (profiles / f"{world.course.subject_profile}.yaml").write_text(
+        f"name: {world.course.subject_profile}\ndeterministic: []\n", encoding="utf-8"
+    )
+    world.console.profiles_dir = profiles
+    return profiles
+
+
+def test_renaming_a_profile_redirects_to_it_and_records_the_change(world: World, tmp_path) -> None:
+    profiles = _profiles_with_unused(world, tmp_path)
+    world.register("boss", Role.ADMIN)
+
+    response = world.client("boss").post(
+        "/manage/subjects/cs_unused/rename",
+        data={"new_name": " cs_renamed "},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"].endswith(
+        "/manage/subjects/cs_renamed?saved=profile_renamed#saved"
+    )
+    # コメントも残る（改名は中身を書き直さない）。
+    assert "# なぜこの値なのかの記録" in (profiles / "cs_renamed.yaml").read_text(encoding="utf-8")
+    with world.database.unit_of_work() as uow:
+        rows = uow.audit.list_for_target("subject_profile", "cs_renamed")
+    assert rows and rows[-1].detail.get("renamed_from") == "cs_unused"
+
+
+def test_a_profile_a_course_uses_is_not_renamed(world: World, tmp_path) -> None:
+    """**参照中は改名しない。** 名前で引いているコースの採点が止まる（#146）。"""
+    profiles = _profiles_with_unused(world, tmp_path)
+    world.register("boss", Role.ADMIN)
+    used = world.course.subject_profile
+
+    response = world.client("boss").post(
+        f"/manage/subjects/{used}/rename", data={"new_name": "cs_elsewhere"}
+    )
+
+    assert response.status_code == 400
+    assert (profiles / f"{used}.yaml").exists()
+    assert not (profiles / "cs_elsewhere.yaml").exists()
+
+
+def test_a_profile_is_not_renamed_onto_an_existing_one(world: World, tmp_path) -> None:
+    profiles = _profiles_with_unused(world, tmp_path)
+    world.register("boss", Role.ADMIN)
+    taken = world.course.subject_profile
+
+    response = world.client("boss").post(
+        "/manage/subjects/cs_unused/rename", data={"new_name": taken}
+    )
+
+    assert response.status_code == 400
+    assert (profiles / "cs_unused.yaml").exists()
+    assert (profiles / f"{taken}.yaml").read_text(encoding="utf-8").startswith(f"name: {taken}")
+
+
+def test_only_a_tenant_admin_renames_a_profile(world: World, tmp_path) -> None:
+    profiles = _profiles_with_unused(world, tmp_path)
+    world.register("teacher", Role.INSTRUCTOR)
+
+    response = world.client("teacher").post(
+        "/manage/subjects/cs_unused/rename", data={"new_name": "cs_renamed"}
+    )
+
+    assert response.status_code == 403
+    assert (profiles / "cs_unused.yaml").exists()
