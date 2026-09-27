@@ -57,6 +57,7 @@ MOVED_MODULES = (
     "bundles",
     "course_definition",
     "course_copy",
+    "course_export",
 )
 
 
