@@ -126,7 +126,7 @@ def move_task(
             artifact.storage_key for submission in submissions for artifact in submission.artifacts
         ]
 
-        moved = _rebuild(uow, task, versions, key=new_key, unit=unit)
+        moved = _rebuild(uow, task, versions, key=new_key, previous_key=key, unit=unit)
         # 改訂の下書き（#306）は元の課題を指している。採用すると `spec.key` で
         # 保存されるので、キーも一緒に付け替えないと元のキーで課題が蘇る。
         for draft in uow.tasks.list_drafts(task.course_id):
@@ -163,7 +163,9 @@ def copy_task(database: Store, *, task_id: TaskId, unit: str, name: str) -> Relo
         task, key, versions = _current(uow, task_id)
         new_key = compose_key(unit, name.strip())
         _refuse_taken(uow, task.course_id, new_key)
-        copied = _rebuild(uow, task, versions, key=new_key, unit=unit, withdrawn=False)
+        copied = _rebuild(
+            uow, task, versions, key=new_key, previous_key=key, unit=unit, withdrawn=False
+        )
         uow.commit()
     return Relocated(task=copied, previous_key=key, key=new_key)
 
@@ -194,6 +196,7 @@ def _rebuild(
     versions: tuple[TaskVersion, ...],
     *,
     key: str,
+    previous_key: str,
     unit: str,
     withdrawn: bool | None = None,
 ) -> Task:
@@ -220,6 +223,12 @@ def _rebuild(
     }
     if withdrawn is not None:
         update["withdrawn"] = withdrawn
+    if task.title == previous_key:
+        # **キーで代用していた題名はキーに付いていく。** 問題文に `## … ##` の
+        # 見出しが無いと、題名はキーそのものになる（`authoring._title_of`）。
+        # 運ぶだけだと、test5 へ移した課題の題名が `test4/echoClient` のまま
+        # 一覧に出る（2026-09-27、実際に起きた）。教員が付けた題名は変えない。
+        update["title"] = key
     if unit != task.unit:
         # **日程は移った先に揃える。** セットの中で締切がずれると「この回は
         # いつまでか」が言えなくなる（`set_unit_schedule` と同じ理由）。空の
