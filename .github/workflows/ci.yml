@@ -66,12 +66,27 @@ jobs:
       - name: Enforce module boundaries
         run: uv run lint-imports
 
-      # 決定的評価器はコンテナで提出物を動かす（ADR 0006）。gVisor は runner に
-      # 無いので docker に固定する。pull を先にしておくのは、最初のテストが
-      # 短いタイムアウト（compile_timeout_seconds 等）の中で pull 待ちに
+      # 決定的評価器はコンテナで提出物を動かす（ADR 0006）。pull を先にしておくのは、
+      # 最初のテストが短いタイムアウト（compile_timeout_seconds 等）の中で pull 待ちに
       # なって落ちるのを防ぐため。
       - name: Pull the sandbox image
         run: docker pull gcc:14-bookworm
+
+      # **運用機は gVisor（runsc）で採点している**（#449）。runner には無いので入れる。
+      # 以前は入れずに docker に固定しており、gVisor を通る試験がどこでも自動で
+      # 走っていなかった（#502）。公式の apt リポジトリから入れ、docker に runtime を
+      # 登録する（`runsc install` が /etc/docker/daemon.json に書く）。
+      - name: Install gVisor
+        run: |
+          curl -fsSL https://gvisor.dev/archive.key \
+            | sudo gpg --dearmor -o /usr/share/keyrings/gvisor-archive-keyring.gpg
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/gvisor-archive-keyring.gpg] https://storage.googleapis.com/gvisor/releases release main" \
+            | sudo tee /etc/apt/sources.list.d/gvisor.list
+          sudo apt-get update
+          sudo apt-get install -y runsc
+          sudo runsc install
+          sudo systemctl reload docker
+          docker info --format '{{json .Runtimes}}'
 
       - name: Test
         env:
@@ -86,7 +101,17 @@ jobs:
         #
         # `loadfile`: 同じファイルのテストは同じ worker で流す。モジュール単位の
         # 準備を worker の数だけ作り直さずに済み、実測でも `load` より速かった。
-        run: uv run pytest -n auto --dist loadfile
+        #
+        # gVisor の脱出試験（`[runsc]`）は次の段で流すので、ここでは外す。
+        run: uv run pytest -n auto --dist loadfile -k "not runsc"
+
+      # 脱出試験を gVisor で。**`gvisor` を名指しするので、runsc が使えなければ
+      # skip ではなく失敗になる**（`test_container.py` の `container`・#429）。
+      # runner から runsc が消えても、ここが赤になる。
+      - name: Test the sandbox under gVisor
+        env:
+          AIJUDGE_SANDBOX: gvisor
+        run: uv run pytest packages/sandbox/tests/test_container.py -k runsc -v
 
   # 採点精度の測定。教員採点データはリポジトリに置けない（個人情報）ので、
   # ランナーに用意がある場合だけ実測する。

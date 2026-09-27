@@ -8,6 +8,13 @@ Linux + コンテナだけで、その「封じ込められる」という主張
 実提出を通す前に、コンテナのある環境でこのファイルを通すこと。
 
     AIJUDGE_SANDBOX=docker uv run pytest packages/sandbox/tests/test_container.py -v
+
+**同じ試験を runc と gVisor（runsc）の両方に当てる**（#502）。運用機は gVisor で
+採点しているのに、以前は gVisor を通る試験がどこでも自動で走っていなかった。
+runsc の版上げや `DockerSandbox` の変更（上限の掛け方・マウント・`--runtime` の
+渡し方）で壊れても気づけない。gVisor 側を確かめるには:
+
+    AIJUDGE_SANDBOX=gvisor uv run pytest packages/sandbox/tests/test_container.py -k runsc -v
 """
 
 from __future__ import annotations
@@ -29,24 +36,37 @@ from aijudge_sandbox import (
 
 # コンテナ内でコンパイルするので、ホストの cc は要らない。
 # イメージ（既定 gcc:14-bookworm）が持っている。
-FAST = Limits(cpu_seconds=5, wall_seconds=60.0, processes=32)
+# プロセス数は運用と同じ 64（`code_test_runner` の `_MAX_PROCESSES`・`Limits` の既定）。
+# **gVisor では 32 でコンパイルが通らない**（#502 で実測）。`--pids-limit` は
+# 中のプロセスだけでなく、gVisor 本体（Sentry）がホスト上で使うスレッドにも
+# 掛かるので、中で使える数が runc より少ない ── 32 では `collect2` が
+# `posix_spawnp: Cannot allocate memory` で落ち、64 なら通った。
+FAST = Limits(cpu_seconds=5, wall_seconds=60.0, processes=64)
 
 
-@pytest.fixture(scope="module")
-def container():
-    """コンテナバックエンド。無ければモジュールごと skip。
+# 試す runtime。`None` は docker の既定（runc）。
+RUNTIMES = {"runc": None, "runsc": "runsc"}
 
-    **ただし `AIJUDGE_SANDBOX` でコンテナを名指ししたときは失敗にする**（#429）。
-    CI はそう指定して走らせる ── skip にすると、docker が壊れても CI は緑の
-    まま、脱出試験は 1 件も走っていない（skip は検証済みではない）。
+# この runtime が無いとき、skip ではなく失敗にする `AIJUDGE_SANDBOX` の値。
+REQUIRED_BY = {"runc": ("docker", "gvisor"), "runsc": ("gvisor",)}
+
+
+@pytest.fixture(scope="module", params=sorted(RUNTIMES))
+def container(request: pytest.FixtureRequest) -> DockerSandbox:
+    """コンテナバックエンド。無ければその runtime の試験ごと skip。
+
+    **ただし `AIJUDGE_SANDBOX` でその runtime を名指ししたときは失敗にする**（#429）。
+    CI はそう指定して走らせる ── skip にすると、docker や runsc が壊れても CI は
+    緑のまま、脱出試験は 1 件も走っていない（skip は検証済みではない）。
+    gVisor は runc の上位なので、`gvisor` を名指ししたら両方を要求する。
     """
+    name: str = request.param
     try:
-        sandbox = DockerSandbox()
+        return DockerSandbox(runtime=RUNTIMES[name])
     except SandboxUnavailable as exc:
-        if os.environ.get("AIJUDGE_SANDBOX", "").strip().lower() in ("docker", "gvisor"):
-            pytest.fail(f"AIJUDGE_SANDBOX asks for a container but none is usable: {exc}")
-        pytest.skip(f"no container runtime: {exc}")
-    return sandbox
+        if os.environ.get("AIJUDGE_SANDBOX", "").strip().lower() in REQUIRED_BY[name]:
+            pytest.fail(f"AIJUDGE_SANDBOX asks for {name} but it is not usable: {exc}")
+        pytest.skip(f"no {name} runtime: {exc}")
 
 
 def _build(workspace, source: str, name: str = "prog") -> None:
@@ -70,17 +90,20 @@ def test_a_container_declares_that_it_can_contain_a_process_bomb(container) -> N
     """`--pids-limit` があるので、seatbelt の穴はここでは塞がっている。"""
     assert Limitation.PROCESS_LIMIT_UNENFORCED not in container.limitations
     assert Limitation.SHARED_UID not in container.limitations
-    assert container.isolation is Isolation.CONTAINER
 
 
-def test_gvisor_declares_no_limitations() -> None:
-    """カーネル共有まで塞がるのは gVisor だけ。"""
-    try:
-        sandbox = DockerSandbox(runtime="runsc")
-    except SandboxUnavailable as exc:
-        pytest.skip(f"no gVisor runtime: {exc}")
-    assert sandbox.limitations == frozenset()
-    assert sandbox.isolation is Isolation.KERNEL_ISOLATED
+def test_only_gvisor_closes_the_shared_kernel(container, request: pytest.FixtureRequest) -> None:
+    """カーネル共有まで塞がるのは gVisor だけ。runc は共有を申告する。
+
+    運用機は `AIJUDGE_SANDBOX_MIN=kernel_isolated` で、この申告が隔離の強さの
+    判定そのものになる（#449）。runsc なのに申告が弱いと、運用機は採点を拒む。
+    """
+    if request.node.callspec.params["container"] == "runsc":
+        assert container.limitations == frozenset()
+        assert container.isolation is Isolation.KERNEL_ISOLATED
+    else:
+        assert container.limitations == frozenset({Limitation.SHARED_KERNEL})
+        assert container.isolation is Isolation.CONTAINER
 
 
 # --------------------------------------------------------------------------
@@ -93,7 +116,8 @@ def test_a_program_runs_in_the_container(container) -> None:
         result = workspace.run(ExecRequest(argv=("/bin/echo", "hello"), limits=FAST))
     assert result.ok, result.stderr
     assert result.stdout.strip() == "hello"
-    assert result.isolation is Isolation.CONTAINER
+    # 結果に残る隔離の水準は、使った runtime のもの（採点結果の `isolation`）。
+    assert result.isolation is container.isolation
 
 
 def test_the_submission_does_not_run_as_root(container) -> None:

@@ -172,6 +172,16 @@ AIJUDGE_SANDBOX=docker uv run pytest packages/sandbox/tests/test_container.py -v
 skip は「検証していない」であって「安全」ではない。
 2026-08-28 に colima で 15 件通過を確認済み（gVisor の 1 件のみ skip）。
 
+**同じ試験を gVisor（runsc）にも当てる**（#502）。各試験は `[runc]` と `[runsc]`
+の 2 通りで走り、runsc の無い機械では `[runsc]` が skip する。運用機のように
+gVisor で採点する機械では、`gvisor` を名指しして skip を失敗にする:
+
+```fish
+AIJUDGE_SANDBOX=gvisor uv run pytest packages/sandbox/tests/test_container.py -k runsc -v
+```
+
+CI は runner に gVisor を入れ、この形で毎回走らせている。
+
 作業域は既定で `~/.aijudge/work`。**ホストの一時ディレクトリを使わない**のは、
 macOS の `/var/folders/...` がコンテナ実行環境にマウントされず、bind mount が
 黙って空になるため（ADR 0006）。変えるなら `AIJUDGE_SANDBOX_WORKDIR` に
