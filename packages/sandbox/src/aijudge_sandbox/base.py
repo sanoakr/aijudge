@@ -178,8 +178,16 @@ class LocalWorkspace:
         *,
         apply_host_rlimits: bool = True,
         release: Callable[[list[str]], None] | None = None,
+        startup_allowance_seconds: float = 0.0,
+        timed_out_inside: Callable[[int], bool] | None = None,
     ) -> None:
         self.path = path
+        # 包んだ先の起動にかかる時間の余裕（#489）。実時間の上限を包んだ先の
+        # **中で**掛けるバックエンド（docker）は、外で待つ時間をその分だけ
+        # 延ばす。外の待ち時間は、デーモンが詰まったときの歯止めとして残す。
+        self._startup_allowance_seconds = startup_allowance_seconds
+        # 中で掛けた上限に達したことを、終了コードから読む（docker では 124）。
+        self._timed_out_inside = timed_out_inside
         # 時間切れのあとに、包んだ先（コンテナ）を確実に止める後始末（#410）。
         self._release = release
         self._isolation = isolation
@@ -232,7 +240,8 @@ class LocalWorkspace:
         timed_out = False
         try:
             raw_out, raw_err = process.communicate(
-                input=request.stdin, timeout=request.limits.wall_seconds
+                input=request.stdin,
+                timeout=request.limits.wall_seconds + self._startup_allowance_seconds,
             )
         except subprocess.TimeoutExpired:
             timed_out = True
@@ -268,6 +277,8 @@ class LocalWorkspace:
                 f"{stderr}\n[sandbox] the workspace grew past "
                 f"{request.limits.workspace_bytes} bytes and was cleared"
             ).lstrip("\n")
+        if not timed_out and self._timed_out_inside is not None:
+            timed_out = self._timed_out_inside(code)
         signal_name = self._decode_signal(code)
         if signal_name is not None:
             # CPU 上限やメモリ上限で殺されたのは時間切れと同じ意味。
@@ -317,6 +328,16 @@ class LocalSandboxBase:
     # mkdtemp の既定（作成者のみ）で足りる。コンテナの中で固定の別 uid
     # （nobody 等）から書く docker は、これが要る側で上書きする。
     world_writable_workspace: bool = False
+    # 包んだ先の起動にかかる時間を、実時間の上限の外で見込む秒数（#489）。
+    # 実時間の上限を包んだ先の中で掛けるバックエンドだけが上書きする。
+    startup_allowance_seconds: float = 0.0
+
+    def timed_out_inside(self, code: int) -> bool:
+        """包んだ先の中で掛けた実時間の上限に達したか（終了コードから読む）。
+
+        既定は「中では掛けていない」。上限はホストの待ち時間だけで効く。
+        """
+        return False
 
     def decode_signal(self, code: int) -> str | None:
         """終了コードからシグナル名を引く。
@@ -348,6 +369,8 @@ class LocalSandboxBase:
                 self.decode_signal,
                 apply_host_rlimits=self.apply_host_rlimits,
                 release=self.release,
+                startup_allowance_seconds=self.startup_allowance_seconds,
+                timed_out_inside=self.timed_out_inside,
             )
         finally:
             shutil.rmtree(directory, ignore_errors=True)
