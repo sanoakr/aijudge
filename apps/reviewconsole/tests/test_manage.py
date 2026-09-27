@@ -1732,7 +1732,7 @@ def test_saving_comes_back_to_the_place_you_pressed(world: World, monkeypatch) -
     # 門 1（参照解答が全ケースを通る）はサンドボックスを使う。ここで確かめたい
     # のは戻り先なので通す。
     monkeypatch.setattr(
-        "aijudge_reviewconsole.manage.TaskVerifier.passes",
+        "aijudge_course_admin.task_verifier.TaskVerifier.passes",
         lambda self, candidate, source: (True, "all cases pass"),
     )
 
@@ -2528,7 +2528,7 @@ def test_the_reference_solution_is_saved_with_the_cases(world: World, monkeypatc
         checked.append(source)
         return True, ""
 
-    monkeypatch.setattr("aijudge_reviewconsole.manage.TaskVerifier.passes", passes)
+    monkeypatch.setattr("aijudge_course_admin.task_verifier.TaskVerifier.passes", passes)
     form = _case_form(before)
     form["reference_solution"] = ["int main(void){return 1;}\n"]
     world.client("teacher").post(
@@ -2650,7 +2650,7 @@ def test_only_the_proposals_you_tick_are_kept(world: World, monkeypatch) -> None
     with world.database.unit_of_work() as uow:
         before = uow.tasks.latest_version(TaskId(task_id))
     monkeypatch.setattr(
-        "aijudge_reviewconsole.manage.TaskVerifier.passes",
+        "aijudge_course_admin.task_verifier.TaskVerifier.passes",
         lambda self, candidate, source: (True, ""),
     )
 
@@ -3066,7 +3066,7 @@ def test_editing_test_cases_makes_a_new_version_after_the_gate(
         seen.append(len(candidate.test_cases))
         return True, "all cases pass"
 
-    monkeypatch.setattr("aijudge_reviewconsole.manage.TaskVerifier.passes", passes)
+    monkeypatch.setattr("aijudge_course_admin.task_verifier.TaskVerifier.passes", passes)
     form = _case_form(before, **{"0": {"expected": "9 9 9.000\n"}})
     form["case_delete"] = ["1"]
     response = world.client("teacher").post(
@@ -3101,7 +3101,7 @@ def test_test_cases_the_reference_fails_are_not_saved(
     with world.database.unit_of_work() as uow:
         before = uow.tasks.latest_version(TaskId(task_id))
     monkeypatch.setattr(
-        "aijudge_reviewconsole.manage.TaskVerifier.passes",
+        "aijudge_course_admin.task_verifier.TaskVerifier.passes",
         lambda self, candidate, source: (False, "case1: expected 2 2 2.000, got 9 9 9.000"),
     )
     response = world.client("teacher").post(
@@ -3122,7 +3122,7 @@ def test_unchanged_test_cases_do_not_bump_the_version(
     with world.database.unit_of_work() as uow:
         before = uow.tasks.latest_version(TaskId(task_id))
     monkeypatch.setattr(
-        "aijudge_reviewconsole.manage.TaskVerifier.passes",
+        "aijudge_course_admin.task_verifier.TaskVerifier.passes",
         lambda self, candidate, source: (True, "ok"),
     )
     world.client("teacher").post(
@@ -5010,7 +5010,7 @@ def test_a_generated_task_is_saved_awaiting_approval(monkeypatch, world: World) 
                 model="stub-model",
             )
 
-    monkeypatch.setattr("aijudge_reviewconsole.manage.TaskDrafter", _Drafter)
+    monkeypatch.setattr("aijudge_reviewconsole.manage.drafts.TaskDrafter", _Drafter)
 
     unit = _unit_of(world)
     response = client.post(
