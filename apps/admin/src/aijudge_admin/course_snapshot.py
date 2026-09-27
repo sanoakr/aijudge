@@ -56,9 +56,12 @@ SNAPSHOT_FORMAT = 1
 # 誰が書いたかで、どちらも同期する値ではない。
 _VERSION_EXCLUDED = frozenset({"task_id", "source_key", "provenance"})
 # 課題の項目のうち、定義ファイルが常に書くもの（`save_task` が spec から取る）。
-_TASK_ALWAYS = ("title", "unit", "session", "position")
+_TASK_ALWAYS = ("title", "unit", "session")
 # 書かれたときだけ上書きする項目（`save_task`・#234・#491）。日程も同じ扱い。
-_TASK_IF_WRITTEN = ("accepted_suffixes", "case_timeout_seconds", *UNIT_SCHEDULE_KEYS)
+# 位置も、書かなければいまの位置を残す（#484）── 位置を書かない定義（network の
+# ように問題ディレクトリ名から位置が決まらないもの）を「位置が空」と読むと、
+# 位置を埋めた DB と毎回食い違う（実際に同期の初回判定が止まった・2026-09-27）。
+_TASK_IF_WRITTEN = ("position", "accepted_suffixes", "case_timeout_seconds", *UNIT_SCHEDULE_KEYS)
 # 問題セットの値（`course_definition._UNIT_SETTING_KEYS` と同じ並び）。
 _UNIT_SETTINGS = (
     "answer_mode",
@@ -106,13 +109,13 @@ def _file_task_values(
         "title": spec.title or _title_of(spec),
         "unit": spec.unit,
         "session": spec.session,
-        "position": spec.position,
     }
     for name, value in task.items():
         values[f"task.{name}"] = _plain(value)
     # **書かれていれば**管理する（書かれていなければ `save_task` が既存の値を残す）。
     # 保存と同じ正規化を通す ── 通さないと `PNG` と `.png` が「違う」になる。
     written = {
+        "position": spec.position,
         "accepted_suffixes": normalize_suffixes(spec.accepted_suffixes),
         "case_timeout_seconds": spec.case_timeout_seconds,
     } | {name: getattr(spec, name) for name in UNIT_SCHEDULE_KEYS}

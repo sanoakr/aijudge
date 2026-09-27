@@ -167,3 +167,31 @@ def test_the_cli_refuses_an_unknown_course(tmp_path: Path, capsys) -> None:
     Database.connect(url, create=True).dispose()
     assert main(["--database-url", url, "course", "snapshot", "--course", "crs_missing"]) == 2
     assert "コースがありません" in capsys.readouterr().err
+
+
+def test_an_unwritten_position_is_not_managed_by_the_file(tmp_path: Path) -> None:
+    """位置を書かない課題は、DB が位置を振っても差にならない（#484）。"""
+    import yaml
+    from test_course_export import COURSE
+
+    source = tmp_path / "source"
+    source.mkdir()
+    path = _write_source(source)
+    document = yaml.safe_load(path.read_text(encoding="utf-8"))
+    for task in document["tasks"]:
+        task.pop("position", None)
+    path.write_text(yaml.safe_dump(document, allow_unicode=True), encoding="utf-8")
+    assert COURSE["tasks"][0].get("position") is not None  # 元の定義は位置を書いている
+
+    database = _database(tmp_path / "a.db")
+    try:
+        apply_course_definition(
+            database, path, tenant_id=TENANT, profiles_dir=PROFILES, authored_by=_IMPORTER
+        )
+        file_side = snapshot_definition(path, tenant_id=TENANT)
+        db_side = snapshot_course(database, COURSE_ID)
+    finally:
+        database.dispose()
+    assert "task.position" not in file_side["tasks"]["ex02/p2"]["values"]
+    assert db_side["tasks"]["ex02/p2"]["values"]["task.position"] is not None
+    assert _differing(file_side, db_side) == {}
