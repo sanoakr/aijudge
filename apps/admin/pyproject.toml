@@ -1,7 +1,7 @@
 [project]
 name = "aijudge-admin"
 version = "0.0.1"
-description = "Operator CLI: courses, enrolment, and task import. What a term needs before it starts."
+description = "Operator CLI: courses, enrolment, and task import. What a term needs before it starts. The business logic lives in aijudge-course-admin."
 requires-python = ">=3.12"
 dependencies = [
     "aijudge-core",
@@ -11,15 +11,8 @@ dependencies = [
     "aijudge-grading",
     "aijudge-submission",
     "aijudge-persistence",
-    "aijudge-llm-gateway",
-    # シラバスの PDF を読むため。抽出は採点側と同じものを使う
-    # （別に実装すると、片方だけが壊れた PDF を読める差が出る）。
-    "aijudge-ext-document-text",
     "aijudge-telemetry",
-    # 答え方を `editor` にしてよいかの検査（`answer_mode.py`）で、エディタで
-    # 書ける形式の表を読む。
-    "aijudge-ide",
-    # 業務処理の移し先（段階 3）。移したものは旧い場所から再エクスポートする。
+    # 業務の処理（段階 3）。CLI はここを呼ぶだけ。
     "aijudge-course-admin",
 ]
 
@@ -42,5 +35,3 @@ aijudge-authoring = { workspace = true }
 aijudge-grading = { workspace = true }
 aijudge-submission = { workspace = true }
 aijudge-persistence = { workspace = true }
-aijudge-llm-gateway = { workspace = true }
-aijudge-ide = { workspace = true }

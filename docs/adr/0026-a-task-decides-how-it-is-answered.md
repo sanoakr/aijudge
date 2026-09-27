@@ -50,7 +50,7 @@ class AnswerMode(StrEnum):
   画像・PDF は自動保存も受付終了時の自動提出もしない（下書きをサーバに置かない）。作業の記録には
   `attach` としてファイル名・大きさ・指紋だけを残し、中身は入れない
 - **動画はエディタの画面から出せない**（分割送信の経路は課題の画面にしか無い）。だから動画を受ける課題が
-  ある問題セットでは `file_upload` を切れない（`aijudge_admin.answer_mode.file_upload_required`、画面・
+  ある問題セットでは `file_upload` を切れない（`aijudge_course_admin.answer_mode.file_upload_required`、画面・
   定義の流し込みの両方で断る）。書ける課題が 1 つも無いセット（画像・PDF・動画だけ）はエディタにしない
 
 **`editor` にできるのは、課題の提出形式（`Task.accepted_suffixes`、空ならコースの

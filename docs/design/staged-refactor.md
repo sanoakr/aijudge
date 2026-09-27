@@ -197,7 +197,12 @@ grader → admin.justification）を列挙して `ignore_imports` に入れ、�
    → **3 本に分けた**: 3-6a コンソール、3-6b admin の CLI とテスト、3-6c 互換と
    再エクスポートの撤去。**3-6a 済み**: コンソールの import を `aijudge_course_admin` に
    張り替え、`apps-are-independent` の例外 17 本を消した（**アプリ間の例外は 0 本**）。
-   コンソールの依存は `aijudge-admin` から `aijudge-course-admin` に替えた  
+   コンソールの依存は `aijudge-admin` から `aijudge-course-admin` に替えた。
+   **3-6b 済み**: admin の CLI とリポジトリ全体のテストの import を新しい場所に張り替えた
+   （名前ごとに import して実際の置き場所を確かめる機械的な書き換え）。
+   **3-6c 済み**: 旧い場所の互換（`sys.modules` の差し替え 32 本）と `aijudge_admin` の
+   再エクスポートを消した。`apps/admin` は CLI（`cli`・`authoring_cli`・`finalize_cli`）
+   だけになり、依存も CLI が使うものだけにした。**段階 3 完了**  
 
 ### 段階 4: manage.py の分割（8〜10 PR）
 

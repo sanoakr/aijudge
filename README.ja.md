@@ -202,7 +202,7 @@ uv run aijudge-admin task import --course <id> --dir 課題のディレクトリ
 uv run aijudge-admin course apply --file network/2026/course.yaml
 ```
 
-形式は `apps/admin/src/aijudge_admin/course_definition.py` の冒頭と
+形式は `packages/course_admin/src/aijudge_course_admin/course_definition.py` の冒頭と
 `subjects/demo/course.yaml`（お試しコースの定義。同じ形式）にあります。
 
 同じ木を**書き出す**こともできます。正本を DB ではなくファイルの側に置く
@@ -347,11 +347,13 @@ uv run aijudge-admin activity purge --apply # 実際に消す
 | `packages/ide` | ブラウザのエディタ。実行要求・自動保存・作業の記録とその検査。コードは動かさない。 |
 | `packages/webui` | 画面の共通の見た目。CSS と配色の切り替えを 1 か所に置き、両アプリが読む。 |
 | `packages/webapp` | 両 Web アプリが共有する部品（フッターの版と著作権表示、相手の画面への URL、動画の配信）。import してよいのはアプリだけ。 |
+| `packages/unit_of_work` | 全リポジトリの UnitOfWork の Protocol（`UnitOfWork`・`StoreUnitOfWork`・`Store`）。Protocol だけで、実装は保存層。import してよいのはアプリと `course_admin` だけ。 |
+| `packages/course_admin` | コース運営の業務処理（課題・問題セット・名簿・グループ・確定・KC・束・コースの複製・定義・保存期間）。admin の CLI も教員コンソールもここを呼ぶ。保存先は `unit_of_work` 越しで、保存層は import しない。 |
 | `apps/studentweb` | 学習者向けアプリ。 |
 | `apps/reviewconsole` | 教員コンソールと `/manage`。 |
 | `apps/grader` | 採点ワーカー。 |
 | `apps/runner` | エディタの試しの実行を sandbox で動かし、受付終了時に自動保存を提出する。採点ではない。 |
-| `apps/admin` | 学期頭の一括操作と作問（CLI）。 |
+| `apps/admin` | 学期頭の一括操作と作問（CLI だけ。処理は `course_admin`）。 |
 | `apps/evalrunner` | 一致率を測る。採点はしない。 |
 | `evaluators/`, `extractors/` | 採点プラグインと入力の変換器。 |
 | `subjects/` | 科目プロファイル ── どの評価器がどの順で走るか。 |
