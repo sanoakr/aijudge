@@ -1,7 +1,7 @@
 """「このコースの担当教員か」を HTTP の応答に読み替える（段階的な立て直し 1-1）。
 
 判定そのもの（役割が教員か）は `AuthService.require_instructor` にある。以前は
-同じ判定がコンソールの 4 か所に別々に書かれていた ── `manage._require_instructor`・
+同じ判定がコンソールの 4 か所に別々に書かれていた ── `manage.common._require_instructor`・
 `api._require_instructor`（一字一句同じ）、`app._require_course_instructor`（文言だけ
 違う）、`app._is_course_instructor`（拒まずに真偽を返す）。1 つを直しても他が
 残る形だった。
