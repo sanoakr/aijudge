@@ -58,6 +58,7 @@ MOVED_MODULES = (
     "course_definition",
     "course_copy",
     "course_export",
+    "course_snapshot",
 )
 
 
