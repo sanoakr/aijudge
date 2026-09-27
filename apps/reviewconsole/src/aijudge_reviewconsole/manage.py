@@ -50,6 +50,7 @@ from urllib.parse import quote, unquote
 
 from fastapi import APIRouter, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
 
 import aijudge_webui as webui
@@ -1633,7 +1634,1041 @@ def _parse_when(raw: str) -> datetime | None:
         raise HTTPException(status_code=400, detail=f"日時の形式が不正です: {raw!r}") from exc
 
 
-def register(templates) -> APIRouter:
+def _used_by(request: Request, names: list[str]) -> dict[str, tuple]:
+    """名前ごとの参照コース。**テナントを越えて調べる**（profiles.py 参照）。"""
+    console = _console(request)
+    with console.database.unit_of_work() as uow:
+        return {name: uow.identity.list_courses_using_profile(name) for name in names}
+
+
+def _course_page(
+    templates: Jinja2Templates,
+    request: Request,
+    me,
+    course,
+    *,
+    saved: str = "",
+    note: str | None = None,
+    trial=None,
+    values=None,
+) -> Response:
+    """コースの共通設定の画面。
+
+    採点設定もここに出す。**別のページに分けない** ── 雛形からの差分は
+    コースの設定の一部で、他の設定と行き来しながら決めるものだから。
+    """
+    console = _console(request)
+    registry = EvaluatorRegistry().load_installed()
+    base = template_of(course, console.profiles_dir)
+    current = values if values is not None else course.grading_overrides
+    try:
+        applied = effective_profile(base, current, registry)
+    except OverrideError:
+        applied = base
+
+    with console.database.unit_of_work() as uow:
+        enrollments = uow.identity.list_enrollments(course.id)
+        # 学習者の提出があるコースは消せない（#156）。**何件あるかを
+        # 先に出す** ── 押してから断られるより、押す前に理由が読める方が
+        # よい。教員の動作確認（trial・#108）は数えない（消せる）。
+        # **数えるだけなので、行は持ってこない**（#219）。`is_trial` が
+        # 列になったので SQL の側で分けられる。
+        learner_submissions = uow.submissions.count_for_course(course.id).learner
+    people_count = len(enrollments)
+
+    return templates.TemplateResponse(
+        request,
+        "manage_course.html",
+        {
+            "me": me,
+            "course": course,
+            "section": {"label": "共通設定", "href": f"/manage/courses/{course.id}"},
+            "saved": note or SAVED_MESSAGES.get(saved),
+            # 試行が断られた理由。試行の結果と同じ場所に出す（`#trial-result`）。
+            "trial_note": note,
+            "saved_key": saved,
+            # コースの削除は作成と同じくテナント管理者だけ（#156）。
+            # 担当教員には出さない ── 押せないものを見せない。
+            "is_admin": _is_admin(request, me),
+            "learner_submissions": learner_submissions,
+            # 受付のときに書き起こされるもの（#351）。**観点が読むのは
+            # その本文である**ことを、評価器を割り当てる画面で言う。
+            # 上書きを当てた後の `applied` で見る ── 書き起こすかどうかは
+            # コースの上書きで変わりうる。
+            "transcription": _transcription_note(
+                applied, course.upload_suffixes or DEFAULT_UPLOAD_SUFFIXES
+            ),
+            "people_count": people_count,
+            "role_counts": _role_counts(enrollments),
+            # シラバスの本文は Markdown。素のまま出すと見出しも箇条書きも
+            # 記号のまま並ぶ（課題文で実際に起きた・`statement.py`）。
+            "description_html": (
+                render_markdown(course.description) if course.description else None
+            ),
+            "suffix_groups": SUFFIX_GROUPS,
+            "course_suffixes": course.upload_suffixes or DEFAULT_UPLOAD_SUFFIXES,
+            # 束の上限（#161）。**画面に書く値をコードから取る** ──
+            # 書き写すと、上限を変えた日に画面だけが古い数字を出す。
+            "bundle_max_mb": MAX_ARCHIVE_BYTES // (1024 * 1024),
+            # 複製先の学期の選択肢（#170）。作成フォームと同じ語彙から
+            # 取る（#167）── 画面ごとに書き写すと、片方だけが古くなる。
+            "term_years": offered_years(),
+            "term_divisions": DIVISIONS,
+            # 共通ルーブリック。未設定なら組み込みの既定を出して、
+            # **いま何が使われているか**を見えるようにする。
+            "rubric_rows": rubric.to_rows(
+                rubric.from_stored(course.rubric) if course.rubric else _default_rubric_criteria()
+            ),
+            "rubric_is_default": not course.rubric,
+            # **既定の観点が、この科目では誰にも採点できない場合。**
+            #
+            # 組み込みの既定は「正しさ（テスト実行）＋読みやすさ」で、
+            # 正しさの担当は `code_test_runner` である。テスト実行を走らせ
+            # ない科目（レポートなど）のコースがこの既定のままだと、その
+            # 観点は**恒久的に未採点**になり、総点は伏せられる（ADR 0015）。
+            # 設定はどこも正しく見えるのに点が出ない、という形で現れる
+            # ので、画面から理由が読めない ── だからここで言う。
+            #
+            # **黙って別の既定に差し替えない。** 何を問うかは科目の中身で、
+            # 機械が決めてよいことではない（設計原則 P5）。言うだけにする。
+            "rubric_default_is_unscorable": (
+                not course.rubric and CODE_TEST_RUNNER not in applied.deterministic
+            ),
+            # -- 採点設定 --
+            "base": base,
+            "profile": applied,
+            "overrides": current,
+            "changed": diff(base, current),
+            "locked": LOCKED_KEYS,
+            # インストール済みから選ばせる。**自由入力にしない** ── 存在しない
+            # 名前を書けると、その科目の採点が恒久的に失敗する。
+            "deterministic": _evaluator_rows(registry, EvaluatorKind.DETERMINISTIC),
+            "ai_evaluators": _evaluator_rows(registry, EvaluatorKind.AI),
+            # 共通ルーブリックの編集欄に出す選択肢は、**科目が宣言している
+            # ものに絞る**（`_declared_rows`）。上の「使う評価器」は全部を
+            # 出す ── そこで宣言を増やす。
+            "rubric_deterministic": _declared_rows(
+                _evaluator_rows(registry, EvaluatorKind.DETERMINISTIC), applied
+            ),
+            "rubric_ai_evaluators": _declared_rows(
+                _evaluator_rows(registry, EvaluatorKind.AI), applied
+            ),
+            "undeclared": dict(_undeclared_evaluators(applied, _course_rubric_rows(course))),
+            # 提出の遵守が見る値（#316）。選択肢は拡張子の表から作る。
+            "artifact_kinds": _artifact_kind_rows(),
+            "languages": sorted(LANGUAGES),
+            "trial": trial,
+        },
+    )
+
+
+async def _store_statement_image(request: Request, course, upload: UploadFile, alt: str) -> str:
+    """画像をストアに置き、**課題文に貼り付ける 1 行**を返す。
+
+    **受け口は課題の編集画面の 1 つだけ**（#300）。以前は共通設定にも
+    フォームの受け口があり、そこで作った 1 行を教員が手で貼る形だったが、
+    書きかけの問題文を置いて往復することになる ── 課題の編集は 1 つの
+    フォームで、保存するまで何も残らない。
+    """
+    console = _console(request)
+    payload = await upload.read()
+    try:
+        name = images.new_name(payload, upload.filename or "")
+        key = images.storage_key(str(course.id), name)
+    except images.ImageError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # 同じ中身なら同じ鍵。貼り直しても増えない。
+    if not console.store.exists(key):
+        console.store.put(key, payload)
+    # 表示幅を書いておく。**縮めずに貼ると写真 1 枚で画面が埋まり**、
+    # 課題文の続きが画面外へ出る。幅だけを書くので縦横比は保たれる
+    # （`aijudge_authoring.images`）。教員はあとから数字を直せる。
+    return images.markdown_for(str(course.id), name, alt, width=images.display_width(payload))
+
+
+def _read_body(text: str, upload: UploadFile | None, payload: bytes | None) -> str:
+    """本文を決める。ファイルが選ばれていればそちらを読む。
+
+    ファイルからの読み取りは Markdown に均して返す（`syllabus.to_markdown`）。
+    そのままだと行が細かく割れていて、教員が直すにも読みにくい。
+    """
+    if upload is not None and upload.filename and payload:
+        if len(payload) > MAX_SYLLABUS_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"ファイルが大きすぎます（上限 {MAX_SYLLABUS_BYTES // 1024} KB）",
+            )
+        try:
+            return read_document(payload, Path(upload.filename).suffix)
+        except SyllabusError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from None
+    return text.strip()
+
+
+def generate_task(
+    request: Request,
+    course_id: str,
+    unit: str,
+    key_suffix: Annotated[str, Form()],
+    kc: Annotated[list[str], Form()] = [],  # noqa: B006 - FastAPI の複数値
+    difficulty: Annotated[str, Form()] = "standard",
+    instructions: Annotated[str, Form()] = "",
+    test_cases: Annotated[str, Form()] = "5",
+    readability_weight: Annotated[str, Form()] = "0.3",
+) -> Response:
+    """AI に課題を 1 つ作らせる。**承認するまで出題されない**（P5）。
+
+    **入口は作問ページ 1 つ**（`POST /drafts/generate`・#522）。以前は問題
+    セットの画面にも生成フォームがあり、入口が 2 つに分かれていた（#84 で作問の
+    区分を作ったあとも残っていた）。`unit` は出題先の**候補**で、承認のときに
+    変えられる。
+
+    **KC は登録済みからの選択だけ。** モデルはもっともらしいキーを
+    いくらでも作るので、自由入力にすると体系が静かに荒れる
+    （`aijudge_course_admin.kc` の規則 4）。
+
+    `avoid_similar_to` にはこのコースの既存課題を入れる ── 「似せない」
+    材料が無いと、既存課題の言い換えが出てくる。
+
+    生成物はここでは保存するだけで、門・解答可能性・重複の検査は
+    `aijudge-authoring` が担う（ADR 0008）。ここが返すのは候補であって
+    課題ではない。
+    """
+    from .app import require_principal
+
+    me = require_principal(request)
+    course = _require_instructor(request, me, CourseId(course_id))
+    console = _console(request)
+
+    chosen = tuple(k.strip() for k in kc if k.strip())
+    if not chosen:
+        raise HTTPException(status_code=400, detail="知識要素を 1 つ以上選んでください")
+    try:
+        # 選択肢は登録済みから出しているが、直接叩かれる経路もある。
+        assert_registered(console.database, chosen, course_keys=course.knowledge_components)
+    except AdminError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    key = _normalized_unit(unit)
+    profile = load_profile(console.profiles_dir / f"{course.subject_profile}.yaml")
+    with console.database.unit_of_work() as uow:
+        siblings = [
+            task for task in uow.tasks.list_for_course(CourseId(course_id)) if unit_key(task) == key
+        ]
+        # **似せないための材料。** 既存課題の本文を渡す（学習者のデータは
+        # 含まないので、外部モデルにも渡してよい・設計原則 P7）。
+        avoid = []
+        for task in uow.tasks.list_for_course(CourseId(course_id)):
+            version = uow.tasks.latest_version(task.id)
+            if version is not None:
+                avoid.append(version.statement)
+
+    head = siblings[0] if siblings else None
+    full_key = _compose_key(head.unit if head else unit, key_suffix.strip())
+    if not full_key:
+        raise HTTPException(status_code=400, detail="課題キーを入力してください")
+
+    try:
+        blueprint = Blueprint(
+            knowledge_components=chosen,
+            subject_profile=course.subject_profile,
+            # **コースの範囲を渡す。** KC は「何を問うか」を決めるが、
+            # 「どこまでを既習として書いてよいか」は決めない。空なら
+            # 節ごと出さない（`aijudge_course_admin.drafting._course_section`）。
+            course_title=course.title,
+            course_outline=course.description or "",
+            difficulty=Difficulty(difficulty),
+            language=_language_of(profile),
+            instructions=tuple(line.strip() for line in instructions.splitlines() if line.strip()),
+            avoid_similar_to=tuple(avoid[:20]),
+            test_case_count=int(test_cases or 5),
+        )
+    except (ValidationError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=f"生成の指定が不正です: {exc}") from None
+
+    try:
+        result = TaskDrafter().draft(blueprint, key=full_key)
+    except Exception as exc:  # 生成の失敗は運用の事象。画面に理由を返す。
+        raise HTTPException(
+            status_code=502,
+            detail=f"課題を生成できませんでした（S6 が止まっている可能性があります）: {exc}",
+        ) from exc
+
+    spec = result.spec.model_copy(update={"readability_weight": float(readability_weight or 0.0)})
+    # **課題にはしない。下書きとして置く**（#321）。課題にすると、そこで
+    # 同一性（課題キー → 課題 ID）が決まってしまう ── 生成物は提案であって
+    # 確定ではないので、名前を含めて承認のときに決められる必要がある（P5）。
+    draft = TaskDraftRecord(
+        id=new_id("dft"),
+        course_id=course.id,
+        kind=DraftKind.NEW,
+        spec=spec,
+        unit=unit.strip() or (head.unit if head is not None else ""),
+        generated_by=result.model,
+        generation_prompt_version=result.prompt_id,
+        created_by=me.user_id,
+        created_at=datetime.now(UTC),
+        # **門を通して記録する**（ADR 0008・#267）。判断材料が無いまま
+        # 承認を求めない。走らせられない環境では None のままになる。
+        checks=_gate_report(profile, spec, course, me.user_id),
+        subject_profile=course.subject_profile,
+        readability_weight=float(readability_weight or 0.0),
+    )
+    with console.database.unit_of_work() as uow:
+        uow.tasks.save_draft(draft)
+        uow.commit()
+
+    # **承認する場所へ送る。** 課題はまだ無いので、問題セットへ戻しても
+    # そこには何も増えていない（増えるのは承認したとき・#84）。
+    return RedirectResponse(
+        f"/manage/courses/{course_id}/drafts?saved=generated#saved", status_code=303
+    )
+
+
+def _kcs_from_form(console, course, form) -> tuple[str, ...]:
+    """フォームの知識要素（#292）。**コースが使うものからしか選べない**（#322）。
+
+    以前は、課題に付けた知識要素をコースの範囲にも足していた（付ける＝
+    このコースが使う）。それは**コースの設計を課題の側から膨らませる**
+    ことになる ── コースが何を教えるかは知識要素の画面で決めることで、
+    1 問ずつの編集の副産物にしてよいものではない。範囲の外のキーが来たら
+    断る（画面は範囲内しか出さないので、来るのは API か古い画面である）。
+
+    キーは登録済みの語彙のものだけ（2026-09-13 決定: 画面から語彙は
+    増やさない）。
+    """
+    chosen = tuple(dict.fromkeys(str(v).strip() for v in form.getlist("kc") if str(v).strip()))
+    try:
+        assert_registered(
+            console.database,
+            chosen,
+            # **範囲の検査も同じ関門に通す**（`aijudge_course_admin.kc`）── 画面で
+            # 絞るだけにすると、API 経由の投入が素通りする。
+            course_keys=course.knowledge_components,
+        )
+    except AdminError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return chosen
+
+
+def _save_revision(
+    console,
+    me,
+    course,
+    task,
+    version,
+    *,
+    statement,
+    criteria,
+    position,
+    accepted,
+    aggregation=None,
+    reference_solution=None,
+    test_cases=(),
+    generated_by=None,
+    generation_prompt_version=None,
+    knowledge_components=None,
+    review_state=None,
+):
+    """課題を直して新しい版を作る。訂正と「共通に戻す」で共有する。
+
+    課題キーは変えられない ── 同一性の鍵で、変えれば別の課題になる。
+    保存済みの版から取り出す（`TaskVersion.source_key`）。
+
+    `knowledge_components` が None なら**いまの版の知識要素を引き継ぐ**
+    （#292）。渡さない経路（問題文だけ直す等）で空にすると、訂正のたびに
+    Q-matrix が黙って消え、その課題の成績から習熟度が動かなくなる ──
+    観点・テストと同じ形の取りこぼしが、知識要素にも残っていた。
+    """
+    if knowledge_components is None:
+        with console.database.unit_of_work() as uow:
+            knowledge_components = _kc_keys_of(uow, version)
+    try:
+        spec = TaskSpec(
+            key=_key_of(task, version),
+            # **配点を引き継ぐ**（`TaskVersion.points_declared`）。渡さないと既定の
+            # 100 で版が作られ、教員が入れた配点が消える。
+            **({"max_score": version.max_score} if version.points_declared else {}),
+            statement=statement,
+            unit=task.unit,
+            session=task.session,
+            position=position,
+            # **画面で編集した観点が勝つ。** 観点を宣言する課題では
+            # `readability_weight` は使わない（両方書けるとどちらが効くのか
+            # 読めない）。
+            criteria=criteria,
+            # None なら「コースに従う」。**画面の「コースに従う」と、
+            # コースと同じ値を選ぶのは別の状態**で、前者はコースを変えれば
+            # 追随し、後者はしない。
+            aggregation=aggregation,
+            reference_solution=reference_solution,
+            test_cases=test_cases,
+            knowledge_components=tuple(knowledge_components),
+        )
+    except (ValidationError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=f"課題の指定が不正です: {exc}") from None
+
+    try:
+        saved = save_task(
+            console.database,
+            course_id=course.id,
+            spec=spec,
+            # **課題が自分のプロファイルを持つ**（#195・#264）。ここは
+            # 既にある課題を直す経路なので、コースの値を渡すと採点の
+            # され方が黙って変わる ── 混在コース（レポートとプログラム）
+            # では、問題文を直しただけで C の課題が画像採点になった。
+            # コースの値は**新しい課題の既定**であって、既存の課題の
+            # 決定ではない。
+            subject_profile=version.subject_profile,
+            authored_by=me.user_id,
+            revise=True,
+            course_rubric=course.rubric,
+            # **生成したなら承認待ちにする**（P5）。門は「参照解答とテストが
+            # 整合している」までしか言わない。承認するまで学習者には
+            # 1 つ前の承認済みが出続ける（#48）。
+            generated_by=generated_by,
+            generation_prompt_version=generation_prompt_version,
+            # **出所と承認は別のこと**（#321）。下書きを採用した版は、
+            # 書いたのはモデルだが承認は済んでいる ── `generated_by` だけで
+            # 承認待ちにすると、採用した瞬間にまた承認待ちになる。
+            review_state=review_state,
+        )
+    except AdminError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    # 日程・提出形式は `TaskSpec` を通らないので、ここで書き戻す。
+    with console.database.unit_of_work() as uow:
+        uow.tasks.save_task(
+            saved.task.model_copy(
+                update={
+                    "opens_at": task.opens_at,
+                    "submissions_open_at": task.submissions_open_at,
+                    "due_at": task.due_at,
+                    "auto_finalize_after_minutes": task.auto_finalize_after_minutes,
+                    "accepted_suffixes": accepted,
+                }
+            )
+        )
+        uow.commit()
+    console.last_task = (str(course.id), saved)
+    return saved
+
+
+def _course_rubric_rows(course):
+    """このコースの既定の観点（共通ルーブリック、無ければ組み込み）。"""
+    criteria = rubric.from_stored(course.rubric) if course.rubric else _default_rubric_criteria()
+    return rubric.to_rows(criteria)
+
+
+def _task_page(
+    templates: Jinja2Templates,
+    request,
+    me,
+    course,
+    *,
+    unit_key_value,
+    task=None,
+    version=None,
+    note=None,
+    saved="",
+    why="",
+    statement=None,
+    chosen_kcs=None,
+    kc_candidates=None,
+    reference_draft=None,
+    proposed=None,
+    io_draft=None,
+):
+    """課題の編集／追加の画面。**追加と訂正で同じ形を使う。**
+
+    別々に作ると、片方にだけ項目が足りない状態が生まれる（実際に
+    `readability_weight` でそうなった）。
+    """
+    registry = EvaluatorRegistry().load_installed()
+    course_rows = _course_rubric_rows(course)
+    rows = rubric.to_rows(version.criteria) if version is not None else course_rows
+    # この課題に効いている科目（上書き込み）。選択肢と警告の基準。
+    effective = _effective_profile_of(_console(request), course, version)
+    # **学習者に出ている版。** 教員が見ているのは最新版（承認待ちを含む）
+    # なので、採点し直す対象は別に引く（#48）。
+    published = None
+    if task is not None:
+        with _console(request).database.unit_of_work() as uow:
+            published = uow.tasks.latest_published_version(task.id)
+    # 移動先の候補。**いまいるセットは出さない**（選べる先が「動かない」を
+    # 含むと、押してから何も起きないことになる）。追加のときは移動できる
+    # 課題がまだ無いので数えない。
+    others: list[dict[str, object]] = []
+    # この課題が属する問題セット。**日程を並べて見せるために要る**（#325）──
+    # 課題の日程だけを出すと、それがセットと揃っているのかが読めない。
+    own_unit = None
+    if task is not None:
+        console = _console(request)
+        with console.database.unit_of_work() as uow:
+            units = load_units(uow, course)
+        others = [
+            {"key": group.key, "unit": group.unit, "label": group.label, "due_at": group.due_at}
+            for group in units
+            if group.key != unit_key_value
+        ]
+        own_unit = next((g for g in units if g.key == unit_key_value), None)
+    # 知識要素（#292）。候補はコースが使うもの、印はこの版が問うもの。
+    # `chosen_kcs` は候補を出したときにフォームで選ばれていたもの（書き
+    # かけを失わない）。
+    console = _console(request)
+    data_criteria = _data_driven_criteria(registry, version)
+    cases_by_shape = _cases_by_shape(registry, version)
+    # 版の履歴（#319）。**戻したい版を選ぶには、何があるかが見えていな
+    # ければならない** ── 版は積まれているのに画面から読めなかった。
+    with console.database.unit_of_work() as uow:
+        history = uow.tasks.list_versions(task.id) if task is not None else ()
+    course_kcs = _course_kcs(console, course)
+    if chosen_kcs is None:
+        with console.database.unit_of_work() as uow:
+            chosen_kcs = _kc_keys_of(uow, version) if version is not None else ()
+    return templates.TemplateResponse(
+        request,
+        "manage_task.html",
+        {
+            "me": me,
+            "course": course,
+            "section": {
+                "label": task.title if task is not None else "課題を追加",
+                "href": f"/manage/courses/{course.id}/units/{unit_key_value}",
+            },
+            "unit_key": unit_key_value,
+            "task": task,
+            "version": version,
+            # 書きかけの問題文（候補を出したあと）。無ければ保存済みの版。
+            "statement_draft": statement,
+            "course_kcs": course_kcs,
+            "chosen_kcs": tuple(chosen_kcs),
+            "kc_candidates": kc_candidates,
+            "rubric_rows": rows,
+            # 「共通ルーブリックに復元」が差し込む中身。**サーバが描く** ──
+            # 欄の作り方を JavaScript にも持たせると、項目が増えたときに
+            # 片方だけ古くなる（#58）。
+            "course_rubric_rows": course_rows,
+            # None なら「コースに従う」。**コースと同じ値を選ぶのとは違う**
+            # 状態で、前者はコースを変えれば追随する。
+            "task_aggregation": None if version is None else version.aggregation,
+            # 共通ルーブリックのままか、この課題で変えてあるか。
+            # **共通が設定されているときだけ言う** ── 組み込みの既定は
+            # 課題の作られ方（テストケースの有無）で中身が変わるので、
+            # 「同じ」と言い切れない。
+            "course_has_rubric": bool(course.rubric),
+            "rubric_is_course_default": bool(course.rubric) and rows == course_rows,
+            # **科目が宣言している評価器だけ出す**（`_declared_rows`）。
+            "deterministic": _declared_rows(
+                _evaluator_rows(registry, EvaluatorKind.DETERMINISTIC), effective
+            ),
+            # 受付のときに書き起こされるもの（#351）。**課題のプロファイル
+            # で見る** ── 混在コースではコースの値と食い違う（#195・#264
+            # で `_graded_by_tests` が同じ理由でこうなっている）。
+            "transcription": _transcription_note(
+                effective,
+                (task.accepted_suffixes if task is not None else ())
+                or course.upload_suffixes
+                or DEFAULT_UPLOAD_SUFFIXES,
+            ),
+            # **AI 評価器も選べるようにする**（#315）。空（既定）は
+            # `rubric_ai_judge` のことで、項目を積み上げる
+            # `checklist_ai_judge` は指名しなければ走らない。
+            "ai_evaluators": _declared_rows(_evaluator_rows(registry, EvaluatorKind.AI), effective),
+            # 既定の選択肢に出す説明。**評価器から取る**（#318）── 画面に
+            # 書き写すと、docstring を直した日にここだけが古くなる。
+            "ai_default_about": next(
+                (
+                    row["about"]
+                    for row in _evaluator_rows(registry, EvaluatorKind.AI)
+                    if row["name"] == "rubric_ai_judge"
+                ),
+                "",
+            ),
+            # いまの観点が指名しているのに科目が宣言していない評価器。
+            # **選択肢から消すだけでは、保存した瞬間に黙って別のものに
+            # 変わる**ので、選択中のまま出して警告する。
+            "undeclared": dict(_undeclared_evaluators(effective, rows)),
+            "suffix_groups": SUFFIX_GROUPS,
+            "course_suffixes": (
+                (task.accepted_suffixes if task is not None else ())
+                or course.upload_suffixes
+                or DEFAULT_UPLOAD_SUFFIXES
+            ),
+            "note": note or SAVED_MESSAGES.get(saved),
+            # 直前に何を保存したか（#309）。**その場所を開いて返す** ──
+            # 観点の中の欄から保存したのに畳まれた画面が返ると、直した
+            # ものがどこへ行ったのか分からない。JavaScript が無くても効く。
+            "saved_key": saved,
+            # 書き直せなかった理由（`?why=`）。知らせの隣に出す。
+            "why": why,
+            "other_units": others,
+            # 属する問題セットと、そこと日程が揃っているか（#325）。
+            "own_unit": own_unit,
+            # **ばらつきの判定は問題セットのものを使う**（`UnitGroup.mixed`）。
+            # ここで「代表値と較べる」を書いたところ、代表は最も早い公開と
+            # 最も遅い締切の包絡線なので、**締切を後ろへ動かした課題自身は
+            # 常に代表と一致する**（ずれているのは動かさなかった側になる）。
+            # 2 つの画面が違う理屈でばらつきを言うと、片方が「ばらついて
+            # いる」と言い、もう片方が「揃っている」と出る。
+            "unit_schedule_mixed": bool(own_unit and own_unit.mixed),
+            # テストで確定できる科目か。宣言していない科目（レポートなど）
+            # には出さない ── 選べない選択肢を見せない。
+            "wants_tests": _wants_tests(request, course, version),
+            # この課題が検証データで採点する観点を、データの形ごとに
+            # （#300・#302）。**科目が宣言していなくても、観点に割り当てた
+            # なら欄を出す。** 形は評価器が名乗る（`test_case_shape`）。
+            "data_criteria": data_criteria,
+            # 評価器 → 検証データの形（#303）。**観点の欄がこれを見て、
+            # 自分の採点材料をその場に出す** ── 入出力セットも項目表も
+            # 「どの観点が何で判定されるか」に属する。
+            "criterion_data": {
+                name: shape for shape, names in data_criteria.items() for name in names
+            },
+            # 形ごとの検証データ。**混ぜない** ── 1 つの課題が入出力と
+            # 項目表の両方を持てる。
+            # 書きかけの入出力セット（#305）。**生成や提案から戻った
+            # ときは、保存済みではなく手元の内容を出す** ── 書きかけを
+            # 捨てて保存済みを出すと、直しかけたものが黙って消える。
+            "io_cases": io_draft if io_draft is not None else cases_by_shape.get("io", ()),
+            "item_cases": cases_by_shape.get("items", ()),
+            # AI に書かせた解答例（保存はしていない）。
+            "reference_draft": reference_draft,
+            # 走らせて期待出力を埋めた提案（採用は人が選ぶ・P5）。
+            "proposed": proposed,
+            # **既にある課題にも出す。** #15 より前に画面から作った課題は
+            # テストケースを持てず、正しさが AI 判定のまま残っている。
+            # 課題を開いたときに分からなければ、直す機会が無い。
+            "falls_back_to_ai": (
+                task is not None
+                and version is not None
+                and not version.test_cases
+                and _wants_tests(request, course, version)
+            ),
+            # 訂正した版で採点し直せる件数（確定済みは数えない）。
+            "regradable": _regradable(_console(request), task, published),
+            # 直近の生成の失敗理由。**そのまま出す**（決めつけない・#52）。
+            "test_case_error": _test_case_error(request, course, task),
+            # 学習者に出ている版。教員が見ている版と違うことがある（#48）。
+            "published": published,
+            # 版の履歴（新しい順）。戻せる先を選ぶために出す（#319）。
+            "history": history,
+            # この課題の実行時間の上限（#491）。コードを走らせない課題には出さない。
+            "case_timeout": _case_timeout_view(effective, task),
+            # 提出の件数。**0 のときだけ削除を出す**（#51）。
+            "submissions": _submission_count(_console(request), task),
+            # 学習者に出る形（#105）。**保存済みの版を描いて出す。**
+            # 書きかけの内容は「プレビューを更新」で同じ関数を通す ──
+            # ブラウザ側で Markdown を描くと、普通の文章では一致し、
+            # 間違いが起きるところ（数式・画像・生 HTML）でだけ食い違う。
+            "statement_html": (render_statement(version.statement) if version is not None else ""),
+            # 問題文に貼る画像（#64）。**課題の編集画面でも受け取る** ──
+            # コースの設定画面まで往復させると、書きかけの問題文が失われる。
+            "image_suffixes": sorted(images.SUFFIX_TYPES),
+            "image_max_mb": images.MAX_BYTES // (1024 * 1024),
+            # 貼るときの既定の表示幅。**画面で言う値と貼る値を 1 つにする。**
+            "image_display_width": images.DISPLAY_WIDTH,
+        },
+    )
+
+
+def _kc_candidates_for(
+    console, course, statement: str, *, current: tuple[str, ...], reference_solution
+) -> dict:
+    """問題文と参照解答から、その課題の知識要素の**追加と削除の候補**を出す（#496）。
+
+    **選ばせるのはコースが使っている知識要素だけ**（#318）。以前は科目の
+    名前空間にある語彙すべてから選ばせ、「このコースでは未使用のもの」も
+    候補に並べていた ── 課題に付けるとコースの範囲にも入るので、**課題を
+    直すつもりの操作でコースの設定が変わる**。コースに何を置くかは
+    `/manage/courses/{id}/kc` で決めることで、課題の編集の副作用にしない。
+
+    以前はシラバス用の読み手（`SyllabusReader.propose`）を流用していた。返り値が
+    空の `{}` を許し、名前の無いキーだけを渡し、参照解答もいま付いているものも
+    渡していなかったので、当てはまる課題でも 0 件になった（prog2 ex2）。
+    課題 1 問向けの読み手（`TaskKcReader`）にし、削除の候補も出す。
+    """
+    profile = load_profile(console.profiles_dir / f"{course.subject_profile}.yaml")
+    namespaces = allowed_namespaces(profile)
+    vocabulary = list_for_namespaces(console.database, namespaces, include_deprecated=False)
+    known = {kc.key for kc in vocabulary}
+    # **このコースが使うものだけを見せる。** 語彙の全体を渡すと、その中から
+    # 選ばれてしまう。名前も渡す ── キーだけでは日本語の課題文と突き合わない。
+    in_course = {
+        kc.key: kc.label for kc in vocabulary if kc.key in set(course.knowledge_components)
+    }
+    try:
+        result = TaskKcReader().select(
+            statement,
+            vocabulary=in_course,
+            current=current,
+            reference_solution=reference_solution,
+        )
+    except Exception as exc:  # 生成の失敗は運用の事象。理由を画面に返す。
+        raise HTTPException(status_code=502, detail=f"候補を作れませんでした: {exc}") from exc
+    suggested = [
+        {
+            "key": use.key,
+            "label": in_course.get(use.key, use.key),
+            "evidence": use.evidence,
+            "attached": use.key in current,
+        }
+        for use in result.add
+    ]
+    remove = [
+        {"key": gone.key, "label": in_course.get(gone.key, gone.key), "reason": gone.reason}
+        for gone in result.remove
+    ]
+    # コースの外（語彙には登録済み）から出てきた候補は、コースに足す導線を出す。
+    # **黙って落とさない** ── 件数と理由を出し、足したいならコースの知識要素で足す。
+    outside = [d.key for d in result.discarded if d.key.strip() in known]
+    discarded = [d for d in result.discarded if d.key.strip() not in known]
+    return {
+        "suggested": suggested,
+        "remove": remove,
+        "outside": outside,
+        "discarded": discarded,
+        "empty": not result.add and not result.remove,
+    }
+
+
+async def _io_draft_from(form) -> tuple:
+    """フォームに入っている入出力セットを、画面に出す形で読み直す（#305）。
+
+    **書きかけを捨てない。** 生成や提案から戻ったときに保存済みを出すと、
+    直しかけた入出力が黙って消える。`TestCase` の形にして返す（画面は
+    保存済みと同じ部品で描く）。
+    """
+    names = [str(v) for v in form.getlist("case_name")]
+    inputs = [str(v) for v in form.getlist("case_input")]
+    expected = [str(v) for v in form.getlist("case_expected")]
+    weights = [str(v) for v in form.getlist("case_weight")]
+    hidden = [str(v) for v in form.getlist("case_hidden")]
+    deleted = {str(v) for v in form.getlist("case_delete")}
+    out = []
+    for index, name in enumerate(names):
+        if str(index) in deleted or not name.strip():
+            continue
+        try:
+            weight = float(weights[index]) if index < len(weights) else 1.0
+        except ValueError:
+            weight = 1.0
+        out.append(
+            TestCase(
+                name=name.strip(),
+                evaluator_id=CODE_TEST_RUNNER,
+                payload={
+                    "input": (inputs[index] if index < len(inputs) else "").replace("\r\n", "\n"),
+                    "expected": (expected[index] if index < len(expected) else "").replace(
+                        "\r\n", "\n"
+                    ),
+                },
+                hidden=(hidden[index] if index < len(hidden) else "1") != "0",
+                weight=weight,
+            )
+        )
+    return tuple(out)
+
+
+def _where_evidence_came_from(uow, states) -> tuple[dict, dict]:
+    """根拠の採点がどのコースの、どの課題から来たかを解決する。
+
+    **`packages/skill` にコースを持ち込まない。** 習熟度はテナント単位で
+    積み上がる値で、コースを知る必要が無い（P6）── 知る必要があるのは
+    この画面だけなので、composition root であるここで辿る。
+
+    辿りは 採点 → 課題版 → 課題 → コース の 3 段。**同じ版を二度引かない**
+    ── 根拠は 1 KC あたり最大 20 件あり、同じ課題から来ることが多い。
+    """
+    course_of: dict[str, str | None] = {}
+    title_of: dict[str, str | None] = {}
+    version_cache: dict[str, tuple[str | None, str | None]] = {}
+    for state in states:
+        for item in state.evidence:
+            run_id = str(item.grading_run_id)
+            if run_id in course_of:
+                continue
+            run = uow.runs.get(item.grading_run_id)
+            if run is None:
+                course_of[run_id] = None
+                title_of[run_id] = None
+                continue
+            version_id = str(run.context.task_version_id)
+            if version_id not in version_cache:
+                version = uow.tasks.get_version(run.context.task_version_id)
+                task = None if version is None else uow.tasks.get_task(version.task_id)
+                version_cache[version_id] = (
+                    None if task is None else str(task.course_id),
+                    None if task is None else task.title,
+                )
+            course_of[run_id], title_of[run_id] = version_cache[version_id]
+    return course_of, title_of
+
+
+def _groups_of(console, course) -> tuple:
+    with console.database.unit_of_work() as uow:
+        return audience.list_groups(uow, course)
+
+
+def _render_groups(
+    templates: Jinja2Templates,
+    request: Request,
+    me: Principal,
+    course: Course,
+    *,
+    saved: str = "",
+    result=None,
+    error: str | None = None,
+    draft: dict | None = None,
+    status_code: int = 200,
+) -> Response:
+    console = _console(request)
+    with console.database.unit_of_work() as uow:
+        rows = [
+            {
+                "summary": summary,
+                "members": audience.members_of(uow, summary.group),
+            }
+            for summary in audience.list_groups(uow, course)
+        ]
+    return templates.TemplateResponse(
+        request,
+        "manage_groups.html",
+        {
+            "me": me,
+            "course": course,
+            "section": {"label": "出題先の名簿", "href": f"/manage/courses/{course.id}/groups"},
+            "rows": rows,
+            "result": result,
+            "error": error,
+            "draft": draft,
+            "saved": SAVED_MESSAGES.get(saved),
+            "max_name": MAX_GROUP_NAME_LENGTH,
+        },
+        status_code=status_code,
+    )
+
+
+def _campus_configured(console, me) -> bool:
+    """テナントに学内の範囲が 1 件でも入っているか（#333）。"""
+    with console.database.unit_of_work() as uow:
+        settings = uow.identity.get_campus_networks(me.tenant_id)
+    return bool(settings and parse_cidrs(settings.cidrs))
+
+
+def _course_kcs(console, course):
+    """このコースが作問で選べる知識要素 ── **コースに足したものだけ**（#289）。
+    引退したものは出さない ── 選べば課題に付いてしまう。
+    """
+    namespaces = allowed_namespaces(
+        load_profile(console.profiles_dir / f"{course.subject_profile}.yaml")
+    )
+    kcs = list_for_namespaces(console.database, namespaces, include_deprecated=False)
+    chosen = set(course.knowledge_components)
+    return [kc for kc in kcs if kc.key in chosen]
+
+
+def _scope_in(console, course, keys: tuple[str, ...]) -> int:
+    """足した知識要素を、このコースが使う範囲にも入れる。**足した数を返す。**
+
+    **「このコースに追加する」は、登録と範囲の両方を意味する。** 片方だけ
+    だと、追加しても一覧に出てこない ── 範囲から外したものを戻す道が
+    塞がる（外れたものは一覧から隠れるため、戻す道がここになる）。
+    """
+    before = set(course.knowledge_components)
+    merged = tuple(sorted(before | {k for k in keys if k}))
+    if merged == tuple(course.knowledge_components):
+        return 0
+    with console.database.unit_of_work() as uow:
+        uow.identity.save_course(course.model_copy(update={"knowledge_components": merged}))
+        uow.commit()
+    return len(merged) - len(before)
+
+
+def _kc_use_in_course(console, course) -> dict[str, int]:
+    """**このコースの課題**が使っている知識要素と、その件数。
+
+    `kc_usage` はコースをまたいで数える（引退させてよいかの判断に要る）。
+    こちらは「このコースの課題が何を問うているか」で、別の問いである。
+    """
+    counts: dict[str, int] = {}
+    with console.database.unit_of_work() as uow:
+        by_id = {str(kc.id): kc.key for kc in uow.skills.list_kcs(None)}
+        for task in uow.tasks.list_for_course(course.id):
+            version = uow.tasks.latest_version(task.id)
+            if version is None:
+                continue
+            for entry in version.q_matrix:
+                key = by_id.get(str(entry.kc_id))
+                if key is not None:
+                    counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def _kc_rows(console, course, kcs):
+    """一覧の行 ── **このコースが使うもの**と、**このコースの課題が使っているもの**。
+
+    2 つは別物である。範囲から外しても、既に出題した課題の Q-matrix は
+    動かない（追記のみ・P8）ので、課題が使っているものは範囲に無くても
+    残す ── 消してしまうと、その課題が何を問うているのかを画面から辿る
+    手段が無くなる。
+
+    **範囲に無く、どの課題も使っていないものは出さない。** 同じ名前空間を
+    複数のコースが共有するので、出し続けると「このコースが使わないと決めた
+    もの」が一覧に残り、決めたこと自体が画面から読めなくなる。足すときは
+    名前空間の一覧（`_vocabulary_groups`）から。
+
+    **このコースの課題が使っているものは外せない**（#289）。外すと Q-matrix
+    が課題の中身と食い違う。理由（課題の件数）を添えて残す。
+    """
+    chosen = set(course.knowledge_components)
+    usage_rows = kc_usage(console.database, kcs)
+    here = _kc_use_in_course(console, course)
+    kcs = tuple(kc for kc in kcs if kc.key in chosen or here.get(kc.key))
+    return [
+        {
+            "usage": usage_rows[kc.key],
+            "kc": kc,
+            "used": usage_rows[kc.key].used,
+            "tasks": usage_rows[kc.key].tasks,
+            "courses": usage_rows[kc.key].courses,
+            "in_course": kc.key in chosen,
+            "used_here": here.get(kc.key, 0),
+            "removable": kc.key in chosen and not here.get(kc.key),
+        }
+        for kc in kcs
+    ]
+
+
+def _is_component(key: str) -> bool:
+    """知識要素そのもの（`名前空間.分野.単位.知識要素`）か。
+
+    分野（`cs.loops`）と単位（`cs.loops.control`）は骨格の枝であって、
+    課題が問うものではない。範囲に入れる対象にしない。
+    """
+    return len(key.split(".")) >= 4
+
+
+def _vocabulary_groups(kcs, chosen: set[str]) -> list[dict]:
+    """名前空間の語彙を**階層ごと**にまとめる（#289）。
+
+    987 件を平らに並べても選べない。分野（`cs.loops`）ごとに畳み、その
+    階層をまとめて足す・外すための接頭辞と、コースに入っている数を添える。
+    引退したものは足せないので出さない。
+    """
+    labels = {kc.key: kc.label for kc in kcs}
+    groups: dict[str, list] = {}
+    for kc in kcs:
+        if kc.deprecated or not _is_component(kc.key):
+            continue
+        parts = kc.key.split(".")
+        prefix = ".".join(parts[:2])
+        groups.setdefault(prefix, []).append(kc)
+    return [
+        {
+            "prefix": prefix,
+            "label": labels.get(prefix, ""),
+            "kcs": members,
+            "total": len(members),
+            "in_course": sum(1 for kc in members if kc.key in chosen),
+        }
+        for prefix, members in sorted(groups.items())
+    ]
+
+
+def _kc_page(
+    templates: Jinja2Templates,
+    request: Request,
+    me,
+    course,
+    *,
+    saved: str = "",
+    proposal=None,
+    discarded: tuple[str, ...] = (),
+) -> Response:
+    """知識要素のページ。**候補が出ているかどうかだけが違う。**
+
+    候補を別のページにすると、教員は「いま体系に何があるか」を見ずに
+    候補を選ぶことになる。重複を作らせないための情報が、選ぶ画面に
+    無いことになる。
+
+    `draft` は候補から追加フォームに取り込んだ 1 件（キー・名前・説明）。
+    **取り込んだだけでは何も登録されない。** `draft_exists` は、そのキーが
+    既に体系にあるか ── あるなら登録は「このコースの範囲に入れる」だけを
+    意味し、名前と説明は変わらない。
+    """
+    console = _console(request)
+
+    profile = load_profile(console.profiles_dir / f"{course.subject_profile}.yaml")
+    namespaces = allowed_namespaces(profile)
+    kcs = list_for_namespaces(console.database, namespaces)
+    rows = _kc_rows(console, course, kcs)
+    chosen = set(course.knowledge_components)
+    # 直前の足す・外すの結果（件数）。画面に出したら消す。
+    scope_result = None
+    if console.last_kc_scope and console.last_kc_scope[0] == str(course.id):
+        _cid, action, changed, kept = console.last_kc_scope
+        scope_result = {"action": action, "changed": changed, "kept": kept}
+        console.last_kc_scope = None
+    return templates.TemplateResponse(
+        request,
+        "manage_kc.html",
+        {
+            "me": me,
+            "course": course,
+            "section": {"label": "知識要素", "href": f"/manage/courses/{course.id}/kc"},
+            "namespaces": namespaces,
+            "rows": rows,
+            "chosen_count": len(chosen),
+            "chosen_keys": chosen,
+            # 名前空間の語彙を階層ごとに。ここから足す・外す（#289）。
+            "groups": _vocabulary_groups(kcs, chosen),
+            "scope_result": scope_result,
+            "saved": SAVED_MESSAGES.get(saved),
+            "saved_key": saved,
+            "is_admin": _is_admin(request, me),
+            # 候補。**既にあるものは採用させない**ので、突き合わせる鍵を渡す。
+            "proposal": proposal,
+            # 形が正準キーになっていないので落とした候補（#157）。
+            # **減った件数を黙らせない。**
+            "discarded": discarded,
+            # **「既にある」はこのコースの範囲にあるものを指す。** 語彙に
+            # あっても範囲外なら採用できる（採用すれば範囲に入る）。候補は
+            # 登録済みの語彙からしか来ない（2026-09-13 決定）ので、状態は
+            # 「このコースで使用中」か「語彙にあり（範囲外）」の 2 つ。
+            "existing": [row["kc"].key for row in rows if not row["kc"].deprecated],
+            "has_basics": bool((course.description or "").strip()),
+        },
+    )
+
+
+def _scope_targets(console, course, kc: list[str], prefix: str) -> tuple[str, ...]:
+    """足す・外す対象のキー。個別のチェックか、階層の接頭辞か。
+
+    接頭辞は `cs.loops` のように**区切りまで一致**させる（`cs.loop` で
+    `cs.loops` を巻き込まない）。引退した知識要素は対象にしない。
+
+    **接頭辞が来たらチェックは見ない。** 画面は全分野のチェックを 1 つの
+    form に持ち、分野ごとの「この階層をすべて足す／外す」も同じ form の
+    送信ボタンなので、押したときに他の分野で付けたチェックも一緒に届く。
+    「この階層を」と書いたボタンが別の分野のものを動かしてはいけない。
+    """
+    prefix = prefix.strip()
+    keys = set() if prefix else {key.strip() for key in kc if key.strip()}
+    if prefix:
+        namespaces = allowed_namespaces(
+            load_profile(console.profiles_dir / f"{course.subject_profile}.yaml")
+        )
+        for item in list_for_namespaces(console.database, namespaces, include_deprecated=False):
+            if _is_component(item.key) and (
+                item.key == prefix or item.key.startswith(prefix + ".")
+            ):
+                keys.add(item.key)
+    return tuple(sorted(keys))
+
+
+def register(templates: Jinja2Templates) -> APIRouter:
     """テンプレートを束ねてルータを返す。呼ぶたびに新しいルータを作る。"""
     router = APIRouter(prefix="/manage")
 
@@ -2324,12 +3359,6 @@ def register(templates) -> APIRouter:
     # 画面と繋ぐだけ ── 判定を画面側に写すと、2 つが食い違ったときに
     # 「画面では編集できるのに保存が拒否される」形で現れる。
 
-    def _used_by(request: Request, names: list[str]) -> dict[str, tuple]:
-        """名前ごとの参照コース。**テナントを越えて調べる**（profiles.py 参照）。"""
-        console = _console(request)
-        with console.database.unit_of_work() as uow:
-            return {name: uow.identity.list_courses_using_profile(name) for name in names}
-
     @router.get("/subjects", response_class=HTMLResponse)
     def subject_list(request: Request, saved: str = "") -> Response:
         from .app import require_principal
@@ -2601,128 +3630,7 @@ def register(templates) -> APIRouter:
             )
             if skipped:
                 note += f" 未承認などの理由で写さなかった課題が {skipped} 件あります。"
-        return _course_page(request, me, course, saved=saved, note=note)
-
-    def _course_page(
-        request: Request,
-        me,
-        course,
-        *,
-        saved: str = "",
-        note: str | None = None,
-        trial=None,
-        values=None,
-    ) -> Response:
-        """コースの共通設定の画面。
-
-        採点設定もここに出す。**別のページに分けない** ── 雛形からの差分は
-        コースの設定の一部で、他の設定と行き来しながら決めるものだから。
-        """
-        console = _console(request)
-        registry = EvaluatorRegistry().load_installed()
-        base = template_of(course, console.profiles_dir)
-        current = values if values is not None else course.grading_overrides
-        try:
-            applied = effective_profile(base, current, registry)
-        except OverrideError:
-            applied = base
-
-        with console.database.unit_of_work() as uow:
-            enrollments = uow.identity.list_enrollments(course.id)
-            # 学習者の提出があるコースは消せない（#156）。**何件あるかを
-            # 先に出す** ── 押してから断られるより、押す前に理由が読める方が
-            # よい。教員の動作確認（trial・#108）は数えない（消せる）。
-            # **数えるだけなので、行は持ってこない**（#219）。`is_trial` が
-            # 列になったので SQL の側で分けられる。
-            learner_submissions = uow.submissions.count_for_course(course.id).learner
-        people_count = len(enrollments)
-
-        return templates.TemplateResponse(
-            request,
-            "manage_course.html",
-            {
-                "me": me,
-                "course": course,
-                "section": {"label": "共通設定", "href": f"/manage/courses/{course.id}"},
-                "saved": note or SAVED_MESSAGES.get(saved),
-                # 試行が断られた理由。試行の結果と同じ場所に出す（`#trial-result`）。
-                "trial_note": note,
-                "saved_key": saved,
-                # コースの削除は作成と同じくテナント管理者だけ（#156）。
-                # 担当教員には出さない ── 押せないものを見せない。
-                "is_admin": _is_admin(request, me),
-                "learner_submissions": learner_submissions,
-                # 受付のときに書き起こされるもの（#351）。**観点が読むのは
-                # その本文である**ことを、評価器を割り当てる画面で言う。
-                # 上書きを当てた後の `applied` で見る ── 書き起こすかどうかは
-                # コースの上書きで変わりうる。
-                "transcription": _transcription_note(
-                    applied, course.upload_suffixes or DEFAULT_UPLOAD_SUFFIXES
-                ),
-                "people_count": people_count,
-                "role_counts": _role_counts(enrollments),
-                # シラバスの本文は Markdown。素のまま出すと見出しも箇条書きも
-                # 記号のまま並ぶ（課題文で実際に起きた・`statement.py`）。
-                "description_html": (
-                    render_markdown(course.description) if course.description else None
-                ),
-                "suffix_groups": SUFFIX_GROUPS,
-                "course_suffixes": course.upload_suffixes or DEFAULT_UPLOAD_SUFFIXES,
-                # 束の上限（#161）。**画面に書く値をコードから取る** ──
-                # 書き写すと、上限を変えた日に画面だけが古い数字を出す。
-                "bundle_max_mb": MAX_ARCHIVE_BYTES // (1024 * 1024),
-                # 複製先の学期の選択肢（#170）。作成フォームと同じ語彙から
-                # 取る（#167）── 画面ごとに書き写すと、片方だけが古くなる。
-                "term_years": offered_years(),
-                "term_divisions": DIVISIONS,
-                # 共通ルーブリック。未設定なら組み込みの既定を出して、
-                # **いま何が使われているか**を見えるようにする。
-                "rubric_rows": rubric.to_rows(
-                    rubric.from_stored(course.rubric)
-                    if course.rubric
-                    else _default_rubric_criteria()
-                ),
-                "rubric_is_default": not course.rubric,
-                # **既定の観点が、この科目では誰にも採点できない場合。**
-                #
-                # 組み込みの既定は「正しさ（テスト実行）＋読みやすさ」で、
-                # 正しさの担当は `code_test_runner` である。テスト実行を走らせ
-                # ない科目（レポートなど）のコースがこの既定のままだと、その
-                # 観点は**恒久的に未採点**になり、総点は伏せられる（ADR 0015）。
-                # 設定はどこも正しく見えるのに点が出ない、という形で現れる
-                # ので、画面から理由が読めない ── だからここで言う。
-                #
-                # **黙って別の既定に差し替えない。** 何を問うかは科目の中身で、
-                # 機械が決めてよいことではない（設計原則 P5）。言うだけにする。
-                "rubric_default_is_unscorable": (
-                    not course.rubric and CODE_TEST_RUNNER not in applied.deterministic
-                ),
-                # -- 採点設定 --
-                "base": base,
-                "profile": applied,
-                "overrides": current,
-                "changed": diff(base, current),
-                "locked": LOCKED_KEYS,
-                # インストール済みから選ばせる。**自由入力にしない** ── 存在しない
-                # 名前を書けると、その科目の採点が恒久的に失敗する。
-                "deterministic": _evaluator_rows(registry, EvaluatorKind.DETERMINISTIC),
-                "ai_evaluators": _evaluator_rows(registry, EvaluatorKind.AI),
-                # 共通ルーブリックの編集欄に出す選択肢は、**科目が宣言している
-                # ものに絞る**（`_declared_rows`）。上の「使う評価器」は全部を
-                # 出す ── そこで宣言を増やす。
-                "rubric_deterministic": _declared_rows(
-                    _evaluator_rows(registry, EvaluatorKind.DETERMINISTIC), applied
-                ),
-                "rubric_ai_evaluators": _declared_rows(
-                    _evaluator_rows(registry, EvaluatorKind.AI), applied
-                ),
-                "undeclared": dict(_undeclared_evaluators(applied, _course_rubric_rows(course))),
-                # 提出の遵守が見る値（#316）。選択肢は拡張子の表から作る。
-                "artifact_kinds": _artifact_kind_rows(),
-                "languages": sorted(LANGUAGES),
-                "trial": trial,
-            },
-        )
+        return _course_page(templates, request, me, course, saved=saved, note=note)
 
     @router.post("/courses/{course_id}/units")
     def open_unit(
@@ -3007,30 +3915,6 @@ def register(templates) -> APIRouter:
             f"/manage/courses/{course_id}/units/{group.key}?saved=released#saved",
             status_code=303,
         )
-
-    async def _store_statement_image(request: Request, course, upload: UploadFile, alt: str) -> str:
-        """画像をストアに置き、**課題文に貼り付ける 1 行**を返す。
-
-        **受け口は課題の編集画面の 1 つだけ**（#300）。以前は共通設定にも
-        フォームの受け口があり、そこで作った 1 行を教員が手で貼る形だったが、
-        書きかけの問題文を置いて往復することになる ── 課題の編集は 1 つの
-        フォームで、保存するまで何も残らない。
-        """
-        console = _console(request)
-        payload = await upload.read()
-        try:
-            name = images.new_name(payload, upload.filename or "")
-            key = images.storage_key(str(course.id), name)
-        except images.ImageError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-        # 同じ中身なら同じ鍵。貼り直しても増えない。
-        if not console.store.exists(key):
-            console.store.put(key, payload)
-        # 表示幅を書いておく。**縮めずに貼ると写真 1 枚で画面が埋まり**、
-        # 課題文の続きが画面外へ出る。幅だけを書くので縦横比は保たれる
-        # （`aijudge_authoring.images`）。教員はあとから数字を直せる。
-        return images.markdown_for(str(course.id), name, alt, width=images.display_width(payload))
 
     @router.post("/courses/{course_id}/images.json")
     async def upload_statement_image_json(
@@ -3509,7 +4393,7 @@ def register(templates) -> APIRouter:
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
-        return _render_groups(request, me, course, saved=saved)
+        return _render_groups(templates, request, me, course, saved=saved)
 
     @router.post("/courses/{course_id}/groups")
     def save_group(
@@ -3537,6 +4421,7 @@ def register(templates) -> APIRouter:
                 )
             except audience.UnknownLogins as exc:
                 return _render_groups(
+                    templates,
                     request,
                     me,
                     course,
@@ -3547,6 +4432,7 @@ def register(templates) -> APIRouter:
             except ValidationError as exc:
                 # 名前が空・長すぎる（`CourseGroup` の検証）。
                 return _render_groups(
+                    templates,
                     request,
                     me,
                     course,
@@ -3555,7 +4441,7 @@ def register(templates) -> APIRouter:
                     status_code=400,
                 )
             uow.commit()
-        return _render_groups(request, me, course, result=result)
+        return _render_groups(templates, request, me, course, result=result)
 
     @router.post("/courses/{course_id}/groups/delete")
     def remove_group(
@@ -3571,7 +4457,9 @@ def register(templates) -> APIRouter:
             try:
                 audience.delete_group(uow, recorder_for(uow, request, me), course=course, name=name)
             except audience.GroupError as exc:
-                return _render_groups(request, me, course, error=str(exc), status_code=409)
+                return _render_groups(
+                    templates, request, me, course, error=str(exc), status_code=409
+                )
             uow.commit()
         return RedirectResponse(
             f"/manage/courses/{course_id}/groups?saved=group_deleted", status_code=303
@@ -3915,48 +4803,6 @@ def register(templates) -> APIRouter:
             f"/manage/courses/{course_id}?saved=course_grace#saved", status_code=303
         )
 
-    def _read_body(text: str, upload: UploadFile | None, payload: bytes | None) -> str:
-        """本文を決める。ファイルが選ばれていればそちらを読む。
-
-        ファイルからの読み取りは Markdown に均して返す（`syllabus.to_markdown`）。
-        そのままだと行が細かく割れていて、教員が直すにも読みにくい。
-        """
-        if upload is not None and upload.filename and payload:
-            if len(payload) > MAX_SYLLABUS_BYTES:
-                raise HTTPException(
-                    status_code=413,
-                    detail=f"ファイルが大きすぎます（上限 {MAX_SYLLABUS_BYTES // 1024} KB）",
-                )
-            try:
-                return read_document(payload, Path(upload.filename).suffix)
-            except SyllabusError as exc:
-                raise HTTPException(status_code=400, detail=str(exc)) from None
-        return text.strip()
-
-    def _propose(console, course, body: str):
-        """本文から候補を作る。名前空間と既存の体系を添えて渡す。"""
-        if len(body) < 40:
-            raise HTTPException(
-                status_code=400,
-                detail="シラバスの本文を貼り付けるか、PDF を選んでください（40 文字以上）",
-            )
-        profile = load_profile(console.profiles_dir / f"{course.subject_profile}.yaml")
-        namespaces = allowed_namespaces(profile)
-        existing = [
-            kc.key
-            for kc in list_for_namespaces(console.database, namespaces, include_deprecated=False)
-        ]
-        try:
-            result = SyllabusReader().propose(
-                body, namespaces=namespaces, existing_keys=tuple(existing)
-            )
-        except Exception as exc:  # 生成の失敗は運用の事象。理由を画面に返す。
-            raise HTTPException(
-                status_code=502,
-                detail=f"候補を作れませんでした（S6 が止まっている可能性があります）: {exc}",
-            ) from exc
-        return result.proposal, namespaces, existing
-
     # -- コースの基本情報 --------------------------------------------------
 
     @router.get("/courses/{course_id}/basics", response_class=HTMLResponse)
@@ -4116,7 +4962,9 @@ def register(templates) -> APIRouter:
                 status_code=502,
                 detail=f"候補を作れませんでした（S6 が止まっている可能性があります）: {exc}",
             ) from exc
-        return _kc_page(request, me, course, proposal=result.proposal, discarded=result.discarded)
+        return _kc_page(
+            templates, request, me, course, proposal=result.proposal, discarded=result.discarded
+        )
 
     @router.post("/courses/{course_id}/delete")
     def delete_course_route(request: Request, course_id: str) -> Response:
@@ -4573,479 +5421,6 @@ def register(templates) -> APIRouter:
             status_code=303,
         )
 
-    def generate_task(
-        request: Request,
-        course_id: str,
-        unit: str,
-        key_suffix: Annotated[str, Form()],
-        kc: Annotated[list[str], Form()] = [],  # noqa: B006 - FastAPI の複数値
-        difficulty: Annotated[str, Form()] = "standard",
-        instructions: Annotated[str, Form()] = "",
-        test_cases: Annotated[str, Form()] = "5",
-        readability_weight: Annotated[str, Form()] = "0.3",
-    ) -> Response:
-        """AI に課題を 1 つ作らせる。**承認するまで出題されない**（P5）。
-
-        **入口は作問ページ 1 つ**（`POST /drafts/generate`・#522）。以前は問題
-        セットの画面にも生成フォームがあり、入口が 2 つに分かれていた（#84 で作問の
-        区分を作ったあとも残っていた）。`unit` は出題先の**候補**で、承認のときに
-        変えられる。
-
-        **KC は登録済みからの選択だけ。** モデルはもっともらしいキーを
-        いくらでも作るので、自由入力にすると体系が静かに荒れる
-        （`aijudge_course_admin.kc` の規則 4）。
-
-        `avoid_similar_to` にはこのコースの既存課題を入れる ── 「似せない」
-        材料が無いと、既存課題の言い換えが出てくる。
-
-        生成物はここでは保存するだけで、門・解答可能性・重複の検査は
-        `aijudge-authoring` が担う（ADR 0008）。ここが返すのは候補であって
-        課題ではない。
-        """
-        from .app import require_principal
-
-        me = require_principal(request)
-        course = _require_instructor(request, me, CourseId(course_id))
-        console = _console(request)
-
-        chosen = tuple(k.strip() for k in kc if k.strip())
-        if not chosen:
-            raise HTTPException(status_code=400, detail="知識要素を 1 つ以上選んでください")
-        try:
-            # 選択肢は登録済みから出しているが、直接叩かれる経路もある。
-            assert_registered(console.database, chosen, course_keys=course.knowledge_components)
-        except AdminError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-        key = _normalized_unit(unit)
-        profile = load_profile(console.profiles_dir / f"{course.subject_profile}.yaml")
-        with console.database.unit_of_work() as uow:
-            siblings = [
-                task
-                for task in uow.tasks.list_for_course(CourseId(course_id))
-                if unit_key(task) == key
-            ]
-            # **似せないための材料。** 既存課題の本文を渡す（学習者のデータは
-            # 含まないので、外部モデルにも渡してよい・設計原則 P7）。
-            avoid = []
-            for task in uow.tasks.list_for_course(CourseId(course_id)):
-                version = uow.tasks.latest_version(task.id)
-                if version is not None:
-                    avoid.append(version.statement)
-
-        head = siblings[0] if siblings else None
-        full_key = _compose_key(head.unit if head else unit, key_suffix.strip())
-        if not full_key:
-            raise HTTPException(status_code=400, detail="課題キーを入力してください")
-
-        try:
-            blueprint = Blueprint(
-                knowledge_components=chosen,
-                subject_profile=course.subject_profile,
-                # **コースの範囲を渡す。** KC は「何を問うか」を決めるが、
-                # 「どこまでを既習として書いてよいか」は決めない。空なら
-                # 節ごと出さない（`aijudge_course_admin.drafting._course_section`）。
-                course_title=course.title,
-                course_outline=course.description or "",
-                difficulty=Difficulty(difficulty),
-                language=_language_of(profile),
-                instructions=tuple(
-                    line.strip() for line in instructions.splitlines() if line.strip()
-                ),
-                avoid_similar_to=tuple(avoid[:20]),
-                test_case_count=int(test_cases or 5),
-            )
-        except (ValidationError, ValueError) as exc:
-            raise HTTPException(status_code=400, detail=f"生成の指定が不正です: {exc}") from None
-
-        try:
-            result = TaskDrafter().draft(blueprint, key=full_key)
-        except Exception as exc:  # 生成の失敗は運用の事象。画面に理由を返す。
-            raise HTTPException(
-                status_code=502,
-                detail=f"課題を生成できませんでした（S6 が止まっている可能性があります）: {exc}",
-            ) from exc
-
-        spec = result.spec.model_copy(
-            update={"readability_weight": float(readability_weight or 0.0)}
-        )
-        # **課題にはしない。下書きとして置く**（#321）。課題にすると、そこで
-        # 同一性（課題キー → 課題 ID）が決まってしまう ── 生成物は提案であって
-        # 確定ではないので、名前を含めて承認のときに決められる必要がある（P5）。
-        draft = TaskDraftRecord(
-            id=new_id("dft"),
-            course_id=course.id,
-            kind=DraftKind.NEW,
-            spec=spec,
-            unit=unit.strip() or (head.unit if head is not None else ""),
-            generated_by=result.model,
-            generation_prompt_version=result.prompt_id,
-            created_by=me.user_id,
-            created_at=datetime.now(UTC),
-            # **門を通して記録する**（ADR 0008・#267）。判断材料が無いまま
-            # 承認を求めない。走らせられない環境では None のままになる。
-            checks=_gate_report(profile, spec, course, me.user_id),
-            subject_profile=course.subject_profile,
-            readability_weight=float(readability_weight or 0.0),
-        )
-        with console.database.unit_of_work() as uow:
-            uow.tasks.save_draft(draft)
-            uow.commit()
-
-        # **承認する場所へ送る。** 課題はまだ無いので、問題セットへ戻しても
-        # そこには何も増えていない（増えるのは承認したとき・#84）。
-        return RedirectResponse(
-            f"/manage/courses/{course_id}/drafts?saved=generated#saved", status_code=303
-        )
-
-    def _kcs_from_form(console, course, form) -> tuple[str, ...]:
-        """フォームの知識要素（#292）。**コースが使うものからしか選べない**（#322）。
-
-        以前は、課題に付けた知識要素をコースの範囲にも足していた（付ける＝
-        このコースが使う）。それは**コースの設計を課題の側から膨らませる**
-        ことになる ── コースが何を教えるかは知識要素の画面で決めることで、
-        1 問ずつの編集の副産物にしてよいものではない。範囲の外のキーが来たら
-        断る（画面は範囲内しか出さないので、来るのは API か古い画面である）。
-
-        キーは登録済みの語彙のものだけ（2026-09-13 決定: 画面から語彙は
-        増やさない）。
-        """
-        chosen = tuple(dict.fromkeys(str(v).strip() for v in form.getlist("kc") if str(v).strip()))
-        try:
-            assert_registered(
-                console.database,
-                chosen,
-                # **範囲の検査も同じ関門に通す**（`aijudge_course_admin.kc`）── 画面で
-                # 絞るだけにすると、API 経由の投入が素通りする。
-                course_keys=course.knowledge_components,
-            )
-        except AdminError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return chosen
-
-    def _save_revision(
-        console,
-        me,
-        course,
-        task,
-        version,
-        *,
-        statement,
-        criteria,
-        position,
-        accepted,
-        aggregation=None,
-        reference_solution=None,
-        test_cases=(),
-        generated_by=None,
-        generation_prompt_version=None,
-        knowledge_components=None,
-        review_state=None,
-    ):
-        """課題を直して新しい版を作る。訂正と「共通に戻す」で共有する。
-
-        課題キーは変えられない ── 同一性の鍵で、変えれば別の課題になる。
-        保存済みの版から取り出す（`TaskVersion.source_key`）。
-
-        `knowledge_components` が None なら**いまの版の知識要素を引き継ぐ**
-        （#292）。渡さない経路（問題文だけ直す等）で空にすると、訂正のたびに
-        Q-matrix が黙って消え、その課題の成績から習熟度が動かなくなる ──
-        観点・テストと同じ形の取りこぼしが、知識要素にも残っていた。
-        """
-        if knowledge_components is None:
-            with console.database.unit_of_work() as uow:
-                knowledge_components = _kc_keys_of(uow, version)
-        try:
-            spec = TaskSpec(
-                key=_key_of(task, version),
-                # **配点を引き継ぐ**（`TaskVersion.points_declared`）。渡さないと既定の
-                # 100 で版が作られ、教員が入れた配点が消える。
-                **({"max_score": version.max_score} if version.points_declared else {}),
-                statement=statement,
-                unit=task.unit,
-                session=task.session,
-                position=position,
-                # **画面で編集した観点が勝つ。** 観点を宣言する課題では
-                # `readability_weight` は使わない（両方書けるとどちらが効くのか
-                # 読めない）。
-                criteria=criteria,
-                # None なら「コースに従う」。**画面の「コースに従う」と、
-                # コースと同じ値を選ぶのは別の状態**で、前者はコースを変えれば
-                # 追随し、後者はしない。
-                aggregation=aggregation,
-                reference_solution=reference_solution,
-                test_cases=test_cases,
-                knowledge_components=tuple(knowledge_components),
-            )
-        except (ValidationError, ValueError) as exc:
-            raise HTTPException(status_code=400, detail=f"課題の指定が不正です: {exc}") from None
-
-        try:
-            saved = save_task(
-                console.database,
-                course_id=course.id,
-                spec=spec,
-                # **課題が自分のプロファイルを持つ**（#195・#264）。ここは
-                # 既にある課題を直す経路なので、コースの値を渡すと採点の
-                # され方が黙って変わる ── 混在コース（レポートとプログラム）
-                # では、問題文を直しただけで C の課題が画像採点になった。
-                # コースの値は**新しい課題の既定**であって、既存の課題の
-                # 決定ではない。
-                subject_profile=version.subject_profile,
-                authored_by=me.user_id,
-                revise=True,
-                course_rubric=course.rubric,
-                # **生成したなら承認待ちにする**（P5）。門は「参照解答とテストが
-                # 整合している」までしか言わない。承認するまで学習者には
-                # 1 つ前の承認済みが出続ける（#48）。
-                generated_by=generated_by,
-                generation_prompt_version=generation_prompt_version,
-                # **出所と承認は別のこと**（#321）。下書きを採用した版は、
-                # 書いたのはモデルだが承認は済んでいる ── `generated_by` だけで
-                # 承認待ちにすると、採用した瞬間にまた承認待ちになる。
-                review_state=review_state,
-            )
-        except AdminError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-
-        # 日程・提出形式は `TaskSpec` を通らないので、ここで書き戻す。
-        with console.database.unit_of_work() as uow:
-            uow.tasks.save_task(
-                saved.task.model_copy(
-                    update={
-                        "opens_at": task.opens_at,
-                        "submissions_open_at": task.submissions_open_at,
-                        "due_at": task.due_at,
-                        "auto_finalize_after_minutes": task.auto_finalize_after_minutes,
-                        "accepted_suffixes": accepted,
-                    }
-                )
-            )
-            uow.commit()
-        console.last_task = (str(course.id), saved)
-        return saved
-
-    def _course_rubric_rows(course):
-        """このコースの既定の観点（共通ルーブリック、無ければ組み込み）。"""
-        criteria = (
-            rubric.from_stored(course.rubric) if course.rubric else _default_rubric_criteria()
-        )
-        return rubric.to_rows(criteria)
-
-    def _task_page(
-        request,
-        me,
-        course,
-        *,
-        unit_key_value,
-        task=None,
-        version=None,
-        note=None,
-        saved="",
-        why="",
-        statement=None,
-        chosen_kcs=None,
-        kc_candidates=None,
-        reference_draft=None,
-        proposed=None,
-        io_draft=None,
-    ):
-        """課題の編集／追加の画面。**追加と訂正で同じ形を使う。**
-
-        別々に作ると、片方にだけ項目が足りない状態が生まれる（実際に
-        `readability_weight` でそうなった）。
-        """
-        registry = EvaluatorRegistry().load_installed()
-        course_rows = _course_rubric_rows(course)
-        rows = rubric.to_rows(version.criteria) if version is not None else course_rows
-        # この課題に効いている科目（上書き込み）。選択肢と警告の基準。
-        effective = _effective_profile_of(_console(request), course, version)
-        # **学習者に出ている版。** 教員が見ているのは最新版（承認待ちを含む）
-        # なので、採点し直す対象は別に引く（#48）。
-        published = None
-        if task is not None:
-            with _console(request).database.unit_of_work() as uow:
-                published = uow.tasks.latest_published_version(task.id)
-        # 移動先の候補。**いまいるセットは出さない**（選べる先が「動かない」を
-        # 含むと、押してから何も起きないことになる）。追加のときは移動できる
-        # 課題がまだ無いので数えない。
-        others: list[dict[str, object]] = []
-        # この課題が属する問題セット。**日程を並べて見せるために要る**（#325）──
-        # 課題の日程だけを出すと、それがセットと揃っているのかが読めない。
-        own_unit = None
-        if task is not None:
-            console = _console(request)
-            with console.database.unit_of_work() as uow:
-                units = load_units(uow, course)
-            others = [
-                {"key": group.key, "unit": group.unit, "label": group.label, "due_at": group.due_at}
-                for group in units
-                if group.key != unit_key_value
-            ]
-            own_unit = next((g for g in units if g.key == unit_key_value), None)
-        # 知識要素（#292）。候補はコースが使うもの、印はこの版が問うもの。
-        # `chosen_kcs` は候補を出したときにフォームで選ばれていたもの（書き
-        # かけを失わない）。
-        console = _console(request)
-        data_criteria = _data_driven_criteria(registry, version)
-        cases_by_shape = _cases_by_shape(registry, version)
-        # 版の履歴（#319）。**戻したい版を選ぶには、何があるかが見えていな
-        # ければならない** ── 版は積まれているのに画面から読めなかった。
-        with console.database.unit_of_work() as uow:
-            history = uow.tasks.list_versions(task.id) if task is not None else ()
-        course_kcs = _course_kcs(console, course)
-        if chosen_kcs is None:
-            with console.database.unit_of_work() as uow:
-                chosen_kcs = _kc_keys_of(uow, version) if version is not None else ()
-        return templates.TemplateResponse(
-            request,
-            "manage_task.html",
-            {
-                "me": me,
-                "course": course,
-                "section": {
-                    "label": task.title if task is not None else "課題を追加",
-                    "href": f"/manage/courses/{course.id}/units/{unit_key_value}",
-                },
-                "unit_key": unit_key_value,
-                "task": task,
-                "version": version,
-                # 書きかけの問題文（候補を出したあと）。無ければ保存済みの版。
-                "statement_draft": statement,
-                "course_kcs": course_kcs,
-                "chosen_kcs": tuple(chosen_kcs),
-                "kc_candidates": kc_candidates,
-                "rubric_rows": rows,
-                # 「共通ルーブリックに復元」が差し込む中身。**サーバが描く** ──
-                # 欄の作り方を JavaScript にも持たせると、項目が増えたときに
-                # 片方だけ古くなる（#58）。
-                "course_rubric_rows": course_rows,
-                # None なら「コースに従う」。**コースと同じ値を選ぶのとは違う**
-                # 状態で、前者はコースを変えれば追随する。
-                "task_aggregation": None if version is None else version.aggregation,
-                # 共通ルーブリックのままか、この課題で変えてあるか。
-                # **共通が設定されているときだけ言う** ── 組み込みの既定は
-                # 課題の作られ方（テストケースの有無）で中身が変わるので、
-                # 「同じ」と言い切れない。
-                "course_has_rubric": bool(course.rubric),
-                "rubric_is_course_default": bool(course.rubric) and rows == course_rows,
-                # **科目が宣言している評価器だけ出す**（`_declared_rows`）。
-                "deterministic": _declared_rows(
-                    _evaluator_rows(registry, EvaluatorKind.DETERMINISTIC), effective
-                ),
-                # 受付のときに書き起こされるもの（#351）。**課題のプロファイル
-                # で見る** ── 混在コースではコースの値と食い違う（#195・#264
-                # で `_graded_by_tests` が同じ理由でこうなっている）。
-                "transcription": _transcription_note(
-                    effective,
-                    (task.accepted_suffixes if task is not None else ())
-                    or course.upload_suffixes
-                    or DEFAULT_UPLOAD_SUFFIXES,
-                ),
-                # **AI 評価器も選べるようにする**（#315）。空（既定）は
-                # `rubric_ai_judge` のことで、項目を積み上げる
-                # `checklist_ai_judge` は指名しなければ走らない。
-                "ai_evaluators": _declared_rows(
-                    _evaluator_rows(registry, EvaluatorKind.AI), effective
-                ),
-                # 既定の選択肢に出す説明。**評価器から取る**（#318）── 画面に
-                # 書き写すと、docstring を直した日にここだけが古くなる。
-                "ai_default_about": next(
-                    (
-                        row["about"]
-                        for row in _evaluator_rows(registry, EvaluatorKind.AI)
-                        if row["name"] == "rubric_ai_judge"
-                    ),
-                    "",
-                ),
-                # いまの観点が指名しているのに科目が宣言していない評価器。
-                # **選択肢から消すだけでは、保存した瞬間に黙って別のものに
-                # 変わる**ので、選択中のまま出して警告する。
-                "undeclared": dict(_undeclared_evaluators(effective, rows)),
-                "suffix_groups": SUFFIX_GROUPS,
-                "course_suffixes": (
-                    (task.accepted_suffixes if task is not None else ())
-                    or course.upload_suffixes
-                    or DEFAULT_UPLOAD_SUFFIXES
-                ),
-                "note": note or SAVED_MESSAGES.get(saved),
-                # 直前に何を保存したか（#309）。**その場所を開いて返す** ──
-                # 観点の中の欄から保存したのに畳まれた画面が返ると、直した
-                # ものがどこへ行ったのか分からない。JavaScript が無くても効く。
-                "saved_key": saved,
-                # 書き直せなかった理由（`?why=`）。知らせの隣に出す。
-                "why": why,
-                "other_units": others,
-                # 属する問題セットと、そこと日程が揃っているか（#325）。
-                "own_unit": own_unit,
-                # **ばらつきの判定は問題セットのものを使う**（`UnitGroup.mixed`）。
-                # ここで「代表値と較べる」を書いたところ、代表は最も早い公開と
-                # 最も遅い締切の包絡線なので、**締切を後ろへ動かした課題自身は
-                # 常に代表と一致する**（ずれているのは動かさなかった側になる）。
-                # 2 つの画面が違う理屈でばらつきを言うと、片方が「ばらついて
-                # いる」と言い、もう片方が「揃っている」と出る。
-                "unit_schedule_mixed": bool(own_unit and own_unit.mixed),
-                # テストで確定できる科目か。宣言していない科目（レポートなど）
-                # には出さない ── 選べない選択肢を見せない。
-                "wants_tests": _wants_tests(request, course, version),
-                # この課題が検証データで採点する観点を、データの形ごとに
-                # （#300・#302）。**科目が宣言していなくても、観点に割り当てた
-                # なら欄を出す。** 形は評価器が名乗る（`test_case_shape`）。
-                "data_criteria": data_criteria,
-                # 評価器 → 検証データの形（#303）。**観点の欄がこれを見て、
-                # 自分の採点材料をその場に出す** ── 入出力セットも項目表も
-                # 「どの観点が何で判定されるか」に属する。
-                "criterion_data": {
-                    name: shape for shape, names in data_criteria.items() for name in names
-                },
-                # 形ごとの検証データ。**混ぜない** ── 1 つの課題が入出力と
-                # 項目表の両方を持てる。
-                # 書きかけの入出力セット（#305）。**生成や提案から戻った
-                # ときは、保存済みではなく手元の内容を出す** ── 書きかけを
-                # 捨てて保存済みを出すと、直しかけたものが黙って消える。
-                "io_cases": io_draft if io_draft is not None else cases_by_shape.get("io", ()),
-                "item_cases": cases_by_shape.get("items", ()),
-                # AI に書かせた解答例（保存はしていない）。
-                "reference_draft": reference_draft,
-                # 走らせて期待出力を埋めた提案（採用は人が選ぶ・P5）。
-                "proposed": proposed,
-                # **既にある課題にも出す。** #15 より前に画面から作った課題は
-                # テストケースを持てず、正しさが AI 判定のまま残っている。
-                # 課題を開いたときに分からなければ、直す機会が無い。
-                "falls_back_to_ai": (
-                    task is not None
-                    and version is not None
-                    and not version.test_cases
-                    and _wants_tests(request, course, version)
-                ),
-                # 訂正した版で採点し直せる件数（確定済みは数えない）。
-                "regradable": _regradable(_console(request), task, published),
-                # 直近の生成の失敗理由。**そのまま出す**（決めつけない・#52）。
-                "test_case_error": _test_case_error(request, course, task),
-                # 学習者に出ている版。教員が見ている版と違うことがある（#48）。
-                "published": published,
-                # 版の履歴（新しい順）。戻せる先を選ぶために出す（#319）。
-                "history": history,
-                # この課題の実行時間の上限（#491）。コードを走らせない課題には出さない。
-                "case_timeout": _case_timeout_view(effective, task),
-                # 提出の件数。**0 のときだけ削除を出す**（#51）。
-                "submissions": _submission_count(_console(request), task),
-                # 学習者に出る形（#105）。**保存済みの版を描いて出す。**
-                # 書きかけの内容は「プレビューを更新」で同じ関数を通す ──
-                # ブラウザ側で Markdown を描くと、普通の文章では一致し、
-                # 間違いが起きるところ（数式・画像・生 HTML）でだけ食い違う。
-                "statement_html": (
-                    render_statement(version.statement) if version is not None else ""
-                ),
-                # 問題文に貼る画像（#64）。**課題の編集画面でも受け取る** ──
-                # コースの設定画面まで往復させると、書きかけの問題文が失われる。
-                "image_suffixes": sorted(images.SUFFIX_TYPES),
-                "image_max_mb": images.MAX_BYTES // (1024 * 1024),
-                # 貼るときの既定の表示幅。**画面で言う値と貼る値を 1 つにする。**
-                "image_display_width": images.DISPLAY_WIDTH,
-            },
-        )
-
     @router.post("/courses/{course_id}/tasks/{task_id}/test-cases")
     def add_test_cases(request: Request, course_id: str, task_id: str) -> Response:
         """既にある課題にテストケースを足す。**新しい版として。**
@@ -5312,6 +5687,7 @@ def register(templates) -> APIRouter:
                 },
             )
         return _task_page(
+            templates,
             request,
             me,
             course,
@@ -5332,7 +5708,7 @@ def register(templates) -> APIRouter:
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
-        return _task_page(request, me, course, unit_key_value=_normalized_unit(unit))
+        return _task_page(templates, request, me, course, unit_key_value=_normalized_unit(unit))
 
     @router.post("/courses/{course_id}/tasks/{task_id}/move")
     def move_task(
@@ -5451,65 +5827,6 @@ def register(templates) -> APIRouter:
             status_code=303,
         )
 
-    def _kc_candidates_for(
-        console, course, statement: str, *, current: tuple[str, ...], reference_solution
-    ) -> dict:
-        """問題文と参照解答から、その課題の知識要素の**追加と削除の候補**を出す（#496）。
-
-        **選ばせるのはコースが使っている知識要素だけ**（#318）。以前は科目の
-        名前空間にある語彙すべてから選ばせ、「このコースでは未使用のもの」も
-        候補に並べていた ── 課題に付けるとコースの範囲にも入るので、**課題を
-        直すつもりの操作でコースの設定が変わる**。コースに何を置くかは
-        `/manage/courses/{id}/kc` で決めることで、課題の編集の副作用にしない。
-
-        以前はシラバス用の読み手（`SyllabusReader.propose`）を流用していた。返り値が
-        空の `{}` を許し、名前の無いキーだけを渡し、参照解答もいま付いているものも
-        渡していなかったので、当てはまる課題でも 0 件になった（prog2 ex2）。
-        課題 1 問向けの読み手（`TaskKcReader`）にし、削除の候補も出す。
-        """
-        profile = load_profile(console.profiles_dir / f"{course.subject_profile}.yaml")
-        namespaces = allowed_namespaces(profile)
-        vocabulary = list_for_namespaces(console.database, namespaces, include_deprecated=False)
-        known = {kc.key for kc in vocabulary}
-        # **このコースが使うものだけを見せる。** 語彙の全体を渡すと、その中から
-        # 選ばれてしまう。名前も渡す ── キーだけでは日本語の課題文と突き合わない。
-        in_course = {
-            kc.key: kc.label for kc in vocabulary if kc.key in set(course.knowledge_components)
-        }
-        try:
-            result = TaskKcReader().select(
-                statement,
-                vocabulary=in_course,
-                current=current,
-                reference_solution=reference_solution,
-            )
-        except Exception as exc:  # 生成の失敗は運用の事象。理由を画面に返す。
-            raise HTTPException(status_code=502, detail=f"候補を作れませんでした: {exc}") from exc
-        suggested = [
-            {
-                "key": use.key,
-                "label": in_course.get(use.key, use.key),
-                "evidence": use.evidence,
-                "attached": use.key in current,
-            }
-            for use in result.add
-        ]
-        remove = [
-            {"key": gone.key, "label": in_course.get(gone.key, gone.key), "reason": gone.reason}
-            for gone in result.remove
-        ]
-        # コースの外（語彙には登録済み）から出てきた候補は、コースに足す導線を出す。
-        # **黙って落とさない** ── 件数と理由を出し、足したいならコースの知識要素で足す。
-        outside = [d.key for d in result.discarded if d.key.strip() in known]
-        discarded = [d for d in result.discarded if d.key.strip() not in known]
-        return {
-            "suggested": suggested,
-            "remove": remove,
-            "outside": outside,
-            "discarded": discarded,
-            "empty": not result.add and not result.remove,
-        }
-
     @router.post("/courses/{course_id}/tasks/{task_id}/kc-candidates", response_class=HTMLResponse)
     async def task_kc_candidates(request: Request, course_id: str, task_id: str) -> Response:
         """編集画面の「AI に候補を出させる」。**書きかけの問題文で出す** ──
@@ -5533,6 +5850,7 @@ def register(templates) -> APIRouter:
             raise HTTPException(status_code=400, detail="問題文が短すぎます（20 文字以上）")
         chosen = tuple(str(v) for v in form.getlist("kc") if str(v).strip())
         return _task_page(
+            templates,
             request,
             me,
             course,
@@ -5731,45 +6049,6 @@ def register(templates) -> APIRouter:
             f"/manage/courses/{course_id}/tasks/{task_id}/edit?saved=tests_revised#saved",
             status_code=303,
         )
-
-    async def _io_draft_from(form) -> tuple:
-        """フォームに入っている入出力セットを、画面に出す形で読み直す（#305）。
-
-        **書きかけを捨てない。** 生成や提案から戻ったときに保存済みを出すと、
-        直しかけた入出力が黙って消える。`TestCase` の形にして返す（画面は
-        保存済みと同じ部品で描く）。
-        """
-        names = [str(v) for v in form.getlist("case_name")]
-        inputs = [str(v) for v in form.getlist("case_input")]
-        expected = [str(v) for v in form.getlist("case_expected")]
-        weights = [str(v) for v in form.getlist("case_weight")]
-        hidden = [str(v) for v in form.getlist("case_hidden")]
-        deleted = {str(v) for v in form.getlist("case_delete")}
-        out = []
-        for index, name in enumerate(names):
-            if str(index) in deleted or not name.strip():
-                continue
-            try:
-                weight = float(weights[index]) if index < len(weights) else 1.0
-            except ValueError:
-                weight = 1.0
-            out.append(
-                TestCase(
-                    name=name.strip(),
-                    evaluator_id=CODE_TEST_RUNNER,
-                    payload={
-                        "input": (inputs[index] if index < len(inputs) else "").replace(
-                            "\r\n", "\n"
-                        ),
-                        "expected": (expected[index] if index < len(expected) else "").replace(
-                            "\r\n", "\n"
-                        ),
-                    },
-                    hidden=(hidden[index] if index < len(hidden) else "1") != "0",
-                    weight=weight,
-                )
-            )
-        return tuple(out)
 
     @router.post("/courses/{course_id}/tasks/{task_id}/restore")
     def restore_task_version(
@@ -6180,6 +6459,7 @@ def register(templates) -> APIRouter:
             # **理由をそのまま出す**（決めつけない・#52）。モデルが落ちている
             # のか、応答が形式に合わないのかで、次にすることが違う。
             return _task_page(
+                templates,
                 request,
                 me,
                 course,
@@ -6190,6 +6470,7 @@ def register(templates) -> APIRouter:
                 io_draft=await _io_draft_from(form),
             )
         return _task_page(
+            templates,
             request,
             me,
             course,
@@ -6234,6 +6515,7 @@ def register(templates) -> APIRouter:
 
         def page(note: str, proposed=None):
             return _task_page(
+                templates,
                 request,
                 me,
                 course,
@@ -6601,40 +6883,6 @@ def register(templates) -> APIRouter:
             },
         )
 
-    def _where_evidence_came_from(uow, states) -> tuple[dict, dict]:
-        """根拠の採点がどのコースの、どの課題から来たかを解決する。
-
-        **`packages/skill` にコースを持ち込まない。** 習熟度はテナント単位で
-        積み上がる値で、コースを知る必要が無い（P6）── 知る必要があるのは
-        この画面だけなので、composition root であるここで辿る。
-
-        辿りは 採点 → 課題版 → 課題 → コース の 3 段。**同じ版を二度引かない**
-        ── 根拠は 1 KC あたり最大 20 件あり、同じ課題から来ることが多い。
-        """
-        course_of: dict[str, str | None] = {}
-        title_of: dict[str, str | None] = {}
-        version_cache: dict[str, tuple[str | None, str | None]] = {}
-        for state in states:
-            for item in state.evidence:
-                run_id = str(item.grading_run_id)
-                if run_id in course_of:
-                    continue
-                run = uow.runs.get(item.grading_run_id)
-                if run is None:
-                    course_of[run_id] = None
-                    title_of[run_id] = None
-                    continue
-                version_id = str(run.context.task_version_id)
-                if version_id not in version_cache:
-                    version = uow.tasks.get_version(run.context.task_version_id)
-                    task = None if version is None else uow.tasks.get_task(version.task_id)
-                    version_cache[version_id] = (
-                        None if task is None else str(task.course_id),
-                        None if task is None else task.title,
-                    )
-                course_of[run_id], title_of[run_id] = version_cache[version_id]
-        return course_of, title_of
-
     @router.get("/courses/{course_id}/enrolments", response_class=HTMLResponse)
     def enrolments(
         request: Request,
@@ -6899,8 +7147,8 @@ def register(templates) -> APIRouter:
                     registry=registry,
                 )
             except AdminError as exc:
-                return _course_page(request, me, course, note=str(exc), values=overrides)
-            return _course_page(request, me, course, trial=trial, values=overrides)
+                return _course_page(templates, request, me, course, note=str(exc), values=overrides)
+            return _course_page(templates, request, me, course, trial=trial, values=overrides)
 
         try:
             save_grading_settings(
@@ -6929,232 +7177,7 @@ def register(templates) -> APIRouter:
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
-        return _kc_page(request, me, course, saved=saved)
-
-    def _groups_of(console, course) -> tuple:
-        with console.database.unit_of_work() as uow:
-            return audience.list_groups(uow, course)
-
-    def _render_groups(
-        request: Request,
-        me: Principal,
-        course: Course,
-        *,
-        saved: str = "",
-        result=None,
-        error: str | None = None,
-        draft: dict | None = None,
-        status_code: int = 200,
-    ) -> Response:
-        console = _console(request)
-        with console.database.unit_of_work() as uow:
-            rows = [
-                {
-                    "summary": summary,
-                    "members": audience.members_of(uow, summary.group),
-                }
-                for summary in audience.list_groups(uow, course)
-            ]
-        return templates.TemplateResponse(
-            request,
-            "manage_groups.html",
-            {
-                "me": me,
-                "course": course,
-                "section": {"label": "出題先の名簿", "href": f"/manage/courses/{course.id}/groups"},
-                "rows": rows,
-                "result": result,
-                "error": error,
-                "draft": draft,
-                "saved": SAVED_MESSAGES.get(saved),
-                "max_name": MAX_GROUP_NAME_LENGTH,
-            },
-            status_code=status_code,
-        )
-
-    def _campus_configured(console, me) -> bool:
-        """テナントに学内の範囲が 1 件でも入っているか（#333）。"""
-        with console.database.unit_of_work() as uow:
-            settings = uow.identity.get_campus_networks(me.tenant_id)
-        return bool(settings and parse_cidrs(settings.cidrs))
-
-    def _course_kcs(console, course):
-        """このコースが作問で選べる知識要素 ── **コースに足したものだけ**（#289）。
-        引退したものは出さない ── 選べば課題に付いてしまう。
-        """
-        namespaces = allowed_namespaces(
-            load_profile(console.profiles_dir / f"{course.subject_profile}.yaml")
-        )
-        kcs = list_for_namespaces(console.database, namespaces, include_deprecated=False)
-        chosen = set(course.knowledge_components)
-        return [kc for kc in kcs if kc.key in chosen]
-
-    def _scope_in(console, course, keys: tuple[str, ...]) -> int:
-        """足した知識要素を、このコースが使う範囲にも入れる。**足した数を返す。**
-
-        **「このコースに追加する」は、登録と範囲の両方を意味する。** 片方だけ
-        だと、追加しても一覧に出てこない ── 範囲から外したものを戻す道が
-        塞がる（外れたものは一覧から隠れるため、戻す道がここになる）。
-        """
-        before = set(course.knowledge_components)
-        merged = tuple(sorted(before | {k for k in keys if k}))
-        if merged == tuple(course.knowledge_components):
-            return 0
-        with console.database.unit_of_work() as uow:
-            uow.identity.save_course(course.model_copy(update={"knowledge_components": merged}))
-            uow.commit()
-        return len(merged) - len(before)
-
-    def _kc_use_in_course(console, course) -> dict[str, int]:
-        """**このコースの課題**が使っている知識要素と、その件数。
-
-        `kc_usage` はコースをまたいで数える（引退させてよいかの判断に要る）。
-        こちらは「このコースの課題が何を問うているか」で、別の問いである。
-        """
-        counts: dict[str, int] = {}
-        with console.database.unit_of_work() as uow:
-            by_id = {str(kc.id): kc.key for kc in uow.skills.list_kcs(None)}
-            for task in uow.tasks.list_for_course(course.id):
-                version = uow.tasks.latest_version(task.id)
-                if version is None:
-                    continue
-                for entry in version.q_matrix:
-                    key = by_id.get(str(entry.kc_id))
-                    if key is not None:
-                        counts[key] = counts.get(key, 0) + 1
-        return counts
-
-    def _kc_rows(console, course, kcs):
-        """一覧の行 ── **このコースが使うもの**と、**このコースの課題が使っているもの**。
-
-        2 つは別物である。範囲から外しても、既に出題した課題の Q-matrix は
-        動かない（追記のみ・P8）ので、課題が使っているものは範囲に無くても
-        残す ── 消してしまうと、その課題が何を問うているのかを画面から辿る
-        手段が無くなる。
-
-        **範囲に無く、どの課題も使っていないものは出さない。** 同じ名前空間を
-        複数のコースが共有するので、出し続けると「このコースが使わないと決めた
-        もの」が一覧に残り、決めたこと自体が画面から読めなくなる。足すときは
-        名前空間の一覧（`_vocabulary_groups`）から。
-
-        **このコースの課題が使っているものは外せない**（#289）。外すと Q-matrix
-        が課題の中身と食い違う。理由（課題の件数）を添えて残す。
-        """
-        chosen = set(course.knowledge_components)
-        usage_rows = kc_usage(console.database, kcs)
-        here = _kc_use_in_course(console, course)
-        kcs = tuple(kc for kc in kcs if kc.key in chosen or here.get(kc.key))
-        return [
-            {
-                "usage": usage_rows[kc.key],
-                "kc": kc,
-                "used": usage_rows[kc.key].used,
-                "tasks": usage_rows[kc.key].tasks,
-                "courses": usage_rows[kc.key].courses,
-                "in_course": kc.key in chosen,
-                "used_here": here.get(kc.key, 0),
-                "removable": kc.key in chosen and not here.get(kc.key),
-            }
-            for kc in kcs
-        ]
-
-    def _is_component(key: str) -> bool:
-        """知識要素そのもの（`名前空間.分野.単位.知識要素`）か。
-
-        分野（`cs.loops`）と単位（`cs.loops.control`）は骨格の枝であって、
-        課題が問うものではない。範囲に入れる対象にしない。
-        """
-        return len(key.split(".")) >= 4
-
-    def _vocabulary_groups(kcs, chosen: set[str]) -> list[dict]:
-        """名前空間の語彙を**階層ごと**にまとめる（#289）。
-
-        987 件を平らに並べても選べない。分野（`cs.loops`）ごとに畳み、その
-        階層をまとめて足す・外すための接頭辞と、コースに入っている数を添える。
-        引退したものは足せないので出さない。
-        """
-        labels = {kc.key: kc.label for kc in kcs}
-        groups: dict[str, list] = {}
-        for kc in kcs:
-            if kc.deprecated or not _is_component(kc.key):
-                continue
-            parts = kc.key.split(".")
-            prefix = ".".join(parts[:2])
-            groups.setdefault(prefix, []).append(kc)
-        return [
-            {
-                "prefix": prefix,
-                "label": labels.get(prefix, ""),
-                "kcs": members,
-                "total": len(members),
-                "in_course": sum(1 for kc in members if kc.key in chosen),
-            }
-            for prefix, members in sorted(groups.items())
-        ]
-
-    def _kc_page(
-        request: Request,
-        me,
-        course,
-        *,
-        saved: str = "",
-        proposal=None,
-        discarded: tuple[str, ...] = (),
-    ) -> Response:
-        """知識要素のページ。**候補が出ているかどうかだけが違う。**
-
-        候補を別のページにすると、教員は「いま体系に何があるか」を見ずに
-        候補を選ぶことになる。重複を作らせないための情報が、選ぶ画面に
-        無いことになる。
-
-        `draft` は候補から追加フォームに取り込んだ 1 件（キー・名前・説明）。
-        **取り込んだだけでは何も登録されない。** `draft_exists` は、そのキーが
-        既に体系にあるか ── あるなら登録は「このコースの範囲に入れる」だけを
-        意味し、名前と説明は変わらない。
-        """
-        console = _console(request)
-
-        profile = load_profile(console.profiles_dir / f"{course.subject_profile}.yaml")
-        namespaces = allowed_namespaces(profile)
-        kcs = list_for_namespaces(console.database, namespaces)
-        rows = _kc_rows(console, course, kcs)
-        chosen = set(course.knowledge_components)
-        # 直前の足す・外すの結果（件数）。画面に出したら消す。
-        scope_result = None
-        if console.last_kc_scope and console.last_kc_scope[0] == str(course.id):
-            _cid, action, changed, kept = console.last_kc_scope
-            scope_result = {"action": action, "changed": changed, "kept": kept}
-            console.last_kc_scope = None
-        return templates.TemplateResponse(
-            request,
-            "manage_kc.html",
-            {
-                "me": me,
-                "course": course,
-                "section": {"label": "知識要素", "href": f"/manage/courses/{course.id}/kc"},
-                "namespaces": namespaces,
-                "rows": rows,
-                "chosen_count": len(chosen),
-                "chosen_keys": chosen,
-                # 名前空間の語彙を階層ごとに。ここから足す・外す（#289）。
-                "groups": _vocabulary_groups(kcs, chosen),
-                "scope_result": scope_result,
-                "saved": SAVED_MESSAGES.get(saved),
-                "saved_key": saved,
-                "is_admin": _is_admin(request, me),
-                # 候補。**既にあるものは採用させない**ので、突き合わせる鍵を渡す。
-                "proposal": proposal,
-                # 形が正準キーになっていないので落とした候補（#157）。
-                # **減った件数を黙らせない。**
-                "discarded": discarded,
-                # **「既にある」はこのコースの範囲にあるものを指す。** 語彙に
-                # あっても範囲外なら採用できる（採用すれば範囲に入る）。候補は
-                # 登録済みの語彙からしか来ない（2026-09-13 決定）ので、状態は
-                # 「このコースで使用中」か「語彙にあり（範囲外）」の 2 つ。
-                "existing": [row["kc"].key for row in rows if not row["kc"].deprecated],
-                "has_basics": bool((course.description or "").strip()),
-            },
-        )
+        return _kc_page(templates, request, me, course, saved=saved)
 
     @router.post("/courses/{course_id}/kc/retire")
     def retire_kc_route(
@@ -7194,30 +7217,6 @@ def register(templates) -> APIRouter:
         return RedirectResponse(
             f"/manage/courses/{course_id}/kc?saved={saved}#saved", status_code=303
         )
-
-    def _scope_targets(console, course, kc: list[str], prefix: str) -> tuple[str, ...]:
-        """足す・外す対象のキー。個別のチェックか、階層の接頭辞か。
-
-        接頭辞は `cs.loops` のように**区切りまで一致**させる（`cs.loop` で
-        `cs.loops` を巻き込まない）。引退した知識要素は対象にしない。
-
-        **接頭辞が来たらチェックは見ない。** 画面は全分野のチェックを 1 つの
-        form に持ち、分野ごとの「この階層をすべて足す／外す」も同じ form の
-        送信ボタンなので、押したときに他の分野で付けたチェックも一緒に届く。
-        「この階層を」と書いたボタンが別の分野のものを動かしてはいけない。
-        """
-        prefix = prefix.strip()
-        keys = set() if prefix else {key.strip() for key in kc if key.strip()}
-        if prefix:
-            namespaces = allowed_namespaces(
-                load_profile(console.profiles_dir / f"{course.subject_profile}.yaml")
-            )
-            for item in list_for_namespaces(console.database, namespaces, include_deprecated=False):
-                if _is_component(item.key) and (
-                    item.key == prefix or item.key.startswith(prefix + ".")
-                ):
-                    keys.add(item.key)
-        return tuple(sorted(keys))
 
     @router.get("/course-template.yaml")
     def course_template_download(request: Request) -> Response:
