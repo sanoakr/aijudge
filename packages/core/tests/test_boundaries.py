@@ -115,10 +115,15 @@ def test_only_the_apps_may_import_the_whole_unit_of_work() -> None:
 
     各サブシステムの Protocol を全部知っている型なので、足し忘れたパッケージは
     これを通して他のサブシステムの口を手に入れられる。
+
+    **例外は `course_admin` だけ**（段階 3-3b）。業務処理は保存層を import できない
+    ので、この Protocol 越しに受け取る。例外がそれ以上増えないことも見る。
     """
-    below = _workspace_modules("packages", "evaluators", "extractors") - {"aijudge_unit_of_work"}
+    allowed = {"aijudge_unit_of_work", "aijudge_course_admin"}
+    below = _workspace_modules("packages", "evaluators", "extractors") - allowed
     missing = below - _listed("unit-of-work-is-for-the-apps", "source_modules")
     assert not missing, f"unit-of-work-is-for-the-apps is missing {sorted(missing)}"
+    assert "aijudge_course_admin" not in _listed("unit-of-work-is-for-the-apps", "source_modules")
     assert _listed("unit-of-work-is-for-the-apps", "forbidden_modules") == {"aijudge_unit_of_work"}
 
 
