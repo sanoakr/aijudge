@@ -144,6 +144,22 @@ known-first-party = [
 # 実際に走っておらず、ADR 0009 で古くなったテストが 2 件気づかれずに残っていた。
 testpaths = ["packages", "evaluators", "extractors", "apps", "evals", "tests"]
 addopts = "-q"
+# **`src` には降りない。** 本体に `test_cases.py`（テストケースを書く AI）があり、
+# 名前だけで拾われていた。段階 3-2c で同じ名前のファイルが 2 つ（互換と移し先）に
+# なり、収集が「import file mismatch」で落ちた。テストは必ず `tests/` に置く。
+# 残りは pytest の既定の除外。
+norecursedirs = [
+    "src",
+    "*.egg",
+    ".*",
+    "_darcs",
+    "build",
+    "CVS",
+    "dist",
+    "node_modules",
+    "venv",
+    "{arch}",
+]
 
 [tool.mypy]
 python_version = "3.12"
