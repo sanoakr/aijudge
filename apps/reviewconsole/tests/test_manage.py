@@ -1978,15 +1978,15 @@ def test_kc_candidates_come_from_the_courses_own_components(world: World, monkey
     task_id = _import_example(world)
 
     # 語彙には登録済み、このコースでは使っていない知識要素。
-    # コースの KC（`_course_kcs`）は段階 4-4 で `manage.common` に移った。両方を
+    # コースの KC（`_course_kcs`）は `manage.common`、課題の候補は `manage.tasks` にある。両方を
     # 差し替えないと、移す前と同じ条件にならない。
     def fake_vocabulary(database, namespaces, include_deprecated=False):
         return [SimpleNamespace(key="cs.loops.termination", label="ループの停止")]
 
-    for target in ("manage", "manage.common"):
+    for target in ("manage.common", "manage.tasks"):
         monkeypatch.setattr(f"aijudge_reviewconsole.{target}.list_for_namespaces", fake_vocabulary)
     monkeypatch.setattr(
-        "aijudge_reviewconsole.manage.TaskKcReader.select",
+        "aijudge_reviewconsole.manage.tasks.TaskKcReader.select",
         lambda self, statement, *, vocabulary, current, reference_solution: TaskKcResult(
             add=(),
             remove=(),
@@ -2071,7 +2071,7 @@ def _revision(monkeypatch, *, changes=("入力の範囲を明記した",), kcs=(
             unchanged=not changes,
         )
 
-    monkeypatch.setattr("aijudge_reviewconsole.manage.TaskReviser.revise", _revise)
+    monkeypatch.setattr("aijudge_reviewconsole.manage.tasks.TaskReviser.revise", _revise)
 
 
 def test_an_ai_revision_waits_for_approval(world: World, monkeypatch) -> None:
@@ -2415,7 +2415,7 @@ def test_the_reason_a_revision_failed_is_on_the_page(world: World, monkeypatch) 
     def _boom(self, statement, **kwargs):
         raise RuntimeError("ollama に繋がりません")
 
-    monkeypatch.setattr("aijudge_reviewconsole.manage.TaskReviser.revise", _boom)
+    monkeypatch.setattr("aijudge_reviewconsole.manage.tasks.TaskReviser.revise", _boom)
     client = world.client("teacher")
 
     response = client.post(
@@ -4827,7 +4827,10 @@ def _stub_writer(monkeypatch, *, fails: bool = False) -> None:
                 model="stub-model",
             )
 
-    monkeypatch.setattr("aijudge_reviewconsole.manage.TestCaseWriter", _Writer)
+    # 新しい課題（`manage.tasks`）と、あとからテストを足す経路の両方が作る。
+    # 段階 4 でモジュールが分かれたので、両方の場所を差し替える。
+    for target in ("manage", "manage.tasks"):
+        monkeypatch.setattr(f"aijudge_reviewconsole.{target}.TestCaseWriter", _Writer)
 
 
 def _add(client, course_id: str, unit: str, suffix: str, **extra):

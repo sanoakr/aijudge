@@ -32,7 +32,7 @@ def test_candidates_come_with_their_evidence_and_reasons(world: World, monkeypat
         )
         uow.commit()
 
-    # コースの KC（`_course_kcs`）は段階 4-4 で `manage.common` に移った。両方を
+    # コースの KC（`_course_kcs`）は `manage.common`、課題の候補は `manage.tasks` にある。両方を
     # 差し替えないと、移す前と同じ条件にならない。
     def fake_vocabulary(database, namespaces, include_deprecated=False):
         return [
@@ -41,7 +41,7 @@ def test_candidates_come_with_their_evidence_and_reasons(world: World, monkeypat
             SimpleNamespace(key=COMPILE_LINK, label="コンパイルとリンク"),
         ]
 
-    for target in ("manage", "manage.common"):
+    for target in ("manage.common", "manage.tasks"):
         monkeypatch.setattr(f"aijudge_reviewconsole.{target}.list_for_namespaces", fake_vocabulary)
     seen: dict = {}
 
@@ -58,7 +58,7 @@ def test_candidates_come_with_their_evidence_and_reasons(world: World, monkeypat
             model="test",
         )
 
-    monkeypatch.setattr("aijudge_reviewconsole.manage.TaskKcReader.select", select)
+    monkeypatch.setattr("aijudge_reviewconsole.manage.tasks.TaskKcReader.select", select)
 
     page = (
         world.client("teacher")
