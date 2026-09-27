@@ -38,8 +38,9 @@
 地図は `docs/design/manage-split-map.md`）。移した領域のモジュールは
 `register(router, templates)` を持ち、ここの `register()` がそれを**元のルートが
 あった位置で**呼ぶ。FastAPI は登録順にパスを照合するので（`/tasks/new` と
-`/tasks/{task_id}` など）、呼ぶ位置を変えると別のハンドラが応答しうる ── 順序は
-`apps/reviewconsole/tests/routes_reviewconsole.txt` の写しが見張る。
+`/tasks/{task_id}` など）、呼ぶ位置を変えると別のハンドラが応答しうる ── 横取りは
+`test_manage_route_order.py` が見張る（ルートの写しは行を並べ替えて比べるので、
+順序の変化は捕まえない）。
 """
 
 from __future__ import annotations
