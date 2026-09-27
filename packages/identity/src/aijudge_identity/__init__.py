@@ -18,7 +18,7 @@ from .demo import (
     demo_course_from_env,
     enrol_into_demo_course,
 )
-from .errors import AuthenticationFailed, PermissionDenied
+from .errors import AuthenticationFailed, NotAnInstructor, PermissionDenied
 from .models import ApiToken, Principal, Session, User, UserState
 from .network import MAX_CIDRS, CampusNetworkSettings
 from .oidc import (
@@ -39,6 +39,7 @@ from .repository import IdentityRepository, InMemoryIdentityRepository
 from .service import (
     DEFAULT_SESSION_HOURS,
     DEFAULT_TOKEN_DAYS,
+    INSTRUCTOR_ROLES,
     TOKEN_PREFIX,
     AuthService,
 )
@@ -50,6 +51,7 @@ __all__ = [
     "ENV_DEMO_COURSE",
     "ENV_DEMO_INSTRUCTOR_PREFIX",
     "ENV_SECURE_COOKIES",
+    "INSTRUCTOR_ROLES",
     "LOGIN_LABEL_MAX",
     "MAX_CIDRS",
     "MIN_PASSWORD_LENGTH",
@@ -63,6 +65,7 @@ __all__ = [
     "GoogleOidcProvider",
     "IdentityRepository",
     "InMemoryIdentityRepository",
+    "NotAnInstructor",
     "OidcSettings",
     "PermissionDenied",
     "Principal",

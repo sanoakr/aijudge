@@ -19,3 +19,13 @@ class AuthenticationFailed(Exception):
 
 class PermissionDenied(Exception):
     """権限が無い。"""
+
+
+class NotAnInstructor(PermissionDenied):
+    """コースの一員ではあるが、担当教員ではない（TA・学習者）。
+
+    **一員でないこととは分けて投げる。** 画面は一員でない人には 404（コースの存在を
+    言わない）、一員だが教員でない人には 403（何が足りないかを言う）で答えるので、
+    呼び出し側が区別できないといけない。`PermissionDenied` の下に置くのは、
+    区別しない呼び出し側（どちらも拒むだけ）をそのまま動かすため。
+    """

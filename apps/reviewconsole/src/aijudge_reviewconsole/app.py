@@ -87,6 +87,7 @@ from aijudge_core.ids import (
 from aijudge_grading import load_profile, project_observations
 from aijudge_identity import (
     DEFAULT_LOGIN_LABEL,
+    INSTRUCTOR_ROLES,
     AuthenticationFailed,
     AuthService,
     GoogleOidcProvider,
@@ -104,6 +105,7 @@ from aijudge_submission import (
 )
 from aijudge_telemetry import RequestContextMiddleware
 
+from . import access
 from .audit_context import request_id_of, source_ip_of
 from .io_results import io_results
 from .overview import digests_for, load_units
@@ -839,7 +841,7 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 # TA にはコースの設定を開かせない（`manage.py` の権限と揃える）。
                 # **テナント管理者は受講登録が無くても管理できる**（#128）。
                 "can_manage": me.is_tenant_admin
-                or (enrollment is not None and enrollment.role in (Role.INSTRUCTOR, Role.ADMIN)),
+                or (enrollment is not None and enrollment.role in INSTRUCTOR_ROLES),
             },
         )
 
@@ -995,7 +997,7 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 "blind_pending": blind_pending,
                 "ide_origins": ide_origins,
                 # 作業の記録は教員だけが開ける（TA にはリンクを出さない）。
-                "can_view_activity": viewer in (Role.INSTRUCTOR, Role.ADMIN),
+                "can_view_activity": viewer in INSTRUCTOR_ROLES,
             },
         )
 
@@ -1038,7 +1040,7 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 # 一括確定は担当教員以上（`manage.py` の権限と揃える）。
                 # **テナント管理者は受講登録が無くても管理できる**（#128）。
                 "can_manage": me.is_tenant_admin
-                or (enrollment is not None and enrollment.role in (Role.INSTRUCTOR, Role.ADMIN)),
+                or (enrollment is not None and enrollment.role in INSTRUCTOR_ROLES),
                 "min_reason": MIN_JUSTIFICATION_LENGTH,
                 "last_finalize": (
                     console.last_finalize[1]
@@ -1956,21 +1958,16 @@ def level_field(code: str) -> str:
 def _require_course_instructor(console, me: Principal, course_id: CourseId) -> None:
     """そのコースの教員であること（#275）。**TA には許さない。**
 
-    `manage._require_instructor` と同じ判定だが、あちらは `Request` を取る
-    ので、確定の経路からは呼びにくい。判定そのもの（`require_membership` の
-    結果を役割で見る）は 1 行なので、ここでは重ねずに書く。
+    判定と応答の規則は `access.require_instructor`（段階的な立て直し 1-1）。
+    この経路は確定の画面から来るので、一員でないときは提出の側から言う。
     """
-    with console.database.unit_of_work() as uow:
-        auth = AuthService(uow.identity, audit=uow.audit)
-        try:
-            role = auth.require_membership(course_id, me.user_id)
-        except PermissionDenied as exc:
-            raise HTTPException(status_code=404, detail="提出が見つかりません") from exc
-    if role not in (Role.INSTRUCTOR, Role.ADMIN):
-        raise HTTPException(
-            status_code=403,
-            detail="確定済みの成績を直せるのは担当教員だけです。",
-        )
+    access.require_instructor(
+        console,
+        me,
+        course_id,
+        not_found="提出が見つかりません",
+        forbidden="確定済みの成績を直せるのは担当教員だけです。",
+    )
 
 
 def _grader_role(console, me: Principal, course_id: CourseId) -> Role:
@@ -1989,13 +1986,7 @@ def _grader_role(console, me: Principal, course_id: CourseId) -> Role:
 
 def _is_course_instructor(console, me: Principal, course_id: CourseId) -> bool:
     """そのコースの教員か（#275）。**拒むのではなく、出し分けに使う。**"""
-    with console.database.unit_of_work() as uow:
-        auth = AuthService(uow.identity, audit=uow.audit)
-        try:
-            role = auth.require_membership(course_id, me.user_id)
-        except PermissionDenied:
-            return False
-    return role in (Role.INSTRUCTOR, Role.ADMIN)
+    return access.is_instructor(console, me, course_id)
 
 
 def _review_history(console, run) -> tuple:
