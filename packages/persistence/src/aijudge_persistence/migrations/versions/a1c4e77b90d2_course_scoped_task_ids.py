@@ -63,7 +63,7 @@ _JSON_COLUMNS = (
 )
 
 
-def _mapping(connection) -> dict[str, str]:
+def _mapping(connection: sa.engine.Connection) -> dict[str, str]:
     """旧 ID → 新 ID。課題と版の両方。"""
     rows = connection.execute(
         sa.text(

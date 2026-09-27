@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Sequence
+from typing import Any
 
 import sqlalchemy as sa
 from alembic import op
@@ -72,7 +73,7 @@ def _backfill() -> None:
     )
     connection = op.get_bind()
 
-    def loaded(document: object) -> dict:
+    def loaded(document: object) -> dict[str, Any]:
         if isinstance(document, str):
             document = json.loads(document)
         return document or {}  # type: ignore[return-value]

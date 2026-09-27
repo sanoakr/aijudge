@@ -17,6 +17,7 @@ from aijudge_core import (
     Artifact,
     BlindMark,
     Finalization,
+    GradingPhase,
     GradingRun,
     HumanReview,
     ReviewRequest,
@@ -36,7 +37,7 @@ from aijudge_core.ids import (
     UserId,
 )
 
-from .jobs import GradingJob, GradingPhase
+from .jobs import GradingJob
 
 
 class SubmissionStoreError(Exception):

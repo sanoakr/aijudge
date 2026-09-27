@@ -16,6 +16,7 @@ Revises: b4f1c8e2d907
 from __future__ import annotations
 
 import json
+from typing import Any
 
 import sqlalchemy as sa
 from alembic import op
@@ -39,7 +40,7 @@ _COURSES = sa.table(
 )
 
 
-def _loads(value):
+def _loads(value: Any) -> Any:
     if value is None:
         return None
     if isinstance(value, (dict, list)):

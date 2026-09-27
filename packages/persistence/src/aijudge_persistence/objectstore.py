@@ -57,7 +57,8 @@ class ObjectArtifactStore:
         except Exception as exc:
             # 中身が無いのに空バイト列を返すと、内容の無い提出が採点される。
             raise SubmissionStoreError(f"no artifact stored at {key!r}: {exc}") from exc
-        return response["Body"].read()
+        payload: bytes = response["Body"].read()
+        return payload
 
     def exists(self, key: str) -> bool:
         try:

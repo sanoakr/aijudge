@@ -17,7 +17,9 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Iterator, Sequence
 from datetime import datetime
+from typing import Any
 
+from pydantic import BaseModel
 from sqlalchemy import and_, case, delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -86,8 +88,8 @@ from .schema import (
 )
 
 
-def _dump(model: object) -> dict:
-    return model.model_dump(mode="json")  # type: ignore[attr-defined]
+def _dump(model: BaseModel) -> dict[str, Any]:
+    return model.model_dump(mode="json")
 
 
 class SqlSubmissionRepository:

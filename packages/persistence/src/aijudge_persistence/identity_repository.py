@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Iterable
 from datetime import UTC, datetime
 
 from cryptography.fernet import Fernet, InvalidToken
@@ -350,18 +351,18 @@ class SqlIdentityRepository:
                 EnrollmentRow.user_id == str(user_id),
             )
         ).scalars()
-        return _in_term_order(_course(row) for row in rows if row is not None)  # type: ignore[misc]
+        return _in_term_order(c for row in rows if (c := _course(row)) is not None)
 
     def list_courses(self, tenant_id: TenantId) -> tuple[Course, ...]:
         rows = self._session.execute(
             select(CourseRow).where(CourseRow.tenant_id == str(tenant_id))
         ).scalars()
-        return _in_term_order(_course(row) for row in rows if row is not None)  # type: ignore[misc]
+        return _in_term_order(c for row in rows if (c := _course(row)) is not None)
 
     def list_all_courses(self) -> tuple[Course, ...]:
         """**テナントで絞らない。** 理由は Protocol の docstring。"""
         rows = self._session.execute(select(CourseRow)).scalars()
-        return _in_term_order(_course(row) for row in rows if row is not None)  # type: ignore[misc]
+        return _in_term_order(c for row in rows if (c := _course(row)) is not None)
 
     def delete_course(self, course_id: CourseId) -> None:
         """コースと受講登録を消す。**提出が無いことは呼び出し側が確かめる**（#156）。
@@ -381,7 +382,7 @@ class SqlIdentityRepository:
         rows = self._session.execute(
             select(CourseRow).where(CourseRow.subject_profile == subject_profile)
         ).scalars()
-        return _in_term_order(_course(row) for row in rows if row is not None)  # type: ignore[misc]
+        return _in_term_order(c for row in rows if (c := _course(row)) is not None)
 
     def remove_enrollment(self, course_id: CourseId, user_id: UserId) -> None:
         """受講を取り消す。**利用者の行は残す。**
@@ -570,7 +571,7 @@ def _api_token(row: ApiTokenRow | None) -> ApiToken | None:
     )
 
 
-def _in_term_order(courses) -> tuple[Course, ...]:
+def _in_term_order(courses: Iterable[Course]) -> tuple[Course, ...]:
     """コースを (学期, コード) 順に並べる。**学期は時系列で並べる**（#167）。
 
     以前は SQL の `ORDER BY term` に任せていた。`前期`／`後期` はたまたま

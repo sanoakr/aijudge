@@ -12,7 +12,7 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 
-from aijudge_core import KnowledgeComponent, SkillPoint, SkillState, new_id
+from aijudge_core import KnowledgeComponent, MasteryModel, SkillPoint, SkillState, new_id
 from aijudge_core.ids import KcId, TenantId, UserId
 
 from .schema import KnowledgeComponentRow, SkillPointRow, SkillStateRow
@@ -132,7 +132,7 @@ class SqlSkillRepository:
                 kc_id=KcId(row.kc_id),
                 mastery=row.mastery,
                 observation_count=row.observation_count,
-                model=row.model,
+                model=MasteryModel(row.model),
                 recorded_at=row.recorded_at,
             )
             for row in rows

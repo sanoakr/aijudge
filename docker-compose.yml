@@ -19,7 +19,8 @@
 # `AIJUDGE_SANDBOX=docker uv run aijudge-worker` をホスト側で動かす。
 services:
   postgres:
-    image: postgres:17-alpine
+    # **本番と同じ版にする**（#429）。本番と CI は PostgreSQL 18。
+    image: postgres:18-alpine
     environment:
       POSTGRES_USER: aijudge
       POSTGRES_PASSWORD: aijudge
@@ -30,8 +31,13 @@ services:
     command: ["postgres", "-c", "max_connections=200"]
     ports:
       - "5432:5432"
+    # 18 のイメージはデータを `/var/lib/postgresql/18/docker` に置く。**親の
+    # `/var/lib/postgresql` に載せる** ── 旧来の `.../data` に載せると起動しない。
+    # volume の名前を変えたのは、17 のデータが入った旧い volume を 18 で開かない
+    # ため（中身は手元の試験用で、移さずに作り直す。旧い `postgres-data` は
+    # `docker volume rm` で消してよい）。
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - postgres18-data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U aijudge"]
       interval: 5s
@@ -39,4 +45,4 @@ services:
       retries: 10
 
 volumes:
-  postgres-data:
+  postgres18-data:
