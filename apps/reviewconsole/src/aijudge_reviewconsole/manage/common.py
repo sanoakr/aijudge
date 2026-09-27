@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections import Counter
 
 from fastapi import HTTPException, Request
+from pydantic import ValidationError
 
 from aijudge_core import Course, Role
 from aijudge_core.ids import CourseId
@@ -149,3 +150,11 @@ def _role_counts(enrollments) -> list[dict[str, object]]:
     """
     counted = Counter(str(enrollment.role.value) for enrollment in enrollments)
     return [{"role": role.value, "count": counted.get(role.value, 0)} for role in Role]
+
+
+def _first_error(exc: ValidationError) -> str:
+    """模型の検証エラーを 1 行にする。教員に読める文だけを出す。"""
+    for error in exc.errors():
+        message = str(error.get("msg", ""))
+        return message.removeprefix("Value error, ")
+    return "指定が不正です"
