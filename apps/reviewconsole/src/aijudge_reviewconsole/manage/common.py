@@ -9,15 +9,18 @@
 from __future__ import annotations
 
 from collections import Counter
+from datetime import datetime
+from urllib.parse import quote, unquote
 
 from fastapi import HTTPException, Request
 from pydantic import ValidationError
 
+import aijudge_webui as webui
 from aijudge_core import Course, Role
 from aijudge_core.ids import CourseId
 from aijudge_course_admin.kc import allowed_namespaces, list_for_namespaces
 from aijudge_grading import load_profile
-from aijudge_identity import AuthService, PermissionDenied, Principal
+from aijudge_identity import INSTRUCTOR_ROLES, AuthService, PermissionDenied, Principal
 
 from .. import access
 
@@ -158,3 +161,77 @@ def _first_error(exc: ValidationError) -> str:
         message = str(error.get("msg", ""))
         return message.removeprefix("Value error, ")
     return "指定が不正です"
+
+
+def _normalized_unit(raw: str) -> str:
+    """URL から来た問題セットの鍵を、`unit_key` と同じ形に揃える。
+
+    経路パラメータは復号された状態で届くので、`quote` した鍵と直接
+    比べると、記号を含む鍵（`ex 03` など）が一致しない。往復させて
+    どちらの形で来ても同じ鍵になるようにする。
+    """
+    return quote(unquote(raw), safe="")
+
+
+def _parse_minutes(raw: str) -> int | None:
+    """自動確定までの猶予（分）。空なら未指定。
+
+    0 を許すと締切と同時に確定し、締切直前の提出が採点前に確定しうる。
+    猶予は正の値でなければ意味がない。
+    """
+    text = raw.strip()
+    if not text:
+        return None
+    try:
+        minutes = int(text)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"分の形式が不正です: {raw!r}") from None
+    if minutes <= 0:
+        raise HTTPException(status_code=400, detail="猶予は 1 分以上にしてください")
+    return minutes
+
+
+def _parse_when(raw: str) -> datetime | None:
+    """`YYYY-MM-DDTHH:MM` を読む。空なら None（締切なし）。
+
+    **入力欄の時刻は機関のタイムゾーン**（`AIJUDGE_TIMEZONE`・既定 JST）として
+    読み、保存は UTC。以前は UTC として読んでいたので、教員が「23:59」と
+    打った締切が JST の翌朝 8:59 になっていた。素の naive 値のまま入れると
+    締切判定がサーバのローカル時刻に依存する（ADR 0006 で同じ罠を踏んでいる）。
+    """
+    text = raw.strip()
+    if not text:
+        return None
+    try:
+        return webui.from_local(datetime.fromisoformat(text))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"日時の形式が不正です: {raw!r}") from exc
+
+
+def _can_edit(role: Role) -> bool:
+    """課題や設定を**変えて**よい役割か。TA は読むだけ（#102）。"""
+    return role in INSTRUCTOR_ROLES
+
+
+def _kc_keys_of(uow, version) -> tuple[str, ...]:
+    """この課題版が問う知識要素のキー。**Q-matrix が正**（#267）。
+
+    画面には ID ではなくキーを出す ── `kc_7d9d…` は人には読めない。
+    引けなかったものは ID のまま出す（黙って落とすと、件数が合わない）。
+    """
+    keys: list[str] = []
+    for entry in version.q_matrix:
+        component = uow.skills.get_kc(entry.kc_id)
+        keys.append(getattr(component, "key", None) or str(entry.kc_id))
+    return tuple(keys)
+
+
+def _plain(value):
+    """監査の `detail` に入れられる形へ均す。
+
+    日時は ISO 文字列にする ── JSON にそのまま入らないし、入れ方を
+    書き込み点ごとに決めると、後から同じ条件で引けなくなる。
+    """
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return value

@@ -477,3 +477,54 @@ def test_an_unknown_kc_or_an_empty_label_is_refused(world: World) -> None:
     # 断ったあとも名前は元のまま。
     page = client.get(f"/manage/courses/{world.course.id}/kc").text
     assert "ルーブ" in page
+
+
+# -- 問題セットを開く・補完の切り替え（段階 4-7 の前に厚くする・地図の表）----------
+
+
+def test_opening_a_unit_saves_nothing_and_encodes_the_name(world: World) -> None:
+    """**保存は伴わない。** 回は課題の属性で、最初の 1 問を足した時点で実在する。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+
+    named = client.post(
+        f"/manage/courses/{world.course.id}/units", data={"unit": " 第3回 "}, follow_redirects=False
+    )
+    assert named.status_code == 303
+    assert named.headers["location"].endswith(
+        f"/manage/courses/{world.course.id}/units/%E7%AC%AC3%E5%9B%9E"
+    )
+    # 名前が空なら「未分類」（`_`）を開く。
+    empty = client.post(
+        f"/manage/courses/{world.course.id}/units", data={"unit": ""}, follow_redirects=False
+    )
+    assert empty.headers["location"].endswith(f"/manage/courses/{world.course.id}/units/_")
+    with world.database.unit_of_work() as uow:
+        assert not uow.tasks.list_for_course(world.course.id)
+
+
+def test_a_ta_does_not_open_a_unit(world: World) -> None:
+    world.register("ta", Role.ASSISTANT)
+    response = world.client("ta").post(
+        f"/manage/courses/{world.course.id}/units", data={"unit": "ex09"}
+    )
+    assert response.status_code == 403
+
+
+def test_completion_is_switched_for_the_whole_unit(world: World) -> None:
+    """**補完はセット単位。** 全課題に入り、空の値は「出さない」。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    first = _add_task(world, client, unit="ex07", suffix="p1")
+    second = _add_task(world, client, unit="ex07", suffix="p2")
+    url = f"/manage/courses/{world.course.id}/units/ex07/completion"
+
+    on = client.post(url, data={"completion": "1"}, follow_redirects=False)
+    assert on.status_code == 303
+    assert "saved=completion" in on.headers["location"]
+    with world.database.unit_of_work() as uow:
+        assert all(uow.tasks.get_task(TaskId(t)).editor_completion for t in (first, second))
+
+    client.post(url, data={"completion": ""})
+    with world.database.unit_of_work() as uow:
+        assert not any(uow.tasks.get_task(TaskId(t)).editor_completion for t in (first, second))

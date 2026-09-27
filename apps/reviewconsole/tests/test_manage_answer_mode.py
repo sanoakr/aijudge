@@ -81,7 +81,7 @@ def test_the_server_refuses_the_editor_for_a_task_that_runs_no_tests(
     world: World, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """**保存する側が断る。** 画面は押せなくしてあるが、それは境界ではない。"""
-    import aijudge_reviewconsole.manage as manage
+    import aijudge_reviewconsole.manage.units as manage
 
     world.register("teacher", Role.INSTRUCTOR)
     task_id = _import_example(world)
@@ -143,7 +143,7 @@ def test_the_editor_box_is_greyed_out_when_a_task_cannot_use_it(
     world: World, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """画像だけの課題などを含むセットでは、エディタのチェックを押せなくする（理由も出す）。"""
-    import aijudge_reviewconsole.manage as manage
+    import aijudge_reviewconsole.manage.units as manage
 
     world.register("teacher", Role.INSTRUCTOR)
     _import_example(world)
@@ -306,7 +306,7 @@ def test_the_server_refuses_editor_only_for_a_set_with_video(
     world: World, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """**動画を受ける課題があるセットは、ファイル選択を外せない**（保存する側が断る）。"""
-    import aijudge_reviewconsole.manage as manage
+    import aijudge_reviewconsole.manage.units as manage
 
     world.register("teacher", Role.INSTRUCTOR)
     task_id = _import_example(world)
@@ -339,7 +339,7 @@ def test_the_grading_method_is_named_by_evaluator(world: World) -> None:
     """「自動テストなし」だけだと、AI が判定する課題（感想・レポート）まで自動採点されない
     ように読めた。観点の担当から「テスト・規則・AI・教員」を出す。"""
     from aijudge_core import HUMAN_SCORED
-    from aijudge_reviewconsole.manage import _graded_by
+    from aijudge_reviewconsole.manage.units import _graded_by
 
     _task_obj, version = _pair(world_with_example(world))
     base = version.criteria[0]
