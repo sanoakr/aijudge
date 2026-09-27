@@ -15,7 +15,7 @@
 釣り合わせる（上限は学習者アプリ側・`MAX_VIDEO_BYTES_WITHOUT_DEADLINE`）。
 
 ここが持つのは期限の計算だけである。何を消すかを選ぶのも、消すのも上位層
-（`aijudge_admin.video_purge`）の仕事で、この層は I/O をしない。
+（`aijudge_course_admin.video_purge`）の仕事で、この層は I/O をしない。
 """
 
 from __future__ import annotations

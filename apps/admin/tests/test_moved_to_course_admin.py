@@ -59,6 +59,10 @@ MOVED_MODULES = (
     "course_copy",
     "course_export",
     "course_snapshot",
+    "activity_purge",
+    "video_purge",
+    "demo_seed",
+    "demo_reset",
 )
 
 
