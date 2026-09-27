@@ -7,12 +7,13 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from aijudge_core import KnowledgeComponent, SkillPoint, SkillState
 from aijudge_core.ids import KcId, TenantId, UserId
 
 
+@runtime_checkable
 class SkillRepository(Protocol):
     def get_state(
         self, tenant_id: TenantId, learner_id: UserId, kc_id: KcId
@@ -60,6 +61,25 @@ class SkillRepository(Protocol):
         ...
 
     def get_kc(self, kc_id: KcId) -> KnowledgeComponent | None: ...
+
+    def find_kc_by_key(self, key: str) -> KnowledgeComponent | None: ...
+
+    def save_kc(self, kc: KnowledgeComponent) -> None:
+        """KC を保存する。同じ ID なら上書きする（名前・親・退役の変更）。"""
+        ...
+
+    def delete_kc(self, kc_id: KcId) -> None:
+        """KC を 1 件消す。無い ID でも落とさない。**呼んでよいかの判断は呼び出し側が持つ。**
+
+        使われている KC を消すと、過去の課題が何を問うていたのか辿れなく
+        なる（P8）。その判定は利用状況を数えられる層でしかできないので、
+        ここは求められたとおりに消す（`aijudge_admin.kc.delete` が守る）。
+        """
+        ...
+
+    def list_kcs(self, namespace: str | None = None) -> tuple[KnowledgeComponent, ...]:
+        """KC の一覧。キーの順。`namespace` が None なら全部。"""
+        ...
 
 
 class InMemorySkillRepository:
@@ -125,3 +145,16 @@ class InMemorySkillRepository:
 
     def get_kc(self, kc_id: KcId) -> KnowledgeComponent | None:
         return self._kcs.get(kc_id)
+
+    def find_kc_by_key(self, key: str) -> KnowledgeComponent | None:
+        return next((kc for kc in self._kcs.values() if kc.key == key), None)
+
+    def save_kc(self, kc: KnowledgeComponent) -> None:
+        self._kcs[kc.id] = kc
+
+    def delete_kc(self, kc_id: KcId) -> None:
+        self._kcs.pop(kc_id, None)
+
+    def list_kcs(self, namespace: str | None = None) -> tuple[KnowledgeComponent, ...]:
+        found = (kc for kc in self._kcs.values() if namespace is None or kc.namespace == namespace)
+        return tuple(sorted(found, key=lambda kc: kc.key))

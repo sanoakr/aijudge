@@ -112,6 +112,13 @@ grader → admin.justification）を列挙して `ignore_imports` に入れ、�
 2-1. `tasks`・`identity`・`skills`・`audit` の Protocol を、それぞれの package に
 （すでにあるものは揃え、無いメソッドを足す）。インメモリ実装が持てないもの
 （課題の表との結合）は #464 と同じく読み取り用の Protocol に分ける  
+   → **済み**: 差分は課題と KC だけだった（identity・audit は揃っていた）。
+   `TaskRepository` に `delete_task`・`save_embedding`・`list_embeddings`、
+   `SkillRepository` に `save_kc`・`find_kc_by_key`・`list_kcs`・`delete_kc` を足し、
+   インメモリにも実装した（同じテストを両方に当てる）。提出・採点の表と結合する
+   `submission_count`・`pass_rates` は `TaskUsageQueries` に分け、保存層の口は
+   `TaskStore`（両方）。`SkillRepository`・`AuditLog` を `@runtime_checkable` にし、
+   適合性のテストを 4 つに広げた  
 2-2. `UnitOfWork` の Protocol を 13 リポジトリに広げる（保存層だけが満たすものは
 別の Protocol に）。適合性のテスト（#464 の形）を全リポジトリに  
 2-3. mypy を `packages/submission` と `packages/persistence` に広げる（#435・#429 の残り）

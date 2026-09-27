@@ -21,6 +21,7 @@ from aijudge_core import (
     EvaluatorKind,
     GradingContext,
     GradingRun,
+    KnowledgeComponent,
     Provenance,
     Role,
     Routing,
@@ -28,6 +29,8 @@ from aijudge_core import (
     RubricLevel,
     Task,
     TaskVersion,
+    kc_id_for,
+    parse_kc_key,
 )
 from aijudge_core.ids import (
     CourseId,
@@ -42,6 +45,7 @@ from aijudge_core.ids import (
     UserId,
 )
 from aijudge_persistence import Database
+from aijudge_skill import InMemorySkillRepository
 from aijudge_submission import (
     ImmutabilityViolation,
     IncomingFile,
@@ -720,6 +724,139 @@ def test_all_versions_of_several_tasks_are_read_at_once(task_repo) -> None:
         found = uow.tasks.versions_for_tasks([TASK_ID, TaskId("tsk_" + "0" * 32)])
         assert sorted(v.version for v in found) == [1, 2]
         assert uow.tasks.versions_for_tasks([]) == ()
+
+
+def test_deleting_a_task_takes_its_versions_and_embeddings_only(task_repo) -> None:
+    """版に紐づく埋め込みも消える。**他の課題のものは残る。**"""
+    other_task = TaskId("tsk_" + "8" * 32)
+    other = a_task_version().model_copy(
+        update={"id": TaskVersionId("tsv_" + "8" * 32), "task_id": other_task}
+    )
+    with task_repo() as uow:
+        uow.tasks.save_task(Task(id=TASK_ID, course_id=COURSE, title="消す課題"))
+        uow.tasks.save_task(Task(id=other_task, course_id=COURSE, title="残す課題"))
+        for version in (a_task_version(1), a_task_version(2), other):
+            uow.tasks.save_version(version)
+            uow.tasks.save_embedding(
+                version.id, model="m", subject_profile="cs_lang_c_intro", vector=(1.0, 0.0)
+            )
+        uow.commit()
+    with task_repo() as uow:
+        uow.tasks.delete_task(TASK_ID)
+        uow.commit()
+    with task_repo() as uow:
+        assert uow.tasks.get_task(TASK_ID) is None
+        assert uow.tasks.list_versions(TASK_ID) == ()
+        assert uow.tasks.get_task(other_task) is not None
+        assert uow.tasks.get_version(other.id) == other
+        assert set(uow.tasks.list_embeddings(model="m", subject_profile="cs_lang_c_intro")) == {
+            str(other.id)
+        }
+
+
+def test_embeddings_do_not_cross_models_or_subjects(task_repo) -> None:
+    """次元が同じでも意味空間が違う。混ぜると無関係な課題が似ていることになる。"""
+    version = a_task_version()
+    with task_repo() as uow:
+        uow.tasks.save_version(version)
+        uow.tasks.save_embedding(version.id, model="a", subject_profile="s", vector=(1.0, 0.0))
+        uow.tasks.save_embedding(version.id, model="b", subject_profile="s", vector=(0.0, 1.0))
+        uow.commit()
+    with task_repo() as uow:
+        assert uow.tasks.list_embeddings(model="a", subject_profile="s") == {
+            str(version.id): (1.0, 0.0)
+        }
+        assert uow.tasks.list_embeddings(model="a", subject_profile="other") == {}
+
+
+def test_saving_an_embedding_again_replaces_the_vector(task_repo) -> None:
+    version = a_task_version()
+    with task_repo() as uow:
+        uow.tasks.save_version(version)
+        uow.tasks.save_embedding(version.id, model="a", subject_profile="s", vector=(1.0, 0.0))
+        uow.tasks.save_embedding(version.id, model="a", subject_profile="s", vector=(0.5, 0.5, 0.5))
+        uow.commit()
+    with task_repo() as uow:
+        assert uow.tasks.list_embeddings(model="a", subject_profile="s") == {
+            str(version.id): (0.5, 0.5, 0.5)
+        }
+
+
+# --------------------------------------------------------------------------
+# KC の語彙 — インメモリと SQL に同じテストを当てる
+# --------------------------------------------------------------------------
+
+
+def a_kc(key: str, **update) -> KnowledgeComponent:
+    namespace, path = parse_kc_key(key)
+    kc = KnowledgeComponent(id=kc_id_for(key), namespace=namespace, path=path, label=key)
+    return kc.model_copy(update=update)
+
+
+@pytest.fixture(params=["memory", "sql"])
+def skill_repo(request, database: Database) -> Callable[[], object]:
+    if request.param == "memory":
+        repo = InMemorySkillRepository()
+
+        class Holder:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return None
+
+            skills = repo
+
+            def commit(self):
+                return None
+
+        return lambda: Holder()
+    return database.unit_of_work
+
+
+def test_kcs_are_listed_by_key_and_narrowed_by_namespace(skill_repo) -> None:
+    with skill_repo() as uow:
+        for key in ("math.calculus", "cs.recursion", "cs.loops"):
+            uow.skills.save_kc(a_kc(key))
+        uow.commit()
+    with skill_repo() as uow:
+        assert [kc.key for kc in uow.skills.list_kcs()] == [
+            "cs.loops",
+            "cs.recursion",
+            "math.calculus",
+        ]
+        assert [kc.key for kc in uow.skills.list_kcs("cs")] == ["cs.loops", "cs.recursion"]
+        found = uow.skills.find_kc_by_key("cs.loops")
+        assert found is not None
+        assert found.id == kc_id_for("cs.loops")
+        assert uow.skills.find_kc_by_key("cs.missing") is None
+
+
+def test_saving_a_kc_again_updates_it(skill_repo) -> None:
+    """名前の変更と退役は同じ ID の上書きで起きる。"""
+    with skill_repo() as uow:
+        uow.skills.save_kc(a_kc("cs.loops"))
+        uow.commit()
+    with skill_repo() as uow:
+        uow.skills.save_kc(a_kc("cs.loops", label="繰り返し", deprecated=True))
+        uow.commit()
+    with skill_repo() as uow:
+        kc = uow.skills.get_kc(kc_id_for("cs.loops"))
+        assert kc is not None
+        assert (kc.label, kc.deprecated) == ("繰り返し", True)
+        assert len(uow.skills.list_kcs()) == 1
+
+
+def test_deleting_a_kc_is_quiet_when_it_is_already_gone(skill_repo) -> None:
+    with skill_repo() as uow:
+        uow.skills.save_kc(a_kc("cs.loops"))
+        uow.commit()
+    with skill_repo() as uow:
+        uow.skills.delete_kc(kc_id_for("cs.loops"))
+        uow.skills.delete_kc(kc_id_for("cs.loops"))
+        uow.commit()
+    with skill_repo() as uow:
+        assert uow.skills.get_kc(kc_id_for("cs.loops")) is None
 
 
 def test_tasks_are_listed_per_course(database: Database) -> None:

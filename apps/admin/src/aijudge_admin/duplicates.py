@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 
+from aijudge_authoring.repository import TaskRepository
 from aijudge_authoring.similarity import (
     DEFAULT_SIMILARITY_THRESHOLD,
     DuplicateReport,
@@ -31,7 +32,7 @@ logger = logging.getLogger(__name__)
 class DuplicateChecker:
     def __init__(
         self,
-        repository,
+        repository: TaskRepository,
         gateway: LlmGateway | None = None,
         *,
         embedding_model: str | None = None,
