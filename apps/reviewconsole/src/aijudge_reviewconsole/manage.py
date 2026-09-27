@@ -3391,7 +3391,7 @@ def register(templates) -> APIRouter:
         同じ回の中で答え方が混ざると、学習者は課題ごとに画面を行き来する。
 
         **エディタを入れられるのは提出形式に `.c`・`.py`・`.md` のどれかを含む課題だけで、
-        ここで確かめる**（`aijudge_admin.answer_mode`）。画面は理由を先に見せて押せなくするが、
+        ここで確かめる**（`aijudge_course_admin.answer_mode`）。画面は理由を先に見せて押せなくするが、
         それは表示の都合であって境界ではない（#146）。
         """
         from .app import require_principal
@@ -4655,7 +4655,7 @@ def register(templates) -> APIRouter:
                 subject_profile=course.subject_profile,
                 # **コースの範囲を渡す。** KC は「何を問うか」を決めるが、
                 # 「どこまでを既習として書いてよいか」は決めない。空なら
-                # 節ごと出さない（`aijudge_admin.drafting._course_section`）。
+                # 節ごと出さない（`aijudge_course_admin.drafting._course_section`）。
                 course_title=course.title,
                 course_outline=course.description or "",
                 difficulty=Difficulty(difficulty),
@@ -5864,7 +5864,7 @@ def register(templates) -> APIRouter:
         `instructions` は教員からの指示（1 行 1 件・任意）。**何を直してほしい
         かは、読んだ教員がいちばんよく知っている** ── 観点との食い違いは機械的に
         見付かるが、「毎年ここで質問が来る」は教員しか知らない。作問の指示と
-        同じ扱いで、必須事項の列ではない（`aijudge_admin.revision` の冒頭）。
+        同じ扱いで、必須事項の列ではない（`aijudge_course_admin.revision` の冒頭）。
         """
         from .app import require_principal
 

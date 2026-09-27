@@ -74,7 +74,7 @@ def test_a_revision_without_instructions_still_works() -> None:
 def test_an_empty_instruction_list_gets_no_section() -> None:
     """**空の節を渡さない。** モデルは「指示が無い」ではなく「指示は空」と読む
     余地がある。書かれていない条件は、書かないことで伝える
-    （`aijudge_admin.drafting._course_section` と同じ作法）。
+    （`aijudge_course_admin.drafting._course_section` と同じ作法）。
     """
     assert _instructions_section(()) == ""
     assert _instructions_section(("", "   ")) == "", "空白だけの行で節が出ている"

@@ -81,7 +81,7 @@ from aijudge_ide import (
 from aijudge_submission import IncomingFile, SubmissionRejected
 from aijudge_toolchain import UnknownLanguage, resolve_language
 
-# テストを走らせる評価器（`aijudge_admin.answer_mode` と同じく名前で指す）。
+# テストを走らせる評価器（`aijudge_course_admin.answer_mode` と同じく名前で指す）。
 # 評価器のパッケージを import すると sandbox まで引きずり、
 # `web-does-not-run-code` 契約が落ちる。
 CODE_TEST_RUNNER = "code_test_runner"

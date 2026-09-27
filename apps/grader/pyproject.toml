@@ -15,10 +15,9 @@ dependencies = [
     "aijudge-observation",
     "aijudge-feedback",
     "aijudge-telemetry",
-    # **書かれていなかった依存**（段階 0-2）。`cli.py` が確定の根拠の素案を作るのに
-    # `aijudge_admin.justification` を使っている。アプリがアプリを使うのは例外で
-    # （`.importlinter` の apps-are-independent）、段階 3 で packages に移すと消える。
-    "aijudge-admin",
+    # 確定の根拠の素案（`cli.py`）。以前はアプリ（`aijudge_admin.justification`）を
+    # 使っており、アプリ間の依存の例外だった。段階 3-2 で packages に移した。
+    "aijudge-course-admin",
 ]
 
 [project.scripts]
@@ -41,4 +40,4 @@ aijudge-persistence = { workspace = true }
 aijudge-skill = { workspace = true }
 aijudge-observation = { workspace = true }
 aijudge-feedback = { workspace = true }
-aijudge-admin = { workspace = true }
+aijudge-course-admin = { workspace = true }
