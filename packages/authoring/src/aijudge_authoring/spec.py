@@ -356,7 +356,7 @@ def q_matrix_for(keys: tuple[str, ...], task_version_id: TaskVersionId) -> tuple
     という順序を強制しないためである。同じキーは同じ ID になるので、
     KC の実体を後から足しても対応は繋がる（導出は `kc_id_for` に 1 本化）。
     **登録済みかどうかはここでは見ない** ── 模型の層は保存先を知らない。
-    確かめるのは app 層（`aijudge_admin.kc.assert_registered`）である。
+    確かめるのは app 層（`aijudge_course_admin.kc.assert_registered`）である。
 
     重みは既定の 1.0 のまま置く。「どれだけ問うているか」を見積もらせる前に、
     まず対応があるかどうかだけを集める。
