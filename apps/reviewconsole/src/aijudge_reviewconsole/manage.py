@@ -6,7 +6,7 @@
 現実的でない。
 
 課題の追加は**画面と API の両方から**でき、保存は同じ経路を通る
-（`aijudge_admin.save_task`）。zip での一括取り込みは廃止した ── 移行元
+（`aijudge_course_admin.authoring.save_task`）。zip での一括取り込みは廃止した ── 移行元
 （Sharif Judge）の形式をサーバの入口の語彙にしてしまっており、移行が
 終わったあとも一生ついて回る形だった。まとまった投入は API で行う
 （`api.py`）。
@@ -53,60 +53,6 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import ValidationError
 
 import aijudge_webui as webui
-from aijudge_admin import (
-    AdminError,
-    allowed_namespaces,
-    assert_registered,
-    delete_course,
-    delete_kc,
-    duplicate_course,
-    duplicate_profile,
-    edit_kc,
-    enrol_roster,
-    ensure_course,
-    finalize_task,
-    finalize_tasks,
-    kc_usage,
-    list_for_namespaces,
-    list_profiles,
-    outputs_for,
-    parse_roster,
-    pending_counts,
-    plan_bundle,
-    read_bundle,
-    read_profile_text,
-    rename_profile,
-    restore_kc,
-    retire_kc,
-    rubric,
-    save_grading_settings,
-    save_profile_text,
-    save_task,
-    template_bundle,
-    template_of,
-    try_settings,
-    validate_grading_settings,
-)
-from aijudge_admin import groups as audience
-from aijudge_admin.answer_mode import editor_blockers, file_upload_required
-from aijudge_admin.bundles import MAX_ARCHIVE_BYTES
-from aijudge_admin.course_definition import course_template
-from aijudge_admin.drafting import TaskDrafter
-from aijudge_admin.revision import TaskReviser
-from aijudge_admin.roster import RosterEntry, RosterError, generate_password
-from aijudge_admin.syllabus import (
-    MAX_SYLLABUS_BYTES,
-    SyllabusError,
-    SyllabusReader,
-    TaskKcReader,
-    read_document,
-    to_markdown,
-)
-from aijudge_admin.task_verifier import TaskVerifier
-from aijudge_admin.tasks import clear_unit
-from aijudge_admin.tasks import delete as delete_task
-from aijudge_admin.tasks import withdraw as withdraw_task
-from aijudge_admin.test_cases import InputProposer, SolutionWriter, TestCaseWriter
 from aijudge_audit import AuditAction
 from aijudge_authoring import (
     DraftKind,
@@ -147,6 +93,50 @@ from aijudge_core import (
     parse_cidrs,
 )
 from aijudge_core.ids import CourseId, TaskId, TaskVersionId, UserId, derived_id
+from aijudge_course_admin import groups as audience
+from aijudge_course_admin import rubric
+from aijudge_course_admin.answer_mode import editor_blockers, file_upload_required
+from aijudge_course_admin.authoring import save_task
+from aijudge_course_admin.bundle_plan import plan_bundle
+from aijudge_course_admin.bundles import MAX_ARCHIVE_BYTES, read_bundle, template_bundle
+from aijudge_course_admin.course_copy import duplicate_course
+from aijudge_course_admin.course_definition import course_template
+from aijudge_course_admin.courses import delete_course
+from aijudge_course_admin.drafting import TaskDrafter
+from aijudge_course_admin.errors import AdminError
+from aijudge_course_admin.finalization import finalize_task, finalize_tasks, pending_counts
+from aijudge_course_admin.grading_settings import save as save_grading_settings
+from aijudge_course_admin.grading_settings import template_of, try_settings
+from aijudge_course_admin.grading_settings import validate as validate_grading_settings
+from aijudge_course_admin.kc import allowed_namespaces, assert_registered, list_for_namespaces
+from aijudge_course_admin.kc import delete as delete_kc
+from aijudge_course_admin.kc import edit as edit_kc
+from aijudge_course_admin.kc import restore as restore_kc
+from aijudge_course_admin.kc import retire as retire_kc
+from aijudge_course_admin.kc import usage as kc_usage
+from aijudge_course_admin.operations import enrol_roster, ensure_course
+from aijudge_course_admin.profiles import (
+    duplicate_profile,
+    list_profiles,
+    read_profile_text,
+    rename_profile,
+    save_profile_text,
+)
+from aijudge_course_admin.revision import TaskReviser
+from aijudge_course_admin.roster import RosterEntry, RosterError, generate_password, parse_roster
+from aijudge_course_admin.syllabus import (
+    MAX_SYLLABUS_BYTES,
+    SyllabusError,
+    SyllabusReader,
+    TaskKcReader,
+    read_document,
+    to_markdown,
+)
+from aijudge_course_admin.task_verifier import TaskVerifier, outputs_for
+from aijudge_course_admin.tasks import clear_unit
+from aijudge_course_admin.tasks import delete as delete_task
+from aijudge_course_admin.tasks import withdraw as withdraw_task
+from aijudge_course_admin.test_cases import InputProposer, SolutionWriter, TestCaseWriter
 from aijudge_eval_code_test_runner import DEFAULT_CASE_TIMEOUT_SECONDS, LANGUAGES
 from aijudge_eval_code_test_runner import EVALUATOR_ID as CODE_TEST_RUNNER
 from aijudge_grading import (
@@ -4433,7 +4423,7 @@ def register(templates) -> APIRouter:
     ) -> Response:
         """課題を 1 件足す。
 
-        **保存の中身は API と同じ経路を通る**（`aijudge_admin.save_task`）。
+        **保存の中身は API と同じ経路を通る**（`aijudge_course_admin.authoring.save_task`）。
         経路ごとに組み立て方が分かれると、「画面から作った課題だけ観点が
         1 つ足りない」が起きる。実際に起きた ── 廃止した zip 取り込みは
         `readability_weight` が 0.0 固定で、画面から入れた課題には AI 観点が

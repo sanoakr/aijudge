@@ -21,7 +21,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from urllib.parse import quote, unquote
 
-from aijudge_admin import pending_counts
 from aijudge_core import (
     AnswerMode,
     Course,
@@ -32,6 +31,7 @@ from aijudge_core import (
     grace_minutes,
     may_see,
 )
+from aijudge_course_admin.finalization import pending_counts
 
 
 def unit_key(task: Task) -> str:

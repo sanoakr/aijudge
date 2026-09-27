@@ -21,10 +21,11 @@ from urllib.parse import quote, unquote
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
-from aijudge_admin import AdminError, save_task
-from aijudge_admin import groups as audience
 from aijudge_authoring import TaskSpec
 from aijudge_core.ids import CourseId
+from aijudge_course_admin import groups as audience
+from aijudge_course_admin.authoring import save_task
+from aijudge_course_admin.errors import AdminError
 from aijudge_identity import INSTRUCTOR_ROLES, AuthService, Principal
 
 from . import access

@@ -10,7 +10,8 @@ dependencies = [
     "aijudge-identity",
     "aijudge-submission",
     "aijudge-persistence",
-    "aijudge-admin",
+    # コース運営の業務処理（段階 3）。以前はアプリ（`aijudge-admin`）に依存していた。
+    "aijudge-course-admin",
     "aijudge-audit",
     "aijudge-telemetry",
     "aijudge-webui",
@@ -42,6 +43,6 @@ aijudge-grading = { workspace = true }
 aijudge-identity = { workspace = true }
 aijudge-submission = { workspace = true }
 aijudge-persistence = { workspace = true }
-aijudge-admin = { workspace = true }
+aijudge-course-admin = { workspace = true }
 aijudge-ide = { workspace = true }
 aijudge-webapp = { workspace = true }
