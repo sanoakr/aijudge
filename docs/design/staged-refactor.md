@@ -187,6 +187,10 @@ grader → admin.justification）を列挙して `ignore_imports` に入れ、�
    3-5b `bundles`、3-5c `course_definition`・`course_copy`、3-5d `course_export`、
    3-5e `course_snapshot`（#498 で足したもの）。`course_admin` は `admin` を import
    できないので、依存先が先に移っていないと移せない。**3-5a〜3-5e 済み（3-5 完了）**
+   → **3-5f・3-5g を足した**（計画に無かった残りの業務処理。2026-09-27 にユーザーと決めた）。
+   3-5f は作問の検査（`duplicates`・`solvability`・`task_review`）、3-5g は保存期間と
+   デモ（`activity_purge`・`video_purge`・`demo_seed`・`demo_reset`）。3-5f の前に、
+   #522 で使われなくなった `task_review` の承認・却下の包みを消した（#526）。**3-5f 済み**
    （3-5c では `course_definition` が隣に置いて読む `course_template.yaml` も移した）  
 3-6. 呼び出し側（reviewconsole・grader・admin の CLI）を新しい場所に張り替え、
 再エクスポートと `ignore_imports` を消す。`apps/admin` は CLI だけになる
