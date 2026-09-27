@@ -4452,7 +4452,7 @@ def register(templates) -> APIRouter:
         テストケースの無い課題は正しさの観点が AI 判定に落ちる
         （`TaskSpec.auto_graded`）ので、テスト実行で確定できるはずの科目でも
         全課題が教員の確定待ちになる。生成物は**参照解答と一緒に作らせて門を
-        通し、承認待ちで保存する**（`aijudge_admin.test_cases`）。
+        通し、承認待ちで保存する**（`aijudge_course_admin.test_cases`）。
 
         「自動テストを使わない」を選べば従来どおり ── C の科目にも設計を問う
         記述課題はあり、そこに自動テストを強いる理由が無い。

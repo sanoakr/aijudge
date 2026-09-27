@@ -40,6 +40,8 @@ MOVED_MODULES = (
     "drafting",
     "revision",
     "syllabus",
+    "test_cases",
+    "task_verifier",
 )
 
 
