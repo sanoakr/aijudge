@@ -1,13 +1,25 @@
-"""ドメインイベント。サブシステム間の唯一の結合点（P2）。
+"""ドメインイベント。**後で・別のプロセスで起きてよいこと**をサブシステムに渡す。
 
-    S3 --(SubmissionCreated)--> S5
-    S5 --(GradingCompleted)---> S7, S9
-    S7 --(SkillStateUpdated)--> S8, S2
-    S2 --(TaskPublished)------> S7
-    S8 --(CredentialIssued)---> S9
+    S5 --(GradingCompleted)---> S7      採点の結果から習熟度を動かす（`aijudge-relay`）
+    S3 --(SubmissionCreated)--> なし    outbox に積むが購読者はいない（下記）
+    S7    SkillStateUpdated             習熟度の更新の戻り値。outbox には積まない
 
-イベントは Outbox パターンで PostgreSQL にコミットし、リレーが
-Redis Streams へ流す。購読側は必ず冪等に実装する（`event_id` で重複排除）。
+当初の構想（設計方針 §2.3）では 5 つのイベントでサブシステムを結ぶはずだったが、
+実装は「同じ DB・同じトランザクションで直接書き、遅れてよいことだけをイベントに
+する」に落ち着いた（段階的な立て直し・段階 5）:
+
+- **採点の起動はイベントではなくジョブの表**（`grading_jobs`）。提出と同じ
+  トランザクションで積み、冪等・リトライ・再採点・試験の一括採点の待機を持つ。
+  `SubmissionCreated` は記録として outbox に積むだけで、購読者はいない（運用の
+  outbox に行があるので型は残す）
+- **Q-matrix は課題の保存で DB に直接入る**ので、`TaskPublished`（S2 → S7）は
+  要らなくなった。**証明（S8）はまだ無い**ので `CredentialIssued` も発行されない。
+  この 2 つは一度も作られないまま定義だけが残っていたので、2026-09-28 に消した ──
+  弱い KC を狙う作問や証明を作るときに、**購読者と一緒に**戻す
+
+イベントは Outbox パターンで採点結果と同じトランザクションに書き、リレー
+（`aijudge-relay`）が未送信を読んで同じプロセスの購読者を呼ぶ。購読側は必ず冪等に
+実装する（`event_id` で重複排除）。
 
 ペイロードには集約全体ではなく「購読側が必要とする分だけ」を載せる。
 全部を載せると、コアの変更が全サブシステムの再デプロイを強制するため。
@@ -22,7 +34,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .grading import KcOutcome, Routing
 from .ids import (
-    CredentialId,
     EventId,
     GradingRunId,
     KcId,
@@ -31,7 +42,6 @@ from .ids import (
     TenantId,
     UserId,
 )
-from .knowledge import QMatrixEntry
 from .skill import MasteryModel
 
 SCHEMA_VERSION = 1
@@ -49,7 +59,10 @@ class _Event(BaseModel):
 
 
 class SubmissionCreated(_Event):
-    """S3 → S5。学習者が提出を確定させた（手書きなら書き起こし確定済み）。"""
+    """学習者が提出を確定させた（手書きなら書き起こし確定済み）。
+
+    **購読者はいない。** 採点はジョブの表（`grading_jobs`）で起動する（冒頭）。
+    """
 
     type: Literal["submission.created"] = "submission.created"
     submission_id: SubmissionId
@@ -96,10 +109,12 @@ class GradingCompleted(_Event):
 
 
 class SkillStateUpdated(_Event):
-    """S7 → S8, S2。習熟度が更新された。
+    """習熟度が更新された（`aijudge_skill.SkillService.apply` の戻り値）。
 
-    S2 はこれを購読して「クラスの弱い KC」を狙った作問ができるが、
-    購読しなくても S2 は単独で動く（P2）。
+    **outbox には積まない。** 購読者がいない ── 構想では証明（S8）と「クラスの
+    弱い KC」を狙った作問（S2）が購読するはずだったが、どちらもまだ無い。いまは
+    更新の件数をログに出すのに使う。購読者を作るときに outbox へ積む（P2 ── 積まなく
+    ても S2 は単独で動く）。
     """
 
     type: Literal["skill.state_updated"] = "skill.state_updated"
@@ -111,28 +126,8 @@ class SkillStateUpdated(_Event):
     observation_count: int = Field(ge=0)
 
 
-class TaskPublished(_Event):
-    """S2 → S7。教員レビューを通った TaskVersion が公開され、Q-matrix が増えた。"""
-
-    type: Literal["task.published"] = "task.published"
-    task_version_id: TaskVersionId
-    subject_profile: str = Field(min_length=1)
-    q_matrix: tuple[QMatrixEntry, ...] = ()
-    ai_generated: bool = False
-
-
-class CredentialIssued(_Event):
-    """S8 → S9。証明が発行された。"""
-
-    type: Literal["credential.issued"] = "credential.issued"
-    credential_id: CredentialId
-    learner_id: UserId
-    kc_ids: tuple[KcId, ...] = Field(min_length=1)
-    export: str = Field(min_length=1)
-
-
 DomainEvent = Annotated[
-    SubmissionCreated | GradingCompleted | SkillStateUpdated | TaskPublished | CredentialIssued,
+    SubmissionCreated | GradingCompleted | SkillStateUpdated,
     Field(discriminator="type"),
 ]
 
@@ -141,6 +136,4 @@ EVENT_TYPES: dict[str, type[_Event]] = {
     "submission.created": SubmissionCreated,
     "grading.completed": GradingCompleted,
     "skill.state_updated": SkillStateUpdated,
-    "task.published": TaskPublished,
-    "credential.issued": CredentialIssued,
 }
