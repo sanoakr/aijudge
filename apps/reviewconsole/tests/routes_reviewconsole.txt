@@ -107,7 +107,6 @@ POST /manage/courses/{course_id}/units/{unit}/clear-points aijudge_reviewconsole
 POST /manage/courses/{course_id}/units/{unit}/completion aijudge_reviewconsole.manage:set_unit_completion
 POST /manage/courses/{course_id}/units/{unit}/confidential aijudge_reviewconsole.manage:set_unit_confidential
 POST /manage/courses/{course_id}/units/{unit}/finalize aijudge_reviewconsole.manage:finalize_unit
-POST /manage/courses/{course_id}/units/{unit}/generate aijudge_reviewconsole.manage:generate_task
 POST /manage/courses/{course_id}/units/{unit}/grade-now aijudge_reviewconsole.manage:grade_now
 POST /manage/courses/{course_id}/units/{unit}/number aijudge_reviewconsole.manage:set_unit_number
 POST /manage/courses/{course_id}/units/{unit}/retry-failed aijudge_reviewconsole.manage:retry_failed

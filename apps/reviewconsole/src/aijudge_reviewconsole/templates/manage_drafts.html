@@ -266,6 +266,19 @@
       <input id="g-key" name="key_suffix" required placeholder="draft-1" style="max-width:12rem">
     </div>
   </div>
+  {# **出題先の候補**（#522）。承認のときに変えられる（#84）。問題セットの画面から
+     来たら、そのセットを選んでおく。 #}
+  <div class="field">
+    <label for="g-unit">出題先の候補（任意）{% call help() %}
+      承認するときに変えられます。空のままなら、承認のときに決めます。
+    {% endcall %}</label>
+    <select id="g-unit" name="unit">
+      <option value="">決めない</option>
+      {% for u in units %}
+      <option value="{{ u.unit }}" {{ 'selected' if u.unit == candidate_unit or u.key == candidate_unit }}>{{ u.unit }}{% if u.label != u.unit %} — {{ u.label }}{% endif %}</option>
+      {% endfor %}
+    </select>
+  </div>
   <div class="field row-form">
     <span><label for="g-difficulty">難度</label>
       <select id="g-difficulty" name="difficulty">

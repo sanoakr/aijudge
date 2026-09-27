@@ -4588,7 +4588,6 @@ def register(templates) -> APIRouter:
             status_code=303,
         )
 
-    @router.post("/courses/{course_id}/units/{unit}/generate")
     def generate_task(
         request: Request,
         course_id: str,
@@ -4601,6 +4600,11 @@ def register(templates) -> APIRouter:
         readability_weight: Annotated[str, Form()] = "0.3",
     ) -> Response:
         """AI に課題を 1 つ作らせる。**承認するまで出題されない**（P5）。
+
+        **入口は作問ページ 1 つ**（`POST /drafts/generate`・#522）。以前は問題
+        セットの画面にも生成フォームがあり、入口が 2 つに分かれていた（#84 で作問の
+        区分を作ったあとも残っていた）。`unit` は出題先の**候補**で、承認のときに
+        変えられる。
 
         **KC は登録済みからの選択だけ。** モデルはもっともらしいキーを
         いくらでも作るので、自由入力にすると体系が静かに荒れる
@@ -7420,7 +7424,7 @@ def register(templates) -> APIRouter:
     # ------------------------------------------------------------------
 
     @router.get("/courses/{course_id}/drafts", response_class=HTMLResponse)
-    def draft_queue(request: Request, course_id: str, saved: str = "") -> Response:
+    def draft_queue(request: Request, course_id: str, saved: str = "", unit: str = "") -> Response:
         """レビュー待ちの生成課題。
 
         **科目プロファイルと違い、ここはブラウザから触ってよい**（ADR 0002）。
@@ -7492,8 +7496,10 @@ def register(templates) -> APIRouter:
                     for group in _units_of(console, course)
                     if group.unit
                 ],
-                # ここからも作れる（#84）。**入口は 2 つ、作り方は 1 つ。**
+                # AI 作問の入口はここだけ（#522）。問題セットの画面から来たら、
+                # そのセットを出題先の候補に選んでおく（`?unit=`）。
                 "kcs": _course_kcs(console, course),
+                "candidate_unit": unit,
                 "difficulties": [d.value for d in Difficulty],
                 "saved": SAVED_MESSAGES.get(saved),
                 "saved_key": saved,
@@ -7510,18 +7516,19 @@ def register(templates) -> APIRouter:
         instructions: Annotated[str, Form()] = "",
         test_cases: Annotated[str, Form()] = "5",
         readability_weight: Annotated[str, Form()] = "0.3",
+        unit: Annotated[str, Form()] = "",
     ) -> Response:
-        """問題セットを決めずに作る（#84）。
+        """AI に課題を作らせる。**AI 作問の入口はここだけ**（#522）。
 
-        **出題先は承認のときに決める。** 使えるかどうかは作ってみないと
-        分からないので、決めてから却下すると、そのセットの一覧に残骸が並ぶ。
-        中身は問題セットからの生成と同じ経路を通る ── 入口が 2 つあっても、
-        作り方は 1 つでなければならない。
+        **出題先は承認のときに決める**（#84）。`unit` は候補で、空なら決めない。
+        使えるかどうかは作ってみないと分からないので、先に決めて却下すると、
+        そのセットの一覧に残骸が並ぶ。問題セットの画面からは、そのセットを候補に
+        選んだ状態でここへ来る（`?unit=`）。
         """
         return generate_task(
             request,
             course_id,
-            "",
+            unit,
             key_suffix=key_suffix,
             kc=kc,
             difficulty=difficulty,
