@@ -169,7 +169,11 @@ class SyllabusProposal(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     course: CourseHint = CourseHint()
-    knowledge_components: tuple[KcHint, ...] = ()
+    # **既定値を持たせない**（#496）。既定があると JSON Schema の必須に入らず、
+    # 出力を Schema で縛るモデル（ollama の `format`）には空の `{}` も正しい答えに
+    # なる。小さいモデルはしばしばそれを返し、「候補 0 件」として黙って通っていた。
+    # 必須にすれば、無いときは空の配列を**書かせる**ことになる。
+    knowledge_components: tuple[KcHint, ...]
 
 
 class CourseBasics(BaseModel):
@@ -230,7 +234,10 @@ PROMPT = PromptTemplate(
     #    提案させず、`existing` の一覧から選ばせる。語彙は骨格（`kc seed`）で
     #    決まり、教員が画面から増やす経路は無くした ── 増やせると同じ概念が
     #    別のキーで二重に登録され、Q-matrix が割れる。
-    version="6",
+    # 7: 文面は同じ。返り値の `knowledge_components` を必須にした（#496）──
+    #    必須でないと Schema が空の `{}` を許し、小さいモデルがそれを返して
+    #    候補が 0 件になった（運用機の gemma4:e4b で再現）。出力が変わるので上げる。
+    version="7",
     system=(
         "あなたは大学の理工系コースのシラバスや課題文を読み、"
         "そこで扱う知識要素を**登録済みの一覧から選ぶ**助手です。"
@@ -378,19 +385,178 @@ def _screen(
     return proposal.model_copy(update={"knowledge_components": tuple(kept)}), tuple(dropped)
 
 
+# --------------------------------------------------------------------------
+# 課題 1 問の知識要素（#496）
+# --------------------------------------------------------------------------
+
+TASK_KC_PROMPT = PromptTemplate(
+    name="task_to_kcs_ja",
+    # 文面を変えたら必ず版を上げる（P8）。
+    #
+    # 1: シラバス用の指示文（`PROMPT`）を流用していたのを分けた（#496）。
+    #    あちらは「コースが扱う範囲」を訊く文面で、課題 1 問が何を問うかを
+    #    判断させる言い方になっていない。一覧はキーだけで名前が無く、参照解答も
+    #    いま付いているものも渡していなかった ── 削除の候補は出しようが無い。
+    version="1",
+    system=(
+        "あなたはプログラミング演習の課題を読み、その課題を解くために学習者が使う"
+        "知識要素を、登録済みの一覧から選ぶ助手です。"
+        "**一覧に無い知識要素は作りません。** 課題文と参照解答に無いことは足しません。"
+    ),
+    template=(
+        "## 登録済みの知識要素（キー — 名前）\n{existing}\n"
+        "**キーは上の一覧のものを一字も変えずにそのまま書きます。**\n\n"
+        "## 課題文\n{text}\n\n"
+        "## 参照解答（解き方の一例）\n```\n{solution}\n```\n\n"
+        "## いまこの課題に付いている知識要素\n{current}\n\n"
+        "## すること\n"
+        "1. used: 課題文と参照解答を読み、**この課題を解くのに学習者が実際に使う**"
+        "知識要素を一覧から選びます。evidence には、課題文か参照解答のどこ"
+        "（構文・関数・処理）に現れるかを短く書きます。中心になるものから順に、"
+        "多くても {limit} 件。`#include`、`main` 関数の枠、`return 0;` のような、"
+        "**どの課題にも現れる定型は挙げません**。\n"
+        "2. not_used_among_current: 「いま付いている知識要素」のうち、この課題では"
+        "使わないものと、その理由。**used に入れたものは入れません。**"
+        "無ければ空の配列にします。\n"
+    ),
+)
+
+#: 追加の候補の上限。多いと、課題が問う中心がどれか読めなくなる。
+MAX_TASK_KCS = 6
+
+
+class KcUse(BaseModel):
+    """この課題が使う知識要素と、その根拠（P4: 根拠 → 判定）。"""
+
+    model_config = ConfigDict(extra="ignore")
+
+    key: str = Field(min_length=1, max_length=200)
+    evidence: str = Field(max_length=500)
+
+
+class KcNotUsed(BaseModel):
+    """いま付いているが、この課題では使わない知識要素と、その理由。"""
+
+    model_config = ConfigDict(extra="ignore")
+
+    key: str = Field(min_length=1, max_length=200)
+    reason: str = Field(max_length=500)
+
+
+class TaskKcSelection(BaseModel):
+    """モデルに返させる形。**どちらも必須**（`SyllabusProposal` と同じ理由・#496）。"""
+
+    model_config = ConfigDict(extra="ignore")
+
+    used: tuple[KcUse, ...]
+    not_used_among_current: tuple[KcNotUsed, ...]
+
+
+@dataclass(frozen=True)
+class TaskKcResult:
+    """課題 1 問の知識要素の候補。**付け外しは教員が決める**（P5）。"""
+
+    add: tuple[KcUse, ...]
+    remove: tuple[KcNotUsed, ...]
+    discarded: tuple[DiscardedCandidate, ...]
+    prompt_id: str
+    model: str
+
+
+class TaskKcReader:
+    """課題文と参照解答から、その課題が使う知識要素を選ばせる（#496）。"""
+
+    def __init__(
+        self,
+        gateway: LlmGateway | None = None,
+        *,
+        model: str | None = None,
+        max_tokens: int = 3072,
+    ) -> None:
+        self._gateway = gateway or default_gateway()
+        self._model = model or default_model()
+        self._max_tokens = max_tokens
+
+    def select(
+        self,
+        statement: str,
+        *,
+        vocabulary: dict[str, str],
+        current: tuple[str, ...] = (),
+        reference_solution: str | None = None,
+    ) -> TaskKcResult:
+        """`vocabulary`（キー → 名前）が**選べる全部**。`current` はいま付いているもの。
+
+        一覧に無いキーは落とし、落としたことを返す（`_screen` と同じ関門）。
+        削除の候補は `current` にあるものだけ ── 付いていないものを外せとは言わない。
+        """
+        result = self._gateway.complete_structured(
+            TASK_KC_PROMPT,
+            TaskKcSelection,
+            model=self._model,
+            # 課題文と参照解答は教員が書いたもの。学習者のデータは含まない（P7）。
+            data_class=DataClass.NON_PERSONAL,
+            max_tokens=self._max_tokens,
+            existing="\n".join(f"- {key} — {label}" for key, label in vocabulary.items())
+            or "（まだありません）",
+            text=statement[:20000],
+            solution=(reference_solution or "").strip()[:20000] or "（なし）",
+            current="\n".join(f"- {key}" for key in current) or "（なし）",
+            limit=MAX_TASK_KCS,
+        )
+        add: list[KcUse] = []
+        discarded: list[DiscardedCandidate] = []
+        for use in result.value.used:
+            key = use.key.strip()
+            if key in vocabulary:
+                if key not in {a.key for a in add}:
+                    add.append(use.model_copy(update={"key": key}))
+                continue
+            reason = (
+                "キーの形が正しくありません"
+                if not is_valid_kc_key(key)
+                else "このコースの知識要素にありません（一覧にあるものだけを使います）"
+            )
+            discarded.append(DiscardedCandidate(key=use.key, reason=reason))
+        # **使うと言ったものは外させない。** 小さいモデルは「いま付いているもの」を
+        # 両方の欄に写すことがある（運用機・gemma4:e4b で ex01-1 の「コンパイルと
+        # リンク」を使う・使わないの両方に挙げた）。根拠つきで使うと言ったものに
+        # 「外せ」を並べると、教員はどちらを信じるかで迷う。
+        used_keys = {use.key.strip() for use in result.value.used}
+        remove = tuple(
+            gone.model_copy(update={"key": gone.key.strip()})
+            for gone in result.value.not_used_among_current
+            if gone.key.strip() in current and gone.key.strip() not in used_keys
+        )
+        return TaskKcResult(
+            add=tuple(add[:MAX_TASK_KCS]),
+            remove=remove,
+            discarded=tuple(discarded),
+            prompt_id=TASK_KC_PROMPT.id,
+            model=self._model,
+        )
+
+
 __all__ = [
     "DOCUMENT_SUFFIXES",
     "MAX_SYLLABUS_BYTES",
+    "MAX_TASK_KCS",
     "SYLLABUS_EXAMPLE",
     "SYLLABUS_URL_TEMPLATE",
+    "TASK_KC_PROMPT",
     "CourseBasics",
     "CourseHint",
     "DiscardedCandidate",
     "KcHint",
+    "KcNotUsed",
+    "KcUse",
     "ProposalResult",
     "SyllabusError",
     "SyllabusProposal",
     "SyllabusReader",
+    "TaskKcReader",
+    "TaskKcResult",
+    "TaskKcSelection",
     "deep_link",
     "read_document",
     "to_markdown",

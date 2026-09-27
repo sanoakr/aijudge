@@ -98,6 +98,7 @@ from aijudge_admin.syllabus import (
     MAX_SYLLABUS_BYTES,
     SyllabusError,
     SyllabusReader,
+    TaskKcReader,
     read_document,
     to_markdown,
 )
@@ -5460,8 +5461,10 @@ def register(templates) -> APIRouter:
             status_code=303,
         )
 
-    def _kc_candidates_for(console, course, statement: str) -> dict:
-        """問題文から、その課題が問う知識要素の候補を AI に出させる（#292）。
+    def _kc_candidates_for(
+        console, course, statement: str, *, current: tuple[str, ...], reference_solution
+    ) -> dict:
+        """問題文と参照解答から、その課題の知識要素の**追加と削除の候補**を出す（#496）。
 
         **選ばせるのはコースが使っている知識要素だけ**（#318）。以前は科目の
         名前空間にある語彙すべてから選ばせ、「このコースでは未使用のもの」も
@@ -5469,39 +5472,52 @@ def register(templates) -> APIRouter:
         直すつもりの操作でコースの設定が変わる**。コースに何を置くかは
         `/manage/courses/{id}/kc` で決めることで、課題の編集の副作用にしない。
 
-        シラバスから候補を出す経路（`SyllabusReader.propose`）をそのまま使う
-        ── 関門を 1 つに保つため。候補は登録済みの語彙からだけ来る（2026-09-13
-        決定）。
+        以前はシラバス用の読み手（`SyllabusReader.propose`）を流用していた。返り値が
+        空の `{}` を許し、名前の無いキーだけを渡し、参照解答もいま付いているものも
+        渡していなかったので、当てはまる課題でも 0 件になった（prog2 ex2）。
+        課題 1 問向けの読み手（`TaskKcReader`）にし、削除の候補も出す。
         """
         profile = load_profile(console.profiles_dir / f"{course.subject_profile}.yaml")
         namespaces = allowed_namespaces(profile)
         vocabulary = list_for_namespaces(console.database, namespaces, include_deprecated=False)
+        known = {kc.key for kc in vocabulary}
         # **このコースが使うものだけを見せる。** 語彙の全体を渡すと、その中から
-        # 選ばれてしまう。
+        # 選ばれてしまう。名前も渡す ── キーだけでは日本語の課題文と突き合わない。
         in_course = {
             kc.key: kc.label for kc in vocabulary if kc.key in set(course.knowledge_components)
         }
         try:
-            result = SyllabusReader().propose(
-                statement, namespaces=namespaces, existing_keys=tuple(in_course)
+            result = TaskKcReader().select(
+                statement,
+                vocabulary=in_course,
+                current=current,
+                reference_solution=reference_solution,
             )
         except Exception as exc:  # 生成の失敗は運用の事象。理由を画面に返す。
             raise HTTPException(status_code=502, detail=f"候補を作れませんでした: {exc}") from exc
         suggested = [
-            {"key": hint.key, "label": in_course.get(hint.key, hint.label)}
-            for hint in result.proposal.knowledge_components
-            if hint.key in in_course
+            {
+                "key": use.key,
+                "label": in_course.get(use.key, use.key),
+                "evidence": use.evidence,
+                "attached": use.key in current,
+            }
+            for use in result.add
         ]
-        # コースの外から出てきた候補は落とす。**黙って落とさない** ── 件数と
-        # 理由を出し、足したいならコースの知識要素で足す、と言えるようにする。
-        outside = [
-            hint.key for hint in result.proposal.knowledge_components if hint.key not in in_course
+        remove = [
+            {"key": gone.key, "label": in_course.get(gone.key, gone.key), "reason": gone.reason}
+            for gone in result.remove
         ]
+        # コースの外（語彙には登録済み）から出てきた候補は、コースに足す導線を出す。
+        # **黙って落とさない** ── 件数と理由を出し、足したいならコースの知識要素で足す。
+        outside = [d.key for d in result.discarded if d.key.strip() in known]
+        discarded = [d for d in result.discarded if d.key.strip() not in known]
         return {
             "suggested": suggested,
+            "remove": remove,
             "outside": outside,
-            "discarded": result.discarded,
-            "empty": not result.proposal.knowledge_components,
+            "discarded": discarded,
+            "empty": not result.add and not result.remove,
         }
 
     @router.post("/courses/{course_id}/tasks/{task_id}/kc-candidates", response_class=HTMLResponse)
@@ -5535,7 +5551,15 @@ def register(templates) -> APIRouter:
             version=version,
             statement=statement,
             chosen_kcs=chosen,
-            kc_candidates=_kc_candidates_for(console, course, statement),
+            kc_candidates=_kc_candidates_for(
+                console,
+                course,
+                statement,
+                # **いま画面で選んでいるもの**（保存済みではなく）。削除の候補は
+                # これに対して出す ── 教員が付け外しを試している途中でもよい。
+                current=chosen,
+                reference_solution=version.reference_solution,
+            ),
         )
 
     @router.post("/courses/{course_id}/tasks/{task_id}/test-cases/edit")
