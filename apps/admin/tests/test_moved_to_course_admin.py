@@ -55,6 +55,8 @@ MOVED_MODULES = (
     "authoring",
     "bundle_plan",
     "bundles",
+    "course_definition",
+    "course_copy",
 )
 
 
