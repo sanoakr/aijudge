@@ -3,7 +3,7 @@
 生成物だけを数える    手書きの課題を分母に入れると承認率がいくらでも高く出る。
 測れていないは合格でない ADR 0005 と同じ規則を作問にも当てる。
 
-承認・却下の規則（`record_review`）は `packages/authoring/tests/test_review_state_rules.py`。
+レビュー状態の規則は `packages/authoring/tests/test_review_state_rules.py`。
 """
 
 from __future__ import annotations
