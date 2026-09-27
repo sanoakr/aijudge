@@ -20,6 +20,7 @@ from pathlib import Path
 from .base import LocalSandboxBase, Workspace
 from .types import (
     ExecRequest,
+    ExecResult,
     Isolation,
     Limitation,
     Limits,
@@ -218,10 +219,41 @@ CONTAINER_CPUS = 1.0
 # 後始末（`docker rm -f`）を待つ上限。デーモンが詰まっていても採点を止めない。
 RELEASE_TIMEOUT_SECONDS = 30.0
 
+# **実時間の上限はコンテナの中で掛ける**（#489）。以前は `docker run` の
+# クライアントに掛けていたので、コンテナの起動にかかった時間まで提出物の
+# 持ち時間に数えていた。起動が遅れると正しい提出が時間切れになる ──
+# CI で 4 つのテストが同時にコンテナを起動したら、同じ模範解答が 1 回目は
+# 0.8、2 回目は 1.0 になった（5 ケース中 1 ケースが上限 2 秒を超えた）。
+# 運用機の gVisor は起動が runc より重く、締切前や試験で提出が集中すると
+# 同じことが起こりうる。
+#
+# coreutils の `timeout` を使う。上限で SIGTERM を送り、無視されたら
+# `TIMEOUT_KILL_AFTER_SECONDS` 後に SIGKILL。前者の終了コードは 124、
+# 後者は 137（SIGKILL。これは前から時間切れに分類している）。
+# **イメージに `timeout` が要る**（Debian 系の公式イメージには入っている）。
+# 無ければ起動時の検査（`_verify_mount`）で使えないと申告する。
+IN_CONTAINER_TIMEOUT = "timeout"
+TIMEOUT_EXIT_CODE = 124
+TIMEOUT_KILL_AFTER_SECONDS = 1
+# クライアントを待つ時間の、実時間の上限への上乗せ。コンテナの起動と後始末の
+# ぶんで、ふだんは 1 秒に満たない。**持ち時間ではなく歯止め**である ──
+# 提出物は中の `timeout` で止まるので、これが効くのはデーモンが詰まったとき
+# だけ（そのときは #410 の後始末でコンテナを名指しで止める）。
+STARTUP_ALLOWANCE_SECONDS = 15.0
+
 # マウント検証に使う目印。中身まで一致を見るのは、
 # 「ディレクトリは見えるが中身が古い」構成（キャッシュされた共有）も落とすため。
 _MOUNT_PROBE = "aijudge-mount-probe"
 _MOUNT_TOKEN = "mounted"
+
+
+def _lacks_timeout(result: ExecResult) -> bool:
+    """イメージに `timeout` が無くて、何も起動できなかったか。
+
+    docker は起動できないコマンドを 127 で返し、理由を stderr に書く
+    （`exec: "timeout": executable file not found in $PATH`）。
+    """
+    return result.exit_code == 127 and IN_CONTAINER_TIMEOUT in result.stderr
 
 
 class DockerSandbox(LocalSandboxBase):
@@ -242,6 +274,8 @@ class DockerSandbox(LocalSandboxBase):
     # コンテナの中は --user=65534:65534（nobody）で動く。ホストの作成者 uid
     # にしか開いていない作業域では読み書きできない。
     world_writable_workspace = True
+    # 実時間の上限は中の `timeout` が掛ける。外はその上に起動の余裕を見る（#489）。
+    startup_allowance_seconds = STARTUP_ALLOWANCE_SECONDS
 
     def __init__(
         self,
@@ -297,6 +331,12 @@ class DockerSandbox(LocalSandboxBase):
                     limits=Limits(cpu_seconds=10, wall_seconds=60.0),
                 )
             )
+            if _lacks_timeout(result):
+                raise SandboxUnavailable(
+                    f"the image {self._image} has no `{IN_CONTAINER_TIMEOUT}` (coreutils), "
+                    f"which enforces the wall-clock limit inside the container. Without it "
+                    f"no submission can run at all. Use an image that ships coreutils."
+                )
             visible = result.ok and result.stdout.strip() == _MOUNT_TOKEN
 
             # 書き込みも確かめる。コンパイル結果を置けなければ採点できない。
@@ -325,6 +365,14 @@ class DockerSandbox(LocalSandboxBase):
                 f"container, so a compiled submission has nowhere to go. "
                 f"Probe said: {written.stderr.strip()[:200]!r}"
             )
+
+    def timed_out_inside(self, code: int) -> bool:
+        """中の `timeout` が上限で止めたか。
+
+        提出が自分で `exit(124)` した場合と区別できないが、`decode_signal` の
+        137 と同じく、どちらにしても `ok` は偽で、取り違えの害は小さい。
+        """
+        return code == TIMEOUT_EXIT_CODE
 
     def decode_signal(self, code: int) -> str | None:
         """`docker run` の終了コードからシグナル名を引く。
@@ -392,6 +440,14 @@ class DockerSandbox(LocalSandboxBase):
         for key, value in request.env.items():
             command.append(f"--env={key}={value}")
         command.append(self._image)
+        # 実時間の上限は中で掛ける。起動の時間を持ち時間に数えない（#489）。
+        command.extend(
+            [
+                IN_CONTAINER_TIMEOUT,
+                f"--kill-after={TIMEOUT_KILL_AFTER_SECONDS}",
+                f"{limits.wall_seconds}s",
+            ]
+        )
         command.extend(argv)
 
         # docker クライアント自身の環境。中に渡るのは --env で明示した分だけ。
