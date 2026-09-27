@@ -171,6 +171,10 @@ grader → admin.justification）を列挙して `ignore_imports` に入れ、�
    足した。残る `grading_settings`・`tasks`・`courses`・`operations` は `Database` を
    受けて `unit_of_work()` を開くだけなので、引数の型を `Store` にすれば移せる。
    置き場所は `UnitOfWork` の隣（2026-09-27 にユーザーと決めた）  
+   → **3-3d 済み**: `grading_settings`・`tasks`・`courses` を移し、`database` 引数の型を
+   `Store` にした（名前は変えないので呼び出し側はそのまま）。`grading_settings` の
+   試走の課題選びは「見つからなければ None」を 1 つの値で返す形にした（`(None, None)`
+   では版が無いときに課題も無いことが型に出ない）。残る 3-3 は `operations`  
 3-4. `finalization`（**import 契約 `grades-do-not-read-activity`・
 `grades-cannot-reach-activity-flags` と `test_boundaries` の名前を同時に書き換える**）→ `kc`  
 3-5. `authoring` → `bundle_plan`, `bundles`, `course_copy`, `course_definition`  

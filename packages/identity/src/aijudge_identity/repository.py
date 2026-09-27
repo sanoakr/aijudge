@@ -124,7 +124,7 @@ class IdentityRepository(Protocol):
     def delete_course(self, course_id: CourseId) -> None:
         """コースと、その受講登録を消す（#156）。
 
-        **提出が無いことは呼び出し側が確かめる**（`aijudge_admin.courses`）。
+        **提出が無いことは呼び出し側が確かめる**（`aijudge_course_admin.courses`）。
         保存層は言われたものを消す ── 規則の置き場所を 1 つにするため
         （`delete_task` と同じ分担）。
 

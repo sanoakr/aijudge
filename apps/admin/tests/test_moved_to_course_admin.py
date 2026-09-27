@@ -45,6 +45,9 @@ MOVED_MODULES = (
     "rubric",
     "profiles",
     "groups",
+    "grading_settings",
+    "tasks",
+    "courses",
 )
 
 

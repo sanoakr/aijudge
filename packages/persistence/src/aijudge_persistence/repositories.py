@@ -405,7 +405,7 @@ class SqlSubmissionRepository:
 
         **提出を消す経路はここだけ。** コースを丸ごと消すときにしか通らない
         （学習者の提出があるコースは消せないので、届くのは教員の動作確認＝
-        trial だけ・`aijudge_admin.courses`）。
+        trial だけ・`aijudge_course_admin.courses`）。
 
         **提出を指す表を数え漏らすと、存在しない提出を指す行が残る。**
         `submission_id` を持つ表を足したら、ここにも足すこと ──
@@ -1494,7 +1494,7 @@ class SqlTaskRepository:
         版を指す行が溜まる。
 
         ここに「提出があるなら消さない」を書かないのは、**規則の置き場所を
-        1 つにする**ため（`aijudge_admin.tasks.delete`）。保存層は言われた
+        1 つにする**ため（`aijudge_course_admin.tasks.delete`）。保存層は言われた
         ものを消す。
         """
         version_ids = [

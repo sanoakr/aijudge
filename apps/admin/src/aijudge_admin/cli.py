@@ -300,7 +300,7 @@ def _confirmed(question: str) -> bool:
 def cmd_course_delete(args: argparse.Namespace) -> int:
     """コースを消す（#156）。
 
-    **規則は `aijudge_admin.courses` にある。** ここで「提出があれば消さない」
+    **規則は `aijudge_course_admin.courses` にある。** ここで「提出があれば消さない」
     を書き直さない ── 画面（`/manage`）と CLI の両方から使うので、どちらが
     正しいかを問わずに済むよう 1 か所に置いてある。
 
@@ -1158,7 +1158,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     course.add_parser("list", help="一覧").set_defaults(func=cmd_course_list)
     # 削除は**課題があっても消えるが、学習者の提出があれば消えない**
-    # （`aijudge_admin.courses`）。画面にも同じ操作がある（#156）。
+    # （`aijudge_course_admin.courses`）。画面にも同じ操作がある（#156）。
     course_delete = course.add_parser(
         "delete", help="消す（学習者の提出が 1 件でもあれば消さない）"
     )

@@ -6861,7 +6861,7 @@ def test_the_unit_page_states_the_breakdown_before_it_is_pressed(world: World) -
 
 
 def test_clearing_a_unit_deletes_what_is_unused(world: World) -> None:
-    """規則は `aijudge_admin.tasks` に置いてあり、画面はそれを呼ぶだけ。"""
+    """規則は `aijudge_course_admin.tasks` に置いてあり、画面はそれを呼ぶだけ。"""
     from aijudge_core.ids import TaskId
     from aijudge_reviewconsole.overview import unit_key
 
