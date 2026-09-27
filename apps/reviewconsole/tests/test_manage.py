@@ -6848,6 +6848,26 @@ def test_a_task_cannot_be_moved_to_where_it_already_is(world: World) -> None:
     assert response.status_code == 409
 
 
+def test_the_unit_list_shows_each_task_key(world: World) -> None:
+    """**一覧にキーを出す**（#543）。題名は見出しが無ければキーで代用されるので、
+    題名だけでは付け替わったかが読めない（2026-09-27 の `test4/echoClient`）。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    _add_task(client, str(world.course.id), "test4", "echoClient")
+    body = client.get(f"/manage/courses/{world.course.id}/units/test4").text
+    assert "課題キー" in body
+    assert '<td class="fit mono task-key">test4/<wbr>echoClient</td>' in body
+
+    with world.database.unit_of_work() as uow:
+        task = uow.tasks.list_for_course(world.course.id)[0]
+    client.post(
+        f"/manage/courses/{world.course.id}/tasks/{task.id}/unit",
+        data={"unit": "test5", "name": "echoClient"},
+    )
+    moved = client.get(f"/manage/courses/{world.course.id}/units/test5").text
+    assert '<td class="fit mono task-key">test5/<wbr>echoClient</td>' in moved
+
+
 def test_the_move_form_offers_the_current_unit_for_a_rename(world: World) -> None:
     """**同じセットのまま名前だけ変えられる。** いまのセットも選択肢に出し、
     名前の欄にはいまの名前（頭を外したもの）を入れておく。"""
