@@ -25,6 +25,11 @@ WALL = 1.0
 class SlowToStart(LocalSandboxBase):
     """起動に `STARTUP_SECONDS` かかってから argv を動かす包み方。"""
 
+    # **ホスト側の rlimit を掛けない**（`DockerSandbox` と同じ）。包むのは提出物では
+    # なくランタイムの役で、子プロセスを作る。`RLIMIT_NPROC` は利用者単位で数えるので、
+    # テストを並列に流すと包みが fork できずに落ちた（CI・#493 の初回）。
+    apply_host_rlimits = False
+
     def __init__(self, allowance: float) -> None:
         self.startup_allowance_seconds = allowance
 
