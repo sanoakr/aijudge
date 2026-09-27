@@ -1972,17 +1972,26 @@ def test_kc_candidates_come_from_the_courses_own_components(world: World, monkey
 
     落としたものは黙って消さず、件数と行き先（コースの知識要素で足す）を言う。
     """
+    from aijudge_admin.syllabus import DiscardedCandidate, TaskKcResult
+
     world.register("teacher", Role.INSTRUCTOR)
     task_id = _import_example(world)
+    # 語彙には登録済み、このコースでは使っていない知識要素。
     monkeypatch.setattr(
-        "aijudge_reviewconsole.manage.SyllabusReader.propose",
-        lambda self, text, *, namespaces, existing_keys: SimpleNamespace(
-            proposal=SimpleNamespace(
-                knowledge_components=(
-                    SimpleNamespace(key="cs.loops.termination", label="ループの停止"),
-                )
-            ),
-            discarded=(),
+        "aijudge_reviewconsole.manage.list_for_namespaces",
+        lambda database, namespaces, include_deprecated: [
+            SimpleNamespace(key="cs.loops.termination", label="ループの停止")
+        ],
+    )
+    monkeypatch.setattr(
+        "aijudge_reviewconsole.manage.TaskKcReader.select",
+        lambda self, statement, *, vocabulary, current, reference_solution: TaskKcResult(
+            add=(),
+            remove=(),
+            # 読み手の関門（一覧＝コースの知識要素にだけ）が落としたもの。
+            discarded=(DiscardedCandidate(key="cs.loops.termination", reason="コースに無い"),),
+            prompt_id="task_to_kcs_ja@1",
+            model="test",
         ),
     )
 

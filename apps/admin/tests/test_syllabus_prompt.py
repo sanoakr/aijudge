@@ -47,7 +47,15 @@ def test_the_prompt_asks_to_choose_from_the_list_and_never_to_invent() -> None:
 
 def test_the_version_moved_with_the_wording() -> None:
     """文面を変えたら版を上げる（P8）。候補の出所を後から辿るため。"""
-    assert PROMPT.version == "6"
+    assert PROMPT.version == "7"
+
+
+def test_an_empty_object_is_not_a_valid_answer() -> None:
+    """候補の欄は**必須**（#496）。既定値があると Schema が空の `{}` を許し、
+    小さいモデルがそれを返して「候補 0 件」として黙って通っていた。"""
+    from aijudge_admin.syllabus import SyllabusProposal
+
+    assert "knowledge_components" in SyllabusProposal.model_json_schema()["required"]
 
 
 def test_the_existing_keys_reach_the_prompt() -> None:

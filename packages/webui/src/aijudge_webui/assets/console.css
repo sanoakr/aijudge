@@ -573,6 +573,15 @@ form.settings .deskbar{margin:0 -22px;padding:10px 22px}
 .settings-group .help{margin-left:6px}
 .help-body ul.evaluators{margin:0 0 6px;padding-left:1.2em}
 
+/* 知識要素の AI の候補（#496）。追加の候補は根拠を添え、削除の候補は理由を添える。 */
+.kc-cand-head{margin:10px 0 4px;font-size:.82rem;font-weight:700;color:var(--ink)}
+.kc-cand{display:grid;grid-template-columns:auto auto minmax(0,1fr);gap:0 8px;align-items:baseline}
+.kc-cand .kc-why{grid-column:2 / -1}
+.kc-cand.attached{padding-left:1.6rem}
+.kc-why{display:block;font-size:.78rem;color:var(--ink-2)}
+.kc-remove{margin:0;padding-left:1.2em}
+.kc-remove li{margin:2px 0}
+
 /* 問題のページの「操作」（2026-09-27）。**1 行 1 操作**で、左が何をするか、右が押すもの。
    以前は操作ごとにカードと朱の大きなボタンがあり、縦に長く、どれも同じ重さに見えた。
    入力の要る操作は `details.op-more` で、開いたときだけ欄を出す。 */

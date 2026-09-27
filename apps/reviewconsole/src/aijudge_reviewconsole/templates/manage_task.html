@@ -420,19 +420,45 @@
      範囲にも入るので、コース外から選べると**課題を直すつもりの操作でコースの
      設定が変わる**。 #}
   <div class="note" style="margin-top:12px">
-    <strong>AI の候補</strong> ── 印を付けて「この問題を保存して更新する」で付きます。
+    <strong>AI の候補</strong> ── 問題文と参照解答から読みました。付け外しは印で決め、
+    「この問題を保存して更新する」で反映します。
     {% if kc_candidates.empty %}<br>候補はありませんでした（問題文が知識要素を 1 つも扱っていないと読まれました）。{% endif %}
     {% if kc_candidates.suggested %}
-    <div class="kcpick" style="margin-top:8px">
+    <p class="kc-cand-head">追加の候補（この課題を解くのに使うもの）</p>
+    {# **根拠を添える**（P4）。「なぜこれか」が無いと、教員は候補を 1 件ずつ
+       問題文と照らし直すことになる。 #}
+    <div class="kcpick">
       {% for c in kc_candidates.suggested %}
-      <label>
-        <input type="checkbox" name="kc" value="{{ c.key }}" {{ 'checked' if c.key in chosen_kcs }}>
+      {% if c.attached %}
+      <div class="kc-cand attached">
         <span class="k">{{ c.key }}</span>
-        <span class="desc">{{ c.label }}{% if c.key in chosen_kcs %} · 既に付いています{% endif %}</span>
+        <span class="desc">{{ c.label }} · 既に付いています</span>
+        <span class="kc-why">{{ c.evidence }}</span>
+      </div>
+      {% else %}
+      <label class="kc-cand">
+        <input type="checkbox" name="kc" value="{{ c.key }}">
+        <span class="k">{{ c.key }}</span>
+        <span class="desc">{{ c.label }}</span>
+        <span class="kc-why">{{ c.evidence }}</span>
       </label>
+      {% endif %}
       {% endfor %}
     </div>
-    {% elif not kc_candidates.empty %}
+    {% endif %}
+    {# **削除の候補は印を置かない。** 外すのは上の一覧の印で ── 同じ値のチェック欄が
+       2 つあると、片方だけ外しても送られる値が残る。 #}
+    {% if kc_candidates.remove %}
+    <p class="kc-cand-head">削除の候補（いま付いているが、この課題では使わないもの）</p>
+    <ul class="kc-remove">
+      {% for c in kc_candidates.remove %}
+      <li><span class="mono">{{ c.key }}</span> <span class="desc">{{ c.label }}</span>
+        <span class="kc-why">{{ c.reason }}</span></li>
+      {% endfor %}
+    </ul>
+    <p class="desc" style="margin:4px 0 0">外すなら、上の「いま付いている知識要素」で印を外してから保存してください。</p>
+    {% endif %}
+    {% if not kc_candidates.empty and not kc_candidates.suggested and not kc_candidates.remove %}
     <br>このコースが使っている知識要素の中には、当てはまるものがありませんでした。
     {% endif %}
     {% if kc_candidates.outside %}
