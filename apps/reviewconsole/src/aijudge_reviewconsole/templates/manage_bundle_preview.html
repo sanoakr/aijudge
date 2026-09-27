@@ -51,16 +51,12 @@
       action="{{ root_prefix() }}/manage/courses/{{ course.id }}/units/{{ unit.key }}/bundle/confirm"
       class="card">
   <input type="hidden" name="specs" value="{{ payload }}">
-  <div class="field">
-    <label><input type="checkbox" name="approved" value="1"> 承認済みとして取り込む</label>
-    <p class="desc" style="margin-top:6px">
-      既定は<strong>未承認</strong>です — 中身は他所で書かれたもので、この画面で
-      まだ誰も読んでいません。未承認のあいだ学習者には出ません（「未承認の課題（AI 作問）」から
-      中身を確かめて承認してください）。
-      <strong>以前この科目で使っていた課題を戻す場合</strong>のように、内容が
-      分かっているものだけチェックしてください。
-    </p>
-  </div>
+  {# **承認済みで入る**（#522）。人が書いたものは、どの経路でも承認済みで入る。
+     承認が要るのは AI の生成物だけ（設計原則 P5）。 #}
+  <p class="desc">
+    取り込んだ課題は、画面から作った課題と同じく<strong>そのまま出題されます</strong>（日程の範囲で）。
+    まだ出したくないときは、取り込んだあとに問題セットの日程を空けるか、課題を取り下げてください。
+  </p>
   <div class="actions">
     <a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/units/{{ unit.key }}" class="desc">やめる</a>
     <button type="submit">この内容で取り込む</button>
