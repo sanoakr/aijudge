@@ -251,7 +251,7 @@ uv run aijudge-admin course apply --file network/2026/course.yaml
 ```
 
 The format is described at the top of
-`apps/admin/src/aijudge_admin/course_definition.py`; `subjects/demo/course.yaml`
+`packages/course_admin/src/aijudge_course_admin/course_definition.py`; `subjects/demo/course.yaml`
 (the try-it course) is written in it.
 
 The same tree can be written back out, so that the file — not the database —
@@ -421,11 +421,13 @@ are enforced by `import-linter` and fail the build, not the review.
 | `packages/ide` | The browser editor: run requests, autosave, the activity record and its checks. Never runs code. |
 | `packages/webui` | The shared look of the web screens: one stylesheet, one theme switch. Both apps read it. |
 | `packages/webapp` | Parts both web apps share (footer version and copyright, the link to the other app, video streaming). Only the apps may import it. |
+| `packages/unit_of_work` | The unit-of-work protocols over all repositories (`UnitOfWork`, `StoreUnitOfWork`, `Store`). Protocols only; persistence implements them. Only the apps and `course_admin` may import it. |
+| `packages/course_admin` | Course administration: tasks, units, rosters, groups, finalization, KCs, bundles, course copy, definitions, retention. The admin CLI and the console both call it; it reaches the store through `unit_of_work`, never persistence. |
 | `apps/studentweb` | The learner app. |
 | `apps/reviewconsole` | The instructor console and `/manage`. |
 | `apps/grader` | The grading worker. |
 | `apps/runner` | Runs the editor's trial runs in the sandbox, and submits autosaves at close. Not grading. |
-| `apps/admin` | Start-of-term bulk operations and authoring (CLI). |
+| `apps/admin` | Start-of-term bulk operations and authoring (CLI only; the logic is in `course_admin`). |
 | `apps/evalrunner` | Measures agreement. Never grades. |
 | `evaluators/`, `extractors/` | Grading plugins and input converters. |
 | `subjects/` | Subject profiles — which evaluators run, in what order. |

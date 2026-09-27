@@ -85,7 +85,7 @@ may_see(task, role, *, now, groups=frozenset()) -> bool
 ### 5. 名簿の操作は 1 か所で、置き換えでしか書かない
 
 画面・API（`PUT /api/courses/{id}/groups/{name}` ほか）・CLI（`aijudge-admin group`）は
-すべて `aijudge_admin.groups` を通る。名簿の検証と監査の記録を経路ごとに書かない。
+すべて `aijudge_course_admin.groups` を通る。名簿の検証と監査の記録を経路ごとに書かない。
 
 - 名簿は**丸ごとの置き換え**だけ。同じ要求を 2 度流しても結果が同じで、スクリプトの
   再実行が安全。代わりに追加・削除を返す

@@ -634,7 +634,7 @@ main に混ぜない**。main への取り込みは、段階 3 の負荷試験�
 - 関門の抜き出し: `/submit`・`_video_gate`・IDE の 3 経路が `_submission_gate` を
   呼ぶ。既存の学生画面のテストは無変更で通った（I8）
 - `Task.answer_mode`（既定 `upload`）と、コンソールの問題セット画面の切り替え
-  （保存時に `aijudge_admin.answer_mode.editor_blockers` で確かめる）
+  （保存時に `aijudge_course_admin.answer_mode.editor_blockers` で確かめる）
 - **形式は課題の提出形式に限る**（2026-09-24 の指示で改訂、§4.1 の表）。`.md` は
   テキストとして提出する
 - `ide_buffers`（自動保存、移行 `7b3e9a15c4d2`）。形式も一緒に持つ
