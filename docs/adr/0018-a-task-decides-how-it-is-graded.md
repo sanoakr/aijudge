@@ -10,7 +10,7 @@
 写しが入り、誰にも読まれていなかった。**
 
 ```python
-# manage.py の課題を作る全経路
+# manage.py（現在は manage/ に分割）の課題を作る全経路
 subject_profile = (course.subject_profile,)
 # apps/studentweb/.../app.py の提出を受ける全経路
 subject_profile = (course_obj.subject_profile,)
