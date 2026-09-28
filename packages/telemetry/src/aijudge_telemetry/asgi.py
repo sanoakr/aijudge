@@ -24,7 +24,7 @@ import uuid
 from collections.abc import Awaitable, Callable, Iterable
 from typing import Any
 
-from .context import bind
+from .context import MAX_VALUE_LENGTH, bind
 from .logging_setup import redact_query
 
 HEADER = b"x-request-id"
@@ -86,7 +86,7 @@ class RequestContextMiddleware:
 
         headers = scope.get("headers") or []
         request_id = _incoming_request_id(headers) or uuid.uuid4().hex
-        path = redact_query(scope.get("path", ""))
+        path = _fit(redact_query(scope.get("path", "")))
         method = scope.get("method", "")
         status = 0
 
@@ -116,6 +116,19 @@ class RequestContextMiddleware:
                             "duration_ms": round((time.monotonic() - started) * 1000, 1),
                         },
                     )
+
+
+def _fit(path: str) -> str:
+    """文脈に載せる経路を識別子の長さに収める（#203）。
+
+    経路は要求する側が自由に長くできる。以前は 128 字を超える経路が `bind` に断られ、
+    **経路の照合より前に 500 になっていた**（存在しない長い URL も、Dolos の画面の部品
+    `…/similarity/{課題}/{回}/assets/…vue_type_script_setup_true_lang-….js` も）。
+    本文を載せていないかの検査（`bind`）は緩めない ── 経路だけを切り詰める。
+    """
+    if len(path) <= MAX_VALUE_LENGTH:
+        return path
+    return path[: MAX_VALUE_LENGTH - 1] + "…"
 
 
 def client_ip(forwarded_for: str | None, peer: str | None) -> str | None:

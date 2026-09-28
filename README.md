@@ -58,6 +58,10 @@ The console is for reading what arrived and deciding — it never grades.
   How each answer was written — typing, pastes, time away — is recorded and can
   be replayed by the course's instructors only, every view audited. Places worth
   a look are marked; nothing is judged or deducted (ADR 0023, 0024, 0026).
+- **Similarity between submissions.** Once a task has closed and been graded,
+  Dolos looks for similar pairs and the course's instructors are shown them.
+  Dolos runs in the network-less sandbox, so submissions never leave the
+  machine; nothing is judged or deducted (ADR 0029).
 - **Blind marking for measurement**, sampled by the system — never by choice —
   so agreement between a person and the machine can be measured honestly.
 - **Built from the same parts as the learner's side.** The rail of
@@ -327,6 +331,7 @@ uv run aijudge-admin activity purge --apply # actually delete
 | Grading accuracy | **Not yet measured.** The records are being captured; the gate reports NOT_MEASURED |
 | Knowledge components and mastery | Skeleton running; none of its acceptance criteria can be judged yet |
 | Browser editor (online coding test) | Working; load-tested locally with 150 learners, **not yet on the production host** |
+| Similarity between submissions (Dolos) | Working; runs in the sandbox after grading, shown to the course's instructors only, never graded |
 
 The two "not yet" rows are stated rather than omitted on purpose: this codebase
 reports `NOT_MEASURED` wherever it cannot justify a number, and treats that as

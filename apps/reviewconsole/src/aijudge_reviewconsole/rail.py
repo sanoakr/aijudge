@@ -136,7 +136,12 @@ def course_rail(
         # 開けない画面なので出さない。提出していない学習者の記録にも、ここから辿れる。
         grading = RailGroup(
             title=grading.title,
-            items=(*grading.items, RailItem("作業の記録", f"{base}/activity")),
+            items=(
+                *grading.items,
+                RailItem("作業の記録", f"{base}/activity"),
+                # 提出どうしの類似（#203・ADR 0029）。作業の記録と同じく教員だけ。
+                RailItem("提出の類似", f"{base}/similarity"),
+            ),
         )
     groups = [grading]
     if can_manage:

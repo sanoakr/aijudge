@@ -186,3 +186,22 @@ def test_the_client_address_comes_from_the_end_of_the_forwarded_chain() -> None:
     # 逆プロキシが無い構成。
     assert client_ip(None, "203.0.113.9") == "203.0.113.9"
     assert client_ip("", None) is None
+
+
+def test_a_long_path_is_shortened_not_refused() -> None:
+    """128 字を超える経路でも 500 にしない（#203）。
+
+    以前は `bind` が長い経路を断り、経路の照合より前に落ちていた ── Dolos の画面の部品
+    （`…/similarity/{課題}/{回}/assets/…_lang-DcrGzzHo.js`）は 150 字を超える。
+    """
+    stream = io.StringIO()
+    configure_logging("review", fmt="json", stream=stream)
+    long_path = "/courses/crs_" + "a" * 32 + "/similarity/tsk_" + "b" * 32 + "/x/" + "c" * 90
+
+    sent = asyncio.run(_drive(RequestContextMiddleware(_app()), _scope(long_path)))
+
+    start = next(m for m in sent if m["type"] == "http.response.start")
+    assert start["status"] == 200
+    event = json.loads(stream.getvalue())
+    assert len(event["path"]) == 128 and event["path"].endswith("…")
+    assert long_path.startswith(event["path"][:-1])

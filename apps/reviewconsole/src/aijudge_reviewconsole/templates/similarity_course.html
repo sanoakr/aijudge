@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}提出の類似 — {{ course.title }} — aiJudge レビュー{% endblock %}
+{% block body %}
+{# 提出どうしの類似（#203・ADR 0029）。**判定はしない** ── 似ている組を示すだけ。
+   「盗用」という語をこの画面で使わない（同じ課題を解けば似る。入門課題は正解がほぼ 1 つ）。
+   Dolos の画面は仮の名前（S-001）で出るので、対応をここに出す。 #}
+<h1>提出の類似</h1>
+<p class="desc">
+  同じ課題の提出どうしで、似ている組を示します（Dolos）。受付終了（無ければ締切）の
+  1 時間後から、その課題の採点が終わったところで自動で調べます。学習者 1 人につき最新の
+  提出 1 件を比べます。
+  <strong>似ていることは不正の判定ではありません。</strong> 同じ課題を解けば似ます
+  ── とくに入門課題は書き方がほぼ 1 通りです。該当箇所を読んで判断してください。
+  <strong>この画面と報告を開いたことは監査ログに残ります。</strong>
+</p>
+
+{% if not configured %}
+<div class="note">報告の置き場所（<code>AIJUDGE_SIMILARITY_DIR</code>）が設定されていません。</div>
+{% elif not viewer %}
+<div class="note">Dolos の画面の配布物（<code>AIJUDGE_DOLOS_WEB_DIR</code>）が用意されていないので、報告は開けません。上位の組だけを出します。</div>
+{% endif %}
+
+{% for unit, items in units.items() %}
+<h2>{{ unit }}</h2>
+{% for item in items %}
+{% set run = item.run %}
+<section class="card">
+  <h3>{{ run.task_title }}
+    <span class="desc">{{ run.created_at | local('%m-%d %H:%M') }} に調べました</span></h3>
+  {% if run.measured %}
+  <p class="desc">
+    {{ run.submissions | length }} 件（{{ run.language }}）を比べました。
+    {% if viewer %}<a href="{{ root_prefix() }}{{ item.href }}" rel="noreferrer">Dolos で開く</a>{% endif %}
+  </p>
+  {% if item.pairs %}
+  <table class="stack">
+    <thead><tr><th class="fit">類似度</th><th class="grow">組</th><th class="fit">最長の一致（トークン）</th></tr></thead>
+    <tbody>
+    {% for pair in item.pairs %}
+      {% set a = item.people.get(pair.left, ('?', '')) %}{% set b = item.people.get(pair.right, ('?', '')) %}
+      <tr>
+        <td class="fit" data-label="類似度">{{ '%.0f' | format(pair.similarity * 100) }}%</td>
+        <td class="grow" data-label="組">
+          <span class="mono">{{ pair.left }}</span> {{ a[0] }} {{ a[1] }}
+          <span class="sep">·</span>
+          <span class="mono">{{ pair.right }}</span> {{ b[0] }} {{ b[1] }}
+        </td>
+        <td class="fit" data-label="最長の一致">{{ pair.longest }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+  <details>
+    <summary>仮の名前と学習者の対応（{{ item.people | length }} 名）</summary>
+    <table class="stack">
+      <thead><tr><th class="fit">仮の名前</th><th class="fit">学習者</th><th class="grow">氏名</th></tr></thead>
+      <tbody>
+      {% for pseudonym, person in item.people | dictsort %}
+        <tr><td class="fit mono">{{ pseudonym }}</td><td class="fit mono">{{ person[0] }}</td><td class="grow">{{ person[1] }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </details>
+  {% else %}
+  <p class="desc">調べられませんでした: {{ item.reason or run.not_measured.value }}</p>
+  {% endif %}
+</section>
+{% endfor %}
+{% else %}
+<p class="desc">まだ報告がありません。受付が閉じ、採点が終わった課題から順に調べます。</p>
+{% endfor %}
+{% endblock %}
