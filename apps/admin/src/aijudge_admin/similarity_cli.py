@@ -5,7 +5,8 @@
     uv run aijudge-similarity --once --course crs_… # 1 コースに絞る
 
 **締切の後は提出の処理が無く、運用機が空いている**（#203 の決定 1）。受付終了（無ければ
-締切）の 1 時間後から、入力が変わった課題だけを回す。消えた提出の報告は同じ周回で消す。
+締切）の 1 時間後から、**採点が終わり**入力が変わった課題だけを回す。消えた提出の報告は
+同じ周回で消す。
 
 **確定には相乗りさせない。** 確定は成績を閉じる処理で、検査はそれを読んではいけない
 （`.importlinter` の `grades-do-not-read-similarity`）。混ぜると、検査を止めたいときに
@@ -110,9 +111,12 @@ def main(argv: list[str] | None = None) -> int:
         logger.info("元の提出が消えたので報告を消しました: %s", path)
     for run in report.ran:
         logger.info("%s", code_similarity.run_payload(run))
+    for waiting in report.grading:
+        logger.info("採点を待っています（次の周回で回します）: %s", waiting)
     logger.info(
-        "回した課題 %d 件・失敗 %d 件・消した報告 %d 件",
+        "回した課題 %d 件・採点待ち %d 件・失敗 %d 件・消した報告 %d 件",
         len(report.ran),
+        len(report.grading),
         len(report.failed),
         len(report.removed),
     )

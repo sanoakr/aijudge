@@ -37,7 +37,7 @@ from pathlib import Path, PurePosixPath
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from aijudge_core import Artifact, Submission, Task
+from aijudge_core import Artifact, GradingPhase, Submission, Task
 from aijudge_core.ids import CourseId, SubmissionId, TaskId
 from aijudge_sandbox import ExecRequest, Limits, Sandbox, SandboxError, build_tool_sandbox
 from aijudge_submission import ArtifactStore
@@ -50,6 +50,7 @@ __all__ = [
     "ENV_SIMILARITY_DIR",
     "ENV_SIMILARITY_IMAGE",
     "REPORT_FILES",
+    "GradingPending",
     "NotMeasuredReason",
     "SimilarityRun",
     "latest_run",
@@ -102,6 +103,19 @@ LIMITS = Limits(
 #: Dolos に渡す引数。**記録に残す**（同じ入力でも引数で結果が変わる）。
 #: `-M`（多くの提出に出る断片を無視）は実データを見て決める ── いまは既定のまま。
 DOLOS_PARAMS: tuple[str, ...] = ()
+
+
+class GradingPending(Exception):
+    """その課題の採点がまだ終わっていない。**回さずに次の周回を待つ。**
+
+    試験では締切の直後に採点が一斉に回る（受付終了の自動提出・一括採点の待機が外れる）。
+    その最中に Dolos を回すと、CPU を採点と取り合う。
+    """
+
+    def __init__(self, task_id: TaskId, pending: int) -> None:
+        super().__init__(f"{task_id}: 採点が終わっていない提出が {pending} 件あります")
+        self.task_id = task_id
+        self.pending = pending
 
 
 class NotMeasuredReason(StrEnum):
@@ -326,7 +340,8 @@ def run_for_task(
     """1 課題を調べて報告を残す。**入力が前回と同じなら何もしない**（`None`）。
 
     前回が環境の不調で測れなかった（`retryable`）なら、入力が同じでも回し直す。
-    `force` は手で回すとき用。
+    **採点が終わっていない提出があれば `GradingPending`**（決定的・AI の両段階。試験の
+    一括採点で寝かせてあるものも含む）。`force` は手で回すとき用で、どちらも飛ばす。
     """
     at = now or datetime.now(UTC)
     tool = image or os.environ.get(ENV_SIMILARITY_IMAGE, "").strip() or DOLOS_IMAGE
@@ -336,6 +351,15 @@ def run_for_task(
             raise LookupError(f"課題 {task_id!r} がありません")
         versions = [version.id for version in uow.tasks.list_versions(task_id)]
         submissions = _latest_per_learner(uow.submissions.list_for_versions(versions))
+        # 未了のジョブ（待機・順番待ち・実行中）がある提出の数。**入力の比較より先に
+        # 数える** ── 採点の途中で届く書き起こしなどで入力が変わる前に回さないため。
+        pending = sum(
+            1
+            for submission in submissions
+            if any(uow.jobs.awaiting(submission.id, phase) for phase in GradingPhase)
+        )
+    if pending and not force:
+        raise GradingPending(task_id, pending)
     entries = _entries(submissions)
     if not entries:
         # コードの提出が無い課題（レポート・動画など）は、記録も残さない ──
@@ -598,6 +622,8 @@ def closes_at(task: Task) -> datetime | None:
 class SweepReport:
     ran: list[SimilarityRun] = field(default_factory=list)
     due: list[Task] = field(default_factory=list)
+    #: 採点が終わるのを待っている課題（次の周回で回す）。
+    grading: list[GradingPending] = field(default_factory=list)
     failed: list[TaskId] = field(default_factory=list)
     removed: list[Path] = field(default_factory=list)
 
@@ -613,6 +639,10 @@ def sweep(
     sandbox_factory: SandboxFactory = build_tool_sandbox,
 ) -> SweepReport:
     """受付が閉じた課題を回し、消えた提出の報告を消す（`aijudge-similarity` が呼ぶ）。
+
+    回すのは、受付終了（無ければ締切）から `SETTLE_AFTER`（1 時間）が過ぎ、**かつ採点が
+    終わった**課題（`GradingPending` でないもの）。時刻だけでは、試験の採点が 1 時間で
+    終わらないとき採点の途中で回ってしまう。
 
     **締切の後は提出の処理が無く、運用機が空いている**（#203 の決定 1）。確定は止めない ──
     検査は確定と別のプロセスで、成績を作る処理からは import できない。
@@ -647,6 +677,9 @@ def sweep(
                 now=at,
                 sandbox_factory=sandbox_factory,
             )
+        except GradingPending as waiting:
+            report.grading.append(waiting)
+            continue
         except Exception:
             logger.exception("類似の検査に失敗しました（次の周回で再試行）: %s", task.id)
             report.failed.append(task.id)

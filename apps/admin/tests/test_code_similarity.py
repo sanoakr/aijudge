@@ -547,3 +547,46 @@ def test_the_timer_does_nothing_until_the_place_is_set(monkeypatch, tmp_path: Pa
     monkeypatch.delenv(code_similarity.ENV_SIMILARITY_DIR, raising=False)
     assert main(["--once", "--database-url", f"sqlite+pysqlite:///{tmp_path}/x.db"]) == 0
     assert main(["--database-url", f"sqlite+pysqlite:///{tmp_path}/x.db"]) == 2
+
+
+def test_it_waits_until_grading_is_done(database, store, task, root, fake) -> None:
+    """**締切から 1 時間たっても、採点が残っていれば回さない**（試験では締切の後に採点が回る）。
+
+    寝かせてある一括採点のジョブ（試験）も「終わっていない」に数える。
+    """
+    from aijudge_core.ids import GradingJobId, new_id
+    from aijudge_submission import GradingJob, JobState
+
+    graded = submit(database, store, task, "1", SOURCE_A, at=CLOSE - timedelta(hours=1))
+    submit(database, store, task, "2", SOURCE_A, at=CLOSE - timedelta(hours=1))
+    with database.unit_of_work() as uow:
+        version = uow.tasks.latest_version(task.id)
+        job = uow.jobs.enqueue(
+            GradingJob(
+                id=GradingJobId(new_id("job")),
+                tenant_id=TENANT,
+                submission_id=graded,
+                task_version_id=version.id,
+                subject_profile="cs_lang_c_intro",
+                idempotency_key="sim-wait",
+                # 採点開始の時刻まで寝かせてある（試験の一括採点）。
+                available_at=CLOSE + timedelta(days=1),
+                created_at=CLOSE,
+                updated_at=CLOSE,
+            )
+        )
+        uow.commit()
+    kwargs = {"root": root, "artifact_store": store, "sandbox_factory": fake}
+
+    waiting = code_similarity.sweep(database, now=CLOSE + timedelta(hours=2), **kwargs)
+    assert waiting.ran == [] and fake.argv == []
+    assert [(w.task_id, w.pending) for w in waiting.grading] == [(task.id, 1)]
+    # 手で回すときは --force で待たずに回せる。
+    with pytest.raises(code_similarity.GradingPending):
+        run_for_task(database, task.id, now=CLOSE + timedelta(hours=2), **kwargs)
+
+    with database.unit_of_work() as uow:
+        uow.jobs.update(job.model_copy(update={"state": JobState.CANCELLED}))
+        uow.commit()
+    done = code_similarity.sweep(database, now=CLOSE + timedelta(hours=3), **kwargs)
+    assert len(done.ran) == 1 and done.grading == []
