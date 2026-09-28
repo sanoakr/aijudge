@@ -113,6 +113,14 @@ jobs:
           AIJUDGE_SANDBOX: gvisor
         run: uv run pytest packages/sandbox/tests/test_container.py -k runsc -v
 
+      # 類似の検査（Dolos・#203）を運用機と同じ gVisor で 1 本。**runc では通る制限が
+      # gVisor では通らない**（プロセス数 32 で落ちた・運用機で実測）ので、手元の結果を
+      # 根拠にしない。
+      - name: Run Dolos under gVisor
+        env:
+          AIJUDGE_SANDBOX: gvisor
+        run: uv run pytest apps/admin/tests/test_code_similarity.py -k live -v
+
   # 採点精度の測定。教員採点データはリポジトリに置けない（個人情報）ので、
   # ランナーに用意がある場合だけ実測する。
   #

@@ -50,6 +50,44 @@ def build_sandbox(name: str | None = None, *, image: str | None = None) -> Sandb
     return _at_least(_named(choice, picked), minimum)
 
 
+def build_tool_sandbox(image: str) -> Sandbox:
+    """道具のイメージ（例: Dolos）を動かすための、**コンテナだけ**の sandbox（#203）。
+
+    提出物ではなく、運用者が固定した道具をイメージごと動かす。seatbelt や
+    隔離なしには落とさない ── イメージの中の実行体はホストでは動かないうえ、
+    道具が読むのは学習者全員の提出物なので、隔離は採点と同じ強さを要る。
+
+    - イメージは `_checked_image` と同じく許可リスト（`AIJUDGE_SANDBOX_IMAGES`）で確かめる
+    - イメージの ENTRYPOINT は外す（道具のイメージは入口を持つことが多い）
+    - `AIJUDGE_SANDBOX=gvisor` なら runsc だけ、`docker` なら runc だけ。
+      それ以外（`auto` など）は runsc を先に試す
+    - `AIJUDGE_SANDBOX_MIN` はそのまま効く
+    """
+    checked = _checked_image(image)
+    minimum = minimum_isolation()
+    choice = (os.environ.get(ENV_BACKEND) or "auto").strip().lower()
+    if choice == "gvisor":
+        runtimes: tuple[str | None, ...] = ("runsc",)
+    elif choice == "docker":
+        runtimes = (None,)
+    else:
+        runtimes = ("runsc", None)
+    attempts: list[str] = []
+    for runtime in runtimes:
+        try:
+            return _at_least(
+                DockerSandbox(checked, runtime=runtime, clear_entrypoint=True), minimum
+            )
+        except SandboxUnavailable as exc:
+            attempts.append(f"{runtime or 'runc'}: {exc}")
+    raise SandboxUnavailable(
+        "no container backend can run the tool image "
+        + checked
+        + "; tried — "
+        + "; ".join(attempts)
+    )
+
+
 def minimum_isolation() -> Isolation:
     """運用者が求める最低限の隔離（`AIJUDGE_SANDBOX_MIN`）。"""
     raw = os.environ.get(ENV_MINIMUM, "").strip().lower()

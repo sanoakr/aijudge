@@ -232,6 +232,11 @@ RELEASE_TIMEOUT_SECONDS = 30.0
 # 後者は 137（SIGKILL。これは前から時間切れに分類している）。
 # **イメージに `timeout` が要る**（Debian 系の公式イメージには入っている）。
 # 無ければ起動時の検査（`_verify_mount`）で使えないと申告する。
+#
+# 引数は **`-k 1 <秒>` の短い形**で渡す（#203）。Alpine の busybox の `timeout`
+# は `--kill-after=` を知らず、何も起動できない（Dolos のイメージで実測）。
+# 短い形は coreutils と busybox の両方が受け付ける。busybox は時間切れを 124
+# ではなく 143（SIGTERM）で返すので時間切れとは呼ばれないが、`ok` は偽になる。
 IN_CONTAINER_TIMEOUT = "timeout"
 TIMEOUT_EXIT_CODE = 124
 TIMEOUT_KILL_AFTER_SECONDS = 1
@@ -285,6 +290,7 @@ class DockerSandbox(LocalSandboxBase):
         runtime: str | None = None,
         workspace_root: Path | None = None,
         verify_mount: bool = True,
+        clear_entrypoint: bool = False,
     ) -> None:
         resolved = shutil.which(binary)
         if resolved is None:
@@ -304,6 +310,7 @@ class DockerSandbox(LocalSandboxBase):
             )
         self._image = image
         self._runtime = runtime
+        self._clear_entrypoint = clear_entrypoint
         self.isolation = Isolation.KERNEL_ISOLATED if runtime == "runsc" else Isolation.CONTAINER
         self.name = f"docker:{runtime}" if runtime else "docker"
         # --pids-limit と --user で、プロセス数も UID もホストから切り離せる。
@@ -439,13 +446,18 @@ class DockerSandbox(LocalSandboxBase):
             command.append(f"--runtime={self._runtime}")
         for key, value in request.env.items():
             command.append(f"--env={key}={value}")
+        if self._clear_entrypoint:
+            # イメージの ENTRYPOINT を外す（#203）。Dolos のイメージは `dolos` を
+            # 入口に持ち、残すと `dolos timeout …` になって何も動かない。
+            command.append("--entrypoint=")
         command.append(self._image)
         # 実時間の上限は中で掛ける。起動の時間を持ち時間に数えない（#489）。
         command.extend(
             [
                 IN_CONTAINER_TIMEOUT,
-                f"--kill-after={TIMEOUT_KILL_AFTER_SECONDS}",
-                f"{limits.wall_seconds}s",
+                "-k",
+                str(TIMEOUT_KILL_AFTER_SECONDS),
+                str(limits.wall_seconds),
             ]
         )
         command.extend(argv)

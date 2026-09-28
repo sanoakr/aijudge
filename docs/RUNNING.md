@@ -1224,6 +1224,31 @@ restic の環境ファイルに `AIJUDGE_ACTIVITY_DIR` を書けば一緒に取�
 締切から最大 12 ヶ月、自動保存は受付終了から最大 7 ヶ月）。**オフボックスの本数を
 増やすときは、告知も直すこと。**
 
+### 提出どうしの類似（Dolos・ADR 0029・#203）
+
+同じ課題の提出どうしで似ている組を、**担当教員にだけ**示す。判定はしない。Dolos の CLI を
+digest で固定したイメージのまま、提出物と同じ sandbox（gVisor・ネットワークなし）で
+動かす。DB には書かず、報告は `AIJUDGE_SIMILARITY_DIR` の下にファイルで残す。
+
+**運用機で 1 度だけ手で行う**こと（どれもリポジトリの外）:
+
+1. **報告の置き場所。** `aijudge.env` に `AIJUDGE_SIMILARITY_DIR=/work/aijudge/similarity` を
+   足し、ディレクトリを `aijudge` の持ち物で作る。**restic の環境ファイルには足さない** ──
+   報告は全員のコードの写しで、バックアップしない（提出と一緒に消す）
+2. **イメージの許可。** `AIJUDGE_SANDBOX_IMAGES` に
+   `aijudge_course_admin.code_similarity.DOLOS_IMAGE`（digest 付き）を足す。無いと
+   「許可されていないイメージ」で `NOT_MEASURED` になる
+
+手で回す（ふだんは締切の後に自動で回る）:
+
+```sh
+aijudge-admin similarity run --course crs_… --unit ex01   # 問題セットの課題すべて
+aijudge-admin similarity run --task tsk_… --force         # 入力が同じでも回し直す
+```
+
+実測（運用機・gVisor・CPU 1 つ）: C 60 件 6 秒、Python 150 件 21 秒、C 300 件 102 秒。
+プロセス数 64・メモリ 512 MiB が要る（32 では落ちる）。1 回の上限は 300 件。
+
 ### 習熟度を確かめる砂場（#328）
 
 習熟度は「**知識要素の付いた課題に、学習者として提出し、採点が完了する**」まで
