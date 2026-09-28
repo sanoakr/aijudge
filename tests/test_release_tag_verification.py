@@ -168,6 +168,24 @@ def test_autodeploy_refuses_a_pinned_unsigned_tag(release) -> None:
     assert "DEPLOY" not in result.stdout
 
 
+def test_autodeploy_does_not_roll_back_to_an_older_signed_tag(release) -> None:
+    """最新のタグが origin から消えても、1 つ前の署名済みの版へ自動で戻らない（#564）。"""
+    checkout, env, _ = release
+    Path(env["AIJUDGE_DEPLOY_STATE"]).write_text("v1.2.0\n")
+    result = _run("bash", str(checkout / "deploy" / AUTODEPLOY.name), cwd=checkout, env=env)
+    assert "DEPLOY" not in result.stdout
+    assert "v1.0.0" in result.stderr and "v1.2.0" in result.stderr
+
+
+def test_autodeploy_rolls_back_when_pinned(release) -> None:
+    """意図した切り戻しは固定でする（#425）。固定すれば古い署名済みの版にも戻せる。"""
+    checkout, env, _ = release
+    Path(env["AIJUDGE_DEPLOY_STATE"]).write_text("v1.2.0\n")
+    Path(env["AIJUDGE_DEPLOY_PIN"]).write_text("v1.0.0\n")
+    result = _run("bash", str(checkout / "deploy" / AUTODEPLOY.name), cwd=checkout, env=env)
+    assert "DEPLOY v1.0.0" in result.stdout
+
+
 def test_deploy_checks_the_signature_before_checking_out() -> None:
     """deploy.sh 本体は DB と systemd に触れるので、順序を静的に確かめる。"""
     text = (REPO_ROOT / "deploy" / "deploy.sh").read_text(encoding="utf-8")
