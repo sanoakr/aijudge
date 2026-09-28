@@ -41,6 +41,11 @@ flock -n 9 || { echo "deploy already running"; exit 0; }
 git fetch --tags --prune
 git rev-parse "refs/tags/${TAG}^{commit}" >/dev/null   # タグの実在を先に確かめる
 
+# **署名を確かめたタグだけをデプロイする**（2026-09-29）。以前は unit の配布
+# （`install-units.sh`）だけが署名を見ていて、ここは確かめずにチェックアウト
+# していた ── 署名の無い v1.37.0 がそのまま動いた。手で流すときも同じ門を通す。
+"${REPO_DIR}/deploy/lib/verify-release-tag.sh" "${TAG}"
+
 # **作業ツリーが汚れていたら止める**（#423）。汚れていれば checkout が中断
 # するか、手で直したものを黙って上書きする。どちらも人が見るべき状態である。
 if [ -n "$(git status --porcelain --untracked-files=no)" ]; then

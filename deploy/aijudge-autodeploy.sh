@@ -21,16 +21,35 @@ if [ -s "${STATE_FILE}" ]; then
 else
     current="$(git describe --tags --exact-match 2>/dev/null || echo none)"
 fi
+# **署名を確かめたタグの中で最新のもの**を選ぶ（2026-09-29）。origin の最新を
+# そのまま選ぶと、署名の無いタグが一番新しいときに deploy.sh が毎周期断られ、
+# その後に出た署名済みの版まで入らなくなる（失敗の知らせも 5 分おきに届く）。
+# 飛ばしたタグはログに名指しする ── 黙って飛ばすと、出したつもりの版が入らない
+# 理由が分からない。
+VERIFY="${REPO_DIR}/deploy/lib/verify-release-tag.sh"
+git fetch --quiet --tags --prune origin
 if [ -s "${PIN_FILE}" ]; then
     latest="$(head -n 1 "${PIN_FILE}")"
     echo "autodeploy: pinned to ${latest} by ${PIN_FILE}"
+    "${VERIFY}" "${latest}"   # 固定した版も、署名が無ければ入れない
 else
-    latest="$(git ls-remote --tags --refs origin 'v*' \
-              | sed 's#.*refs/tags/##' | sort -V | tail -1)"
+    latest=""
+    skipped=()
+    while read -r tag; do
+        [ -n "${tag}" ] || continue
+        if "${VERIFY}" "${tag}" 2>/dev/null; then
+            latest="${tag}"
+            break
+        fi
+        skipped+=("${tag}")
+    done < <(git tag --list 'v*' | sort -rV)
+    if [ "${#skipped[@]}" -gt 0 ]; then
+        echo "autodeploy: 署名を確かめられないタグを飛ばしました: ${skipped[*]}" >&2
+    fi
 fi
 
 if [ -z "${latest}" ]; then
-    echo "no v* tags on origin"
+    echo "no signed v* tags on origin"
     exit 0
 fi
 if [ "${current}" = "${latest}" ]; then
