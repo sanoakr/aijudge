@@ -471,3 +471,122 @@ def test_the_cli_runs_every_task_of_a_unit(
     assert code == 0
     assert called == [(str(task.id), True)]
     assert "--force で回し直す" in capsys.readouterr().out
+
+
+# --------------------------------------------------------------------------
+# 自動実行（aijudge-similarity・受付が閉じた課題だけ）
+# --------------------------------------------------------------------------
+
+# 課題の締切は 2026-10-01T23:59+09:00（UTC で 14:59）。受付終了は無いので締切が起点。
+CLOSE = datetime(2026, 10, 1, 14, 59, tzinfo=UTC)
+
+
+def test_only_tasks_past_the_close_are_run(database, store, task, root, fake) -> None:
+    submit(database, store, task, "1", SOURCE_A, at=CLOSE - timedelta(hours=1))
+    submit(database, store, task, "2", SOURCE_A, at=CLOSE - timedelta(hours=1))
+    kwargs = {"root": root, "artifact_store": store, "sandbox_factory": fake}
+
+    # 締切から 1 時間はまだ回さない（試験では締切の後にまず採点が回る）。
+    early = code_similarity.sweep(database, now=CLOSE + timedelta(minutes=59), **kwargs)
+    assert early.due == [] and early.ran == []
+
+    later = code_similarity.sweep(database, now=CLOSE + timedelta(hours=1), **kwargs)
+    assert [t.id for t in later.due] == [task.id]
+    assert len(later.ran) == 1
+
+    # **何度走らせても同じ結果になる。** 入力が同じなら回さない。
+    again = code_similarity.sweep(database, now=CLOSE + timedelta(hours=2), **kwargs)
+    assert again.ran == [] and len(fake.argv) == 1
+
+
+def test_the_dry_run_touches_nothing(database, store, task, root, fake) -> None:
+    submit(database, store, task, "1", SOURCE_A)
+    submit(database, store, task, "2", SOURCE_A)
+    stray = root / ("crs_" + "9" * 32)
+    stray.mkdir(parents=True)
+
+    report = code_similarity.sweep(
+        database,
+        root=root,
+        artifact_store=store,
+        now=CLOSE + timedelta(hours=1),
+        dry_run=True,
+        sandbox_factory=fake,
+    )
+
+    assert [t.id for t in report.due] == [task.id]
+    assert fake.argv == [] and stray.exists() and report.removed == []
+
+
+def test_a_task_without_code_leaves_no_record(database, store, task, root, fake) -> None:
+    """レポートや動画の課題は記録も残さない（入口のページが「測れない」で埋まる）。"""
+    run = run_for_task(
+        database, task.id, artifact_store=store, root=root, now=AT, sandbox_factory=fake
+    )
+    assert run is None and not root.exists()
+
+
+def test_a_task_without_a_close_is_never_run_automatically(database, store, task, root, fake):
+    with database.unit_of_work() as uow:
+        uow.tasks.save_task(task.model_copy(update={"due_at": None, "accepts_until": None}))
+        uow.commit()
+    report = code_similarity.sweep(
+        database,
+        root=root,
+        artifact_store=store,
+        now=AT + timedelta(days=365),
+        sandbox_factory=fake,
+    )
+    assert report.due == []
+
+
+def test_the_timer_does_nothing_until_the_place_is_set(monkeypatch, tmp_path: Path) -> None:
+    """設定の前に timer が動いても失敗にしない（毎時の知らせを送らない）。"""
+    from aijudge_admin.similarity_cli import main
+
+    monkeypatch.delenv(code_similarity.ENV_SIMILARITY_DIR, raising=False)
+    assert main(["--once", "--database-url", f"sqlite+pysqlite:///{tmp_path}/x.db"]) == 0
+    assert main(["--database-url", f"sqlite+pysqlite:///{tmp_path}/x.db"]) == 2
+
+
+def test_it_waits_until_grading_is_done(database, store, task, root, fake) -> None:
+    """**締切から 1 時間たっても、採点が残っていれば回さない**（試験では締切の後に採点が回る）。
+
+    寝かせてある一括採点のジョブ（試験）も「終わっていない」に数える。
+    """
+    from aijudge_core.ids import GradingJobId, new_id
+    from aijudge_submission import GradingJob, JobState
+
+    graded = submit(database, store, task, "1", SOURCE_A, at=CLOSE - timedelta(hours=1))
+    submit(database, store, task, "2", SOURCE_A, at=CLOSE - timedelta(hours=1))
+    with database.unit_of_work() as uow:
+        version = uow.tasks.latest_version(task.id)
+        job = uow.jobs.enqueue(
+            GradingJob(
+                id=GradingJobId(new_id("job")),
+                tenant_id=TENANT,
+                submission_id=graded,
+                task_version_id=version.id,
+                subject_profile="cs_lang_c_intro",
+                idempotency_key="sim-wait",
+                # 採点開始の時刻まで寝かせてある（試験の一括採点）。
+                available_at=CLOSE + timedelta(days=1),
+                created_at=CLOSE,
+                updated_at=CLOSE,
+            )
+        )
+        uow.commit()
+    kwargs = {"root": root, "artifact_store": store, "sandbox_factory": fake}
+
+    waiting = code_similarity.sweep(database, now=CLOSE + timedelta(hours=2), **kwargs)
+    assert waiting.ran == [] and fake.argv == []
+    assert [(w.task_id, w.pending) for w in waiting.grading] == [(task.id, 1)]
+    # 手で回すときは --force で待たずに回せる。
+    with pytest.raises(code_similarity.GradingPending):
+        run_for_task(database, task.id, now=CLOSE + timedelta(hours=2), **kwargs)
+
+    with database.unit_of_work() as uow:
+        uow.jobs.update(job.model_copy(update={"state": JobState.CANCELLED}))
+        uow.commit()
+    done = code_similarity.sweep(database, now=CLOSE + timedelta(hours=3), **kwargs)
+    assert len(done.ran) == 1 and done.grading == []

@@ -19,6 +19,7 @@ dependencies = [
 [project.scripts]
 aijudge-admin = "aijudge_admin.cli:main"
 aijudge-finalize = "aijudge_admin.finalize_cli:main"
+aijudge-similarity = "aijudge_admin.similarity_cli:main"
 
 [build-system]
 requires = ["hatchling"]

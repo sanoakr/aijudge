@@ -1239,7 +1239,13 @@ digest で固定したイメージのまま、提出物と同じ sandbox（gViso
    `aijudge_course_admin.code_similarity.DOLOS_IMAGE`（digest 付き）を足す。無いと
    「許可されていないイメージ」で `NOT_MEASURED` になる
 
-手で回す（ふだんは締切の後に自動で回る）:
+**自動で回る。** `aijudge-similarity.timer`（15 分ごと）が `aijudge.target` に入っているので、
+unit の配布で有効になる。受付終了（無ければ締切）の 1 時間後から（試験では締切の後にまず採点が回るため）、**その課題の
+採点（決定的・AI とも）が終わり**入力が変わった課題だけを回し、元の提出が消えた報告を消す。置き場所（1）が無いうちは何もせずに終わる。
+unit が書けるのは `/work/aijudge/similarity` だけなので、**別の場所に置くなら drop-in で
+`ReadWritePaths=` を足す**（動画の drop-in と同じ）。ログは `journalctl -u aijudge-similarity`。
+
+手で回す:
 
 ```sh
 aijudge-admin similarity run --course crs_… --unit ex01   # 問題セットの課題すべて

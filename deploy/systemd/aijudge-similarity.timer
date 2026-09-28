@@ -1,0 +1,13 @@
+[Unit]
+Description=Run aijudge-similarity every 15 minutes
+
+[Timer]
+# **締切の 1 時間後に回したい**（試験では締切の後にまず採点が回る）。毎時だと実際には
+# 1〜2 時間後になるので 15 分ごとにする。入力が前回と同じ課題は回さず、判定は DB を
+# 読むだけなので、空振りの周回は軽い。
+OnCalendar=*:0/15
+Persistent=true
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target
