@@ -1238,6 +1238,14 @@ digest で固定したイメージのまま、提出物と同じ sandbox（gViso
 2. **イメージの許可。** `AIJUDGE_SANDBOX_IMAGES` に
    `aijudge_course_admin.code_similarity.DOLOS_IMAGE`（digest 付き）を足す。無いと
    「許可されていないイメージ」で `NOT_MEASURED` になる
+3. **Dolos の画面。** `aijudge.env` に `AIJUDGE_DOLOS_WEB_DIR=/srv/aijudge/dolos-web` を足し、
+   `aijudge` として `aijudge-admin similarity install-viewer` を流す（検査と同じイメージから
+   静的ファイルを取り出して置く。見本のデータは置かない）。**`DOLOS_IMAGE` を上げたら流し直す**
+   ── CLI と画面の版がずれる。無くても入口のページは開き、上位の組だけが出る
+4. `aijudge-review` を再起動する（env を読み直す）
+
+コンソールは左の帯の「提出の類似」（担当教員だけ・閲覧は監査ログ）。Dolos の画面には外への通信を
+塞ぐ CSP を付けて配る（配布物は Google Fonts を読みに行くが、止めても表示は崩れない）。
 
 **自動で回る。** `aijudge-similarity.timer`（15 分ごと）が `aijudge.target` に入っているので、
 unit の配布で有効になる。受付終了（無ければ締切）の 1 時間後から（試験では締切の後にまず採点が回るため）、**その課題の

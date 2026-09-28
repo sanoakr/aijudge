@@ -497,6 +497,10 @@ def _measure(
                     "csv",
                     "-o",
                     "out",
+                    # 画面の見出し。無いと作業域の名前（`ds`）が出る。課題名は個人に
+                    # 結びつかない。
+                    "-n",
+                    task.title,
                     *DOLOS_PARAMS,
                     "ds/info.csv",
                 ),

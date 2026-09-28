@@ -544,6 +544,11 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
 
     app.include_router(register_activity(TEMPLATES))
 
+    # 提出どうしの類似（#203・ADR 0029）。**教員だけ**が見られ、見たことは監査に残る。
+    from .similarity import register as register_similarity
+
+    app.include_router(register_similarity(TEMPLATES))
+
     # -- ログイン ----------------------------------------------------------
     #
     # **既定の導線は Google（#121・#125）。** ローカルパスワードは

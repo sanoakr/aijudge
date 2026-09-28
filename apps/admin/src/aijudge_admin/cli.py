@@ -63,6 +63,8 @@ from . import authoring_cli
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 DEFAULT_TENANT = "ten_" + "0" * 32
+# Dolos のイメージの中の、画面の配布物の場所（v2.9.3 で確かめた）。
+VIEWER_DIST_IN_IMAGE = "/repo/web/dist"
 # 科目プロファイルの置き場所。**web / review / worker と同じ場所を指すこと**
 # ── CLI だけ別の場所を読むと、コースを作るときに通った宣言で採点されない。
 ENV_PROFILES_DIR = "AIJUDGE_PROFILES_DIR"
@@ -583,6 +585,53 @@ def cmd_similarity_run(args: argparse.Namespace) -> int:
         return 2
     finally:
         database.dispose()
+    return 0
+
+
+def cmd_similarity_install_viewer(args: argparse.Namespace) -> int:
+    """Dolos の画面（静的ファイル）を、検査と**同じイメージ**から取り出して置く（#203）。
+
+    同じ digest から取るので、CLI の出す CSV と画面の版が必ずそろう。**見本のデータ
+    （`dist/data/`）は置かない** ── コンソールは `data/` をその回の報告に向けるが、
+    見本が残っていると取り違えの余地になる。置き換えは別名で作ってから入れ替える。
+    """
+    import shutil
+    import subprocess
+    import tempfile
+
+    image = args.image or code_similarity.DOLOS_IMAGE
+    dest: Path = args.dest
+    if dest is None:
+        print("置き場所（--dest か AIJUDGE_DOLOS_WEB_DIR）がありません", file=sys.stderr)
+        return 2
+    docker = shutil.which("docker")
+    if docker is None:
+        print("docker がありません", file=sys.stderr)
+        return 2
+    subprocess.run([docker, "pull", "-q", image], check=True)
+    created = subprocess.run(
+        [docker, "create", image], check=True, capture_output=True, text=True
+    ).stdout.strip()
+    try:
+        with tempfile.TemporaryDirectory(dir=dest.parent) as work:
+            staged = Path(work) / "dist"
+            subprocess.run(
+                [docker, "cp", f"{created}:{VIEWER_DIST_IN_IMAGE}", str(staged)], check=True
+            )
+            shutil.rmtree(staged / "data", ignore_errors=True)
+            if not (staged / "index.html").is_file():
+                print(f"{VIEWER_DIST_IN_IMAGE}/index.html がイメージにありません", file=sys.stderr)
+                return 1
+            (staged / "IMAGE").write_text(image + "\n", encoding="utf-8")
+            previous = dest.with_name(dest.name + ".old")
+            shutil.rmtree(previous, ignore_errors=True)
+            if dest.exists():
+                dest.rename(previous)
+            staged.rename(dest)
+            shutil.rmtree(previous, ignore_errors=True)
+    finally:
+        subprocess.run([docker, "rm", created], check=False, capture_output=True)
+    print(f"Dolos の画面を {dest} に置きました（{image}）")
     return 0
 
 
@@ -1300,6 +1349,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="報告の置き場所（review の AIJUDGE_SIMILARITY_DIR と同じ場所）",
     )
     sim_run.set_defaults(func=cmd_similarity_run)
+    sim_viewer = similarity.add_parser(
+        "install-viewer",
+        help="Dolos の画面（静的ファイル）を検査と同じイメージから取り出して置く",
+    )
+    sim_viewer.add_argument(
+        "--dest",
+        type=Path,
+        default=(
+            Path(os.environ["AIJUDGE_DOLOS_WEB_DIR"]).expanduser()
+            if os.environ.get("AIJUDGE_DOLOS_WEB_DIR")
+            else None
+        ),
+        help="置き場所（review の AIJUDGE_DOLOS_WEB_DIR と同じ場所）",
+    )
+    sim_viewer.add_argument("--image", default=None, help="イメージ（既定は検査と同じ digest）")
+    sim_viewer.set_defaults(func=cmd_similarity_install_viewer)
 
     activity = sub.add_parser("activity", help="IDE の作業の記録").add_subparsers(
         dest="activity_command", required=True

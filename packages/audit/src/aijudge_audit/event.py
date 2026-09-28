@@ -94,6 +94,9 @@ class AuditAction(StrEnum):
     # 誰がいつ誰の記録を見たかを後から説明できなければならない。成績は変えない
     # 操作だが、監査ログに置く ── 見られたことは学習者に対する行為である。
     ACTIVITY_VIEWED = "activity.viewed"
+    # 提出どうしの類似（Dolos）を教員が見た（#203・ADR 0029）。報告は**全員のコードの
+    # 写し**で、仮の名前と学習者の対応も出る。行動記録と同じく、誰がいつ見たかを残す。
+    SIMILARITY_VIEWED = "similarity.viewed"
 
 
 # `detail` に入れてよい大きさの上限。差分の前後の値を持つための欄であって、
