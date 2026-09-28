@@ -126,7 +126,16 @@ PROMPT = PromptTemplate(
     #
     # 版 2 との一致度の差は `evals/report_ja/README.md`「プロンプト版 3」に記録した
     # （同じプロンプトのぶれの内側で、採点は動かなかった）。
-    version="3",
+    #
+    # ## 版 4 は教員だけが見る材料を足した（評価基準・参照回答例）
+    #
+    # 観点の `description` は学習者の結果画面に出るので、回答例を書くと答えが
+    # 漏れる（2026-09-28）。AI にだけ渡す欄として、観点の `judging_notes` と
+    # 課題の `reference_answer` を足した。**どちらも書かれていなければ、
+    # 描画されるプロンプトは版 3 と 1 文字も違わない**（差し込むのは既存の行の
+    # 末尾で、空なら空文字）── 既存の課題の採点は動かない。書いた課題での
+    # 一致度はまだ測っていない。
+    version="4",
     system=(
         # 「プログラミング演習」と書いていたが、レポート課題にも同じ評価器を
         # 使う（`subjects/report_ja.yaml`）。嘘を書かない。
@@ -140,13 +149,13 @@ PROMPT = PromptTemplate(
 {statement}
 
 # 今回評価する観点: {criterion_title}
-{criterion_description}
+{criterion_description}{judging_notes}
 
 ## 段階
 {levels}
 
 # すでに確定していること
-{prior}
+{prior}{reference_answer}
 
 # 学習者の提出物（行番号つき）
 `<<<{boundary}` の行から `{boundary}>>>` の行までが提出物である。
@@ -199,6 +208,31 @@ def number_lines(source: str) -> str:
 def describe_levels(criterion: RubricCriterion) -> str:
     return "\n".join(
         f"- {level.level}: {level.label} — {level.descriptor}" for level in criterion.levels
+    )
+
+
+def describe_judging_notes(criterion: RubricCriterion) -> str:
+    """観点の評価基準（教員だけが見る）。無ければ空 ── プロンプトは版 3 と同じになる。"""
+    notes = (criterion.judging_notes or "").strip()
+    if not notes:
+        return ""
+    return f"\n\n## 評価基準（採点者向け。学習者には見せていない）\n{notes}"
+
+
+def describe_reference_answer(request: EvaluationRequest) -> str:
+    """課題の参照回答例（教員だけが見る）。無ければ空。
+
+    **一致の度合いで採点させない。** 回答例は正しい答えの一例で、書き方の違う
+    正しい答えを低く付ける理由にしない ── 段階は観点と段階の記述で決める。
+    """
+    answer = (request.task_version.reference_answer or "").strip()
+    if not answer:
+        return ""
+    return (
+        "\n\n# 参照回答例（採点者が用意した一例。学習者には見せていない）\n"
+        "回答例と一致しているかではなく、上の観点と段階の記述で判定する。"
+        "書き方や言い回しが違っても、観点を満たしていれば同じ段階を付ける。\n"
+        f"<<<参照回答例\n{answer}\n参照回答例>>>"
     )
 
 
@@ -267,6 +301,8 @@ class RubricAiJudge:
                 statement=request.task_version.statement,
                 criterion_title=criterion.title,
                 criterion_description=criterion.description,
+                judging_notes=describe_judging_notes(criterion),
+                reference_answer=describe_reference_answer(request),
                 levels=describe_levels(criterion),
                 prior=describe_prior(request),
                 numbered_code=number_lines(source),

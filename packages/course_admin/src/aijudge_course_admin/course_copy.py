@@ -198,6 +198,7 @@ def _copy_tasks(
                     **declared,
                     aggregation=version.aggregation,
                     reference_solution=version.reference_solution,
+                    reference_answer=version.reference_answer,
                     test_cases=_test_cases(version),
                     criteria=rubric.from_criteria(version.criteria),
                     knowledge_components=keys,

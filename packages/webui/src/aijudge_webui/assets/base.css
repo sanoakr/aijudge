@@ -296,6 +296,14 @@ textarea{width:100%;font:inherit;font-size:.88rem;padding:10px 12px;border-radiu
 .pill.attn{color:var(--kin);border-color:var(--kin);background:var(--kin-soft);
   font-weight:700;box-shadow:0 0 0 2px var(--kin-soft)}
 .pill.attn::before{content:"! ";font-weight:700}
+/* 欄の中身が**学生に見えるか**（2026-09-28）。観点の説明は提出後の結果画面に
+   出るのに、画面は「AI が読む」としか言っておらず、回答例を書くと答えが漏れた。
+   見える欄は琥珀（書く内容に注意が要る）、見えない欄は既定の色。**色だけに
+   頼らない** ── ラベルの文言そのものが「見えます／見えません」と言う。 */
+.visibility{display:inline-block;font-size:.72rem;font-weight:400;padding:1px 8px;
+  border-radius:99px;border:1px solid var(--line);color:var(--muted);white-space:nowrap;
+  margin-left:4px}
+.visibility.shown{color:var(--kin);border-color:var(--kin);background:var(--kin-soft)}
 /* 誰が判定したか（#185・P4）。**色ではなく記号で区別する** ── 白黒で
    印刷しても、色覚に差があっても読める必要がある。◇ が AI の判定、
    ▣ がテスト実行（決定的評価）。 */

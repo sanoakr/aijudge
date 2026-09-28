@@ -45,6 +45,10 @@ from .grading_views import (
 )
 from .messages import SAVED_MESSAGES
 
+# `_save_revision` の引数で「渡さなかった（いまの版から引き継ぐ）」を表す印。
+# None は「無しにする」の意味で使うので、印を別に持つ。
+KEEP: object = object()
+
 #: 入出力を実際に走らせる評価器。課題ごとの実行上限（#491）はこれらにだけ意味がある。
 _RUNS_CODE = (CODE_TEST_RUNNER, "network_test_runner")
 
@@ -312,6 +316,7 @@ def _save_revision(
     accepted,
     aggregation=None,
     reference_solution=None,
+    reference_answer=KEEP,
     test_cases=(),
     generated_by=None,
     generation_prompt_version=None,
@@ -331,6 +336,11 @@ def _save_revision(
     if knowledge_components is None:
         with console.database.unit_of_work() as uow:
             knowledge_components = _kc_keys_of(uow, version)
+    # **参照回答例は、渡されなければいまの版から引き継ぐ**（知識要素と同じ理由）。
+    # 問題文やテストを直す経路の一つ一つが渡し忘れると、AI にだけ渡していた
+    # 回答例が訂正のたびに黙って消える。
+    if reference_answer is KEEP:
+        reference_answer = version.reference_answer
     try:
         spec = TaskSpec(
             key=_key_of(task, version),
@@ -350,6 +360,7 @@ def _save_revision(
             # 追随し、後者はしない。
             aggregation=aggregation,
             reference_solution=reference_solution,
+            reference_answer=reference_answer,
             test_cases=test_cases,
             knowledge_components=tuple(knowledge_components),
         )

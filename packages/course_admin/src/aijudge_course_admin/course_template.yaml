@@ -92,6 +92,12 @@ tasks:
         levels:
           - {level: 0, label: 未達, descriptor: 学籍番号が無い, score_ratio: 0.0}
           - {level: 1, label: 達成, descriptor: 本人の学籍番号が含まれている, score_ratio: 1.0}
+    # **学生に見えるか**（観点ごと・課題ごと）:
+    #   title / description  … 提出後、学生の結果画面に出る（AI 評価器にも渡る）
+    #   judging_notes（観点）… 任意。AI 評価器にだけ渡す評価基準。学生には見えない
+    #   reference_answer     … 任意。AI 評価器にだけ渡す参照回答例。学生には見えない
+    # 回答例は description ではなく judging_notes か reference_answer に書く
+    # （description に書くと、一度提出すれば答えが見える）。
 
   # --------------------------------------------------------------------------
   # 2. プログラムの課題を、問題ディレクトリから読む（Sharif Judge 形式）

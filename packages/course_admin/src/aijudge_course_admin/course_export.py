@@ -284,6 +284,8 @@ def _common_fields(
         "max_score": version.max_score if version.points_declared else None,
         "aggregation": version.aggregation,
         "reference_solution": version.reference_solution,
+        # AI にだけ渡す参照回答例（学習者には見えない）。書いた版だけ持ち出す
+        "reference_answer": version.reference_answer,
         "knowledge_components": kc_keys,
     }
     if task.accepted_suffixes:
@@ -333,6 +335,11 @@ def _candidate_specs(
             "description": criterion.description,
             "weight": criterion.weight,
             **({} if criterion.evaluator_id is None else {"evaluator": criterion.evaluator_id}),
+            **(
+                {}
+                if criterion.judging_notes is None
+                else {"judging_notes": criterion.judging_notes}
+            ),
             "levels": [
                 {
                     "level": level.level,
@@ -486,8 +493,15 @@ def _write_task(
     elif spec.test_cases:
         entry["test_cases"] = _test_case_specs_from(spec)
 
+    # **`statement_file` の形では参照解答のファイルは読まれない**（読み込みが
+    # ディレクトリから参照解答を拾うのは `problem_dir` の形だけ）。ファイルに
+    # 書くと、読み直したときに参照解答が消える ── 次に流した日に DB からも
+    # 消える（2026-09-28、コンソールで作った課題を取り込んだときに起きかけた）。
+    # この形では YAML に直接書く。
     reference = (
-        _reference_name(task_dir, spec, course) if spec.reference_solution is not None else None
+        _reference_name(task_dir, spec, course)
+        if spec.reference_solution is not None and "problem_dir" in entry
+        else None
     )
     # **拾われうる参照解答を 1 つに絞る。** `find_reference_solution` は
     # 拡張子ごとに `sorted(glob)` の先頭を採るので、書いたもの以外が同じ
@@ -505,6 +519,8 @@ def _write_task(
         # 拡張子が決まらない（コードで出す課題ではない）。YAML に直接書く。
         entry["reference_solution"] = spec.reference_solution
 
+    if spec.reference_answer is not None:
+        entry["reference_answer"] = spec.reference_answer
     if spec.title is not None:
         entry["title"] = spec.title
     if spec.accepted_suffixes:
