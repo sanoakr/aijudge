@@ -30,8 +30,8 @@ import os
 import shutil
 import time
 from collections.abc import Callable, Iterable, Sequence
-from dataclasses import dataclass
-from datetime import UTC, datetime
+from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path, PurePosixPath
 
@@ -55,6 +55,7 @@ __all__ = [
     "latest_run",
     "list_runs",
     "run_for_task",
+    "sweep",
     "sweep_orphans",
 ]
 
@@ -77,6 +78,10 @@ RUN_SCHEMA_VERSION = 1
 #: 拡張子から Dolos の言語へ。**採点の言語設定は読まない** ── 課題ごとの上書き・
 #: コースの上書き・雛形の 3 段を引き直すより、提出されたファイルそのものが確か。
 LANGUAGE_BY_SUFFIX = {".c": "c", ".h": "c", ".py": "python"}
+
+#: 受付が閉じてから回すまでの間。**試験では締切の後にまず採点が回る**（受付終了の
+#: 自動提出と、試験の一括採点の待機が一斉に外れる）ので、それを先に通す（2026-09-29 決定）。
+SETTLE_AFTER = timedelta(hours=1)
 
 #: 比べる相手がいないと組ができない。
 MIN_SUBMISSIONS = 2
@@ -157,9 +162,11 @@ class SimilarityRun(BaseModel):
 
 @dataclass(frozen=True)
 class _Entry:
+    """比べる提出 1 件。**中身はまだ読まない**（指紋は DB の `content_hash` で作る）。"""
+
     submission: Submission
     filename: str
-    content: bytes
+    storage_key: str
     content_hash: str
     language: str | None
 
@@ -188,7 +195,7 @@ def _code_artifact(submission: Submission) -> Artifact | None:
     return None
 
 
-def _entries(submissions: Sequence[Submission], store: ArtifactStore) -> list[_Entry]:
+def _entries(submissions: Sequence[Submission]) -> list[_Entry]:
     entries: list[_Entry] = []
     for submission in submissions:
         artifact = _code_artifact(submission)
@@ -199,7 +206,7 @@ def _entries(submissions: Sequence[Submission], store: ArtifactStore) -> list[_E
             _Entry(
                 submission=submission,
                 filename=artifact.filename or "",
-                content=store.get(artifact.storage_key),
+                storage_key=artifact.storage_key,
                 content_hash=artifact.content_hash,
                 language=LANGUAGE_BY_SUFFIX.get(suffix),
             )
@@ -217,7 +224,9 @@ def input_hash(entries: Sequence[_Entry], *, image: str, params: Sequence[str]) 
     return digest.hexdigest()
 
 
-def build_dataset(entries: Sequence[_Entry], language: str) -> tuple[dict[str, bytes], str]:
+def build_dataset(
+    entries: Sequence[_Entry], contents: Sequence[bytes], language: str
+) -> tuple[dict[str, bytes], str]:
     """Dolos に渡すファイルと `info.csv`。**名前は仮のもの**（`S-001` など）にする。
 
     `info.csv` の `full_name`・`labels`・`created_at` はそのまま画面に出る。実名や
@@ -228,10 +237,10 @@ def build_dataset(entries: Sequence[_Entry], language: str) -> tuple[dict[str, b
     out = io.StringIO()
     writer = csv.writer(out, lineterminator="\n")
     writer.writerow(["filename", "id", "full_name", "labels", "created_at"])
-    for index, entry in enumerate(entries, start=1):
+    for index, (entry, content) in enumerate(zip(entries, contents, strict=True), start=1):
         pseudonym = f"S-{index:03d}"
         name = f"{pseudonym}{suffix}"
-        files[name] = entry.content
+        files[name] = content
         submitted = entry.submission.submitted_at or entry.submission.created_at
         writer.writerow(
             [
@@ -327,7 +336,11 @@ def run_for_task(
             raise LookupError(f"課題 {task_id!r} がありません")
         versions = [version.id for version in uow.tasks.list_versions(task_id)]
         submissions = _latest_per_learner(uow.submissions.list_for_versions(versions))
-    entries = _entries(submissions, artifact_store)
+    entries = _entries(submissions)
+    if not entries:
+        # コードの提出が無い課題（レポート・動画など）は、記録も残さない ──
+        # 入口のページが「測れない」で埋まる。
+        return None
     fingerprint = input_hash(entries, image=tool, params=DOLOS_PARAMS)
 
     previous = latest_run(root, task.course_id, task.id)
@@ -339,7 +352,16 @@ def run_for_task(
     ):
         return None
 
-    run = _measure(task, entries, fingerprint, tool=tool, at=at, root=root, factory=sandbox_factory)
+    run = _measure(
+        task,
+        entries,
+        fingerprint,
+        store=artifact_store,
+        tool=tool,
+        at=at,
+        root=root,
+        factory=sandbox_factory,
+    )
     _keep_only(root, run)
     return run
 
@@ -387,6 +409,7 @@ def _measure(
     entries: Sequence[_Entry],
     fingerprint: str,
     *,
+    store: ArtifactStore,
     tool: str,
     at: datetime,
     root: Path,
@@ -416,7 +439,8 @@ def _measure(
             f"言語が混ざっています: {sorted(str(lang) for lang in languages)}",
         )
     language = str(languages.pop())
-    files, info = build_dataset(entries, language)
+    contents = [store.get(entry.storage_key) for entry in entries]
+    files, info = build_dataset(entries, contents, language)
     submissions = tuple(
         RunSubmission(
             submission_id=entry.submission.id,
@@ -559,3 +583,74 @@ def run_payload(run: SimilarityRun) -> str:
         },
         ensure_ascii=False,
     )
+
+
+def closes_at(task: Task) -> datetime | None:
+    """自動で回し始める時刻の起点。受付終了、無ければ締切。**どちらも無ければ回さない。**
+
+    締切の後も受付が開いている間は、遅れた提出が入る（ADR 0013）。閉じる前に回すと、
+    入った提出のたびに回し直すことになる。
+    """
+    return task.accepts_until or task.due_at
+
+
+@dataclass
+class SweepReport:
+    ran: list[SimilarityRun] = field(default_factory=list)
+    due: list[Task] = field(default_factory=list)
+    failed: list[TaskId] = field(default_factory=list)
+    removed: list[Path] = field(default_factory=list)
+
+
+def sweep(
+    database: Store,
+    *,
+    root: Path,
+    artifact_store: ArtifactStore,
+    now: datetime | None = None,
+    course_id: CourseId | None = None,
+    dry_run: bool = False,
+    sandbox_factory: SandboxFactory = build_tool_sandbox,
+) -> SweepReport:
+    """受付が閉じた課題を回し、消えた提出の報告を消す（`aijudge-similarity` が呼ぶ）。
+
+    **締切の後は提出の処理が無く、運用機が空いている**（#203 の決定 1）。確定は止めない ──
+    検査は確定と別のプロセスで、成績を作る処理からは import できない。
+
+    1 課題の失敗で他を止めない（`finalization.sweep_deadlines` と同じ）。入力が前回と
+    同じ課題は回さないので、何度走らせても同じ結果になる。
+    """
+    at = now or datetime.now(UTC)
+    report = SweepReport()
+    if not dry_run:
+        report.removed = sweep_orphans(database, root)
+    with database.unit_of_work() as uow:
+        if course_id is None:
+            courses = list(uow.identity.list_all_courses())
+        else:
+            course = uow.identity.get_course(course_id)
+            courses = [course] if course is not None else []
+        for course in courses:
+            for task in uow.tasks.list_for_course(course.id):
+                closed = closes_at(task)
+                if closed is not None and at >= closed + SETTLE_AFTER:
+                    report.due.append(task)
+    if dry_run:
+        return report
+    for task in report.due:
+        try:
+            run = run_for_task(
+                database,
+                task.id,
+                artifact_store=artifact_store,
+                root=root,
+                now=at,
+                sandbox_factory=sandbox_factory,
+            )
+        except Exception:
+            logger.exception("類似の検査に失敗しました（次の周回で再試行）: %s", task.id)
+            report.failed.append(task.id)
+            continue
+        if run is not None:
+            report.ran.append(run)
+    return report
