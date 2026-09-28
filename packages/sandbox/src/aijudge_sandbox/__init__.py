@@ -24,6 +24,7 @@ from .selection import (
     ENV_BACKEND,
     ENV_IMAGE,
     build_sandbox,
+    build_tool_sandbox,
     default_sandbox,
 )
 from .types import (
@@ -56,5 +57,6 @@ __all__ = [
     "UnsafeSandboxRefused",
     "Workspace",
     "build_sandbox",
+    "build_tool_sandbox",
     "default_sandbox",
 ]

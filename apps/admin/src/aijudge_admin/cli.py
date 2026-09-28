@@ -25,8 +25,8 @@ from pathlib import Path
 
 from aijudge_audit import AuditAction, AuditRecorder
 from aijudge_core import DIVISIONS, Role
-from aijudge_core.ids import CourseId, TenantId
-from aijudge_course_admin import groups
+from aijudge_core.ids import CourseId, TaskId, TenantId
+from aijudge_course_admin import code_similarity, groups
 from aijudge_course_admin.activity_purge import plan_activity_purge, purge_activity
 from aijudge_course_admin.course_definition import apply_course_definition
 from aijudge_course_admin.course_export import DiffState, diff_course, export_course
@@ -528,6 +528,52 @@ def cmd_video_purge(args: argparse.Namespace) -> int:
         # ストアが落ちているならそちらを直さないと何度でも同じ数が残る。
         print(f"消せなかったもの: {len(outcome.failed)} 件", file=sys.stderr)
         return 1
+    return 0
+
+
+def cmd_similarity_run(args: argparse.Namespace) -> int:
+    """提出どうしの類似を Dolos で調べ、報告を残す（#203・ADR 0029）。
+
+    ふだんは締切の後に自動で回る（`aijudge-similarity`）。これは手で回すための入口で、
+    `--force` を付けると入力が前回と同じでも回し直す。
+    """
+    if args.similarity_dir is None:
+        print(
+            f"{code_similarity.ENV_SIMILARITY_DIR}（--similarity-dir）がありません",
+            file=sys.stderr,
+        )
+        return 2
+    database = _database(args)
+    try:
+        with database.unit_of_work() as uow:
+            if args.task:
+                task_ids = [TaskId(args.task)]
+            else:
+                task_ids = [
+                    task.id
+                    for task in uow.tasks.list_for_course(CourseId(args.course))
+                    if args.unit is None or task.unit == args.unit
+                ]
+        if not task_ids:
+            print("対象の課題がありません", file=sys.stderr)
+            return 2
+        for task_id in task_ids:
+            run = code_similarity.run_for_task(
+                database,
+                task_id,
+                artifact_store=_artifact_store(args),
+                root=args.similarity_dir,
+                force=args.force,
+            )
+            if run is None:
+                print(f"{task_id}: 前回と同じ入力なので回しませんでした（--force で回し直す）")
+            else:
+                print(code_similarity.run_payload(run))
+    except LookupError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    finally:
+        database.dispose()
     return 0
 
 
@@ -1226,6 +1272,25 @@ def build_parser() -> argparse.ArgumentParser:
     )
     video_purge.add_argument("--yes", action="store_true", help="確認を省く")
     video_purge.set_defaults(func=cmd_video_purge)
+
+    similarity = sub.add_parser(
+        "similarity", help="提出どうしの類似（Dolos・担当教員だけが見る）"
+    ).add_subparsers(dest="similarity_command", required=True)
+    sim_run = similarity.add_parser(
+        "run", help="課題ごとに調べて報告を残す（ふだんは締切の後に自動で回る）"
+    )
+    sim_target = sim_run.add_mutually_exclusive_group(required=True)
+    sim_target.add_argument("--task", help="この課題だけ（tsk_…）")
+    sim_target.add_argument("--course", help="このコースの課題すべて（--unit で絞れる）")
+    sim_run.add_argument("--unit", help="この問題セットの課題だけ（--course と一緒に）")
+    sim_run.add_argument("--force", action="store_true", help="入力が前回と同じでも回し直す")
+    sim_run.add_argument(
+        "--similarity-dir",
+        type=Path,
+        default=code_similarity.similarity_root(),
+        help="報告の置き場所（review の AIJUDGE_SIMILARITY_DIR と同じ場所）",
+    )
+    sim_run.set_defaults(func=cmd_similarity_run)
 
     activity = sub.add_parser("activity", help="IDE の作業の記録").add_subparsers(
         dest="activity_command", required=True

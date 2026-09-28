@@ -554,6 +554,21 @@ source_modules =
 forbidden_modules =
     aijudge_ide
 
+; **類似の検査は成績に届かない**（#203・ADR 0029）。似ている組は教員に示すだけで、
+; 判定ではない（P5）── 成績を作る処理が読めるようになった日に「似ていたら減点」の
+; 道ができる。採点のワーカーは `aijudge_course_admin` の別のモジュール（`justification`）を
+; import しているので、パッケージ単位では切れない。モジュールで閉じる。
+[importlinter:contract:grades-do-not-read-similarity]
+name = 成績を作る処理は類似の検査を import しない
+type = forbidden
+source_modules =
+    aijudge_grader
+    aijudge_grading
+    aijudge_course_admin.finalization
+    aijudge_admin.finalize_cli
+forbidden_modules =
+    aijudge_course_admin.code_similarity
+
 ; **評価器どうしは互いを知らない**（ADR 0002「他のプラグインを知らない」・#434）。
 ; 共有したい知識は `aijudge_toolchain` や採点プロトコルに置く（言語の表を
 ; 独立させたのと同じ理由）。片方が他方を import すると、片方だけを差し替えられない。
