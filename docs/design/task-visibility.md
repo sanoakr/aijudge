@@ -23,7 +23,7 @@
 | 経路 | 根拠 | 見えるもの |
 |---|---|---|
 | 学生画面 `preview`（`_group_by_unit`・`_may_submit_before_open`） | #340「公開前こそ実物で確かめたい」 | 一覧・問題文・試しの提出 |
-| コンソール `_require_reader`（`manage.py:247`） | #102「公開前の課題も読める：採点は公開前に用意されるものだから」 | 問題セットの画面（`/manage/courses/{id}/units/{unit}`）・課題の編集画面（読むだけ） |
+| コンソール `_require_reader`（`manage/common.py`） | #102「公開前の課題も読める：採点は公開前に用意されるものだから」 | 問題セットの画面（`/manage/courses/{id}/units/{unit}`）・課題の編集画面（読むだけ） |
 
 どちらも**課題**を前提にした判断で、正しい。問題は、**試験と課題が区別されて
 いない**ことである。課題なら TA が先に読んで質問対応に備えるのは望ましいが、
@@ -140,7 +140,7 @@ def may_see(task: Task, role: Role, *, in_audience: bool, now: datetime) -> bool
 
 | 箇所 | 変更 |
 |---|---|
-| `_require_reader` を通る課題の画面（問題セット `manage.py:2577`・課題の編集 `:4585`） | 課題ごとに `may_see` を掛ける。TA には秘匿の公開前の課題を出さない |
+| `_require_reader` を通る課題の画面（問題セット `manage/units.py`・課題の編集 `manage/tasks.py`。調査時は分割前の `manage.py`） | 課題ごとに `may_see` を掛ける。TA には秘匿の公開前の課題を出さない |
 | 提出の一覧・レビュー・blind | 秘匿の公開前の課題への**試し提出**（`is_trial`）を TA に出さない。公開前に学習者の提出は存在しないので、実質これだけ |
 | 問題セットの一覧（`overview.py:128`） | 出題先・秘匿の印を出す（`campus_only` の印と同じ扱い） |
 | `/manage` の編集画面・下書き（`drafts`）・書き出し | 既に教員専用（`_require_instructor`）。変更なし |
