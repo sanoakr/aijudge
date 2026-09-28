@@ -13,11 +13,19 @@
       <input name="criterion_order" type="number" step="1" min="1"
              value="{{ row.order | default('', true) }}"></span>
   </div>
-  <label>題名（学習者の結果画面に出ます）</label>
+  {# **学生に見えるかを欄ごとに書く**（2026-09-28）。説明は結果画面に出るのに
+     「AI が読む」としか書いていなかったので、回答例を説明に書いた課題で、
+     一度提出すれば答えが見えるようになっていた。 #}
+  <label>題名 <span class="visibility shown">提出後、学生の結果画面に出ます</span></label>
   <input name="criterion_title" value="{{ row.title }}" placeholder="変数名と構造の分かりやすさ">
-  <label>説明（何を見るか。AI 評価器はこれを読んで判定します）</label>
+  <label>説明（何を見るか） <span class="visibility shown">提出後、学生の結果画面に出ます</span>
+    <span class="visibility">AI 評価器にも渡します</span></label>
   <textarea name="criterion_description" rows="2"
     placeholder="変数名が役割を表しているか、処理の流れが追えるか。出力の正しさはこの観点では評価しない。">{{ row.description }}</textarea>
+  <label>評価基準（任意） <span class="visibility hidden">学生には見えません</span>
+    <span class="visibility">AI 評価器にだけ渡します</span></label>
+  <textarea name="criterion_judging_notes" rows="3"
+    placeholder="回答例や、どこを見て段階を決めるかの詳しい基準。説明と違い、学生の結果画面には出ません。">{{ row.judging_notes | default('', true) }}</textarea>
   <label>判定する評価器</label>
   {# **種類でまとめ、AI を上に置く**（#318）。観点に割り当てるものを選ぶとき、
      まず決めるのは「AI に読ませるか・機械で確定させるか・人が付けるか」で、

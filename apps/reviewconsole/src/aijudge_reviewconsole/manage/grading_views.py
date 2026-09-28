@@ -154,6 +154,7 @@ def _rubric_from_form(form) -> list[dict[str, str]]:
                 "order": at("criterion_order"),
                 "evaluator": at("criterion_evaluator"),
                 "levels": at("criterion_levels"),
+                "judging_notes": at("criterion_judging_notes"),
             }
         )
     return rows

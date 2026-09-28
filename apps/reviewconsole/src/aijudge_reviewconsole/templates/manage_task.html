@@ -333,6 +333,17 @@
   <div id="rubric-editor">
     {% with rows = rubric_rows %}{% include "_rubric_editor.html" %}{% endwith %}
   </div>
+  {# **参照回答例は課題に 1 つ**（観点ごとではない）。学生に見えないことを欄に書く
+     （2026-09-28）── 観点の説明に回答例を書くと、提出後の結果画面で答えが見える。 #}
+  <div class="subsection reference-answer">
+    <label for="reference_answer">参照回答例（任意）
+      <span class="visibility hidden">学生には見えません</span>
+      <span class="visibility">AI 評価器にだけ渡します</span></label>
+    <textarea id="reference_answer" name="reference_answer" rows="8" class="mono"
+      placeholder="模範となる回答の一例。AI は一致の度合いではなく、観点と段階の記述で判定します。">{{ version.reference_answer if version and version.reference_answer else '' }}</textarea>
+    <p class="desc">テストの検証に使う<strong>参照解答</strong>（入出力の観点の中）とは別の欄です。
+      参照解答は AI には渡しません。</p>
+  </div>
   {# **押しても保存しない。** 下の欄を共通ルーブリックの内容で置き換えるだけで、
      反映は「保存」で行う。以前はここが独立したフォームで、押した瞬間に版が
      上がっていた ── 編集の途中で押すと、書いた内容は保存されないまま別の版が

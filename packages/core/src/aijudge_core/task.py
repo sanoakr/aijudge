@@ -127,10 +127,18 @@ class RubricCriterion(BaseModel):
     id: CriterionId
     code: str = Field(min_length=1)
     title: str = Field(min_length=1)
+    # **学習者にも見える。** 提出後の結果画面に題名と並んで出る（studentweb の
+    # `submission.html`）。AI 評価器にも渡る。答えを書く欄ではない。
     description: str = Field(min_length=1)
     weight: float = Field(gt=0.0, le=1.0)
     levels: tuple[RubricLevel, ...] = Field(min_length=2)
     evaluator_id: str | None = None
+    # **AI 評価器にだけ渡す評価基準。学習者には見せない。** 回答例や、どこを
+    # 見て段階を決めるかの詳しい基準を書く。`description` は結果画面に出るので、
+    # そこに回答例を書くと、一度提出すれば答えが見える（最高点が採られるので
+    # 写して出し直せば満点になる・2026-09-28）。None なら AI は `description` と
+    # 段階だけで判定する（従来どおり）。
+    judging_notes: str | None = None
 
     @model_validator(mode="after")
     def _check_levels(self) -> Self:
@@ -196,6 +204,13 @@ class TaskVersion(BaseModel):
     subject_profile: str = Field(min_length=1)
     statement: str = Field(min_length=1)
     reference_solution: str | None = None
+    # **参照回答例。AI 評価器にだけ渡す。学習者には見せない。** 任意。
+    #
+    # `reference_solution` とは別の欄である。あちらは決定的評価器の検証に使う
+    # 正解のコードで、AI には渡さない ── 正解のコードを持つ既存の課題すべてで、
+    # 教員が意図しないまま AI の採点に正解が入らないようにする。AI に見本を
+    # 見せたい課題だけが、ここに書く（コメントを書かせる課題の模範解答など）。
+    reference_answer: str | None = None
     # **並びが評価順である。** AND のときは上から評価して 0% で打ち切る。
     criteria: tuple[RubricCriterion, ...] = Field(min_length=1)
     # 観点の畳み方。None ならコースの設定に従う（`effective_aggregation`）。

@@ -58,6 +58,7 @@ from .grading_views import (
     _rubric_from_form,
 )
 from .task_page import (
+    KEEP,
     _cases_by_shape,
     _chosen_suffixes,
     _data_driven_criteria,
@@ -69,6 +70,18 @@ from .task_page import (
     _task_of,
     _task_page,
 )
+
+
+def _reference_answer_from(form, *, default):
+    """フォームの参照回答例（AI にだけ渡す・学生には見えない）。
+
+    **欄が無ければ `default`**（訂正ではいまの版から引き継ぐ `KEEP`）。欄があって
+    空なら「無し」── 消したつもりの回答例が残らないようにする。
+    """
+    if "reference_answer" not in form:
+        return default
+    text = str(form.get("reference_answer") or "").replace("\r\n", "\n").strip()
+    return text or None
 
 
 def _kc_candidates_for(
@@ -267,7 +280,8 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
                 generation_failed = True
 
         # 知識要素（#292）。付けるものはコースの範囲にも入れる。
-        components = _kcs_from_form(console, course, await request.form())
+        form = await request.form()
+        components = _kcs_from_form(console, course, form)
 
         try:
             spec = TaskSpec(
@@ -278,6 +292,7 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
                 readability_weight=float(readability_weight or 0.0),
                 knowledge_components=components,
                 reference_solution=None if generated is None else generated.reference_solution,
+                reference_answer=_reference_answer_from(form, default=None),
                 test_cases=(
                     ()
                     if generated is None
@@ -717,6 +732,9 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
             # テストを捨てる意図は無い。捨てたいときは、テストを作り直す
             # 経路（`/test-cases`）がある。
             reference_solution=version.reference_solution,
+            # 参照回答例は**欄が送られてきたときだけ**書き換える（空欄なら無しにする）。
+            # 欄の無いフォームから来た訂正では、いまの版の値を引き継ぐ。
+            reference_answer=_reference_answer_from(form, default=KEEP),
             # **評価器と payload ごと持ち越す**（`_kept_cases`・#302）。以前は
             # 入出力の 2 欄だけを写していたので、入出力以外の検証データ
             # （項目表・パターン表・伴走プロセス）は**課題の既定の評価器あての

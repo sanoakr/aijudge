@@ -141,6 +141,8 @@ def parse(rows: list[dict[str, str]]) -> tuple[CriterionSpec, ...]:
                 weight=weight,
                 evaluator=evaluator,
                 levels=parse_levels(text("levels")),
+                # AI にだけ渡す評価基準（学習者には見えない）。空欄は「無し」
+                judging_notes=text("judging_notes") or None,
             )
         )
     if not criteria:
@@ -180,6 +182,7 @@ def to_rows(criteria: Iterable[CriterionSpec | RubricCriterion]) -> list[dict[st
                 "weight": criterion.weight,
                 "evaluator": evaluator or "",
                 "levels": format_levels(criterion.levels),
+                "judging_notes": getattr(criterion, "judging_notes", None) or "",
             }
         )
     return rows
@@ -199,6 +202,9 @@ def from_criteria(criteria: Iterable[RubricCriterion]) -> tuple[CriterionSpec, .
             description=criterion.description,
             weight=criterion.weight,
             evaluator=criterion.evaluator_id,
+            # **評価基準も引き継ぐ。** 落とすと、問題文だけ直した訂正で AI にだけ
+            # 渡していた基準が黙って消え、次の版から採点の基準が変わる。
+            judging_notes=criterion.judging_notes,
             levels=tuple(
                 LevelSpec(
                     level=level.level,

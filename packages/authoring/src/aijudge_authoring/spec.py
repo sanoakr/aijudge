@@ -110,6 +110,8 @@ class CriterionSpec(BaseModel):
     weight: float = Field(gt=0.0, le=1.0)
     evaluator: str | None = None
     levels: tuple[LevelSpec, ...] = Field(min_length=2)
+    # AI 評価器にだけ渡す評価基準（学習者には見えない・`RubricCriterion.judging_notes`）
+    judging_notes: str | None = None
 
     @property
     def scored_by_human(self) -> bool:
@@ -177,6 +179,8 @@ class TaskSpec(BaseModel):
     subject_profile: str | None = None
     evaluator: str = DEFAULT_EVALUATOR
     reference_solution: str | None = None
+    # 参照回答例（AI 評価器にだけ渡す・学習者には見えない・`TaskVersion.reference_answer`）
+    reference_answer: str | None = None
     test_cases: tuple[TestCaseSpec, ...] = ()
     # 課題が観点を宣言する場合。空なら「正しさ（＋読みやすさ）」を組み立てる。
     criteria: tuple[CriterionSpec, ...] = ()
@@ -322,6 +326,7 @@ def _declared_version(
                 for level in sorted(declared.levels, key=lambda item: item.level)
             ),
             evaluator_id=declared.evaluator,
+            judging_notes=declared.judging_notes,
         )
         for declared in spec.criteria
     )
@@ -333,6 +338,7 @@ def _declared_version(
         subject_profile=subject_profile,
         statement=spec.statement,
         reference_solution=spec.reference_solution,
+        reference_answer=spec.reference_answer,
         criteria=criteria,
         aggregation=spec.aggregation,
         test_cases=cases,
@@ -538,6 +544,7 @@ def build_task_version(
         subject_profile=subject_profile,
         statement=spec.statement,
         reference_solution=spec.reference_solution,
+        reference_answer=spec.reference_answer,
         criteria=criteria,
         aggregation=spec.aggregation,
         test_cases=cases,
