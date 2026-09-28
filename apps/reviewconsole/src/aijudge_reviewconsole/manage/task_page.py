@@ -13,7 +13,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
 
 from aijudge_authoring import TaskChecks, TaskSpec, images, render_statement
-from aijudge_authoring.spec import TestCaseSpec
+from aijudge_authoring.spec import DEFAULT_EVALUATOR, TestCaseSpec
 from aijudge_core import (
     DEFAULT_UPLOAD_SUFFIXES,
     MAX_TASK_CASE_TIMEOUT_SECONDS,
@@ -341,6 +341,7 @@ def _save_revision(
     # 回答例が訂正のたびに黙って消える。
     if reference_answer is KEEP:
         reference_answer = version.reference_answer
+    test_cases, reference_solution, pruned = _prune_unused(criteria, test_cases, reference_solution)
     try:
         spec = TaskSpec(
             key=_key_of(task, version),
@@ -410,7 +411,48 @@ def _save_revision(
         )
         uow.commit()
     console.notices.put(me.user_id, course.id, notices.TASK_SAVED, saved)
+    if pruned is not None:
+        console.notices.put(
+            me.user_id,
+            course.id,
+            notices.PRUNED,
+            {**pruned, "kept_in": version.version},
+            scope=task.id,
+        )
     return saved
+
+
+def _prune_unused(criteria, test_cases, reference_solution):
+    """どの観点も使っていない検証データを、新しい版から外す（2026-09-28）。
+
+    観点の評価器を `code_test_runner` から AI に変えると、入出力のテストケースと
+    参照解答は**画面から見えなくなる**（入出力の観点の中に出していたため）のに、
+    版には残り続けた。しかも採点のパイプラインは科目が宣言した決定的評価器を
+    観点と関係なく走らせる（`GradingPipeline`）ので、**提出のたびに実行されて
+    どの観点の点にもならない。**
+
+    - テストケース: その評価器を**名指しする観点が 1 つも無ければ**外す。
+      評価器を指名しない観点（AI）はテストケースを読まない
+    - 参照解答: コードを走らせる評価器（`_RUNS_CODE`）を名指しする観点が
+      無ければ外す（テストの検証にしか使わない。AI には渡さない）
+
+    **版は書き換えない**（P8）ので、外したものは前の版に残る。「版の復元」で戻せる。
+    観点が空（既定の観点を組み立てる課題）のときは何も外さない ── そこでは
+    テストケースが既定の観点を決めている。
+    """
+    if not criteria:
+        return test_cases, reference_solution, None
+    named = {criterion.evaluator for criterion in criteria if criterion.evaluator}
+    kept = tuple(case for case in test_cases if (case.evaluator or DEFAULT_EVALUATOR) in named)
+    drop_reference = reference_solution is not None and not named & set(_RUNS_CODE)
+    dropped = len(test_cases) - len(kept)
+    if not dropped and not drop_reference:
+        return test_cases, reference_solution, None
+    return (
+        kept,
+        None if drop_reference else reference_solution,
+        {"cases": dropped, "reference": drop_reference},
+    )
 
 
 def _submission_count(console, task) -> int:
@@ -669,12 +711,31 @@ def _saved_note(request: Request, me, course, task, saved: str) -> str | None:
     何件を採点し直したのかが教員に届いていなかった（2026-09-28 に気づいた）。
     """
     message = SAVED_MESSAGES.get(saved)
+    if task is not None:
+        message = _with_pruned(request, me, course, task, message)
     if saved != "regraded" or task is None:
         return message
     queued = _console(request).notices.take(me.user_id, course.id, notices.REGRADED, scope=task.id)
     if queued is None:
         return message
     return f"{queued} 件を{message}"
+
+
+def _with_pruned(request: Request, me, course, task, message: str | None) -> str | None:
+    """保存で外した検証データを、保存の文言に添える（取り出したら消える）。"""
+    pruned = _console(request).notices.take(me.user_id, course.id, notices.PRUNED, scope=task.id)
+    if not isinstance(pruned, dict):
+        return message
+    parts = []
+    if pruned.get("cases"):
+        parts.append(f"テストケース {pruned['cases']} 件")
+    if pruned.get("reference"):
+        parts.append("参照解答")
+    note = (
+        f"どの観点も使っていない{'と'.join(parts)}を外しました"
+        f"（v{pruned.get('kept_in')} に残っています。「版の復元」で戻せます）"
+    )
+    return f"{message} {note}" if message else note
 
 
 def _wants_tests(request: Request, course, version=None) -> bool:
