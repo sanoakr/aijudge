@@ -38,6 +38,7 @@ ID（コース・課題版・提出）はどれも DB から引く。撮り直�
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
 import sqlite3
@@ -51,6 +52,8 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
+
+from aijudge_course_admin.code_similarity import DOLOS_IMAGE
 
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parents[1]
@@ -113,12 +116,18 @@ DEMO_SOURCE = SOURCES_DIR / "demo_max.c"
 # 負の数で落ちる解答。**全員が同じ値にならないようにする** ── 分布が 1 本の
 # 棒になると、分布の図であることが読み取れない。
 DEMO_PARTIAL_SOURCE = SOURCES_DIR / "demo_max_partial.c"
+# お試しコースのエディタで解く問題セット（`subjects/demo/course.yaml` の `units`）。
+DEMO_UNIT = "demo01"
+# エディタの自動保存・記録の送信が一巡するまでの間。
+IDE_SETTLE_MS = 2500
 
 # 撮影時の見た目。学生画面は 1100 幅、コンソールは 1200 幅（サイドバー分）。
 STUDENT_VIEWPORT = {"width": 1100, "height": 760}
 CONSOLE_VIEWPORT = {"width": 1200, "height": 800}
 MOBILE_VIEWPORT = {"width": 400, "height": 800}
 CLIP_PADDING = 12
+# 入出力の突き合わせの切り抜きの高さ（見出しと先頭の 2 ケースが入る）。
+IO_DIFF_HEIGHT = 460
 # ログイン画面だけは本番から撮る。使い捨て環境には OIDC が無く、「学内認証が
 # 設定されていない」ときの画面になってしまう。ログイン前の画面なので学習者の
 # データは含まない。
@@ -144,6 +153,14 @@ def state_env(state: Path) -> dict[str, str]:
     env["AIJUDGE_ARTIFACT_DIR"] = str(state / "artifacts")
     env["AIJUDGE_ADMIN_PASSWORD"] = PASSWORD
     env["AIJUDGE_PROFILES_DIR"] = str(state / "profiles")
+    # 提出の類似の報告（#203）。コンソールはここから一覧を読み、Dolos の画面は
+    # `similarity install-viewer` で置いたものを出す。Dolos のイメージは既定の
+    # 許可リストに無いので足す ── 無いと「実行環境が使えなかった」で撮れる。
+    env["AIJUDGE_SIMILARITY_DIR"] = str(state / "similarity")
+    env["AIJUDGE_DOLOS_WEB_DIR"] = str(state / "dolos-web")
+    env["AIJUDGE_SANDBOX_IMAGES"] = DOLOS_IMAGE
+    # 作業の記録（ADR 0023）。置き場所が無いと、記録の画面は中身を読めない。
+    env["AIJUDGE_ACTIVITY_DIR"] = str(state / "activity")
     demo_course = state / "demo_course_id"
     if demo_course.is_file():
         env["AIJUDGE_DEMO_COURSE"] = demo_course.read_text().strip()
@@ -199,6 +216,15 @@ def submission_id(state: Path, login: str, attempt: int, *, course: str | None =
         " where u.login = ? and s.attempt = ? and t.course_id = ?",
         login,
         attempt,
+        course,
+    )
+
+
+def first_task_id(state: Path, course: str) -> str:
+    """ex01 の先頭の課題（p1）。課題の画面（内容と操作のタブ）はここから撮る。"""
+    return query_one(
+        state,
+        "select id from tasks where course_id = ? and unit = 'ex01' order by position limit 1",
         course,
     )
 
@@ -308,6 +334,7 @@ def seed(state: Path) -> None:
     definition.write_text(yaml_course(), encoding="utf-8")
     run([*admin, "course", "apply", "--file", str(definition)], env)
     run([*admin, "--artifacts", env["AIJUDGE_ARTIFACT_DIR"], "demo", "seed"], env)
+    run([*admin, "similarity", "install-viewer", "--dest", env["AIJUDGE_DOLOS_WEB_DIR"]], env)
     demo = course_id(state, "demo")
     (state / "demo_course_id").write_text(demo)
     # **お試しコースにも同じ学生を入れる**（#328）。習熟度の画面はここから撮る
@@ -336,7 +363,7 @@ def _wait_http(url: str) -> None:
 
 @contextmanager
 def serve(state: Path) -> Iterator[None]:
-    """Web・コンソール・2 レーンのワーカー・イベントのリレーを起動し、
+    """Web・コンソール・2 レーンのワーカー・イベントのリレー・IDE の runner を起動し、
     抜けるときに止める。
 
     **リレーも立てる**（#328）── これが動いていないと習熟度が 1 件も更新
@@ -352,6 +379,9 @@ def serve(state: Path) -> Iterator[None]:
         "worker-det": ["aijudge-worker", "--phase", "deterministic", "--name", "det"],
         "worker-ai": ["aijudge-worker", "--phase", "ai", "--name", "ai1"],
         "relay": ["aijudge-relay"],
+        # エディタの試しの実行（採点ではない）。これが無いと実行の依頼は誰にも
+        # 拾われず、「混み合っていたため、実行しませんでした」で撮れる。
+        "runner": ["aijudge-runner", "--name", "runner1"],
     }
     procs = []
     for name, args in commands.items():
@@ -409,6 +439,39 @@ def demo_task_url(page: Any, course: str, title_fragment: str) -> str:
     return f"{WEB}{href}"
 
 
+def wait_run_output(page: Any, index: str) -> None:
+    """試しの実行の結果を待つ。**空でないだけでは足りない** ── 押した直後は
+    「送信中…」が入り、それを結果と取り違えて撮っていた。"""
+    page.wait_for_function(
+        """(i) => {
+          const out = document.querySelector(`pre[data-output='${i}']`);
+          const text = out ? out.textContent.trim() : "";
+          return text !== "" && !text.endsWith("…");
+        }""",
+        arg=index,
+        timeout=120_000,
+    )
+
+
+def open_ide(page: Any, course: str) -> str:
+    """お試しコースのエディタを開き、初回の告知（作業の記録）に同意して、
+    「最大値」のタブに切り替える。返すのはそのタブの番号。
+
+    **番号を決め打ちしない** ── お試しコースの 1 問目は画像の提出で、タブ 0 は
+    エディタではない（`demo_task_url` と同じ理由）。
+    """
+    # 読み込み・提出は確認を出す（`ide.js`）。Playwright は既定で断るので受ける。
+    page.on("dialog", lambda dialog: dialog.accept())
+    page.goto(f"{WEB}/courses/{course}/ide?unit={DEMO_UNIT}")
+    accept = page.locator("[data-ide-consent-accept]")
+    if accept.is_visible():
+        accept.click()
+    tab = page.locator("button.ide-tab", has_text="最大値").first
+    tab.click()
+    page.wait_for_timeout(IDE_SETTLE_MS)
+    return str(tab.get_attribute("id")).removeprefix("ide-tab-")
+
+
 def submit(page: Any, task_url: str, source: Path) -> None:
     page.goto(task_url)
     page.set_input_files("#upload", str(source))
@@ -420,6 +483,26 @@ def blind_mark(page: Any, submission: str, *, correctness: int, readability: int
     page.check(f"input[name=level_correctness][value='{correctness}']")
     page.check(f"input[name=level_readability][value='{readability}']")
     page.click("form[action$='/blind'] button[type=submit]")
+
+
+def _raise_if_evaluator_failed(state: Path, submission: str) -> None:
+    """評価器が失敗した採点で先へ進まない。
+
+    ジョブは評価器が失敗しても `done` になる（AI の観点が未採点のまま残る）。
+    それで進むと、再確認の依頼の欄が押せないまま 30 秒待って落ち、原因
+    （LLM に届かない、モデルが無い）が読めなかった（2026-09-29）。
+    """
+    for (document,) in (
+        db(state)
+        .execute("select document from grading_runs where submission_id = ?", (submission,))
+        .fetchall()
+    ):
+        for result in json.loads(document)["evaluator_results"]:
+            if result["status"] == "failed":
+                raise SystemExit(
+                    f"{submission} の {result['evaluator_id']} が失敗した: {result.get('error')}"
+                    "（AIJUDGE_LLM_BASE_URL / AIJUDGE_LLM_MODEL を見る）"
+                )
 
 
 def wait_graded(state: Path, submission: str) -> None:
@@ -440,6 +523,7 @@ def wait_graded(state: Path, submission: str) -> None:
         if "failed" in states.values():
             raise SystemExit(f"{submission} の採点が失敗した: {states}（logs/ を見る）")
         if states and all(job_state == "done" for job_state in states.values()):
+            _raise_if_evaluator_failed(state, submission)
             return
         time.sleep(GRADING_POLL_SEC)
     raise SystemExit(f"{submission} の採点が {GRADING_TIMEOUT_SEC} 秒で終わらない")
@@ -502,7 +586,10 @@ def scenario(state: Path, playwright: Any) -> None:
     page.fill("#opens_at", (today - timedelta(days=3)).strftime("%Y-%m-%dT09:00"))
     page.fill("#due_at", (today + timedelta(days=7)).strftime("%Y-%m-%dT23:59"))
     page.fill("#accepts_until", (today + timedelta(days=14)).strftime("%Y-%m-%dT23:59"))
-    page.click("text=日程を保存")
+    # **保存ボタンは画面の底に 1 つ**（2026-09-26）。以前の「日程を保存」は無い。
+    # 保存は fetch で送られ、結果はボタンの横に出る ── それを待ってから閉じる。
+    page.click("#unit-settings .deskbar button[type=submit]")
+    page.wait_for_selector("#unit-settings .save-state .flash, #unit-settings .flash")
     page.context.close()
 
     # y230003 が再確認を依頼し、y230002 は正解を出し直す。
@@ -550,6 +637,37 @@ def scenario(state: Path, playwright: Any) -> None:
     )
     page.click("form[action$='/finalize'] button[type=submit]")
     page.context.close()
+
+    # 学生がお試しコースをエディタで解く。**作業の記録の画面はここから撮る** ──
+    # 記録は IDE でしか積まれない（ADR 0023）。読み込み・試しの実行・提出の
+    # 3 つを踏むと、記録の要約と再生に中身が出る。
+    page = page_as(WEB, "y230002", **STUDENT_VIEWPORT)
+    index = open_ide(page, demo)
+    page.set_input_files(f"input.ide-file[data-tab='{index}']", str(DEMO_SOURCE))
+    page.wait_for_timeout(IDE_SETTLE_MS)
+    page.click(f"button.ide-run-sample[data-tab='{index}']")
+    wait_run_output(page, index)
+    page.click(f"button.ide-submit[data-tab='{index}']")
+    page.wait_for_timeout(IDE_SETTLE_MS)
+    page.context.close()
+    # 作業の記録の画面に得点まで出るよう、エディタからの提出の採点を待つ。
+    wait_graded(state, submission_id(state, "y230002", 2, course=demo))
+
+    # 提出の類似（#203）。ふだんは締切の 1 時間後に自動で回るが、ここでは手で回す
+    # ── `--force` は締切や前回の入力に関係なく回す口である。
+    run(
+        [
+            "aijudge-admin",
+            "similarity",
+            "run",
+            "--course",
+            course,
+            "--force",
+            "--similarity-dir",
+            str(state / "similarity"),
+        ],
+        state_env(state),
+    )
     browser.close()
     print("scenario: done")
 
@@ -576,10 +694,24 @@ class Shooter:
         full: bool = False,
         selector: str | None = None,
         between: tuple[str, str | None] | None = None,
+        top: str | None = None,
         pad: int = CLIP_PADDING,
         height: int | None = None,
     ) -> None:
         path = str(IMAGES_DIR / f"{name}.png")
+        if top:
+            # 要素の左上から、その要素の幅で `height` まで。列の中の要素を切り出す。
+            box = self.page.locator(top).first.bounding_box()
+            if box is None:
+                raise SystemExit(f"切り抜きの目印が見つからない: {top}")
+            clip = {
+                "x": box["x"],
+                "y": box["y"],
+                "width": box["width"],
+                "height": min(box["height"], height or box["height"]),
+            }
+            self.page.screenshot(path=path, full_page=True, clip=clip)
+            return
         if selector:
             self.page.locator(selector).first.screenshot(path=path)
             return
@@ -662,6 +794,11 @@ def capture(state: Path, playwright: Any, login_url: str) -> None:
     login(page, WEB, "y230002")
     page.goto(f"{WEB}/courses/{demo}")
     Shooter(page).shot("st-demo", between=("main h1", None), height=520)
+    # エディタ。シナリオで書いた内容が自動保存から戻る。試しの実行の結果まで写す。
+    index = open_ide(page, demo)
+    page.click(f"button.ide-run-sample[data-tab='{index}']")
+    wait_run_output(page, index)
+    Shooter(page).shot("st-ide")
     page.context.close()
 
     # ── TA ──
@@ -677,6 +814,8 @@ def capture(state: Path, playwright: Any, login_url: str) -> None:
     s.shot("ta-queue", between=("main h1", "main p.desc:below(table)"), height=480)
     page.goto(f"{CONSOLE}/review/{sub_ng}/reveal")
     s.shot("ta-reveal", full=True)
+    # 突き合わせは左の列にあって幅が狭く、5 ケース並ぶと縦に長い。先頭の 2 ケースほどで切る。
+    s.shot("ta-io-diff", top="details.io-result[open]", height=IO_DIFF_HEIGHT)
     page.set_viewport_size({"width": 1200, "height": 1500})
     page.goto(f"{CONSOLE}/review/{sub_ng}/reveal")
     s.shot("ta-reveal-form", selector="form[action$='/finalize']")
@@ -708,7 +847,11 @@ def capture(state: Path, playwright: Any, login_url: str) -> None:
     page.goto(f"{CONSOLE}/courses/{course}")
     s.shot("in-course")
     page.goto(f"{CONSOLE}/manage/courses/{course}/units/ex01")
-    s.shot("in-unit-schedule", between=("h2:has-text('日程')", "h2:has-text('成績の自動確定')"))
+    # 問題セットの設定は 1 つのフォームで、節は h3（2026-09-26）。
+    s.shot(
+        "in-unit-schedule",
+        between=("h3.settings-group:has-text('日程')", "h3.settings-group:has-text('提出')"),
+    )
     s.shot("in-unit-tasks", between=("h2:has-text('この問題セットの課題')", "h3:has-text('zip')"))
     s.shot("in-unit-bundle", between=("h3:has-text('zip')", "h2:has-text('片付ける')"))
     # AI 作問のフォームは作問ページにだけある（#522）。`in-drafts` が写す。
@@ -716,14 +859,25 @@ def capture(state: Path, playwright: Any, login_url: str) -> None:
     s.shot("in-task-new", full=True)
     page.goto(f"{CONSOLE}/manage/courses/{course}/drafts")
     s.shot("in-drafts", full=True)
+    # 課題の画面は「問題の内容」と「この問題への操作」のタブ（2026-09-26）。
+    # `#tab-ops` で開くとその位置へ飛び、全体を撮ると固定の上帯が途中に写り込む。
+    # 頭から開いてタブを押す。
+    page.goto(f"{CONSOLE}/manage/courses/{course}/tasks/{first_task_id(state, course)}/edit")
+    page.click("nav[data-tabs] a[href='#tab-ops']")
+    page.evaluate("window.scrollTo(0, 0)")
+    page.wait_for_timeout(300)
+    s.shot("in-task-ops", full=True)
+    page.goto(f"{CONSOLE}/courses/{demo}/activity/{mastery_learner}")
+    s.shot("in-activity", full=True)
+    page.goto(f"{CONSOLE}/courses/{course}/similarity")
+    s.shot("in-similarity", full=True)
     page.goto(f"{CONSOLE}/manage/courses/{course}")
+    # 共通設定も 1 つのフォームで、節は h3（2026-09-26）。
     s.shot(
         "in-settings-autofinalize",
-        between=("h2:has-text('成績の自動確定')", "h2:has-text('提出できるファイル形式')"),
+        between=("h3.settings-group:has-text('成績と提出')", "h3#rubric"),
     )
-    s.shot(
-        "in-settings-rubric", between=("h2:has-text('共通ルーブリック')", "h2:has-text('採点設定')")
-    )
+    s.shot("in-settings-rubric", between=("h3#rubric", "h3#grading"))
     # 採点設定の次の見出し。**「課題文に貼る画像」を待っていたが、それは
     # 課題の画面の h3 であって、この画面には無い**（あったとしても h2 では
     # ない）── 30 秒待って落ち、ここから先の 7 枚が撮られないまま
@@ -731,7 +885,7 @@ def capture(state: Path, playwright: Any, login_url: str) -> None:
     # 止まった先を直さなければ意味が無い。
     s.shot(
         "in-settings-grading",
-        between=("h2:has-text('採点設定')", "h2:has-text('このコースを複製する')"),
+        between=("h3#grading", "h2#duplicate"),
     )
     page.goto(f"{CONSOLE}/manage/courses/{course}/basics")
     s.shot("in-basics", full=True)
