@@ -2911,8 +2911,20 @@ def test_editing_the_io_set_keeps_the_companion_cases_intact(world: World) -> No
                     code="correctness",
                     title="出力の正しさ",
                     description="仕様どおりの出力を返すか。",
-                    weight=1.0,
+                    weight=0.5,
                     evaluator="code_test_runner",
+                    levels=(
+                        LevelSpec(level=0, label="未達", descriptor="通らない", score_ratio=0.0),
+                        LevelSpec(level=1, label="達成", descriptor="通る", score_ratio=1.0),
+                    ),
+                ),
+                # 伴走プロセスのケースを読む観点（読む観点が無いと保存で外れる）
+                CriterionSpec(
+                    code="network",
+                    title="通信できる",
+                    description="サーバとやり取りできるか。",
+                    weight=0.5,
+                    evaluator="network_test_runner",
                     levels=(
                         LevelSpec(level=0, label="未達", descriptor="通らない", score_ratio=0.0),
                         LevelSpec(level=1, label="達成", descriptor="通る", score_ratio=1.0),
@@ -4101,11 +4113,18 @@ def test_revising_a_task_keeps_its_tests_and_reference_solution(world: World) ->
                     "test_cases": (
                         TestCase(
                             name="t1",
-                            evaluator_id="c_tests",
+                            evaluator_id="code_test_runner",
                             payload={"input": "1 2 3", "expected": "3"},
                         ),
                     ),
                     "reference_solution": "int main(void){return 0;}",
+                    # テストを実行する観点がある（実際の C の課題と同じ形）
+                    "criteria": tuple(
+                        criterion.model_copy(update={"evaluator_id": "code_test_runner"})
+                        if criterion.code == "correctness"
+                        else criterion
+                        for criterion in first.criteria
+                    ),
                 }
             )
         )
@@ -4175,6 +4194,14 @@ def test_revising_a_task_keeps_data_meant_for_other_evaluators(world: World) -> 
                     "id": TaskVersionId("tsv_" + "f" * 32),
                     "version": first.version + 1,
                     "test_cases": (pattern_case,),
+                    # 検証データを読む観点がある（実際の ex01-2 と同じ形）。読む観点が
+                    # 無いデータは、保存のときに外れる（`_prune_unused`）
+                    "criteria": tuple(
+                        criterion.model_copy(update={"evaluator_id": "text_pattern_check"})
+                        if criterion.code == "correctness"
+                        else criterion
+                        for criterion in first.criteria
+                    ),
                 }
             )
         )

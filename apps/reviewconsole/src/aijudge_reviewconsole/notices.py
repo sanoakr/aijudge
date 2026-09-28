@@ -32,6 +32,8 @@ JOBS_RELEASED = "jobs_released"
 KC_SCOPE = "kc_scope"
 TEST_CASE_ERROR = "test_case_error"
 REGRADED = "regraded"
+# どの観点も使っていない検証データ（入出力・参照解答）を、保存のときに外した（課題ごと）
+PRUNED = "pruned"
 
 # 読まれずに残る知らせの上限。利用者 × コース × 種類で、1 学期の運用なら
 # 数百に届かない。超えるのは読まれずに溜まったときだけなので、古いものから捨てる。
@@ -74,6 +76,7 @@ __all__ = [
     "JOBS_RELEASED",
     "KC_SCOPE",
     "MAX_NOTICES",
+    "PRUNED",
     "REGRADED",
     "TASK_SAVED",
     "TEST_CASE_ERROR",
