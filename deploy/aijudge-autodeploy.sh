@@ -55,6 +55,15 @@ fi
 if [ "${current}" = "${latest}" ]; then
     exit 0   # 最新。何もしない
 fi
+# **固定していないのに古い版へは戻らない**（#564）。`--prune` なので、origin で
+# 最新のタグが消えると 1 つ前の署名済みの版が「最新」になる ── 誤って消しても、
+# push できる者が消しても、自動で戻る。migration は戻らないので、新しいスキーマの
+# 上で古いコードが動く。意図した切り戻しは固定（${PIN_FILE}）でする。
+if [ ! -s "${PIN_FILE}" ] && [ "${current}" != "none" ] \
+        && [ "$(printf '%s\n%s\n' "${current}" "${latest}" | sort -V | tail -n 1)" = "${current}" ]; then
+    echo "autodeploy: ${latest} はデプロイ済みの ${current} より古いので入れません（戻すなら ${PIN_FILE}）" >&2
+    exit 0
+fi
 
 echo "autodeploy: ${current} -> ${latest}"
 exec "${REPO_DIR}/deploy/deploy.sh" "${latest}"
