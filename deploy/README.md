@@ -197,9 +197,22 @@ unit と、unit が呼ぶ `/usr/local/sbin` のスクリプトは **root が配�
 - そのタグから `git archive` で取り出した `deploy/` を配る
 
 **リリースのタグは署名する**（`git tag -s`。このリポジトリでは `tag.gpgSign=true`
-にしてあるので `git tag -a` でも署名される）。署名していないタグを出すと、コードの
-デプロイは進むが unit とスクリプトは配られない。許可する鍵は `deploy/release-signers`
-にも置いてある（公開鍵。**運用機が信じるのは `/etc/aijudge/allowed_signers` の方**）。
+にしてあるので `git tag -a` でも署名される。**`git tag v1.2.3` のような軽量タグは
+署名されない**）。許可する鍵は `deploy/release-signers` にも置いてある（公開鍵。
+**運用機が信じるのは `/etc/aijudge/allowed_signers` の方**）。
+
+**コードのデプロイも、署名を確かめたタグしか入れない**（2026-09-29）。以前は
+unit の配布だけが署名を見ていて、署名していないタグでもコードのデプロイは進んだ
+── GitHub にタグを push できる者なら、署名の無いコードを運用機で動かせた（実際に
+署名の無い v1.37.0 が入った）。いまは:
+
+- `deploy.sh` は、チェックアウトの前に `deploy/lib/verify-release-tag.sh` で署名を
+  確かめる（手で流すときも同じ）。確かめられなければ何もせずに失敗する
+- `aijudge-autodeploy.sh` は、**署名を確かめられたタグの中で最新のもの**を選ぶ。
+  それより新しい署名の無いタグは飛ばし、名前をログに出す
+  （`journalctl -u aijudge-autodeploy`）── 出したはずの版が入らないときはここを見る
+- 許可リストは unit の配布と同じ `/etc/aijudge/allowed_signers`。デプロイする利用者
+  （aijudge）が書き換えられる許可リストは信じない
 
 最初の 1 回だけは人が入れる（root で。中身を確かめてから）:
 

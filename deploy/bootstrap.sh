@@ -74,7 +74,9 @@ cat <<'EOF'
 
   1. /srv/aijudge/config/aijudge.env を deploy/aijudge.env.example から作成する。
   2. nginx の sites-enabled へ symlink を張り、証明書を取得して nginx -t / reload。
-  3. 初回デプロイ:  sudo -u aijudge deploy/deploy.sh <tag>
+  3. 署名の許可リスト: /etc/aijudge/allowed_signers を置く（deploy/README.md「unit の配布と署名」の 1）。
+     **無いとデプロイは断られる**（署名を確かめたタグしか入れない）。
+     初回デプロイ:  sudo -u aijudge deploy/deploy.sh <署名済みのタグ>
   4. CD を有効化:    sudo systemctl enable --now aijudge-autodeploy.timer
   5. 構成の検査:     sudo systemctl start aijudge-config-check.service  （1 度出力を見る）
 EOF
