@@ -24,6 +24,16 @@ OUT=$("$PY" "$CHECK" 2>&1); RC=$?
 # 「両系停止（2）」への悪化が同じ NG のままで、通知されなかった。
 NOW=$([ $RC -eq 0 ] && echo OK || echo "NG$RC")
 PREV=$(cat "$STATE" 2>/dev/null || echo UNKNOWN)
+# 状態の名前（番号だけだと意味が分からない）。件名と本文に添える。
+label() {
+  case $1 in
+    OK) echo "OK" ;;
+    NG1) echo "NG1 (primary down, fallback serving)" ;;
+    NG2) echo "NG2 (both down)" ;;
+    NG3) echo "NG3 (fallback down, primary serving)" ;;
+    *) echo "$1" ;;
+  esac
+}
 
 # NG3 の連続回数。NG3 以外を見たら数え直す。
 STREAK=$(cat "$STREAK_FILE" 2>/dev/null || echo 0)
@@ -38,14 +48,14 @@ if [ "$NOW" = NG3 ] && [ "$PREV" != NG3 ] && [ "$STREAK" -lt "$NG3_CONFIRM" ]; t
 elif [ "$NOW" != "$PREV" ]; then
   {
     echo "host      : $(hostname -f)"
-    echo "transition: $PREV -> $NOW"
+    echo "transition: $(label "$PREV") -> $(label "$NOW")"
     echo "exit code : $RC   (1=プライマリ不能・フォールバックで稼働中 / 2=両系不能 / 3=フォールバック不能)"
     echo "detail    : $OUT"
     [ "$NOW" = NG3 ] && echo "streak    : $STREAK checks in a row"
     echo
     echo "参照: docs/design/disk-and-recovery-plan.md §3.9.5-A"
     echo "確認: curl -sS http://localhost:11435/api/tags"
-  } | "$NOTIFY" "[$(hostname -s)] LLM primary $PREV -> $NOW"
+  } | "$NOTIFY" "[$(hostname -s)] LLM primary $PREV -> $(label "$NOW")"
   printf "%s" "$NOW" > "$STATE"
 fi
 # **タイマーを failed にしない**（通知はメールで行う。赤いままだと他の障害が埋もれる）。

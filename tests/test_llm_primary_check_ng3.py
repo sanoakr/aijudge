@@ -17,6 +17,12 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = REPO_ROOT / "deploy" / "aijudge-llm-primary-check.sh"
 
+LABELS = {
+    1: "NG1 (primary down, fallback serving)",
+    2: "NG2 (both down)",
+    3: "NG3 (fallback down, primary serving)",
+}
+
 pytestmark = pytest.mark.skipif(shutil.which("bash") is None, reason="bash が要る")
 
 
@@ -81,7 +87,7 @@ def test_second_consecutive_ng3_is_notified_once_and_recovery_too(harness: Harne
     harness.run(3)
     harness.run(3)
     harness.run(3)  # 3 回目は同じ状態なので増えない
-    assert harness.subjects()[before:] == ["[" + _short_host() + "] LLM primary OK -> NG3"]
+    assert harness.subjects()[before:] == [f"[{_short_host()}] LLM primary OK -> {LABELS[3]}"]
     harness.run(0)
     assert harness.subjects()[-1].endswith("NG3 -> OK")
 
@@ -99,7 +105,7 @@ def test_primary_and_both_down_are_notified_immediately(harness: Harness, rc: in
     harness.run(0)
     before = len(harness.subjects())
     harness.run(rc)
-    assert harness.subjects()[before:] == [f"[{_short_host()}] LLM primary OK -> NG{rc}"]
+    assert harness.subjects()[before:] == [f"[{_short_host()}] LLM primary OK -> {LABELS[rc]}"]
 
 
 def test_worsening_from_pending_ng3_to_ng1_is_immediate(harness: Harness) -> None:
@@ -107,7 +113,7 @@ def test_worsening_from_pending_ng3_to_ng1_is_immediate(harness: Harness) -> Non
     before = len(harness.subjects())
     harness.run(3)  # 保留中
     harness.run(1)
-    assert harness.subjects()[before:] == [f"[{_short_host()}] LLM primary OK -> NG1"]
+    assert harness.subjects()[before:] == [f"[{_short_host()}] LLM primary OK -> {LABELS[1]}"]
 
 
 def _short_host() -> str:
