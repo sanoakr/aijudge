@@ -27,7 +27,7 @@
 | `aijudge-db-backup.sh` | `pg_dump -Fc`（論理・日次）。**`deploy.sh` もデプロイ直前に呼ぶ** |
 | `aijudge-pg-basebackup.sh` | 物理ベースバックアップ（PITR の土台・週次）と、不要になった WAL の掃除 |
 | `aijudge-storage-check.sh` | 空き容量と WAL アーカイブの健全性（毎時・遷移時のみ通知） |
-| `aijudge-llm-primary-check.sh` | プライマリ LLM が確定モデルを出しているか（30 分ごと・遷移時のみ通知） |
+| `aijudge-llm-primary-check.sh` | プライマリ LLM が確定モデルを出しているか（30 分ごと・遷移時のみ通知。フォールバック不能 NG3 だけは 2 回続いてから通知 — `AIJUDGE_LLM_NG3_CONFIRM`） |
 | `lib/llm-primary-check.py` | 上の判定本体。**どちらのプロバイダが答えたか**で見る（`/usr/local/lib/aijudge/`） |
 | `aijudge-notify` | 日本語のメールを文字化けさせずに送る。上記の検査はすべてこれを通す |
 
