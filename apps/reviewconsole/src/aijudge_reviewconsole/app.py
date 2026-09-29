@@ -1086,6 +1086,9 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                     criterion.scored_by_human for criterion in context.task_version.criteria
                 ),
                 "criteria": context.task_version.criteria,
+                # コード実行の突き合わせ（決定的な評価の結果）。**AI の判定は
+                # 含まない** ── 入出力セットで判定した観点にだけ入る。
+                "io_results": io_results(context.task_version, context.run),
                 "course": context.course,
                 "section": {
                     "label": "再確認の依頼",
