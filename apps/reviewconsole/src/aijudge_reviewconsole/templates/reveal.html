@@ -18,6 +18,50 @@
 <div class="desk">
 <div class="left">
 
+<h2>提出されたものと根拠</h2>
+{# **種別で出し分ける**（#75）。以前は何でもテキストとして出していたので、
+   画像や PDF の提出は化けたバイナリとして並んだ。人が採点する課題では、
+   中身が見られないと採点そのものができない。 #}
+{% for file in files %}
+  <p class="desc" style="margin:0 0 6px">{{ file.filename }}</p>
+  {# 消した動画は学習者側と同じ文面で出す（ADR 0020）。 #}
+  {% if file.is_purged %}
+  <div class="note">{{ purged_message() }}</div>
+  {% elif file.is_image %}
+  <a href="{{ root_prefix() }}/review/{{ submission.id }}/artifacts/{{ file.id }}">
+    <img src="{{ root_prefix() }}/review/{{ submission.id }}/artifacts/{{ file.id }}" alt="{{ file.filename }}"
+         class="embed"></a>
+  {% elif file.is_pdf %}
+  <object class="pdf-embed" data="{{ root_prefix() }}/review/{{ submission.id }}/artifacts/{{ file.id }}"
+          type="application/pdf">
+    <p class="desc"><a href="{{ root_prefix() }}/review/{{ submission.id }}/artifacts/{{ file.id }}">PDF を開く</a></p>
+  </object>
+  {% elif file.is_video %}
+  <video controls preload="metadata"
+         src="{{ root_prefix() }}/review/{{ submission.id }}/artifacts/{{ file.id }}"
+         class="embed">
+    <a href="{{ root_prefix() }}/review/{{ submission.id }}/artifacts/{{ file.id }}">動画を開く</a>
+  </video>
+  {% else %}
+  <p class="desc"><a href="{{ root_prefix() }}/review/{{ submission.id }}/artifacts/{{ file.id }}">元のファイル</a></p>
+  {% endif %}
+  {# 原本のすぐ下に、採点が読んだ本文（#354）。 #}
+  {% include "_transcript.html" %}
+{% endfor %}
+{% if lines %}
+<pre class="code">{% for n, line in lines %}<span class="ln{% if n in highlights %} hl{% endif %}"><span class="n">{{ n }}</span>{{ line }}</span>{% endfor %}</pre>
+{% endif %}
+
+{# 出題文（#105）。**提出物のすぐ下に置く**（2026-09-29）。上に「提出されたものと
+   根拠」、下に「観点ごとの突き合わせ」の順 ── 先に答案と問題を読み、そのあと
+   観点ごとに AI の判定と突き合わせる。学習者に出ているのと同じ描画で出す
+   （`render_statement`）── 別の描画を当てると、数式や画像の食い違いが
+   この画面では見えない。 #}
+<details class="card" id="statement">
+  <summary><b>この課題の問題文</b><span class="desc">学習者に出ているものと同じ表示です</span></summary>
+  <div class="statement" style="margin-top:12px">{{ statement_html | safe }}</div>
+</details>
+
 <h2>観点ごとの突き合わせ</h2>
 {# **1 観点 1 ブロックで積む**（#185）。2 面にすると 5 列の表は狭い段に
    入らず、いちばん読ませたい「AI の根拠」が枠の外に出る。列を持たない
@@ -71,50 +115,6 @@
   </div>
 {% endfor %}
 </div>
-
-
-<h2>提出されたものと根拠</h2>
-{# **種別で出し分ける**（#75）。以前は何でもテキストとして出していたので、
-   画像や PDF の提出は化けたバイナリとして並んだ。人が採点する課題では、
-   中身が見られないと採点そのものができない。 #}
-{% for file in files %}
-  <p class="desc" style="margin:0 0 6px">{{ file.filename }}</p>
-  {# 消した動画は学習者側と同じ文面で出す（ADR 0020）。 #}
-  {% if file.is_purged %}
-  <div class="note">{{ purged_message() }}</div>
-  {% elif file.is_image %}
-  <a href="{{ root_prefix() }}/review/{{ submission.id }}/artifacts/{{ file.id }}">
-    <img src="{{ root_prefix() }}/review/{{ submission.id }}/artifacts/{{ file.id }}" alt="{{ file.filename }}"
-         class="embed"></a>
-  {% elif file.is_pdf %}
-  <object class="pdf-embed" data="{{ root_prefix() }}/review/{{ submission.id }}/artifacts/{{ file.id }}"
-          type="application/pdf">
-    <p class="desc"><a href="{{ root_prefix() }}/review/{{ submission.id }}/artifacts/{{ file.id }}">PDF を開く</a></p>
-  </object>
-  {% elif file.is_video %}
-  <video controls preload="metadata"
-         src="{{ root_prefix() }}/review/{{ submission.id }}/artifacts/{{ file.id }}"
-         class="embed">
-    <a href="{{ root_prefix() }}/review/{{ submission.id }}/artifacts/{{ file.id }}">動画を開く</a>
-  </video>
-  {% else %}
-  <p class="desc"><a href="{{ root_prefix() }}/review/{{ submission.id }}/artifacts/{{ file.id }}">元のファイル</a></p>
-  {% endif %}
-  {# 原本のすぐ下に、採点が読んだ本文（#354）。 #}
-  {% include "_transcript.html" %}
-{% endfor %}
-{% if lines %}
-<pre class="code">{% for n, line in lines %}<span class="ln{% if n in highlights %} hl{% endif %}"><span class="n">{{ n }}</span>{{ line }}</span>{% endfor %}</pre>
-{% endif %}
-
-{# 出題文（#105）。**下に置く。** 決めるのは成績で、問題文はその判断材料
-   だから、観点の突き合わせと提出物より上には来ない。学習者に出ているのと
-   同じ描画で出す（`render_statement`）── 別の描画を当てると、数式や画像の
-   食い違いがこの画面では見えない。 #}
-<details class="card" id="statement">
-  <summary><b>この課題の問題文</b><span class="desc">学習者に出ているものと同じ表示です</span></summary>
-  <div class="statement" style="margin-top:12px">{{ statement_html | safe }}</div>
-</details>
 
 </div>{# .left #}
 <div class="right">

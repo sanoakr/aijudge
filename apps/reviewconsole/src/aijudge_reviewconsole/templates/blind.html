@@ -58,6 +58,18 @@
 {% if lines %}
 <pre class="code">{% for n, line in lines %}<span class="ln"><span class="n">{{ n }}</span>{{ line }}</span>{% endfor %}</pre>
 {% endif %}
+
+    {# コード実行の突き合わせ（2026-09-29）。**code_runner の観点があるときだけ出す**
+       ── 入出力セットで判定していない観点は `io_results` に含まれない。並べるのは
+       採点のとき記録された期待出力と実際の出力で、決定的な評価の結果である。
+       AI の判定・段階・確信度は含まない（上の注記のとおり）。 #}
+    {% for criterion in criteria %}
+    {% set io = io_results.get(criterion.id) if io_results else none %}
+    {% if io %}
+    <h2>コード実行との対比 — {{ criterion.title }}</h2>
+    {% include "_io_result.html" %}
+    {% endif %}
+    {% endfor %}
   </div>
 
   <div class="right">

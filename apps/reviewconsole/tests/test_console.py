@@ -485,6 +485,43 @@ def test_the_blind_page_contains_no_trace_of_the_ai_verdict(blind_world: World) 
     assert "変数名と構造の分かりやすさ" in body
 
 
+@needs_c_compiler
+def test_the_blind_page_shows_the_code_run_but_not_the_verdict(blind_world: World) -> None:
+    """**code_runner の観点があるときは、コード実行との対比を blind 画面にも出す。**
+
+    並べるのは決定的な評価の記録（期待と実際の出力）で、AI の判定ではない。
+    判定・確信度は引き続き含めない。
+    """
+    learner = blind_world.register("s2400001", role=Role.LEARNER)
+    blind_world.register("instructor", role=Role.INSTRUCTOR)
+    wrong_format = EXAMPLE_TASK.joinpath("maxmin.c").read_bytes().replace(b"%.3f", b"%.2f")
+    accepted = blind_world.submit(learner, wrong_format)
+    blind_world.login("instructor")
+    blind_world.worker.run_until_empty()
+
+    body = blind_world.client.get(f"/review/{accepted.submission.id}/blind").text
+
+    assert "コード実行との対比" in body
+    assert "入出力セットとの突き合わせ" in body
+    assert "0 / 5 件一致" in body
+    assert "2 2 2.000" in body and "2 2 2.00<" in body
+    for leak in ("AIRATIONALEMARKER", "確信度", "不一致", "最終確定"):
+        assert leak not in body, f"blind 画面に {leak!r} が漏れている"
+
+
+@needs_c_compiler
+def test_the_reveal_page_puts_the_submission_above_the_criteria(world: World) -> None:
+    """確定画面の左側は、提出されたものと問題文が上、観点ごとの突き合わせが下。"""
+    _, accepted = _instructor_and_submission(world)
+    world.worker.run_until_empty()
+    body = world.client.get(f"/review/{accepted.submission.id}/reveal").text
+
+    submitted = body.index("提出されたものと根拠")
+    statement = body.index("この課題の問題文")
+    criteria = body.index("観点ごとの突き合わせ")
+    assert submitted < statement < criteria
+
+
 # --------------------------------------------------------------------------
 # blind 採点と確定
 # --------------------------------------------------------------------------
