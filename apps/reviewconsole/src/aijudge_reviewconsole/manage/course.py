@@ -41,6 +41,9 @@ from aijudge_course_admin.errors import AdminError
 from aijudge_course_admin.grading_settings import save as save_grading_settings
 from aijudge_course_admin.grading_settings import template_of, try_settings
 from aijudge_course_admin.grading_settings import validate as validate_grading_settings
+from aijudge_course_admin.late_penalty import describe as describe_penalty
+from aijudge_course_admin.late_penalty import parse_steps as parse_penalty_steps
+from aijudge_course_admin.late_penalty import to_rows as penalty_rows
 from aijudge_course_admin.operations import ensure_course
 from aijudge_course_admin.roster import RosterError, parse_roster
 from aijudge_course_admin.syllabus import (
@@ -249,6 +252,8 @@ def _course_page(
             "description_html": (
                 render_markdown(course.description) if course.description else None
             ),
+            # 遅延の減点ルール（ADR 0013）。% で出す（保存は割合）。
+            "penalty_rows": _penalty_form_rows(course),
             "suffix_groups": SUFFIX_GROUPS,
             "course_suffixes": course.upload_suffixes or DEFAULT_UPLOAD_SUFFIXES,
             # 束の上限（#161）。**画面に書く値をコードから取る** ──
@@ -304,6 +309,17 @@ def _course_page(
             "trial": trial,
         },
     )
+
+
+# 減点ルールの入力欄に、いまの段のほかに足しておく空の行の数。
+PENALTY_BLANK_ROWS = 2
+
+
+def _penalty_form_rows(course) -> list[dict[str, str]]:
+    """減点ルールの入力欄。いまの段に空の行を足して出す（段を足せるように）。"""
+    return penalty_rows(course.late_penalty_steps) + [
+        {"hours": "", "percent": ""} for _ in range(PENALTY_BLANK_ROWS)
+    ]
 
 
 def _grading_changed(course, overrides: dict, profiles_dir, registry) -> bool:
@@ -546,6 +562,22 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
                 status_code=400, detail="提出できるファイル形式を 1 つ以上選んでください"
             )
         overrides = _collect_overrides(form)
+        # **欄が送られてきたときだけ読む。** 欄の無い古い画面から保存されると、
+        # 空の入力が「減点ルールを消す」に化ける。印（`penalty_present`）で見分ける。
+        penalty_steps = course.late_penalty_steps
+        if form.get("penalty_present"):
+            try:
+                penalty_steps = parse_penalty_steps(
+                    list(
+                        zip(
+                            [str(v) for v in form.getlist("penalty_hours")],
+                            [str(v) for v in form.getlist("penalty_percent")],
+                            strict=False,
+                        )
+                    )
+                )
+            except AdminError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from None
         try:
             criteria = rubric.parse(_rubric_from_form(form))
             aggregation = _aggregation_from_form(form) or Aggregation.OR
@@ -580,6 +612,21 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
                         "auto_finalize_after_minutes": {
                             "before": course.auto_finalize_after_minutes,
                             "after": minutes,
+                        }
+                    },
+                )
+            )
+        if penalty_steps != course.late_penalty_steps:
+            update["late_penalty_steps"] = penalty_steps
+            # **前後を % で残す。** 減点は採点のときに焼き付くので（ADR 0013）、
+            # いつから何が効いたかは、この記録でしか後から追えない。
+            records.append(
+                (
+                    "遅延の減点ルールを変えた",
+                    {
+                        "late_penalty_steps": {
+                            "before": describe_penalty(course.late_penalty_steps),
+                            "after": describe_penalty(penalty_steps),
                         }
                     },
                 )

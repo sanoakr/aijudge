@@ -69,6 +69,36 @@
     </div>
   </div>
 
+  {# 遅延の減点ルール（ADR 0013・2026-10-01）。以前は画面が無く、DB を直接書き換えて
+     入れていた（監査に残らなかった）。**% で入れる** ── 保存は割合だが、教員は
+     「50% 減」と考える。変換は `aijudge_course_admin.late_penalty` の 1 か所だけ。 #}
+  <div class="setting" id="late_penalty">
+    <div class="setting-name">遅延の減点{% call help() %}
+      締切を過ぎた提出の総合点から差し引く割合です。<strong>遅れた時間が届いている段のうち、
+      いちばん上の段が 1 つだけ当たります</strong>（足し合わせません）。減点は引き算で、0% より下にはなりません。
+      <br>
+      例: 「0 時間を超えたら 10%」「24 時間を超えたら 30%」なら、締切の 1 時間後の提出は 10%、30 時間後は 30% 引きます。
+      <br>
+      <strong>減点は採点したときに記録されます。</strong>ここを変えても採点済みの提出の点は動きません
+      （変えた後に採点される提出と、再採点した提出に効きます）。受付終了を過ぎた提出はそもそも受け付けません。
+      教員は確認の画面で、提出ごとに減点を免除できます。
+      <br>
+      すべて空欄なら遅延の減点はしません。
+    {% endcall %}</div>
+    <div class="setting-value">
+      <input type="hidden" name="penalty_present" value="1">
+      {% for row in penalty_rows %}
+      <div class="inline-field">
+        締切を <input name="penalty_hours" type="number" step="any" min="0" style="max-width:6rem"
+               aria-label="超過時間（{{ loop.index }} 段目）" value="{{ row.hours }}"> 時間超えたら
+        総合点から <input name="penalty_percent" type="number" step="any" min="0" max="100" style="max-width:6rem"
+               aria-label="減点 %（{{ loop.index }} 段目）" value="{{ row.percent }}"> % を引く
+      </div>
+      {% endfor %}
+      <span class="desc">（行を空欄にするとその段を消します）</span>
+    </div>
+  </div>
+
   {# 課題ごとの指定がこれを上書きする（`uploads.allowed_suffixes`）。
      **性質で行を分ける。** コードとテキストは本文がそのまま採点器に渡せるが、
      PDF と画像は読めず、採点の前に変換の段が要る。群は 3 つある
