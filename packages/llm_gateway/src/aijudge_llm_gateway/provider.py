@@ -179,6 +179,8 @@ class OllamaProvider:
                 "num_predict": request.max_tokens,
             },
         }
+        if request.repeat_penalty is not None:
+            body["options"]["repeat_penalty"] = request.repeat_penalty  # type: ignore[index]
         if request.json_schema is not None and self.capabilities.constrained_decoding:
             body["format"] = simplify_schema(request.json_schema)
 
@@ -360,11 +362,14 @@ class ScriptedProvider:
         constrained_decoding: bool = False,
         vision: bool = False,
         finish_reason: str | None = None,
+        finish_reasons: list[str | None] | None = None,
     ) -> None:
         self.name = name
         # 応答の終了理由。**切れた応答を模すために要る**（`"length"`）。
         # 既定は None ── 正常終了を装って余計な分岐を踏ませない。
+        # `finish_reasons` は呼び出しごとに順に使う（切れてからやり直す経路の試験用）。
         self._finish_reason = finish_reason
+        self._finish_reasons = list(finish_reasons) if finish_reasons is not None else None
         # **vision は既定で False。** 画像を渡す試験は明示的に有効にさせる
         # ── 既定で True にすると、画像を読めない相手に渡す設定ミスを
         # 落とすテストが書けなくなる。
@@ -397,5 +402,7 @@ class ScriptedProvider:
             text=self._responses.pop(0),
             model=request.model,
             usage=Usage(duration_ms=1),
-            finish_reason=self._finish_reason,
+            finish_reason=(
+                self._finish_reasons.pop(0) if self._finish_reasons else self._finish_reason
+            ),
         )

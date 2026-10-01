@@ -98,6 +98,9 @@ class LlmRequest(BaseModel):
     timeout_seconds: float = Field(default=120.0, gt=0.0)
     # 思考モデルの内部推論。採点では出力形式を安定させたいので既定は無効。
     thinking: bool = False
+    # 同じ語の繰り返しへの罰。**None なら送らない**（プロバイダの既定のまま）。
+    # 縮退ループから抜けさせるために、打ち切られた後のやり直しにだけ使う。
+    repeat_penalty: float | None = Field(default=None, gt=0.0, le=2.0)
 
 
 class LlmResponse(BaseModel):

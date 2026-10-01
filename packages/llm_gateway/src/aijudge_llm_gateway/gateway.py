@@ -213,6 +213,7 @@ class LlmGateway:
         max_tokens: int = 1024,
         timeout_seconds: float = 120.0,
         images: tuple[str, ...] = (),
+        repeat_penalty: float | None = None,
         **values: object,
     ) -> StructuredResult[TModel]:
         """スキーマに合う応答を得るまで、上限回数まで再試行する。
@@ -241,6 +242,7 @@ class LlmGateway:
                     max_tokens=max_tokens,
                     json_schema=json_schema,
                     timeout_seconds=timeout_seconds,
+                    repeat_penalty=repeat_penalty,
                 )
             )
             prompt_tokens += response.usage.prompt_tokens

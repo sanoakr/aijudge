@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 
-from aijudge_ext_image_text import ImageText
+from aijudge_ext_image_text import RETRY_REPEAT_PENALTY, ImageText
 
 from aijudge_core import Artifact, ArtifactKind, ArtifactRole, Extractor
 from aijudge_core.ids import ArtifactId, SubmissionId
@@ -38,13 +38,16 @@ def _artifact(kind: ArtifactKind = ArtifactKind.IMAGE) -> Artifact:
     )
 
 
-def _reader(*replies: object) -> tuple[ImageText, ScriptedProvider]:
+def _reader(
+    *replies: object, finish_reasons: list[str | None] | None = None
+) -> tuple[ImageText, ScriptedProvider]:
     provider = ScriptedProvider(
         [
             reply if isinstance(reply, str) else json.dumps(reply, ensure_ascii=False)
             for reply in replies
         ],
         vision=True,
+        finish_reasons=finish_reasons,
     )
     return ImageText(LlmGateway(provider), model="vl"), provider
 
@@ -121,3 +124,41 @@ def test_it_never_returns_a_score() -> None:
 
     assert not hasattr(out, "level")
     assert not hasattr(out, "score_ratio")
+
+
+def test_a_truncated_transcription_is_retried_once_with_a_repeat_penalty() -> None:
+    """縮退ループで切れた画像は、罰を掛けて 1 回だけやり直す（2026-10-01 の実測）。"""
+    reader, provider = _reader(
+        '{"readable": true, "lines": ["libbzip2-dev", "libbz',
+        {"readable": True, "lines": ["cc hello.c"]},
+        finish_reasons=["length", None],
+    )
+    out = reader.extract(_artifact(), IMAGE_BYTES)
+
+    assert out.succeeded
+    assert out.text.decode("utf-8") == "cc hello.c"
+    first, second = provider.calls
+    assert first.repeat_penalty is None, "最初の呼び出しは既定のまま"
+    assert second.repeat_penalty == RETRY_REPEAT_PENALTY
+    assert second.max_tokens == first.max_tokens, "予算は変えない（ADR 0021 §5）"
+
+
+def test_a_transcription_that_is_truncated_twice_fails_without_a_third_call() -> None:
+    reader, provider = _reader(
+        '{"readable": true, "lines": ["a',
+        '{"readable": true, "lines": ["b',
+        finish_reasons=["length", "length"],
+    )
+    out = reader.extract(_artifact(), IMAGE_BYTES)
+
+    assert not out.succeeded
+    assert "OutputTruncated" in out.failed_reason
+    assert len(provider.calls) == 2
+
+
+def test_a_normal_transcription_is_never_penalised() -> None:
+    """既定の呼び出しの動作を変えない ── 罰は必要になった呼び出しだけ。"""
+    reader, provider = _reader({"readable": True, "lines": ["認定証"]})
+    reader.extract(_artifact(), IMAGE_BYTES)
+
+    assert [call.repeat_penalty for call in provider.calls] == [None]

@@ -43,7 +43,9 @@ from aijudge_llm_gateway import (
     DataClass,
     LlmError,
     LlmGateway,
+    OutputTruncated,
     PromptTemplate,
+    StructuredResult,
     default_vision_gateway,
     default_vision_model,
 )
@@ -61,6 +63,25 @@ READABLE_KINDS = frozenset({ArtifactKind.IMAGE})
 #: 上限は目標ではないので、正常に終わる呼び出しの時間はこの値に依存しない。
 #: 効くのは縮退ループに入ったときだけで、35〜40 tok/s ＝ 最悪 108 秒。
 MAX_TOKENS = 4000
+
+#: 打ち切られたあとのやり直しにだけ掛ける、繰り返しへの罰。
+#: **既定の呼び出しには掛けない** ── 47 件で測った動作を変えないため。
+#:
+#: 実測（2026-10-01・elite の PAIR / qwen3-vl:8b）: apt の依存パッケージ一覧が
+#: 多段組で並ぶ端末の画像で、`"libbzip2-dev", "libbzip2-1.0"` を延々と繰り返して
+#: 4,000 トークンを使い切った（86 秒）。採点に要る内容は画面の下端にあるので、
+#: 途中までの出力を使う手もない。同じ画像に対し、
+#:
+#:     既定             4000 tok 打ち切り   83 秒
+#:     temperature 0.3  4000 tok 打ち切り   34 秒
+#:     repeat 1.15       530 tok 完走       11 秒（下端の `cc hello.c` まで全行）
+#:     repeat 1.15 + 0.3 596 tok 完走       23 秒
+#:
+#: 温度では抜けず、罰で抜ける。罰は正当な繰り返し（プロンプトの行が何度も並ぶ
+#: 端末）を歪めうるので、必要になった呼び出しだけに使う。
+#: 予算は変えない（ADR 0021 §5: 同じ予算での再試行は必ず失敗する）。変えるのは
+#: 生成のしかたであり、最悪の追加時間は MAX_TOKENS ÷ 37 秒 ≒ 108 秒。
+RETRY_REPEAT_PENALTY = 1.15
 
 
 class Transcription(BaseModel):
@@ -131,16 +152,14 @@ class ImageText:
     def extract(self, artifact: Artifact, payload: bytes) -> Extraction:
         if not payload:
             return self._failed("画像の中身がありません")
+        images = (base64.b64encode(payload).decode(),)
         try:
-            result = self._gateway.complete_structured(
-                PROMPT,
-                Transcription,
-                model=self._model,
-                # 提出物は個人に紐づく。ローカルプロバイダ以外へは流れない（P7）。
-                data_class=DataClass.PERSONAL,
-                max_tokens=MAX_TOKENS,
-                images=(base64.b64encode(payload).decode(),),
-            )
+            try:
+                result = self._transcribe(images, repeat_penalty=None)
+            except OutputTruncated as exc:
+                # 縮退ループの疑い。罰を掛けて 1 回だけやり直す（上の定数を参照）。
+                logger.warning("retrying %s with a repeat penalty: %s", artifact.id, exc)
+                result = self._transcribe(images, repeat_penalty=RETRY_REPEAT_PENALTY)
         except LlmError as exc:
             # **例外にしない。** 1 件の読めない画像で受付を止めない。
             logger.warning("could not transcribe %s: %s", artifact.id, exc)
@@ -160,6 +179,20 @@ class ImageText:
             prompt_version=result.prompt_id,
         )
 
+    def _transcribe(
+        self, images: tuple[str, ...], *, repeat_penalty: float | None
+    ) -> StructuredResult[Transcription]:
+        return self._gateway.complete_structured(
+            PROMPT,
+            Transcription,
+            model=self._model,
+            # 提出物は個人に紐づく。ローカルプロバイダ以外へは流れない（P7）。
+            data_class=DataClass.PERSONAL,
+            max_tokens=MAX_TOKENS,
+            images=images,
+            repeat_penalty=repeat_penalty,
+        )
+
     def _failed(self, reason: str) -> Extraction:
         return Extraction(engine=self.extractor_id, failed_reason=reason)
 
@@ -169,4 +202,11 @@ def build() -> ImageText:
     return ImageText()
 
 
-__all__ = ["EXTRACTOR_ID", "MAX_TOKENS", "ImageText", "Transcription", "build"]
+__all__ = [
+    "EXTRACTOR_ID",
+    "MAX_TOKENS",
+    "RETRY_REPEAT_PENALTY",
+    "ImageText",
+    "Transcription",
+    "build",
+]

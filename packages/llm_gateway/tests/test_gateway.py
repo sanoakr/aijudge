@@ -335,3 +335,14 @@ def test_an_unknown_finish_reason_does_not_stop_the_grading() -> None:
         PROMPT, Verdict, model="m", data_class=DataClass.PERSONAL, thing="code"
     )
     assert result.value.level == 1
+
+
+def test_repeat_penalty_reaches_the_request_only_when_asked() -> None:
+    """既定の呼び出しは罰を送らない ── 測った動作を変えないため。"""
+    provider = ScriptedProvider(['{"level": 2, "rationale": "x"}'] * 2)
+    gateway = LlmGateway(provider)
+    kwargs = {"model": "m", "data_class": DataClass.PERSONAL, "thing": "code"}
+    gateway.complete_structured(PROMPT, Verdict, **kwargs)
+    gateway.complete_structured(PROMPT, Verdict, repeat_penalty=1.15, **kwargs)
+
+    assert [call.repeat_penalty for call in provider.calls] == [None, 1.15]
