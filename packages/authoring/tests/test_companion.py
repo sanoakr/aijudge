@@ -252,3 +252,37 @@ def test_a_case_naming_a_missing_companion_or_a_bad_port_is_refused(tmp_path: Pa
     bad_port = CLIENT_YAML + "  - name: c3\n    port: 80\n    expected_contains: x\n"
     with pytest.raises(companion.CompanionError, match="case 3"):
         companion.load_companion_cases(_problem(tmp_path / "b", bad_port))
+
+
+def test_a_case_can_override_or_drop_the_fixtures(tmp_path: Path) -> None:
+    """ケースごとに付属ファイルを変えられる。`[]` はそのケースだけ付属ファイルなし。"""
+    text = SERVER_YAML + (
+        "  - name: 指定したファイルを返す\n"
+        "    fixtures: [server.html, hello.html]\n"
+        '    input: "{port}\\nhello.html\\n"\n'
+        "    expected_contains: x\n"
+        "  - name: ファイルが無いとき\n"
+        "    fixtures: []\n"
+        '    input: "{port}\\nserver.html\\n"\n'
+        "    expected_contains: x\n"
+    )
+    problem = _problem(
+        tmp_path,
+        text,
+        extra={
+            "httpCheckClient.py": "#\n",
+            "server.html": "<p>s</p>\n",
+            "hello.html": "<p>h</p>\n",
+        },
+    )
+
+    by_name = {
+        case.name: case.payload["fixtures"] for case in companion.load_companion_cases(problem)
+    }
+
+    assert by_name["case1"] == {"server.html": "<p>s</p>\n"}
+    assert by_name["指定したファイルを返す"] == {
+        "server.html": "<p>s</p>\n",
+        "hello.html": "<p>h</p>\n",
+    }
+    assert by_name["ファイルが無いとき"] == {}

@@ -23,10 +23,11 @@
 `echoServer.py` は課題文が名指ししている相手で、それに対して採点することが
 「課題の指示どおりか」の定義そのものになる。
 
-**ケースごとに相手とポートを変えられる**（2026-10-02）。`cases` の各項目に
-`companion:` と `port:` を書けば、そのケースだけ別の伴走プロセスに向ける（書かなければ
-上の既定）。同じ課題で「普通のエコーサーバ」と「2 回繰り返して返すサーバ」に接続させる
-ような課題（network ex4）が、これで 1 つの宣言に書ける。
+**ケースごとに相手・ポート・付属ファイルを変えられる**（2026-10-02）。`cases` の
+各項目に `companion:`・`port:`・`fixtures:` を書けば、そのケースだけ上書きする（書かな
+ければ上の既定。`fixtures: []` は「このケースは付属ファイルなし」）。同じ課題で
+「普通のエコーサーバ」と「2 回繰り返して返すサーバ」に接続させる課題（network ex4）や、
+「ファイルが無いとき」の応答を確かめるケースを持つ課題（ex6）が、1 つの宣言に書ける。
 
 期待値は**部分一致**（`expected_contains`）にしてある。サーバの出力には
 接続元の一時ポート（`('127.0.0.1', 53578)`）のように毎回変わる値が混ざるため、
@@ -97,12 +98,19 @@ def load_companion_cases(problem_dir: Path) -> tuple[TestCase, ...]:
     port = data.get("port")
     _check_port(path, port)
 
-    fixtures: dict[str, str] = {}
-    for name in data.get("fixtures", ()) or ():
-        fixture_path = problem_dir / str(name)
-        if not fixture_path.is_file():
-            raise CompanionError(f"{path}: fixture {name!r} is not in {problem_dir}")
-        fixtures[str(name)] = fixture_path.read_text(encoding="utf-8", errors="replace")
+    def fixtures_of(names: object) -> dict[str, str]:
+        """付属ファイルの中身。ケースが上書きしたときもここで読む。"""
+        if names is not None and not isinstance(names, list):
+            raise CompanionError(f"{path}: fixtures must be a list of file names")
+        read: dict[str, str] = {}
+        for name in names or ():
+            fixture_path = problem_dir / str(name)
+            if not fixture_path.is_file():
+                raise CompanionError(f"{path}: fixture {name!r} is not in {problem_dir}")
+            read[str(name)] = fixture_path.read_text(encoding="utf-8", errors="replace")
+        return read
+
+    fixtures = fixtures_of(data.get("fixtures"))
 
     raw_cases = data.get("cases")
     if not isinstance(raw_cases, list) or not raw_cases:
@@ -124,7 +132,7 @@ def load_companion_cases(problem_dir: Path) -> tuple[TestCase, ...]:
                 companion_name=name,
                 companion_source=source_of(name),
                 port=case_port,
-                fixtures=fixtures,
+                fixtures=fixtures_of(raw["fixtures"]) if "fixtures" in raw else fixtures,
             )
         )
     return tuple(cases)
