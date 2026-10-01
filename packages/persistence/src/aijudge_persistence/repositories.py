@@ -33,6 +33,7 @@ from aijudge_authoring.repository import (
 from aijudge_authoring.verification import TaskChecks
 from aijudge_core import (
     BlindMark,
+    BlindMarkCorrection,
     Finalization,
     GradingRun,
     HumanReview,
@@ -68,6 +69,7 @@ from aijudge_submission.protocols import (
 )
 
 from .schema import (
+    BlindMarkCorrectionRow,
     BlindMarkRow,
     FinalizationRow,
     GradingJobRow,
@@ -422,6 +424,7 @@ class SqlSubmissionRepository:
             (FinalizationRow, FinalizationRow.submission_id),
             (ReviewRequestRow, ReviewRequestRow.submission_id),
             (BlindMarkRow, BlindMarkRow.submission_id),
+            (BlindMarkCorrectionRow, BlindMarkCorrectionRow.submission_id),
             (GradingJobRow, GradingJobRow.submission_id),
             # IDE からの提出の出どころ（設計書 §9）。
             (IdeSubmissionLinkRow, IdeSubmissionLinkRow.submission_id),
@@ -688,6 +691,32 @@ class SqlReviewRepository:
     def find_blind_mark(self, submission_id: SubmissionId) -> BlindMark | None:
         row = self._session.get(BlindMarkRow, str(submission_id))
         return None if row is None else BlindMark.model_validate(row.document)
+
+    def save_blind_correction(self, correction: BlindMarkCorrection) -> None:
+        if self._session.get(BlindMarkCorrectionRow, str(correction.id)) is not None:
+            raise ImmutabilityViolation(f"blind correction {correction.id} already exists")
+        self._session.add(
+            BlindMarkCorrectionRow(
+                id=str(correction.id),
+                submission_id=str(correction.submission_id),
+                corrected_by=str(correction.corrected_by),
+                corrected_at=correction.corrected_at,
+                document=_dump(correction),
+            )
+        )
+        self._session.flush()
+
+    def blind_corrections(self, submission_id: SubmissionId) -> tuple[BlindMarkCorrection, ...]:
+        rows = (
+            self._session.execute(
+                select(BlindMarkCorrectionRow)
+                .where(BlindMarkCorrectionRow.submission_id == str(submission_id))
+                .order_by(BlindMarkCorrectionRow.corrected_at, BlindMarkCorrectionRow.id)
+            )
+            .scalars()
+            .all()
+        )
+        return tuple(BlindMarkCorrection.model_validate(row.document) for row in rows)
 
     # -- 学習者からの再確認の依頼 ------------------------------------------
 

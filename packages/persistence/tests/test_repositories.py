@@ -1383,3 +1383,73 @@ def test_the_listing_keeps_the_newest_when_it_has_to_choose(database: Database) 
 
     assert len(newest) == 1
     assert newest[0].id == made[-1], "いちばん新しい提出が残っていない"
+
+
+# --------------------------------------------------------------------------
+# blind 採点の訂正 — 追記のみ（ADR 0031）
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture(params=["memory", "sql"])
+def review_repo(request, database: Database):
+    """インメモリと SQL に同じテストを当てる。"""
+    from aijudge_submission import InMemoryReviewRepository
+
+    if request.param == "memory":
+        repo = InMemoryReviewRepository()
+
+        class Holder:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return None
+
+            reviews = repo
+
+            def commit(self):
+                return None
+
+        return lambda: Holder()
+    return database.unit_of_work
+
+
+def _correction(at: datetime, level: int, *, key: str):
+    from aijudge_core import BlindMarkCorrection
+    from aijudge_core.ids import BlindMarkCorrectionId, CriterionId, SubmissionId
+
+    criterion = CriterionId("crt_" + "6" * 32)
+    return BlindMarkCorrection(
+        id=BlindMarkCorrectionId("bmc_" + key * 32),
+        submission_id=SubmissionId("sub_" + "5" * 32),
+        corrected_by=LEARNER,
+        levels={criterion: level},
+        previous_levels={criterion: 3},
+        reason="押し間違いでした。一部の 50% です。",
+        corrected_at=at,
+    )
+
+
+def test_blind_corrections_are_appended_and_read_oldest_first(review_repo) -> None:
+    from datetime import timedelta
+
+    from aijudge_core.ids import SubmissionId
+
+    later = _correction(NOW + timedelta(minutes=5), 1, key="b")
+    earlier = _correction(NOW, 2, key="a")
+    with review_repo() as uow:
+        uow.reviews.save_blind_correction(later)
+        uow.reviews.save_blind_correction(earlier)
+        uow.commit()
+    with review_repo() as uow:
+        stored = uow.reviews.blind_corrections(SubmissionId("sub_" + "5" * 32))
+    assert stored == (earlier, later)
+
+
+def test_a_blind_correction_cannot_be_rewritten(review_repo) -> None:
+    correction = _correction(NOW, 1, key="a")
+    with review_repo() as uow:
+        uow.reviews.save_blind_correction(correction)
+        uow.commit()
+    with review_repo() as uow, pytest.raises(ImmutabilityViolation):
+        uow.reviews.save_blind_correction(correction.model_copy(update={"levels": {}}))

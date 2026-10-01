@@ -56,7 +56,13 @@ def render(report: EvalReport) -> str:
     lines.append(
         f"観測: {report.observation_count} 件"
         f"（提出 {report.submission_count} 件 / うち blind 採点あり "
-        f"{report.blind_submission_count} 件）"
+        f"{report.blind_submission_count} 件"
+        + (
+            f"、うち AI を見たあとで blind 採点を訂正 {report.corrected_blind_submission_count} 件"
+            if report.corrected_blind_submission_count
+            else ""
+        )
+        + "）"
     )
     lines.append("")
     lines.append("> 記録済みの観測を読んだ結果です。このコマンドは採点しません。")

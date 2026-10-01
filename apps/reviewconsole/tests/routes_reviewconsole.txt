@@ -129,6 +129,7 @@ POST /manage/users/{user_id}/disable aijudge_reviewconsole.manage.users:disable_
 POST /manage/users/{user_id}/password aijudge_reviewconsole.manage.users:reissue_user_password
 POST /manage/users/{user_id}/tenant-admin aijudge_reviewconsole.manage.users:set_user_tenant_admin
 POST /review/{submission_id}/blind aijudge_reviewconsole.app:submit_blind
+POST /review/{submission_id}/blind/correct aijudge_reviewconsole.app:correct_blind
 POST /review/{submission_id}/finalize aijudge_reviewconsole.app:finalize
 PUT /api/courses/{course_id}/groups/{name} aijudge_reviewconsole.api:put_group
 PUT /api/courses/{course_id}/units/{unit}/audience aijudge_reviewconsole.api:put_audience

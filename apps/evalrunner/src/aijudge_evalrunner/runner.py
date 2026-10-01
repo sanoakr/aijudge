@@ -43,6 +43,8 @@ class EvalReport(BaseModel):
     observation_count: int = 0
     submission_count: int = 0
     blind_submission_count: int = 0
+    # うち blind 採点を訂正した提出（ADR 0031）。
+    corrected_blind_submission_count: int = 0
     agreement: dict[str, AgreementReport] = Field(default_factory=dict)
     observed_miss_rate: float | None = None
     observed_review_rate: float | None = None
@@ -78,6 +80,7 @@ def measure(
         observation_count=summary.observation_count,
         submission_count=summary.submission_count,
         blind_submission_count=summary.blind_submission_count,
+        corrected_blind_submission_count=summary.corrected_blind_submission_count,
         agreement=summary.agreement,
         observed_miss_rate=summary.observed_miss_rate,
         observed_review_rate=summary.observed_review_rate,

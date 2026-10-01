@@ -287,6 +287,22 @@ class BlindMarkRow(Base):
     document: Mapped[dict[str, Any]] = mapped_column(JsonType)
 
 
+class BlindMarkCorrectionRow(Base):
+    """blind 採点の訂正（ADR 0031）。**追記のみ。** 元の `blind_marks` は書き換えない。
+
+    訂正は AI を見たあとに起きるので、元の値と並べて残さないと、測定に紛れた偏りを
+    後から確かめようがない。
+    """
+
+    __tablename__ = "blind_mark_corrections"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    submission_id: Mapped[str] = mapped_column(String(64), index=True)
+    corrected_by: Mapped[str] = mapped_column(String(64), index=True)
+    corrected_at: Mapped[datetime] = mapped_column(Timestamp)
+    document: Mapped[dict[str, Any]] = mapped_column(JsonType)
+
+
 class GradingJobRow(Base):
     __tablename__ = "grading_jobs"
 

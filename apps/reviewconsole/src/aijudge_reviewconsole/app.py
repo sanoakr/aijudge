@@ -54,6 +54,7 @@ from aijudge_core import (
     PURGED_MESSAGE,
     ArtifactKind,
     BlindMark,
+    BlindMarkCorrection,
     Course,
     Finalization,
     FinalizationSource,
@@ -69,6 +70,7 @@ from aijudge_core import (
     blocks_finalization,
     content_disposition,
     content_type_for,
+    corrected_mark,
     effective_aggregation,
     grace_minutes,
     may_see,
@@ -76,6 +78,7 @@ from aijudge_core import (
     offered_years,
 )
 from aijudge_core.ids import (
+    BlindMarkCorrectionId,
     CourseId,
     CriterionId,
     FinalizationId,
@@ -107,7 +110,7 @@ from aijudge_submission import (
 from aijudge_telemetry import RequestContextMiddleware
 
 from . import access, notices
-from .audit_context import request_id_of, source_ip_of
+from .audit_context import recorder_for, request_id_of, source_ip_of
 from .io_results import io_results
 from .notices import Notices
 from .overview import digests_for, load_units
@@ -398,6 +401,7 @@ class Console:
         subject_profile: str,
         mark: BlindMark | None,
         review: HumanReview | None,
+        blind_corrected: bool = False,
     ) -> None:
         """観測を書き直す。**失敗してもレビューは成立させる。**
 
@@ -433,6 +437,8 @@ class Console:
                     human_levels=human_levels,
                     blind=mark is not None,
                     marker=None if mark is None else str(mark.grader_id),
+                    # 訂正した blind 採点（ADR 0031）。`mark` は訂正を当てた後の値。
+                    blind_corrected=blind_corrected,
                     # 「教員が機械の判定を直したか」。blind からの移動ではない。
                     machine_corrected=(None if review is None else not review.agreed),
                 )
@@ -1185,6 +1191,7 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
             subject_profile=fresh.task_version.subject_profile,
             mark=fresh.mark,
             review=fresh.review,
+            blind_corrected=bool(fresh.blind_corrections),
         )
         mode = _work_mode(from_)
         if not agreed:
@@ -1208,6 +1215,101 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 f"/review/{next_after}/blind?from={WORK_BLIND}", status_code=303
             )
         return RedirectResponse(f"/courses/{fresh.course.id}/blind", status_code=303)
+
+    @app.post("/review/{submission_id}/blind/correct")
+    async def correct_blind(
+        request: Request, submission_id: str, me: Me, from_: str = Query("", alias="from")
+    ) -> Response:
+        """blind 採点を訂正する（ADR 0031）。**元の blind 採点は残し、訂正を追記する。**
+
+        人の採点には押し間違いがあり、AI の判定と食い違って初めて気づくことが多い。
+        訂正は AI を見たあとに起きるので AI に近づく方向に偏る ── だから理由を必須に
+        し、測定は訂正の件数を並べて報告する（`blind_corrected`）。
+
+        **直せるのは採点した本人と担当教員。** 押し間違いは本人がいちばんよく分かり、
+        TA の採点は教員も直せる。
+        """
+        form = await request.form()
+        context = _load(console, me, SubmissionId(submission_id), request)
+        if context.mark is None:
+            raise HTTPException(status_code=409, detail="この提出には blind 採点がありません。")
+        if context.mark.grader_id != me.user_id and not _is_course_instructor(
+            console, me, context.course.id
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail="blind 採点を訂正できるのは、採点した本人と担当教員だけです。",
+            )
+        levels = _parse_levels(context.task_version.criteria, form)
+        reason = str(form.get("reason", "")).strip()
+        if len(reason) < MIN_JUSTIFICATION_LENGTH:
+            raise HTTPException(
+                status_code=400,
+                detail=f"訂正の理由を {MIN_JUSTIFICATION_LENGTH} 文字以上で書いてください",
+            )
+        previous = dict(context.mark.levels)
+        if levels == previous:
+            raise HTTPException(status_code=400, detail="段階が変わっていません。")
+
+        now = datetime.now(UTC)
+        with console.database.unit_of_work() as uow:
+            correction = BlindMarkCorrection(
+                id=BlindMarkCorrectionId(new_id("bmc")),
+                submission_id=context.submission.id,
+                corrected_by=me.user_id,
+                levels=levels,
+                previous_levels=previous,
+                reason=reason,
+                corrected_at=now,
+            )
+            uow.reviews.save_blind_correction(correction)
+            recorder_for(uow, request, me).record(
+                AuditAction.BLIND_MARK_CORRECTED,
+                target_type="submission",
+                target_id=str(context.submission.id),
+                summary="blind 採点を訂正した",
+                detail={
+                    "correction_id": str(correction.id),
+                    # 観点ごとの前後。**理由の本文は入れない**（監査は操作の事実・P7）。
+                    "levels": {
+                        str(criterion_id): {"before": previous.get(criterion_id), "after": level}
+                        for criterion_id, level in levels.items()
+                        if previous.get(criterion_id) != level
+                    },
+                },
+            )
+            uow.commit()
+
+        fresh = _load(console, me, SubmissionId(submission_id), request)
+        # 訂正して AI と一致し、ほかに決めることが無ければ、blind の保存と同じく
+        # その場で確認まで済ませる（ADR 0030）。
+        if _blind_agrees(fresh, fresh.mark.levels if fresh.mark else {}):
+            _save_review(
+                console,
+                request,
+                me,
+                fresh,
+                adjusted={},
+                machine=dict(fresh.mark.levels),
+                waived=False,
+                text=rubric_justification(
+                    fresh.task_version.criteria, fresh.mark.levels, agreed=True
+                ),
+                via="blind_correction_agreement",
+            )
+            fresh = _load(console, me, SubmissionId(submission_id), request)
+        console.refresh_observations(
+            fresh.submission,
+            fresh.run,
+            fresh.task_version,
+            subject_profile=fresh.task_version.subject_profile,
+            mark=fresh.mark,
+            review=fresh.review,
+            blind_corrected=True,
+        )
+        return RedirectResponse(
+            _with_mode(f"/review/{submission_id}/reveal", _work_mode(from_)), status_code=303
+        )
 
     @app.get("/images/{course_id}/{name}")
     def statement_image(request: Request, course_id: str, name: str, me: Me) -> Response:
@@ -1344,6 +1446,14 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 "highlights": _highlighted_lines(context.run),
                 "review": context.review,
                 "was_blind": context.mark is not None,
+                # blind 採点の訂正（ADR 0031）。直せるのは採点した本人と担当教員。
+                "blind_corrections": context.blind_corrections,
+                "can_correct_blind": context.mark is not None
+                and (
+                    context.mark.grader_id == me.user_id
+                    or _is_course_instructor(console, me, context.course.id)
+                ),
+                "blind_levels": {} if context.mark is None else context.mark.levels,
                 "review_request": context.request,
                 "finalization": context.finalization,
                 "awaiting_ai": context.awaiting_ai,
@@ -1450,6 +1560,7 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
             subject_profile=fresh.task_version.subject_profile,
             mark=fresh.mark,
             review=fresh.review,
+            blind_corrected=bool(fresh.blind_corrections),
         )
         # **同じ画面に戻す。** 確定したらコースのメニューへ飛んでいたので、
         # 押した結果が画面から消え、確定できたのかどうかを確かめるには
@@ -1669,6 +1780,7 @@ class _Context:
 
     __slots__ = (
         "awaiting_ai",
+        "blind_corrections",
         "course",
         "finalization",
         "learner",
@@ -1696,6 +1808,7 @@ class _Context:
         request: object | None = None,
         finalization: Finalization | None = None,
         awaiting_ai: bool = False,
+        blind_corrections: tuple = (),
     ) -> None:
         self.submission = submission
         self.run = run
@@ -1709,6 +1822,8 @@ class _Context:
         self.request = request
         self.finalization = finalization
         self.awaiting_ai = awaiting_ai
+        # blind 採点の訂正（ADR 0031）。`mark` には最新の訂正を当ててある。
+        self.blind_corrections = blind_corrections
 
 
 def _can_grade(auth: AuthService, course_id: CourseId, me: Principal) -> bool:
@@ -1769,6 +1884,11 @@ def _load(
                 ),
             )
         mark = uow.reviews.find_blind_mark(submission_id)
+        # **訂正を当てた blind 採点を使う**（ADR 0031）。画面・一致の判定・観測が
+        # 同じ値を見るよう、読み出しの 1 か所で当てる。元の値は訂正の記録が持つ。
+        corrections = uow.reviews.blind_corrections(submission_id) if mark is not None else ()
+        if mark is not None:
+            mark, _ = corrected_mark(mark, corrections)
         review = uow.reviews.find_review_for_run(run.id)
         request = uow.reviews.find_request_for_run(run.id)
         finalization = uow.reviews.find_finalization_for_run(run.id)
@@ -1791,6 +1911,7 @@ def _load(
         request=request,
         finalization=finalization,
         awaiting_ai=awaiting_ai,
+        blind_corrections=corrections,
     )
 
 
