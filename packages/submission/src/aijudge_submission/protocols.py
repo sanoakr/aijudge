@@ -481,9 +481,13 @@ class CourseReviewQueries(Protocol):
     """
 
     def pending_for_course(
-        self, course_id: CourseId, *, include_decided: bool = False, limit: int = 200
+        self, course_id: CourseId, *, include_decided: bool = False, limit: int | None = 200
     ) -> tuple[tuple[Submission, GradingRun], ...]:
-        """このコースで教員の確認を待っている提出（最新の採点 1 件につき 1 行）。"""
+        """このコースで教員の確認を待っている提出（最新の採点 1 件につき 1 行）。
+
+        並びは提出の古い順。`limit=None` で全件 ── **後から絞り込む呼び出し側は
+        必ず None を渡す**（上限で先に切ると、新しい提出が絞り込みの前に消える）。
+        """
         ...
 
     def requested_for_course(

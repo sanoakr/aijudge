@@ -1753,7 +1753,13 @@ def _blind_rows(
 
         rows = []
         marked = 0
-        for submission, run in uow.reviews.pending_for_course(course_id, include_decided=True):
+        # **上限を付けない。** 確定済みも含めるので件数はコースの提出数に近く、
+        # 古い順の 200 件で切ると、それより新しい抽出済みの提出が一覧に出ない
+        # （2026-10-01、prog2 で実際に起きた）。抽出は提出 ID の hash なので
+        # SQL では絞れない ── 全件読んでここで絞る。
+        for submission, run in uow.reviews.pending_for_course(
+            course_id, include_decided=True, limit=None
+        ):
             if not console.needs_blind_mark(submission, course.subject_profile):
                 continue
             if uow.reviews.find_blind_mark(submission.id) is not None:
@@ -1791,7 +1797,9 @@ def _open_rows(console: Console, course: Course) -> tuple[dict, ...]:
     """確定していない提出（教員・TA の試行を除く）。確定処理の一覧と帯が同じものを読む。"""
     rows = []
     with console.database.unit_of_work() as uow:
-        for submission, run in uow.reviews.pending_for_course(course.id):
+        # 上限を付けない ── 未確定が 200 件を超えると、新しいものが確定処理の
+        # 一覧から消える（blind の一覧と同じ理由・2026-10-01）。
+        for submission, run in uow.reviews.pending_for_course(course.id, limit=None):
             # 教員・TA 自身の試行は成績ではない（#108）。閉じる対象に
             # 出すと、いつまでも減らない未確定として残り続ける。
             if submission.is_trial:
