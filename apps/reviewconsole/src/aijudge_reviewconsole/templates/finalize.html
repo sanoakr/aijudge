@@ -107,22 +107,29 @@
 {% endif %}
 
 <h2>提出ごとに確定する（未確定 {{ rows | length }} 件）</h2>
-{# 携帯では行を積む（`table.stack`）。 #}
+{# **課題ごとにまとめて並べる**（2026-10-01）。blind の一覧と同じ理由 ── 同じ問題を
+   続けて読むと基準を持ち替えずに済む。並びは `_in_task_order` が決め、1 件の画面の
+   「次へ」も同じ順に進む。 #}
+{% for group in groups %}
+{% set firsts = group.rows | selectattr('manual') | rejectattr('contested') | list %}
+<h3 class="task-group">
+  {% if group.task %}<span class="mono desc">{{ group.task.unit or group.task.unit_label }}</span>
+    {{ group.task.title }}{% else %}課題の分からない提出{% endif %}
+  <span class="desc">{{ group.rows | length }} 件</span>
+  {% if firsts %}<a class="desc" href="{{ root_prefix() }}/review/{{ firsts[0].submission.id }}/reveal?from=finalize">この課題を順に確定する →</a>{% endif %}
+</h3>
+{# 携帯では行を積む（`table.stack`）。課題は見出しに出したので列に持たない。 #}
 <table class="stack">
   <thead><tr>
-    <th class="fit">提出</th><th class="fit">学習者</th><th class="grow">課題</th>
+    <th class="fit">提出</th><th class="grow">学習者</th>
     <th class="fit">回</th><th class="fit">AI の総合</th><th class="fit"></th>
   </tr></thead>
   <tbody>
-  {% for row in rows %}
+  {% for row in group.rows %}
     {% set work = '?from=finalize' if row.manual and not row.contested else '' %}
     <tr class="row-link" data-href="{{ root_prefix() }}/review/{{ row.submission.id }}/reveal{{ work }}">
       <td class="fit" data-label="提出">{{ row.submission.submitted_at | local('%m-%d %H:%M') if row.submission.submitted_at else '—' }}</td>
-      <td class="fit mono" data-label="学習者">{{ row.learner.login if row.learner else '—' }}</td>
-      <td class="grow">
-        {% if row.task %}<span class="mono desc">{{ row.task.unit or row.task.unit_label }}</span>
-          {{ row.task.title }}{% else %}—{% endif %}
-      </td>
+      <td class="grow mono" data-label="学習者">{{ row.learner.login if row.learner else '—' }}</td>
       <td class="fit" data-label="回">{{ row.attempt_no or row.submission.attempt }} 回目</td>
       <td class="fit" data-label="AI の総合">{{ '%.0f' | format(row.run.score_ratio * 100) }}%</td>
       <td class="fit">
@@ -131,9 +138,10 @@
         <br>{% if row.manual %}<span class="pill attn">手動の確定が必要</span>{% else %}<span class="pill">自動確定待ち</span>{% endif %}
       </td>
     </tr>
-  {% else %}
-    <tr><td colspan="6" class="desc">未確定の提出はありません。</td></tr>
   {% endfor %}
   </tbody>
 </table>
+{% else %}
+<p class="desc">未確定の提出はありません。</p>
+{% endfor %}
 {% endblock %}
