@@ -1199,14 +1199,15 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
             notices.BLIND_AGREED,
             {"submission_id": str(submission_id), "learner": _login_of(fresh)},
         )
-        if mode == WORK_BLIND:
-            target = (
-                f"/review/{next_after}/blind?from={WORK_BLIND}"
-                if next_after
-                else f"/courses/{fresh.course.id}/blind"
+        # **一致したら確定の画面を出さない**（ADR 0030）。どこから開いた blind でも
+        # 同じ ── 以前は帯から順に進めていないとき確定の画面へ戻しており、一致して
+        # 確定済みの成績と確定の欄が出て、まだ操作が要るように読めた。順に進めて
+        # いれば次の 1 件、そうでなければ blind の一覧へ（知らせはそこで出す）。
+        if mode == WORK_BLIND and next_after:
+            return RedirectResponse(
+                f"/review/{next_after}/blind?from={WORK_BLIND}", status_code=303
             )
-            return RedirectResponse(target, status_code=303)
-        return RedirectResponse(f"/review/{submission_id}/reveal", status_code=303)
+        return RedirectResponse(f"/courses/{fresh.course.id}/blind", status_code=303)
 
     @app.get("/images/{course_id}/{name}")
     def statement_image(request: Request, course_id: str, name: str, me: Me) -> Response:

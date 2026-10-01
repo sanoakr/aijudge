@@ -651,3 +651,17 @@ nav.tabs a[aria-current]{background:var(--surface);border-color:var(--line);colo
    （`test5/echoClient_comments.py`）── 問題セットの区切り（`/` の後ろの <wbr>）で
    折り返し、それでも長い名前はどこでも切ってよい。表が本文の枠を越えるよりよい。 */
 td.task-key{white-space:normal;overflow-wrap:anywhere;font-size:.85em;min-width:7em;max-width:12em}
+/* blind 採点の問題文を畳む（2026-10-01）。冒頭の数行だけ見せ、下を薄くして続きが
+   あることを示す。チェック欄（`.statement-toggle`）で開く ── JavaScript を使わない。 */
+.statement-fold{margin:0 0 14px}
+.statement-fold .statement-toggle{position:absolute;opacity:0;pointer-events:none}
+.statement-fold .statement{max-height:10em;overflow:hidden;
+  -webkit-mask-image:linear-gradient(to bottom,#000 60%,transparent);
+  mask-image:linear-gradient(to bottom,#000 60%,transparent)}
+.statement-fold .statement-toggle:checked ~ .statement{max-height:none;-webkit-mask-image:none;mask-image:none}
+.statement-fold .statement-more{display:inline-block;margin-top:4px;font-size:.85rem;cursor:pointer;
+  color:var(--ai);text-decoration:underline}
+.statement-fold .statement-more .when-open{display:none}
+.statement-fold .statement-toggle:checked ~ .statement-more .when-open{display:inline}
+.statement-fold .statement-toggle:checked ~ .statement-more .when-closed{display:none}
+.statement-fold .statement-toggle:focus-visible ~ .statement-more{outline:2px solid currentColor;outline-offset:2px}

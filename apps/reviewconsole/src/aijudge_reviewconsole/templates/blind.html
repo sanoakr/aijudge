@@ -22,8 +22,17 @@
    同じ「答案を見て段階を選ぶ」作業なのに画面の作りが 2 種類あった。 #}
 <div class="desk">
   <div class="left">
-    <h2>問題</h2>
-    <div class="statement">{{ statement_html | safe }}</div>
+    {# **問題文は畳んで出す。題名と冒頭の数行は畳んでも見える**（2026-10-01）。
+       blind 採点は同じ課題を続けて採点するので（課題ごとの並び・#582）、2 件目からは
+       問題文を読み直す必要が無く、全文が提出物を画面の下へ押し出していた。冒頭を
+       残すのは、どの問題かを取り違えないため。**JavaScript を使わない**（印の
+       チェック欄と兄弟セレクタで開く）── 開けない問題文を出さない。 #}
+    <h2>問題{% if task_meta %} <span class="desc">{{ task_meta.unit_label }}</span> {{ task_meta.title }}{% endif %}</h2>
+    <div class="statement-fold">
+      <input type="checkbox" id="statement-open" class="statement-toggle">
+      <div class="statement">{{ statement_html | safe }}</div>
+      <label for="statement-open" class="statement-more"><span class="when-closed">問題文をすべて表示</span><span class="when-open">問題文を畳む</span></label>
+    </div>
 
     <h2>提出されたコード</h2>
     {# **種別で出し分ける**（#75）。以前は何でもテキストとして出していたので、
