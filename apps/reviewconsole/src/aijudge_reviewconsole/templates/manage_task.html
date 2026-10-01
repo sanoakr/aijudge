@@ -506,7 +506,7 @@
      観点も含めて新しい版ができる操作である。 #}
   <div class="taskform-foot">
     <span class="desc save-state">
-      {%- if task %}上の 3 つをまとめて保存します（入出力セットと項目表は観点の中の欄から別に保存します）
+      {%- if task %}上の 3 つと、観点の中の入出力セット・項目表・クライアント・サーバのケースをまとめて保存します
       {%- else %}書いた内容で課題を作ります{% endif %}{% call help() %}
     {% if task %}
       問題文か観点を変えると<strong>新しい版</strong>ができます（いま {{ version.version }} 版）。
@@ -557,20 +557,10 @@
 </div>
 {% endif %}
 
-{# 検証データの送信先（#303）。**欄は観点の中にある** ── 入れ子のフォームは
-   作れないので、`form` 属性で結び付ける（HTML5）。ここには欄を置かない。 #}
-{% if task and data_criteria.get('io') %}
-<form id="io-form" method="post"
-      action="{{ root_prefix() }}/manage/courses/{{ course.id }}/tasks/{{ task.id }}/test-cases/edit"></form>
-{% endif %}
-{% if task and data_criteria.get('items') %}
-<form id="items-form" method="post"
-      action="{{ root_prefix() }}/manage/courses/{{ course.id }}/tasks/{{ task.id }}/items/edit"></form>
-{% endif %}
-{% if task and data_criteria.get('companion') %}
-<form id="companion-form" method="post"
-      action="{{ root_prefix() }}/manage/courses/{{ course.id }}/tasks/{{ task.id }}/companion/edit"></form>
-{% endif %}
+{# 検証データ（入出力セット・項目表・クライアント・サーバのケース）は、**課題の
+   フォームの一部として 1 つの保存で送る**（2026-10-02）。以前はここに別のフォームが
+   あり、観点の中の欄を `form` 属性で結んでいた ── 保存ボタンが 2 つになり、片方を
+   押すともう片方の書きかけが消えた。 #}
 
 {% if task %}
 </div>{# #tab-content #}

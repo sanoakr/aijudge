@@ -40,6 +40,7 @@ from aijudge_eval_code_test_runner import EVALUATOR_ID as CODE_TEST_RUNNER
 from aijudge_grading import EvaluatorRegistry, load_profile
 
 from .. import notices
+from ..companion_form import CompanionFormError, companion_cases_from_form
 from ..companion_view import companion_view
 from ..overview import unit_key
 from ..urls import RedirectResponse
@@ -58,6 +59,7 @@ from .grading_views import (
     _refuse_undeclared,
     _rubric_from_form,
 )
+from .task_data import io_edit_from_form, item_cases_from_form
 from .task_page import (
     KEEP,
     _cases_by_shape,
@@ -169,6 +171,36 @@ def _kcs_from_form(console, course, form) -> tuple[str, ...]:
     except AdminError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return chosen
+
+
+def _data_from_form(console, version, form) -> tuple[tuple[TestCaseSpec, ...], str | None]:
+    """課題の画面の 1 つの保存から、検証データと参照解答を組む（2026-10-02）。
+
+    送られてきた欄（印のあるもの）だけを読み、その評価器あてのデータを置き換える。
+    それ以外は評価器と payload ごと引き継ぐ（`_kept_cases`・#302）。入出力セットの
+    門 1 は、中身が変わったときだけ走る（`io_edit_from_form`）。
+    """
+    edited: list[TestCaseSpec] = []
+    editing: set[str] = set()
+    reference = version.reference_solution
+    shapes = _data_driven_criteria(EvaluatorRegistry().load_installed(), version)
+    if form.get("io_present") and shapes.get("io"):
+        io = io_edit_from_form(console, version, form, allow_unchanged_empty=True)
+        edited.extend(io.cases)
+        editing |= io.editing
+        reference = io.reference
+    if form.get("items_present") and shapes.get("items"):
+        edited.extend(item_cases_from_form(form, shapes["items"]))
+        editing |= set(shapes["items"])
+    if form.get("companion_present") and shapes.get("companion"):
+        try:
+            edited.extend(
+                companion_cases_from_form(form, version, evaluator_id=shapes["companion"][0])
+            )
+        except CompanionFormError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from None
+        editing |= set(shapes["companion"])
+    return tuple(edited) + _kept_cases(version, editing=tuple(editing)), reference
 
 
 def register(router: APIRouter, templates: Jinja2Templates) -> None:
@@ -707,6 +739,13 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
         # 経路（API 等）では None のまま渡し、いまの版のものを引き継ぐ。
         components = _kcs_from_form(console, course, form) if "kc_form" in form else None
 
+        # **検証データも同じ保存で読む**（2026-10-02）。以前は観点の中の欄ごとに別の
+        # 保存ボタンがあり、片方を押すともう片方の書きかけが黙って消えた。欄は印
+        # （`*_present`）があるときだけ読む ── 欄の無い経路（API・問題文だけの訂正・
+        # 共通ルーブリックへの復元で欄が消えた画面）では、いまの版のものを引き継ぐ。
+        # **全部を検査してから 1 度に書く**（ここで断られたら何も保存しない）。
+        test_cases, reference_solution = _data_from_form(console, version, form)
+
         _save_revision(
             console,
             me,
@@ -734,7 +773,7 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
             # この経路に来るのは「問題文の誤字を直す」のような操作で、
             # テストを捨てる意図は無い。捨てたいときは、テストを作り直す
             # 経路（`/test-cases`）がある。
-            reference_solution=version.reference_solution,
+            reference_solution=reference_solution,
             # 参照回答例は**欄が送られてきたときだけ**書き換える（空欄なら無しにする）。
             # 欄の無いフォームから来た訂正では、いまの版の値を引き継ぐ。
             reference_answer=_reference_answer_from(form, default=KEEP),
@@ -745,7 +784,7 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
             # 項目が無い」として落ちる。実際に prog2 ex01-2 で、問題文を保存
             # しただけで `text_pattern_check` の 3 項目が `code_test_runner`
             # の空ケースになった（2026-09-22）。
-            test_cases=_kept_cases(version, editing=()),
+            test_cases=test_cases,
         )
         return RedirectResponse(
             f"/manage/courses/{course_id}/tasks/{task_id}/edit?saved=task#saved", status_code=303

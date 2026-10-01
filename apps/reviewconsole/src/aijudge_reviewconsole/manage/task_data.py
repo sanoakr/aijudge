@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.templating import Jinja2Templates
@@ -124,6 +125,240 @@ def _test_evaluator_of(profile) -> str:
         if evaluator_id == CODE_TEST_RUNNER:
             return evaluator_id
     return CODE_TEST_RUNNER
+
+
+@dataclass(frozen=True)
+class IoEdit:
+    """入出力セットの欄から読んだもの。保存は呼ぶ側（`_save_revision`）がする。"""
+
+    cases: tuple[TestCaseSpec, ...]
+    reference: str | None
+    # この欄が直している評価器（他の評価器あてのデータは `_kept_cases` で残す）。
+    editing: frozenset[str]
+
+
+def _io_signature(cases, reference) -> tuple:
+    return (
+        tuple(
+            (case.name, case.input, case.expected, case.hidden, float(case.weight))
+            for case in cases
+        ),
+        reference,
+    )
+
+
+def io_edit_from_form(console, version, form, *, allow_unchanged_empty: bool = False) -> IoEdit:
+    """入出力セットと参照解答の欄を読み、**門 1 を通す**（#284・#305）。
+
+    課題の画面の保存を 1 つにまとめた（2026-10-02）ので、「この問題を保存して更新する」
+    からも呼ばれる。そちらでは問題文だけ直す保存のたびに参照解答を走らせないよう、
+    **欄の中身がいまの版と同じなら門を飛ばす**（同じものは既に通っている）。
+    `allow_unchanged_empty` は、入出力がまだ 1 件も無い課題を問題文だけ保存する経路の
+    ため ── 0 件のまま変わっていないなら断らない。
+    """
+    names = [str(v) for v in form.getlist("case_name")]
+    inputs = [str(v) for v in form.getlist("case_input")]
+    expected = [str(v) for v in form.getlist("case_expected")]
+    weights = [str(v) for v in form.getlist("case_weight")]
+    hidden = [str(v) for v in form.getlist("case_hidden")]
+    deleted = {str(v) for v in form.getlist("case_delete")}
+    # 参照解答は入出力セットと一緒に保存する（#305）。**ひと組だから** ──
+    # 門 1 は両方を突き合わせる検査で、片方だけ先に保存できると、教員が
+    # 意図していない組み合わせを検査することになる。欄が無い経路（API や
+    # 古い画面）から来たときは、いまの版のものをそのまま持ち越す。
+    if "reference_solution" in form:
+        typed = str(form["reference_solution"]).replace("\r\n", "\n")
+        # **空白だけなら「無い」。** 消したいときに消せる。中身があるなら
+        # 打たれたまま持つ ── 末尾の改行を落とすと、触っていないのに
+        # 版が上がる（内容の同一性はそこも見る）。
+        reference = typed if typed.strip() else None
+    else:
+        reference = version.reference_solution
+
+    def at(values: list[str], index: int, default: str = "") -> str:
+        return values[index] if index < len(values) else default
+
+    # **この欄が直している評価器**（#402）。いまの版で入出力の形を読む
+    # 評価器のデータから取る。既定（`code_test_runner`）に倒すのは入出力の
+    # データがまだ無いときだけ ── 倒すと、別の入出力評価器あてのケースが
+    # 保存のたびに書き換わる。
+    io_ids = _io_evaluator_ids(EvaluatorRegistry().load_installed())
+    io_evaluator = next(
+        (case.evaluator_id for case in version.test_cases if case.evaluator_id in io_ids),
+        CODE_TEST_RUNNER,
+    )
+
+    cases: list[TestCaseSpec] = []
+    seen: set[str] = set()
+    for index in range(len(names)):
+        if str(index) in deleted:
+            continue
+        name = at(names, index).strip()
+        text_in = at(inputs, index).replace("\r\n", "\n")
+        text_out = at(expected, index).replace("\r\n", "\n")
+        if not name and not text_in.strip() and not text_out.strip():
+            continue  # 追加用の空行
+        if not name:
+            raise HTTPException(status_code=400, detail=f"{index + 1} 行目: 名前が要ります")
+        if name in seen:
+            raise HTTPException(status_code=400, detail=f"名前 {name!r} が重複しています")
+        seen.add(name)
+        try:
+            weight = float(at(weights, index, "1.0") or 1.0)
+        except ValueError:
+            raise HTTPException(
+                status_code=400, detail=f"{name}: 重みが数値ではありません"
+            ) from None
+        cases.append(
+            TestCaseSpec(
+                name=name,
+                input=text_in,
+                expected=text_out,
+                hidden=at(hidden, index, "1") != "0",
+                weight=weight,
+                evaluator=io_evaluator,
+            )
+        )
+    # **採用した提案だけを足す**（#305）。印を付けなかったものは消える ──
+    # 生成物は提案であって確定ではない（P5）。期待出力は提案の時点で
+    # 参照解答を走らせて埋めてある。
+    prop_names = [str(v) for v in form.getlist("prop_name")]
+    prop_inputs = [str(v) for v in form.getlist("prop_input")]
+    prop_expected = [str(v) for v in form.getlist("prop_expected")]
+    for raw in form.getlist("prop_adopt"):
+        try:
+            index = int(str(raw))
+        except ValueError:
+            continue
+        if not (0 <= index < len(prop_names)):
+            continue
+        name = prop_names[index].strip()
+        if not name or name in seen:
+            # 同じ名前が既にあるなら足さない。**黙って上書きしない** ──
+            # 直したばかりのケースが提案で消えるのは、押した人の意図ではない。
+            continue
+        seen.add(name)
+        cases.append(
+            TestCaseSpec(
+                name=name,
+                input=at(prop_inputs, index).replace("\r\n", "\n"),
+                expected=at(prop_expected, index).replace("\r\n", "\n"),
+                hidden=True,
+                weight=1.0,
+                evaluator=io_evaluator,
+            )
+        )
+
+    current = tuple(
+        TestCaseSpec(
+            name=case.name,
+            input=str(case.payload.get("input", "")),
+            expected=str(case.payload.get("expected", "")),
+            hidden=case.hidden,
+            weight=case.weight,
+            evaluator=case.evaluator_id,
+        )
+        for case in version.test_cases
+        if case.evaluator_id in io_ids
+    )
+    unchanged = _io_signature(cases, reference) == _io_signature(
+        current, version.reference_solution
+    )
+    if not cases and not (allow_unchanged_empty and unchanged):
+        raise HTTPException(
+            status_code=400,
+            detail="テストケースが 0 件になります。全部消すなら課題を取り下げてください",
+        )
+
+    # 門 1: 参照解答が全ケースを通るか。**通らなければ保存しない。**
+    # 見るのは**いま欄にあるもの**（#305）── 保存済みで確かめると、
+    # 教員が直した解答例ではない別のもので判定することになる。
+    if reference and not unchanged:
+        candidate = version.model_copy(
+            update={
+                "test_cases": tuple(
+                    TestCase(
+                        name=case.name,
+                        evaluator_id=io_evaluator,
+                        payload={"input": case.input, "expected": case.expected},
+                        hidden=case.hidden,
+                        weight=case.weight,
+                    )
+                    for case in cases
+                )
+            }
+        )
+        profile = load_profile(console.profiles_dir / f"{version.subject_profile}.yaml")
+        try:
+            verifier = TaskVerifier(EvaluatorRegistry().load_installed(), profile)
+            passed, detail = verifier.passes(candidate, reference)
+        except Exception as exc:  # サンドボックス不在など。**保存しない**（確かめられていない）。
+            raise HTTPException(
+                status_code=502, detail=f"参照解答を走らせられませんでした: {exc}"
+            ) from exc
+        if not passed:
+            raise HTTPException(
+                status_code=400,
+                detail=f"参照解答が通らないテストケースがあるので保存しません: {detail}",
+            )
+
+    return IoEdit(cases=tuple(cases), reference=reference, editing=frozenset(io_ids))
+
+
+def item_cases_from_form(form, named: tuple[str, ...]) -> tuple[TestCaseSpec, ...]:
+    """項目表の欄を読む（#302）。保存は呼ぶ側がする（課題の画面の 1 つの保存からも呼ぶ）。"""
+    names = [str(v) for v in form.getlist("item_name")]
+    descriptions = [str(v) for v in form.getlist("item_description")]
+    aliases = [str(v) for v in form.getlist("item_aliases")]
+    weights = [str(v) for v in form.getlist("item_weight")]
+    hidden = [str(v) for v in form.getlist("item_hidden")]
+    deleted = {str(v) for v in form.getlist("item_delete")}
+
+    def at(values: list[str], index: int, default: str = "") -> str:
+        return values[index] if index < len(values) else default
+
+    items: list[TestCaseSpec] = []
+    seen: set[str] = set()
+    for index in range(len(names)):
+        if str(index) in deleted:
+            continue
+        name = at(names, index).strip()
+        if not name:
+            continue  # 追加用の空行
+        if name in seen:
+            raise HTTPException(status_code=400, detail=f"項目 {name!r} が重複しています")
+        seen.add(name)
+        try:
+            weight = float(at(weights, index, "1.0") or 1.0)
+        except ValueError:
+            raise HTTPException(
+                status_code=400, detail=f"{name}: 重みが数値ではありません"
+            ) from None
+        if weight <= 0:
+            raise HTTPException(status_code=400, detail=f"{name}: 重みは正の値にしてください")
+        payload: dict[str, object] = {}
+        description = at(descriptions, index).strip()
+        if description:
+            payload["description"] = description
+        hints = _split_aliases(at(aliases, index))
+        if hints:
+            payload["aliases"] = list(hints)
+        items.append(
+            TestCaseSpec(
+                name=name,
+                # **この 1 件を読む評価器を明示する。** 課題の既定に倒すと
+                # `code_test_runner` あてになり、誰も読まないまま残る。
+                evaluator=named[0],
+                payload=payload,
+                hidden=at(hidden, index, "0") == "1",
+                weight=weight,
+            )
+        )
+    if not items:
+        # **0 件は「既定に従う」である。** 科目プロファイルの項目表が
+        # 使われる ── 画面はそう言っている。全部消せることは残す。
+        pass
+    return tuple(items)
 
 
 def register(router: APIRouter, templates: Jinja2Templates) -> None:
@@ -245,138 +480,7 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
             raise HTTPException(status_code=404, detail="課題が見つかりません")
 
         form = await request.form()
-        names = [str(v) for v in form.getlist("case_name")]
-        inputs = [str(v) for v in form.getlist("case_input")]
-        expected = [str(v) for v in form.getlist("case_expected")]
-        weights = [str(v) for v in form.getlist("case_weight")]
-        hidden = [str(v) for v in form.getlist("case_hidden")]
-        deleted = {str(v) for v in form.getlist("case_delete")}
-        # 参照解答は入出力セットと一緒に保存する（#305）。**ひと組だから** ──
-        # 門 1 は両方を突き合わせる検査で、片方だけ先に保存できると、教員が
-        # 意図していない組み合わせを検査することになる。欄が無い経路（API や
-        # 古い画面）から来たときは、いまの版のものをそのまま持ち越す。
-        if "reference_solution" in form:
-            typed = str(form["reference_solution"]).replace("\r\n", "\n")
-            # **空白だけなら「無い」。** 消したいときに消せる。中身があるなら
-            # 打たれたまま持つ ── 末尾の改行を落とすと、触っていないのに
-            # 版が上がる（内容の同一性はそこも見る）。
-            reference = typed if typed.strip() else None
-        else:
-            reference = version.reference_solution
-
-        def at(values: list[str], index: int, default: str = "") -> str:
-            return values[index] if index < len(values) else default
-
-        # **この欄が直している評価器**（#402）。いまの版で入出力の形を読む
-        # 評価器のデータから取る。既定（`code_test_runner`）に倒すのは入出力の
-        # データがまだ無いときだけ ── 倒すと、別の入出力評価器あてのケースが
-        # 保存のたびに書き換わる。
-        io_ids = _io_evaluator_ids(EvaluatorRegistry().load_installed())
-        io_evaluator = next(
-            (case.evaluator_id for case in version.test_cases if case.evaluator_id in io_ids),
-            CODE_TEST_RUNNER,
-        )
-
-        cases: list[TestCaseSpec] = []
-        seen: set[str] = set()
-        for index in range(len(names)):
-            if str(index) in deleted:
-                continue
-            name = at(names, index).strip()
-            text_in = at(inputs, index).replace("\r\n", "\n")
-            text_out = at(expected, index).replace("\r\n", "\n")
-            if not name and not text_in.strip() and not text_out.strip():
-                continue  # 追加用の空行
-            if not name:
-                raise HTTPException(status_code=400, detail=f"{index + 1} 行目: 名前が要ります")
-            if name in seen:
-                raise HTTPException(status_code=400, detail=f"名前 {name!r} が重複しています")
-            seen.add(name)
-            try:
-                weight = float(at(weights, index, "1.0") or 1.0)
-            except ValueError:
-                raise HTTPException(
-                    status_code=400, detail=f"{name}: 重みが数値ではありません"
-                ) from None
-            cases.append(
-                TestCaseSpec(
-                    name=name,
-                    input=text_in,
-                    expected=text_out,
-                    hidden=at(hidden, index, "1") != "0",
-                    weight=weight,
-                    evaluator=io_evaluator,
-                )
-            )
-        # **採用した提案だけを足す**（#305）。印を付けなかったものは消える ──
-        # 生成物は提案であって確定ではない（P5）。期待出力は提案の時点で
-        # 参照解答を走らせて埋めてある。
-        prop_names = [str(v) for v in form.getlist("prop_name")]
-        prop_inputs = [str(v) for v in form.getlist("prop_input")]
-        prop_expected = [str(v) for v in form.getlist("prop_expected")]
-        for raw in form.getlist("prop_adopt"):
-            try:
-                index = int(str(raw))
-            except ValueError:
-                continue
-            if not (0 <= index < len(prop_names)):
-                continue
-            name = prop_names[index].strip()
-            if not name or name in seen:
-                # 同じ名前が既にあるなら足さない。**黙って上書きしない** ──
-                # 直したばかりのケースが提案で消えるのは、押した人の意図ではない。
-                continue
-            seen.add(name)
-            cases.append(
-                TestCaseSpec(
-                    name=name,
-                    input=at(prop_inputs, index).replace("\r\n", "\n"),
-                    expected=at(prop_expected, index).replace("\r\n", "\n"),
-                    hidden=True,
-                    weight=1.0,
-                    evaluator=io_evaluator,
-                )
-            )
-
-        if not cases:
-            raise HTTPException(
-                status_code=400,
-                detail="テストケースが 0 件になります。全部消すなら課題を取り下げてください",
-            )
-
-        # 門 1: 参照解答が全ケースを通るか。**通らなければ保存しない。**
-        # 見るのは**いま欄にあるもの**（#305）── 保存済みで確かめると、
-        # 教員が直した解答例ではない別のもので判定することになる。
-        if reference:
-            candidate = version.model_copy(
-                update={
-                    "test_cases": tuple(
-                        TestCase(
-                            name=case.name,
-                            evaluator_id=io_evaluator,
-                            payload={"input": case.input, "expected": case.expected},
-                            hidden=case.hidden,
-                            weight=case.weight,
-                        )
-                        for case in cases
-                    )
-                }
-            )
-            profile = load_profile(console.profiles_dir / f"{version.subject_profile}.yaml")
-            try:
-                verifier = TaskVerifier(EvaluatorRegistry().load_installed(), profile)
-                passed, detail = verifier.passes(candidate, reference)
-            except (
-                Exception
-            ) as exc:  # サンドボックス不在など。**保存しない**（確かめられていない）。
-                raise HTTPException(
-                    status_code=502, detail=f"参照解答を走らせられませんでした: {exc}"
-                ) from exc
-            if not passed:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"参照解答が通らないテストケースがあるので保存しません: {detail}",
-                )
+        edit = io_edit_from_form(console, version, form)
 
         _save_revision(
             console,
@@ -389,12 +493,12 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
             aggregation=version.aggregation,
             position=task.position,
             accepted=task.accepted_suffixes,
-            reference_solution=reference,
+            reference_solution=edit.reference,
             # **他の評価器あての検証データを巻き込まない**（#302）。ここが
             # 直しているのは入出力の組だけで、同じ課題が項目表を持っている
             # ことがある ── 全件を作り直していたので、入出力を 1 文字直すと
             # 項目表が黙って消えた。
-            test_cases=tuple(cases) + _kept_cases(version, editing=io_ids),
+            test_cases=edit.cases + _kept_cases(version, editing=tuple(edit.editing)),
         )
         return RedirectResponse(
             f"/manage/courses/{course_id}/tasks/{task_id}/edit?saved=tests_revised#saved",
@@ -638,57 +742,7 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
             )
 
         form = await request.form()
-        names = [str(v) for v in form.getlist("item_name")]
-        descriptions = [str(v) for v in form.getlist("item_description")]
-        aliases = [str(v) for v in form.getlist("item_aliases")]
-        weights = [str(v) for v in form.getlist("item_weight")]
-        hidden = [str(v) for v in form.getlist("item_hidden")]
-        deleted = {str(v) for v in form.getlist("item_delete")}
-
-        def at(values: list[str], index: int, default: str = "") -> str:
-            return values[index] if index < len(values) else default
-
-        items: list[TestCaseSpec] = []
-        seen: set[str] = set()
-        for index in range(len(names)):
-            if str(index) in deleted:
-                continue
-            name = at(names, index).strip()
-            if not name:
-                continue  # 追加用の空行
-            if name in seen:
-                raise HTTPException(status_code=400, detail=f"項目 {name!r} が重複しています")
-            seen.add(name)
-            try:
-                weight = float(at(weights, index, "1.0") or 1.0)
-            except ValueError:
-                raise HTTPException(
-                    status_code=400, detail=f"{name}: 重みが数値ではありません"
-                ) from None
-            if weight <= 0:
-                raise HTTPException(status_code=400, detail=f"{name}: 重みは正の値にしてください")
-            payload: dict[str, object] = {}
-            description = at(descriptions, index).strip()
-            if description:
-                payload["description"] = description
-            hints = _split_aliases(at(aliases, index))
-            if hints:
-                payload["aliases"] = list(hints)
-            items.append(
-                TestCaseSpec(
-                    name=name,
-                    # **この 1 件を読む評価器を明示する。** 課題の既定に倒すと
-                    # `code_test_runner` あてになり、誰も読まないまま残る。
-                    evaluator=named[0],
-                    payload=payload,
-                    hidden=at(hidden, index, "0") == "1",
-                    weight=weight,
-                )
-            )
-        if not items:
-            # **0 件は「既定に従う」である。** 科目プロファイルの項目表が
-            # 使われる ── 画面はそう言っている。全部消せることは残す。
-            pass
+        items = item_cases_from_form(form, named)
 
         _save_revision(
             console,
@@ -702,7 +756,7 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
             position=task.position,
             accepted=task.accepted_suffixes,
             reference_solution=version.reference_solution,
-            test_cases=tuple(items) + _kept_cases(version, editing=named),
+            test_cases=items + _kept_cases(version, editing=named),
         )
         return RedirectResponse(
             f"/manage/courses/{course_id}/tasks/{task_id}/edit?saved=items_revised#saved",

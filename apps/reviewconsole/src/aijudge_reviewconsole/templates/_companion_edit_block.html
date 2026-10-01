@@ -1,31 +1,31 @@
 {# クライアント・サーバのケースを、**それを使う観点の中に**置き、ここで直せるようにする
-   （2026-10-01）。置き方は項目表と同じ（`_item_set_block.html`）── 送信先はページ末尾の
-   `<form id="companion-form">` に `form` 属性で結び付ける（入れ子のフォームは作れない）。
+   （2026-10-01）。置き方は項目表と同じ（`_item_set_block.html`）── 保存は課題のフォームと一緒（2026-10-02）。
 
    伴走プロセスのソースは**名前で 1 つにまとめて**直し、ケースはその名前で指す。
    付属ファイルなど、この欄に出していない値は保存しても元のまま残る。 #}
 <div class="subsection" id="companion">
+  <input type="hidden" name="companion_present" value="1">
   {% include "_companion_cases.html" %}
   <details id="companion-edit" style="margin-top:12px"
     {%- if saved_key is defined and saved_key == 'companion_revised' %} open{% endif %}>
     <summary><b>クライアント・サーバのケースを直す</b><span class="desc">（保存すると新しい版になります）</span></summary>
     <div class="criterion-fields">
       <p class="desc" style="margin:8px 0">
-        <strong>この欄は「この問題を保存して更新する」では保存されません。</strong>
-        下の「ケースを保存して新しい版にする」を押してください。断片は 1 行に 1 つ書きます
+        この欄は、画面の下の<strong>「この問題を保存して更新する」で問題文や観点と一緒に保存</strong>されます。
+        断片は 1 行に 1 つ書きます
         （空行は無視）。入力には <code>{host}</code>・<code>{port}</code> を書けます（採点のときに埋められます）。
         ケース名が空の行は捨てます。付属ファイルは元のまま残ります。
       </p>
       <h5 style="margin:10px 0 4px">伴走プロセスのソース</h5>
       {% for src in companion.sources %}
       <div class="field">
-        <input form="companion-form" name="src_name" value="{{ src.name }}" style="max-width:16rem" aria-label="ソースのファイル名">
-        <textarea form="companion-form" name="src_body" rows="10" class="mono" aria-label="{{ src.name }} の中身">{{ src.source }}</textarea>
+        <input name="net_src_name" value="{{ src.name }}" style="max-width:16rem" aria-label="ソースのファイル名">
+        <textarea name="net_src_body" rows="10" class="mono" aria-label="{{ src.name }} の中身">{{ src.source }}</textarea>
       </div>
       {% endfor %}
       <div class="field">
-        <input form="companion-form" name="src_name" placeholder="{{ 'echoServer.py' if not companion.sources else '（別のソースを足すとき）' }}" style="max-width:16rem" aria-label="追加するソースのファイル名">
-        <textarea form="companion-form" name="src_body" rows="3" class="mono" placeholder="import socket ..." aria-label="追加するソースの中身"></textarea>
+        <input name="net_src_name" placeholder="{{ 'echoServer.py' if not companion.sources else '（別のソースを足すとき）' }}" style="max-width:16rem" aria-label="追加するソースのファイル名">
+        <textarea name="net_src_body" rows="3" class="mono" placeholder="import socket ..." aria-label="追加するソースの中身"></textarea>
       </div>
       <h5 style="margin:10px 0 4px">ケース</h5>
       {% set names = companion.sources | map(attribute='name') | list %}
@@ -33,35 +33,32 @@
       {% set i = loop.index0 %}
       <fieldset class="companion-case">
         <legend>{% if case %}{{ case.name }}{% else %}ケースを追加{% endif %}</legend>
-        <input form="companion-form" type="hidden" name="case_orig" value="{{ case.name if case else '' }}">
+        <input type="hidden" name="net_orig" value="{{ case.name if case else '' }}">
         <div class="inline-field">
-          <label>名前 <input form="companion-form" name="case_name" value="{{ case.name if case else '' }}" placeholder="{{ 'case' ~ (companion.cases | length + 1) }}" style="max-width:10rem"></label>
-          <label>提出物は <select form="companion-form" name="case_role">
+          <label>名前 <input name="net_name" value="{{ case.name if case else '' }}" placeholder="{{ 'case' ~ (companion.cases | length + 1) }}" style="max-width:10rem"></label>
+          <label>提出物は <select name="net_role">
             <option value="client" {{ 'selected' if not case or case.role != 'server' }}>クライアント</option>
             <option value="server" {{ 'selected' if case and case.role == 'server' }}>サーバ</option></select></label>
-          <label>ポート <input form="companion-form" name="case_port" type="number" min="1024" max="65535" value="{{ case.port if case else '' }}" style="max-width:7rem"></label>
-          <label>相手 <select form="companion-form" name="case_companion">
+          <label>ポート <input name="net_port" type="number" min="1024" max="65535" value="{{ case.port if case else '' }}" style="max-width:7rem"></label>
+          <label>相手 <select name="net_companion">
             {% for n in names %}<option value="{{ n }}" {{ 'selected' if case and case.companion_name == n }}>{{ n }}</option>{% endfor %}
             {% if not names %}<option value="">（先にソースを入れる）</option>{% endif %}</select></label>
-          <label>重み <input form="companion-form" name="case_weight" type="number" step="0.1" min="0.1" value="{{ case.weight if case else '1.0' }}" style="max-width:5rem"></label>
-          <label>学習者に <select form="companion-form" name="case_hidden">
+          <label>重み <input name="net_weight" type="number" step="0.1" min="0.1" value="{{ case.weight if case else '1.0' }}" style="max-width:5rem"></label>
+          <label>学習者に <select name="net_hidden">
             <option value="1" {{ 'selected' if not case or case.hidden }}>見せない</option>
             <option value="0" {{ 'selected' if case and not case.hidden }}>見せる</option></select></label>
-          {% if case %}<label class="desc"><input form="companion-form" type="checkbox" name="case_delete" value="{{ i }}" style="width:auto"> 消す</label>{% endif %}
+          {% if case %}<label class="desc"><input type="checkbox" name="net_delete" value="{{ i }}" style="width:auto"> 消す</label>{% endif %}
         </div>
         <div class="grid2">
-          <label>提出物への入力<textarea form="companion-form" name="case_input" rows="3" class="mono">{{ case.input if case else '' }}</textarea></label>
-          <label>提出物の出力に含まれるべき断片（1 行 1 つ）<textarea form="companion-form" name="case_expected" rows="3" class="mono">{{ case.expected_contains | join('\n') if case else '' }}</textarea></label>
-          <label>伴走プロセスへの入力<textarea form="companion-form" name="case_companion_input" rows="3" class="mono">{{ case.companion_input if case else '' }}</textarea></label>
-          <label>伴走プロセスの出力に含まれるべき断片（1 行 1 つ）<textarea form="companion-form" name="case_companion_expected" rows="3" class="mono">{{ case.companion_expected_contains | join('\n') if case else '' }}</textarea></label>
+          <label>提出物への入力<textarea name="net_input" rows="3" class="mono">{{ case.input if case else '' }}</textarea></label>
+          <label>提出物の出力に含まれるべき断片（1 行 1 つ）<textarea name="net_expected" rows="3" class="mono">{{ case.expected_contains | join('\n') if case else '' }}</textarea></label>
+          <label>伴走プロセスへの入力<textarea name="net_companion_input" rows="3" class="mono">{{ case.companion_input if case else '' }}</textarea></label>
+          <label>伴走プロセスの出力に含まれるべき断片（1 行 1 つ）<textarea name="net_companion_expected" rows="3" class="mono">{{ case.companion_expected_contains | join('\n') if case else '' }}</textarea></label>
         </div>
       </fieldset>
       {% endfor %}
-      <div class="actions">
-        {% if saved_key is defined and saved_key in ['companion_revised'] %}{% if flash is defined %}{% set flash.shown = true %}{% endif %}
-        <span class="flash" id="saved">{{ note }}</span>{% endif %}
-        <button form="companion-form" type="submit">ケースを保存して新しい版にする</button>
-      </div>
+      {% if saved_key is defined and saved_key in ['companion_revised'] %}{% if flash is defined %}{% set flash.shown = true %}{% endif %}
+      <div class="actions"><span class="flash" id="saved">{{ note }}</span></div>{% endif %}
     </div>
   </details>
 </div>
