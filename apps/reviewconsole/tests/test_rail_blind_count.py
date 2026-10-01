@@ -1,11 +1,10 @@
 """左の帯の「blind 採点」に残りの件数を出す（2026-10-01）。
 
-blind 採点は必須の作業ではない（ADR 0007）ので注意の色にはしないが、件数が無いと
-どれだけ残っているかを開いて数えることになる。固定したいのは 3 つ。
+件数が無いと、どれだけ残っているかを開いて数えることになる。固定したいのは 3 つ。
 
 一覧と同じ数   帯の数字と、開いた先の待ちの件数が同じ
 付ければ減る   blind 採点を付けると数字が減り、0 なら出さない
-色を付けない   「人が動かないと進まないもの」の注意の色（`attn`）にしない
+注意の色で出す  残りがあれば赤（`attn`）。灰色では目に入らなかった
 """
 
 from __future__ import annotations
@@ -35,7 +34,7 @@ def test_the_rail_counts_the_blind_marks_left(blind_world: World) -> None:
     blind_world.worker.run_until_empty()
 
     body = blind_world.client.get(f"/courses/{COURSE}/blind").text
-    assert _rail_blind(body) == '<span class="c">2</span>', "一覧と同じ 2 件・注意の色なし"
+    assert _rail_blind(body) == '<span class="c attn">2</span>', "一覧と同じ 2 件・注意の色"
 
     with blind_world.database.unit_of_work() as uow:
         run = uow.runs.latest_for(first.submission.id)
@@ -44,7 +43,7 @@ def test_the_rail_counts_the_blind_marks_left(blind_world: World) -> None:
     blind_world.client.post(f"/review/{first.submission.id}/blind", data=form)
 
     body = blind_world.client.get(f"/courses/{COURSE}/blind").text
-    assert _rail_blind(body) == '<span class="c">1</span>'
+    assert _rail_blind(body) == '<span class="c attn">1</span>'
 
 
 @needs_c_compiler
