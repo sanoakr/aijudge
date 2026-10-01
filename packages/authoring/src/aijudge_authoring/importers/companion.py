@@ -29,6 +29,13 @@
 「普通のエコーサーバ」と「2 回繰り返して返すサーバ」に接続させる課題（network ex4）や、
 「ファイルが無いとき」の応答を確かめるケースを持つ課題（ex6）が、1 つの宣言に書ける。
 
+**伴走プロセスは課題一式の共有ディレクトリを指してよい**（2026-10-02）。`companion:` に
+`../../_companions/echoServer2.py` のような相対パスを書ける ── 課題ディレクトリに `.py` を
+置くと参照解答として拾われる（`find_reference_solution`）ので、lecture-courses は伴走
+プロセスを `_companions/` に分けている。指せるのは**課題一式の中だけ**（課題ディレクトリの
+2 つ上、`<回>/<課題>` の親）で、そこから上に抜けるパスは断る。採点のワークスペースに
+置く名前はファイル名だけ（`companion_name`）。
+
 期待値は**部分一致**（`expected_contains`）にしてある。サーバの出力には
 接続元の一時ポート（`('127.0.0.1', 53578)`）のように毎回変わる値が混ざるため、
 完全一致では常に落ちる。
@@ -84,7 +91,7 @@ def load_companion_cases(problem_dir: Path) -> tuple[TestCase, ...]:
     def source_of(name: str) -> str:
         """伴走プロセスのソース。ケースが別の相手を名指ししたときもここで読む。"""
         if name not in sources:
-            companion_path = problem_dir / name
+            companion_path = _inside_the_set(path, problem_dir, name)
             if not companion_path.is_file():
                 raise CompanionError(
                     f"{path}: companion {name!r} is not in {problem_dir}. "
@@ -104,10 +111,10 @@ def load_companion_cases(problem_dir: Path) -> tuple[TestCase, ...]:
             raise CompanionError(f"{path}: fixtures must be a list of file names")
         read: dict[str, str] = {}
         for name in names or ():
-            fixture_path = problem_dir / str(name)
+            fixture_path = _inside_the_set(path, problem_dir, str(name))
             if not fixture_path.is_file():
                 raise CompanionError(f"{path}: fixture {name!r} is not in {problem_dir}")
-            read[str(name)] = fixture_path.read_text(encoding="utf-8", errors="replace")
+            read[Path(str(name)).name] = fixture_path.read_text(encoding="utf-8", errors="replace")
         return read
 
     fixtures = fixtures_of(data.get("fixtures"))
@@ -129,7 +136,7 @@ def load_companion_cases(problem_dir: Path) -> tuple[TestCase, ...]:
                 index=index,
                 raw=raw,
                 role=role,
-                companion_name=name,
+                companion_name=Path(name).name,
                 companion_source=source_of(name),
                 port=case_port,
                 fixtures=fixtures_of(raw["fixtures"]) if "fixtures" in raw else fixtures,
@@ -174,6 +181,19 @@ def _case(
         hidden=bool(raw.get("hidden", True)),
         weight=float(raw.get("weight", 1.0)),
     )
+
+
+def _inside_the_set(path: Path, problem_dir: Path, name: str) -> Path:
+    """`name` を課題ディレクトリから解決する。**課題一式の外には出さない。**
+
+    課題一式は課題ディレクトリの 2 つ上（`<回>/<課題>` の親）。そこから上へ抜ける
+    相対パスを許すと、定義の置き場所の外にあるファイルを採点に持ち込める。
+    """
+    target = (problem_dir / name).resolve()
+    root = problem_dir.resolve().parent.parent
+    if root not in target.parents:
+        raise CompanionError(f"{path}: {name!r} は課題一式（{root}）の外を指しています")
+    return target
 
 
 def _check_port(path: Path, port: object, *, index: int | None = None) -> None:

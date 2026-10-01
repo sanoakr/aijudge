@@ -286,3 +286,32 @@ def test_a_case_can_override_or_drop_the_fixtures(tmp_path: Path) -> None:
         "hello.html": "<p>h</p>\n",
     }
     assert by_name["ファイルが無いとき"] == {}
+
+
+def test_a_companion_may_live_in_a_shared_directory_of_the_set(tmp_path: Path) -> None:
+    """**課題一式の共有ディレクトリを指せる**（lecture-courses の `_companions/`）。
+
+    課題ディレクトリに `.py` を置くと参照解答として拾われるので、伴走プロセスは
+    分けて置く。採点のワークスペースに置く名前はファイル名だけ。
+    """
+    shared = tmp_path / "_companions"
+    shared.mkdir()
+    (shared / "echoServer2.py").write_text("# 2 回返す\n", encoding="utf-8")
+    text = CLIENT_YAML + (
+        "  - name: c3\n    companion: ../../_companions/echoServer2.py\n    expected_contains: x\n"
+    )
+
+    by_name = {c.name: c.payload for c in companion.load_companion_cases(_problem(tmp_path, text))}
+
+    assert by_name["c3"]["companion_name"] == "echoServer2.py"
+    assert by_name["c3"]["companion"] == "# 2 回返す\n"
+
+
+def test_a_path_out_of_the_set_is_refused(tmp_path: Path) -> None:
+    outside = tmp_path / "outside.py"
+    outside.write_text("#\n", encoding="utf-8")
+    text = (
+        CLIENT_YAML + "  - name: c3\n    companion: ../../../outside.py\n    expected_contains: x\n"
+    )
+    with pytest.raises(companion.CompanionError, match="外を指して"):
+        companion.load_companion_cases(_problem(tmp_path / "set", text))
