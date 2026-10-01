@@ -510,6 +510,36 @@ def test_the_blind_page_shows_the_code_run_but_not_the_verdict(blind_world: Worl
 
 
 @needs_c_compiler
+def test_the_blind_list_is_not_cut_before_sampling(blind_world: World, monkeypatch) -> None:
+    """**抽出の前に件数の上限で切らない**（2026-10-01）。
+
+    一覧は確定済みも含めて提出を古い順に読み、そこから抽出に当たったものを
+    残す。上限（既定 200）付きで読んでいたため、提出が上限を超えたコースでは
+    新しい抽出済みの提出が一覧に出なかった（prog2 で実際に起きた）。上限を
+    1 に下げて「提出が上限より多いコース」を作る。
+    """
+    from aijudge_persistence.repositories import SqlReviewRepository
+
+    real = SqlReviewRepository.pending_for_course
+
+    def capped(self, course_id, *, include_decided=False, limit=1):
+        return real(self, course_id, include_decided=include_decided, limit=limit)
+
+    monkeypatch.setattr(SqlReviewRepository, "pending_for_course", capped)
+
+    first = blind_world.submit(blind_world.register("s2400001", role=Role.LEARNER))
+    second = blind_world.submit(blind_world.register("s2400002", role=Role.LEARNER))
+    blind_world.register("instructor", role=Role.INSTRUCTOR)
+    blind_world.login("instructor")
+    blind_world.worker.run_until_empty()
+
+    body = blind_world.client.get(f"/courses/{COURSE}/blind").text
+
+    assert str(first.submission.id) in body
+    assert str(second.submission.id) in body, "上限より新しい抽出済みの提出が一覧に出ない"
+
+
+@needs_c_compiler
 def test_the_reveal_page_puts_the_submission_above_the_criteria(world: World) -> None:
     """確定画面の左側は、提出されたものと問題文が上、観点ごとの突き合わせが下。"""
     _, accepted = _instructor_and_submission(world)

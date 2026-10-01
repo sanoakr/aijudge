@@ -997,7 +997,7 @@ class SqlReviewRepository:
         )
 
     def pending_for_course(
-        self, course_id: CourseId, *, include_decided: bool = False, limit: int = 200
+        self, course_id: CourseId, *, include_decided: bool = False, limit: int | None = 200
     ) -> tuple[tuple[Submission, GradingRun], ...]:
         """このコースで教員の確認を待っている提出。
 
@@ -1007,6 +1007,11 @@ class SqlReviewRepository:
 
         課題 → コースの経路で絞る。提出は課題版を指しており、コースを
         直接持たない（持たせると課題の移動で片方だけ古くなる）。
+
+        `limit=None` は全件。**上限は古い順に効く**ので、結果をさらに絞る
+        呼び出し側（blind の抽出・確定処理）が上限付きで呼ぶと、新しい提出が
+        絞り込みの前に落ちる（2026-10-01、prog2 で抽出済みの提出が blind の
+        一覧に出なかった）。
         """
         latest = (
             select(
@@ -1031,8 +1036,9 @@ class SqlReviewRepository:
             )
             .where(TaskRow.course_id == str(course_id))
             .order_by(SubmissionRow.submitted_at, SubmissionRow.id)
-            .limit(limit)
         )
+        if limit is not None:
+            statement = statement.limit(limit)
         if not include_decided:
             # 確定の有無は Finalization で見る。HumanReview は「教員が読んだ」
             # 記録であって確定ではない（ADR 0010）。
