@@ -1,4 +1,4 @@
-{# 順に処理する帯（2026-09-25）。1 件の画面の上部に、待ち行列の一部と「次へ」を出す。
+{# 順に処理する帯（2026-09-25）。1 件の画面の上部に、待ち行列の一部と「次へ」を出す（操作は帯の下）。
    以前は 1 件を終えるたびに一覧へ戻り、どこまで進んだかも画面から消えた。
    **待ちが 0 件ならそう言う** ── 何も並ばない帯は、読み込みに失敗したのか
    終わったのか区別できない（対応済みを誤って処理し直す事例があった）。 #}
@@ -12,11 +12,6 @@
     {% endif %}
     {% if not strip.current_pending %}
       <span class="pill ok">この 1 件は対応済み</span>
-    {% endif %}
-    <span class="spacer"></span>
-    <a href="{{ root_prefix() }}{{ strip.list_href }}">一覧へ</a>
-    {% if strip.next_href %}
-      <a class="button-link go" href="{{ root_prefix() }}{{ strip.next_href }}">次の 1 件へ →</a>
     {% endif %}
   </div>
   {% if strip.rows %}
@@ -34,4 +29,12 @@
     {% if strip.hidden_after %}<li class="desc">… ほかに {{ strip.hidden_after }} 件</li>{% endif %}
   </ol>
   {% endif %}
+  {# **移動の操作は帯の下に置く**（2026-10-01）。見出しの行にあると、件数や並びを
+     読む視線と押す場所が離れ、処理しにくいと指摘された。 #}
+  <div class="work-strip-foot">
+    <a href="{{ root_prefix() }}{{ strip.list_href }}">一覧へ</a>
+    {% if strip.next_href %}
+      <a class="button-link go" href="{{ root_prefix() }}{{ strip.next_href }}">次の 1 件へ →</a>
+    {% endif %}
+  </div>
 </section>

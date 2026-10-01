@@ -486,6 +486,8 @@ table.io-diff td.missing{color:var(--muted);font-style:italic}
   border-radius:4px;padding:8px 12px;margin:0 0 14px;box-shadow:0 2px 6px rgba(0,0,0,.06)}
 .work-strip-head{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px}
 .work-strip-head .spacer{flex:1}
+.work-strip-foot{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:6px 12px;
+  margin-top:6px}
 .work-strip-list{list-style:none;margin:6px 0 0;padding:0;max-height:22vh;overflow:auto;
   display:flex;flex-direction:column;gap:2px;font-size:.88rem}
 .work-strip-list li a{display:flex;gap:10px;padding:3px 6px;border-radius:3px;text-decoration:none;

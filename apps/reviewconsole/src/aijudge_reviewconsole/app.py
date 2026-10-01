@@ -1020,6 +1020,7 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 "course": course,
                 "section": {"label": "確定処理", "href": f"/courses/{course.id}/finalize"},
                 "rows": open_rows,
+                "groups": _task_groups(open_rows),
                 "units": [unit for unit in units if unit.unfinalized],
                 "pending": pending,
                 "split": split,
@@ -1047,6 +1048,7 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 "course": course,
                 "section": {"label": "blind 採点", "href": f"/courses/{course.id}/blind"},
                 "rows": rows,
+                "groups": _task_groups(rows),
                 "marked_count": marked_count,
                 "min_sample_size": min_sample_size,
             },
@@ -1776,7 +1778,35 @@ def _blind_rows(
                 }
             )
         _number_rows(uow, course.id, rows)
-    return course, tuple(rows), marked
+    return course, _in_task_order(rows), marked
+
+
+def _in_task_order(rows: list[dict]) -> tuple[dict, ...]:
+    """行を課題の順（`Task.sort_key`）に並べ直す。課題の中は提出の古い順のまま。
+
+    **同じ問題を続けて処理するため**（2026-10-01）。提出の古い順に 1 列で並べると、
+    1 件ずつ進む帯の「次へ」が課題をまたいで行き来し、採点の基準を問題ごとに
+    持ち替えることになる。帯は一覧と同じ関数で行を作るので、並べ直しはここ 1 か所で
+    済む（`_work_strip`）。課題の引けない行は最後に回す。
+
+    `sorted` は安定なので、`pending_for_course` が返した提出の順は課題の中で残る。
+    """
+    return tuple(
+        sorted(rows, key=lambda row: (0, row["task"].sort_key) if row["task"] else (1, ()))
+    )
+
+
+def _task_groups(rows: tuple[dict, ...]) -> list[dict]:
+    """課題の順に並んだ行（`_in_task_order`）を、課題ごとのまとまりに切る。"""
+    groups: list[dict] = []
+    for row in rows:
+        task = row["task"]
+        # **ID で比べる。** 課題は行ごとに引き直しているので、同じ課題でも別の物になる。
+        key = None if task is None else task.id
+        if not groups or groups[-1]["key"] != key:
+            groups.append({"key": key, "task": task, "rows": []})
+        groups[-1]["rows"].append(row)
+    return groups
 
 
 def _number_rows(uow, course_id: CourseId, rows: list[dict]) -> None:
@@ -1821,7 +1851,7 @@ def _open_rows(console: Console, course: Course) -> tuple[dict, ...]:
                 }
             )
         _number_rows(uow, course.id, rows)
-    return tuple(rows)
+    return _in_task_order(rows)
 
 
 def _finalize_rows(

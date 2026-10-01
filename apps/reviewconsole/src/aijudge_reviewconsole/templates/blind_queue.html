@@ -34,28 +34,34 @@
   </p>
 </div>
 
-{# 携帯では行を積む（`table.stack`）。 #}
+{# **課題ごとにまとめて並べる**（2026-10-01）。同じ問題を続けて採点すると基準を
+   持ち替えずに済む。並びは `_in_task_order` が決め、1 件の画面の「次へ」も同じ順に
+   進む ── 課題の中を終えると次の課題の先頭へ移る。 #}
+{% for group in groups %}
+<h3 class="task-group">
+  {% if group.task %}<span class="mono desc">{{ group.task.unit or group.task.unit_label }}</span>
+    {{ group.task.title }}{% else %}課題の分からない提出{% endif %}
+  <span class="desc">{{ group.rows | length }} 件</span>
+  <a class="desc" href="{{ root_prefix() }}/review/{{ group.rows[0].submission.id }}/blind?from=blind">この課題を順に採点する →</a>
+</h3>
+{# 携帯では行を積む（`table.stack`）。課題は見出しに出したので列に持たない。 #}
 <table class="stack">
   <thead><tr>
-    <th class="fit">提出</th><th class="fit">学習者</th><th class="grow">課題</th>
+    <th class="fit">提出</th><th class="grow">学習者</th>
     <th class="fit">回</th><th class="fit"></th>
   </tr></thead>
   <tbody>
-  {% for row in rows %}
+  {% for row in group.rows %}
     <tr class="row-link" data-href="{{ root_prefix() }}/review/{{ row.submission.id }}/blind?from=blind">
       <td class="fit" data-label="提出">{{ row.submission.submitted_at | local('%m-%d %H:%M') if row.submission.submitted_at else '—' }}</td>
-      <td class="fit mono" data-label="学習者">{{ row.learner.login if row.learner else '—' }}</td>
-      <td class="grow">
-        {% if row.task %}{{ row.task.unit_label }}
-          <span class="desc">{{ row.task.title }}</span>
-        {% else %}—{% endif %}
-      </td>
+      <td class="grow mono" data-label="学習者">{{ row.learner.login if row.learner else '—' }}</td>
       <td class="fit" data-label="回">{{ row.attempt_no or row.submission.attempt }} 回目</td>
       <td class="fit"><a href="{{ root_prefix() }}/review/{{ row.submission.id }}/blind?from=blind">自分で採点する</a></td>
     </tr>
-  {% else %}
-    <tr><td colspan="5" class="desc">blind 採点を待っている提出はありません。</td></tr>
   {% endfor %}
   </tbody>
 </table>
+{% else %}
+<p class="desc">blind 採点を待っている提出はありません。</p>
+{% endfor %}
 {% endblock %}
