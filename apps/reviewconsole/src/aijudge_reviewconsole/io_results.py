@@ -23,6 +23,8 @@ from dataclasses import dataclass
 
 from aijudge_core import GradingRun, TaskVersion, TestCase
 from aijudge_core.ids import CriterionId
+from aijudge_eval_network_test_runner import COMPANION_HOST
+from aijudge_eval_network_test_runner import EVALUATOR_ID as NETWORK_EVALUATOR_ID
 
 # 1 ケースで並べる行の上限。**出力は最大 1 MiB まで記録される**（評価器の
 # 上限）ので、無限ループで同じ行を出し続けた提出をそのまま描くと画面が
@@ -37,9 +39,10 @@ MAX_STDERR_CHARS = 2000
 # 行を揃えて比べるのではなく、期待する断片が出力に含まれるかを見る。記録の形も
 # 違うので（`expected`/`actual` が無く、`submission_stdout`・`missing` がある）、
 # 入出力の形で読むと「出力は記録されていません」と誤って出ていた。
-NETWORK_TEST_RUNNER = "network_test_runner"
-# 入力の `{host}`・`{port}` を埋める値。**評価器と同じ値**（伴走プロセスは手元で立てる）。
-NETWORK_HOST = "127.0.0.1"
+NETWORK_TEST_RUNNER = NETWORK_EVALUATOR_ID
+# 入力の `{host}` を埋める値。**評価器の定数を読む**（書き写すと、評価器だけ変えた日に
+# 採点で渡していない宛先が画面に出る）。
+NETWORK_HOST = COMPANION_HOST
 
 
 @dataclass(frozen=True)

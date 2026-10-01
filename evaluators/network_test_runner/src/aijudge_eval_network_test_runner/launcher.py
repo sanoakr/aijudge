@@ -28,6 +28,12 @@ POLL_SECONDS = 0.05
 
 LAUNCHER_NAME = ".aijudge-launch.py"
 
+# 提出物と伴走プロセスが互いに届く宛先（2026-10-02）。**同じサンドボックスの中で
+# 動かす**ので、手元のループバックで届く。課題の入力の `{host}` はこれに埋め、待ち
+# 受けの確認もここへ接続する。確定・blind の画面も入力をこれで埋めて見せる ──
+# 値を 3 か所に書いていたので、片方だけ変えると、採点で渡していない宛先が画面に出た。
+COMPANION_HOST = "127.0.0.1"
+
 _TEMPLATE = '''\
 """aiJudge が生成した起動スクリプト。提出物ではない。"""
 import json
@@ -36,6 +42,7 @@ import subprocess
 import sys
 import time
 
+HOST = {host}
 PORT = {port}
 READY_TIMEOUT = {ready_timeout}
 RUN_TIMEOUT = {run_timeout}
@@ -55,7 +62,7 @@ def wait_for_port(port, deadline):
     while time.monotonic() < deadline:
         with socket.socket() as probe:
             probe.settimeout(0.2)
-            if probe.connect_ex(("127.0.0.1", port)) == 0:
+            if probe.connect_ex((HOST, port)) == 0:
                 return True
         time.sleep({poll})
     return False
@@ -143,6 +150,7 @@ def render(
     入力に引用符が入った時点で壊れる。
     """
     return _TEMPLATE.format(
+        host=repr(COMPANION_HOST),
         port=int(port),
         ready_timeout=float(ready_timeout),
         run_timeout=float(run_timeout),
