@@ -38,6 +38,12 @@ course:
 # 問題セットの値（ADR 0026）。回の全課題に入る。お試しなので補完も入れる。
 units:
   demo01: {answer_mode: editor, editor_completion: true}
+  # **試験を想定した回**（2026-10-01）。エディタだけで答え、学内からだけ受け付ける
+  # ── 本番の試験と同じ組み合わせを、成績に残らない場所で試せるようにする。
+  # 補完は試験の既定どおり切る。採点開始は入れない（お試しなので結果はすぐ返す）。
+  # `campus_only` は v1.39.3 から書ける。画面で切り替えるだけだと `demo reset` の
+  # たびに外れる。
+  demo02: {answer_mode: editor, file_upload: false, editor_completion: false, campus_only: true}
 
 tasks:
   - key: d2-code
@@ -188,3 +194,198 @@ tasks:
           - {level: 0, label: 未達, descriptor: 30 字未満か 300 字を超える, score_ratio: 0.0}
           - {level: 1, label: 一部, descriptor: 60 字未満か 150 字を超える, score_ratio: 0.5}
           - {level: 2, label: 十分, descriptor: おおむね 60〜150 字, score_ratio: 1.0}
+
+  # --- 試験を想定した 2 問（demo02・2026-10-01）---------------------------------
+  - key: d4-exam-code
+    unit: demo02
+    position: 1
+    title: 偶数の合計を求める
+    subject_profile: cs_network_python
+    # エディタだけの回なので、提出形式はエディタで書ける `.py` にする。
+    accepted_suffixes: [.py]
+    knowledge_components:
+      - demo.trial.code.read_input
+      - demo.trial.code.loop
+      - demo.trial.code.boundary
+    statement: |
+      ## [試験] 偶数の合計を求める ##
+
+      整数の並びを読み込み、その中の**偶数だけの合計**を出力する
+      Python のプログラムを書いてください。
+
+      ### 入力
+
+      1 行目に要素数 `n`、2 行目に `n` 個の整数が空白区切りで与えられます。
+
+      ### 出力
+
+      偶数の合計を 1 行で出力してください。偶数が 1 つも無いときは `0` を出力します。
+
+      ```
+      入力
+      6
+      1 2 3 4 5 6
+
+      出力
+      12
+      ```
+
+      ### 条件
+
+      - `n` は 1 以上 100 以下です
+      - 負の整数も与えられます
+
+      ### この問題セットについて
+
+      試験と同じ設定にしてあります。**ブラウザのエディタからだけ提出でき**、
+      **学内のネットワークからだけ受け付けます**。補完は使えません。
+      エディタの「実行」で公開のサンプルを試してから提出してください。
+    criteria:
+      - code: correctness
+        title: 出力の正しさ
+        description: 与えられた入力に対して仕様どおりの出力を返すか。テスト実行で判定する。
+        weight: 0.8
+        evaluator: code_test_runner
+        levels:
+          - {level: 0, label: 未達, descriptor: ほとんど正しく動作しない, score_ratio: 0.0}
+          - {level: 1, label: 一部, descriptor: 一部のケースで正しい, score_ratio: 0.34}
+          - {level: 2, label: 概ね, descriptor: 大半のケースで正しい, score_ratio: 0.67}
+          - {level: 3, label: 達成, descriptor: すべてのケースで正しい, score_ratio: 1.0}
+      - code: readability
+        title: 読みやすさ
+        # d2-code と同じ理由で、短いプログラムに合う書き方にする（2026-09-24 の実測）。
+        description: >-
+          字下げが揃っていて、処理の流れ（読み込み → 偶数の判定と加算 → 出力）が追えるか。
+          数行のプログラムなので、n・x・total のような慣用の短い名前で十分であり、
+          名前の長さや英単語かどうかでは減点しない。
+          for 文で足す書き方も、sum と内包表記を使う書き方も、どちらも素直な書き方として同じに扱う。
+          問題にするのは、役割と食い違う名前と、同じ処理をほぼそのまま何度も書き写している重複だけである。
+          出力の正しさはこの観点では評価しない（テストが判定する）。
+        weight: 0.2
+        levels:
+          - {level: 0, label: 未達, descriptor: 字下げが崩れていて流れが追えない, score_ratio: 0.0}
+          - {level: 1, label: 一部, descriptor: 流れは追えるが、役割と食い違う名前か、同じ処理の書き写しがある, score_ratio: 0.5}
+          - {level: 2, label: 十分, descriptor: 字下げが揃い、流れが追える（書き方の型は問わない）, score_ratio: 1.0}
+    test_cases:
+      - {name: example, input: "6\n1 2 3 4 5 6\n", expected: "12\n", hidden: false}
+      - {name: no_even, input: "3\n1 3 5\n", expected: "0\n"}
+      - {name: negative, input: "4\n-4 -3 2 7\n", expected: "-2\n"}
+      - {name: single, input: "1\n8\n", expected: "8\n"}
+      - {name: zero, input: "3\n0 0 1\n", expected: "0\n"}
+
+  - key: d5-exam-report
+    unit: demo02
+    position: 2
+    title: コンパイルとリンクを説明する
+    subject_profile: report_ja
+    accepted_suffixes: [.md]
+    knowledge_components:
+      - demo.trial.writing.structure
+      - demo.trial.writing.evidence
+      - demo.trial.writing.conciseness
+    # **具体的な場面で問う**（2026-10-01）。初版は「試験の設定の目的を説明する」で、
+    # 何を書けば正解かが決まらず、判定の根拠も曖昧になった。2 ファイルの C の
+    # プログラムとエラーを示し、コンパイルとリンクの役割を、そのエラーの原因と
+    # 結び付けて説明させる。正誤が内容で決まるので、AI の判定も根拠を示しやすい。
+    statement: |
+      ## [試験] コンパイルとリンクを説明する ##
+
+      次の 2 つのファイルからなる C のプログラムがあります。
+
+      ```c
+      /* main.c */
+      #include <stdio.h>
+      int add(int a, int b);   /* 宣言だけ */
+
+      int main(void) {
+          printf("%d\n", add(2, 3));
+          return 0;
+      }
+      ```
+
+      ```c
+      /* util.c */
+      int add(int a, int b) {  /* 定義 */
+          return a + b;
+      }
+      ```
+
+      次のコマンドでは、実行ファイル `app` を作れます。
+
+      ```
+      gcc -c main.c            # main.o ができる
+      gcc -c util.c            # util.o ができる
+      gcc main.o util.o -o app
+      ```
+
+      一方、`gcc main.c -o app` とすると、次のエラーになり `app` は作られません。
+
+      ```
+      undefined reference to `add'
+      ```
+
+      次の 3 点を、**300 字程度**で説明してください。エディタに Markdown で書いて提出します。
+
+      1. `gcc -c` が行う**コンパイル**は、何を入力にして何を出力するか。
+         `main.c` は `add` の定義を含まないのに、なぜコンパイルが通るのか
+      2. 最後のコマンドが行う**リンク**は、何をするか
+      3. `gcc main.c -o app` のエラーは、コンパイルとリンクのどちらで起きたか。その理由
+
+      ### この問題セットについて
+
+      **ブラウザのエディタからだけ提出でき**、**学内のネットワークからだけ受け付けます**。
+      AI が根拠を添えて判定します。
+    reference_answer: |
+      コンパイルは、ソースファイル 1 つを入力にして、機械語のオブジェクトファイル（.o）を出力する。
+      コンパイラはそのファイルの中だけを見て文法と型を検査する。main.c には add の宣言があるので、
+      引数と戻り値の型を確かめられ、定義が無くてもコンパイルは通る。add の呼び出しは「未解決の参照」
+      として main.o に残る。リンクは、複数のオブジェクトファイル（とライブラリ）を 1 つの実行ファイルに
+      まとめ、未解決の参照を、ほかのファイルにある定義に結び付ける。main.o の add は util.o の定義に
+      結び付けられる。gcc main.c -o app は util.c を渡していないので、コンパイルは通るが、リンクの
+      段階で add の定義が見つからず undefined reference になる。つまりリンクのエラーである。
+    criteria:
+      - code: compile
+        title: コンパイルの説明
+        description: コンパイルの入力と出力、および定義の無い関数を含むファイルがコンパイルできる理由を説明しているか。
+        judging_notes: >-
+          十分とするには次の 2 点が要る。(1) ソースファイル（.c）を入力にして、オブジェクトファイル（.o・
+          機械語）を出力すること。(2) コンパイルはファイル単位で、宣言があれば型を検査できるので、定義が
+          別のファイルにあっても通ること。「機械語に翻訳する」だけで (2) が無ければ一部とする。
+          実行ファイルを作るのがコンパイルだ、と書いているものは未達とする。
+        weight: 0.3
+        levels:
+          - {level: 0, label: 未達, descriptor: コンパイルの入力と出力のどちらも正しく書かれていない, score_ratio: 0.0}
+          - {level: 1, label: 一部, descriptor: 入力と出力は書かれているが、定義が無くても通る理由が無いか誤っている, score_ratio: 0.5}
+          - {level: 2, label: 十分, descriptor: 入力と出力、および宣言があれば定義が無くても通る理由が書かれている, score_ratio: 1.0}
+      - code: link
+        title: リンクの説明
+        description: リンクが複数のオブジェクトファイルをまとめ、関数の呼び出しを定義に結び付けることを説明しているか。
+        judging_notes: >-
+          十分とするには、(1) 複数のオブジェクトファイル（やライブラリ）を 1 つの実行ファイルにまとめること、
+          (2) あるファイルの呼び出し（未解決の参照）を、別のファイルの定義に結び付けること、の両方が要る。
+          「ファイルをつなげる」だけで (2) が無ければ一部とする。
+        weight: 0.3
+        levels:
+          - {level: 0, label: 未達, descriptor: リンクの働きが書かれていないか誤っている, score_ratio: 0.0}
+          - {level: 1, label: 一部, descriptor: ファイルをまとめることは書かれているが、呼び出しと定義の結び付けが無い, score_ratio: 0.5}
+          - {level: 2, label: 十分, descriptor: まとめることと、呼び出しを定義に結び付けることの両方が書かれている, score_ratio: 1.0}
+      - code: diagnosis
+        title: エラーの原因
+        description: gcc main.c -o app のエラーがリンクの段階で起きることと、その理由を説明しているか。
+        judging_notes: >-
+          正解はリンクのエラーである。十分とするには、util.c（util.o）を渡していないため add の定義が
+          見つからない、という理由が要る。「リンクのエラー」とだけ書いて理由が無ければ一部とする。
+          コンパイルのエラーとしているもの、宣言が無いことを原因としているものは未達とする。
+        weight: 0.3
+        levels:
+          - {level: 0, label: 未達, descriptor: コンパイルのエラーとしているか、原因を取り違えている, score_ratio: 0.0}
+          - {level: 1, label: 一部, descriptor: リンクのエラーとしているが、定義が見つからない理由が書かれていない, score_ratio: 0.5}
+          - {level: 2, label: 十分, descriptor: リンクのエラーであり、util.c を渡していないため定義が見つからないと説明している, score_ratio: 1.0}
+      - code: length
+        title: 字数
+        description: 300 字程度（おおむね 200〜450 字）に収まっているか。
+        weight: 0.1
+        levels:
+          - {level: 0, label: 未達, descriptor: 100 字未満か 800 字を超える, score_ratio: 0.0}
+          - {level: 1, label: 一部, descriptor: 200 字未満か 450 字を超える, score_ratio: 0.5}
+          - {level: 2, label: 十分, descriptor: おおむね 200〜450 字, score_ratio: 1.0}
