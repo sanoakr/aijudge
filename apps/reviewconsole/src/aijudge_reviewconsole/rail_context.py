@@ -32,6 +32,7 @@ from aijudge_core.ids import CourseId
 from aijudge_identity import INSTRUCTOR_ROLES
 
 from .rail import Rail, RailGroup, RailItem, course_rail, tenant_rail
+from .sampling import is_blind_sample
 from .urls import root_prefix
 
 logger = logging.getLogger(__name__)
@@ -145,6 +146,9 @@ def _build(console, request: Request, principal) -> Rail:
         can_manage = is_admin or (enrollment is not None and enrollment.role in INSTRUCTOR_ROLES)
         counts = uow.reviews.attention_counts_for_course(course_id)
         tasks = {str(task.id): task for task in uow.tasks.list_for_course(course_id)}
+        # blind 採点の残り（2026-10-01）。**抽出率が 0 の科目では引かない。**
+        rate = console.blind_sample_rate(course.subject_profile)
+        candidates = uow.reviews.blind_candidates_for_course(course_id) if rate > 0 else ()
 
     manual, waiting = _split_unfinalized(course, tasks, counts)
     return course_rail(
@@ -152,6 +156,7 @@ def _build(console, request: Request, principal) -> Rail:
         contested=counts.contested,
         unfinalized=manual,
         finalize_waiting=waiting,
+        blind=sum(1 for submission_id in candidates if is_blind_sample(submission_id, rate)),
         can_manage=can_manage,
     )
 

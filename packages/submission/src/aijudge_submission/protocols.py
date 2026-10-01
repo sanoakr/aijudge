@@ -510,6 +510,16 @@ class CourseReviewQueries(Protocol):
         """
         ...
 
+    def blind_candidates_for_course(self, course_id: CourseId) -> tuple[str, ...]:
+        """blind 採点の候補になる提出の ID（2026-10-01）。
+
+        採点が届いていて、まだ blind 採点が無い、**学習者の**提出（試行は除く・#108）。
+        **ID だけを返す。** 抽出は提出 ID のハッシュで決まり（ADR 0005）SQL では
+        絞れないので、呼ぶ側がハッシュで絞る ── 左の帯が全ページで数えるため、
+        提出の文書は運ばない。blind 採点の一覧（`_blind_rows`）と同じ数になること。
+        """
+        ...
+
     def unfinalized_for_task(
         self, task_id: TaskId, *, limit: int | None = None
     ) -> tuple[tuple[Submission, GradingRun, ReviewRequest | None], ...]:

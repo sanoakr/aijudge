@@ -996,6 +996,21 @@ class SqlReviewRepository:
             for submission_row, run_row, request_row in self._session.execute(statement).all()
         )
 
+    def blind_candidates_for_course(self, course_id: CourseId) -> tuple[str, ...]:
+        """blind 採点の候補の提出 ID（Protocol の docstring）。1 文で引く。"""
+        graded = select(GradingRunRow.submission_id)
+        marked = select(BlindMarkRow.submission_id)
+        statement = (
+            select(SubmissionRow.id)
+            .join(TaskVersionRow, TaskVersionRow.id == SubmissionRow.task_version_id)
+            .join(TaskRow, TaskRow.id == TaskVersionRow.task_id)
+            .where(TaskRow.course_id == str(course_id))
+            .where(SubmissionRow.is_trial.is_(False))
+            .where(SubmissionRow.id.in_(graded))
+            .where(SubmissionRow.id.not_in(marked))
+        )
+        return tuple(self._session.execute(statement).scalars().all())
+
     def pending_for_course(
         self, course_id: CourseId, *, include_decided: bool = False, limit: int | None = 200
     ) -> tuple[tuple[Submission, GradingRun], ...]:
