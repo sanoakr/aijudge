@@ -51,7 +51,7 @@ def test_program_and_report_live_in_one_course(database: Database) -> None:
     しかなかった。画像の課題は 2026-09-24 に外した（定義のコメント）。
     """
     result = _seed(database)
-    assert result.tasks == 2
+    assert result.tasks == 4
 
     with database.unit_of_work() as uow:
         versions = {
@@ -59,7 +59,7 @@ def test_program_and_report_live_in_one_course(database: Database) -> None:
             for task in uow.tasks.list_for_course(result.course.id)
         }
     profiles = {title: version.subject_profile for title, version in versions.items()}
-    assert set(profiles.values()) == {"cs_lang_c_intro", "report_ja"}
+    assert set(profiles.values()) == {"cs_lang_c_intro", "cs_network_python", "report_ja"}
 
 
 def test_every_demo_task_opens_in_the_editor(database: Database) -> None:
@@ -74,9 +74,30 @@ def test_every_demo_task_opens_in_the_editor(database: Database) -> None:
         tasks = uow.tasks.list_for_course(result.course.id)
     assert tasks
     assert all(task.answer_mode is AnswerMode.EDITOR for task in tasks)
-    assert all(task.editor_completion for task in tasks)
+    practice = [task for task in tasks if task.unit == "demo01"]
+    assert practice and all(task.editor_completion for task in practice)
     suffixes = {task.title: set(task.accepted_suffixes) for task in tasks}
-    assert suffixes == {"最大値を求める": {".c"}, "使ってみた感想を書く": {".md"}}
+    assert suffixes == {
+        "最大値を求める": {".c"},
+        "使ってみた感想を書く": {".md"},
+        "偶数の合計を求める": {".py"},
+        "コンパイルとリンクを説明する": {".md"},
+    }
+
+
+def test_the_exam_unit_is_editor_only_and_campus_only(database: Database) -> None:
+    """**試験を想定した回は、本番の試験と同じ組み合わせ**（2026-10-01）。
+
+    エディタだけ・学内だけ・補完なし。定義の `units` から入るので、リセットしても
+    戻る（`campus_only` を定義に書けるのは v1.39.3 から）。
+    """
+    result = _seed(database)
+    with database.unit_of_work() as uow:
+        exam = [t for t in uow.tasks.list_for_course(result.course.id) if t.unit == "demo02"]
+    assert len(exam) == 2
+    assert all(task.file_upload is False for task in exam)
+    assert all(task.campus_only for task in exam)
+    assert not any(task.editor_completion for task in exam)
 
 
 def test_the_code_task_does_not_penalise_idiomatic_names(database: Database) -> None:
@@ -127,7 +148,7 @@ def test_seeding_twice_adds_nothing(database: Database) -> None:
 
     assert second.course.id == first.course.id
     with database.unit_of_work() as uow:
-        assert len(uow.tasks.list_for_course(first.course.id)) == 2
+        assert len(uow.tasks.list_for_course(first.course.id)) == 4
 
 
 def test_a_missing_definition_says_so(database: Database, tmp_path: Path) -> None:
