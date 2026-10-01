@@ -222,3 +222,96 @@ def test_a_unit_without_a_session_keeps_its_name(tmp_path: Path) -> None:
     problem.mkdir(parents=True)
     unit, session, position = sharif_judge.parse_unit(problem)
     assert (unit, session, position) == ("exam08", None, 2)
+
+
+def test_a_case_can_name_its_own_companion_and_port(tmp_path: Path) -> None:
+    """**ケースごとに相手とポートを変えられる**（2026-10-02・network ex4）。"""
+    text = CLIENT_YAML + (
+        "  - name: 2 回繰り返して返すサーバ\n"
+        "    companion: echoServer2.py\n"
+        "    port: 5001\n"
+        '    input: "{host}\\n{port}\\n"\n'
+        "    expected_contains: \"Received b'Hello, worldHello, world'\"\n"
+    )
+    problem = _problem(tmp_path, text, extra={"echoServer2.py": "# 2 回返す\n"})
+
+    cases = companion.load_companion_cases(problem)
+
+    by_name = {case.name: case.payload for case in cases}
+    assert by_name["case1"]["companion_name"] == "echoServer.py"
+    assert by_name["case1"]["port"] == 50007
+    assert by_name["2 回繰り返して返すサーバ"]["companion_name"] == "echoServer2.py"
+    assert by_name["2 回繰り返して返すサーバ"]["companion"] == "# 2 回返す\n"
+    assert by_name["2 回繰り返して返すサーバ"]["port"] == 5001
+
+
+def test_a_case_naming_a_missing_companion_or_a_bad_port_is_refused(tmp_path: Path) -> None:
+    missing = CLIENT_YAML + ("  - name: c3\n    companion: nowhere.py\n    expected_contains: x\n")
+    with pytest.raises(companion.CompanionError, match=r"nowhere\.py"):
+        companion.load_companion_cases(_problem(tmp_path / "a", missing))
+    bad_port = CLIENT_YAML + "  - name: c3\n    port: 80\n    expected_contains: x\n"
+    with pytest.raises(companion.CompanionError, match="case 3"):
+        companion.load_companion_cases(_problem(tmp_path / "b", bad_port))
+
+
+def test_a_case_can_override_or_drop_the_fixtures(tmp_path: Path) -> None:
+    """ケースごとに付属ファイルを変えられる。`[]` はそのケースだけ付属ファイルなし。"""
+    text = SERVER_YAML + (
+        "  - name: 指定したファイルを返す\n"
+        "    fixtures: [server.html, hello.html]\n"
+        '    input: "{port}\\nhello.html\\n"\n'
+        "    expected_contains: x\n"
+        "  - name: ファイルが無いとき\n"
+        "    fixtures: []\n"
+        '    input: "{port}\\nserver.html\\n"\n'
+        "    expected_contains: x\n"
+    )
+    problem = _problem(
+        tmp_path,
+        text,
+        extra={
+            "httpCheckClient.py": "#\n",
+            "server.html": "<p>s</p>\n",
+            "hello.html": "<p>h</p>\n",
+        },
+    )
+
+    by_name = {
+        case.name: case.payload["fixtures"] for case in companion.load_companion_cases(problem)
+    }
+
+    assert by_name["case1"] == {"server.html": "<p>s</p>\n"}
+    assert by_name["指定したファイルを返す"] == {
+        "server.html": "<p>s</p>\n",
+        "hello.html": "<p>h</p>\n",
+    }
+    assert by_name["ファイルが無いとき"] == {}
+
+
+def test_a_companion_may_live_in_a_shared_directory_of_the_set(tmp_path: Path) -> None:
+    """**課題一式の共有ディレクトリを指せる**（lecture-courses の `_companions/`）。
+
+    課題ディレクトリに `.py` を置くと参照解答として拾われるので、伴走プロセスは
+    分けて置く。採点のワークスペースに置く名前はファイル名だけ。
+    """
+    shared = tmp_path / "_companions"
+    shared.mkdir()
+    (shared / "echoServer2.py").write_text("# 2 回返す\n", encoding="utf-8")
+    text = CLIENT_YAML + (
+        "  - name: c3\n    companion: ../../_companions/echoServer2.py\n    expected_contains: x\n"
+    )
+
+    by_name = {c.name: c.payload for c in companion.load_companion_cases(_problem(tmp_path, text))}
+
+    assert by_name["c3"]["companion_name"] == "echoServer2.py"
+    assert by_name["c3"]["companion"] == "# 2 回返す\n"
+
+
+def test_a_path_out_of_the_set_is_refused(tmp_path: Path) -> None:
+    outside = tmp_path / "outside.py"
+    outside.write_text("#\n", encoding="utf-8")
+    text = (
+        CLIENT_YAML + "  - name: c3\n    companion: ../../../outside.py\n    expected_contains: x\n"
+    )
+    with pytest.raises(companion.CompanionError, match="外を指して"):
+        companion.load_companion_cases(_problem(tmp_path / "set", text))

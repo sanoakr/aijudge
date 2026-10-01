@@ -64,7 +64,7 @@ from typing import Any
 import yaml
 
 from aijudge_authoring import TaskSpec
-from aijudge_authoring.importers import sharif_judge
+from aijudge_authoring.importers import companion, sharif_judge
 from aijudge_core import AnswerMode, Course, Task
 from aijudge_core.ids import TenantId, UserId
 from aijudge_course_admin.answer_mode import editor_blockers, file_upload_required
@@ -271,6 +271,12 @@ def _from_problem_dir(raw: dict[str, Any], problem_dir: Path) -> dict[str, Any]:
         if reference is not None:
             raw["reference_solution"] = reference
 
+    if "test_cases" not in raw and companion.has_companion(problem_dir):
+        # **クライアント・サーバの課題**（`companion.yaml`・ADR 0008）。`task import` と
+        # 同じく `in/` `out/` より先に見る（2026-10-02）。以前はここで読まず、宣言が
+        # あっても入出力の 0 件として取り込まれ、正しさの観点が AI 判定に落ちていた。
+        return _from_companion(raw, problem_dir)
+
     if "test_cases" not in raw:
         try:
             cases = sharif_judge.collect_test_cases(problem_dir)
@@ -286,6 +292,43 @@ def _from_problem_dir(raw: dict[str, Any], problem_dir: Path) -> dict[str, Any]:
             }
             for case in cases
         ]
+    return raw
+
+
+def _from_companion(raw: dict[str, Any], problem_dir: Path) -> dict[str, Any]:
+    """`companion.yaml` のケースを、評価器と payload ごと定義に入れる。
+
+    **ケースを読む評価器を明示する**（#402）。課題の既定（`code_test_runner`）に倒すと、
+    ポートや伴走ソースを持ったまま入出力のケースとして扱われる。観点を書いていない
+    課題は正しさの観点の担当も `network_test_runner` にする（`task import` と同じ）。
+    観点を書いていて、どれも読まないなら**断る** ── 誰も読まないケースは保存のときに
+    外れ（`_prune_unused`）、宣言を書いたのに自動採点されない課題が黙ってできる。
+    """
+    try:
+        cases = companion.load_companion_cases(problem_dir)
+    except companion.CompanionError as exc:
+        raise AdminError(f"{problem_dir} の companion.yaml が壊れています: {exc}") from exc
+    declared = raw.get("criteria") or []
+    if declared and not any(
+        isinstance(item, dict) and item.get("evaluator") == companion.EVALUATOR_ID
+        for item in declared
+    ):
+        raise AdminError(
+            f"{problem_dir} には companion.yaml がありますが、課題 {raw.get('key', '?')} の"
+            f"観点がどれも {companion.EVALUATOR_ID} を指していません。"
+            f"正しさの観点に evaluator: {companion.EVALUATOR_ID} を書いてください"
+        )
+    raw.setdefault("evaluator", companion.EVALUATOR_ID)
+    raw["test_cases"] = [
+        {
+            "name": case.name,
+            "evaluator": companion.EVALUATOR_ID,
+            "payload": dict(case.payload),
+            "hidden": case.hidden,
+            "weight": case.weight,
+        }
+        for case in cases
+    ]
     return raw
 
 
