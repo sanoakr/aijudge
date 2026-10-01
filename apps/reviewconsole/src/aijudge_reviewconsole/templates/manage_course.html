@@ -50,18 +50,16 @@
   <h3 class="settings-group">成績と提出</h3>
   <div class="setting" id="course_grace">
     <div class="setting-name"><label for="after_minutes">成績の自動確定</label>{% call help() %}
-      これは<strong>コースの既定</strong>です。問題セットごとに指定があれば、そちらが効きます。
+      この値は<strong>コースの既定</strong>です。問題セットごとに指定がある場合は、問題セットの値が優先されます。
       1 日 = 1440 分、2 日 = 2880 分。
       <br>
       {# 起点を締切から採点完了に変えた。締切起点だと、締切前に出した学習者は
          確定まで何日も待つことになり、その間は再提出の判断材料が暫定のまま。 #}
       <strong>数えるのは提出ごとの採点完了からです</strong>（課題の締切からではありません）。
-      採点は提出直後に終わるので、<strong>締切前に確定し、締切前に出し直せます</strong>
-      — 出し直しは確定に妨げられず、良い方の点が採用されます。
+      採点は提出の直後に終わるので、<strong>締切前に確定することもあり、確定後も締切までは出し直せます</strong>。出し直した提出も採点され、点の高い方が採用されます。
       <br>
       猶予を過ぎた提出は、AI の判定のまま確定します。<strong>再確認の依頼が出ている提出と、
-      レビューが必要と判定された提出（コンパイルエラー・合否境界の近傍など）は自動確定しません</strong>
-      — それらは問題セットのページの一括確定か、「再確認の依頼」から個別に確定してください。
+    レビューが必要と判定された提出（コンパイルエラー・合否境界の近傍など）は自動確定しません</strong>。これらの提出は、問題セットのページの一括確定か、「再確認の依頼」から個別に確定してください。
     {% endcall %}</div>
     <div class="setting-value">
       採点完了から <input id="after_minutes" name="after_minutes" type="number" step="1" min="1"
@@ -77,8 +75,8 @@
      （コード・テキスト / PDF・画像 / 動画）。 #}
   <div class="setting" id="formats">
     <div class="setting-name">提出できるファイル形式{% call help() %}
-      コースの既定です（課題ごとの指定が上書きします）。PDF・画像は本文が直接読めないので、
-      レポートや手書き答案の課題でだけ。
+      この値はコースの既定です（課題ごとに指定した値が優先されます）。PDF・画像は本文を直接読めないので、
+      レポートや手書き答案の課題だけで使ってください。
     {% endcall %}</div>
     <div class="setting-value formats">
     <div class="rows">
@@ -109,8 +107,8 @@
     {# **課題の宣言が勝つ。** ここはコースに共通の既定で、新しい課題が引き継ぐ。
        既にある課題は変わらない ── 出題済みの版は書き換えない（P8）。 #}
     ここで決めた観点を<strong>新しい課題が引き継ぎます</strong>。
-    <strong>既にある課題は変わりません</strong> — 出題済みの採点基準は書き換えないためです。
-    個別に直すには、問題セットのページで課題を開いて「問題文・ルーブリックを直す」から変えてください。
+    <strong>既にある課題は変わりません</strong>（出題済みの課題の採点基準は書き換えないためです）。
+    既にある課題を個別に直すときは、問題セットのページで課題を開き、「問題文・ルーブリックを直す」から変更してください。
   {% endcall %}</h3>
   {% if rubric_is_default %}<p class="desc">いまは組み込みの既定（正しさ＋読みやすさ）です。新しい課題が引き継ぎます。</p>{% endif %}
 {% if rubric_default_is_unscorable %}
@@ -142,9 +140,9 @@
   {# **このコースにしか効かない。** 同じ雛形を使う他のコースには影響しないので、
      教員が変えてよい（`aijudge_grading.overrides`）。 #}
   <h3 class="settings-group" id="grading">採点設定{% call help() %}
-    <strong>ここでの変更はこのコースだけに効きます。</strong>
-    雛形（<span class="mono">{{ course.subject_profile }}</span>）は共有の既定で、ここからは変えません。
-    空欄の項目は雛形のままです。
+    <strong>この画面での変更は、このコースだけに適用されます。</strong>
+    雛形（<span class="mono">{{ course.subject_profile }}</span>）は複数のコースで共有する既定なので、この画面からは変更しません。
+    空欄の項目には、雛形の値が使われます。
   {% endcall %}</h3>
   <p class="desc">{% if changed %}雛形（<span class="mono">{{ course.subject_profile }}</span>）から変えているもの:
     {% for key in changed %}<span class="mono">{{ key }}</span>{% if not loop.last %}, {% endif %}{% endfor %}
@@ -152,9 +150,8 @@
 
   <div class="setting">
     <div class="setting-name">提出プログラムの実行{% call help() %}
-      <strong>入門課題なら 2 秒で足ります。数値計算の課題では上げてください。</strong>
-      メモリ（512 MB）・プロセス数・出力量の上限は評価器に固定してあり、ここでは変えられません
-      ── 提出物 1 プロセスに与える資源で、緩めるとホストごと巻き込まれます。
+      <strong>入門課題なら 2 秒で足ります。数値計算の課題では値を上げてください。</strong>
+    メモリ（512 MB）・プロセス数・出力量の上限は評価器に固定してあり、この画面では変更できません。これらは提出物 1 プロセスに割り当てる資源の上限で、緩めると採点用のサーバ全体が影響を受けます。
     {% endcall %}</div>
     <div class="setting-value">
       <div class="row-form compact">
@@ -182,12 +179,12 @@
 
   <div class="setting">
     <div class="setting-name">AI の判定{% call help() %}
-      同じ問いを何回か引いて、判定が割れるかどうかで確信度を測ります。多いほど確信度は信用できますが、その分遅くなります。
+      AI に同じ問いを何回か判定させ、判定が割れるかどうかで確信度を測ります。回数が多いほど確信度は信用できますが、その分だけ採点に時間がかかります。
       <strong>評価器 1 回の上限はモデルの応答待ちを含みます</strong>（テストケースの実行上限とは別物です）。
       <br><strong>何を判定させるか（ルーブリックの観点）は課題ごとに決まります。</strong>
-      上の共通ルーブリックが新しい課題の既定になり、個別の課題は
-      問題セットのページの「問題文・ルーブリック・提出形式を直す」から変えられます。
-      ここには観点の設定はありません。
+      上の共通ルーブリックが、新しい課題の既定になります。個別の課題の観点は、
+      問題セットのページの「問題文・ルーブリック・提出形式を直す」から変更できます。
+      この欄には観点の設定はありません。
     {% endcall %}</div>
     <div class="setting-value">
       <div class="row-form compact">
@@ -205,8 +202,8 @@
 
   <div class="setting">
     <div class="setting-name">人が確認する条件{% call help() %}
-      合否の境が 0.6、幅が 0.05 なら、55〜65% の提出は自動確定せず教員の確認に回ります。
-      確信度の水準を上げるほど、人が見る件数が増えます。
+      合否の境界が 0.6、幅が 0.05 なら、55〜65% の提出は自動確定せず、教員の確認に回ります。
+        確信度の水準を上げるほど、人が確認する件数が増えます。
     {% endcall %}</div>
     <div class="setting-value">
       <div class="row-form compact">
@@ -228,8 +225,8 @@
 
   <div class="setting">
     <div class="setting-name"><label for="blind_sample_rate">blind 採点に回す割合</label>{% call help() %}
-      AI を見る前に教員が段階を付ける提出の割合（0〜1）です。一致度の測定にだけ使い、採点そのものは変わりません。
-      0 にすると集めなくなります。
+      AI の判定を見る前に、教員が段階を付ける提出の割合（0〜1）です。この割合は一致度の測定にだけ使い、採点そのものは変わりません。
+        0 にすると、blind 採点の対象を抽出しません。
     {% endcall %}</div>
     <div class="setting-value">
       <input id="blind_sample_rate" name="blind_sample_rate" type="number" step="0.01" min="0" max="1"
@@ -247,8 +244,8 @@
         <li>{{ row.about or '説明がありません' }}（<span class="mono">{{ row.name }}</span>）</li>
         {% endfor %}
       </ul>
-      決定的評価が先で、そこで確定した観点は AI に問い合わせません（設計原則 P3）。
-      <strong>外した評価器が担当していた観点は未採点になります</strong> — 総合点は伏せられ、
+      決定的評価を先に実行し、そこで確定した観点は AI に問い合わせません（設計原則 P3）。
+      <strong>外した評価器が担当していた観点は未採点になります</strong>。その場合は総合点を表示せず、
       教員の確認待ちになります（設計原則 P2）。
       ここで変えられないもの:
       {% for key, why in locked.items() %}<br><span class="mono">{{ key }}</span> — {{ why }}{% endfor %}
@@ -281,16 +278,14 @@
   <div class="setting" id="compliance">
     <div class="setting-name">提出の遵守{% call help() %}
       <span class="mono">submission_compliance</span> の設定です。
-      出したか・ファイル名は規則どおりか・形式は指示どおりかを見ます。
-      <strong>本文は読みません。</strong>
-      提出があれば満点から始め、不備 1 つにつき 1 段下げます
-      （提出そのものが無い場合だけ最低段階）。
-      この評価器を使う観点がある課題にだけ効きます。
-      <br>求める形式は、どれも選ばなければ見ません。<strong>選んだうちのどれかに当たれば可</strong>です（複数選べます）。
-      <br>ファイル名の規則は<strong>先頭から照合します</strong>（<span class="mono">^</span> は書かなくても効きます。
-      末尾まで見るには <span class="mono">$</span> を書いてください）。
-      課題文がファイル名を指定していないなら<strong>空にしてください</strong> —
-      書かなければ「見ていません」と採点の理由に残ります。黙って満点にはしません。
+      この評価器は、提出されたか・ファイル名が規則どおりか・形式が指示どおりかを調べます。
+    <strong>本文は読みません。</strong> 提出があれば満点の段階から始め、不備 1 つにつき 1 段階下げます
+    （提出そのものが無い場合だけ最低段階にします）。
+    この設定は、この評価器を使う観点がある課題だけに適用されます。
+      <br>求める形式を 1 つも選ばなければ、形式は調べません。<strong>選んだ形式のどれかに当てはまれば可</strong>です（複数選べます）。
+      <br>ファイル名の規則は<strong>先頭から照合します</strong>（<span class="mono">^</span> は書かなくても付いているものとして扱います。
+    末尾まで照合するには <span class="mono">$</span> を書いてください）。
+    課題文がファイル名を指定していない場合は、<strong>空欄にしてください</strong>。空欄のときは、採点の理由に「見ていません」と記録します。理由を残さずに満点にすることはありません。
     {% endcall %}</div>
     <div class="setting-value stacked">
     <div class="checkrow">

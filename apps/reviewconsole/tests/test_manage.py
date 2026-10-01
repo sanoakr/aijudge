@@ -3219,7 +3219,7 @@ def test_the_template_stays_read_only_from_the_course_page(world: World) -> None
     assert "code_test_runner" in body
     # 雛形そのものを書き換える口は、この画面には無い。
     assert 'name="profile_text"' not in body
-    assert "ここからは変えません" in body
+    assert "この画面からは変更しません" in body
 
 
 def test_a_profile_a_course_uses_cannot_be_written_through_the_route(world: World) -> None:
@@ -4501,7 +4501,7 @@ def test_the_kc_page_shows_the_namespaces_of_the_course(world: World) -> None:
     assert "知識要素" in body
     assert "cs" in body
     assert "コースには属しません" in body
-    assert "ここで足したものだけ" in body
+    assert "この画面で追加した知識要素だけ" in body
 
 
 def _use_kc(world: World, key: str, label: str = "") -> None:
@@ -6390,7 +6390,7 @@ def test_the_settings_page_offers_a_trial(world: World) -> None:
     world.register("teacher", Role.INSTRUCTOR)
     body = world.client("teacher").get(f"/manage/courses/{world.course.id}").text
     assert "採点設定で試行" in body
-    assert "このコースだけに効きます" in body
+    assert "このコースだけに適用されます" in body
 
 
 def test_an_assistant_cannot_change_the_grading_settings(world: World) -> None:
@@ -6417,7 +6417,7 @@ def test_the_grading_settings_say_where_the_rubric_lives(world: World) -> None:
     world.register("teacher", Role.INSTRUCTOR)
     body = world.client("teacher").get(f"/manage/courses/{world.course.id}").text
     assert "共通ルーブリック" in body
-    assert "ここには観点の設定はありません" in body
+    assert "この欄には観点の設定はありません" in body
 
 
 def test_the_compile_and_review_limits_can_be_set(world: World) -> None:

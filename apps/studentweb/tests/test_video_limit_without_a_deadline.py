@@ -105,7 +105,7 @@ def test_the_task_page_shows_the_limit_that_applies(world: World) -> None:
 
     assert page.status_code == 200
     megabytes = round(MAX_VIDEO_BYTES_WITHOUT_DEADLINE / 1024 / 1024)
-    assert f"上限 {megabytes} MB" in page.text
+    assert f"上限は {megabytes} MB" in page.text
 
 
 def test_the_undated_video_expires_a_year_after_the_submission() -> None:

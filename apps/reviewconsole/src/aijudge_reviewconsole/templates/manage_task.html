@@ -212,18 +212,17 @@
        data-image-target="#statement">
     <h3><label for="statement-image">問題文に貼る画像</label>{% call help() %}
     {{ image_suffixes | join(' / ') }}・{{ image_max_mb }}MB まで。
-      選ぶと<strong>問題文のカーソル位置に貼り付け</strong>られます。URL を手で書く必要はありません。
-      大きな画像は<strong>幅 {{ image_display_width }}px で貼ります</strong>（縦横比はそのまま・数字はあとから直せます）。
-      保存先は提出物と同じ学内のストアで、<strong>学外には出ません</strong>。
-      画像は<strong>問題文と一緒に保存</strong>されます（この欄だけでは版は上がりません）。
+      画像を選ぶと、<strong>問題文のカーソル位置に貼り付け</strong>られます。URL を手で書く必要はありません。
+      大きな画像は<strong>幅 {{ image_display_width }}px で貼り付けます</strong>（縦横比は保ちます。幅の数字はあとから直せます）。
+      画像の保存先は提出物と同じ学内のストアで、<strong>学外には送りません</strong>。
+      画像は<strong>問題文と一緒に保存</strong>されます（画像を選んだだけでは版は上がりません）。
   {% endcall %}</h3>
     <div class="inline-field">
       <span class="body">
         {# 説明を先に置く。**選んだ時点で貼り付けるから** ── 後ろに置くと、
            入れる前に貼り付けが終わっていることになる。 #}
-        <label for="statement-image-alt">説明（画像が出ないときに代わりに読まれます）{% call help("貼り付け方") %}ファイルを選ぶと貼り付けられます。同じ画像をもう一度入れたいときは
-      「画像を貼り付け」を押してください。問題文の欄に
-      <strong>画像をそのまま貼り付け（Ctrl/⌘+V）</strong>ても同じように入ります。{% endcall %}</label>
+        <label for="statement-image-alt">説明（画像が出ないときに代わりに読まれます）{% call help("貼り付け方") %}ファイルを選ぶと、問題文に貼り付けられます。同じ画像をもう一度入れたいときは、
+      「画像を貼り付け」を押してください。問題文の欄に<strong>画像を直接貼り付けても（Ctrl/⌘+V）</strong>、同じように入ります。{% endcall %}</label>
         <input id="statement-image-alt" data-image-alt
                placeholder="cc コマンドを実行した端末の画面">
         <input id="statement-image" type="file" data-image-file
@@ -386,9 +385,9 @@
   <div class="card">
   <div class="subsection">
   <h3>問う知識要素{% call help() %}
-    この課題の成績がどの知識要素の習熟度に効くかを決めます。
-    <strong>付いていない課題の成績は、どの知識要素にも記録されません。</strong>
-    付け外しは新しい版になります（過去の採点は元の版のまま）。
+    この課題の成績を、どの知識要素の習熟度に反映するかを決めます。
+    <strong>知識要素が付いていない課題の成績は、どの知識要素にも記録されません。</strong>
+    知識要素を付け外しすると新しい版になります（過去の採点は元の版のまま残ります）。
   {% endcall %}</h3>
   {# **課題に付いた知識要素だけが習熟度を動かす**（#292）。付いていない課題の
      成績は、どの知識要素にも記録されない。候補はこのコースが使うものだけ
@@ -531,8 +530,8 @@
 {% if task and io_cases and not data_criteria.get('io') %}
 <div class="card">
   <h3 style="margin-top:0">使われていない入出力セット（{{ io_cases | length }} 件）{% call help() %}
-    この課題は入出力セットを持っていますが、<strong>どの観点もそれを読む評価器を
-    指名していません</strong> — いま採点には使われていません。使うには、上のルーブリックで
+    この課題には入出力セットがありますが、<strong>入出力セットを読む評価器を指名している観点がありません</strong>。
+    そのため、入出力セットはいま採点に使われていません。採点に使うときは、上のルーブリックで
     観点の「判定する評価器」に <span class="mono">code_test_runner</span> を選んでください。
   {% endcall %}</h3>
   {% include "_test_cases_table.html" %}
@@ -551,8 +550,8 @@
 {% if task and item_cases and not data_criteria.get('items') %}
 <div class="card">
   <h3 style="margin-top:0">使われていない項目表（{{ item_cases | length }} 件）{% call help() %}
-    この課題は項目表を持っていますが、<strong>どの観点もそれを読む評価器を指名して
-    いません</strong> — いま採点には使われていません。
+    この課題には項目表がありますが、<strong>項目表を読む評価器を指名している観点がありません</strong>。
+    そのため、項目表はいま採点に使われていません。
   {% endcall %}</h3>
   {% include "_item_list_table.html" %}
 </div>
@@ -591,9 +590,9 @@
   <form class="op attn" method="post"
         action="{{ root_prefix() }}/manage/courses/{{ course.id }}/tasks/{{ task.id }}/regrade">
     <div class="op-name">いまの版で採点し直す{% call help() %}
-      訂正より前に出されたもので、古い版の基準で点が付いています。<br>
-      <strong>確定済みの提出は動かしません</strong>（閉じた成績を機械が開け直さないため）。
-      過去の採点も消えません — 新しい採点が終わると、古い採点に「置き換わった」印が付きます（P8）。
+      これらは訂正より前に提出されたもので、古い版の基準で点が付いています。<br>
+    <strong>確定済みの提出は採点し直しません</strong>（確定した成績を、システムが勝手に変えないためです）。
+    過去の採点も消えません。新しい採点が終わると、古い採点に「置き換わった」印が付きます（P8）。
     {% endcall %}
       <span class="op-desc">採点し直せる提出が {{ regradable }} 件あります</span></div>
     <div class="op-act">
@@ -631,8 +630,7 @@
 
   <div class="setting" id="schedule">
     <div class="setting-name">日程{% call help() %}
-      <strong>日程を決めるのは問題セットです。</strong>
-      ここは揃っていないものを直すための欄で、ふつうは
+      <strong>日程は、問題セットの設定で決めます。</strong> この欄は、問題セットの日程と揃っていない課題を直すためのものです。ふつうは
       {% if own_unit %}<a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/units/{{ own_unit.key }}#schedule">問題セットの「日程」</a>{% else %}問題セットの「日程」{% endif %}
       から保存してください。
       <br>
@@ -661,8 +659,7 @@
 
   <div class="setting" id="formats">
     <div class="setting-name">提出できる形式{% call help() %}
-      学習者が出せるファイルの拡張子です。<strong>1 つ以上選んでください</strong>
-      — 空にすると、この課題には何も提出できなくなります。
+      学習者が提出できるファイルの拡張子です。<strong>1 つ以上選んでください</strong>。1 つも選ばないと、この課題には何も提出できなくなります。
     {% endcall %}</div>
     <div class="setting-value formats">{{ suffix_checks(suffix_groups, course_suffixes) }}</div>
   </div>
@@ -671,12 +668,12 @@
   {# この課題だけの実行時間の上限（#491）。 #}
   <div class="setting" id="case-timeout">
     <div class="setting-name"><label for="t-case_timeout_seconds">実行時間の上限</label>{% call help() %}
-      テストケース 1 件を動かしてよい時間（秒）です。数値計算のように、正しい解でも時間のかかる
-      問題だけ延ばしてください。<strong>空欄なら既定（{{ '%g' % case_timeout.default }} 秒）</strong>で、
-      これは科目とコースの採点設定から来ています。
+      テストケース 1 件の実行に使ってよい時間（秒）です。数値計算のように、正しい解でも時間のかかる
+      問題だけ延ばしてください。<strong>空欄なら既定の値（{{ '%g' % case_timeout.default }} 秒）</strong>を使います。
+      既定の値は、科目とコースの採点設定で決まります。
       <br>
-      {{ '%g' % case_timeout.max }} 秒までです（ケースの数を掛けた時間だけ採点が占有されます）。
-      IDE の試し実行にも同じ上限が効きます。使った上限は採点の記録に残ります。
+      上限は {{ '%g' % case_timeout.max }} 秒です（1 件の提出の採点に、最大で上限 × ケースの数の時間がかかります）。
+      IDE の試し実行にも同じ上限が適用されます。採点に使った上限は、採点の記録に残ります。
     {% endcall %}</div>
     <div class="setting-value">
       <input id="t-case_timeout_seconds" name="case_timeout_seconds" type="number"
@@ -711,11 +708,10 @@
         action="{{ root_prefix() }}/manage/courses/{{ course.id }}/tasks/{{ task.id }}/test-cases"
         data-working="生成中… 数十秒かかります（このまま待ってください）">
     <div class="op-name">テストケースを後から付ける{% call help() %}
-      いまの問題文から参照解答とテストケースを生成し、門 1（参照解答が全ケースを通る）と
-      門 2（変異を殺せる）を通します。正しさの観点は<strong>テスト実行に戻します</strong>。<br>
-      できるのは<strong>新しい版</strong>で、<strong>承認するまで学習者にはいまの版が出続けます</strong>
-      — 生成物は門を通っただけで、問題文の意図と合っているかは誰も見ていません（P5）。<br>
-      <strong>採点済みの提出はそのままです</strong>（過去の採点は自分の版を指したまま・P8）。
+      いまの問題文から参照解答とテストケースを生成し、検査 1（参照解答が全ケースを通る）と
+      検査 2（変異を検出できる）にかけます。正しさの観点の判定は、<strong>テスト実行に戻します</strong>。<br>
+      生成の結果は<strong>新しい版</strong>になります。<strong>承認するまで、学習者にはいまの版が表示されます</strong>。生成物は検査に合格しただけで、問題文の意図と合っているかは、まだ誰も確認していないためです（P5）。<br>
+      <strong>採点済みの提出はそのままです</strong>（過去の採点は、それぞれ採点したときの版を指したまま残ります・P8）。
       新しい版で採点し直すかどうかは、承認したあとに選べます。
     {% endcall %}
       <span class="op-desc">生成して新しい版（承認待ち）を作ります</span></div>
@@ -731,13 +727,12 @@
   <details class="op-more"{% if saved_key in ['revision_none', 'revision_failed'] %} open{% endif %}>
     <summary class="op">
       <span class="op-name">AI に書き直させる{% call help() %}
-        いまの観点に合わせて<strong>問題文を書き直し</strong>、問う知識要素を選び直します。
-        観点（ルーブリック）と入出力セットと参照解答は<strong>触りません</strong>
-        — 観点の段階は教員が決めるもので、期待出力は参照解答を走らせて作るものだからです。<br>
-        できるのは<strong>承認待ちの新しい版</strong>で、
-        <strong>承認するまで学習者にはいまの版が出続けます</strong>。
-        未承認の課題（AI 作問）の一覧で<strong>差分を読んでから</strong>承認してください。
-        直すところが無ければ版は増やしません。
+        AI が、いまの観点に合わせて<strong>問題文を書き直し</strong>、問う知識要素を選び直します。
+      観点（ルーブリック）と入出力セットと参照解答は<strong>変更しません</strong>。観点の段階は教員が決めるもので、期待出力は参照解答を実行して作るものだからです。<br>
+      書き直した結果は<strong>承認待ちの新しい版</strong>になります。
+      <strong>承認するまで、学習者にはいまの版が表示されます</strong>。
+      「未承認の課題（AI 作問）」の一覧で<strong>差分を読んでから</strong>承認してください。
+      直すところが無ければ、新しい版は作りません。
       {% endcall %}
         <span class="op-desc">いまの基準に合わせて問題文を直した版（承認待ち）を作ります</span></span>
       <span class="op-act"><span class="open-hint desc">開く</span></span>
@@ -747,9 +742,8 @@
           data-working="書き直しています… 数十秒かかります（このまま待ってください）">
       {# **指示を渡せる。** 何を直してほしいかは、読んだ教員がいちばんよく知って
          いる ── 「毎年ここで質問が来る」は教員しか知らない。 #}
-      <label for="r-instructions">AI への指示（1 行 1 件・任意）{% call help() %}外せない条件は「必ず」、希望は「できれば」と書いてください —
-        <strong>強さは書き方で伝わります</strong>。
-        空のままでも、観点との食い違いは書き直します。{% endcall %}</label>
+      <label for="r-instructions">AI への指示（1 行 1 件・任意）{% call help() %}外せない条件は「必ず」、希望は「できれば」と書いてください。<strong>AI は書き方から条件の強さを判断します。</strong>
+      空欄のままでも、観点と食い違う箇所は書き直します。{% endcall %}</label>
       <textarea id="r-instructions" name="instructions" rows="3"
         placeholder="必ず入力の上限を明記すること&#10;できれば実行例を 2 つに増やしてほしい&#10;「配列」という語を使わずに説明してほしい"></textarea>
       {# **理由をそのまま出す**（決めつけない・#52）。 #}
@@ -783,10 +777,10 @@
     <div class="op-name"><label for="move-unit">問題セットを移す・名前を変える</label>{% call help() %}
       課題キーは <span class="mono">&lt;問題セット&gt;/&lt;名前&gt;</span> です（いまは
       <span class="mono">{{ version.source_key }}</span>）。<strong>移すとキーが付け替わります</strong>。
-      同じセットのまま名前だけ変えることもできます。
-      <span class="sep">·</span> <strong>日程は移動先のセットに揃い</strong>、並びは移動先の末尾に入ります。
-      <span class="sep">·</span> 学生の提出がある課題は移せません（コピーになります）。
-      お試しの提出（教員・TA の動作確認）は移すときに消えます。
+      同じ問題セットのまま、名前だけ変えることもできます。
+      <span class="sep">·</span> <strong>日程は移動先の問題セットの値に揃い</strong>、課題は移動先の一覧の末尾に並びます。
+      <span class="sep">·</span> 学生の提出がある課題は移せません（コピーを作ってください）。
+      お試しの提出（教員・TA の動作確認）は、移すときに削除されます。
     {% endcall %}
       {% if saved_key in ['renamed', 'copied'] %}{% set flash.shown = true %}<span class="flash" id="saved">{{ note }}</span>{% endif %}</div>
     <div class="op-act">
@@ -802,11 +796,10 @@
         data-confirm-title="課題をコピーしますか"
         data-confirm="中身（全版）と設定を写した新しい課題ができます。元の課題と提出・成績はそのまま残ります。">
     <div class="op-name"><label for="copy-unit">名前を付けてコピーする</label>{% call help() %}
-      この課題には学生の提出が {{ learner_submissions }} 件あるので、<strong>移すことはできません</strong>
-      — 課題 ID はキー（<span class="mono">{{ version.source_key }}</span>）から導かれ、
-      付け替えると過去の成績が何の課題の点なのか辿れなくなります。
-      <span class="sep">·</span> 別のセットで使うときは、名前を付けてコピーしてください。
-      写すのは中身と設定で、提出と採点は写しません。
+      この課題には学生の提出が {{ learner_submissions }} 件あるので、<strong>移すことはできません</strong>。課題 ID はキー（<span class="mono">{{ version.source_key }}</span>）から決まるので、
+      キーを付け替えると、過去の成績がどの課題の点なのか辿れなくなります。
+      <span class="sep">·</span> 別の問題セットで使うときは、名前を付けてコピーしてください。
+      コピーされるのは課題の中身と設定で、提出と採点はコピーされません。
     {% endcall %}
       {% if saved_key in ['copied'] %}{% set flash.shown = true %}<span class="flash" id="saved">{{ note }}</span>{% endif %}</div>
     <div class="op-act">
@@ -826,9 +819,8 @@
   <details class="op-more"{% if saved_key in ['restored_version'] %} open{% endif %}>
     <summary class="op">
       <span class="op-name">版の履歴{% call help() %}
-        学習者に出るのは<strong>承認済みのうち最も新しい版</strong>です。
-        「この版に戻す」を押すと、その中身を写した<strong>新しい版</strong>ができます
-        — 版は書き換えません（過去の採点はそれぞれ自分の版を指したまま残ります）。
+        学習者に表示されるのは、<strong>承認済みの版のうち最も新しい版</strong>です。
+    「この版に戻す」を押すと、選んだ版の中身をコピーした<strong>新しい版</strong>ができます。既存の版は書き換えません（過去の採点は、それぞれ採点したときの版を指したまま残ります）。
       {% endcall %}
         <span class="op-desc">{{ history | length }} 版{% if published %}・出題中は {{ published.version }} 版{% endif %}</span></span>
       <span class="op-act"><span class="open-hint desc">開く</span></span>
@@ -880,7 +872,7 @@
         action="{{ root_prefix() }}/manage/courses/{{ course.id }}/tasks/{{ task.id }}/withdraw">
     <input type="hidden" name="restore" value="1">
     <div class="op-name">出題の取り下げを取り消す{% call help() %}
-      学習者には出ていません（提出・採点・Q-matrix は残っています）。
+      学習者には表示されていません（提出・採点・Q-matrix は残っています）。
     {% endcall %}
       <span class="op-desc">この課題は出題を取り下げています</span></div>
     <div class="op-act">
@@ -905,8 +897,8 @@
         data-confirm="学習者にこの課題が出なくなります。提出・採点・Q-matrix は残り、いつでも取り消せます。">
     {% if saved_key in ['withdrawn'] %}{% set flash.shown = true %}<span class="flash" id="saved">{{ note }}</span>{% endif %}
     <button type="submit" class="minor">出題の取り下げ</button>{% call help() %}
-      学習者に出なくなります。<strong>消えません</strong>
-      （提出・採点・Q-matrix は残り、ここには印付きで並びます）。いつでも取り消せます。
+      学習者には表示されなくなります。課題は<strong>削除されません</strong>
+        （提出・採点・Q-matrix は残り、この一覧には印付きで並びます）。取り下げはいつでも取り消せます。
     {% endcall %}
   </form>
   {% endif %}
@@ -916,9 +908,8 @@
         data-confirm="課題と全ての版が消えます。取り消せません。"
         data-confirm-danger="1">
     <button type="submit" class="minor danger">この課題を削除</button>{% call help() %}
-      <strong>この課題には提出が 1 件もありません。</strong>打ち間違いで作ったものなら削除できます
-      （課題と全版が消えます）。<strong>提出があるものは削除できません</strong> —
-      その成績が何の課題の点なのか辿れなくなるためです。
+      <strong>この課題には提出が 1 件もありません。</strong>打ち間違いで作った課題なら削除できます
+        （課題とすべての版が削除されます）。<strong>提出がある課題は削除できません</strong>。削除すると、その成績がどの課題の点なのか辿れなくなるためです。
     {% endcall %}
   </form>
   {% endif %}

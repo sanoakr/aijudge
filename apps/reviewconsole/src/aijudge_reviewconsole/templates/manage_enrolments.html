@@ -145,10 +145,9 @@
       <br>
       {% if login_domains %}
       学内ログインのアカウント（<span class="mono">@{{ login_domains | join(' / @') }}</span>）は、
-      まだログインしたことがなくてもここで登録できます（本人の初回ログインで結び付きます）。
+      本人がまだログインしたことがなくても、ここで登録できます（本人が初めてログインしたときに、登録とアカウントが結び付きます）。
       {% endif %}
-      ローカルアカウントは既に利用者として存在するものだけ登録できます ──
-      新規作成（パスワードの配布）は <code>aijudge-admin enrol</code> で行います。
+      ローカルアカウントは、既に利用者として存在するものだけを登録できます。新規作成（パスワードの配布）は <code>aijudge-admin enrol</code> で行います。
       パスワードはこの画面では扱いません。
     {% endcall %}</label>
     <textarea id="roster" name="roster" rows="5" required
@@ -170,7 +169,7 @@
         <tr>
           <td class="fit mono">assistant</td>
           <td class="grow"><strong>採点できる</strong> — 提出の一覧、再確認の依頼、確定処理、blind 採点。
-            <span class="desc">コースの設定は開けません（締切と受講の変更は成績に直接効くため）。</span></td>
+            <span class="desc">コースの設定は開けません（締切と受講の変更は、成績に直接影響するためです）。</span></td>
         </tr>
         <tr>
           <td class="fit mono">instructor</td>
@@ -182,10 +181,9 @@
         <tr>
           <td class="fit mono">admin</td>
           <td class="grow"><strong>コースを作れる。知識要素の第 1 階層（分野の根）を作り、引退させられる。</strong>
-            <span class="desc">知識要素はコースをまたいで共有されるので、引退は他のコースにも効きます。</span>
-            <br><span class="desc"><strong>この画面からは付けられません</strong> —
-            テナント内の全コースに届く権限なので、担当教員の裁量の外です
-            （<code>aijudge-admin</code> で行います）。</span></td>
+            <span class="desc">知識要素はコースをまたいで共有されるので、引退させるとほかのコースにも影響します。</span>
+            <br><span class="desc"><strong>この役割は、この画面からは付けられません</strong>。テナント内のすべてのコースに及ぶ権限なので、担当教員の裁量では付けられません
+          （<code>aijudge-admin</code> で付けます）。</span></td>
         </tr>
       </tbody>
     </table>

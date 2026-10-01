@@ -574,7 +574,7 @@ def test_the_learner_is_told_the_ai_phase_is_still_coming(world: World) -> None:
 
     body = world.client.get(location).text
     assert "AI 評価を待っています" in body
-    assert "テスト実行の結果は下に出ています" in body
+    assert "テスト実行の結果は下に表示されています" in body
 
     submission_id = location.split("/")[-1].split("?")[0]
     state = world.client.get(f"/submissions/{submission_id}/state").json()
@@ -2373,7 +2373,7 @@ def test_the_image_task_form_says_the_text_is_transcribed(world: World) -> None:
     """
     world.register("s2400001")
     world.login("s2400001")
-    notice = "画像内の文字が自動的に読み取られ"
+    notice = "画像内の文字を自動的に読み取り"
 
     # 書き起こさない科目（cs_sandbox_kc）は画像を受けても出さない。
     # コースの既定は cs_lang_c_intro だが、prog2 ex01-3 の一件

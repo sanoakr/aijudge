@@ -19,8 +19,8 @@
 <div class="note">
   <strong>この問題セットは、提出だけを受け付けています。</strong>
   採点は<strong>試験の終了後</strong>にまとめて行います。
-  提出は受け付けられているので、このまま閉じて構いません。
-  何度でも出し直せます（すべての提出が採点されます）。
+  提出は受け付けられています。この画面はこのまま閉じて構いません。
+  何度でも提出し直せます（すべての提出が採点されます）。
 </div>
 {% elif not run %}
 <div class="note" data-poll="{{ url_for('submission_state', submission_id=submission.id) }}">
@@ -34,7 +34,7 @@
    ここで何も言わないと、下の観点が「確認中」のまま理由も分からない。 #}
 <div class="note" data-poll="{{ url_for('submission_state', submission_id=submission.id) }}">
   <strong>AI 評価を待っています。</strong>
-  テスト実行の結果は下に出ています。AI が担当する観点は 30 秒ほどで届きます。
+  テスト実行の結果は下に表示されています。AI が担当する観点の結果は、30 秒ほどで届きます。
   {# 待ち行列の状況。ポーリングが埋める。順位も時刻も**約束はしない**（#67）。 #}
   <span class="js-only" data-queue hidden></span>
   <span class="js-only" hidden>届いたら自動で表示します。</span>
@@ -53,8 +53,8 @@
   <div class="score">—<span class="unit">保留</span></div>
   <p class="desc" style="margin:0">
     採点できなかった観点があるため、<strong>総合点は出していません。</strong>
-    下の観点ごとの結果のうち、テスト実行で判定できた分は確定しています。
-    担当教員が残りを確認して確定します。
+    下の観点ごとの結果のうち、テスト実行で判定した観点の結果は確定しています。
+    残りの観点は、担当教員が確認して確定します。
   </p>
 {% else %}
   <div class="score">{{ '%.0f' | format(view.score_ratio * 100) }}<span class="unit">%</span></div>
@@ -160,7 +160,7 @@
 {% if view.corrected %}
 <div class="note">
   <strong>この採点は確定後に担当教員が見直し、修正されました。</strong>
-  下に出ているのは修正後の内容です。
+  下に表示されているのは、修正後の内容です。
 </div>
 {% endif %}
 <div class="card">{{ view.review_comment }}</div>
@@ -180,7 +180,7 @@
        全員の帯に出るが、誰の仕事にもならない。依頼そのものは試せるように
        残す（流れを見せるのがデモの目的）。 #}
     {% if ctx_course is defined and ctx_course and is_demo_course(ctx_course.id) %}
-      このコースはお試しです。依頼はログインした教員から見えますが、
+      このコースはお試しです。依頼の内容はログインした教員にも見えますが、
       <strong>回答されるとは限りません。</strong>
       書き方を試す場として使ってください。
     {% else %}

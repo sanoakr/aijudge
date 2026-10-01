@@ -14,7 +14,7 @@
   <div class="inline-field">
     <span class="body">
       <label for="upload">PDF・DOCX・テキストを選ぶ{% call help() %}
-        読み取った内容は下の本文に Markdown で入ります（体裁を整えるだけで、中身は書き換えません）。
+        読み取った内容は、下の本文の欄に Markdown で入ります（体裁を整えるだけで、内容は書き換えません）。
         <strong>スキャン画像の PDF は読めません。</strong>
       {% endcall %}</label>
       <input id="upload" name="upload" type="file" accept=".pdf,.docx,.txt,.md">
@@ -31,7 +31,7 @@
     <label for="title">コース名{% call help() %}
       <strong>コードと学期はここでは変えられません</strong>
       （<span class="mono">{{ course.code }}</span> / <span class="mono">{{ course.term }}</span>）。
-      この 2 つがコースの同一性で、変えると別のコースになります。
+      システムはこの 2 つでコースを識別するので、変えると別のコースになります。
     {% endcall %}</label>
     <input id="title" name="title" value="{{ title_value }}">
   </div>
