@@ -372,7 +372,16 @@ class GradingPipeline:
         expected = (
             self._deterministic_work(task_version) if phase is GradingPhase.DETERMINISTIC else True
         )
-        if not scores and expected and not all_human:
+        # **本文を取り出せなかった提出は、異常ではなく未採点である。** 読めない
+        # のは評価器の不具合でも設定の誤りでもなく、入力の側の事情で、機械が
+        # 点を付けられないだけだからだ。落とすと再試行の上限（3 回）まで同じ
+        # 理由で失敗し、提出は黙って採点待ちのままになる ── 実際に 2026-10-01、
+        # ビジョンモデルの打ち切りで書き起こせなかった認定証がそうなり、
+        # 失敗の通知（キュー検査の NG）が 1 時間続いた。全観点を `unscored` に
+        # 入れて人のレビューへ回す（P2・P5）。総合点は出さない。
+        # 理由は run の `extractions[].failed_reason` に残る（P8）。
+        extraction_failed = any(not extraction.succeeded for extraction in extractions)
+        if not scores and expected and not all_human and not extraction_failed:
             raise RuntimeError(
                 f"no evaluator produced a score for submission {submission.id!r}; "
                 + self._explain_no_score(task_version, results)
