@@ -1,19 +1,19 @@
 # デプロイ資材（`deploy/`）
 
-自分の機関で aiJudge を動かすためのテンプレート一式。**このリポジトリは公開物**なので、
-ここに機関固有の値（実ホスト名・実 IP・実アカウント名など）は一切書かない。
+自分の機関で aiJudge を動かすためのテンプレート一式である。**このリポジトリは公開している**ので、
+ここには機関固有の値（実ホスト名・実 IP・実アカウント名など）を一切書かない。
 機関固有の値はすべて `/srv/aijudge/config/aijudge.env`（サーバ側・git 管理外）に置く。
 
-具体的な導入手順・実際の値は、導入する側が非公開のドキュメントで管理すること
-（例: このリポジトリの運用元は `docs/design/elite-deployment-proposal.md` を
-未追跡のローカルファイルとして持っている）。
+具体的な導入手順と実際の値は、導入する機関が非公開のドキュメントで管理すること
+（例: このリポジトリの運用元は、`docs/design/elite-deployment-proposal.md` を
+git で追跡しないローカルファイルとして持っている）。
 
 ## 中身
 
 | パス | 役割 |
 |---|---|
 | `bootstrap.sh` | 初回セットアップ（systemd unit・nginx・polkit の配置、有効化） |
-| `deploy.sh` | 1 つのタグをデプロイする（手動 / CD 共通の心臓部） |
+| `deploy.sh` | 1 つのタグをデプロイする（手動のデプロイと CD の両方が呼ぶ本体） |
 | `aijudge-autodeploy.sh` | origin の `v*` タグを見て、新しければ `deploy.sh` を呼ぶ（CD のポーラー） |
 | `systemd/` | unit ファイル一式（`aijudge.target` が web/review/worker-* を束ねる） |
 | `nginx/aijudge.conf.template` | リバースプロキシの雛形。`AIJUDGE_HOSTNAME` を置換して使う |
@@ -27,28 +27,28 @@
 | `aijudge-db-backup.sh` | `pg_dump -Fc`（論理・日次）。**`deploy.sh` もデプロイ直前に呼ぶ** |
 | `aijudge-pg-basebackup.sh` | 物理ベースバックアップ（PITR の土台・週次）と、不要になった WAL の掃除 |
 | `aijudge-storage-check.sh` | 空き容量と WAL アーカイブの健全性（毎時・遷移時のみ通知） |
-| `aijudge-llm-primary-check.sh` | プライマリ LLM が確定モデルを出しているか（30 分ごと・遷移時のみ通知。フォールバック不能 NG3 だけは 2 回続いてから通知 — `AIJUDGE_LLM_NG3_CONFIRM`） |
-| `lib/llm-primary-check.py` | 上の判定本体。**どちらのプロバイダが答えたか**で見る（`/usr/local/lib/aijudge/`） |
-| `aijudge-notify` | 日本語のメールを文字化けさせずに送る。上記の検査はすべてこれを通す |
+| `aijudge-llm-primary-check.sh` | プライマリ LLM が確定モデルを提供しているか（30 分ごと・状態が変わったときだけ通知。フォールバックもできない NG3 だけは、2 回続いてから通知する。`AIJUDGE_LLM_NG3_CONFIRM`） |
+| `lib/llm-primary-check.py` | 上の判定の本体。**どちらのプロバイダが応答したか**で判定する（`/usr/local/lib/aijudge/`） |
+| `aijudge-notify` | 日本語のメールを文字化けさせずに送る。上記の検査は、すべてこのコマンドで通知する |
+| `journald/aijudge.conf` | 運用ログの保存期間とディスク上限（`/etc/systemd/journald.conf.d/` に置く） |
 
 **スクリプトは `/usr/local/sbin/` に置く**（`lib/` のものは `/usr/local/lib/aijudge/`）。
-`bootstrap.sh` が初回に、`install-units.sh` がデプロイのたびに配る ── unit と同じく、
-**中身が同じなら触らない**（#344）。`aijudge-config-check` が両方の一致を見ている。
+初回は `bootstrap.sh` が、以後はデプロイのたびに `install-units.sh` が配置する。unit と同じく、
+**中身が同じなら書き換えない**（#344）。`aijudge-config-check` が、配置した側と配る側の一致を確かめている。
 
-**チェックアウトから直接走るものは配らない。** `aijudge-autodeploy.sh` と
-`aijudge-config-check.sh` は unit が `/opt/aijudge/deploy/` を指しており、
-`aijudge-vision-check.sh` は unit を持たない**手で走らせる診断**である
-（画像モデルが「名乗るが実際には読めない」構成を見つける。ADR 0021）。
-写しを増やすと、どちらが動いているのか分からなくなる。
-| `journald/aijudge.conf` | 運用ログの保存期間とディスク上限（`/etc/systemd/journald.conf.d/` に置く） |
+**チェックアウトから直接実行するスクリプトは配置しない。** `aijudge-autodeploy.sh` と
+`aijudge-config-check.sh` は、unit が `/opt/aijudge/deploy/` のファイルを直接指している。
+`aijudge-vision-check.sh` は unit を持たない、**手で実行する診断**である
+（画像モデルが「画像を読めると名乗るが、実際には読めない」構成を見つける。ADR 0021）。
+コピーを増やすと、どちらが実行されているのか分からなくなる。
 
 ## 前提（`docs/RUNNING.md` と共通）
 
-- 実行 owner は system ユーザ `aijudge`（nologin）。管理操作をする人間は `aijudge` グループに
-  所属し、polkit 経由で sudo なしに unit を操作する。
-- コードは `/opt/aijudge` に clone（読み取り専用 deploy key で足りる。CD は push しない）。
-- 提出物・DB ダンプ・restic ターゲットなどのデータは `/srv/aijudge` 配下（`EnvironmentFile` もここ）。
-- PostgreSQL はローカルソケット。SQLite は使わない（複数ワーカーが行ロックを要る）。
+- プロセスは system ユーザ `aijudge`（nologin）で実行する。管理操作をする人は `aijudge` グループに
+  所属し、polkit を通じて sudo なしで unit を操作する。
+- コードは `/opt/aijudge` に clone する（読み取り専用の deploy key で足りる。CD は push しない）。
+- 提出物・DB ダンプ・restic ターゲットなどのデータは `/srv/aijudge` の下に置く（`EnvironmentFile` もここ）。
+- PostgreSQL にはローカルソケットで接続する。SQLite は使わない（複数のワーカーが行ロックを必要とするため）。
 
 ## 初回セットアップ（`bootstrap.sh`）
 
@@ -67,22 +67,22 @@ set -gx AIJUDGE_HOSTNAME judge.example.ac.jp   # 自分のホスト名に置き�
 sudo -E deploy/bootstrap.sh
 ```
 
-`bootstrap.sh` がやること:
+`bootstrap.sh` は次の処理を行う。
 
 1. `deploy/systemd/*` を `/etc/systemd/system/` へコピーし `daemon-reload`。
 2. `deploy/nginx/aijudge.conf.template` の `__AIJUDGE_HOSTNAME__` を
    `$AIJUDGE_HOSTNAME` に置換して `/etc/nginx/sites-available/` へ配置
-   （**証明書の取得はしない** — Let's Encrypt 等は導入側の既存運用に従う）。
+   （**証明書は取得しない**。Let's Encrypt などは、導入する機関の既存の運用に従う）。
 3. `deploy/polkit/49-aijudge.rules` を `/etc/polkit-1/rules.d/` へ配置。
 4. `aijudge.target` を enable するが、**start はしない**
    （初回はコード・DB・証明書が揃ってから `deploy.sh` で上げる）。
 
 ## 通常運用
 
-**手で流すときは環境を先に読ませる**（#345）。unit は
-`EnvironmentFile=/srv/aijudge/config/aijudge.env` を読むが、直接叩くと誰も
-読まない ── `AIJUDGE_DATABASE_URL` が無いまま `alembic upgrade head` が走ると、
-**意図しない DB に当たりうる**。読ませずに叩いた場合は `deploy.sh` が冒頭で断る。
+**手でコマンドを実行するときは、先に環境ファイルを読み込む**（#345）。unit は
+`EnvironmentFile=/srv/aijudge/config/aijudge.env` を読み込むが、コマンドを直接実行すると
+環境ファイルは読み込まれない。`AIJUDGE_DATABASE_URL` が無いまま `alembic upgrade head` を実行すると、
+**意図しない DB を変更するおそれがある**。環境ファイルを読み込まずに実行した場合、`deploy.sh` は最初に実行を拒否する。
 
 ```fish
 # 手動デプロイ（CI が緑になったタグで）
@@ -98,32 +98,32 @@ journalctl -u aijudge-autodeploy -f
 
 ### リリースのとき ── `pyproject` と `uv.lock` を必ず揃える
 
-タグを切るコミットでは、**版を 2 か所とも上げる**。
+タグを付けるコミットでは、**版を 2 か所とも上げる**。
 
 ```fish
 # pyproject.toml の version を上げ、ロックファイルを追随させる
 uv lock
 git add pyproject.toml uv.lock
 git commit -m "chore: release 0.44.0"
-git tag v0.44.0 && git push origin main --tags
+git tag -a v0.44.0 -m v0.44.0 && git push origin main v0.44.0   # 署名付きの注釈タグ（下の「unit の配布と署名」）
 ```
 
-**片方だけ上げると CD が黙って止まる。** `deploy.sh` の `uv sync --frozen` は
-ロックを書き換えないが、その前にサーバで一度でも `uv sync` が走っていると
-`uv.lock` の自分自身の版だけが書き換わり、作業ツリーが dirty になる。次からは
+**片方だけ上げると、CD が何も知らせずに止まる。** `deploy.sh` の `uv sync --frozen` は
+ロックファイルを書き換えない。しかし、それ以前にサーバで一度でも `uv sync` を実行していると、
+`uv.lock` のうち aiJudge 自身の版だけが書き換わり、作業ツリーに変更が残る。すると次のデプロイからは
 
 ```
 error: Your local changes to the following files would be overwritten by checkout:
         uv.lock
 ```
 
-で `git checkout` が中断し、**`deploy.sh` はそこで終わる** ── アプリは動き続け、
-学生にも教員にも何も起きないので、気づかない。実際に v0.35.1 でこれが起き、
-**8 リリース分（v0.36.0 〜 v0.43.0）がデプロイされないまま 2 日走っていた**。
+というエラーで `git checkout` が中断し、**`deploy.sh` はそこで終了する**。古い版のアプリが動き続け、
+学生にも教員にも何も起きないので、誰も気づかない。実際に v0.35.1 でこれが起き、
+**8 リリース分（v0.36.0 〜 v0.43.0）がデプロイされないまま 2 日間運用していた**。
 
-気づく側の手当てはこれ。**失敗した unit はメールで届く**（`OnFailure=aijudge-notify@%n`、#422）。
-学生画面とコンソールの `/login` も 5 分ごとに外から叩き、状態が変わったときに
-知らせる（`aijudge-http-check.timer`）。手で確かめるときは:
+この失敗に気づくための仕組みは次のとおりである。**失敗した unit は、メールで通知する**（`OnFailure=aijudge-notify@%n`、#422）。
+また、学生画面とコンソールの `/login` に 5 分ごとに外からアクセスし、状態が変わったときに
+通知する（`aijudge-http-check.timer`）。手で確かめるときは、次のコマンドを使う。
 
 ```fish
 systemctl is-failed aijudge-autodeploy.service        # failed なら止まっている
@@ -131,7 +131,7 @@ sudo -u aijudge git -C /opt/aijudge describe --tags   # 実際に動いている
 git ls-remote --tags --refs origin 'v*' | sed 's#.*/##' | sort -V | tail -1
 ```
 
-詰まったときは、生成物である `uv.lock` を捨ててからデプロイし直す。
+デプロイが止まったときは、サーバ側で書き換わった `uv.lock` を元に戻してから、デプロイし直す。
 
 ```fish
 sudo -u aijudge git -C /opt/aijudge checkout -- uv.lock
@@ -139,29 +139,29 @@ sudo -u aijudge sh -c 'set -a; . /srv/aijudge/config/aijudge.env; set +a; \
     exec /opt/aijudge/deploy/deploy.sh v0.44.0'
 ```
 
-**いまは 3 か所で塞いである**（#423）。`deploy.sh` は `UV_FROZEN=1` で
-ロックを書き換えず、作業ツリーが dirty なら checkout の前に止まる。CI は
-`uv sync --locked` で、`pyproject` と `uv.lock` がずれた時点で落ちる。
+**いまは、この問題を 3 か所で防いでいる**（#423）。`deploy.sh` は `UV_FROZEN=1` で
+ロックファイルを書き換えず、作業ツリーに変更が残っていれば checkout の前に止まる。CI は
+`uv sync --locked` を実行し、`pyproject` と `uv.lock` がずれた時点で失敗する。
 
 ### デプロイ済みの版と、失敗したときの再試行
 
-`deploy.sh` は**最後（疎通確認）まで通ったときだけ** `/var/lib/aijudge/deployed-tag`
-にタグを書く（#421）。autodeploy はこれを見て判定するので、checkout の後で
-migration や `uv sync` が落ちても「最新がデプロイ済み」には見えず、次の周回
-（5 分後）にもう一度同じタグを試す。
+`deploy.sh` は、**最後の疎通確認まで成功したときだけ** `/var/lib/aijudge/deployed-tag`
+にタグを書き込む（#421）。autodeploy はこのファイルを見てデプロイ済みかを判定する。そのため、checkout の後で
+migration や `uv sync` が失敗しても「最新がデプロイ済み」とは判定されず、次の周回
+（5 分後）に同じタグをもう一度試す。
 
 ```fish
 sudo cat /var/lib/aijudge/deployed-tag                 # 最後まで通った版
 sudo -u aijudge git -C /opt/aijudge describe --tags   # 作業ツリーの版（途中で落ちると先に進んでいる）
 ```
 
-2 つが違うなら、デプロイは途中で落ちている。`journalctl -u aijudge-autodeploy` を読む。
+2 つが違うなら、デプロイは途中で失敗している。`journalctl -u aijudge-autodeploy` で原因を確かめる。
 
 ### 切り戻し（#425）
 
-新しい版に問題があったときは、**固定ファイルに前の版を書く**。autodeploy は
-固定があればそのタグを入れ、最新を追わない ── 固定しないまま古いタグを
-手で入れても、5 分以内に最新へ戻される。
+新しい版に問題があったときは、**固定ファイルに前の版を書く**。autodeploy は、
+固定ファイルがあればそのタグをデプロイし、最新の版を追わない。固定しないまま古いタグを
+手でデプロイしても、5 分以内に最新の版へ戻される。
 
 ```fish
 # 1. 前の版に固定する（次の周回で deploy.sh がその版を入れる）
@@ -174,21 +174,21 @@ sudo -u aijudge sh -c 'set -a; . /srv/aijudge/config/aijudge.env; set +a; \
 sudo -u aijudge rm /var/lib/aijudge/deploy-pin
 ```
 
-**migration は戻さない。** 移行は前方にしか書いていない（`downgrade` は
-あっても試していない）ので、スキーマを変えた版から戻すときは、コードだけ
-戻して古いコードが新しいスキーマで動くかを確かめるか、デプロイ直前の
-ダンプ（`aijudge-db-backup.sh`）から戻す。ダンプから戻すと、その後の提出と
-採点は失われる ── どちらを取るかは人が決める。
+**migration は戻さない。** 移行は進める方向にしか書いていない（`downgrade` は
+あっても試していない）。そのため、スキーマを変えた版から戻すときは、次のどちらかを選ぶ。コードだけを
+戻し、古いコードが新しいスキーマで動くかを確かめる。または、デプロイ直前の
+ダンプ（`aijudge-db-backup.sh`）から DB を戻す。ダンプから戻すと、その後の提出と
+採点は失われる。どちらを選ぶかは、運用者が判断する。
 
-移行はロックを 10 秒までしか待たない（`migrations/env.py` の `lock_timeout`）。
-長いトランザクションの後ろで ALTER が待つ間に、全てのクエリがその後ろに
-並んで画面ごと止まるのを防ぐためで、待てなければ移行が失敗し、上の再試行に乗る。
+移行は、ロックを 10 秒までしか待たない（`migrations/env.py` の `lock_timeout`）。
+長いトランザクションの後ろで ALTER が待っている間に、ほかのすべてのクエリが ALTER の後ろに
+並び、画面全体が止まるのを防ぐためである。10 秒待ってもロックを取れなければ移行は失敗し、上で述べた再試行の対象になる。
 
 ### unit の配布と署名（#417）
 
-unit と、unit が呼ぶ `/usr/local/sbin` のスクリプトは **root が配る**
-（`aijudge-units.service`）。root はチェックアウト（aijudge 所有）の中身を信じず、
-**署名を確かめたタグ**の中身だけを配る。
+unit と、unit が呼ぶ `/usr/local/sbin` のスクリプトは、**root が配置する**
+（`aijudge-units.service`）。root はチェックアウト（aijudge 所有）の中身を信用せず、
+**署名を確かめたタグ**の中身だけを配置する。
 
 - root 所有のミラー `/var/lib/aijudge-release/repo.git` を origin から更新する
 - チェックアウトの `.git/HEAD`（コミットのハッシュ）を指す `v*` タグを探す
@@ -201,22 +201,22 @@ unit と、unit が呼ぶ `/usr/local/sbin` のスクリプトは **root が配�
 署名されない**）。許可する鍵は `deploy/release-signers` にも置いてある（公開鍵。
 **運用機が信じるのは `/etc/aijudge/allowed_signers` の方**）。
 
-**コードのデプロイも、署名を確かめたタグしか入れない**（2026-09-29）。以前は
-unit の配布だけが署名を見ていて、署名していないタグでもコードのデプロイは進んだ
-── GitHub にタグを push できる者なら、署名の無いコードを運用機で動かせた（実際に
-署名の無い v1.37.0 が入った）。いまは:
+**コードのデプロイも、署名を確かめたタグだけを対象にする**（2026-09-29）。以前は
+unit の配布だけが署名を確かめていて、署名していないタグでもコードのデプロイは進んだ。
+GitHub にタグを push できる人なら、署名の無いコードを運用機で動かせたことになる（実際に、
+署名の無い v1.37.0 がデプロイされた）。いまは次のように動く。
 
 - `deploy.sh` は、チェックアウトの前に `deploy/lib/verify-release-tag.sh` で署名を
   確かめる（手で流すときも同じ）。確かめられなければ何もせずに失敗する
 - `aijudge-autodeploy.sh` は、**署名を確かめられたタグの中で最新のもの**を選ぶ。
   それより新しい署名の無いタグは飛ばし、名前をログに出す
-  （`journalctl -u aijudge-autodeploy`）── 出したはずの版が入らないときはここを見る
+  （`journalctl -u aijudge-autodeploy`）。出したはずの版がデプロイされないときは、このログを見る
 - 固定していなければ、**デプロイ済みより古い版へは戻らない**（#564）。origin で最新の
   タグが消えても 1 つ前の版へ自動で戻らない。戻すときは「切り戻し」の固定を使う
 - 許可リストは unit の配布と同じ `/etc/aijudge/allowed_signers`。デプロイする利用者
   （aijudge）が書き換えられる許可リストは信じない
 
-最初の 1 回だけは人が入れる（root で。中身を確かめてから）:
+最初の 1 回だけは、人が root で配置する（中身を確かめてから実行すること）。
 
 ```sh
 # 1. 許可する署名鍵（公開鍵）。deploy/release-signers と同じ内容を、目で確かめて置く
@@ -236,13 +236,13 @@ sudo chmod 755 /usr/local/sbin/aijudge-install-units
 sudo /usr/local/sbin/aijudge-install-units
 ```
 
-鍵を替えるときは `/etc/aijudge/allowed_signers` に新しい鍵を**足してから**、新しい鍵で
-署名したタグを出す（先に消すと、そのあいだ配布が止まる）。
+鍵を替えるときは、`/etc/aijudge/allowed_signers` に新しい鍵を**追加してから**、新しい鍵で
+署名したタグを出す（古い鍵を先に消すと、その間は配布が止まる）。
 
 ### ログを読む（ADR 0016）
 
-運用では `AIJUDGE_LOG_FORMAT=json` を設定する（1 行 1 イベント）。
-unit には `SyslogIdentifier` が付いているので、サービス単位で引ける。
+運用では `AIJUDGE_LOG_FORMAT=json` を設定する（1 行に 1 イベント）。
+unit には `SyslogIdentifier` が付いているので、サービスごとにログを絞り込める。
 
 ```fish
 # 採点ワーカーの失敗だけ
@@ -258,9 +258,9 @@ journalctl -t aijudge-web -t aijudge-worker-det -t aijudge-worker-ai1 -o cat \
 journalctl -t aijudge-web -o cat | jq -R 'fromjson? | select(.request_id == "REQ-ID")'
 ```
 
-保存期間は 90 日（`journald/aijudge.conf`）。**成績に関わる「誰が何を変えたか」は
-ここには無い** ── それは DB の監査ログに残り、DB ダンプごと restic で守られる。
-運用ログは消えてよい層である。
+保存期間は 90 日である（`journald/aijudge.conf`）。**成績に関わる「誰が何を変えたか」は、
+運用ログには記録しない。** その記録は DB の監査ログに残り、DB ダンプとともに restic でバックアップされる。
+運用ログは、消えても困らない記録として扱う。
 
 ```fish
 sudo install -m 0644 /opt/aijudge/deploy/journald/aijudge.conf \
@@ -268,13 +268,13 @@ sudo install -m 0644 /opt/aijudge/deploy/journald/aijudge.conf \
 sudo systemctl restart systemd-journald
 ```
 
-設計の背景（なぜ pull 型 timer で GitHub Actions からの push 型にしないか等）は
-`docs/design/00_システム設計方針と構築計画.md` と、運用元の非公開デプロイ手順書を参照。
+設計の背景（GitHub Actions から push する方式ではなく、timer で pull する方式にした理由など）は、
+`docs/design/00_システム設計方針と構築計画.md` と、運用元の非公開のデプロイ手順書を参照すること。
 
 ## バックアップ（restic、target 1 = オンボックス）
 
-`bootstrap.sh` はこれを自動化しない（DB ダンプの `aijudge-db-backup.{service,timer}` 同様、
-初回投入は運用者が手で行う一回限りの操作のため）。
+`bootstrap.sh` は、バックアップの準備を自動化しない（DB ダンプの `aijudge-db-backup.{service,timer}` と同様に、
+初回の設定は運用者が手で行う一度きりの操作だからである）。
 
 ```fish
 # パスワードファイル・env（root:aijudge 0640。restic のパスワードは本体の
@@ -302,8 +302,8 @@ sudo systemctl enable --now aijudge-restic-backup.timer
 sudo systemctl enable --now aijudge-restic-check@aijudge-restic.timer
 ```
 
-`aijudge-config-check` は、受け先の env ファイルがあるのに timer が有効で
-ない系統を NG として知らせる（有効にし忘れは、失敗しないので他では気づけない）。
+`aijudge-config-check` は、受け先の env ファイルがあるのに timer が有効になって
+いない系統を NG として通知する（timer の有効化を忘れても何も失敗しないので、ほかの方法では気づけない）。
 
-target 2（オフボックス）は同じ形の env ファイルをもう 1 組（別リポジトリ・別パスワード）用意し、
-別名の timer をもう一つ足すこと（v1 では target 1 のみをここに含める）。
+target 2（オフボックス）を使うときは、同じ形の env ファイルをもう 1 組（別のリポジトリ・別のパスワード）用意し、
+別名の timer をもう 1 つ追加すること（ここでは target 1 の手順だけを示す）。
