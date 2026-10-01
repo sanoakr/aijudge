@@ -196,3 +196,35 @@ def test_the_text_lists_each_chosen_level_and_marks_an_agreement() -> None:
     assert rubric_justification([criterion], {criterion.id: 0}, agreed=True) == (
         f"{AGREED_PREFIX}\n認定証が確認できる: 未達（0%） ── 提出が無い"
     )
+
+
+@needs_c_compiler
+def test_the_ai_draft_is_offered_but_not_put_in_the_box(blind_world: World, monkeypatch) -> None:
+    """**AI の素案は教員が選んで足す**（ADR 0030 §2）。欄の初期値には入れない。"""
+    import re
+
+    from aijudge_reviewconsole import app as console_app
+
+    _, accepted = _instructor_and_submission(blind_world)
+    blind_world.worker.run_until_empty()
+    machine = _machine(blind_world, accepted.submission.id)
+    criterion = next(iter(machine))
+    blind_world.client.post(
+        f"/review/{accepted.submission.id}/blind",
+        data=_blind_form(blind_world, machine | {criterion: 0 if machine[criterion] else 1}),
+    )
+    real = console_app._load
+    draft = "AIDRAFTMARKER テストケース 3 の出力で改行が欠けています。"
+
+    def drafted(*args, **kwargs):
+        context = real(*args, **kwargs)
+        context.run = context.run.model_copy(update={"justification_draft": draft})
+        return context
+
+    monkeypatch.setattr(console_app, "_load", drafted)
+    body = blind_world.client.get(f"/review/{accepted.submission.id}/reveal").text
+
+    box = re.search(r'<textarea id="comment"[^>]*>(.*?)</textarea>', body, re.S)
+    assert box is not None and "AIDRAFTMARKER" not in box.group(1), "素案が欄に入っている"
+    assert 'id="add-ai-draft"' in body and "AIDRAFTMARKER" in body
+    assert 'id="ai-draft-differs"' in body

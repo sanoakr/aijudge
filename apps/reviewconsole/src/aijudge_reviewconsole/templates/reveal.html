@@ -232,6 +232,7 @@
         <input type="radio" name="level_{{ row.criterion.code }}" required
                value="{{ level.level }}"
                {% if (row.human_level if row.human_level is not none else row.ai_level) == level.level %}checked{% endif %}
+               {% if row.ai_level == level.level %}data-ai-level="1"{% endif %}
                data-rubric-line="{{ row.criterion.title }}: {{ level.label }}（{{ '%.0f' | format(level.score_ratio * 100) }}%）{% if level.descriptor | trim %} ── {{ level.descriptor | trim }}{% endif %}">
         <span class="lv">{{ level.level }}: {{ level.label }}</span>
         {# **説明文には名前を付ける**（`.lv-text`）。無名の span だと、狭い幅で
@@ -298,6 +299,16 @@
       段階を選び直すと入れ替わります（書き足したあとは入れ替わりません）。
       <strong>学習者に表示されるのは教員の根拠として</strong>です。必要に応じて書き足してください。
     </p>
+    {% if run.justification_draft %}
+    {# **AI の素案は教員が選んで足す**（ADR 0030 §2）。初期値に入れないのは、blind の
+       あとでここに来るのが AI と食い違った提出だから ── 素案は AI の段階を説明する文で、
+       黙って入れると教員が退けた判定の根拠が学習者に届く。足すときも、段階が AI と
+       違えばその場で言う。JavaScript でしか動かないので `js-only`。 #}
+    <p class="js-only" hidden style="margin:6px 0 0">
+      <button type="button" id="add-ai-draft" data-draft="{{ run.justification_draft }}">AI の素案を足す</button>
+      <span class="pill attn" id="ai-draft-differs" hidden>AI の判定はあなたの段階と食い違っています</span>
+    </p>
+    {% endif %}
     {% endif %}
 
   </fieldset>
@@ -334,12 +345,36 @@
     return lines.join("\n");
   }
   var auto = box.value;
+  var add = document.getElementById("add-ai-draft");
+  var differs = document.getElementById("ai-draft-differs");
+  // AI の段階がある観点で、選んでいる段階が AI と違うか。
+  function disagrees() {
+    var found = false;
+    form.querySelectorAll("fieldset").forEach(function (set) {
+      if (!set.querySelector("input[data-ai-level]")) { return; }
+      var picked = set.querySelector("input[type=radio]:checked");
+      if (picked && !picked.hasAttribute("data-ai-level")) { found = true; }
+    });
+    return found;
+  }
+  function reflect() { if (differs) { differs.hidden = !disagrees(); } }
   form.addEventListener("change", function (event) {
     if (!event.target.matches("input[type=radio][data-rubric-line]")) { return; }
+    reflect();
     if (box.value !== auto) { return; }
     auto = compose();
     box.value = auto;
   });
+  if (add) {
+    add.addEventListener("click", function () {
+      // 追記する。**足したあとは段階を選び直しても入れ替えない**（欄が自動の文と
+      // 違うものになるので、上の change がそう判断する）。二度足さない。
+      var text = box.value.replace(/\s+$/, "");
+      box.value = (text ? text + "\n\n" : "") + add.dataset.draft;
+      add.disabled = true;
+    });
+    reflect();
+  }
 })();
 </script>
 {% if review %}</details>{% endif %}
