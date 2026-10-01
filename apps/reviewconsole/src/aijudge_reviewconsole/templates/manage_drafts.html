@@ -115,7 +115,7 @@
           {% endif %}
           {% if not row.checks.solvability.solved %}
             {% call help() %}<strong>解けなかったことは却下の理由ではありません。</strong>
-              課題文が曖昧なのか、単に難しいのかは機械には分かりません。{% endcall %}
+              解けなかった原因が課題文の曖昧さなのか、単に難しいからなのかは、システムには判断できません。{% endcall %}
           {% endif %}
           {% if row.checks.solvability.unexercised_kcs %}
             <br><span class="desc"><strong>解くのに要らなかった知識要素:
@@ -139,12 +139,10 @@
               <br><span class="desc">{{ "%.2f"|format(item.score) }}
                 {{ item.title or item.task_version_id }}</span>
             {% endfor %}
-            {% call help() %}同じ単元なら似るのが当然です。
-              <strong>捨てるかどうかは教員が決めます。</strong>{% endcall %}
+            {% call help() %}同じ単元の課題が似るのは当然です。 <strong>候補を捨てるかどうかは、教員が決めます。</strong>{% endcall %}
           {% endif %}
           {% if row.checks.duplicates.method.value == "lexical" %}
-            {% call help("測り方") %}字面だけで測っています ──
-              <strong>言い換えた重複は見つかりません。</strong>{% endcall %}
+            {% call help("測り方") %}類似度は文字の並びだけで測っています。<strong>言い換えた重複は検出できません。</strong>{% endcall %}
           {% endif %}
         </td>
       </tr>
@@ -164,7 +162,7 @@
                 {{ item.title or item.task_version_id }}</span>
             {% endfor %}
             {% call help() %}<strong>正答率は難しさそのものではありません。</strong>
-              出題時期・任意か必須か・受講者によっても動きます。{% endcall %}
+              正答率は、出題時期・任意か必須か・受講者によっても変わります。{% endcall %}
           {% endif %}
         </td>
       </tr>
@@ -189,7 +187,7 @@
       <span class="body">
         <label for="key-{{ row.draft.id }}">課題キー{% call help() %}
           <strong>内容の分かる名前にしてください</strong>（例: <span class="mono">nstring</span>）。
-          採用すると<strong>あとから変えられません</strong> — 提出も採点の記録もこの鍵で繋がります。
+          採用すると<strong>あとから変更できません</strong>（提出も採点の記録も、このキーで課題に結び付くためです）。
         {% endcall %}</label>
         <input id="key-{{ row.draft.id }}" name="key_suffix"
                value="{{ row.draft.spec.key.rsplit('/', 1)[-1] }}" style="max-width:16rem">
@@ -211,8 +209,8 @@
     <div class="inline-field">
       <span class="body">
         <label for="unit-{{ row.draft.id }}">出題する問題セット{% call help() %}
-          <strong>日程は選んだセットに揃います</strong>（公開・提出開始・締切・自動確定の猶予）。
-          並びはそのセットの末尾に入ります。
+          <strong>日程は、選んだ問題セットの値に揃います</strong>（公開・提出開始・締切・自動確定の猶予）。
+      課題は、その問題セットの一覧の末尾に並びます。
         {% endcall %}</label>
         <select id="unit-{{ row.draft.id }}" name="unit">
           <option value="{{ row.draft.unit }}">
@@ -272,7 +270,7 @@
      来たら、そのセットを選んでおく。 #}
   <div class="field">
     <label for="g-unit">出題先の候補（任意）{% call help() %}
-      承認するときに変えられます。空のままなら、承認のときに決めます。
+      出題先は、承認するときに変更できます。空欄のままにした場合は、承認するときに決めます。
     {% endcall %}</label>
     <select id="g-unit" name="unit">
       <option value="">決めない</option>
@@ -297,20 +295,17 @@
   </div>
   <div class="field">
     <label for="g-instructions">AI への指示（1 行 1 件・任意）{% call help() %}
-      外せない条件は「必ず」、希望は「できれば」と書いてください —
-      <strong>強さは書き方で伝わります</strong>。空でも生成できます。
+      外せない条件は「必ず」、希望は「できれば」と書いてください。<strong>AI は書き方から条件の強さを判断します。</strong>空欄でも生成できます。
     {% endcall %}</label>
     <textarea id="g-instructions" name="instructions" rows="3"
       placeholder="必ず標準入力から読むこと&#10;標準ライブラリの qsort は使わせないこと&#10;できれば配列の添字を扱う題材にしてほしい"></textarea>
   </div>
   <p class="desc">数十秒かかります。できたものは上の一覧に入り、承認するまで出題されません。
   {% call help() %}
-    このコースの既存課題を「似せないための材料」として渡します。
-    生成には数十秒かかります。
-    <strong>できたものは候補であって課題ではありません</strong> —
-    この一覧に入り、承認するまで出題されません。
-    <strong>出題する問題セットは承認のときに決めます</strong> ── 使えるかどうかは
-    作ってみないと分からないので、先に決めると、却下したときにそのセットに残骸が並びます。
+    このコースの既存の課題を、「似せないための材料」として AI に渡します。生成には数十秒かかります。
+      <strong>生成されたものは候補で、まだ課題ではありません</strong>。候補はこの一覧に追加され、承認するまで出題されません。
+      <strong>出題する問題セットは、承認するときに決めます</strong>。候補が使えるかどうかは生成するまで分からないので、
+      先に問題セットを決めると、却下した候補がその問題セットに残ってしまいます。
   {% endcall %}</p>
   <div class="actions">
     {% if saved_key == 'generated' %}<span class="flash" id="saved">{{ saved }}</span>{% endif %}

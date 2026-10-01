@@ -44,8 +44,8 @@
 {# 受付終了のあと。**何が起きたかを言う** ── 最後に保存された内容は自動で
    提出される（設計書 §9.1）。言わないと、押し損ねたと思って慌てる。 #}
 <p class="note act" data-ide-closed hidden>
-  受付は終了しました。最後に保存された内容は、提出していなければ自動で提出されます
-  （得点は提出のうち最も高いものが採用されるので、自動の提出で下がることはありません）。
+  受付は終了しました。まだ提出していない内容は、最後に保存された状態で自動的に提出されます
+  （最も高い得点の提出が採用されるので、自動の提出で得点が下がることはありません）。
 </p>
 
 {# 行動記録の告知（ADR 0023 §5）。**このコースで初めて開いたときだけ**出し、
@@ -62,7 +62,7 @@
     <li><strong>保存期間</strong>: 締切から 6 か月（締切の無い課題は 1 年）で消します。書きかけの自動保存は受付終了から 1 か月で消します。
       消したあとも、災害に備えたバックアップに最大 6 か月残り、その後自動的に消えます</li>
   </ul>
-  <p class="desc">記録は通信が不調なときに欠けることがあります。欠けたことだけで不利に扱うことはありません。</p>
+  <p class="desc">通信が不調なときは、記録の一部が欠けることがあります。記録が欠けたことだけを理由に、不利に扱うことはありません。</p>
   <button type="button" class="go" data-ide-consent-accept>確認して始める</button>
 </section>
 
@@ -78,7 +78,7 @@
     <li><strong>保存期間</strong>: 締切から 6 か月で消します。バックアップはしません</li>
     <li><strong>写り込み</strong>: 通知やほかのアプリも写ります。試験の前に、関係のないアプリや通知を閉じてください</li>
   </ul>
-  <p><strong>共有を止めると提出できなくなります</strong>（再開すれば提出できます。受付終了時の自動提出は行われます）。</p>
+  <p><strong>共有を止めると提出できなくなります</strong>（共有を再開すれば提出できます。受付終了時の自動提出は、共有を止めていても行われます）。</p>
   <p class="note warn" data-ide-screen-error aria-live="polite"></p>
   <button type="button" class="go" data-ide-screen-start>画面全体を共有して始める</button>
 </section>
@@ -130,7 +130,7 @@
     {% if tab.attach_multi %}<span class="desc">複数のファイルを 1 回の提出にまとめられます。</span>{% endif %}
     <ul class="ide-attach-list" data-attach-list="{{ index }}"></ul>
     <p class="note warn ide-attach-pending" data-attach-pending="{{ index }}" hidden>
-      選んだファイルは<strong>まだ提出されていません</strong>。提出しないまま受付が終わると失われます
+      選んだファイルは<strong>まだ提出されていません</strong>。提出しないまま受付が終わると、選んだファイルは失われます
       （画像・PDF は自動では提出されません）。
     </p>
     <div class="ide-actions">

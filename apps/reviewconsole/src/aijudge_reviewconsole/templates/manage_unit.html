@@ -49,7 +49,7 @@
   <h3 class="settings-group">日程</h3>
   <div class="setting" id="number">
     <div class="setting-name"><label for="session">回番号</label>{% call help() %}
-      第 N 回。並べ替えと表示に使います。<strong>採点には効きません。</strong>{% endcall %}</div>
+      第 N 回の番号です。並べ替えと表示に使います。<strong>採点には影響しません。</strong>{% endcall %}</div>
     <div class="setting-value">
       <input id="session" name="session" type="number" min="0" style="max-width:8rem"
              {# **`or` を使わない。** `0` は「未設定」ではなく第 0 回である（#86）。
@@ -64,15 +64,15 @@
   <div class="setting" id="schedule">
     <div class="setting-name">日程{% call help() %}
       <strong>提出開始が空なら、公開と同時に受け付けます。</strong>
-      公開前の問題セットは学習者の画面に出ません。
+      公開前の問題セットは、学習者の画面に表示されません。
       <strong>受付終了が空なら、締切を過ぎても無期限に受け付けます</strong>（減点は付きます）。
-      時刻を入れると、そこで提出できなくなります。締切から受付終了までが
-      「減点して提出できる時間」です。
+      時刻を入れると、その時刻以降は提出できなくなります。締切から受付終了までが、
+      「減点付きで提出できる時間」です。
       <br>
       <strong>採点開始が空なら、提出と同時に採点します</strong>（通常の課題）。
-      <strong>試験では、ここに時刻を入れてください</strong> — テスト実行の結果は
-      「どのケースで落ちたか」を含むので、試験中に返すと答えの一部を返すことになります。
-      採点しないだけで、提出は受け付けます。
+      <strong>試験では、ここに時刻を入れてください</strong>。テスト実行の結果には
+      「どのケースで失敗したか」が含まれるので、試験中に結果を返すと、答えの一部を教えることになります。
+      採点を止めるだけで、提出は受け付けます。
     {% endcall %}</div>
     <div class="setting-value schedule-grid">
       <span><label for="opens_at">公開</label>
@@ -102,9 +102,9 @@
   {# 学内限定（#333）。どちらも「いつ・どこから出せるか」を決める値で、セット単位で決まる。 #}
   <div class="setting" id="campus">
     <div class="setting-name">受け付ける場所{% call help() %}
-      この問題セットの<strong>すべての課題</strong>に効きます。
-      学外からは提出できず、学習者の画面にもそう出ます（教員・TA は学外からも提出できます）。
-      <strong>採点や確定には影響しません</strong>（既に出された提出はそのまま扱われます）。
+      この設定は、この問題セットの<strong>すべての課題</strong>に適用されます。
+      学習者は学外から提出できなくなり、学習者の画面にもそのことが表示されます（教員・TA は学外からも提出できます）。
+      <strong>採点と確定には影響しません</strong>（既に提出されたものは、そのまま扱われます）。
     {% endcall %}</div>
     <div class="setting-value">
       <label class="check"><input type="checkbox" name="campus_only" value="1" {{ 'checked' if unit.campus_only }}>
@@ -124,10 +124,10 @@
   {# 画面の静止画（ADR 0027・#444）。試験で入れる値なので、受け付ける場所の隣に置く。 #}
   <div class="setting" id="screen-capture">
     <div class="setting-name">試験中の画面の静止画{% call help() %}
-      この問題セットの<strong>すべての課題</strong>に効きます。学習者は<strong>画面全体を共有しないと受験を始められず</strong>、
+      この設定は、この問題セットの<strong>すべての課題</strong>に適用されます。学習者は<strong>画面全体を共有しないと受験を始められません</strong>。
       共有を止めると提出できなくなります（締切時の自動提出は行われます）。
-      5〜15 秒おきと、外からの大きな貼り付け・画面の切り替えの前後に撮ります。
-      見られるのは担当教員だけで、保存期間は動画と同じです。<strong>採点には使いません。</strong>
+      静止画は、5〜15 秒おきと、外からの大きな貼り付け・画面の切り替えの前後に撮ります。
+      静止画を見られるのは担当教員だけで、保存期間は動画と同じです。<strong>採点には使いません。</strong>
     {% endcall %}</div>
     <div class="setting-value">
       <label class="check"><input type="checkbox" name="screen_capture" value="1" {{ 'checked' if unit.screen_capture }}>
@@ -140,13 +140,13 @@
      エディタだけ（試験）、ファイルだけ（従来）。両方外すことはできない（保存する側が断る）。 #}
   <div class="setting" id="answer-mode">
     <div class="setting-name">答え方{% call help() %}
-      この問題セットの<strong>すべての課題</strong>に効きます。両方入れると学習者はどちらでも出せ、
-      エディタだけにすると<strong>課題の画面のファイル選択では提出できません</strong>（試験向け）。
+      この設定は、この問題セットの<strong>すべての課題</strong>に適用されます。両方にチェックを入れると、学習者はどちらの方法でも提出できます。
+      エディタだけにすると、<strong>課題の画面のファイル選択では提出できなくなります</strong>（試験向けです）。
       エディタで書けるのは各課題の提出形式のうち .c・.py・.md で、.md はテキストとして書きます。
       画像・PDF はエディタの画面でファイルを選んで提出できます。<strong>動画はエディタの画面から
-      出せない</strong>ので、動画を受ける課題があるセットではファイル選択を外せません。
-      プログラムが採点の言語と同じなら、公開サンプルや自分の入力で<strong>試しに実行</strong>できます
-      （採点ではなく成績に影響しません。非公開のテストケースでは実行できません）。
+      提出できない</strong>ので、動画を受け付ける課題がある問題セットでは、ファイル選択のチェックを外せません。
+      プログラムの形式が採点の言語と同じ場合は、公開サンプルや自分の入力で<strong>試しに実行</strong>できます
+      （試しの実行は採点ではないので、成績に影響しません。非公開のテストケースでは実行できません）。
     {% endcall %}</div>
     <div class="setting-value">
       {# 動画を受ける課題があるセットでは、ファイル選択を外せない（動画の道が無くなる）。
@@ -189,9 +189,9 @@
      切り、演習では入れる。エディタで解かないセットでは効かない。 #}
   <div class="setting" id="completion">
     <div class="setting-name">エディタの補完{% call help() %}
-      入れると、そのファイルの中で使った単語と、言語のキーワード（while・return など）を候補に出します。
-      <strong>切っていても</strong>、括弧を閉じる・字下げ・色分けは効きます（試験の既定）。
-      AI による補完はありません。
+      チェックを入れると、そのファイルの中で使った単語と、言語のキーワード（while・return など）を候補に表示します。
+      <strong>補完を切っていても</strong>、括弧の自動補完・字下げ・色分けは使えます（試験の既定は切です）。
+      AI による補完ではありません。
     {% endcall %}</div>
     <div class="setting-value">
       <label class="check"><input type="checkbox" name="completion" value="1" {{ 'checked' if unit.completion }}>
@@ -205,9 +205,9 @@
   {# 公開前に誰に見せるか（試験）。セット単位で決まる（`docs/design/task-visibility.md`）。 #}
   <div class="setting" id="confidential">
     <div class="setting-name">公開前に見せる相手{% call help() %}
-      入れないと、公開前の問題セットは <strong>TA にも見えます</strong>（質問対応と採点の準備のため）。
-      入れると、公開の時刻までは TA の一覧にも課題ページにも出ず、TA は試しに提出することもできません。
-      <strong>公開の時刻からは TA にも見えます。</strong>
+      チェックを入れない場合、公開前の問題セットは <strong>TA にも見えます</strong>（質問への対応と採点の準備のためです）。
+      チェックを入れると、公開の時刻までは TA の一覧にも課題ページにも表示されず、TA は試しに提出することもできません。
+      <strong>公開の時刻以降は、TA にも見えます。</strong>
     {% endcall %}</div>
     <div class="setting-value">
       <label class="check"><input type="checkbox" name="confidential" value="1" {{ 'checked' if unit.confidential }}>
@@ -228,8 +228,8 @@
   {# 出題先（追試など）。**名簿は別の画面で作る** ── ここは選ぶだけ。 #}
   <div class="setting" id="audience">
     <div class="setting-name">出題先{% call help() %}
-      何も選ばなければ<strong>受講者全員</strong>に出ます。選ぶと、選んだ名簿の<strong>どれかに入っている学習者だけ</strong>に出ます。
-      TA と教員には名簿に関係なく見えます。
+      名簿を 1 つも選ばなければ、<strong>受講者全員</strong>に出題されます。名簿を選ぶと、選んだ名簿の<strong>どれかに入っている学習者だけ</strong>に出題されます。
+      TA と教員には、名簿に関係なく見えます。
     {% endcall %}</div>
     <div class="setting-value">
       {% if groups %}
@@ -256,8 +256,8 @@
   <div class="setting" id="clear-points">
     <div class="setting-name"><label for="clear_points">クリア条件</label>{% call help() %}
       各問題の得点は<strong>割合 × 配点</strong>で、配点は下の一覧のとおりです（課題の定義の <code>max_score</code>）。
-      学習者のコース一覧で、合計がこの値以上の問題セットに<strong>クリア</strong>が付きます。採点は変わりません。
-      空欄ならクリアの条件はありません。
+      学習者のコース一覧では、合計がこの値以上の問題セットに<strong>クリア</strong>の印が付きます。クリア点を設定しても、採点は変わりません。
+      空欄なら、クリアの条件はありません。
     {% endcall %}</div>
     <div class="setting-value">
       合計 <input id="clear_points" type="number" name="clear_points" min="0" step="any" style="width:7em"
@@ -269,10 +269,10 @@
 
   <div class="setting" id="grace">
     <div class="setting-name"><label for="after_minutes">成績の自動確定</label>{% call help() %}
-      採点が終わってから何分で成績を確定するか。空欄なら<a href="{{ root_prefix() }}/manage/courses/{{ course.id }}">共通設定</a>の値が効きます。
+      採点が終わってから何分後に成績を確定するかを決めます。空欄なら<a href="{{ root_prefix() }}/manage/courses/{{ course.id }}">共通設定</a>の値を使います。
       {# **確定の時刻は提出ごとに違う。** 起点は課題の締切ではなく、その提出の
          採点が終わった時刻なので、セット単位の「いつ確定するか」は無い。 #}
-      確定は<strong>提出ごと</strong>に、その採点が終わってから数えます。
+      確定までの時間は、<strong>提出ごと</strong>に、その提出の採点が終わった時点から数えます。
     {% endcall %}</div>
     <div class="setting-value">
       採点完了から <input id="after_minutes" name="after_minutes" type="number" min="1" step="1"
@@ -468,8 +468,8 @@
    1 フォルダか複数かの違いしかない。読んだ結果は保存前に確認画面へ出す。 #}
 <h3 id="bundle">zip でまとめて取り込む{% call help("zip の中身") %}
   課題ごとのフォルダに <span class="mono">task.yaml</span> を置いた zip を選びます。
-  1 問だけでもかまいません。<strong>読み取った内容を確認してから保存します</strong>
-  （この場では保存しません）。
+  1 問だけでもかまいません。<strong>読み取った内容を確認画面で見てから保存します</strong>
+    （ファイルを選んだだけでは保存しません）。
   <pre class="code mono" style="margin:8px 0"><span class="ln">p1/
   task.yaml        課題の宣言（statement・criteria・knowledge_components など）
   statement.md     任意。あれば task.yaml の statement より優先します
@@ -524,7 +524,7 @@ p2/task.yaml</span></pre>
       課題ごとに振り分けます。
       <strong>提出が 1 件も無い {{ clear_plan.deleted }} 件は削除</strong>し（取り消せません）、
       <strong>提出のある {{ clear_plan.withdrawn }} 件は出題を取り下げます</strong>
-      （学習者に出なくなるだけで、提出・採点・Q-matrix は残ります。あとで取り消せます）。
+      （学習者に表示されなくなるだけで、提出・採点・Q-matrix は残ります。取り下げはあとで取り消せます）。
       {% if clear_plan.untouched %}
         既に取り下げてある {{ clear_plan.untouched }} 件はそのままです。
       {% endif %}
@@ -548,7 +548,7 @@ p2/task.yaml</span></pre>
         style="margin-top:12px">
     <div class="field">
       <label for="just-{{ row.task.id }}">確定の根拠（{{ min_reason }} 文字以上・学習者に表示されます）{% call help() %}
-        個別に読んでいない成績を確定させる操作です。再確認の依頼が出ている提出は確定しません。
+        この操作は、1 件ずつ読んでいない成績を確定させます。再確認の依頼が出ている提出は確定しません。
       {% endcall %}</label>
       <textarea id="just-{{ row.task.id }}" name="justification" rows="3" required
                 minlength="{{ min_reason }}"
