@@ -256,7 +256,7 @@ def test_the_task_pages_show_the_client_server_cases() -> None:
         world.close()
 
 
-def _network_task(world):
+def _network_task(world, *, profile: str = "cs_lang_c_intro"):
     from test_manage import _user_id
 
     from aijudge_authoring import TaskSpec
@@ -287,7 +287,7 @@ def _network_task(world):
             ),
             test_cases=(TestCaseSpec(name="connect", evaluator=RUNNER, payload=_payload()),),
         ),
-        subject_profile="cs_lang_c_intro",
+        subject_profile=profile,
         authored_by=_user_id(world, "teacher"),
     )
     return saved.task.id
@@ -295,19 +295,19 @@ def _network_task(world):
 
 def _edit_form(**override) -> dict:
     form = {
-        "src_name": ["echoServer.py", ""],
-        "src_body": [SERVER + "print('v2')\n", ""],
-        "case_orig": ["connect", ""],
-        "case_name": ["connect", ""],
-        "case_role": ["client", "client"],
-        "case_port": ["50008", ""],
-        "case_companion": ["echoServer.py", "echoServer.py"],
-        "case_input": ["{host}\n{port}\nhi\n", ""],
-        "case_expected": ["hi\nbye\n", ""],
-        "case_companion_input": ["", ""],
-        "case_companion_expected": ["connected", ""],
-        "case_hidden": ["1", "1"],
-        "case_weight": ["1.0", "1.0"],
+        "net_src_name": ["echoServer.py", ""],
+        "net_src_body": [SERVER + "print('v2')\n", ""],
+        "net_orig": ["connect", ""],
+        "net_name": ["connect", ""],
+        "net_role": ["client", "client"],
+        "net_port": ["50008", ""],
+        "net_companion": ["echoServer.py", "echoServer.py"],
+        "net_input": ["{host}\n{port}\nhi\n", ""],
+        "net_expected": ["hi\nbye\n", ""],
+        "net_companion_input": ["", ""],
+        "net_companion_expected": ["connected", ""],
+        "net_hidden": ["1", "1"],
+        "net_weight": ["1.0", "1.0"],
     }
     form.update(override)
     return form
@@ -333,7 +333,7 @@ def test_the_client_server_cases_can_be_edited_into_a_new_version() -> None:
         before, _ = _latest_cases(world, task_id)
         client = world.client("teacher")
         page = client.get(f"/manage/courses/{world.course.id}/tasks/{task_id}/edit").text
-        assert 'id="companion-form"' in page and "ケースを保存して新しい版にする" in page
+        assert 'name="companion_present"' in page and 'id="companion-form"' not in page
 
         response = client.post(
             f"/manage/courses/{world.course.id}/tasks/{task_id}/companion/edit",
@@ -367,10 +367,10 @@ def test_a_value_the_runner_would_refuse_is_refused_at_save() -> None:
         client = world.client("teacher")
         url = f"/manage/courses/{world.course.id}/tasks/{task_id}/companion/edit"
         for bad in (
-            {"case_port": ["80", ""]},
-            {"case_role": ["peer", "client"]},
-            {"case_companion": ["missing.py", "echoServer.py"]},
-            {"src_body": ["   ", ""]},
+            {"net_port": ["80", ""]},
+            {"net_role": ["peer", "client"]},
+            {"net_companion": ["missing.py", "echoServer.py"]},
+            {"net_src_body": ["   ", ""]},
         ):
             response = client.post(url, data=_edit_form(**bad), follow_redirects=False)
             assert response.status_code == 400, bad

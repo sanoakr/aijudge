@@ -42,7 +42,7 @@ def companion_cases_from_form(
     """欄の値からケースを組む。0 件も許す（観点は採点できず、総点は伏せられる）。"""
     getlist = form.getlist
     sources: dict[str, str] = {}
-    for name, body in zip(getlist("src_name"), getlist("src_body"), strict=False):
+    for name, body in zip(getlist("net_src_name"), getlist("net_src_body"), strict=False):
         name, body = str(name).strip(), _text(str(body))
         if not name and not body.strip():
             continue  # 追加用の空欄
@@ -60,20 +60,20 @@ def companion_cases_from_form(
     columns = {
         key: [str(value) for value in getlist(key)]
         for key in (
-            "case_orig",
-            "case_name",
-            "case_role",
-            "case_port",
-            "case_companion",
-            "case_input",
-            "case_expected",
-            "case_companion_input",
-            "case_companion_expected",
-            "case_hidden",
-            "case_weight",
+            "net_orig",
+            "net_name",
+            "net_role",
+            "net_port",
+            "net_companion",
+            "net_input",
+            "net_expected",
+            "net_companion_input",
+            "net_companion_expected",
+            "net_hidden",
+            "net_weight",
         )
     }
-    deleted = {str(value) for value in getlist("case_delete")}
+    deleted = {str(value) for value in getlist("net_delete")}
 
     def at(key: str, index: int, default: str = "") -> str:
         values = columns[key]
@@ -81,48 +81,48 @@ def companion_cases_from_form(
 
     cases: list[TestCaseSpec] = []
     seen: set[str] = set()
-    for index in range(len(columns["case_name"])):
+    for index in range(len(columns["net_name"])):
         if str(index) in deleted:
             continue
-        name = at("case_name", index).strip()
+        name = at("net_name", index).strip()
         if not name:
             continue  # 追加用の空行
         if name in seen:
             raise CompanionFormError(f"ケース {name!r} が重複しています")
         seen.add(name)
-        role = at("case_role", index)
+        role = at("net_role", index)
         if role not in ROLES:
             raise CompanionFormError(f"{name}: 提出物の役割は client か server です")
         try:
-            port = int(at("case_port", index))
+            port = int(at("net_port", index))
         except ValueError:
             raise CompanionFormError(f"{name}: ポートが整数ではありません") from None
         if not MIN_PORT <= port <= MAX_PORT:
             raise CompanionFormError(f"{name}: ポートは {MIN_PORT}〜{MAX_PORT} にしてください")
-        companion_name = at("case_companion", index).strip()
+        companion_name = at("net_companion", index).strip()
         if companion_name not in sources:
             raise CompanionFormError(
                 f"{name}: 伴走プロセスのソース {companion_name!r} がありません"
             )
         try:
-            weight = float(at("case_weight", index, "1.0") or 1.0)
+            weight = float(at("net_weight", index, "1.0") or 1.0)
         except ValueError:
             raise CompanionFormError(f"{name}: 重みが数値ではありません") from None
         if weight <= 0:
             raise CompanionFormError(f"{name}: 重みは正の値にしてください")
 
         # 元のケースの値を土台にする（画面に出していない値を捨てない）。
-        payload = dict(originals.get(at("case_orig", index).strip(), {}))
+        payload = dict(originals.get(at("net_orig", index).strip(), {}))
         payload.update(
             {
                 "role": role,
                 "port": port,
                 "companion_name": companion_name,
                 "companion": sources[companion_name],
-                "input": _text(at("case_input", index)),
-                "companion_input": _text(at("case_companion_input", index)),
-                "expected_contains": _lines(at("case_expected", index)),
-                "companion_expected_contains": _lines(at("case_companion_expected", index)),
+                "input": _text(at("net_input", index)),
+                "companion_input": _text(at("net_companion_input", index)),
+                "expected_contains": _lines(at("net_expected", index)),
+                "companion_expected_contains": _lines(at("net_companion_expected", index)),
             }
         )
         cases.append(
@@ -132,7 +132,7 @@ def companion_cases_from_form(
                 # `code_test_runner` あてになり、ポートも伴走ソースも消える。
                 evaluator=evaluator_id,
                 payload=payload,
-                hidden=at("case_hidden", index, "1") == "1",
+                hidden=at("net_hidden", index, "1") == "1",
                 weight=weight,
             )
         )

@@ -1637,9 +1637,9 @@ def test_the_data_a_criterion_uses_sits_inside_that_criterion(world: World) -> N
     独立したカードとして置いていたときは、観点の設定を見ている人が下まで
     スクロールして初めて採点材料に出会った。
 
-    **入れ子のフォームは作れない**ので、欄は観点の中に置き、送信先は
-    `form` 属性で結び付ける（HTML5）。ここではその結び付きを固定する ──
-    外れると、押しても何も起きないボタンになる。
+    **保存は課題のフォームの 1 つ**（2026-10-02）。以前は末尾の空フォームに `form`
+    属性で結び、保存ボタンが 2 つあった ── 片方を押すと、もう片方の書きかけが
+    消えた。いまは欄が課題のフォームの一部で、印（`io_present`）を持つ。
     """
     world.register("teacher", Role.INSTRUCTOR)
     task_id = _import_example(world)
@@ -1649,10 +1649,11 @@ def test_the_data_a_criterion_uses_sits_inside_that_criterion(world: World) -> N
     )
     # 観点の欄の中に出ている（観点の削除印より後ろ = 同じ <details> の中）。
     assert page.index("この観点を削除する") < page.index("入出力セット"), "観点の外に出ている"
-    # 送信先は末尾の空フォームで、欄はそれを名指しする。
-    assert 'id="io-form"' in page
-    assert 'form="io-form" name="case_name"' in page
-    assert '<button form="io-form" type="submit">' in page
+    # 欄は課題のフォームの一部。別のフォームも別の保存ボタンも無い。
+    assert 'name="io_present"' in page
+    assert 'name="case_name"' in page
+    assert 'id="io-form"' not in page and 'form="io-form"' not in page
+    assert "テストケースを保存して新しい版にする" not in page
 
 
 def test_the_page_is_ordered_the_way_a_task_is_written(world: World) -> None:
