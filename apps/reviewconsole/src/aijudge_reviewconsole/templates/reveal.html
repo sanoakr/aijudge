@@ -231,7 +231,9 @@
       <label>
         <input type="radio" name="level_{{ row.criterion.code }}" required
                value="{{ level.level }}"
-               {% if (row.human_level if row.human_level is not none else row.ai_level) == level.level %}checked{% endif %}>
+               {% if (row.human_level if row.human_level is not none else row.ai_level) == level.level %}checked{% endif %}
+               {% if row.ai_level == level.level %}data-ai-level="1"{% endif %}
+               data-rubric-line="{{ row.criterion.title }}: {{ level.label }}（{{ '%.0f' | format(level.score_ratio * 100) }}%）{% if level.descriptor | trim %} ── {{ level.descriptor | trim }}{% endif %}">
         <span class="lv">{{ level.level }}: {{ level.label }}</span>
         {# **説明文には名前を付ける**（`.lv-text`）。無名の span だと、狭い幅で
            縮む相手を CSS が名指しできず、日本語が 1 文字ずつの縦並びになる。 #}
@@ -281,21 +283,32 @@
       いるので、覆すなら理由が要ります。覆さない場合も「確認した」だけでは
       学習者に何も返りません。
     </p>
-    {# **素案を入れておく**（#97）。空欄から書き始めずに済むよう、AI の判定を
-       読める文にして置いてある。**根拠そのものではない** ── 読んで直すのは
-       教員で、判断の中身は教員のものである（ADR 0009 §4）。
+    {# **選んだ段階のルーブリックの記述を入れておく**（2026-10-01）。以前は AI の
+       判定から作った素案（#97）を入れていたが、人が採点する課題では素案が作れず
+       空欄になり、毎回打つ手間が残った。段階の記述は教員が決めた文で、選んだこと
+       自体が判断である ── 作文ではない（ADR 0009 §4）。
 
-       **人採点のみの課題では空になる。** AI の判定が無いので素案の材料が
-       無く、材料が無いのに作れば必ず作文になる。 #}
-    <textarea id="comment" name="comment" rows="4" required minlength="{{ min_reason }}"
+       **段階を選び直すと入れ替える。** ただし教員が欄を書き換えたあとは触らない
+       （下のスクリプト）。書き足した根拠を機械が消さない。 #}
+    <textarea id="comment" name="comment" rows="5" required{% if review %} data-reviewed="1"{% endif %} minlength="{{ min_reason }}"
       placeholder="例: テストケース 3 の想定出力を確認しました。仕様どおりで、判定は妥当です。"
-      >{% if review %}{{ review.comment }}{% elif run.justification_draft %}{{ run.justification_draft }}{% endif %}</textarea>
-    {% if not review and run.justification_draft %}
+      >{% if review %}{{ review.comment }}{% else %}{{ default_comment }}{% endif %}</textarea>
+    {% if not review %}
     <p class="desc" style="margin:6px 0 0">
-      <strong>これは AI の判定から作った素案です。</strong>
-      そのまま確定できますが、<strong>学習者に表示されるのは教員の根拠として</strong>です。
-      読んで、違うところは直してください。
+      <strong>選んだ段階のルーブリックの記述を入れてあります。</strong>
+      段階を選び直すと入れ替わります（書き足したあとは入れ替わりません）。
+      <strong>学習者に表示されるのは教員の根拠として</strong>です。必要に応じて書き足してください。
     </p>
+    {% if run.justification_draft %}
+    {# **AI の素案は教員が選んで足す**（ADR 0030 §2）。初期値に入れないのは、blind の
+       あとでここに来るのが AI と食い違った提出だから ── 素案は AI の段階を説明する文で、
+       黙って入れると教員が退けた判定の根拠が学習者に届く。足すときも、段階が AI と
+       違えばその場で言う。JavaScript でしか動かないので `js-only`。 #}
+    <p class="js-only" hidden style="margin:6px 0 0">
+      <button type="button" id="add-ai-draft" data-draft="{{ run.justification_draft }}">AI の素案を足す</button>
+      <span class="pill attn" id="ai-draft-differs" hidden>AI の判定はあなたの段階と食い違っています</span>
+    </p>
+    {% endif %}
     {% endif %}
 
   </fieldset>
@@ -315,6 +328,55 @@
       {{ '確定し直す' if review else '成績を確定' }}</button>
   </div>
 </form>
+{# 段階を選び直したら、根拠の欄の記述を入れ替える（2026-10-01）。**欄がまだ自動で
+   入れた文のままのときだけ** ── 教員が書き足した根拠を消さない。並びは観点の順で、
+   サーバの `rubric_text.level_lines` と同じ形の行を組む（初期値と食い違わない）。 #}
+<script>
+(function () {
+  var box = document.getElementById("comment");
+  if (!box || box.dataset.reviewed) { return; }
+  var form = box.form;
+  function compose() {
+    var lines = [];
+    form.querySelectorAll("fieldset").forEach(function (set) {
+      var picked = set.querySelector("input[type=radio][data-rubric-line]:checked");
+      if (picked) { lines.push(picked.dataset.rubricLine); }
+    });
+    return lines.join("\n");
+  }
+  var auto = box.value;
+  var add = document.getElementById("add-ai-draft");
+  var differs = document.getElementById("ai-draft-differs");
+  // AI の段階がある観点で、選んでいる段階が AI と違うか。
+  function disagrees() {
+    var found = false;
+    form.querySelectorAll("fieldset").forEach(function (set) {
+      if (!set.querySelector("input[data-ai-level]")) { return; }
+      var picked = set.querySelector("input[type=radio]:checked");
+      if (picked && !picked.hasAttribute("data-ai-level")) { found = true; }
+    });
+    return found;
+  }
+  function reflect() { if (differs) { differs.hidden = !disagrees(); } }
+  form.addEventListener("change", function (event) {
+    if (!event.target.matches("input[type=radio][data-rubric-line]")) { return; }
+    reflect();
+    if (box.value !== auto) { return; }
+    auto = compose();
+    box.value = auto;
+  });
+  if (add) {
+    add.addEventListener("click", function () {
+      // 追記する。**足したあとは段階を選び直しても入れ替えない**（欄が自動の文と
+      // 違うものになるので、上の change がそう判断する）。二度足さない。
+      var text = box.value.replace(/\s+$/, "");
+      box.value = (text ? text + "\n\n" : "") + add.dataset.draft;
+      add.disabled = true;
+    });
+    reflect();
+  }
+})();
+</script>
 {% if review %}</details>{% endif %}
 {% endif %}
 </div>{# .right #}

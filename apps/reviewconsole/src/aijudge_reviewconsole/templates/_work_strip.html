@@ -3,6 +3,7 @@
    **待ちが 0 件ならそう言う** ── 何も並ばない帯は、読み込みに失敗したのか
    終わったのか区別できない（対応済みを誤って処理し直す事例があった）。 #}
 <section class="work-strip" aria-label="{{ strip.label }}の待ち行列">
+  {% if strip.agreed %}{% set agreed = strip.agreed %}{% include "_blind_agreed.html" %}{% endif %}
   <div class="work-strip-head">
     <strong>{{ strip.label }}</strong>
     {% if strip.pending %}

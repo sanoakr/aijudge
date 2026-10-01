@@ -32,6 +32,8 @@ JOBS_RELEASED = "jobs_released"
 KC_SCOPE = "kc_scope"
 TEST_CASE_ERROR = "test_case_error"
 REGRADED = "regraded"
+# blind 採点が AI と一致し、確定の画面を飛ばして確定した（2026-10-01）。次の 1 件で言う
+BLIND_AGREED = "blind_agreed"
 # どの観点も使っていない検証データ（入出力・参照解答）を、保存のときに外した（課題ごと）
 PRUNED = "pruned"
 
@@ -72,6 +74,7 @@ class Notices:
 
 
 __all__ = [
+    "BLIND_AGREED",
     "FINALIZED",
     "JOBS_RELEASED",
     "KC_SCOPE",

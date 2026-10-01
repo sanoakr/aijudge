@@ -1,0 +1,8 @@
+{# blind 採点が AI と一致し、確定の画面を飛ばして確定したことを一度だけ言う（2026-10-01）。
+   **どれが確定したかを開けるようにする** ── 根拠の文は自動で入れたので、直したければ
+   確定の画面から訂正する。 #}
+<p class="flash">
+  直前の提出（<span class="mono">{{ agreed.learner }}</span>）は、blind 採点が AI の判定と一致したので確定しました
+  （根拠はルーブリックの記述）。
+  <a href="{{ root_prefix() }}/review/{{ agreed.submission_id }}/reveal">開いて確かめる</a>
+</p>

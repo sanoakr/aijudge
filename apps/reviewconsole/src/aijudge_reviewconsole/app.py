@@ -84,6 +84,7 @@ from aijudge_core.ids import (
     TenantId,
 )
 from aijudge_course_admin.finalization import pending_breakdown, pending_counts
+from aijudge_course_admin.rubric_text import rubric_justification
 from aijudge_grading import load_profile, project_observations
 from aijudge_identity import (
     DEFAULT_LOGIN_LABEL,
@@ -1049,6 +1050,8 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 "section": {"label": "blind 採点", "href": f"/courses/{course.id}/blind"},
                 "rows": rows,
                 "groups": _task_groups(rows),
+                # 最後の 1 件が blind の一致で確定したときは、ここに戻ってくる。
+                "agreed": console.notices.take(me.user_id, course.id, notices.BLIND_AGREED),
                 "marked_count": marked_count,
                 "min_sample_size": min_sample_size,
             },
@@ -1127,6 +1130,9 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
         context = _load(console, me, SubmissionId(submission_id), request)
         parsed = _parse_levels(context.task_version.criteria, form)
         notes = str(form.get("notes", ""))
+        # 一致して確定したときに進む先。**保存の前に決める** ── 保存するとこの 1 件が
+        # 待ち行列から抜け、どこにいたのかが分からなくなる（並びは課題の順）。
+        next_after = _next_blind(console, me, context.course.id, str(submission_id))
 
         with console.database.unit_of_work() as uow:
             try:
@@ -1149,6 +1155,25 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
             uow.commit()
 
         fresh = _load(console, me, SubmissionId(submission_id), request)
+        # **一致したら、ここで確定まで済ませる**（ADR 0030）。教員は AI を見る前に
+        # 自分で段階を付けており、それが AI と全観点で同じなら、確定の画面で
+        # 同じ段階を選び直して根拠を打つのは手間でしかない。教員はこの 1 件を
+        # 実際に読んでいるので、`HumanReview` として記録してよい（ADR 0010 の
+        # 区別は保たれる ── 一致度の標本は blind の側で、ここでは増えも減りもしない）。
+        agreed = _blind_agrees(fresh, parsed)
+        if agreed:
+            _save_review(
+                console,
+                request,
+                me,
+                fresh,
+                adjusted={},
+                machine=dict(parsed),
+                waived=False,
+                text=rubric_justification(fresh.task_version.criteria, parsed, agreed=True),
+                via="blind_agreement",
+            )
+            fresh = _load(console, me, SubmissionId(submission_id), request)
         console.refresh_observations(
             fresh.submission,
             fresh.run,
@@ -1161,9 +1186,27 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
             mark=fresh.mark,
             review=fresh.review,
         )
-        return RedirectResponse(
-            _with_mode(f"/review/{submission_id}/reveal", _work_mode(from_)), status_code=303
+        mode = _work_mode(from_)
+        if not agreed:
+            return RedirectResponse(
+                _with_mode(f"/review/{submission_id}/reveal", mode), status_code=303
+            )
+        # **何が起きたかを次の画面で一度だけ言う。** 確定の画面を飛ばすので、
+        # 言わなければ教員はこの 1 件が確定したことを知らないまま次へ進む。
+        console.notices.put(
+            me.user_id,
+            fresh.course.id,
+            notices.BLIND_AGREED,
+            {"submission_id": str(submission_id), "learner": _login_of(fresh)},
         )
+        if mode == WORK_BLIND:
+            target = (
+                f"/review/{next_after}/blind?from={WORK_BLIND}"
+                if next_after
+                else f"/courses/{fresh.course.id}/blind"
+            )
+            return RedirectResponse(target, status_code=303)
+        return RedirectResponse(f"/review/{submission_id}/reveal", status_code=303)
 
     @app.get("/images/{course_id}/{name}")
     def statement_image(request: Request, course_id: str, name: str, me: Me) -> Response:
@@ -1287,6 +1330,12 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                     criterion.scored_by_human for criterion in context.task_version.criteria
                 ),
                 "rows": _comparison_rows(context.task_version, context.run, context.mark),
+                # 根拠の欄に最初から入れる文（2026-10-01）。**最初に選ばれている段階**
+                # （blind があればそれ、無ければ AI）の記述を並べる。段階を選び直すと
+                # 画面の側で入れ替える（教員が書き足したあとは触らない）。
+                "default_comment": rubric_justification(
+                    context.task_version.criteria, _preselected_levels(context)
+                ),
                 # 入出力セットとの突き合わせ。段階を決める人が、**何が違ったのか**を
                 # この画面で見られるように（根拠の文だけでは「書式だけ違う」と
                 # 「まるで違う」が同じに見える）。
@@ -1377,116 +1426,16 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 ),
             )
 
-        review_id = HumanReviewId(new_id("hrv"))
-        now = datetime.now(UTC)
-        # 下の `request` は学習者からの再確認の依頼で、HTTP の要求ではない。
-        # 監査に載せる文脈は取り違えないよう先に取っておく。
-        audit_request_id = request_id_of(request)
-        audit_source_ip = source_ip_of(request)
-        with console.database.unit_of_work() as uow:
-            # **`request` という名前にしない** ── ハンドラの引数（HTTP の
-            # 要求）を潰す。潰したまま下で `request` を使うと、
-            # ReviewRequest が HTTP の要求のふりをして渡っていく。
-            review_request = uow.reviews.find_request_for_run(context.run.id)
-            try:
-                # 2 つの記録を書く。**別物である**（ADR 0010）。
-                # HumanReview は「教員がこの 1 件を読んだ」── 一致度の測定が
-                # 証拠に使える唯一の記録。Finalization は「成績が確定した」──
-                # 一括確定や自動確定でも起きる事実。
-                uow.reviews.save_review(
-                    HumanReview(
-                        id=review_id,
-                        grading_run_id=context.run.id,
-                        grader_id=me.user_id,
-                        adjusted_levels=adjusted,
-                        penalty_waived=waived,
-                        comment=text,
-                        request_id=None if review_request is None else review_request.id,
-                        reviewed_at=now,
-                    )
-                )
-                if context.finalization is None:
-                    uow.reviews.save_finalization(
-                        Finalization(
-                            id=FinalizationId(new_id("fin")),
-                            grading_run_id=context.run.id,
-                            source=FinalizationSource.INSTRUCTOR_REVIEW,
-                            actor_id=me.user_id,
-                            review_id=review_id,
-                            justification=text,
-                            finalized_at=now,
-                        )
-                    )
-                # 既に確定済みのことがある。**自動確定した成績に学習者が
-                # 異議を申し立て、教員が読む経路。** 確定の記録は最初の
-                # ものを残す（追記のみ、P8）。教員が読んだ事実は
-                # `HumanReview` の側に付き、学習者にはそちらが出る。
-                if review_request is not None:
-                    uow.reviews.resolve_request(review_request.id, review_id)
-
-                # 監査記録（ADR 0016）。**`HumanReview` の代わりではない。**
-                # `HumanReview` は「教員がこの提出を読んだ」という採点側の
-                # 事実で、一致度の証拠になる唯一の記録である。監査行は
-                # 「その操作が行われた」という別の事実で、κ には使わない
-                # ── 2 つを畳んで一致度を壊した前例が ADR 0010 にある。
-                #
-                # 同じ UnitOfWork に載せてあるので、採点の保存が
-                # `ImmutabilityViolation` で落ちれば監査行も一緒に消える。
-                # 起きなかった確定を記録しない。
-                # 操作時点の役割を焼き込む。あとで役割が変わっても、そのときの
-                # 権限で読めるようにするため（監査行を後から解釈し直さない）。
-                # コース所属を持たないテナント管理者では None になり、
-                # **それが事実である**（役割ではなく管理権限で入っている）。
-                acting_role = AuthService(uow.identity, audit=uow.audit).role_in(
-                    context.course.id, me.user_id
-                )
-                audit = AuditRecorder.for_user(
-                    uow.audit,
-                    tenant_id=context.course.tenant_id,
-                    user_id=me.user_id,
-                    role=None if acting_role is None else acting_role.value,
-                    request_id=audit_request_id,
-                    source_ip=audit_source_ip,
-                    clock=lambda: now,
-                )
-                audit.record(
-                    AuditAction.REVIEW_RECORDED,
-                    target_type="submission",
-                    target_id=str(submission_id),
-                    summary=f"採点を確認した（変更 {len(adjusted)} 観点）",
-                    detail={
-                        "grading_run_id": str(context.run.id),
-                        "human_review_id": str(review_id),
-                        # 観点ごとの前後の値。**本文は入れない**（P7）。
-                        "adjusted_levels": {
-                            str(criterion_id): {
-                                "machine": machine.get(criterion_id),
-                                "instructor": level,
-                            }
-                            for criterion_id, level in adjusted.items()
-                        },
-                        "penalty_waived": waived,
-                    },
-                )
-                if context.finalization is None:
-                    audit.record(
-                        AuditAction.GRADE_FINALIZED,
-                        target_type="submission",
-                        target_id=str(submission_id),
-                        summary="成績を確定した（教員のレビュー）",
-                        detail={
-                            "grading_run_id": str(context.run.id),
-                            "source": FinalizationSource.INSTRUCTOR_REVIEW.value,
-                        },
-                    )
-            except ImmutabilityViolation as exc:
-                # 二度確定できると成績が二つ存在する。やり直しは再採点から。
-                # **文面は画面の側で書く**（#272）── 例外の文面は開発者向けで、
-                # 内部 ID と利用者 ID がそのまま出ていた。
-                raise HTTPException(
-                    status_code=409, detail=_already_finalised(console, SubmissionId(submission_id))
-                ) from exc
-            uow.commit()
+        _save_review(
+            console,
+            request,
+            me,
+            context,
+            adjusted=adjusted,
+            machine=machine,
+            waived=waived,
+            text=text,
+        )
 
         fresh = _load(console, me, SubmissionId(submission_id), request)
         console.refresh_observations(
@@ -1511,6 +1460,194 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
         )
 
     return app
+
+
+def _preselected_levels(context: _Context) -> dict:
+    """確定の画面で最初に選ばれている段階。blind があればそれ、無ければ AI の段階。
+
+    `reveal.html` のラジオの `checked` と同じ規則 ── 根拠の欄の初期値がこれと
+    食い違うと、選ばれている段階と違う記述が学習者に出る。
+    """
+    levels = {score.criterion_id: score.level for score in context.run.criterion_scores}
+    if context.mark is not None:
+        levels.update(context.mark.levels)
+    return levels
+
+
+def _blind_agrees(context: _Context, levels: dict) -> bool:
+    """blind の段階が AI と全観点で一致し、**ほかに人が決めることが無い**か（2026-10-01）。
+
+    一致しても確定の画面へ回すもの:
+
+    - 人が採点する観点・採点できなかった観点がある（AI の段階が無い）
+    - AI 段階がまだ届いていない（届けば判定が変わりうる・#400）
+    - 遅延の減点が付いている ── 免除するかどうかは教員の判断（ADR 0013 §4）
+    - 再確認の依頼が出ている、既に確認・確定がある
+    """
+    run = context.run
+    if context.awaiting_ai or context.review is not None or context.finalization is not None:
+        return False
+    if context.request is not None or run.penalty is not None:
+        return False
+    if run.unscored_criteria or run.awaiting_human:
+        return False
+    machine = {score.criterion_id: score.level for score in run.criterion_scores}
+    criteria = context.task_version.criteria
+    return bool(criteria) and all(
+        criterion.id in machine and levels.get(criterion.id) == machine[criterion.id]
+        for criterion in criteria
+    )
+
+
+def _next_blind(console: Console, me: Principal, course_id: CourseId, current: str) -> str | None:
+    """blind の待ち行列で、いまの 1 件の次（無ければ先頭・自分しかなければ None）。"""
+    _course, rows, _marked = _blind_rows(console, me, course_id)
+    ids = [str(row["submission"].id) for row in rows]
+    if current in ids:
+        after = ids[ids.index(current) + 1 :]
+        if after:
+            return after[0]
+    others = [i for i in ids if i != current]
+    return others[0] if others else None
+
+
+def _login_of(context: _Context) -> str:
+    learner = context.learner
+    return getattr(learner, "login", "") or "—"
+
+
+def _save_review(
+    console: Console,
+    request: Request,
+    me: Principal,
+    context: _Context,
+    *,
+    adjusted: dict,
+    machine: dict,
+    waived: bool,
+    text: str,
+    via: str | None = None,
+) -> None:
+    """教員の確認（`HumanReview`）と確定（`Finalization`）を書く。監査も同じ単位で。
+
+    確定画面の保存と、blind が AI と一致したときの確定（2026-10-01）が通る。
+    **書き方を 1 か所に置く** ── 片方だけ監査や依頼の解決を書き忘れると、同じ
+    「教員が読んで確定した」が経路によって違う記録になる。
+
+    `via` は監査に残す経路の名前（blind の一致なら `blind_agreement`）。記録の
+    中身は経路によらず同じなので、どこから確定したかは監査からしか読めない。
+    """
+    review_id = HumanReviewId(new_id("hrv"))
+    now = datetime.now(UTC)
+    # 下の `request` は学習者からの再確認の依頼で、HTTP の要求ではない。
+    # 監査に載せる文脈は取り違えないよう先に取っておく。
+    audit_request_id = request_id_of(request)
+    audit_source_ip = source_ip_of(request)
+    with console.database.unit_of_work() as uow:
+        # **`request` という名前にしない** ── ハンドラの引数（HTTP の
+        # 要求）を潰す。潰したまま下で `request` を使うと、
+        # ReviewRequest が HTTP の要求のふりをして渡っていく。
+        review_request = uow.reviews.find_request_for_run(context.run.id)
+        try:
+            # 2 つの記録を書く。**別物である**（ADR 0010）。
+            # HumanReview は「教員がこの 1 件を読んだ」── 一致度の測定が
+            # 証拠に使える唯一の記録。Finalization は「成績が確定した」──
+            # 一括確定や自動確定でも起きる事実。
+            uow.reviews.save_review(
+                HumanReview(
+                    id=review_id,
+                    grading_run_id=context.run.id,
+                    grader_id=me.user_id,
+                    adjusted_levels=adjusted,
+                    penalty_waived=waived,
+                    comment=text,
+                    request_id=None if review_request is None else review_request.id,
+                    reviewed_at=now,
+                )
+            )
+            if context.finalization is None:
+                uow.reviews.save_finalization(
+                    Finalization(
+                        id=FinalizationId(new_id("fin")),
+                        grading_run_id=context.run.id,
+                        source=FinalizationSource.INSTRUCTOR_REVIEW,
+                        actor_id=me.user_id,
+                        review_id=review_id,
+                        justification=text,
+                        finalized_at=now,
+                    )
+                )
+            # 既に確定済みのことがある。**自動確定した成績に学習者が
+            # 異議を申し立て、教員が読む経路。** 確定の記録は最初の
+            # ものを残す（追記のみ、P8）。教員が読んだ事実は
+            # `HumanReview` の側に付き、学習者にはそちらが出る。
+            if review_request is not None:
+                uow.reviews.resolve_request(review_request.id, review_id)
+
+            # 監査記録（ADR 0016）。**`HumanReview` の代わりではない。**
+            # `HumanReview` は「教員がこの提出を読んだ」という採点側の
+            # 事実で、一致度の証拠になる唯一の記録である。監査行は
+            # 「その操作が行われた」という別の事実で、κ には使わない
+            # ── 2 つを畳んで一致度を壊した前例が ADR 0010 にある。
+            #
+            # 同じ UnitOfWork に載せてあるので、採点の保存が
+            # `ImmutabilityViolation` で落ちれば監査行も一緒に消える。
+            # 起きなかった確定を記録しない。
+            # 操作時点の役割を焼き込む。あとで役割が変わっても、そのときの
+            # 権限で読めるようにするため（監査行を後から解釈し直さない）。
+            # コース所属を持たないテナント管理者では None になり、
+            # **それが事実である**（役割ではなく管理権限で入っている）。
+            acting_role = AuthService(uow.identity, audit=uow.audit).role_in(
+                context.course.id, me.user_id
+            )
+            audit = AuditRecorder.for_user(
+                uow.audit,
+                tenant_id=context.course.tenant_id,
+                user_id=me.user_id,
+                role=None if acting_role is None else acting_role.value,
+                request_id=audit_request_id,
+                source_ip=audit_source_ip,
+                clock=lambda: now,
+            )
+            audit.record(
+                AuditAction.REVIEW_RECORDED,
+                target_type="submission",
+                target_id=str(context.submission.id),
+                summary=f"採点を確認した（変更 {len(adjusted)} 観点）",
+                detail={
+                    "grading_run_id": str(context.run.id),
+                    "human_review_id": str(review_id),
+                    # 観点ごとの前後の値。**本文は入れない**（P7）。
+                    "adjusted_levels": {
+                        str(criterion_id): {
+                            "machine": machine.get(criterion_id),
+                            "instructor": level,
+                        }
+                        for criterion_id, level in adjusted.items()
+                    },
+                    "penalty_waived": waived,
+                    **({"via": via} if via else {}),
+                },
+            )
+            if context.finalization is None:
+                audit.record(
+                    AuditAction.GRADE_FINALIZED,
+                    target_type="submission",
+                    target_id=str(context.submission.id),
+                    summary="成績を確定した（教員のレビュー）",
+                    detail={
+                        "grading_run_id": str(context.run.id),
+                        "source": FinalizationSource.INSTRUCTOR_REVIEW.value,
+                    },
+                )
+        except ImmutabilityViolation as exc:
+            # 二度確定できると成績が二つ存在する。やり直しは再採点から。
+            # **文面は画面の側で書く**（#272）── 例外の文面は開発者向けで、
+            # 内部 ID と利用者 ID がそのまま出ていた。
+            raise HTTPException(
+                status_code=409, detail=_already_finalised(console, context.submission.id)
+            ) from exc
+        uow.commit()
 
 
 # -- 権限つきの読み出し ------------------------------------------------------
@@ -1929,6 +2066,13 @@ def _work_strip(console: Console, me: Principal, course_id: CourseId, mode: str,
     return {
         "mode": mode,
         "label": WORK_LABELS[mode],
+        # 直前の 1 件が blind の一致で確定した知らせ（2026-10-01）。確定の画面を
+        # 飛ばしたので、ここで言わないと教員は確定したことを知らない。
+        "agreed": (
+            console.notices.take(me.user_id, course.id, notices.BLIND_AGREED)
+            if mode == WORK_BLIND
+            else None
+        ),
         "list_href": f"/courses/{course.id}/{mode}",
         "pending": len(ids),
         "current_pending": position >= 0,
