@@ -14,6 +14,7 @@
   一致度が測れないだけです（ADR 0007）。
 </div>
 
+{% if agreed %}{% include "_blind_agreed.html" %}{% endif %}
 <div class="work-summary">
   {% if rows %}
     <span class="pill attn">blind 採点を待っている提出 {{ rows | length }} 件</span>
