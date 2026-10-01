@@ -23,6 +23,11 @@
 `echoServer.py` は課題文が名指ししている相手で、それに対して採点することが
 「課題の指示どおりか」の定義そのものになる。
 
+**ケースごとに相手とポートを変えられる**（2026-10-02）。`cases` の各項目に
+`companion:` と `port:` を書けば、そのケースだけ別の伴走プロセスに向ける（書かなければ
+上の既定）。同じ課題で「普通のエコーサーバ」と「2 回繰り返して返すサーバ」に接続させる
+ような課題（network ex4）が、これで 1 つの宣言に書ける。
+
 期待値は**部分一致**（`expected_contains`）にしてある。サーバの出力には
 接続元の一時ポート（`('127.0.0.1', 53578)`）のように毎回変わる値が混ざるため、
 完全一致では常に落ちる。
@@ -73,17 +78,24 @@ def load_companion_cases(problem_dir: Path) -> tuple[TestCase, ...]:
     companion_name = str(data.get("companion", "")).strip()
     if not companion_name:
         raise CompanionError(f"{path}: 'companion' names the companion program file")
-    companion_path = problem_dir / companion_name
-    if not companion_path.is_file():
-        raise CompanionError(
-            f"{path}: companion {companion_name!r} is not in {problem_dir}. "
-            "伴走プロセスは教材のファイルを指すこと（生成しない、ADR 0008）"
-        )
-    companion_source = companion_path.read_text(encoding="utf-8", errors="replace")
+    sources: dict[str, str] = {}
+
+    def source_of(name: str) -> str:
+        """伴走プロセスのソース。ケースが別の相手を名指ししたときもここで読む。"""
+        if name not in sources:
+            companion_path = problem_dir / name
+            if not companion_path.is_file():
+                raise CompanionError(
+                    f"{path}: companion {name!r} is not in {problem_dir}. "
+                    "伴走プロセスは教材のファイルを指すこと（生成しない、ADR 0008）"
+                )
+            sources[name] = companion_path.read_text(encoding="utf-8", errors="replace")
+        return sources[name]
+
+    source_of(companion_name)
 
     port = data.get("port")
-    if not isinstance(port, int) or not 1024 <= port <= 65535:
-        raise CompanionError(f"{path}: port must be an int in [1024, 65535], got {port!r}")
+    _check_port(path, port)
 
     fixtures: dict[str, str] = {}
     for name in data.get("fixtures", ()) or ():
@@ -100,15 +112,18 @@ def load_companion_cases(problem_dir: Path) -> tuple[TestCase, ...]:
     for index, raw in enumerate(raw_cases, 1):
         if not isinstance(raw, dict):
             raise CompanionError(f"{path}: case {index} is not a mapping")
+        name = str(raw.get("companion") or companion_name).strip()
+        case_port = raw.get("port", port)
+        _check_port(path, case_port, index=index)
         cases.append(
             _case(
                 path=path,
                 index=index,
                 raw=raw,
                 role=role,
-                companion_name=companion_name,
-                companion_source=companion_source,
-                port=port,
+                companion_name=name,
+                companion_source=source_of(name),
+                port=case_port,
                 fixtures=fixtures,
             )
         )
@@ -141,7 +156,7 @@ def _case(
             "role": role,
             "companion": companion_source,
             "companion_name": companion_name,
-            "port": int(raw.get("port", port)),
+            "port": int(port),
             "input": str(raw.get("input", "")),
             "companion_input": str(raw.get("companion_input", "")),
             "fixtures": fixtures,
@@ -151,6 +166,13 @@ def _case(
         hidden=bool(raw.get("hidden", True)),
         weight=float(raw.get("weight", 1.0)),
     )
+
+
+def _check_port(path: Path, port: object, *, index: int | None = None) -> None:
+    """評価器と同じ範囲（`network_test_runner._run_case`）。ケースの上書きも確かめる。"""
+    if not isinstance(port, int) or isinstance(port, bool) or not 1024 <= port <= 65535:
+        where = f"case {index}: " if index is not None else ""
+        raise CompanionError(f"{path}: {where}port must be an int in [1024, 65535], got {port!r}")
 
 
 def _as_strings(value: object) -> tuple[str, ...]:

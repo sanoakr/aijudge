@@ -222,3 +222,33 @@ def test_a_unit_without_a_session_keeps_its_name(tmp_path: Path) -> None:
     problem.mkdir(parents=True)
     unit, session, position = sharif_judge.parse_unit(problem)
     assert (unit, session, position) == ("exam08", None, 2)
+
+
+def test_a_case_can_name_its_own_companion_and_port(tmp_path: Path) -> None:
+    """**ケースごとに相手とポートを変えられる**（2026-10-02・network ex4）。"""
+    text = CLIENT_YAML + (
+        "  - name: 2 回繰り返して返すサーバ\n"
+        "    companion: echoServer2.py\n"
+        "    port: 5001\n"
+        '    input: "{host}\\n{port}\\n"\n'
+        "    expected_contains: \"Received b'Hello, worldHello, world'\"\n"
+    )
+    problem = _problem(tmp_path, text, extra={"echoServer2.py": "# 2 回返す\n"})
+
+    cases = companion.load_companion_cases(problem)
+
+    by_name = {case.name: case.payload for case in cases}
+    assert by_name["case1"]["companion_name"] == "echoServer.py"
+    assert by_name["case1"]["port"] == 50007
+    assert by_name["2 回繰り返して返すサーバ"]["companion_name"] == "echoServer2.py"
+    assert by_name["2 回繰り返して返すサーバ"]["companion"] == "# 2 回返す\n"
+    assert by_name["2 回繰り返して返すサーバ"]["port"] == 5001
+
+
+def test_a_case_naming_a_missing_companion_or_a_bad_port_is_refused(tmp_path: Path) -> None:
+    missing = CLIENT_YAML + ("  - name: c3\n    companion: nowhere.py\n    expected_contains: x\n")
+    with pytest.raises(companion.CompanionError, match=r"nowhere\.py"):
+        companion.load_companion_cases(_problem(tmp_path / "a", missing))
+    bad_port = CLIENT_YAML + "  - name: c3\n    port: 80\n    expected_contains: x\n"
+    with pytest.raises(companion.CompanionError, match="case 3"):
+        companion.load_companion_cases(_problem(tmp_path / "b", bad_port))
