@@ -16,11 +16,12 @@
 
 from __future__ import annotations
 
+import contextlib
 import difflib
 import itertools
 from dataclasses import dataclass
 
-from aijudge_core import GradingRun, TaskVersion
+from aijudge_core import GradingRun, TaskVersion, TestCase
 from aijudge_core.ids import CriterionId
 
 # 1 ケースで並べる行の上限。**出力は最大 1 MiB まで記録される**（評価器の
@@ -31,6 +32,14 @@ MAX_SHOWN_LINES = 200
 MAX_INPUT_CHARS = 4000
 # 標準エラーの上限。評価器の側でも 2000 文字で切ってある。
 MAX_STDERR_CHARS = 2000
+
+# クライアント・サーバの課題を採点する評価器（2026-10-01）。**比べ方が違う** ──
+# 行を揃えて比べるのではなく、期待する断片が出力に含まれるかを見る。記録の形も
+# 違うので（`expected`/`actual` が無く、`submission_stdout`・`missing` がある）、
+# 入出力の形で読むと「出力は記録されていません」と誤って出ていた。
+NETWORK_TEST_RUNNER = "network_test_runner"
+# 入力の `{host}`・`{port}` を埋める値。**評価器と同じ値**（伴走プロセスは手元で立てる）。
+NETWORK_HOST = "127.0.0.1"
 
 
 @dataclass(frozen=True)
@@ -62,18 +71,66 @@ class IoCase:
 
 
 @dataclass(frozen=True)
+class Needle:
+    """期待する断片 1 つと、出力に見つかったか。出力が記録されていなければ None。"""
+
+    text: str
+    found: bool | None
+
+
+@dataclass(frozen=True)
+class NetworkCase:
+    """クライアント・サーバの 1 ケース（`network_test_runner`）。"""
+
+    name: str
+    passed: bool
+    reason: str | None
+    # 落ちた理由の詳しい説明（待ち受けなかったときの、何がどのポートで、など）。
+    detail: str | None
+    hidden: bool
+    # 提出物の役割（`client` / `server`）と、伴走プロセスとのやりとりに使うポート。
+    role: str
+    port: int | None
+    # 提出物と伴走プロセスへの入力。**`{host}`・`{port}` は埋めて見せる** ── 採点で
+    # 渡したのは埋めた値で、記号のまま見せると何を入れたのか読めない。
+    input: str | None
+    companion_input: str | None
+    expected: tuple[Needle, ...]
+    companion_expected: tuple[Needle, ...]
+    # 採点のとき記録した出力（評価器が 2000 文字で切っている）。
+    submission_stdout: str | None
+    companion_stdout: str | None
+    # 待ち受けなかったとき、待たれた側（背景のプロセス）の標準エラー出力。
+    background_stderr: str | None
+    # 出力が記録されているか。時間切れ・待ち受けなしでは記録されない。
+    recorded: bool
+
+
+@dataclass(frozen=True)
 class IoResult:
     evaluator_id: str
     cases: tuple[IoCase, ...]
     compile_error: str | None
+    # クライアント・サーバの課題のケース。入出力の課題では空。
+    network_cases: tuple[NetworkCase, ...] = ()
+
+    @property
+    def is_network(self) -> bool:
+        return self.evaluator_id == NETWORK_TEST_RUNNER
+
+    @property
+    def total(self) -> int:
+        return len(self.network_cases) if self.is_network else len(self.cases)
 
     @property
     def passed(self) -> int:
-        return sum(1 for case in self.cases if case.passed)
+        cases = self.network_cases if self.is_network else self.cases
+        return sum(1 for case in cases if case.passed)
 
     @property
-    def failed(self) -> tuple[IoCase, ...]:
-        return tuple(case for case in self.cases if not case.passed)
+    def failed(self) -> tuple[IoCase | NetworkCase, ...]:
+        cases = self.network_cases if self.is_network else self.cases
+        return tuple(case for case in cases if not case.passed)
 
 
 def io_results(task: TaskVersion, run: GradingRun) -> dict[CriterionId, IoResult]:
@@ -94,6 +151,10 @@ def io_results(task: TaskVersion, run: GradingRun) -> dict[CriterionId, IoResult
         compile_error = raw.get("compile_error")
         if not isinstance(cases, list) and not isinstance(compile_error, str):
             continue
+        if result.evaluator_id == NETWORK_TEST_RUNNER:
+            if isinstance(cases, list):
+                out[score.criterion_id] = _network_result(task, result.evaluator_id, cases)
+            continue
         inputs = {
             case.name: case.payload.get("input")
             for case in task.test_cases
@@ -111,6 +172,80 @@ def io_results(task: TaskVersion, run: GradingRun) -> dict[CriterionId, IoResult
             else None,
         )
     return out
+
+
+def _network_result(task: TaskVersion, evaluator_id: str, cases: list) -> IoResult:
+    """クライアント・サーバの課題の突き合わせ。期待する断片は課題の版から読む。
+
+    評価器が記録するのは**見つからなかった断片**（`missing`）だけなので、期待した
+    断片の一覧と非公開かどうかは、採点に使った課題の版のケースから引く。
+    """
+    defined = {case.name: case for case in task.test_cases if case.evaluator_id == evaluator_id}
+    return IoResult(
+        evaluator_id=evaluator_id,
+        cases=(),
+        compile_error=None,
+        network_cases=tuple(
+            _network_case(entry, defined.get(str(entry.get("name", ""))))
+            for entry in cases
+            if isinstance(entry, dict)
+        ),
+    )
+
+
+def _network_case(entry: dict[str, object], defined: TestCase | None) -> NetworkCase:
+    payload = {} if defined is None else dict(defined.payload)
+    port = entry.get("port", payload.get("port"))
+    port = port if isinstance(port, int) else None
+    recorded = isinstance(entry.get("submission_stdout"), str)
+    passed = bool(entry.get("passed"))
+    return NetworkCase(
+        name=str(entry.get("name", "")),
+        passed=passed,
+        reason=None if passed else _reason(entry),
+        detail=_short(entry.get("detail")),
+        hidden=bool(defined.hidden) if defined is not None else False,
+        role=str(entry.get("role") or payload.get("role") or ""),
+        port=port,
+        input=_filled(payload.get("input"), port),
+        companion_input=_filled(payload.get("companion_input"), port),
+        expected=_needles(payload.get("expected_contains"), entry.get("missing"), recorded),
+        companion_expected=_needles(
+            payload.get("companion_expected_contains"), entry.get("missing_companion"), recorded
+        ),
+        submission_stdout=_short(entry.get("submission_stdout"), keep_empty=True),
+        companion_stdout=_short(entry.get("companion_stdout"), keep_empty=True),
+        background_stderr=_short(entry.get("background_stderr")),
+        recorded=recorded,
+    )
+
+
+def _needles(wanted: object, missing: object, recorded: bool) -> tuple[Needle, ...]:
+    """期待する断片ごとに、見つかったか。**記録が無ければ分からない（None）。**"""
+    if not isinstance(wanted, list):
+        return ()
+    absent = {str(item) for item in missing} if isinstance(missing, list) else set()
+    return tuple(
+        Needle(text=str(item), found=(str(item) not in absent) if recorded else None)
+        for item in wanted
+    )
+
+
+def _filled(value: object, port: int | None) -> str | None:
+    """入力の `{host}`・`{port}` を、採点で渡した値に埋める。埋められなければそのまま。"""
+    if not isinstance(value, str):
+        return None
+    text = value
+    # 課題の入力に他の波括弧があると埋められない。そのときは書かれたまま見せる。
+    with contextlib.suppress(KeyError, IndexError, ValueError):
+        text = value.format(host=NETWORK_HOST, port="" if port is None else str(port))
+    return text[:MAX_INPUT_CHARS]
+
+
+def _short(value: object, *, keep_empty: bool = False) -> str | None:
+    if not isinstance(value, str) or (not value and not keep_empty):
+        return None
+    return value[:MAX_STDERR_CHARS]
 
 
 def _case(entry: dict[str, object], inputs: dict[str, object]) -> IoCase:
@@ -176,7 +311,9 @@ def _reason(entry: dict[str, object]) -> str:
         return f"異常終了（終了コード {entry.get('exit_code')}）"
     if reason == "output mismatch":
         return "出力が違う"
+    if reason == "not_listening":
+        return "待ち受けが始まらない"
     return reason or "不一致"
 
 
-__all__ = ["IoCase", "IoLine", "IoResult", "io_results"]
+__all__ = ["IoCase", "IoLine", "IoResult", "Needle", "NetworkCase", "io_results"]

@@ -33,6 +33,7 @@ from aijudge_eval_code_test_runner import EVALUATOR_ID as CODE_TEST_RUNNER
 from aijudge_grading import EvaluatorRegistry, load_profile, test_case_shape
 
 from .. import notices
+from ..companion_view import companion_view
 from ..overview import load_units
 from .common import _console, _course_kcs, _kc_keys_of
 from .grading_views import (
@@ -650,6 +651,9 @@ def _task_page(
             # 捨てて保存済みを出すと、直しかけたものが黙って消える。
             "io_cases": io_draft if io_draft is not None else cases_by_shape.get("io", ()),
             "item_cases": cases_by_shape.get("items", ()),
+            # クライアント・サーバのケース（2026-10-01）。**確認のために出す** ──
+            # 以前は計算して捨てており、中身は course.yaml を読むしかなかった。
+            "companion": companion_view(cases_by_shape.get("companion", ())),
             # AI に書かせた解答例（保存はしていない）。
             "reference_draft": reference_draft,
             # 走らせて期待出力を埋めた提案（採用は人が選ぶ・P5）。

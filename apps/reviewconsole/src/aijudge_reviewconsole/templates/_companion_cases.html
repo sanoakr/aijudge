@@ -1,0 +1,54 @@
+{# クライアント・サーバの課題の検証データ（`companion_view.py`・2026-10-01）。
+   課題の編集画面と TA の閲覧画面の両方が使う。**確認のための表示**で、ここでは
+   編集しない（編集は課題定義・course.yaml）。以前は中身が画面のどこにも出ず、
+   course.yaml を読むしかなかった。
+
+   伴走プロセスのソースは、ケースごとに入っている写しを 1 つにまとめて出す。 #}
+{% set view = companion %}
+<div class="companion-cases">
+  <h4 style="margin:0 0 6px">クライアント・サーバのケース（{{ view.cases | length }} 件）</h4>
+  <p class="desc" style="margin:0 0 8px">
+    提出物と伴走プロセスを同時に動かし、それぞれの出力に<strong>期待する断片が含まれるか</strong>で判定します。
+    入力の <code>{host}</code>・<code>{port}</code> は採点のときに埋められます。
+    この画面では確認だけで、<strong>直すときは課題定義（course.yaml）</strong>を使います。
+  </p>
+  {% for src in view.sources %}
+  <details class="card">
+    <summary>伴走プロセスのソース <span class="mono">{{ src.name }}</span>
+      <span class="desc">（{{ src.source.splitlines() | length }} 行）</span></summary>
+    <pre class="code">{{ src.source }}</pre>
+  </details>
+  {% endfor %}
+  <table class="stack">
+    <thead><tr>
+      <th class="fit">ケース</th><th class="fit">提出物</th><th class="grow">入力と期待する断片</th><th class="fit">重み</th>
+    </tr></thead>
+    <tbody>
+    {% for case in view.cases %}
+      <tr>
+        <td class="fit mono" data-label="ケース">{{ case.name }}{% if case.hidden %}<br><span class="desc">非公開</span>{% endif %}</td>
+        <td class="fit" data-label="提出物">{{ 'サーバ' if case.role == 'server' else 'クライアント' }}<br>
+          <span class="desc">ポート {{ case.port }}</span><br>
+          <span class="desc mono">相手: {{ case.companion_name }}</span></td>
+        <td class="grow">
+          {% if case.input %}<p class="desc" style="margin:0">提出物への入力</p>
+          <pre class="code io-input">{{ case.input.rstrip("\n") }}</pre>{% endif %}
+          {% if case.expected_contains %}<p class="desc" style="margin:0">提出物の出力に含まれるべき断片</p>
+          <ul class="needles">{% for n in case.expected_contains %}<li class="mono">{{ n }}</li>{% endfor %}</ul>{% endif %}
+          {% if case.companion_input %}<p class="desc" style="margin:0">伴走プロセスへの入力</p>
+          <pre class="code io-input">{{ case.companion_input.rstrip("\n") }}</pre>{% endif %}
+          {% if case.companion_expected_contains %}<p class="desc" style="margin:0">伴走プロセスの出力に含まれるべき断片</p>
+          <ul class="needles">{% for n in case.companion_expected_contains %}<li class="mono">{{ n }}</li>{% endfor %}</ul>{% endif %}
+          {% for fname, content in case.fixtures %}
+          <details><summary class="desc">付属ファイル <span class="mono">{{ fname }}</span></summary>
+            <pre class="code">{{ content }}</pre></details>
+          {% endfor %}
+        </td>
+        <td class="fit" data-label="重み">{{ '%.2f' | format(case.weight) }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="4" class="desc">ケースがありません。この観点は採点できず、総点は伏せられます。</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>

@@ -75,6 +75,8 @@
     <span class="desc">入出力 {{ io_cases | length }} 件{% if version and version.reference_solution %}・参照解答あり{% else %}・<strong>参照解答なし</strong>{% endif %}</span>
     {% elif holds_data == 'items' %}
     <span class="desc">項目 {{ item_cases | length }} 件</span>
+    {% elif holds_data == 'companion' and companion is defined %}
+    <span class="desc">クライアント・サーバ {{ companion.cases | length }} 件</span>
     {% endif %}
     <span class="desc open-hint">開いて修正</span>
   </summary>

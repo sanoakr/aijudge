@@ -40,6 +40,7 @@ from aijudge_eval_code_test_runner import EVALUATOR_ID as CODE_TEST_RUNNER
 from aijudge_grading import EvaluatorRegistry, load_profile
 
 from .. import notices
+from ..companion_view import companion_view
 from ..overview import unit_key
 from ..urls import RedirectResponse
 from .common import (
@@ -422,6 +423,8 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
                     },
                     "io_cases": cases_by_shape.get("io", ()),
                     "item_cases": cases_by_shape.get("items", ()),
+                    # クライアント・サーバのケース。教員の画面と同じものを確認だけ。
+                    "companion": companion_view(cases_by_shape.get("companion", ())),
                 },
             )
         return _task_page(

@@ -6,6 +6,7 @@
 
    並べるのは採点のとき記録された出力で、**正規化した後の行**（評価器が
    比べたもの）。この画面で提出を走らせ直すことはしない（ADR 0007）。 #}
+{% if io.is_network %}{% include "_network_result.html" %}{% else %}
 <details class="io-result" {{ 'open' if io.failed or io.compile_error }}>
   <summary>
     入出力セットとの突き合わせ
@@ -62,3 +63,4 @@
   {% endif %}
   <p class="desc">比べているのは、行末の空白と末尾の空行を除いた後の行です（採点と同じ比べ方）。</p>
 </details>
+{% endif %}
