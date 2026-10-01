@@ -56,7 +56,10 @@ def _report(report: FinalizeReport, *, dry_run: bool) -> None:
     for course in report.failed_courses:
         logger.error("コース %s の確定に失敗しました（次の周回で再試行）", course.code)
     if not report.touched:
-        logger.info("対象はありませんでした")
+        if report.waiting:
+            logger.info("確定できるものはありませんでした（待ち %d 件）", report.waiting)
+        else:
+            logger.info("対象はありませんでした")
         return
     for outcome in report.touched:
         parts = [f"{prefix}: {outcome.finalized} 件"]
@@ -70,8 +73,15 @@ def _report(report: FinalizeReport, *, dry_run: bool) -> None:
             parts.append(f"人が採点する観点あり: {outcome.awaiting_human} 件")
         if outcome.ai_pending:
             parts.append(f"AI 評価待ち: {outcome.ai_pending} 件")
+        if outcome.not_due:
+            parts.append(f"猶予中: {outcome.not_due} 件")
         logger.info("%s [%s] %s", outcome.task.unit_label, outcome.task.title, " / ".join(parts))
-    logger.info("合計 %d 件確定、%d 件見送り", report.finalized, report.skipped)
+    logger.info(
+        "合計 %d 件確定、%d 件見送り、%d 件待ち（猶予中・AI 評価待ち）",
+        report.finalized,
+        report.skipped,
+        report.waiting,
+    )
 
 
 def main(argv: list[str] | None = None) -> int:

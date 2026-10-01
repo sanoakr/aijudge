@@ -119,6 +119,11 @@ class UnitGroup:
     # エディタの補完（設計書 §5.3）。全課題が入なら真。混ざりは別に持つ。
     completion: bool = False
     completion_mixed: bool = False
+    # 未確定のうち、**放っておいても閉じない**件数（2026-10-01）。異議申立・
+    # 要レビュー・採点失敗・猶予の未設定。猶予中と AI 評価待ちは含めない ──
+    # 自動確定が毎時閉じていくものまで「止まっている」と言うと、教員は正常な
+    # 待ちを障害と読む（prog2 ex01 で 57 件と警告し、止まっていたのは 1 件）。
+    stalled: int = 0
 
     @property
     def count(self) -> int:
@@ -131,12 +136,17 @@ class UnitGroup:
 
     @property
     def needs_attention(self) -> bool:
-        """期限が過ぎたのに未確定が残っているか。
+        """期限が過ぎたのに、放っておいても閉じない未確定が残っているか。
 
-        自動確定が動いていないか、異議申立・要レビューが残っているかの
-        どちらかで、どちらも教員が見るべき状態である。
+        異議申立・要レビュー・採点失敗・猶予の未設定のどれかで、どれも教員が
+        見るべき状態である。猶予中と AI 評価待ちは待てば閉じるので数えない。
         """
-        return self.deadline_passed and self.unfinalized > 0
+        return self.deadline_passed and self.stalled > 0
+
+    @property
+    def waiting(self) -> int:
+        """未確定のうち、自動確定を待っている件数（猶予中・AI 評価待ち）。"""
+        return self.unfinalized - self.stalled
 
 
 @dataclass(frozen=True)
@@ -172,6 +182,7 @@ def load_units(
     course: Course,
     *,
     pending: dict[object, int] | None = None,
+    stalled: dict[object, int] | None = None,
     now: datetime | None = None,
     viewer: Role | None = None,
 ) -> tuple[UnitGroup, ...]:
@@ -179,7 +190,8 @@ def load_units(
 
     `pending` は課題ごとの未確定件数（`pending_counts`）。渡さなければ
     件数は 0 として組む ── 件数が要らない画面で課題数ぶんの問い合わせを
-    させないため。
+    させないため。`stalled` はそのうち放っておいても閉じない件数
+    （`pending_breakdown`）。渡さなければ 0 ── 「期限経過で要対応」は出ない。
 
     `viewer` は見る人の役割。渡せば `may_see` で絞る ── TA に公開前の秘匿の
     課題（試験）を出さない。**TA も開ける画面は必ず渡す。** 教員専用の画面
@@ -187,6 +199,7 @@ def load_units(
     """
     moment = now or datetime.now(UTC)
     counts = pending or {}
+    stuck = stalled or {}
     rows: list[tuple[Task, TaskVersion]] = []
     for task in uow.tasks.list_for_course(course.id):  # type: ignore[attr-defined]
         if viewer is not None and not may_see(task, viewer, now=moment):
@@ -260,6 +273,7 @@ def load_units(
                 visibility=_visibility(tasks, moment),
                 completion=bool(tasks) and all(task.editor_completion for task in tasks),
                 completion_mixed=len({task.editor_completion for task in tasks}) > 1,
+                stalled=sum(stuck.get(task.id, 0) for task, _ in items),
             )
         )
     return tuple(groups)
