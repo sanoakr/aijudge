@@ -106,6 +106,10 @@ tasks:
   #      in/input1.txt    テストケースの入力（input2.txt, … と続ける）
   #      out/output1.txt  期待出力（input と同じ番号）
   #      <name>.py / .c   参照解答（任意。AI の判定の手がかりになる）
+  #      companion.yaml   クライアント・サーバの課題だけ。伴走プロセス（echoServer.py など）・
+  #                       役割・ポート・ケースを書く。あれば in/ out/ より優先し、正しさの観点を
+  #                       network_test_runner が担当します（criteria を書くなら、どれかに
+  #                       evaluator: network_test_runner を付ける）
   #    キー・回・順序はディレクトリ名（ex1/p2）から決まります。
   # --------------------------------------------------------------------------
   - problem_dir: ex1/p2
