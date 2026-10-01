@@ -428,6 +428,30 @@ def test_leaving_confidential_out_keeps_what_the_console_set(database: Database,
     assert all(task.confidential_until_open for task in tasks.values())
 
 
+def test_a_unit_can_be_campus_only(database: Database, tmp_path) -> None:
+    """`campus_only` は問題セットの値で、回の全課題に入る（試験）。
+
+    画面でしか入れられないと、定義から作り直すコース（`demo reset`）では作り直す
+    たびに学内限定が外れる。書かれていない回は触らない。
+    """
+    text = _with_unit_setting("campus_only: true").replace(
+        "  - key: ex1/cert\n    unit: ex1\n", "  - key: ex1/cert\n    unit: ex0\n"
+    )
+    result = _apply(database, _write_definition(tmp_path, text))
+    tasks, _versions = _tasks(database, result.course.id)
+    in_set = [task for task in tasks.values() if task.unit == "ex1"]
+    assert len(in_set) == 2
+    assert all(task.campus_only for task in in_set)
+    assert tasks["認定証を提出する"].campus_only is False
+
+
+def test_a_misspelt_campus_only_is_refused(tmp_path: Path) -> None:
+    with pytest.raises(AdminError, match="campus_only"):
+        load_course_definition(
+            _write_definition(tmp_path, _with_unit_setting("campus_only: yes-please"))
+        )
+
+
 def test_a_unit_carries_its_clear_points(database: Database, tmp_path) -> None:
     """`clear_points` は問題セットの値で、回の全課題に入る。"""
     result = _apply(database, _write_definition(tmp_path, _with_unit_setting("clear_points: 60")))

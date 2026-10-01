@@ -26,6 +26,7 @@
       ex5: {answer_mode: editor, editor_completion: true}   # 答え方（ADR 0026）
       ex3: {answer_mode: editor, file_upload: false}        # エディタだけ（試験）
       test3: {confidential_until_open: true}                # 公開まで教員だけ（TA にも見せない）
+      test4: {campus_only: true}                            # 学内からだけ受け付ける（試験）
       ex4: {clear_points: 60}                               # 合計 60 点でクリア
     tasks:
       - key: ex1/cert                       # TaskSpec のフィールドをそのまま書く
@@ -39,8 +40,8 @@
       - problem_dir: ex1/p1                 # Sharif Judge 形式の問題ディレクトリ
         readability_weight: 0.3             # （YAML からの相対パス）
 
-`answer_mode`・`editor_completion`・`file_upload`・`confidential_until_open`・`clear_points` は
-**問題セットの値**で、`/manage` の切り替えと同じく回の全課題に入れる（課題ごとには
+`answer_mode`・`editor_completion`・`file_upload`・`confidential_until_open`・`campus_only`・
+`clear_points` は**問題セットの値**で、`/manage` の切り替えと同じく回の全課題に入れる（課題ごとには
 書けない）。書いた回だけを変え、書かない回は画面で切り替えた値を残す。`editor` にできない課題
 （提出形式に `.c`・`.py`・`.md` が無い）があれば投入を止める。
 
@@ -112,11 +113,17 @@ UNIT_SCHEDULE_KEYS = (
 # 漏洩そのもの）。定義から入れれば、課題の保存と同じ実行の中で入る。
 #
 # `clear_points`（問題セットのクリア点・2026-09-25）も同じ。合計の点数で書く。
+#
+# `campus_only`（学内からだけ受け付ける・#333）も同じ（2026-10-01）。画面でしか
+# 入れられないと、`demo reset` のように定義から作り直すコースでは、作り直すたびに
+# 学内限定が外れて学外から出せる試験になる。何を学内と見なすかはテナント管理者の
+# 設定のままで、ここが決めるのは「この回に制限を掛けるか」だけである。
 _UNIT_SETTING_KEYS = (
     "answer_mode",
     "editor_completion",
     "file_upload",
     "confidential_until_open",
+    "campus_only",
     "clear_points",
 )
 # 定義側だけの語彙。`TaskSpec` に渡す前に解決して消す。
@@ -195,7 +202,7 @@ def _unit_settings(unit: str, raw: dict[str, Any], path: Path) -> dict[str, Any]
         ):
             raise AdminError(f"units.{unit}.clear_points は正の数か null です: {value!r}（{path}）")
         settings["clear_points"] = None if value is None else float(value)
-    for flag in ("editor_completion", "file_upload", "confidential_until_open"):
+    for flag in ("editor_completion", "file_upload", "confidential_until_open", "campus_only"):
         if flag not in raw:
             continue
         if not isinstance(raw[flag], bool):

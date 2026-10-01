@@ -67,6 +67,7 @@ _UNIT_SETTINGS = (
     "editor_completion",
     "file_upload",
     "confidential_until_open",
+    "campus_only",
     "clear_points",
 )
 _COURSE_FIELDS = ("description", "upload_suffixes", "knowledge_components")
