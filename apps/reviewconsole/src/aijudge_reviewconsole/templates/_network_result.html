@@ -1,0 +1,66 @@
+{# クライアント・サーバの課題の突き合わせ（`network_test_runner`・2026-10-01）。
+   入出力の課題（`_io_result.html`）と**比べ方が違う** ── 行を揃えるのではなく、期待する
+   断片が出力に含まれるかを見る。だから並べるのは「期待する断片と、見つかったか」と、
+   提出側・伴走プロセス側それぞれの出力である。以前は入出力の形で読んでいたので、
+   出力が記録されているのに「出力は記録されていません」と出ていた。
+
+   **落ちたケースは開き、通ったケースは畳む**（入出力と同じ）。並べるのは採点のとき
+   記録したもので、この画面で走らせ直さない（ADR 0007）。 #}
+<details class="io-result" {{ 'open' if io.failed }}>
+  <summary>
+    クライアント・サーバの突き合わせ
+    <span class="pill {{ 'ok' if not io.failed else 'no' }}">{{ io.passed }} / {{ io.total }} 件一致</span>
+  </summary>
+  {% for case in io.network_cases %}
+  <details class="io-case" {{ 'open' if not case.passed }}>
+    <summary class="io-head"><b>{{ case.name }}</b>
+      {% if case.passed %}<span class="pill ok">一致</span>{% else %}<span class="pill no">{{ case.reason }}</span>{% endif %}
+      <span class="desc">提出物は{{ 'サーバ' if case.role == 'server' else 'クライアント' }}{% if case.port %}・ポート {{ case.port }}{% endif %}</span>
+      {% if case.hidden %}<span class="desc">学習者には非公開のケース</span>{% endif %}
+    </summary>
+    {% if case.detail %}<p class="desc">{{ case.detail }}</p>{% endif %}
+    {% if case.input %}
+    <p class="desc">提出物への入力</p>
+    <pre class="code io-input">{{ case.input.rstrip("\n") }}</pre>
+    {% endif %}
+    {% if case.expected %}
+    <p class="desc">提出物の出力に含まれるべき断片</p>
+    <ul class="needles">
+      {% for needle in case.expected %}
+      <li>{% if needle.found is none %}<span class="pill">未確認</span>{% elif needle.found %}<span class="pill ok">あり</span>{% else %}<span class="pill no">なし</span>{% endif %}
+        <span class="mono">{{ needle.text }}</span></li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    {% if case.submission_stdout is not none %}
+    <p class="desc">提出物の出力（採点のとき記録・先頭 2000 文字まで）</p>
+    <pre class="code">{{ case.submission_stdout if case.submission_stdout else '（出力なし）' }}</pre>
+    {% endif %}
+    {% if case.companion_input %}
+    <p class="desc">伴走プロセス（{{ 'クライアント' if case.role == 'server' else 'サーバ' }}）への入力</p>
+    <pre class="code io-input">{{ case.companion_input.rstrip("\n") }}</pre>
+    {% endif %}
+    {% if case.companion_expected %}
+    <p class="desc">伴走プロセスの出力に含まれるべき断片</p>
+    <ul class="needles">
+      {% for needle in case.companion_expected %}
+      <li>{% if needle.found is none %}<span class="pill">未確認</span>{% elif needle.found %}<span class="pill ok">あり</span>{% else %}<span class="pill no">なし</span>{% endif %}
+        <span class="mono">{{ needle.text }}</span></li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    {% if case.companion_stdout is not none %}
+    <p class="desc">伴走プロセスの出力</p>
+    <pre class="code">{{ case.companion_stdout if case.companion_stdout else '（出力なし）' }}</pre>
+    {% endif %}
+    {% if case.background_stderr %}
+    <p class="desc">待ち受ける側の標準エラー出力</p>
+    <pre class="code">{{ case.background_stderr }}</pre>
+    {% endif %}
+    {% if not case.recorded %}
+    <p class="desc">出力は記録されていません（{{ case.reason }}）。</p>
+    {% endif %}
+  </details>
+  {% endfor %}
+  <p class="desc">判定は「期待する断片が出力に含まれているか」です（行の並びや前後の文字は問いません）。</p>
+</details>

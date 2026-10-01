@@ -59,6 +59,8 @@
           {% if not item_cases %}この課題は項目を持たないので、科目プロファイルの既定が使われます。{% endif %}</p>
         {% include "_item_list_table.html" %}
       </td></tr>
+      {% elif shape == 'companion' %}
+      <tr><td colspan="4">{% include "_companion_cases.html" %}</td></tr>
       {% endif %}
     {% endfor %}
     </tbody>
