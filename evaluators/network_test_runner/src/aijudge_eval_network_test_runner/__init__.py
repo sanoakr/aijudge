@@ -48,6 +48,8 @@ from aijudge_toolchain import OPTION_IMAGE, Language, UnknownLanguage, resolve_l
 from . import launcher
 
 EVALUATOR_ID = "network_test_runner"
+# 課題の入力の `{host}` を埋める宛先。定義は 1 か所（`launcher.COMPANION_HOST`）。
+COMPANION_HOST = launcher.COMPANION_HOST
 
 ROLE_CLIENT = "client"
 ROLE_SERVER = "server"
@@ -260,7 +262,7 @@ class NetworkTestRunner:
         companion_argv = ("python3", "-I", companion_name)
         # `{host}` と `{port}` を埋める。課題の入力には本番のホスト・ポートが
         # 書かれているので、伴走プロセスの値に差し替える必要がある。
-        fill = {"host": "127.0.0.1", "port": str(port)}
+        fill = {"host": launcher.COMPANION_HOST, "port": str(port)}
         submission_stdin = _text(payload, "input").format(**fill)
         companion_stdin = _text(payload, "companion_input").format(**fill)
 
