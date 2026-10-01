@@ -50,7 +50,12 @@ from aijudge_core.ids import (
     TenantId,
     UserId,
 )
-from aijudge_course_admin.finalization import finalize_task, pending_counts, sweep_deadlines
+from aijudge_course_admin.finalization import (
+    finalize_task,
+    pending_breakdown,
+    pending_counts,
+    sweep_deadlines,
+)
 from aijudge_course_admin.operations import AdminError, ensure_course
 from aijudge_persistence import Database
 from aijudge_submission import (
@@ -613,6 +618,62 @@ def test_the_pending_count_is_visible_and_drops_on_finalization(database: Databa
     assert pending_counts(database, course.id)[TASK_ID] == 0
 
 
+def test_waiting_for_the_grace_is_not_counted_as_stalled(database: Database, course) -> None:
+    """**猶予中は止まっていない。** 自動確定が閉じるものを要対応と言わない（2026-10-01）。"""
+    _world(database, course.id, routings=(Routing.AUTO,) * 3)
+    _with_grace(database, course, 24.0)
+
+    breakdown = pending_breakdown(database, course.id)
+
+    assert (breakdown.total[TASK_ID], breakdown.stalled[TASK_ID]) == (3, 0)
+
+
+def test_what_the_sweep_skips_is_counted_as_stalled(database: Database, course) -> None:
+    """異議申立・要レビュー・採点失敗は、放っておいても閉じない。"""
+    _world(
+        database,
+        course.id,
+        routings=(Routing.AUTO, Routing.AUTO, Routing.REVIEW_REQUIRED, Routing.REVIEW_REQUIRED),
+        contested_at=0,
+        unscored_at=3,
+    )
+    _with_grace(database, course, 24.0)
+
+    breakdown = pending_breakdown(database, course.id)
+
+    assert (breakdown.total[TASK_ID], breakdown.stalled[TASK_ID]) == (4, 3)
+
+
+def test_awaiting_the_ai_phase_is_not_counted_as_stalled(database: Database, course) -> None:
+    """AI 段階がまだ届いていない暫定の採点は、届けば閉じる（#400）。"""
+    ids = _world(database, course.id, routings=(Routing.REVIEW_REQUIRED,) * 2, unscored_at=0)
+    _awaiting_ai(database, ids[0])
+    _with_grace(database, course, 24.0)
+
+    breakdown = pending_breakdown(database, course.id)
+
+    assert (breakdown.total[TASK_ID], breakdown.stalled[TASK_ID]) == (2, 1)
+
+
+def test_without_a_grace_everything_is_stalled(database: Database, course) -> None:
+    """猶予が無ければ自動確定は何もしない。教員が閉じるまで残る。"""
+    _world(database, course.id, routings=(Routing.AUTO,) * 2)
+
+    breakdown = pending_breakdown(database, course.id)
+
+    assert breakdown.stalled[TASK_ID] == 2
+
+
+def test_the_sweep_reports_what_is_waiting(database: Database, course) -> None:
+    """猶予中は見送りと別に数える。ログから待ちの件数が読めるように。"""
+    _world(database, course.id, routings=(Routing.AUTO,) * 2)
+    _with_grace(database, course, 24.0)
+
+    report = sweep_deadlines(database, now=BEFORE, dry_run=True)
+
+    assert (report.finalized, report.skipped, report.waiting) == (0, 0, 2)
+
+
 # --------------------------------------------------------------------------
 # CLI
 # --------------------------------------------------------------------------
@@ -634,6 +695,28 @@ def test_the_cli_finalizes_once(database: Database, course, tmp_path: Path) -> N
 
     assert code == 0
     assert _finalizations(database, ids)[0] is not None
+
+
+def test_the_cli_logs_what_is_waiting(database: Database, course, tmp_path: Path, capsys) -> None:
+    """**待ちの件数をログに出す。** 出さないと、締切後に残る未確定が止まって
+    いるのか待っているのかを運用者が区別できない（2026-10-01）。
+    """
+    _world(database, course.id, routings=(Routing.AUTO,) * 2)
+    _with_grace(database, course, 24.0)
+
+    code = finalize_main(
+        [
+            "--database-url",
+            f"sqlite+pysqlite:///{tmp_path}/f.db",
+            "--once",
+            "--dry-run",
+            "--now",
+            BEFORE.isoformat(),
+        ]
+    )
+
+    assert code == 0
+    assert "待ち 2 件" in capsys.readouterr().err
 
 
 def test_the_cli_refuses_a_fixed_now_while_resident(database: Database, tmp_path: Path) -> None:

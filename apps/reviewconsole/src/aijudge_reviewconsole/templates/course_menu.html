@@ -78,11 +78,10 @@
       {% endif %}
     </span>
     <span class="c-open">
-      {# 期限が過ぎたのに未確定が残っているのは、自動確定が動いていないか
-         異議申立が残っているかのどちらか。どちらも教員が見るべき状態。 #}
+      {# 期限が過ぎたのに、自動では閉じない未確定（異議申立・要レビュー・
+         採点失敗・猶予の未設定）が残っていれば教員が見るべき状態。猶予中と
+         AI 評価待ちは待てば閉じるので「要対応」にしない（2026-10-01）。 #}
       {% if unit.unfinalized %}
-        {# 締切を過ぎて未確定なら**教員が閉じないと成績にならない** ── 対応待ち。
-           締切前はただの数え上げ。 #}
         <span class="pill {{ 'attn' if unit.needs_attention }}">未確定 {{ unit.unfinalized }}{% if unit.needs_attention %}・要対応{% endif %}</span>
       {% else %}<span class="desc">未確定 0</span>{% endif %}
     </span>

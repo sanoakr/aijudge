@@ -83,7 +83,7 @@ from aijudge_core.ids import (
     SubmissionId,
     TenantId,
 )
-from aijudge_course_admin.finalization import pending_counts
+from aijudge_course_admin.finalization import pending_breakdown, pending_counts
 from aijudge_grading import load_profile, project_observations
 from aijudge_identity import (
     DEFAULT_LOGIN_LABEL,
@@ -791,7 +791,8 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
         # 左の帯へ移ったので、その行に添えていた数え上げ ── 提出の総数・
         # 異議の件数・blind の待ち・未承認の課題・受講者数・知識要素の数 ──
         # はここでは要らなくなった。**引かない分は払わない。**
-        pending = pending_counts(console.database, CourseId(course_id))
+        # 止まっている件数も引く ── 「要対応」は待ちを数えない（2026-10-01）。
+        breakdown = pending_breakdown(console.database, CourseId(course_id))
         with console.database.unit_of_work() as uow:
             # **採点を担当していない人には開かせない。** 以前はこの検査が
             # `_queue_rows`（異議の件数を数えるついで）に載っていたので、
@@ -806,7 +807,13 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
             course = uow.identity.get_course(CourseId(course_id))
             if course is None:
                 raise HTTPException(status_code=404, detail="コースが見つかりません")
-            units = load_units(uow, course, pending=pending, viewer=viewer)
+            units = load_units(
+                uow,
+                course,
+                pending=breakdown.total,
+                stalled=breakdown.stalled,
+                viewer=viewer,
+            )
             enrollment = uow.identity.find_enrollment(course.id, me.user_id)
         return TEMPLATES.TemplateResponse(
             request,

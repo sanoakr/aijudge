@@ -450,7 +450,7 @@
       <td class="fit desc">{{ row.version.version }} 版<br>
         {{ row.version.created_at | local('%m-%d %H:%M') }}</td>
       <td class="fit">
-        {% if row.unfinalized %}<span class="pill {{ 'attn' if unit.deadline_passed }}">{{ row.unfinalized }} 件</span>
+        {% if row.unfinalized %}<span class="pill {{ 'attn' if unit.deadline_passed and row.stalled }}">{{ row.unfinalized }} 件</span>
         {% else %}<span class="desc">—</span>{% endif %}
       </td>
       <td class="fit"><a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/tasks/{{ row.task.id }}/edit">修正</a></td>
@@ -498,11 +498,19 @@ p2/task.yaml</span></pre>
   </div>
 </form>
 
-{% if unit.deadline_passed and unit.unfinalized %}
+{# **止まっているものだけを警告する**（2026-10-01）。猶予中・AI 評価待ちは
+   自動確定が閉じていくので、件数だけ出して警告にはしない ── 以前は未確定の
+   全件で警告し、prog2 ex01 で 57 件と出たうち止まっていたのは 1 件だった。 #}
+{% if unit.needs_attention %}
 <div class="note warn">
-  <strong>期限が過ぎたのに未確定が {{ unit.unfinalized }} 件あります。</strong>
-  異議申立・要レビュー・採点失敗のいずれか、または <code>aijudge-finalize</code> が
-  動いていません。
+  <strong>期限が過ぎたのに、自動では確定しない提出が {{ unit.stalled }} 件あります。</strong>
+  異議申立・要レビュー・採点失敗のいずれか、または自動確定の猶予が設定されていません。
+  {% if unit.waiting %}このほか {{ unit.waiting }} 件は自動確定を待っています（猶予中・AI 評価待ち）。{% endif %}
+</div>
+{% elif unit.deadline_passed and unit.unfinalized %}
+<div class="note">
+  未確定の {{ unit.unfinalized }} 件は自動確定を待っています（猶予中・AI 評価待ち）。
+  減らないときは <code>aijudge-finalize</code> が動いているか確かめてください。
 </div>
 {% endif %}
 

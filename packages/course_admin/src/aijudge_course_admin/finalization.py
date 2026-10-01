@@ -95,6 +95,13 @@ class FinalizeReport:
         return sum(outcome.skipped for outcome in self.outcomes)
 
     @property
+    def waiting(self) -> int:
+        """猶予中と AI 評価待ち。**見送りとは別に出す** ── 出さないと、締切後に
+        残る未確定のうちどれだけが待ちなのかをログから読めない（2026-10-01）。
+        """
+        return sum(outcome.not_due + outcome.ai_pending for outcome in self.outcomes)
+
+    @property
     def touched(self) -> tuple[TaskOutcome, ...]:
         """何かが起きた課題だけ。ログを静かに保つため。"""
         return tuple(o for o in self.outcomes if o.finalized or o.skipped)
@@ -286,6 +293,57 @@ def pending_counts(database: Store, course_id: CourseId) -> dict[TaskId, int]:
     return counts
 
 
+@dataclass(frozen=True)
+class PendingBreakdown:
+    """課題ごとの未確定件数と、そのうち**放っておいても閉じない**件数。
+
+    締切を過ぎて未確定が残っていても、多くは猶予が明けるのを待っているだけで、
+    自動確定が毎時少しずつ閉じていく。件数だけで「止まっている」と警告すると、
+    教員は正常な待ちを障害と読む（2026-10-01、prog2 ex01 で 57 件を警告した
+    うち、止まっていたのは異議申立の 1 件だけだった）。
+    """
+
+    total: dict[TaskId, int]
+    stalled: dict[TaskId, int]
+
+
+def _stalls(
+    run: GradingRun, request: ReviewRequest | None, *, grace: int | None, jobs: JobQueue
+) -> bool:
+    """この未確定は、人が手を入れないと閉じないか。
+
+    `_apply`（自動確定）が見送るものと同じ事実で判定する ── 未対応の異議申立、
+    猶予が未設定、レビュー方針が人の目を求めた採点、未採点の観点。**AI 段階が
+    まだ届いていない暫定の採点は待ち**に数える（届けば閉じる・#400）。
+    猶予がまだ明けていないものも待ちである。
+
+    AI のジョブを引くのは暫定の採点だけにする ── 画面を開くたびに全提出ぶん
+    キューを引かないため。
+    """
+    if blocks_finalization(request) or grace is None:
+        return True
+    if auto_finalizable(run, request):
+        return False
+    return not jobs.awaiting(run.submission_id, GradingPhase.AI)
+
+
+def pending_breakdown(database: Store, course_id: CourseId) -> PendingBreakdown:
+    """課題ごとの未確定件数を、止まっているものと待っているものに分けて数える。"""
+    total: dict[TaskId, int] = {}
+    stalled: dict[TaskId, int] = {}
+    with database.unit_of_work() as uow:
+        course = uow.identity.get_course(course_id)
+        course_grace = None if course is None else course.auto_finalize_after_minutes
+        for task in uow.tasks.list_for_course(course_id):
+            grace = grace_minutes(task.auto_finalize_after_minutes, course_grace)
+            rows = _gradable_rows(uow.reviews.unfinalized_for_task(task.id))
+            total[task.id] = len(rows)
+            stalled[task.id] = sum(
+                1 for _s, run, request in rows if _stalls(run, request, grace=grace, jobs=uow.jobs)
+            )
+    return PendingBreakdown(total=total, stalled=stalled)
+
+
 def _apply(
     reviews: ReviewStore,
     task: Task,
@@ -400,8 +458,10 @@ def _courses(database: Store, course_id: CourseId | None) -> tuple[Course, ...]:
 
 __all__ = [
     "FinalizeReport",
+    "PendingBreakdown",
     "TaskOutcome",
     "finalize_task",
+    "pending_breakdown",
     "pending_counts",
     "sweep_deadlines",
 ]

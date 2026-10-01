@@ -40,7 +40,7 @@ from aijudge_course_admin import groups as audience
 from aijudge_course_admin import rubric
 from aijudge_course_admin.answer_mode import editor_blockers, file_upload_required
 from aijudge_course_admin.errors import AdminError
-from aijudge_course_admin.finalization import finalize_tasks, pending_counts
+from aijudge_course_admin.finalization import finalize_tasks, pending_breakdown
 from aijudge_course_admin.tasks import clear_unit
 from aijudge_grading import EvaluatorRegistry
 
@@ -333,12 +333,14 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
         console = _console(request)
 
         # 課題ごとの未確定件数。**画面に出す。** 自動確定を設定したつもりで
-        # cron を仕掛け忘れても、件数が減らないことで気づける。
-        pending = pending_counts(console.database, course.id)
+        # cron を仕掛け忘れても、件数が減らないことで気づける。止まっている
+        # 件数は分けて持つ ── 猶予中の待ちまで「要対応」と言わない（2026-10-01）。
+        breakdown = pending_breakdown(console.database, course.id)
+        pending, stalled = breakdown.total, breakdown.stalled
         now = datetime.now(UTC)
         with console.database.unit_of_work() as uow:
             # TA には公開前の秘匿の課題（試験）を出さない（`may_see`）。
-            units = load_units(uow, course, pending=pending, now=now, viewer=role)
+            units = load_units(uow, course, pending=pending, stalled=stalled, now=now, viewer=role)
         # **知らない鍵でも 404 にしない。** 課題を 1 問も持たない回は
         # 「まだ何も無い回」であって存在しない回ではなく、ここが最初の
         # 1 問を足す場所になる。404 にすると新しい回を作る導線が無くなる。
@@ -390,6 +392,7 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
                         {c.evaluator_id for c in version.criteria if c.evaluator_id}
                     ),
                     "unfinalized": pending.get(task.id, 0),
+                    "stalled": stalled.get(task.id, 0),
                     # **承認済みと同じ見た目で並べない。** 一覧は
                     # `latest_version` をレビュー状態で絞らないので、生成した
                     # ままの課題もここに出る。印が無いと、教員は「この回は
