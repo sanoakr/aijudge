@@ -19,6 +19,7 @@ from datetime import datetime
 
 from aijudge_core import (
     BlindMark,
+    BlindMarkCorrection,
     Finalization,
     GradingPhase,
     GradingRun,
@@ -265,6 +266,7 @@ class InMemoryReviewRepository:
         self._reviews: dict[HumanReviewId, HumanReview] = {}
         self._by_run: dict[GradingRunId, HumanReviewId] = {}
         self._marks: dict[SubmissionId, BlindMark] = {}
+        self._corrections: dict[str, BlindMarkCorrection] = {}
         self._requests: dict[ReviewRequestId, ReviewRequest] = {}
         self._requests_by_run: dict[GradingRunId, ReviewRequestId] = {}
         self._finalizations: dict[GradingRunId, Finalization] = {}
@@ -298,6 +300,19 @@ class InMemoryReviewRepository:
 
     def find_blind_mark(self, submission_id: SubmissionId) -> BlindMark | None:
         return self._marks.get(submission_id)
+
+    def save_blind_correction(self, correction: BlindMarkCorrection) -> None:
+        if correction.id in self._corrections:
+            raise ImmutabilityViolation(f"blind correction {correction.id} already exists")
+        self._corrections[correction.id] = correction
+
+    def blind_corrections(self, submission_id: SubmissionId) -> tuple[BlindMarkCorrection, ...]:
+        return tuple(
+            sorted(
+                (c for c in self._corrections.values() if c.submission_id == submission_id),
+                key=lambda c: (c.corrected_at, c.id),
+            )
+        )
 
     def save_request(self, request: ReviewRequest) -> None:
         if request.grading_run_id in self._requests_by_run:

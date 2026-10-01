@@ -134,7 +134,51 @@
   あなたの blind 採点は保存済みです。ここで段階を変えても
   <strong>測定に残るのは blind 側</strong>で、一致度の測定は影響を受けません。
   変更は最終成績にのみ反映されます。
+  {% if blind_corrections %}<br>この blind 採点は <strong>{{ blind_corrections | length }} 回訂正</strong>されています（測定には訂正後の段階を使い、訂正した件数として報告します）。{% endif %}
 </div>
+{% if can_correct_blind %}
+{# **blind 採点の訂正**（ADR 0031）。押し間違いは AI と食い違って初めて気づくことが多い。
+   元の blind 採点は残し、訂正を追記する。訂正は AI を見たあとなので AI に近づく方向に
+   偏る ── 理由を必須にし、測定は訂正の件数を並べて報告する。**成績の段階はこの下の
+   確定の欄で決める**（ここは測定の正解データの訂正）。 #}
+<details class="card correct-gate" id="blind-correct">
+  <summary>blind 採点を訂正する（押し間違いなど）</summary>
+  <form method="post" action="{{ root_prefix() }}/review/{{ submission.id }}/blind/correct{{ '?from=' ~ work_mode if work_mode }}">
+    <p class="desc">
+      AI の判定を見る前に付けるつもりだった段階に直してください。<strong>AI を見て考えが変わった</strong>
+      場合は訂正ではありません（それは下の確定の欄で成績に反映します）。元の blind 採点は記録に残ります。
+    </p>
+    {% for criterion in task.criteria %}
+    <fieldset>
+      <legend>{{ criterion.title }}</legend>
+      <div class="levels">
+        {% for level in criterion.levels %}
+        <label><input type="radio" name="level_{{ criterion.code }}" value="{{ level.level }}" required
+          {{ 'checked' if blind_levels.get(criterion.id) == level.level }}>
+          <span class="lv">{{ level.level }}: {{ level.label }}</span>
+          <span class="desc">{{ '%.0f' | format(level.score_ratio * 100) }}%</span>
+          {% if blind_levels.get(criterion.id) == level.level %}<span class="pill ok">いまの blind 採点</span>{% endif %}
+        </label>
+        {% endfor %}
+      </div>
+    </fieldset>
+    {% endfor %}
+    <div class="field">
+      <label for="blind-reason">訂正の理由（{{ min_reason }} 文字以上・必須）</label>
+      <textarea id="blind-reason" name="reason" rows="2" required minlength="{{ min_reason }}"
+        placeholder="例: 一部（50%）を選ぶつもりが、達成を押していました。"></textarea>
+    </div>
+    <div class="actions"><button type="submit">blind 採点を訂正する</button></div>
+  </form>
+  {% if blind_corrections %}
+  <ul class="desc">
+    {% for c in blind_corrections %}
+    <li><span class="mono">{{ c.corrected_at | local('%m-%d %H:%M') }}</span> ── {{ c.reason }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</details>
+{% endif %}
 {% endif %}
 
 {% if awaiting_ai %}

@@ -11,6 +11,7 @@ P8  GradingRun は不変。人間の修正も上書きではなく HumanReview �
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime
 from enum import StrEnum
 from typing import Self
@@ -19,6 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .extraction import Extraction
 from .ids import (
+    BlindMarkCorrectionId,
     CriterionId,
     CriterionScoreId,
     EvaluatorResultId,
@@ -211,6 +213,43 @@ class BlindMark(BaseModel):
 
 # 根拠説明の最短長。1〜2 文字の「ok」「違う」を根拠として通さない。
 MIN_JUSTIFICATION_LENGTH = 10
+
+
+class BlindMarkCorrection(BaseModel):
+    """blind 採点の訂正（ADR 0031）。**元の blind 採点は書き換えず、これを追記する。**
+
+    人の採点には押し間違いがあり、AI の判定と食い違って初めて気づくことが多い。
+    訂正は**必ず AI を見たあと**に起きるので、AI に近づく方向に偏る ── 黙って
+    元の値を差し替えると、その偏りが一致度に紛れ込む。だから別の記録にして、
+    誰がいつ何を理由に直したかを残し、測定は訂正の件数を並べて報告する。
+
+    `levels` は訂正後の**全観点**の段階（差分ではない）。最新の訂正が効く。
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    id: BlindMarkCorrectionId
+    submission_id: SubmissionId
+    corrected_by: UserId
+    levels: dict[CriterionId, int] = Field(min_length=1)
+    # 直す前の段階。元の blind 採点か、ひとつ前の訂正の値。
+    previous_levels: dict[CriterionId, int] = Field(min_length=1)
+    reason: str = Field(min_length=MIN_JUSTIFICATION_LENGTH)
+    corrected_at: datetime
+
+
+def corrected_mark(
+    mark: BlindMark, corrections: Sequence[BlindMarkCorrection]
+) -> tuple[BlindMark, bool]:
+    """訂正を当てた blind 採点と、訂正があったか。最新の訂正の段階が効く。
+
+    **採点者・時刻は元のまま**にする。blind 採点をしたのはその人で、その時刻
+    である ── 訂正したのは別の事実で、`BlindMarkCorrection` が持つ。
+    """
+    if not corrections:
+        return mark, False
+    latest = max(corrections, key=lambda correction: (correction.corrected_at, correction.id))
+    return mark.model_copy(update={"levels": dict(latest.levels)}), True
 
 
 class ReviewRequest(BaseModel):

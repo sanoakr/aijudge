@@ -16,6 +16,7 @@ from typing import IO, Protocol, runtime_checkable
 from aijudge_core import (
     Artifact,
     BlindMark,
+    BlindMarkCorrection,
     Finalization,
     GradingPhase,
     GradingRun,
@@ -431,6 +432,17 @@ class ReviewRepository(Protocol):
         ...
 
     def find_blind_mark(self, submission_id: SubmissionId) -> BlindMark | None: ...
+
+    def save_blind_correction(self, correction: BlindMarkCorrection) -> None:
+        """blind 採点の訂正を**追記**する（ADR 0031）。元の blind 採点には触らない。
+
+        同じ ID の二度目は拒否する（追記のみ・P8）。
+        """
+        ...
+
+    def blind_corrections(self, submission_id: SubmissionId) -> tuple[BlindMarkCorrection, ...]:
+        """この提出の blind 採点の訂正を**古い順に全部**。最新が効く（`corrected_mark`）。"""
+        ...
 
     # -- 学習者からの再確認の依頼 --
 

@@ -30,6 +30,9 @@ class MeasurementSummary(BaseModel):
     observation_count: int = Field(ge=0)
     submission_count: int = Field(ge=0)
     blind_submission_count: int = Field(ge=0)
+    # blind 採点のうち、AI を見たあとで訂正した提出（ADR 0031）。**隠さない** ──
+    # 訂正は AI に近づく方向に偏るので、一致度と並べて読めるようにする。
+    corrected_blind_submission_count: int = Field(default=0, ge=0)
     agreement: dict[str, AgreementReport] = Field(default_factory=dict)
     observed_miss_rate: float | None = None
     observed_review_rate: float | None = None
@@ -113,6 +116,11 @@ def summarize(observations: Iterable[Observation]) -> MeasurementSummary:
         submission_count=len(by_submission),
         blind_submission_count=sum(
             1 for observation in by_submission.values() if observation.blind
+        ),
+        corrected_blind_submission_count=sum(
+            1
+            for observation in by_submission.values()
+            if observation.blind and observation.blind_corrected
         ),
         agreement=agreement,
         observed_miss_rate=observed_miss,

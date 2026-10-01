@@ -46,6 +46,9 @@ class Observation(BaseModel):
     # AI を見ずに付けたか。偽なら一致度の標本にしない。
     blind: bool = False
     marker: str | None = None
+    # blind 採点を**AI を見たあとで訂正した**か（ADR 0031）。訂正後の段階を
+    # `human_level` に使うが、訂正は AI に近づく方向に偏るので、件数を報告に出す。
+    blind_corrected: bool = False
 
     # -- 提出単位の状態（同じ提出の全観点で同じ値）----------------------
     auto_confirmed: bool = False
