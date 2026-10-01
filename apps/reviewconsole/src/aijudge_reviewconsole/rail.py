@@ -121,11 +121,11 @@ def course_rail(
                 attention=bool(unfinalized),
                 note=f"自動確定待ち {finalize_waiting}" if finalize_waiting else "",
             ),
-            # **残りの件数は出すが、注意の色にはしない**（2026-10-01）。blind 採点は
-            # 採点の必須の作業ではなく（ADR 0007）、貯まらなくても成績は閉じる ──
-            # 「人が動かないと進まないもの」（上の docstring）とは別の数である。
-            # 出さないと、どれだけ残っているかを開いて数えることになる。
-            RailItem("blind 採点", f"{base}/blind", count=blind),
+            # **残りの件数を注意の色で出す**（2026-10-01）。blind 採点は採点の必須の
+            # 作業ではない（ADR 0007）が、貯まらないと一致度が測れず（`min_sample_size`）、
+            # 運用では教員が順に片付ける仕事として扱っている ── 灰色で出したところ、
+            # 対応の要るものとして目に入らないと言われて赤にした。
+            RailItem("blind 採点", f"{base}/blind", count=blind, attention=bool(blind)),
         ),
     )
     # **項目名は行き先の見出しと同じ語にする**（#300）。違う語を当てると、
