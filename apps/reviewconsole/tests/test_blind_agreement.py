@@ -266,3 +266,46 @@ def test_the_blind_page_folds_the_statement_but_keeps_the_title(blind_world: Wor
     with blind_world.database.unit_of_work() as uow:
         task = uow.tasks.get_task(blind_world.task_version.task_id)
     assert task.title in heading
+
+
+@needs_c_compiler
+def test_an_agreement_on_an_auto_finalized_grade_records_the_review_only(
+    blind_world: World,
+) -> None:
+    """**自動確定済みでも、一致すれば確定の画面へ回さない**（ADR 0030 追記）。
+
+    自動確定は採点の猶予で閉じるので、blind を付けるころには確定済みのことが多い。
+    確定の記録は最初のもの（自動確定）を残し、教員の確認だけを足す（P8）。
+    """
+    from datetime import UTC, datetime
+
+    from aijudge_core import AUTOMATIC_JUSTIFICATION, Finalization, new_id
+    from aijudge_core.ids import FinalizationId
+
+    _, accepted = _instructor_and_submission(blind_world)
+    blind_world.worker.run_until_empty()
+    with blind_world.database.unit_of_work() as uow:
+        run = uow.runs.latest_for(accepted.submission.id)
+        uow.reviews.save_finalization(
+            Finalization(
+                id=FinalizationId(new_id("fin")),
+                grading_run_id=run.id,
+                source=FinalizationSource.AUTOMATIC,
+                actor_id=None,
+                review_id=None,
+                justification=AUTOMATIC_JUSTIFICATION,
+                finalized_at=datetime.now(UTC),
+            )
+        )
+        uow.commit()
+
+    response = blind_world.client.post(
+        f"/review/{accepted.submission.id}/blind?from=blind",
+        data=_blind_form(blind_world, _machine(blind_world, accepted.submission.id)),
+        follow_redirects=False,
+    )
+
+    assert "/reveal" not in response.headers["location"]
+    review, finalization = _records(blind_world, accepted.submission.id)
+    assert review is not None and review.agreed
+    assert finalization.source is FinalizationSource.AUTOMATIC, "確定の記録は最初のものを残す"

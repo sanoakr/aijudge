@@ -1483,10 +1483,16 @@ def _blind_agrees(context: _Context, levels: dict) -> bool:
     - 人が採点する観点・採点できなかった観点がある（AI の段階が無い）
     - AI 段階がまだ届いていない（届けば判定が変わりうる・#400）
     - 遅延の減点が付いている ── 免除するかどうかは教員の判断（ADR 0013 §4）
-    - 再確認の依頼が出ている、既に確認・確定がある
+    - 再確認の依頼が出ている、既に教員の確認がある
+
+    **既に確定している提出は外さない**（2026-10-01）。自動確定は採点の猶予
+    （prog2・network は 2 時間）で閉じるので、blind を付けるころには確定済みの
+    ことが多い。外していたため一致しても確定の画面へ回り、確定のボタンが出て
+    まだ操作が要るように読めた。確定の記録は最初のもの（自動確定）を残し、教員の
+    確認だけを足す（`_save_review` が確定の有無を見る・P8）。
     """
     run = context.run
-    if context.awaiting_ai or context.review is not None or context.finalization is not None:
+    if context.awaiting_ai or context.review is not None:
         return False
     if context.request is not None or run.penalty is not None:
         return False
