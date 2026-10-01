@@ -82,6 +82,7 @@ POST /manage/courses/{course_id}/settings aijudge_reviewconsole.manage.course:sa
 POST /manage/courses/{course_id}/statement-preview aijudge_reviewconsole.manage.tasks:statement_preview
 POST /manage/courses/{course_id}/tasks aijudge_reviewconsole.manage.tasks:add_task
 POST /manage/courses/{course_id}/tasks/{task_id}/case-timeout aijudge_reviewconsole.manage.task_ops:set_task_case_timeout
+POST /manage/courses/{course_id}/tasks/{task_id}/companion/edit aijudge_reviewconsole.manage.task_data:edit_companion_cases
 POST /manage/courses/{course_id}/tasks/{task_id}/copy aijudge_reviewconsole.manage.task_ops:copy_task_to_unit
 POST /manage/courses/{course_id}/tasks/{task_id}/delete aijudge_reviewconsole.manage.task_ops:delete_task_route
 POST /manage/courses/{course_id}/tasks/{task_id}/finalize aijudge_reviewconsole.manage.task_ops:finalize_remaining
