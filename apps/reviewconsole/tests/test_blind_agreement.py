@@ -228,3 +228,41 @@ def test_the_ai_draft_is_offered_but_not_put_in_the_box(blind_world: World, monk
     assert box is not None and "AIDRAFTMARKER" not in box.group(1), "素案が欄に入っている"
     assert 'id="add-ai-draft"' in body and "AIDRAFTMARKER" in body
     assert 'id="ai-draft-differs"' in body
+
+
+@needs_c_compiler
+def test_an_agreement_opened_outside_the_queue_does_not_show_the_reveal_page(
+    blind_world: World,
+) -> None:
+    """**どこから開いた blind でも、一致したら確定の画面を出さない**（ADR 0030）。
+
+    提出一覧などから開いた（帯から順に進めていない）ときに確定の画面へ戻していたので、
+    確定済みの成績と確定の欄が出て、まだ操作が要るように読めた。
+    """
+    _, accepted = _instructor_and_submission(blind_world)
+    blind_world.worker.run_until_empty()
+
+    response = blind_world.client.post(
+        f"/review/{accepted.submission.id}/blind",
+        data=_blind_form(blind_world, _machine(blind_world, accepted.submission.id)),
+        follow_redirects=False,
+    )
+
+    assert response.headers["location"].endswith(f"/courses/{COURSE}/blind")
+    assert "一致したので確定しました" in blind_world.client.get(response.headers["location"]).text
+
+
+@needs_c_compiler
+def test_the_blind_page_folds_the_statement_but_keeps_the_title(blind_world: World) -> None:
+    """問題文は畳む。題名と冒頭は畳んでも見える（2026-10-01）。"""
+    _, accepted = _instructor_and_submission(blind_world)
+    blind_world.worker.run_until_empty()
+
+    body = blind_world.client.get(f"/review/{accepted.submission.id}/blind").text
+
+    assert 'class="statement-fold"' in body
+    assert 'id="statement-open"' in body and "問題文をすべて表示" in body
+    heading = body[body.index("<h2>問題") : body.index("</h2>", body.index("<h2>問題"))]
+    with blind_world.database.unit_of_work() as uow:
+        task = uow.tasks.get_task(blind_world.task_version.task_id)
+    assert task.title in heading
