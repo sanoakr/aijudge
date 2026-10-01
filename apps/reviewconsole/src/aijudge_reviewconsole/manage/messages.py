@@ -63,6 +63,7 @@ SAVED_MESSAGES: dict[str, str] = {
     "released": "いままでの提出を採点に回しました（以後の提出はまた採点開始時刻まで待ちます）",
     "retried": "失敗していた採点をやり直しました",
     "items_revised": "項目表を直して新しい版にしました",
+    "companion_revised": "クライアント・サーバのケースを直して新しい版にしました",
     "revision_queued": "書き直した版を承認待ちに追加しました。差分を読んでから承認してください",
     "revision_none": "直すところはありませんでした（版は増やしていません）",
     "revision_failed": "書き直せませんでした",

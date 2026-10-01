@@ -567,6 +567,10 @@
 <form id="items-form" method="post"
       action="{{ root_prefix() }}/manage/courses/{{ course.id }}/tasks/{{ task.id }}/items/edit"></form>
 {% endif %}
+{% if task and data_criteria.get('companion') %}
+<form id="companion-form" method="post"
+      action="{{ root_prefix() }}/manage/courses/{{ course.id }}/tasks/{{ task.id }}/companion/edit"></form>
+{% endif %}
 
 {% if task %}
 </div>{# #tab-content #}

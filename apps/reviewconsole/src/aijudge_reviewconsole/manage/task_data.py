@@ -23,6 +23,7 @@ from aijudge_eval_code_test_runner import EVALUATOR_ID as CODE_TEST_RUNNER
 from aijudge_grading import EvaluatorRegistry, load_profile, test_case_shape
 
 from .. import notices
+from ..companion_form import CompanionFormError, companion_cases_from_form
 from ..overview import unit_key
 from ..urls import RedirectResponse
 from .common import _console, _require_instructor
@@ -547,6 +548,61 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
             f"{len(proposed)} 件を提案しました（走ったのは {usable} 件）。"
             "採用するものに印を付けて保存してください。**印を付けないものは入りません**",
             proposed=proposed,
+        )
+
+    @router.post("/courses/{course_id}/tasks/{task_id}/companion/edit")
+    async def edit_companion_cases(request: Request, course_id: str, task_id: str) -> Response:
+        """クライアント・サーバのケースを直して新しい版にする（2026-10-01）。
+
+        以前は画面から直せず、course.yaml を書き換えて `course apply --revise` するしか
+        なかった。**既存の版は書き換えない**（P8）── 項目表の編集と同じく新しい版を作る。
+
+        伴走プロセスのソースは**名前で 1 つにまとめて**編集し、ケースはその名前で指す
+        （取り込みはケースごとに写しを入れるが、同じものを何か所も直させない）。
+        **画面に出していない値は捨てない** ── 付属ファイルなど、ケースの `payload` に
+        ある他の値は元のケースから引き継ぐ。
+        """
+        from ..app import require_principal
+
+        me = require_principal(request)
+        course = _require_instructor(request, me, CourseId(course_id))
+        console = _console(request)
+        with console.database.unit_of_work() as uow:
+            task = uow.tasks.get_task(TaskId(task_id))
+            version = uow.tasks.latest_version(TaskId(task_id))
+        if task is None or version is None or task.course_id != CourseId(course_id):
+            raise HTTPException(status_code=404, detail="課題が見つかりません")
+
+        registry = EvaluatorRegistry().load_installed()
+        named = _data_driven_criteria(registry, version).get("companion", ())
+        if not named:
+            raise HTTPException(
+                status_code=400,
+                detail="この課題の観点はクライアント・サーバのケースを読む評価器を指名していません",
+            )
+        form = await request.form()
+        try:
+            cases = companion_cases_from_form(form, version, evaluator_id=named[0])
+        except CompanionFormError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from None
+
+        _save_revision(
+            console,
+            me,
+            course,
+            task,
+            version,
+            statement=version.statement,
+            criteria=rubric.from_criteria(version.criteria),
+            aggregation=version.aggregation,
+            position=task.position,
+            accepted=task.accepted_suffixes,
+            reference_solution=version.reference_solution,
+            test_cases=cases + _kept_cases(version, editing=named),
+        )
+        return RedirectResponse(
+            f"/manage/courses/{course_id}/tasks/{task_id}/edit?saved=companion_revised#saved",
+            status_code=303,
         )
 
     @router.post("/courses/{course_id}/tasks/{task_id}/items/edit")

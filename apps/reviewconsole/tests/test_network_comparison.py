@@ -254,3 +254,127 @@ def test_the_task_pages_show_the_client_server_cases() -> None:
             assert "echoServer.py" in body and "bye" in body, login
     finally:
         world.close()
+
+
+def _network_task(world):
+    from test_manage import _user_id
+
+    from aijudge_authoring import TaskSpec
+    from aijudge_authoring.spec import CriterionSpec, LevelSpec, TestCaseSpec
+    from aijudge_core import Role
+    from aijudge_course_admin.authoring import save_task
+
+    world.register("teacher", Role.INSTRUCTOR)
+    saved = save_task(
+        world.database,
+        course_id=world.course.id,
+        spec=TaskSpec(
+            key="ex4/p1",
+            unit="ex4",
+            statement="## [必須] エコー ##\n\nサーバに接続する。",
+            criteria=(
+                CriterionSpec(
+                    code="network",
+                    title="通信できる",
+                    description="サーバとやり取りできるか。",
+                    weight=1.0,
+                    evaluator=RUNNER,
+                    levels=(
+                        LevelSpec(level=0, label="未達", descriptor="通らない", score_ratio=0.0),
+                        LevelSpec(level=1, label="達成", descriptor="通る", score_ratio=1.0),
+                    ),
+                ),
+            ),
+            test_cases=(TestCaseSpec(name="connect", evaluator=RUNNER, payload=_payload()),),
+        ),
+        subject_profile="cs_lang_c_intro",
+        authored_by=_user_id(world, "teacher"),
+    )
+    return saved.task.id
+
+
+def _edit_form(**override) -> dict:
+    form = {
+        "src_name": ["echoServer.py", ""],
+        "src_body": [SERVER + "print('v2')\n", ""],
+        "case_orig": ["connect", ""],
+        "case_name": ["connect", ""],
+        "case_role": ["client", "client"],
+        "case_port": ["50008", ""],
+        "case_companion": ["echoServer.py", "echoServer.py"],
+        "case_input": ["{host}\n{port}\nhi\n", ""],
+        "case_expected": ["hi\nbye\n", ""],
+        "case_companion_input": ["", ""],
+        "case_companion_expected": ["connected", ""],
+        "case_hidden": ["1", "1"],
+        "case_weight": ["1.0", "1.0"],
+    }
+    form.update(override)
+    return form
+
+
+def _latest_cases(world, task_id):
+    from aijudge_core.ids import TaskId
+
+    with world.database.unit_of_work() as uow:
+        version = uow.tasks.latest_version(TaskId(task_id))
+    return version, {case.name: case for case in version.test_cases}
+
+
+def test_the_client_server_cases_can_be_edited_into_a_new_version() -> None:
+    import tempfile
+    from pathlib import Path
+
+    from test_manage import World
+
+    world = World(Path(tempfile.mkdtemp()))
+    try:
+        task_id = _network_task(world)
+        before, _ = _latest_cases(world, task_id)
+        client = world.client("teacher")
+        page = client.get(f"/manage/courses/{world.course.id}/tasks/{task_id}/edit").text
+        assert 'id="companion-form"' in page and "ケースを保存して新しい版にする" in page
+
+        response = client.post(
+            f"/manage/courses/{world.course.id}/tasks/{task_id}/companion/edit",
+            data=_edit_form(),
+            follow_redirects=False,
+        )
+
+        assert "saved=companion_revised" in response.headers["location"], response.text
+        after, cases = _latest_cases(world, task_id)
+        assert after.version == before.version + 1, "既存の版は書き換えず新しい版にする"
+        payload = cases["connect"].payload
+        assert cases["connect"].evaluator_id == RUNNER
+        assert payload["port"] == 50008
+        assert payload["expected_contains"] == ["hi", "bye"]
+        assert payload["companion"].endswith("print('v2')\n")
+        assert payload["fixtures"] == {"data.txt": "abc\n"}, "画面に出していない値は引き継ぐ"
+    finally:
+        world.close()
+
+
+def test_a_value_the_runner_would_refuse_is_refused_at_save() -> None:
+    import tempfile
+    from pathlib import Path
+
+    from test_manage import World
+
+    world = World(Path(tempfile.mkdtemp()))
+    try:
+        task_id = _network_task(world)
+        before, _ = _latest_cases(world, task_id)
+        client = world.client("teacher")
+        url = f"/manage/courses/{world.course.id}/tasks/{task_id}/companion/edit"
+        for bad in (
+            {"case_port": ["80", ""]},
+            {"case_role": ["peer", "client"]},
+            {"case_companion": ["missing.py", "echoServer.py"]},
+            {"src_body": ["   ", ""]},
+        ):
+            response = client.post(url, data=_edit_form(**bad), follow_redirects=False)
+            assert response.status_code == 400, bad
+        after, _ = _latest_cases(world, task_id)
+        assert after.version == before.version, "断ったら版は上がらない"
+    finally:
+        world.close()

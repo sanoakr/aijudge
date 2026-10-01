@@ -61,7 +61,7 @@
 {% set carries_draft = (reference_draft is defined and reference_draft)
    or (proposed is defined and proposed) %}
 <details class="criterion" id="criterion-{{ row.code }}"
-  {%- if holds_data and ((saved_key is defined and saved_key in ('tests_revised', 'items_revised'))
+  {%- if holds_data and ((saved_key is defined and saved_key in ('tests_revised', 'items_revised', 'companion_revised'))
                          or carries_draft) %} open{% endif %}>
   <summary>
     <b>{{ row.title or row.code }}</b>
