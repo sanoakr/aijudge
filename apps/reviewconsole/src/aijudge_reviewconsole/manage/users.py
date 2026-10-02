@@ -17,7 +17,12 @@ from aijudge_core import Role, campus_access, parse_cidrs
 from aijudge_core.ids import CourseId, UserId
 from aijudge_course_admin.roster import generate_password
 from aijudge_identity import AuthenticationFailed, AuthService, Principal
-from aijudge_identity.network import MAX_CIDRS, CampusNetworkSettings
+from aijudge_identity.network import (
+    MAX_CIDRS,
+    MAX_NOTE_LENGTH,
+    CampusNetworkSettings,
+    CampusRange,
+)
 from aijudge_identity.oidc import DEFAULT_LOGIN_LABEL, LOGIN_LABEL_MAX, OidcSettings
 
 from ..audit_context import recorder_for, source_ip_of
@@ -450,7 +455,8 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
         console = _console(request)
         with console.database.unit_of_work() as uow:
             settings = uow.identity.get_campus_networks(me.tenant_id)
-        cidrs = () if settings is None else settings.cidrs
+        ranges = () if settings is None else settings.ranges
+        cidrs = tuple(r.cidr for r in ranges)
         source = source_ip_of(request)
         return templates.TemplateResponse(
             request,
@@ -458,7 +464,10 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
             {
                 "me": me,
                 "cidrs": cidrs,
-                "text": "\n".join(cidrs),
+                "ranges": ranges,
+                "note_max": MAX_NOTE_LENGTH,
+                # 1 行 1 件。`#` より後ろがその範囲の注釈（教室・回線）。
+                "text": "\n".join(f"{r.cidr}  # {r.note}" if r.note else r.cidr for r in ranges),
                 "source_ip": source,
                 "access": campus_access(source, cidrs),
                 "saved": SAVED_MESSAGES.get(saved),
@@ -486,17 +495,36 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
             raise HTTPException(status_code=400, detail=f"範囲は {MAX_CIDRS} 件までです")
         # **1 行ずつ確かめる。** `parse_cidrs` は読めるものだけを返す設計
         # なので、ここで数を比べても「どれが読めなかったか」は言えない。
-        bad = [line for line in lines if not parse_cidrs([line])]
+        # 書式は `範囲  # 注釈`。`#` より後ろが、教員が受け付ける場所を選ぶときに
+        # 読む説明（どの教室か・無線か有線か）になる。
+        entries: list[CampusRange] = []
+        bad: list[str] = []
+        for line in lines:
+            address, _, note = line.partition("#")
+            parsed = parse_cidrs([address])
+            if not parsed:
+                bad.append(line)
+                continue
+            if len(note.strip()) > MAX_NOTE_LENGTH:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"注釈は {MAX_NOTE_LENGTH} 文字までです: {address.strip()}",
+                )
+            entries.append(CampusRange(cidr=str(parsed[0]), note=note.strip()))
         if bad:
             raise HTTPException(
                 status_code=400,
                 detail="範囲として読めない行があります: " + "、".join(bad[:5]),
             )
+        if len({e.cidr for e in entries}) != len(entries):
+            raise HTTPException(
+                status_code=400, detail="同じ範囲が重複しています（注釈は 1 つにまとめてください）"
+            )
 
         with console.database.unit_of_work() as uow:
             before = uow.identity.get_campus_networks(me.tenant_id)
             uow.identity.save_campus_networks(
-                CampusNetworkSettings(tenant_id=me.tenant_id, cidrs=tuple(lines))
+                CampusNetworkSettings(tenant_id=me.tenant_id, ranges=tuple(entries))
             )
             # **誰がいつ変えたかを残す。** ここを変えると、誰が提出できるかが
             # 変わる ── 締切と同じ性質の値である（ADR 0013 と同じ理由）。
@@ -504,10 +532,13 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
                 AuditAction.CAMPUS_NETWORKS_UPDATED,
                 target_type="tenant",
                 target_id=str(me.tenant_id),
-                summary=f"学内ネットワークを変えた（{len(lines)} 件）",
+                summary=f"学内ネットワークを変えた（{len(entries)} 件）",
                 detail={
-                    "before": list(() if before is None else before.cidrs),
-                    "after": lines,
+                    "before": [
+                        {"cidr": r.cidr, "note": r.note}
+                        for r in (() if before is None else before.ranges)
+                    ],
+                    "after": [{"cidr": r.cidr, "note": r.note} for r in entries],
                 },
             )
             uow.commit()

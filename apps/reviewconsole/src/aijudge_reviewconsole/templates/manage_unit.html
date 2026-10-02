@@ -110,6 +110,45 @@
       <label class="check"><input type="checkbox" name="campus_only" value="1" {{ 'checked' if unit.campus_only }}>
         学内からだけ受け付ける</label>
       {% if unit.campus_mixed %}<p class="note warn tight">このセットの中で値がばらついています。変えて保存すると、全課題に同じ値が入ります。</p>{% endif %}
+      {# 受け付ける範囲（2026-10-02）。**テナント管理者が登録した範囲から選ぶ。**
+         注釈（どの教室・どの回線か）を読んで選べる。学内からだけ受け付けるに
+         チェックを入れたときだけ出す。 #}
+      <div class="campus-ranges" id="campus-ranges" {{ 'hidden' if not unit.campus_only }}>
+        <p class="desc tight"><strong>受け付ける範囲</strong>（1 つ以上選んでください）</p>
+        {% for r in campus_choices.ranges %}
+        <label class="check">
+          <input type="checkbox" name="campus_ranges" value="{{ r.cidr }}"
+            {{ 'checked' if r.cidr in campus_choices.chosen }}>
+          <span class="mono">{{ r.cidr }}</span> {{ r.note or '（注釈なし）' }}
+          {% if campus_choices.here == r.cidr %}<span class="pill ok">いまの接続元はここ</span>{% endif %}
+        </label>
+        {% else %}
+        <p class="note warn tight">登録された範囲がありません。</p>
+        {% endfor %}
+        <p class="desc tight">
+          いまの接続元: <span class="mono">{{ campus_choices.source_ip or '不明' }}</span>
+          {% if not campus_choices.here %}（登録された範囲には当たりません）{% endif %}
+        </p>
+        {% if campus_choices.legacy %}
+        <p class="note warn tight">
+          範囲を選ぶ前に学内限定にしたセットです。<strong>いまは登録されたすべての範囲から受け付けています。</strong>
+          受け付ける範囲を選んで保存してください。
+        </p>
+        {% endif %}
+        {% if campus_choices.missing %}
+        <p class="note warn tight">
+          選んであった範囲が登録から消えています（<span class="mono">{{ campus_choices.missing | join('、') }}</span>）。
+          <strong>残りの範囲だけで判定され、1 つも残っていなければ誰も提出できません。</strong>選び直してください。
+        </p>
+        {% endif %}
+      </div>
+      <script>
+        (function () {
+          var box = document.querySelector('input[name="campus_only"]');
+          var panel = document.getElementById("campus-ranges");
+          if (box && panel) box.addEventListener("change", function () { panel.hidden = !box.checked; });
+        })();
+      </script>
       {% if unit.campus_only and not campus_configured %}
       {# 切り替えただけで守られていると読まれるのが、いちばん高くつく誤解。 #}
       <p class="note warn tight">

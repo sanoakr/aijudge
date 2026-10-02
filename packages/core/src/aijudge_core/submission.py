@@ -245,6 +245,11 @@ class Submission(BaseModel):
     # 同じように記録に残らないので、`submitted_as` を偽って教員扱いに
     # するのではなく、別の事実として持つ。
     is_demo: bool = False
+    # 提出を受け付けたときの接続元アドレス（2026-10-02）。**そのときの事実として
+    # 焼き付ける。** 試験で「どの教室から出したか」を後から確かめるためで、
+    # 判定には使わない（学内かどうかはその場で決めて断る・`campus_access`）。
+    # 教員にだけ見せる。受付終了時の自動提出と、読めなかったときは空。
+    source_ip: str | None = Field(default=None, max_length=64)
     state: SubmissionState = SubmissionState.DRAFT
     attempt: int = Field(default=1, ge=1)
     artifacts: tuple[Artifact, ...] = ()

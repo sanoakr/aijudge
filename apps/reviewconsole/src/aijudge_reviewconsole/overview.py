@@ -92,6 +92,9 @@ class UnitGroup:
     # `campus_only` と同じく、混ざりは別に持って黙らせない。
     confidential: bool = False
     confidential_mixed: bool = False
+    # 受け付ける学内の範囲（`Task.campus_ranges`）。課題ごとに違えば和を取る。
+    # 空は「全範囲」（範囲を選べるようになる前の設定）。
+    campus_ranges: tuple[str, ...] = ()
     # 試験中に画面の静止画を撮るか（ADR 0027）。全課題がそうなら真。混ざりも持つ。
     screen_capture: bool = False
     screen_capture_mixed: bool = False
@@ -251,6 +254,7 @@ def load_units(
                 campus_only=bool(tasks) and all(task.campus_only for task in tasks),
                 campus_mixed=any(task.campus_only for task in tasks)
                 and not all(task.campus_only for task in tasks),
+                campus_ranges=tuple(sorted({r for task in tasks for r in task.campus_ranges})),
                 unfinalized=sum(counts.get(task.id, 0) for task, _ in items),
                 deadline_passed=due_at is not None and moment >= due_at,
                 confidential=bool(tasks) and all(task.confidential_until_open for task in tasks),

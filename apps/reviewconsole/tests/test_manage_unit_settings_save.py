@@ -62,12 +62,19 @@ def test_the_page_has_one_form_and_one_save_button(world: World) -> None:
 
 def test_everything_sent_together_is_saved_together(world: World) -> None:
     world.register("teacher", Role.INSTRUCTOR)
+    world.register("boss", Role.ADMIN, tenant_admin=True)
+    world.client("boss").post(
+        "/manage/campus-networks",
+        data={"cidrs": "133.83.80.0/24  # 1 号館 101 教室"},
+        follow_redirects=False,
+    )
     task_id = _import_example(world)
     unit = _unit_of(world)
 
     response = world.client("teacher").post(
         _settings(world, unit),
         data=_form(
+            campus_ranges=["133.83.80.0/24"],
             session="3",
             opens_at="2026-10-01T10:40",
             due_at="2026-10-15T23:59",
@@ -85,6 +92,7 @@ def test_everything_sent_together_is_saved_together(world: World) -> None:
     assert task.session == 3
     assert task.due_at is not None and task.opens_at is not None
     assert task.campus_only is True
+    assert task.campus_ranges == ("133.83.80.0/24",)
     assert task.clear_points == 5
     assert task.auto_finalize_after_minutes == 30
     assert task.screen_capture is True

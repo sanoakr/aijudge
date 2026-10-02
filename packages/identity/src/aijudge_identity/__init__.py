@@ -20,7 +20,7 @@ from .demo import (
 )
 from .errors import AuthenticationFailed, NotAnInstructor, PermissionDenied
 from .models import ApiToken, Principal, Session, User, UserState
-from .network import MAX_CIDRS, CampusNetworkSettings
+from .network import MAX_CIDRS, MAX_NOTE_LENGTH, CampusNetworkSettings, CampusRange
 from .oidc import (
     DEFAULT_LOGIN_LABEL,
     LOGIN_LABEL_MAX,
@@ -54,12 +54,14 @@ __all__ = [
     "INSTRUCTOR_ROLES",
     "LOGIN_LABEL_MAX",
     "MAX_CIDRS",
+    "MAX_NOTE_LENGTH",
     "MIN_PASSWORD_LENGTH",
     "TOKEN_PREFIX",
     "ApiToken",
     "AuthService",
     "AuthenticationFailed",
     "CampusNetworkSettings",
+    "CampusRange",
     "DemoCourse",
     "GoogleOidcIdentity",
     "GoogleOidcProvider",

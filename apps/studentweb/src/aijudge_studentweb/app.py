@@ -14,6 +14,7 @@ UI で隠すのは表示の都合であって権限ではないので、リク�
 from __future__ import annotations
 
 import contextlib
+import ipaddress
 import os
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -788,10 +789,12 @@ def create_app(app_state: StudentApp) -> FastAPI:
                 # （受付側でも `_submission_gate` が断る・#146）。
                 "file_upload": task_obj.file_upload or task_obj.answer_mode is AnswerMode.UPLOAD,
                 "campus_access": (
-                    campus_access_for(app_state, request, me.tenant_id)
+                    campus_access_for(app_state, request, me.tenant_id, task_obj)
                     if task_obj.campus_only
                     else None
                 ),
+                # トップバーの接続元（学内限定の課題だけ）。
+                "campus_view": campus_view(app_state, request, me.tenant_id, [task_obj]),
                 **build_context(course_obj, task_obj, version),
             },
         )
@@ -815,7 +818,9 @@ def create_app(app_state: StudentApp) -> FastAPI:
         # 学内限定・受付期間・役割は、動画と IDE と**同じ関門**で判定する
         # （`_submission_gate` の docstring・不変条件 I8）。
         version, course_obj, _task, role = _submission_gate(request, me, task_version_id)
-        result = await accept_uploads(me, version, course_obj, _task, role, upload)
+        result = await accept_uploads(
+            me, version, course_obj, _task, role, upload, source_ip=source_ip_of(request)
+        )
 
         return RedirectResponse(
             f"/submissions/{result.submission.id}" + ("?again=1" if result.deduplicated else ""),
@@ -831,6 +836,7 @@ def create_app(app_state: StudentApp) -> FastAPI:
         upload: list[UploadFile],
         *,
         only: tuple[str, ...] | None = None,
+        source_ip: str | None = None,
     ):
         """選ばれたファイルを検査して提出にする。**課題の画面とエディタの画面の両方が
         呼ぶ**（2026-09-25）。
@@ -923,6 +929,7 @@ def create_app(app_state: StudentApp) -> FastAPI:
                 # 過去の提出が測定から消える（ADR 0013 と同じ罠）。
                 submitted_as=role,
                 is_demo=_is_demo_course(course_obj.id),
+                source_ip=source_ip,
             )
         except SubmissionRejected as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -1163,6 +1170,7 @@ def create_app(app_state: StudentApp) -> FastAPI:
                 grading_starts_at=task_obj.grading_starts_at,
                 submitted_as=role,
                 is_demo=_is_demo_course(course_obj.id),
+                source_ip=source_ip_of(request),
             )
         except SubmissionRejected as exc:
             store.delete(storage_key)
@@ -1269,6 +1277,7 @@ def create_app(app_state: StudentApp) -> FastAPI:
                 grading_starts_at=_task.grading_starts_at,
                 submitted_as=role,
                 is_demo=_is_demo_course(course_obj.id),
+                source_ip=source_ip_of(request),
             )
         except SubmissionRejected as exc:
             app_state.video_store.delete(storage_key)
@@ -1516,6 +1525,9 @@ def create_app(app_state: StudentApp) -> FastAPI:
             course_and_tasks=_course_and_tasks,
             load_progress=load_progress,
             build_context=build_context,
+            campus_view=lambda request, tenant_id, tasks: campus_view(
+                app_state, request, tenant_id, tasks
+            ),
             is_demo=_is_demo_course,
             now=now,
         ),
@@ -1807,16 +1819,60 @@ def knowledge_components_of(app_state: StudentApp, version) -> tuple[tuple[str, 
     return tuple(sorted(found, key=lambda pair: pair[1]))
 
 
-def campus_access_for(app_state: StudentApp, request: Request, tenant_id) -> CampusAccess:
+def campus_access_for(
+    app_state: StudentApp, request: Request, tenant_id, task=None
+) -> CampusAccess:
     """この要求が学内から来ているか（#333）。
 
     **接続元は `X-Forwarded-For` の右端**（逆プロキシが書いた値）を採る
     （`aijudge_telemetry.client_ip`）── 左端はクライアントが自由に書けるので、
     そこで判定すると名乗るだけで通れる。
+
+    `task` を渡すと、その課題の問題セットが選んだ範囲（`Task.campus_ranges`）だけで
+    判定する。選んだ範囲がテナントの設定から消えているときは**判定できない**
+    （`UNKNOWN`）として断る ── 全範囲に化けさせない。
     """
+    return _campus_judgement(app_state, request, tenant_id, task)[0]
+
+
+def _campus_judgement(app_state: StudentApp, request: Request, tenant_id, task=None):
+    """判定と、当たった範囲（注釈つき）。当たらなければ None。"""
     with app_state.database.unit_of_work() as uow:
         settings = uow.identity.get_campus_networks(tenant_id)
-    return campus_access(source_ip_of(request), () if settings is None else settings.cidrs)
+    ip = source_ip_of(request)
+    if settings is None:
+        return campus_access(ip, ()), None
+    chosen = tuple(getattr(task, "campus_ranges", ()) or ())
+    ranges = settings.selected(chosen)
+    if chosen and not ranges:
+        return CampusAccess.UNKNOWN, None
+    access = campus_access(ip, tuple(r.cidr for r in ranges))
+    if access is not CampusAccess.INSIDE:
+        return access, None
+    address = ipaddress.ip_address((ip or "").strip())
+    for entry in ranges:
+        network = ipaddress.ip_network(entry.cidr, strict=False)
+        if address.version == network.version and address in network:
+            return access, entry
+    return access, None
+
+
+def campus_view(app_state: StudentApp, request: Request, tenant_id, tasks) -> dict | None:
+    """トップバーに出す接続元（2026-10-02）。**学内限定の課題・セットを開いている間だけ。**
+
+    学習者が「いまのアドレスで通るのか」を、提出を押す前に自分で確かめられる。
+    問題セットの課題が選んだ範囲は同じなので、先頭の学内限定の課題で判定する。
+    """
+    task = next((t for t in tasks if getattr(t, "campus_only", False)), None)
+    if task is None:
+        return None
+    access, entry = _campus_judgement(app_state, request, tenant_id, task)
+    return {
+        "ip": source_ip_of(request),
+        "access": access.value,
+        "note": None if entry is None else entry.note,
+        "cidr": None if entry is None else entry.cidr,
+    }
 
 
 def campus_exempt(role: Role) -> bool:
@@ -1839,7 +1895,7 @@ def _require_campus(app_state: StudentApp, request: Request, task, tenant_id, ro
     """
     if not getattr(task, "campus_only", False) or campus_exempt(role):
         return
-    access = campus_access_for(app_state, request, tenant_id)
+    access = campus_access_for(app_state, request, tenant_id, task)
     if access.allows_submission:
         return
     if access is CampusAccess.UNKNOWN:

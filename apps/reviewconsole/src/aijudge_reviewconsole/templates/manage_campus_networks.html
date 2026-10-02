@@ -45,9 +45,14 @@
 
 <form method="post" action="{{ root_prefix() }}/manage/campus-networks" class="card">
   <div class="field">
-    <label for="cidrs">学内と見なす範囲（1 行 1 件・CIDR）</label>
+    <label for="cidrs">学内と見なす範囲（1 行 1 件・<span class="mono">CIDR  # 注釈</span>）</label>
     <textarea id="cidrs" name="cidrs" rows="10" class="mono"
-      placeholder="133.83.80.0/24&#10;133.83.82.0/25">{{ text }}</textarea>
+      placeholder="133.83.80.0/24  # 1 号館 101 教室・有線&#10;133.83.82.0/25  # 2 号館 全体・無線 LAN">{{ text }}</textarea>
+    <p class="desc" style="margin:4px 0 0">
+      <strong><span class="mono">#</span> より後ろに、その範囲がどの教室・どの回線か</strong>を書いてください
+      （{{ note_max }} 文字まで）。教員が問題セットで<strong>受け付ける場所を選ぶとき</strong>に、
+      この注釈を読んで選びます。
+    </p>
     <p class="desc" style="margin:4px 0 0">
       1 台だけなら <span class="mono">/32</span>（IPv6 は <span class="mono">/128</span>）と書きます。
       <strong>読めない行があると保存できません</strong> ── 黙って無視すると、
@@ -64,9 +69,9 @@
 {% if cidrs %}
 <h2>いま設定されている範囲（{{ cidrs | length }} 件）</h2>
 <table>
-  <thead><tr><th class="grow">範囲</th></tr></thead>
+  <thead><tr><th>範囲</th><th class="grow">注釈（教室・回線）</th></tr></thead>
   <tbody>
-  {% for cidr in cidrs %}<tr><td class="grow mono">{{ cidr }}</td></tr>{% endfor %}
+  {% for r in ranges %}<tr><td class="mono">{{ r.cidr }}</td><td class="grow">{{ r.note or '（注釈なし）' }}</td></tr>{% endfor %}
   </tbody>
 </table>
 {% endif %}
