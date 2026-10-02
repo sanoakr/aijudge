@@ -245,6 +245,13 @@ class Submission(BaseModel):
     # 同じように記録に残らないので、`submitted_as` を偽って教員扱いに
     # するのではなく、別の事実として持つ。
     is_demo: bool = False
+    # 受付終了時にサーバが自動で出した提出か（`aijudge_runner.autosubmit`）。
+    #
+    # **提出の事実として持つ。** 遅延の減点を付けるかどうかを採点ワーカーが
+    # 決めるので、IDE の記録（`ide_submission_links`）を読ませずに済むよう
+    # 提出に焼き付ける（ADR 0023 §4 ── 成績を作る処理は行動記録を読まない）。
+    # 本人が押した提出には付かない。
+    auto_closed: bool = False
     state: SubmissionState = SubmissionState.DRAFT
     attempt: int = Field(default=1, ge=1)
     artifacts: tuple[Artifact, ...] = ()
