@@ -63,7 +63,16 @@ def seed_demo_course(
     _seed_skeleton(database, profiles_dir)
 
     applied = apply_course_definition(
-        database, path, tenant_id=tenant_id, profiles_dir=profiles_dir, authored_by=authored_by
+        database,
+        path,
+        tenant_id=tenant_id,
+        profiles_dir=profiles_dir,
+        authored_by=authored_by,
+        # **訂正済みの課題を通す**（2026-10-02）。ファイルが正本なので、課題を直したら
+        # 版を 1 つ上げて合わせる。`revise` なしでは候補が常に版 1 になり、2 回以上
+        # 直した課題は保存済みの版 1 と食い違って、`demo seed` が止まっていた。
+        # 内容が同じなら版は増えない（何度走らせても増えない）。
+        revise=True,
     )
     return DemoSeed(course=applied.course, tasks=applied.tasks, created=applied.created)
 

@@ -172,3 +172,37 @@ def test_the_humanities_unit_is_editor_only_and_campus_only(database: Database) 
     assert all(task.campus_only and task.campus_ranges == () for task in unit)
     assert not any(task.editor_completion for task in unit)
     assert all(task.accepted_suffixes == (".md",) for task in unit)
+
+
+def test_seeding_follows_a_task_corrected_in_the_file(database: Database, tmp_path: Path) -> None:
+    """**ファイルを直したら、版を上げて合わせる。** 直したあとも何度でも通る。
+
+    以前は `revise` なしで保存していたので、候補が常に版 1 になり、版 2 以上に
+    訂正された課題は保存済みの版 1 と食い違って、`demo seed` が止まっていた
+    （運用機の `d5-exam-report` で実際に起きた・2026-10-02）。
+    """
+    import shutil
+
+    profiles = tmp_path / "subjects"
+    shutil.copytree(PROFILES, profiles)
+    definition = demo_definition_path(profiles)
+    seed = lambda: seed_demo_course(  # noqa: E731
+        database, tenant_id=TENANT, profiles_dir=profiles, authored_by=AUTHOR
+    )
+    first = seed()
+
+    text = definition.read_text(encoding="utf-8")
+    definition.write_text(
+        text.replace("## [試験] 偶数の合計を求める ##", "## [試験] 偶数の合計を求める（改） ##", 1),
+        encoding="utf-8",
+    )
+    seed()
+    seed()  # 訂正のあとに流し直しても止まらず、版も増えない
+
+    with database.unit_of_work() as uow:
+        task = next(
+            t for t in uow.tasks.list_for_course(first.course.id) if t.title == "偶数の合計を求める"
+        )
+        latest = uow.tasks.latest_version(task.id)
+    assert latest is not None and latest.version == 2
+    assert "（改）" in latest.statement
