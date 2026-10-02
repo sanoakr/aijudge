@@ -213,6 +213,7 @@ KEPT = {
     "auto_finalize_after_minutes",
     "withdrawn",
     "campus_only",
+    "campus_ranges",
     "confidential_until_open",
     "audience_group_ids",
     "answer_mode",

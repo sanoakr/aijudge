@@ -81,6 +81,8 @@ from aijudge_ide import (
 from aijudge_submission import IncomingFile, SubmissionRejected
 from aijudge_toolchain import UnknownLanguage, resolve_language
 
+from .audit_context import source_ip_of
+
 # テストを走らせる評価器（`aijudge_course_admin.answer_mode` と同じく名前で指す）。
 # 評価器のパッケージを import すると sandbox まで引きずり、
 # `web-does-not-run-code` 契約が落ちる。
@@ -147,6 +149,7 @@ class IdeDeps:
     load_progress: Callable[..., dict]
     build_context: Callable[..., dict]
     is_demo: Callable[[object], bool]
+    campus_view: Callable[..., dict | None]
     now: Callable[[], datetime]
     # 画像・PDF を検査して提出にする関数（`create_app` の `accept_uploads`）。課題の画面の
     # ファイル提出と**同じ関数**を受け取る ── 検査を写すと条件が落ちる（I8 と同じ理由）。
@@ -403,6 +406,10 @@ def register_ide_routes(app: FastAPI, deps: IdeDeps, me_dependency: Any) -> None
                 # どれか 1 つが撮るならこの画面は撮る。
                 "screen_capture": any(task.screen_capture for task, _ in picked),
                 "unit": wanted or "",
+                # トップバーの接続元（学内限定のセットだけ）。
+                "campus_view": deps.campus_view(
+                    request, me.tenant_id, [task for task, _ in picked]
+                ),
                 **deps.build_context(course_obj, first_task, first_version),
             },
         )
@@ -505,6 +512,7 @@ def register_ide_routes(app: FastAPI, deps: IdeDeps, me_dependency: Any) -> None
                 grading_starts_at=task_obj.grading_starts_at,
                 submitted_as=role,
                 is_demo=deps.is_demo(course_obj.id),
+                source_ip=source_ip_of(request),
             )
         except SubmissionRejected as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -575,7 +583,14 @@ def register_ide_routes(app: FastAPI, deps: IdeDeps, me_dependency: Any) -> None
                 status_code=400, detail="この課題は、エディタの画面からファイルを出せません"
             )
         result = await deps.accept_uploads(
-            me, version, course_obj, task_obj, role, upload, only=attach
+            me,
+            version,
+            course_obj,
+            task_obj,
+            role,
+            upload,
+            only=attach,
+            source_ip=source_ip_of(request),
         )
         submission = result.submission
         first = submission.artifacts[0].content_hash if submission.artifacts else ""

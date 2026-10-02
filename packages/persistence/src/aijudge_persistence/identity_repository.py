@@ -28,7 +28,7 @@ from aijudge_core import (
 )
 from aijudge_core.ids import ApiTokenId, CourseGroupId, CourseId, SessionId, TenantId, UserId
 from aijudge_identity.models import ApiToken, Session, User, UserState
-from aijudge_identity.network import CampusNetworkSettings
+from aijudge_identity.network import CampusNetworkSettings, CampusRange
 from aijudge_identity.oidc import DEFAULT_LOGIN_LABEL, OidcSettings
 
 from .schema import (
@@ -425,7 +425,11 @@ class SqlIdentityRepository:
     def save_campus_networks(self, settings: CampusNetworkSettings) -> None:
         """**持ち替える。** 1 テナントにつき 1 設定（`oidc_settings` と同じ）。"""
         row = self._session.get(CampusNetworkRow, str(settings.tenant_id))
-        payload = {"cidrs": list(settings.cidrs)}
+        # `cidrs` は旧い形の読み手のために残す（注釈は `ranges` が持つ）。
+        payload = {
+            "cidrs": list(settings.cidrs),
+            "ranges": [{"cidr": r.cidr, "note": r.note} for r in settings.ranges],
+        }
         if row is None:
             self._session.add(
                 CampusNetworkRow(
@@ -444,7 +448,12 @@ class SqlIdentityRepository:
         if row is None:
             return None
         stored = row.cidrs or {}
-        return CampusNetworkSettings(tenant_id=tenant_id, cidrs=tuple(stored.get("cidrs") or ()))
+        if "ranges" in stored:
+            ranges = tuple(CampusRange(**entry) for entry in stored["ranges"])
+        else:
+            # 注釈を持つ前の保存（CIDR だけ）。注釈は空で読む。
+            ranges = tuple(CampusRange(cidr=cidr) for cidr in stored.get("cidrs") or ())
+        return CampusNetworkSettings(tenant_id=tenant_id, ranges=ranges)
 
     def list_enrollments(self, course_id: CourseId) -> tuple[Enrollment, ...]:
         rows = self._session.execute(

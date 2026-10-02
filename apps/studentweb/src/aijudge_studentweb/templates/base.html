@@ -31,6 +31,17 @@
   <a class="brand" href="/">aiJudge</a>
   <span class="spacer"></span>
   <span>{{ me.display_name }} <span class="mono">{{ me.login }}</span></span>
+  {# 接続元（2026-10-02）。**学内限定の課題を開いている間だけ** ── 提出を押す前に、
+     いまのアドレスで通るかを自分で確かめられる。範囲に注釈があれば、どの教室・
+     回線として判定されたかも出す。 #}
+  {% if campus_view is defined and campus_view %}
+  <span class="campus-ip" data-access="{{ campus_view.access }}">接続元
+    <span class="mono">{{ campus_view.ip or '不明' }}</span>
+    {% if campus_view.access == 'inside' %}（学内{% if campus_view.note %}・{{ campus_view.note }}{% endif %}）
+    {% elif campus_view.access == 'outside' %}（<strong>学外</strong>）
+    {% elif campus_view.access == 'unknown' %}（<strong>判定できません</strong>）
+    {% else %}（学内の範囲が未設定）{% endif %}</span>
+  {% endif %}
   {# 利用ガイド（#327）。**どの画面からも届く場所に置く** ── 使い方が分から
      なくなるのは作業の途中で、入口に戻ってから探すものではない。別の場所
      （GitHub Pages）なので新しいタブで開く。 #}

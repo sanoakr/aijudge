@@ -45,7 +45,7 @@ from aijudge_course_admin.tasks import clear_unit
 from aijudge_grading import EvaluatorRegistry
 
 from .. import notices
-from ..audit_context import recorder_for
+from ..audit_context import recorder_for, source_ip_of
 from ..overview import empty_unit, find_unit, load_units, unit_key
 from ..urls import RedirectResponse
 from .common import (
@@ -160,9 +160,71 @@ def _apply_unit_update(
 
 def _campus_configured(console, me) -> bool:
     """テナントに学内の範囲が 1 件でも入っているか（#333）。"""
+    return bool(_campus_ranges(console, me))
+
+
+def _campus_ranges(console, me) -> tuple:
+    """テナント管理者が登録した範囲（注釈つき）。**読めるものだけ**（`parse_cidrs`）。"""
     with console.database.unit_of_work() as uow:
         settings = uow.identity.get_campus_networks(me.tenant_id)
-    return bool(settings and parse_cidrs(settings.cidrs))
+    if settings is None:
+        return ()
+    return tuple(entry for entry in settings.ranges if parse_cidrs([entry.cidr]))
+
+
+def _chosen_ranges(console, me, chosen: list[str]) -> tuple[str, ...]:
+    """学内限定にするとき選んだ範囲を検査する。**1 つ以上・登録済みのものだけ。**
+
+    選ばせるのは、学内限定を入れたのに「どこから受け付けるのか」が決まって
+    いない設定を作らないため。登録の無い範囲を通すと、あとで管理者が書き直した
+    ときに黙って効かなくなる。
+    """
+    known = {entry.cidr for entry in _campus_ranges(console, me)}
+    picked = tuple(sorted(set(chosen)))
+    if not picked:
+        raise HTTPException(
+            status_code=400,
+            detail="学内からだけ受け付けるときは、受け付ける範囲を 1 つ以上選んでください",
+        )
+    unknown = [c for c in picked if c not in known]
+    if unknown:
+        raise HTTPException(
+            status_code=400,
+            detail="登録されていない範囲です: " + "、".join(unknown[:3]),
+        )
+    return picked
+
+
+def _campus_choices(console, me, request: Request, group) -> dict:
+    """受け付ける範囲の選択肢。いまの接続元が当たる範囲に印を付ける。"""
+    import ipaddress
+
+    ranges = _campus_ranges(console, me)
+    source = source_ip_of(request)
+    here: str | None = None
+    if source:
+        try:
+            address = ipaddress.ip_address(source.strip())
+        except ValueError:
+            address = None
+        for entry in ranges if address else ():
+            network = ipaddress.ip_network(entry.cidr, strict=False)
+            if address.version == network.version and address in network:
+                here = entry.cidr
+                break
+    chosen = set(group.campus_ranges)
+    known = {entry.cidr for entry in ranges}
+    return {
+        "ranges": ranges,
+        "chosen": chosen,
+        "source_ip": source,
+        "here": here,
+        # 選んであるのに登録から消えている範囲。**黙って落とさず見せる** ──
+        # 全部消えていれば、この問題セットは誰も提出できない。
+        "missing": sorted(chosen - known),
+        # 範囲を選べるようになる前に学内限定にしたセット。全範囲として動いている。
+        "legacy": group.campus_only and not chosen,
+    }
 
 
 def _clear_plan(console, course, group) -> dict[str, int]:
@@ -458,6 +520,10 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
                 # いない**ので、そう書く ── 切り替えただけで守られていると
                 # 読まれるのが、いちばん高くつく誤解である。
                 "campus_configured": _campus_configured(console, me),
+                # 選べる範囲（テナント管理者が注釈つきで登録したもの）と、いまの接続元。
+                # **注釈を読んで選ぶ**ための値で、教員が自分の端末から開けば、いま
+                # 居る教室がどの範囲かもその場で分かる。
+                "campus_choices": _campus_choices(console, me, request, group),
                 # 出題先の名簿（追試など）。**名簿そのものは別の画面で作る**
                 # （`/manage/courses/{id}/groups`）── ここは選ぶだけ。
                 "groups": _groups_of(console, course),
@@ -616,6 +682,7 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
         course_id: str,
         unit: str,
         campus_only: Annotated[str, Form()] = "",
+        campus_ranges: Annotated[list[str] | None, Form()] = None,
     ) -> Response:
         """**問題セットを学内からだけ受け付けるかを切り替える**（#333）。
 
@@ -627,11 +694,16 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
         設定する（`/manage/campus-networks`）── 機関の属性であって、
         コースごとに違うものではない。
         """
+        from ..app import require_principal
+
+        me = require_principal(request)
+        on = bool(campus_only.strip())
+        ranges = _chosen_ranges(_console(request), me, campus_ranges or []) if on else ()
         return _update_unit(
             request,
             course_id,
             unit,
-            update={"campus_only": bool(campus_only.strip())},
+            update={"campus_only": on, "campus_ranges": ranges},
             saved="campus_only",
         )
 
@@ -919,8 +991,14 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
             when = _parse_when(text(name))
             if not _same_minute(when, getattr(group, name)):
                 update[name] = when
+        wants_campus = flag("campus_only")
+        chosen_ranges = (
+            _chosen_ranges(console, me, form.getlist("campus_ranges")) if (wants_campus) else ()
+        )
+        if wants_campus != group.campus_only or tuple(sorted(chosen_ranges)) != group.campus_ranges:
+            update["campus_only"] = wants_campus
+            update["campus_ranges"] = chosen_ranges
         for field, name, current in (
-            ("campus_only", "campus_only", group.campus_only),
             ("editor_completion", "completion", group.completion),
             ("confidential_until_open", "confidential", group.confidential),
             ("screen_capture", "screen_capture", group.screen_capture),

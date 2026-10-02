@@ -4,6 +4,11 @@
 {% block body %}
 {% if strip %}{% include "_work_strip.html" %}{% endif %}
 <h1>AI の判定 — <span class="mono">{{ submission.id[:12] }}…</span></h1>
+{# 提出を受け付けたときの接続元（2026-10-02）。どの教室から出したかを確かめる記録で、
+   **担当教員にだけ出す**（TA には出さない）。判定には使わない。 #}
+{% if can_correct and submission.source_ip %}
+<p class="desc">提出時の接続元: <span class="mono">{{ submission.source_ip }}</span></p>
+{% endif %}
 {# エディタからの提出なら、書いた経過（作業の記録）へ。教員にだけ出る。 #}
 {% if activity_href %}
 <p class="desc">この提出はブラウザのエディタから出されました。
