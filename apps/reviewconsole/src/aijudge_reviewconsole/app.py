@@ -1510,6 +1510,14 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
         if context.review is not None:
             _require_course_instructor(console, me, context.course.id)
 
+        mode = _work_mode(from_)
+        # **次の 1 件は保存の前に決める。** 確定した 1 件は待ち行列から抜けるので、
+        # 保存のあとでは「いまの 1 件の次」が引けない。
+        next_after = (
+            _next_finalize(console, me, context.course.id, str(submission_id))
+            if mode == WORK_FINALIZE
+            else None
+        )
         final = _parse_levels(context.task_version.criteria, form)
         comment = str(form.get("comment", ""))
         # 遅延の減点の免除。**評価の修正とは別物**（ADR 0013）。減点の無い
@@ -1567,8 +1575,17 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
         # 戻って開き直すしかなかった。戻せば、確定済みとして描き直され、
         # ボタンは押せなくなる（`reveal.html`）── 結果がその場に出る。
         # 順に処理している途中なら帯を付けたまま戻す（上の帯から次へ進める）。
+        #
+        # **確定処理で順に進めているときは、確定済みの画面を挟まず次の 1 件へ進む**
+        # （2026-10-02）。同じ画面に戻すと、確定のたびに「確定済み」を読んでから
+        # 帯の「次へ」を押すことになり、数十件を順に確定する作業では 1 件ごとに
+        # 1 手余計だった。次が無ければ確定処理の一覧へ戻す（残りが無いことがそこで分かる）。
+        if mode == WORK_FINALIZE:
+            if next_after:
+                return RedirectResponse(work_href(WORK_FINALIZE, next_after), status_code=303)
+            return RedirectResponse(f"/courses/{context.course.id}/finalize", status_code=303)
         return RedirectResponse(
-            _with_mode(f"/review/{submission_id}/reveal", _work_mode(from_)), status_code=303
+            _with_mode(f"/review/{submission_id}/reveal", mode), status_code=303
         )
 
     return app
@@ -1620,7 +1637,18 @@ def _blind_agrees(context: _Context, levels: dict) -> bool:
 def _next_blind(console: Console, me: Principal, course_id: CourseId, current: str) -> str | None:
     """blind の待ち行列で、いまの 1 件の次（無ければ先頭・自分しかなければ None）。"""
     _course, rows, _marked = _blind_rows(console, me, course_id)
-    ids = [str(row["submission"].id) for row in rows]
+    return _next_id([str(row["submission"].id) for row in rows], current)
+
+
+def _next_finalize(
+    console: Console, me: Principal, course_id: CourseId, current: str
+) -> str | None:
+    """確定処理の待ち行列で、いまの 1 件の次（無ければ先頭・自分しかなければ None）。"""
+    _course, rows, _marked = _finalize_rows(console, me, course_id)
+    return _next_id([str(row["submission"].id) for row in rows], current)
+
+
+def _next_id(ids: list[str], current: str) -> str | None:
     if current in ids:
         after = ids[ids.index(current) + 1 :]
         if after:
