@@ -167,6 +167,7 @@ class SubmissionService:
         grading_starts_at: datetime | None = None,
         submitted_as: Role = Role.LEARNER,
         is_demo: bool = False,
+        auto_closed: bool = False,
     ) -> AcceptResult:
         """提出を受け付ける。
 
@@ -222,6 +223,7 @@ class SubmissionService:
                 learner_id=learner_id,
                 submitted_as=submitted_as,
                 is_demo=is_demo,
+                auto_closed=auto_closed,
                 state=SubmissionState.DRAFT,
                 attempt=attempt,
                 artifacts=artifacts,
