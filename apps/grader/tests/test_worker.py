@@ -117,7 +117,13 @@ class World:
             uow.tasks.save_version(self.task_version)
             uow.commit()
 
-    def submit(self, source: bytes | None = None, *, submitted_as: Role = Role.LEARNER):
+    def submit(
+        self,
+        source: bytes | None = None,
+        *,
+        submitted_as: Role = Role.LEARNER,
+        auto_closed: bool = False,
+    ):
         payload = source if source is not None else EXAMPLE_SOURCE.read_bytes()
         return self.service.accept(
             tenant_id=TENANT,
@@ -126,6 +132,7 @@ class World:
             submitted_as=submitted_as,
             subject_profile=PROFILE,
             files=[IncomingFile(filename="main.c", kind=ArtifactKind.CODE, payload=payload)],
+            auto_closed=auto_closed,
         )
 
     def set_course(self, steps=()) -> None:
@@ -845,6 +852,18 @@ def test_a_late_submission_is_penalised_after_the_evaluation(world: World) -> No
     score = final_score(run, world.task_version)
     assert score.evaluation == evaluation
     assert score.final == round(evaluation - 0.30, 10)
+
+
+@needs_c_compiler
+def test_an_auto_closed_submission_is_never_penalised(world: World) -> None:
+    """**受付終了時の自動提出は、締切を過ぎていても減点しない**（2026-10-02）。"""
+    world.set_course(LADDER)
+    world.set_due(NOW - timedelta(hours=26))
+    world.submit(auto_closed=True)
+    world.worker.run_until_empty()
+
+    with world.database.unit_of_work() as uow:
+        assert uow.runs.latest_for(_only_submission(uow)).penalty is None
 
 
 @needs_c_compiler

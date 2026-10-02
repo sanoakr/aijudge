@@ -14,8 +14,11 @@
 本人が出していれば、それも新しい提出にならない。
 
 **提出時刻は自動保存の時刻にする。** 走った時刻にすると、受付終了の数分後の
-提出として扱われ、締切と受付終了のあいだの課題では書いた時点より遅い提出と
-して減点される。内容がその時刻に存在したことは自動保存が示している。
+提出として扱われる。内容がその時刻に存在したことは自動保存が示している。
+
+**遅延の減点は付けない**（2026-10-02）。出したのは本人ではなくサーバで、締切と
+受付終了のあいだに書き続けた分が、受付を閉じただけで遅れた提出になっていた。
+提出に `auto_closed` を焼き付け、ワーカーが減点を外す（`_with_late_penalty`）。
 """
 
 from __future__ import annotations
@@ -171,6 +174,7 @@ def _close_one(
             grading_starts_at=task.grading_starts_at,
             submitted_as=Role.LEARNER,
             is_demo=is_demo,
+            auto_closed=True,
         )
     except SubmissionRejected as exc:
         report.failures.append(f"{task.title} / {buffer.learner_id}: {exc}")

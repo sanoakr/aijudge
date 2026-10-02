@@ -168,6 +168,7 @@ class SubmissionService:
         submitted_as: Role = Role.LEARNER,
         is_demo: bool = False,
         source_ip: str | None = None,
+        auto_closed: bool = False,
     ) -> AcceptResult:
         """提出を受け付ける。
 
@@ -224,6 +225,7 @@ class SubmissionService:
                 submitted_as=submitted_as,
                 is_demo=is_demo,
                 source_ip=source_ip,
+                auto_closed=auto_closed,
                 state=SubmissionState.DRAFT,
                 attempt=attempt,
                 artifacts=artifacts,

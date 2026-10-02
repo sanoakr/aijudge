@@ -253,5 +253,7 @@ def test_when_the_deadline_is_the_close_the_auto_submission_is_not_late(tmp_path
 
     (submission,) = world.submissions()
     assert submission.submitted_at == CLOSES
+    # 減点の対象外の印（ワーカーが見る）。
+    assert submission.auto_closed
     steps = (LatePenaltyStep(after_hours=0, ratio=0.5),)
     assert late_penalty_for(CLOSES, submission.deadline_timestamp, steps) is None

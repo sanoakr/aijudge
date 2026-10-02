@@ -332,6 +332,12 @@ class GradingWorker:
         """
         if task is None or course is None:
             return run
+        # **受付終了時の自動提出は減点しない**（2026-10-02）。出したのは本人ではなく
+        # サーバで、時刻は自動保存の時刻 ── 締切と受付終了のあいだに書き続けた分が
+        # 受付を閉じただけで遅れた提出になっていた。本人が押した提出は、これまで
+        # 通り提出時刻で判定する。
+        if submission.auto_closed:
+            return run
         penalty = late_penalty_for(
             task.due_at, submission.deadline_timestamp, course.late_penalty_steps
         )
