@@ -44,6 +44,13 @@ units:
   # `campus_only` は v1.39.3 から書ける。画面で切り替えるだけだと `demo reset` の
   # たびに外れる。
   demo02: {answer_mode: editor, file_upload: false, editor_completion: false, campus_only: true}
+  # **文系学部の科目を想定した、学内限定の回**（2026-10-02）。記述だけで答え、プログラムは
+  # 出てこない ── 経済学と社会学の短い記述 2 問。demo02 と同じ組み合わせ（エディタだけ・
+  # 補完なし・学内限定）で、AI が根拠を添えて判定する様子を見せる。
+  # **受け付ける範囲は定義に書けない**（範囲はテナント固有）。`demo reset` のあとは
+  # 「選ぶ前に学内限定にした回」として、登録された全範囲から受け付ける。範囲を絞って
+  # 見せたいときは、問題セットの画面で選ぶ。
+  demo03: {answer_mode: editor, file_upload: false, editor_completion: false, campus_only: true}
 
 tasks:
   - key: d2-code
@@ -389,3 +396,167 @@ tasks:
           - {level: 0, label: 未達, descriptor: 100 字未満か 800 字を超える, score_ratio: 0.0}
           - {level: 1, label: 一部, descriptor: 200 字未満か 450 字を超える, score_ratio: 0.5}
           - {level: 2, label: 十分, descriptor: おおむね 200〜450 字, score_ratio: 1.0}
+
+  # --- 文系学部の科目を想定した 2 問（demo03・2026-10-02）-------------------------
+  - key: d6-exam-economics
+    unit: demo03
+    position: 1
+    title: 機会費用を説明する
+    subject_profile: report_ja
+    accepted_suffixes: [.md]
+    knowledge_components:
+      - demo.trial.writing.structure
+      - demo.trial.writing.evidence
+      - demo.trial.writing.conciseness
+    # **金額で答えが決まる場面にする。** 「機会費用とは何かを説明せよ」だけでは何を書けば
+    # 正解かが決まらず、判定の根拠も曖昧になる（d5 と同じ反省）。
+    statement: |
+      ## [試験] 機会費用を説明する ##
+
+      経済学入門の授業で、次の場面を考えます。
+
+      > 学生の A さんは、土曜の午後の 2 時間を使って映画を観に行くかどうかを迷っています。
+      > 入場料は 1,900 円です。同じ 2 時間は、時給 1,200 円のアルバイトに充てることもできます。
+      > A さんは、映画とアルバイトのどちらかしか選べません。
+
+      次の 3 点を、**200 字程度**で説明してください。エディタに Markdown で書いて提出します。
+
+      1. **機会費用**とは何か
+      2. A さんが映画を観に行くときの機会費用は**いくら**か。その根拠
+      3. 入場料の 1,900 円だけを見て「映画を観に行くかどうか」を決めると、何が足りないのか
+
+      ### この問題セットについて
+
+      **ブラウザのエディタからだけ提出でき**、**学内のネットワークからだけ受け付けます**。
+      AI が根拠を添えて判定します。
+    reference_answer: |
+      機会費用とは、ある選択をしたために諦めた選択肢のうち、最も価値の高いものの価値である。
+      A さんが映画を観に行くと、同じ 2 時間にアルバイトをすれば得られた 1,200 円 × 2 時間 = 2,400 円を
+      諦めることになるので、機会費用は 2,400 円である。入場料 1,900 円は実際に支払う費用で、機会費用とは
+      別に数える。この 2 つを合わせた 4,300 円が、映画に行くことの本当の費用になる。入場料だけで判断すると、
+      諦めたアルバイトの収入が数えられず、映画の費用を小さく見積もってしまう。
+    criteria:
+      - code: definition
+        title: 機会費用の定義
+        description: 機会費用が「選択のために諦めた選択肢の価値」であることを説明しているか。
+        judging_notes: >-
+          十分とするには、(1) ある選択をすると別の選択肢を諦めること、(2) 諦めたものの価値が費用であること、
+          の両方が要る。「お金がかかること」「損をすること」だけで、諦めた選択肢への言及が無ければ未達とする。
+          複数の選択肢を諦めるときは最も価値の高いもの、という点は書かれていなくてもよい。
+        weight: 0.3
+        levels:
+          - {level: 0, label: 未達, descriptor: 諦めた選択肢という考え方が書かれていない, score_ratio: 0.0}
+          - {level: 1, label: 一部, descriptor: 諦めることには触れているが、その価値が費用であることが書かれていない, score_ratio: 0.5}
+          - {level: 2, label: 十分, descriptor: 諦めた選択肢の価値が費用であることが書かれている, score_ratio: 1.0}
+      - code: amount
+        title: 金額と根拠
+        description: A さんの機会費用を 2,400 円と答え、1,200 円 × 2 時間という根拠を示しているか。
+        judging_notes: >-
+          正解は 2,400 円（アルバイトで得られたはずの収入）である。十分とするには、金額と、時給 × 時間という
+          根拠の両方が要る。入場料 1,900 円は実際に支払う費用であり、機会費用とは別である。
+          「機会費用は 4,300 円」と、入場料と合わせた額を機会費用としていても、2,400 円の部分を根拠付きで
+          示していれば一部とする。1,900 円だけを機会費用としているものは未達とする。
+        weight: 0.4
+        levels:
+          - {level: 0, label: 未達, descriptor: 金額が無いか、入場料だけを機会費用としている, score_ratio: 0.0}
+          - {level: 1, label: 一部, descriptor: "2,400 円に触れているが、根拠が無いか、入場料と混ぜている", score_ratio: 0.5}
+          - {level: 2, label: 十分, descriptor: "2,400 円と、時給 × 時間という根拠が書かれている", score_ratio: 1.0}
+      - code: reasoning
+        title: 入場料だけでは足りない理由
+        description: 入場料だけで決めると、諦めた収入が数えられず費用を小さく見積もることを説明しているか。
+        judging_notes: >-
+          十分とするには、入場料のほかに諦めたアルバイトの収入（機会費用）も費用に数える、という指摘が要る。
+          「実際に払うお金だけでは判断できない」とだけ書いて、何が足りないかが具体的でなければ一部とする。
+        weight: 0.2
+        levels:
+          - {level: 0, label: 未達, descriptor: 理由が書かれていないか、誤っている, score_ratio: 0.0}
+          - {level: 1, label: 一部, descriptor: 入場料だけでは足りないとあるが、何が足りないかが具体的でない, score_ratio: 0.5}
+          - {level: 2, label: 十分, descriptor: 諦めた収入も費用に数える必要があると説明している, score_ratio: 1.0}
+      - code: length
+        title: 字数
+        description: 200 字程度（おおむね 130〜300 字）に収まっているか。
+        weight: 0.1
+        levels:
+          - {level: 0, label: 未達, descriptor: 60 字未満か 600 字を超える, score_ratio: 0.0}
+          - {level: 1, label: 一部, descriptor: 130 字未満か 300 字を超える, score_ratio: 0.5}
+          - {level: 2, label: 十分, descriptor: おおむね 130〜300 字, score_ratio: 1.0}
+
+  - key: d7-exam-sociology
+    unit: demo03
+    position: 2
+    title: 標本の偏りを指摘する
+    subject_profile: report_ja
+    accepted_suffixes: [.md]
+    knowledge_components:
+      - demo.trial.writing.structure
+      - demo.trial.writing.evidence
+      - demo.trial.writing.conciseness
+    statement: |
+      ## [試験] 標本の偏りを指摘する ##
+
+      社会調査法の授業で、次の調査を考えます。
+
+      > ある学生が「大学の食堂に満足しているか」を調べるために、昼休みに食堂の入口で
+      > 通りかかった学生 100 人にアンケートをとりました。80 人が「満足」と答えたので、
+      > 「この大学の学生の 80% は食堂に満足している」と報告しました。
+
+      次の 3 点を、**250 字程度**で説明してください。エディタに Markdown で書いて提出します。
+
+      1. この調査の**母集団**と**標本**はそれぞれ何か
+      2. 「学生の 80% は満足している」と結論づけるのが適切でない理由（標本の偏り）
+      3. 偏りを減らすために、調査の方法をどう変えるか
+
+      ### この問題セットについて
+
+      **ブラウザのエディタからだけ提出でき**、**学内のネットワークからだけ受け付けます**。
+      AI が根拠を添えて判定します。
+    reference_answer: |
+      母集団はこの大学の学生全体で、標本は食堂の入口で答えた 100 人である。標本は食堂に来る学生に
+      限られており、食堂を使わない学生、たとえば弁当を持参する学生や昼休みに別の場所へ行く学生が
+      含まれない。食堂に満足していない人ほど食堂に来ないので、満足の割合が実際より高く出る可能性が
+      あり、80% を学生全体の値とは言えない。偏りを減らすには、学生名簿から無作為に抽出した学生に
+      調査をお願いし、食堂を使うかどうかにかかわらず答えてもらう。
+    criteria:
+      - code: population
+        title: 母集団と標本
+        description: 母集団を「この大学の学生全体」、標本を「食堂の入口で答えた 100 人」と区別しているか。
+        judging_notes: >-
+          十分とするには、母集団と標本の両方が正しく書かれていること。母集団を「食堂を使う学生」と
+          しているものは、調査が知りたい対象（大学の学生全体）と取り違えているので一部とする。
+        weight: 0.25
+        levels:
+          - {level: 0, label: 未達, descriptor: 母集団と標本のどちらも正しく書かれていない, score_ratio: 0.0}
+          - {level: 1, label: 一部, descriptor: 片方だけ正しいか、母集団を取り違えている, score_ratio: 0.5}
+          - {level: 2, label: 十分, descriptor: 母集団が学生全体、標本が答えた 100 人と書かれている, score_ratio: 1.0}
+      - code: bias
+        title: 偏りの指摘
+        description: 食堂に来る学生に限られるため、満足している人が多く含まれる可能性を指摘しているか。
+        judging_notes: >-
+          十分とするには、(1) 標本が食堂に来る学生に限られること、(2) そのため満足の割合が学生全体の値と
+          ずれうること（食堂を使わない学生が含まれない）、の両方が要る。「100 人は少ない」だけを理由に
+          しているものは、人数の問題で偏りの指摘ではないので未達とする。
+        weight: 0.35
+        levels:
+          - {level: 0, label: 未達, descriptor: 偏りの理由が無いか、人数の少なさだけを挙げている, score_ratio: 0.0}
+          - {level: 1, label: 一部, descriptor: 食堂に来る学生に限られることは書かれているが、結論がずれる理由が無い, score_ratio: 0.5}
+          - {level: 2, label: 十分, descriptor: 食堂に来る学生に限られるため、全体の値とずれうることが書かれている, score_ratio: 1.0}
+      - code: remedy
+        title: 方法の改善
+        description: 偏りを減らす調査方法（無作為抽出など）を、理由とともに示しているか。
+        judging_notes: >-
+          十分とするには、学生全体から無作為に選ぶ方法（名簿からの無作為抽出など）と、それが偏りを減らす
+          理由が要る。「人数を増やす」だけでは偏りは減らないので未達とする。場所や時間を変えて複数回とる、
+          などは、理由が示されていれば一部とする。
+        weight: 0.3
+        levels:
+          - {level: 0, label: 未達, descriptor: 改善策が無いか、人数を増やすだけである, score_ratio: 0.0}
+          - {level: 1, label: 一部, descriptor: 改善策はあるが、無作為に選ぶことや偏りが減る理由が無い, score_ratio: 0.5}
+          - {level: 2, label: 十分, descriptor: 学生全体から無作為に選ぶ方法と、その理由が書かれている, score_ratio: 1.0}
+      - code: length
+        title: 字数
+        description: 250 字程度（おおむね 160〜380 字）に収まっているか。
+        weight: 0.1
+        levels:
+          - {level: 0, label: 未達, descriptor: 80 字未満か 700 字を超える, score_ratio: 0.0}
+          - {level: 1, label: 一部, descriptor: 160 字未満か 380 字を超える, score_ratio: 0.5}
+          - {level: 2, label: 十分, descriptor: おおむね 160〜380 字, score_ratio: 1.0}

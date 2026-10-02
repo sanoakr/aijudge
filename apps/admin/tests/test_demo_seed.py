@@ -51,7 +51,7 @@ def test_program_and_report_live_in_one_course(database: Database) -> None:
     しかなかった。画像の課題は 2026-09-24 に外した（定義のコメント）。
     """
     result = _seed(database)
-    assert result.tasks == 4
+    assert result.tasks == 6
 
     with database.unit_of_work() as uow:
         versions = {
@@ -82,6 +82,8 @@ def test_every_demo_task_opens_in_the_editor(database: Database) -> None:
         "使ってみた感想を書く": {".md"},
         "偶数の合計を求める": {".py"},
         "コンパイルとリンクを説明する": {".md"},
+        "機会費用を説明する": {".md"},
+        "標本の偏りを指摘する": {".md"},
     }
 
 
@@ -148,10 +150,25 @@ def test_seeding_twice_adds_nothing(database: Database) -> None:
 
     assert second.course.id == first.course.id
     with database.unit_of_work() as uow:
-        assert len(uow.tasks.list_for_course(first.course.id)) == 4
+        assert len(uow.tasks.list_for_course(first.course.id)) == 6
 
 
 def test_a_missing_definition_says_so(database: Database, tmp_path: Path) -> None:
     """定義が無ければ、そう言って止まる。**空のコースを作らない。**"""
     with pytest.raises(AdminError, match="定義がありません"):
         seed_demo_course(database, tenant_id=TENANT, profiles_dir=tmp_path, authored_by=AUTHOR)
+
+
+def test_the_humanities_unit_is_editor_only_and_campus_only(database: Database) -> None:
+    """**文系学部の科目を想定した回**（2026-10-02）。記述だけで、試験と同じ組み合わせ。
+
+    受け付ける範囲は定義に書けない（テナント固有）ので、選ぶ前の「全範囲」で入る。
+    """
+    result = _seed(database)
+    with database.unit_of_work() as uow:
+        unit = [t for t in uow.tasks.list_for_course(result.course.id) if t.unit == "demo03"]
+    assert len(unit) == 2
+    assert all(task.file_upload is False for task in unit)
+    assert all(task.campus_only and task.campus_ranges == () for task in unit)
+    assert not any(task.editor_completion for task in unit)
+    assert all(task.accepted_suffixes == (".md",) for task in unit)
