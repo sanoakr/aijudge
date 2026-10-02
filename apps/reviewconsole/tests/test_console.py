@@ -1760,9 +1760,10 @@ def test_manual_finalisation_is_worked_through_with_the_strip(world: World) -> N
         data=_agree_form(world, machine),
         follow_redirects=False,
     )
-    assert response.headers["location"].endswith(f"/review/{sid}/reveal?from=finalize")
-    after = world.client.get(f"/review/{sid}/reveal?from=finalize").text
-    assert "待ちはありません（すべて対応済み）" in after
+    # 確定済みの画面を挟まない（2026-10-02）。次が無ければ確定処理の一覧へ。
+    assert response.headers["location"].endswith(f"/courses/{COURSE}/finalize")
+    after = world.client.get(f"/courses/{COURSE}/finalize").text
+    assert "手動の確定が必要なものはありません" in after
 
 
 # --------------------------------------------------------------------------
