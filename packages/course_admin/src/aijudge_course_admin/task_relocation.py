@@ -240,13 +240,23 @@ def _rebuild(
                 "opens_at": head.opens_at,
                 "submissions_open_at": head.submissions_open_at,
                 "due_at": head.due_at,
+                # **受付終了と採点開始も日程の一部である。** 揃え漏らすと、移した課題だけ
+                # 旧セットの受付終了が残り、新セットの締切より前になる（Task の検証が
+                # 落ち、コース一覧が 500 になった。2026-10-04、network の test5）。
+                "accepts_until": head.accepts_until,
+                "grading_starts_at": head.grading_starts_at,
                 "auto_finalize_after_minutes": head.auto_finalize_after_minutes,
             }
         # 並びは移動先の末尾。**番号を持たない課題も数に入れる**（#484 の守り）。
         positions = [other.position for other in siblings if other.position is not None]
         update["position"] = max(len(siblings), max(positions, default=0)) + 1
 
-    rebuilt = task.model_copy(update=update)
+    # `model_copy` は検証を通らない。不正な日程を保存してから読み出しで落ちる
+    # のを避けるため、保存の前に検証し直す（落ちるなら移動を断る）。
+    try:
+        rebuilt = Task.model_validate(task.model_copy(update=update).model_dump())
+    except ValueError as error:
+        raise AdminError(f"移動後の課題の設定が正しくありません: {error}") from error
     for old_id, version in rekeyed.items():
         uow.tasks.save_version(version)
         checks = uow.tasks.get_checks(old_id)
