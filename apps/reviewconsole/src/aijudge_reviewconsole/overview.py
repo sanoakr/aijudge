@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from urllib.parse import quote, unquote
@@ -43,6 +44,9 @@ def unit_key(task: Task) -> str:
     """
     raw = task.unit or (f"s{task.session}" if task.session is not None else "_")
     return quote(raw, safe="")
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -165,6 +169,9 @@ class CourseDigest:
     contested: int
     drafts: int
     next_due: datetime | None
+    #: 数えられなかった理由。**空でなければ数字は出さない**（0 と読まれるため）。
+    #: 課題 1 件の不整合でコース一覧全体が 500 になった（2026-10-04）ことへの守り。
+    error: str | None = None
 
     @property
     def needs_attention(self) -> bool:
@@ -380,7 +387,32 @@ def course_digest(database: object, course: Course, *, now: datetime | None = No
 def digests_for(
     database: object, courses: list[Course], *, now: datetime | None = None
 ) -> tuple[CourseDigest, ...]:
-    return tuple(course_digest(database, course, now=now) for course in courses)
+    return tuple(_digest_or_error(database, course, now=now) for course in courses)
+
+
+def _digest_or_error(database: object, course: Course, *, now: datetime | None) -> CourseDigest:
+    """1 コースが読めなくても、他のコースの一覧は出す。
+
+    読めない原因（保存済みの課題が検証に落ちる等）は、そのコースを開く
+    教員が直す話であって、一覧全体を止める理由にならない。数字は 0 にせず、
+    理由を載せる。
+    """
+    try:
+        return course_digest(database, course, now=now)
+    except ValueError as error:  # pydantic.ValidationError は ValueError の子
+        logger.exception("コース %s のダイジェストを作れませんでした", course.id)
+        reason = str(error).splitlines()[-2:] or ["原因不明"]
+        return CourseDigest(
+            course=course,
+            units=0,
+            tasks=0,
+            learners=0,
+            unfinalized=0,
+            contested=0,
+            drafts=0,
+            next_due=None,
+            error=" ".join(line.strip() for line in reason),
+        )
 
 
 __all__ = [

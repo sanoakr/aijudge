@@ -117,6 +117,32 @@ def test_moving_rekeys_the_task_and_follows_the_target_schedule(database: Databa
     assert all(entry.task_version_id == v.id for v in versions for entry in v.q_matrix)
 
 
+def test_moving_follows_the_target_accepts_until_too(database: Database, course) -> None:
+    """**受付終了も移動先に揃える。** 旧セットの値が残ると締切より前になり、
+    コース一覧が 500 になった（2026-10-04、network の test5）。"""
+    accepts = datetime(2026, 10, 17, 7, 30, tzinfo=UTC)
+    _task(database, course, "test5/echoClient5", "test5", due_at=DUE)
+    with database.unit_of_work() as uow:
+        head = next(t for t in uow.tasks.list_for_course(course.id) if t.unit == "test5")
+        uow.tasks.save_task(head.model_copy(update={"accepts_until": accepts}))
+        uow.commit()
+    old_due = datetime(2026, 10, 9, 7, 30, tzinfo=UTC)
+    first = _task(database, course, "test4/wordstats.py", "test4", due_at=old_due)
+    with database.unit_of_work() as uow:
+        stale = uow.tasks.get_task(first.task.id)
+        assert stale is not None
+        uow.tasks.save_task(stale.model_copy(update={"accepts_until": old_due}))
+        uow.commit()
+
+    moved = move_task(database, task_id=first.task.id, unit="test5")
+
+    assert moved.task.accepts_until == accepts
+    with database.unit_of_work() as uow:
+        # 読み出しで検証に落ちないこと（コース一覧が通る）
+        tasks = uow.tasks.list_for_course(course.id)
+    assert all(t.accepts_until is None or t.accepts_until >= t.due_at for t in tasks if t.due_at)
+
+
 def test_renaming_within_the_same_unit(database: Database, course) -> None:
     saved = _task(database, course, "test5/echoClient", "test5")
     moved = move_task(database, task_id=saved.task.id, unit="test5", name="echoClient_comments.py")

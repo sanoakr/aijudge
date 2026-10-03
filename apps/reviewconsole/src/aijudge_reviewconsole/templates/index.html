@@ -20,6 +20,11 @@
         {% else %}締切の設定された課題がありません{% endif %}
       </span>
     </span>
+    {% if d.error %}
+    <span class="meta stats">
+      <span class="attn">課題の設定に不整合があり集計できません: {{ d.error }}</span>
+    </span>
+    {% else %}
     <span class="meta stats">
       <span><b>{{ d.units }}</b> 問題セット</span>
       <span><b>{{ d.tasks }}</b> 課題</span>
@@ -30,6 +35,7 @@
       <span class="{{ 'attn' if d.contested }}">異議 <b>{{ d.contested }}</b></span>
       <span class="{{ 'attn' if d.drafts }}">未承認 <b>{{ d.drafts }}</b></span>
     </span>
+    {% endif %}
   </a>
 {% else %}
   <p class="desc">採点を担当しているコースがありません。</p>
