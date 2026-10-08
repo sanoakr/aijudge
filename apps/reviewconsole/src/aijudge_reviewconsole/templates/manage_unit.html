@@ -488,7 +488,7 @@
          （#43）、版番号だけでは「いつの版か」が分からない（#54）。 #}
       <td class="fit desc">{{ row.version.version }} 版<br>
         {{ row.version.created_at | local('%m-%d %H:%M') }}</td>
-      <td class="fit">
+      <td class="fit" data-live="mu-t-{{ row.task.id }}">
         {% if row.unfinalized %}<span class="pill {{ 'attn' if unit.deadline_passed and row.stalled }}">{{ row.unfinalized }} 件</span>
         {% else %}<span class="desc">—</span>{% endif %}
       </td>
@@ -540,6 +540,7 @@ p2/task.yaml</span></pre>
 {# **止まっているものだけを警告する**（2026-10-01）。猶予中・AI 評価待ちは
    自動確定が閉じていくので、件数だけ出して警告にはしない ── 以前は未確定の
    全件で警告し、prog2 ex01 で 57 件と出たうち止まっていたのは 1 件だった。 #}
+<div data-live="mu-banner">
 {% if unit.needs_attention %}
 <div class="note warn">
   <strong>期限が過ぎたのに、自動では確定しない提出が {{ unit.stalled }} 件あります。</strong>
@@ -552,6 +553,7 @@ p2/task.yaml</span></pre>
   減らないときは <code>aijudge-finalize</code> が動いているか確かめてください。
 </div>
 {% endif %}
+</div>
 
 <h2>この問題セットを片付ける</h2>
 {# 問題セットを丸ごと片付ける。**削除と取り下げを 1 操作で振り分ける**（#59）──
@@ -584,12 +586,13 @@ p2/task.yaml</span></pre>
 </form>
 {% endif %}
 
+<div data-live="mu-fin-wrap" data-live-rows>
 {% if tasks | selectattr('unfinalized') | list %}
 <h2>まとめて確定する</h2>
 {# 根拠は学習者にそのまま出る。**横幅いっぱいで書かせる** ── 表の列に
    押し込むと、何を書いたのか読み返せない。 #}
 {% for row in tasks if row.unfinalized %}
-<details class="card task-edit">
+<details class="card task-edit" data-live-key="{{ row.task.id }}">
   <summary><b>{{ row.task.title }}</b><span class="desc">未確定 {{ row.unfinalized }} 件</span></summary>
   <form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/tasks/{{ row.task.id }}/finalize"
         style="margin-top:12px">
@@ -606,6 +609,7 @@ p2/task.yaml</span></pre>
 </details>
 {% endfor %}
 {% endif %}
+</div>
 
 {% if last_task %}
 <div class="note">

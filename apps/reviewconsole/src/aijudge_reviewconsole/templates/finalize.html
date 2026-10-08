@@ -11,13 +11,13 @@
   <strong>個別に読んでいない成績を確定させる操作です。</strong>
   根拠説明は学習者にそのまま表示されます。
   <strong>未対応の再確認の依頼は確定しません</strong> —
-  そこは <a href="{{ root_prefix() }}/courses/{{ course.id }}/queue">再確認の依頼</a>（{{ contested }} 件）で
+  そこは <a href="{{ root_prefix() }}/courses/{{ course.id }}/queue">再確認の依頼</a>（<span data-live="fin-contested">{{ contested }}</span> 件）で
   1 件ずつ読んでください。
 </div>
 
 {# **手動が要るものと、待てば閉じるものを分けて言う**（2026-09-25）。件数だけだと、
    自動確定を待っているのか、教員が閉じないと成績にならないのかが分からない。 #}
-<div class="work-summary">
+<div class="work-summary" data-live="fin-summary">
   {% if manual_total %}<span class="pill attn">手動の確定が必要 {{ manual_total }} 件</span>
     {# 順に処理する（2026-09-25）。**依頼の出ていないもの**から 1 件ずつ、帯付きで開く。 #}
     {% set first = rows | selectattr('manual') | rejectattr('contested') | first %}
@@ -52,11 +52,13 @@
 <details class="card">
   <summary>
     <strong>{{ unit.unit or unit.label }}</strong>
+    <span data-live="fin-u-{{ unit.key }}">
     {% set ns = namespace(manual=0, waiting=0) %}
     {% for task, version in unit.tasks %}{% set pair = split.get(task.id | string, [0, 0]) %}{% set ns.manual = ns.manual + pair[0] %}{% set ns.waiting = ns.waiting + pair[1] %}{% endfor %}
     <span class="desc">{{ unit.count }} 問・未確定 {{ unit.unfinalized }} 件</span>
     {% if ns.manual %}<span class="pill attn">手動 {{ ns.manual }}</span>{% endif %}
     {% if ns.waiting %}<span class="pill">自動確定待ち {{ ns.waiting }}</span>{% endif %}
+    </span>
   </summary>
   <form method="post" action="{{ root_prefix() }}/manage/courses/{{ course.id }}/units/{{ unit.key }}/finalize"
         style="margin-top:10px">
@@ -77,10 +79,10 @@
       <tr>
         <td class="grow">{{ task.title }}</td>
         {% set pair = split.get(task.id | string, [0, 0]) %}
-        <td class="fit" data-label="未確定">{{ pending.get(task.id, 0) }} 件
+        <td class="fit" data-label="未確定" data-live="fin-t-{{ task.id }}">{{ pending.get(task.id, 0) }} 件
           {% if pair[0] %}<br><span class="pill attn">手動 {{ pair[0] }}</span>{% endif %}
           {% if pair[1] %}<br><span class="pill">自動確定待ち {{ pair[1] }}</span>{% endif %}</td>
-        <td class="fit">
+        <td class="fit" data-live="fin-ta-{{ task.id }}">
           {% if pending.get(task.id, 0) %}
           <details>
             <summary class="desc">この問題を確定する</summary>
@@ -106,11 +108,13 @@
 {% endfor %}
 {% endif %}
 
-<h2>提出ごとに確定する（未確定 {{ rows | length }} 件）</h2>
+<h2>提出ごとに確定する（未確定 <span data-live="fin-total">{{ rows | length }}</span> 件）</h2>
 {# **課題ごとにまとめて並べる**（2026-10-01）。blind の一覧と同じ理由 ── 同じ問題を
    続けて読むと基準を持ち替えずに済む。並びは `_in_task_order` が決め、1 件の画面の
    「次へ」も同じ順に進む。 #}
+<div data-live="fin-groups" data-live-rows>
 {% for group in groups %}
+<div data-live-key="g-{{ group.task.id if group.task else 'none' }}">
 {% set firsts = group.rows | selectattr('manual') | rejectattr('contested') | list %}
 <h3 class="task-group">
   {% if group.task %}<span class="mono desc">{{ group.task.unit or group.task.unit_label }}</span>
@@ -141,7 +145,9 @@
   {% endfor %}
   </tbody>
 </table>
+</div>
 {% else %}
-<p class="desc">未確定の提出はありません。</p>
+<p class="desc" data-live-key="empty">未確定の提出はありません。</p>
 {% endfor %}
+</div>
 {% endblock %}

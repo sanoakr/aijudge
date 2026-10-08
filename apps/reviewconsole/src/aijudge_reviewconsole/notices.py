@@ -23,6 +23,12 @@ from __future__ import annotations
 
 import threading
 from collections import OrderedDict
+from contextvars import ContextVar
+
+# 自動更新の取得（`X-Aijudge-Live: 1`）の間は真。**このとき `take` は読むだけで消さない**。
+# 画面の一部を定期的に取り直すだけの要求が、操作の結果の知らせ（確定した件数など）を
+# 先に取り出すと、教員が戻った画面には何も出ない。
+live_poll: ContextVar[bool] = ContextVar("aijudge_live_poll", default=False)
 
 # 種類。**文字列を書き写さない** ── 書き手と読み手で綴りが食い違うと、黙って出ない。
 TASK_SAVED = "task_saved"
@@ -67,9 +73,14 @@ class Notices:
     def take(
         self, user_id: object, course_id: object, kind: str, *, scope: object = ""
     ) -> object | None:
-        """知らせを取り出す。**取り出したら消える**（無ければ None）。"""
+        """知らせを取り出す。**取り出したら消える**（無ければ None）。
+
+        自動更新の取得（`live_poll`）は消さずに読む。
+        """
         key = (str(user_id), str(course_id), kind, str(scope))
         with self._lock:
+            if live_poll.get():
+                return self._items.get(key)
             return self._items.pop(key, None)
 
 
@@ -85,4 +96,5 @@ __all__ = [
     "TEST_CASE_ERROR",
     "UNIT_CLEARED",
     "Notices",
+    "live_poll",
 ]

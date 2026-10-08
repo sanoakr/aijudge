@@ -89,7 +89,7 @@
 
    教員・TA 自身の試行はここには入らない（#108）── 到達度の分布に動作確認の
    入力が混ざると、「この課題は正答率が低い」が教員自身の試行の結果になる。 #}
-<div class="card">
+<div class="card" data-live="sub-chart">
   {% if chart.scored %}
   <div class="hist">
     {% for count in chart.counts %}
@@ -136,6 +136,7 @@
 {# **黙って切らない**（#233）。上限に達したときだけ言う ── 「最近の提出が
    無い」のか「読み込んでいない」のかは、出さなければ区別できない。
    新しい順に読むので、落ちるのは古い側である。 #}
+<div data-live="sub-truncated">
 {% if truncated %}
 <div class="note act">
   <strong>新しい順に {{ listing_limit }} 件まで読み込んでいます。</strong>
@@ -144,6 +145,7 @@
   絞り込みを使うと、一覧の側でも探せます。
 </div>
 {% endif %}
+</div>
 {# 携帯では行を積む（`table.stack`）。課題の題は見出し無しで出す ──
    1 枚の塊の中で、それが何かは題そのものが言う。 #}
 <table class="stack">
@@ -151,9 +153,9 @@
     <th class="fit">提出日時</th><th class="fit">学習者</th><th class="grow">課題</th>
     <th class="fit">回</th><th class="fit">得点</th><th class="fit">状態</th><th class="fit"></th>
   </tr></thead>
-  <tbody>
+  <tbody data-live="sub-rows" data-live-rows>
   {% for row in rows %}
-    <tr class="row-link" data-href="{{ root_prefix() }}/review/{{ row.submission.id }}/reveal">
+    <tr class="row-link" data-live-key="{{ row.submission.id }}" data-href="{{ root_prefix() }}/review/{{ row.submission.id }}/reveal">
       <td class="fit" data-label="提出日時">{{ row.submission.submitted_at | local('%m-%d %H:%M') if row.submission.submitted_at else '—' }}</td>
       <td class="fit mono" data-label="学習者">{{ row.login }}
         {# 教員・TA 自身の試行（#108）。**隠さずに印を付ける** ── 成績にも
@@ -202,7 +204,7 @@
         {{ 'blind 採点する' if row.submission.id|string in blind_pending else '確認する' }}</a></td>
     </tr>
   {% else %}
-    <tr><td colspan="7" class="desc">条件に合う提出がありません。</td></tr>
+    <tr data-live-key="empty"><td colspan="7" class="desc">条件に合う提出がありません。</td></tr>
   {% endfor %}
   </tbody>
 </table>
@@ -211,6 +213,7 @@
    絞り込みの `form` には `page` を入れない ── 条件を変えたら 1 頁目に戻る
    のが正しく、3 頁目のまま条件を変えると、該当が 2 頁しか無いときに空の
    画面が出る。`form` が `page` を持たなければ、送信のたびに自然に落ちる。 #}
+<div data-live="sub-pager">
 {% if page.pages > 1 %}
 <nav class="pager" aria-label="頁送り">
   {% if page.has_prev %}
@@ -222,4 +225,5 @@
   {% else %}<span class="off">古い →</span>{% endif %}
 </nav>
 {% endif %}
+</div>
 {% endblock %}

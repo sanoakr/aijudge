@@ -112,6 +112,7 @@ from aijudge_telemetry import RequestContextMiddleware
 from . import access, notices
 from .audit_context import recorder_for, request_id_of, source_ip_of
 from .io_results import io_results
+from .live_poll import LivePollMiddleware
 from .notices import Notices
 from .overview import digests_for, load_units
 from .rail_context import RAIL_COURSE_ID, rail_context
@@ -525,6 +526,9 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
     # 状態を変える要求は同じオリジンからだけ（#413）。SameSite=Lax は同じ
     # サイトの別ホストからの POST を止めない。
     app.add_middleware(SameOriginMiddleware)
+
+    # 自動更新の取得（`X-Aijudge-Live`）は、一度だけ出す知らせを消さない（`live_poll.py`）。
+    app.add_middleware(LivePollMiddleware)
 
     # アクセスログと相関 ID（ADR 0016）。**一番外側に置く** ── `add_middleware`
     # は後から足した方が外になるので、Host 検査より後に書く。弾かれた要求も

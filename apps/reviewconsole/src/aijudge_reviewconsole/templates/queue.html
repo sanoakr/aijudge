@@ -6,7 +6,7 @@
 
 {# **待ちの件数を最初に言う**（2026-09-25）。0 件のときに空の表だけだと、終わったのか
    読み込めなかったのかが分からない。順に処理するなら先頭の 1 件から帯付きで開く。 #}
-<div class="work-summary">
+<div class="work-summary" data-live="queue-summary">
   {% if rows %}
     <span class="pill attn">確認を待っている依頼 {{ rows | length }} 件</span>
     <a class="button-link go" href="{{ root_prefix() }}/review/{{ rows[0].submission.id }}/reveal?from=queue">先頭から順に処理する →</a>
@@ -29,9 +29,9 @@
     <th class="fit">回</th><th class="fit">AI の総合</th>
     <th class="grow">依頼の理由</th><th class="fit"></th>
   </tr></thead>
-  <tbody>
+  <tbody data-live="queue-rows" data-live-rows>
   {% for row in rows %}
-    <tr class="row-link" data-href="{{ root_prefix() }}/review/{{ row.submission.id }}/reveal?from=queue">
+    <tr class="row-link" data-live-key="{{ row.submission.id }}" data-href="{{ root_prefix() }}/review/{{ row.submission.id }}/reveal?from=queue">
       <td class="fit" data-label="依頼">{{ row.request.requested_at | local('%m-%d %H:%M') }}</td>
       <td class="fit mono" data-label="学習者">{{ row.learner.login if row.learner else '—' }}</td>
       <td class="fit" data-label="課題">
@@ -51,7 +51,7 @@
       </td>
     </tr>
   {% else %}
-    <tr><td colspan="7" class="desc">確認を待っている依頼はありません。</td></tr>
+    <tr data-live-key="empty"><td colspan="7" class="desc">確認を待っている依頼はありません。</td></tr>
   {% endfor %}
   </tbody>
 </table>
@@ -65,6 +65,7 @@
    画面から消えると、学習者の申し出も誰がどう答えたかもコンソールから
    辿れなくなるため ── 同じ学習者が「前も同じことを聞いた」と言ってきたときに
    確かめる手段が無かった。 #}
+<div data-live="queue-resolved">
 {% if resolved %}
 <h2>対応済みの依頼（{{ resolved | length }} 件）</h2>
 <p class="desc"><strong>処理済みです。</strong>開くと記録を読めます（確定し直す欄は畳んであります）。</p>
@@ -94,4 +95,5 @@
   </tbody>
 </table>
 {% endif %}
+</div>
 {% endblock %}

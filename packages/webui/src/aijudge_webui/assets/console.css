@@ -668,3 +668,5 @@ td.task-key{white-space:normal;overflow-wrap:anywhere;font-size:.85em;min-width:
 /* 期待する断片の一覧（クライアント・サーバの課題・2026-10-01）。 */
 .needles{margin:2px 0 8px;padding-left:1.2em}
 .needles li{margin:2px 0}
+/* 自動更新の状態（`live.js`・2026-10-08）。画面の底に小さく。 */
+.live-status{margin:18px 0 0;text-align:right;font-size:.8rem}

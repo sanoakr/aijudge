@@ -77,7 +77,7 @@
       <span class="c-date"><em>日程未設定</em></span>
       {% endif %}
     </span>
-    <span class="c-open">
+    <span class="c-open" data-live="cm-open-{{ unit.key }}">
       {# 期限が過ぎたのに、自動では閉じない未確定（異議申立・要レビュー・
          採点失敗・猶予の未設定）が残っていれば教員が見るべき状態。猶予中と
          AI 評価待ちは待てば閉じるので「要対応」にしない（2026-10-01）。 #}
