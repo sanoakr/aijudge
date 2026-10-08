@@ -151,6 +151,22 @@ def save_task(
                     generation_prompt_version=generation_prompt_version,
                     review_state=review_state,
                 )
+    else:
+        # **`--revise` なしでも、最新の版と比べる**（2026-10-08）。候補は版 1 として組まれる
+        # ので、そのまま保存すると「保存済みの版 1」と比べられ、**何度も直して版を重ねた課題は、
+        # 定義が最新の版と同じでも必ず止まった**（prog2 ex01/p1・版 12。止まるたびに
+        # 「問題文を直したなら」と出るが、直していない）。最新の版と同じ内容なら何も変えず、
+        # 違うときだけ、**最新の版の番号と `--revise`** を示して断る。
+        with database.unit_of_work() as uow:
+            latest = uow.tasks.latest_version(version.task_id)
+        if latest is not None:
+            if content(latest) != content(version):
+                raise AdminError(
+                    f"{spec.key}: 保存済みの課題（最新は版 {latest.version}）と内容が違います。"
+                    "問題文・観点・テストケースを直したなら、`--revise` で版を上げてください"
+                    "（過去の採点基準は書き換えない、P8）"
+                )
+            version = latest
     with database.unit_of_work() as uow:
         existing = uow.tasks.get_task(version.task_id)
         task = Task(
