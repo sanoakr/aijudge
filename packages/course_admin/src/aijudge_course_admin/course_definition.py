@@ -28,6 +28,7 @@
       test3: {confidential_until_open: true}                # 公開まで教員だけ（TA にも見せない）
       test4: {campus_only: true}                            # 学内からだけ受け付ける（試験）
       ex4: {clear_points: 60}                               # 合計 60 点でクリア
+      ex6: {late_penalty: [{after_hours: 0, percent: 50}]}  # 締切後は総合点から 50% を引く
     tasks:
       - key: ex1/cert                       # TaskSpec のフィールドをそのまま書く
         unit: ex1
@@ -41,9 +42,9 @@
         readability_weight: 0.3             # （YAML からの相対パス）
 
 `answer_mode`・`editor_completion`・`file_upload`・`confidential_until_open`・`campus_only`・
-`clear_points` は**問題セットの値**で、`/manage` の切り替えと同じく回の全課題に入れる（課題ごとには
-書けない）。書いた回だけを変え、書かない回は画面で切り替えた値を残す。`editor` にできない課題
-（提出形式に `.c`・`.py`・`.md` が無い）があれば投入を止める。
+`clear_points`・`late_penalty` は**問題セットの値**で、`/manage` の切り替えと同じく回の全課題に
+入れる（課題ごとには書けない）。書いた回だけを変え、書かない回は画面で切り替えた値を残す。
+`editor` にできない課題（提出形式に `.c`・`.py`・`.md` が無い）があれば投入を止める。
 
 `problem_dir` を書いた課題は、`desc.md` を問題文、`in/` `out/` をテスト
 ケース、`<name>.c` / `.py` を参照解答として読む（`importers/sharif_judge`
@@ -65,11 +66,12 @@ import yaml
 
 from aijudge_authoring import TaskSpec
 from aijudge_authoring.importers import companion, sharif_judge
-from aijudge_core import AnswerMode, Course, Task
+from aijudge_core import AnswerMode, Course, LatePenaltyStep, Task
 from aijudge_core.ids import TenantId, UserId
 from aijudge_course_admin.answer_mode import editor_blockers, file_upload_required
 from aijudge_course_admin.authoring import save_task
 from aijudge_course_admin.errors import AdminError
+from aijudge_course_admin.late_penalty import parse_steps
 from aijudge_course_admin.operations import ensure_course
 from aijudge_unit_of_work import Store
 
@@ -125,6 +127,9 @@ _UNIT_SETTING_KEYS = (
     "confidential_until_open",
     "campus_only",
     "clear_points",
+    # 遅延の減点（2026-10-08）。`[{after_hours: 0, percent: 50}]` の形で書く。
+    # 書かなければコースの設定に従い、`[]` は「この回は減点しない」。
+    "late_penalty",
 )
 # 定義側だけの語彙。`TaskSpec` に渡す前に解決して消す。
 _PROBLEM_DIR = "problem_dir"
@@ -202,6 +207,8 @@ def _unit_settings(unit: str, raw: dict[str, Any], path: Path) -> dict[str, Any]
         ):
             raise AdminError(f"units.{unit}.clear_points は正の数か null です: {value!r}（{path}）")
         settings["clear_points"] = None if value is None else float(value)
+    if "late_penalty" in raw:
+        settings["late_penalty_steps"] = _late_penalty_steps(unit, raw["late_penalty"], path)
     for flag in ("editor_completion", "file_upload", "confidential_until_open", "campus_only"):
         if flag not in raw:
             continue
@@ -218,6 +225,31 @@ def _unit_settings(unit: str, raw: dict[str, Any], path: Path) -> dict[str, Any]
             f"書けます（{path}）"
         )
     return settings
+
+
+def _late_penalty_steps(unit: str, value: Any, path: Path) -> tuple[LatePenaltyStep, ...] | None:
+    """`late_penalty` を段に直す。**画面と同じ規則**（`parse_steps`）を通す。
+
+    `null` は「コースの設定に従う」、`[]` は「この回は減点しない」。
+    """
+    if value is None:
+        return None
+    if not isinstance(value, list):
+        raise AdminError(
+            f"units.{unit}.late_penalty は [{{after_hours: 0, percent: 50}}] の形です（{path}）"
+        )
+    rows: list[tuple[str, str]] = []
+    for row in value:
+        if not isinstance(row, dict) or set(row) - {"after_hours", "percent"}:
+            raise AdminError(
+                f"units.{unit}.late_penalty の各行は after_hours と percent だけです"
+                f": {row!r}（{path}）"
+            )
+        rows.append((str(row.get("after_hours", "")), str(row.get("percent", ""))))
+    try:
+        return parse_steps(rows)
+    except AdminError as exc:
+        raise AdminError(f"units.{unit}.late_penalty: {exc}（{path}）") from exc
 
 
 def _task_spec(raw: dict[str, Any], *, base: Path, units: dict[Any, Any]) -> TaskSpec:

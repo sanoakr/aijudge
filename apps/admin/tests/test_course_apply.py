@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from aijudge_core import HUMAN_SCORED, AnswerMode
+from aijudge_core import HUMAN_SCORED, AnswerMode, LatePenaltyStep
 from aijudge_core.ids import TenantId, UserId
 from aijudge_course_admin.course_definition import apply_course_definition, load_course_definition
 from aijudge_course_admin.operations import AdminError, ensure_course
@@ -463,3 +463,39 @@ def test_a_unit_carries_its_clear_points(database: Database, tmp_path) -> None:
 def test_a_bad_clear_points_is_refused(tmp_path: Path) -> None:
     with pytest.raises(AdminError, match="clear_points"):
         load_course_definition(_write_definition(tmp_path, _with_unit_setting("clear_points: -1")))
+
+
+def test_a_unit_carries_its_late_penalty(database: Database, tmp_path) -> None:
+    """`late_penalty` は問題セットの値で、% で書き、回の全課題に入る（2026-10-08）。"""
+    text = _with_unit_setting("late_penalty: [{after_hours: 0, percent: 50}]")
+    result = _apply(database, _write_definition(tmp_path, text))
+    tasks, _versions = _tasks(database, result.course.id)
+    in_set = [task for task in tasks.values() if task.unit == "ex1"]
+    expected = (LatePenaltyStep(after_hours=0.0, ratio=0.5),)
+    assert in_set and all(task.late_penalty_steps == expected for task in in_set)
+
+
+def test_an_empty_late_penalty_means_none_for_the_unit(database: Database, tmp_path) -> None:
+    """`[]` は「この回は減点しない」。書かない回はコースに従う（None のまま）。"""
+    text = _with_unit_setting("late_penalty: []").replace(
+        "  - key: ex1/cert\n    unit: ex1\n", "  - key: ex1/cert\n    unit: ex0\n"
+    )
+    result = _apply(database, _write_definition(tmp_path, text))
+    tasks, _versions = _tasks(database, result.course.id)
+    in_set = [task for task in tasks.values() if task.unit == "ex1"]
+    assert in_set and all(task.late_penalty_steps == () for task in in_set)
+    assert tasks["認定証を提出する"].late_penalty_steps is None
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "late_penalty: [{after_hours: 0}]",  # 片方だけの行
+        "late_penalty: [{after_hours: 0, percent: 150}]",  # 範囲外
+        "late_penalty: 50",  # 形が違う
+        "late_penalty: [{after_hours: 0, percent: 10}, {after_hours: 0, percent: 20}]",
+    ],
+)
+def test_a_bad_late_penalty_is_refused(tmp_path: Path, bad: str) -> None:
+    with pytest.raises(AdminError, match="late_penalty"):
+        load_course_definition(_write_definition(tmp_path, _with_unit_setting(bad)))

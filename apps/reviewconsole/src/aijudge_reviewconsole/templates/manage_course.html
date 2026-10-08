@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_help.html" import help %}
+{% from "_penalty_inputs.html" import penalty_inputs %}
 {% block title %}共通設定 — {{ course.title }} — aiJudge{% endblock %}
 {% block body %}
 {# **見出しは帯の項目名と同じ語にする**（#300）。ここにあるのは、このコースの
@@ -87,15 +88,12 @@
     {% endcall %}</div>
     <div class="setting-value">
       <input type="hidden" name="penalty_present" value="1">
-      {% for row in penalty_rows %}
-      <div class="inline-field">
-        締切を <input name="penalty_hours" type="number" step="any" min="0" style="max-width:6rem"
-               aria-label="超過時間（{{ loop.index }} 段目）" value="{{ row.hours }}"> 時間超えたら
-        総合点から <input name="penalty_percent" type="number" step="any" min="0" max="100" style="max-width:6rem"
-               aria-label="減点 %（{{ loop.index }} 段目）" value="{{ row.percent }}"> % を引く
-      </div>
-      {% endfor %}
-      <span class="desc">（行を空欄にするとその段を消します）</span>
+      {{ penalty_inputs(penalty_first, penalty_rows) }}
+      <span class="desc">（空欄にした段は消えます。すべて空欄なら減点しません）</span>
+      {% if penalty_overrides %}
+      <p class="note tight">次の問題セットは、この設定ではなく<strong>自分の設定</strong>で減点します（各回のページで「コースの設定に従う」にすると、ここに揃います）:
+        {% for row in penalty_overrides %}<a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/units/{{ row.key }}">{{ row.label }}</a>（{{ row.text }}）{% if not loop.last %}、{% endif %}{% endfor %}</p>
+      {% endif %}
     </div>
   </div>
 

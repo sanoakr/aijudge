@@ -224,6 +224,9 @@ def save_task(
             # クリア点も。引き継がないと、課題を 1 つ直した瞬間にその課題だけ
             # セットの値から外れ、画面が「設定がばらついています」と言い出す。
             clear_points=existing.clear_points if existing else None,
+            # 遅延の減点（ユニット単位の上書き）も。引き継がないと、課題を 1 つ直した瞬間に
+            # その課題だけコースの段に戻り、同じ回の中で減点がばらつく。
+            late_penalty_steps=existing.late_penalty_steps if existing else None,
             # 画面の静止画（ADR 0027）。引き継がないと、試験の課題を 1 つ直した
             # 瞬間にその課題だけ撮らなくなる。
             screen_capture=existing.screen_capture if existing else False,

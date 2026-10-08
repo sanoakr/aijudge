@@ -32,6 +32,7 @@ from .ids import (
     TaskVersionId,
     UserId,
 )
+from .late_penalty import LatePenaltyStep
 from .spans import Evidence
 from .task import Aggregation, RubricCriterion, TaskVersion
 
@@ -284,18 +285,6 @@ class ReviewRequest(BaseModel):
         return self.resolved_by is not None
 
 
-class LatePenaltyStep(BaseModel):
-    """遅延の段。「この時間を超えたらこの割合を引く」。
-
-    `after_hours` は締切からの超過時間で、`ratio` は総合点比から差し引く量。
-    """
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    after_hours: float = Field(ge=0.0)
-    ratio: float = Field(ge=0.0, le=1.0)
-
-
 class LatePenalty(BaseModel):
     """提出が遅れたことによる減点。**評価ではない。**
 
@@ -320,6 +309,17 @@ class LatePenalty(BaseModel):
     submitted_at: datetime
     # 学習者に示す根拠（P4）。どの段が当たったかを言葉で持つ。
     reason: str = Field(min_length=1)
+
+
+def effective_late_penalty_steps(
+    task_steps: tuple[LatePenaltyStep, ...] | None,
+    course_steps: tuple[LatePenaltyStep, ...],
+) -> tuple[LatePenaltyStep, ...]:
+    """採点に使う段。**課題（ユニット）の指定があればそれ、無ければコース。**
+
+    課題側の空は「減点しない」の明示で、コースの段を見ない（None と区別する）。
+    """
+    return course_steps if task_steps is None else task_steps
 
 
 def late_penalty_for(

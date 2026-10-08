@@ -16,7 +16,7 @@ from fastapi import HTTPException, Request
 from pydantic import ValidationError
 
 import aijudge_webui as webui
-from aijudge_core import Course, Role
+from aijudge_core import Course, LatePenaltyStep, Role
 from aijudge_core.ids import CourseId
 from aijudge_course_admin.kc import allowed_namespaces, list_for_namespaces
 from aijudge_grading import load_profile
@@ -234,4 +234,9 @@ def _plain(value):
     """
     if hasattr(value, "isoformat"):
         return value.isoformat()
+    if isinstance(value, LatePenaltyStep):
+        # 割合ではなく % で残す（画面と照らし合わせるため・`late_penalty.describe` と同じ）。
+        return {"after_hours": value.after_hours, "percent": round(value.ratio * 100, 4)}
+    if isinstance(value, tuple) and value and isinstance(value[0], LatePenaltyStep):
+        return [_plain(step) for step in value]
     return value

@@ -657,6 +657,27 @@ def task_repo(request, database: Database) -> Callable[[], object]:
     return database.unit_of_work
 
 
+def test_a_task_keeps_its_own_late_penalty_rule(task_repo) -> None:
+    """None（コースに従う）・空（減点しない）・段を、保存して読み戻しても区別できる。"""
+    from aijudge_core import LatePenaltyStep
+
+    half = (LatePenaltyStep(after_hours=0.0, ratio=0.5),)
+    saved = {
+        TASK_ID: half,
+        TaskId("tsk_" + "e" * 32): (),
+        TaskId("tsk_" + "f" * 32): None,
+    }
+    with task_repo() as uow:
+        for task_id, steps in saved.items():
+            uow.tasks.save_task(
+                Task(id=task_id, course_id=COURSE, title="t", late_penalty_steps=steps)
+            )
+        uow.commit()
+    with task_repo() as uow:
+        for task_id, steps in saved.items():
+            assert uow.tasks.get_task(task_id).late_penalty_steps == steps
+
+
 def test_a_task_version_round_trips(task_repo) -> None:
     version = a_task_version()
     with task_repo() as uow:

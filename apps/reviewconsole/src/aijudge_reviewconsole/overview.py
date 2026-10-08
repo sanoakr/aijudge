@@ -25,6 +25,7 @@ from urllib.parse import quote, unquote
 from aijudge_core import (
     AnswerMode,
     Course,
+    LatePenaltyStep,
     ReviewState,
     Role,
     Task,
@@ -123,6 +124,10 @@ class UnitGroup:
     # いちばん高い値にして `clear_points_mixed` を立てる（学生側と同じ採り方）。
     clear_points: float | None = None
     clear_points_mixed: bool = False
+    # 遅延の減点（`Task.late_penalty_steps`・2026-10-08）。**None はコースの設定に従う**。
+    # 空は「この回は減点しない」。課題ごとに違えば先頭の課題の値を出し、混ざりを立てる。
+    late_penalty_steps: tuple[LatePenaltyStep, ...] | None = None
+    late_penalty_mixed: bool = False
     # エディタの補完（設計書 §5.3）。全課題が入なら真。混ざりは別に持つ。
     completion: bool = False
     completion_mixed: bool = False
@@ -281,6 +286,8 @@ def load_units(
                     default=None,
                 ),
                 clear_points_mixed=len({task.clear_points for task in tasks}) > 1,
+                late_penalty_steps=tasks[0].late_penalty_steps if tasks else None,
+                late_penalty_mixed=len({task.late_penalty_steps for task in tasks}) > 1,
                 visibility=_visibility(tasks, moment),
                 completion=bool(tasks) and all(task.editor_completion for task in tasks),
                 completion_mixed=len({task.editor_completion for task in tasks}) > 1,

@@ -161,6 +161,13 @@ class World:
             uow.tasks.save_task(task.model_copy(update={"due_at": due_at}))
             uow.commit()
 
+    def set_task_penalty(self, steps) -> None:
+        """課題（ユニット）の減点の上書き。None はコースに従う。"""
+        with self.database.unit_of_work() as uow:
+            task = uow.tasks.get_task(self.task_version.task_id)
+            uow.tasks.save_task(task.model_copy(update={"late_penalty_steps": steps}))
+            uow.commit()
+
     def close(self) -> None:
         self.database.dispose()
 
@@ -875,6 +882,48 @@ def test_an_on_time_submission_carries_no_penalty(world: World) -> None:
 
     with world.database.unit_of_work() as uow:
         assert uow.runs.latest_for(_only_submission(uow)).penalty is None
+
+
+@needs_c_compiler
+def test_the_unit_rule_overrides_the_course_rule(world: World) -> None:
+    """**課題（ユニット）に段があれば、コースの段ではなくそれを使う**（2026-10-08）。"""
+    world.set_course(LADDER)
+    world.set_task_penalty((LatePenaltyStep(after_hours=0.0, ratio=0.5),))
+    world.set_due(NOW - timedelta(hours=26))
+    world.submit()
+    world.worker.run_until_empty()
+
+    with world.database.unit_of_work() as uow:
+        run = uow.runs.latest_for(_only_submission(uow))
+
+    assert run.penalty is not None
+    assert run.penalty.ratio == 0.5, "コースの段（26 時間で 30%）が当たっている"
+
+
+@needs_c_compiler
+def test_an_empty_unit_rule_means_no_penalty_even_if_the_course_has_one(world: World) -> None:
+    """空は「この回は減点しない」の明示で、None（コースに従う）とは違う。"""
+    world.set_course(LADDER)
+    world.set_task_penalty(())
+    world.set_due(NOW - timedelta(hours=26))
+    world.submit()
+    world.worker.run_until_empty()
+
+    with world.database.unit_of_work() as uow:
+        assert uow.runs.latest_for(_only_submission(uow)).penalty is None
+
+
+@needs_c_compiler
+def test_a_task_without_its_own_rule_follows_the_course(world: World) -> None:
+    world.set_course(LADDER)
+    world.set_task_penalty(None)
+    world.set_due(NOW - timedelta(hours=26))
+    world.submit()
+    world.worker.run_until_empty()
+
+    with world.database.unit_of_work() as uow:
+        run = uow.runs.latest_for(_only_submission(uow))
+    assert run.penalty is not None and run.penalty.ratio == 0.30
 
 
 @needs_c_compiler

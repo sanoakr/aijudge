@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_help.html" import help %}
+{% from "_penalty_inputs.html" import penalty_inputs %}
 {% block title %}{{ unit.label }} — {{ course.title }} — aiJudge{% endblock %}
 {% block body %}
 <h1>問題セット {{ unit.unit or unit.label }}</h1>
@@ -303,6 +304,33 @@
              value="{{ '%g' | format(unit.clear_points) if unit.clear_points is not none }}"> 点以上
       <span class="desc">（満点 {{ '%g' | format(points_full | round(1)) }} 点）</span>
       {% if unit.clear_points_mixed %}<p class="note warn tight">このセットの中で値がばらついています。変えて保存すると、全課題に同じ値が入ります。</p>{% endif %}
+    </div>
+  </div>
+
+  {# 遅延の減点（ADR 0013）。**この回だけ別に決める**。コースの設定（共通設定）を
+     上書きする。% で入れる（変換は `aijudge_course_admin.late_penalty` の 1 か所だけ）。 #}
+  <div class="setting" id="late-penalty">
+    <div class="setting-name">遅延の減点{% call help() %}
+      締切を過ぎた提出の総合点から差し引く割合です。<strong>この回の全課題に同じ値が入ります。</strong>
+      「コースの設定に従う」なら<a href="{{ root_prefix() }}/manage/courses/{{ course.id }}#late_penalty">共通設定</a>の減点が当たります。
+      「この回だけ決める」で行をすべて空欄にすると、この回は減点しません。
+      <br>
+      減点は引き算です（評価 80% の提出から 50% を引くと 30%。評価が 50% 以下なら 0 点）。
+      <strong>減点は採点したときに記録されます。</strong>ここを変えても採点済みの提出の点は動きません
+      （変えた後に採点される提出と、再採点した提出に効きます）。
+    {% endcall %}</div>
+    <div class="setting-value">
+      <input type="hidden" name="penalty_present" value="1">
+      <label class="check"><input type="radio" name="penalty_mode" value="course"
+             {{ 'checked' if unit.late_penalty_steps is none }}>
+        コースの設定に従う <span class="desc">（{{ course_penalty_text }}）</span></label>
+      <label class="check"><input type="radio" name="penalty_mode" value="unit"
+             {{ 'checked' if unit.late_penalty_steps is not none }}>
+        この回だけ決める</label>
+      {{ penalty_inputs(unit_penalty_first, unit_penalty_rows) }}
+      <span class="desc">（「この回だけ決める」を選んだときだけ効きます。空欄にした段は消え、すべて空欄なら減点しません）</span>
+      <p class="note tight">いま効いている減点: <strong>{{ effective_penalty_text }}</strong>{% if unit.late_penalty_steps is none %}（コースの設定）{% else %}（この回の設定）{% endif %}</p>
+      {% if unit.late_penalty_mixed %}<p class="note warn tight">このセットの中で値がばらついています。変えて保存すると、全課題に同じ値が入ります。</p>{% endif %}
     </div>
   </div>
 

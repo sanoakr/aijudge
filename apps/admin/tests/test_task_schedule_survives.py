@@ -221,6 +221,7 @@ KEPT = {
     "file_upload",
     "clear_points",
     "screen_capture",
+    "late_penalty_steps",
 }
 # 版を保存する側が決める（`save_task` は触らない）。
 DECIDED_ELSEWHERE = {"current_version_id"}
@@ -350,3 +351,19 @@ def test_revising_a_task_keeps_its_case_timeout(world) -> None:
     with database.unit_of_work() as uow:
         after = uow.tasks.get_task(saved.task.id)
     assert after.case_timeout_seconds == 30.0, "直したら実行時間の上限が戻っている"
+
+
+def test_revising_a_task_keeps_its_late_penalty(world) -> None:
+    """ユニットに減点を入れたあと課題を 1 つ直しても、その課題だけコースの段に戻らない。"""
+    from aijudge_core import LatePenaltyStep
+
+    database, course = world
+    saved = _save(database, course, "本文")
+    steps = (LatePenaltyStep(after_hours=0.0, ratio=0.5),)
+    _schedule_the_unit(database, saved.task.id, late_penalty_steps=steps)
+
+    _save(database, course, "本文（誤字を直した）")
+
+    with database.unit_of_work() as uow:
+        after = uow.tasks.get_task(saved.task.id)
+    assert after.late_penalty_steps == steps, "直したら課題の減点がコースの設定に戻っている"

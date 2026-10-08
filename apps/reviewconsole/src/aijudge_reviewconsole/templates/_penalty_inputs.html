@@ -1,0 +1,28 @@
+{# 遅延の減点の入力欄（コースの共通設定とユニットの設定で同じ形にする・2026-10-08）。
+
+   **1 行目は「締切を過ぎたら」の減点率だけ。** 遅延時間は入れない（超過 0 時間の
+   段になる）。**2 行目以降が、遅れた時間ごとの段**で、遅延時間と減点率を入れる。
+   変換（% と割合・段の並び）は `aijudge_course_admin.late_penalty` の 1 か所だけ。
+
+   使い方:
+
+       {% from "_penalty_inputs.html" import penalty_inputs %}
+       {{ penalty_inputs(first_percent, rows) }}
+
+   `rows` は 2 段目以降（`[{"hours": …, "percent": …}]`）。空の行は呼ぶ側が足す。 #}
+{% macro penalty_inputs(first_percent, rows) -%}
+<div class="inline-field">
+  締切を過ぎたら 総合点から
+  <input name="penalty_first_percent" type="number" step="any" min="0" max="100" style="max-width:6rem"
+         aria-label="締切を過ぎたときの減点 %" value="{{ first_percent }}"> % を引く
+</div>
+<div class="desc">さらに遅れたときに、減点を重くする段（任意）:</div>
+{% for row in rows %}
+<div class="inline-field">
+  締切から <input name="penalty_hours" type="number" step="any" min="0" style="max-width:6rem"
+         aria-label="遅延時間（{{ loop.index + 1 }} 段目）" value="{{ row.hours }}"> 時間を超えたら
+  総合点から <input name="penalty_percent" type="number" step="any" min="0" max="100" style="max-width:6rem"
+         aria-label="減点 %（{{ loop.index + 1 }} 段目）" value="{{ row.percent }}"> % を引く
+</div>
+{% endfor %}
+{%- endmacro %}

@@ -57,12 +57,12 @@ from .grading import (
     HumanReview,
     KcOutcome,
     LatePenalty,
-    LatePenaltyStep,
     ReviewPolicy,
     ReviewRequest,
     Routing,
     aggregate,
     corrected_mark,
+    effective_late_penalty_steps,
     final_score,
     gate_skipped,
     late_penalty_for,
@@ -79,6 +79,7 @@ from .knowledge import (
     kc_id_for,
     parse_kc_key,
 )
+from .late_penalty import LatePenaltyStep
 from .network import CampusAccess, campus_access, parse_cidrs
 from .ordinals import attempt_ordinals
 from .retention import (
@@ -258,6 +259,7 @@ __all__ = [
     "corrected_mark",
     "derived_id",
     "effective_aggregation",
+    "effective_late_penalty_steps",
     "effective_max_score",
     "final_score",
     "format_term",

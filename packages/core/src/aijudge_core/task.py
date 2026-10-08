@@ -16,6 +16,7 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validato
 
 from .ids import CourseGroupId, CourseId, CriterionId, TaskId, TaskVersionId, UserId
 from .knowledge import QMatrixEntry
+from .late_penalty import LatePenaltyStep, check_steps_sorted
 
 
 class ReviewState(StrEnum):
@@ -403,6 +404,14 @@ class Task(BaseModel):
     accepts_until: AwareDatetime | None = None
     # 成績の自動確定までの猶予（分）。**空なら科目の設定**（`grace_minutes`）。
     auto_finalize_after_minutes: int | None = Field(default=None, gt=0)
+    # 遅延の減点の段（ユニット単位の上書き・2026-10-08）。**None ならコースの設定**
+    # （`Course.late_penalty_steps`）に従う。**空のタプルは「この課題は減点しない」**
+    # という明示の指定で、None とは違う ── コースに段があっても、この回だけ外せる。
+    #
+    # 日程と同じ性質の値である（締切が回で決まるように、締切後の扱いも回で決まる）。
+    # 値を決めるのは問題セット単位で、画面もそう作る。**採点時に GradingRun へ焼き付く**
+    # ので、変えても採点済みの提出には効かない（再採点した分から効く）。
+    late_penalty_steps: tuple[LatePenaltyStep, ...] | None = None
     # この課題で受け付ける提出ファイル形式（拡張子）。空なら科目の既定
     # （`aijudge_core.uploads.allowed_suffixes`）。日程と違い、**課題ごとに
     # 決まる**性質である ── 同じ回でもコードで出す問題とレポートで出す問題が
@@ -508,6 +517,12 @@ class Task(BaseModel):
         誰も提出できない。"""
         if self.answer_mode is AnswerMode.UPLOAD and not self.file_upload:
             raise ValueError("エディタを使わない課題では、ファイルの提出を止められません")
+        return self
+
+    @model_validator(mode="after")
+    def _check_late_penalty_steps(self) -> Self:
+        if self.late_penalty_steps is not None:
+            check_steps_sorted(self.late_penalty_steps)
         return self
 
     @model_validator(mode="after")
