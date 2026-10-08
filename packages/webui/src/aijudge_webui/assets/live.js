@@ -33,8 +33,9 @@
   function regions() {
     return document.querySelectorAll("[data-live]");
   }
-  if (!regions().length || !window.fetch || !window.DOMParser) return;
+  if (!window.fetch || !window.DOMParser) return;
 
+  var hasRegions = regions().length > 0;
   var timer = null;
   var running = false;
   var stopped = false;
@@ -261,12 +262,95 @@
   }
 
   document.addEventListener("visibilitychange", function () {
-    if (document.hidden || stopped || running) return;
+    if (!hasRegions || document.hidden || stopped || running) return;
     if (Date.now() - lastOk > STALE_AFTER_MS) {
       clearTimeout(timer);
       tick();
     }
   });
 
-  schedule();
+  if (hasRegions) schedule();
+
+  // -- 軽い取り直し（ページ全体ではなく、部品だけを返す経路）---------------------------
+  //
+  // 上部バーの「オンライン N 人」と、左の帯の件数。**どの画面でも動く** ── ページ全体は
+  // 取り直さないので、開くだけで状態が動きうる画面（`/review/…`）にも使える。
+  // どちらも `X-Aijudge-Live` を付けるので、この取得自体は「操作」に数えない。
+  function lightLoop(run) {
+    var done = false;
+    function next() {
+      if (!done) setTimeout(go, delay());
+    }
+    function go() {
+      if (document.hidden) {
+        setTimeout(go, BASE_INTERVAL_MS);
+        return;
+      }
+      run().then(
+        function (keep) {
+          if (keep === false) done = true;
+        },
+        function () {
+          /* 古いままになるだけ。次の機会に取り直す */
+        }
+      ).then(next);
+    }
+    next();
+  }
+
+  function getLive(url) {
+    return fetch(url, {
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: { "X-Aijudge-Live": "1" },
+    });
+  }
+
+  var onlineEl = document.getElementById("online-users");
+  if (onlineEl && onlineEl.getAttribute("data-url")) {
+    lightLoop(function () {
+      return getLive(onlineEl.getAttribute("data-url")).then(function (response) {
+        if (loggedOut(response)) return false;
+        if (!response.ok) throw new Error("status " + response.status);
+        return response.json().then(function (data) {
+          var number = onlineEl.querySelector("b");
+          if (number) number.textContent = String(data.total);
+          onlineEl.setAttribute(
+            "title",
+            "直近 " + data.window_minutes + " 分に操作があった人（学習者 " +
+              data.learners + "・教員等 " + data.staff + "）"
+          );
+        });
+      });
+    });
+  }
+
+  var railEl = document.querySelector("aside.rail[data-refresh-url]");
+  if (railEl) {
+    lightLoop(function () {
+      var url =
+        railEl.getAttribute("data-refresh-url") +
+        "?course_id=" + encodeURIComponent(railEl.getAttribute("data-course-id") || "") +
+        "&path=" + encodeURIComponent(location.pathname);
+      return getLive(url).then(function (response) {
+        if (loggedOut(response)) return false;
+        if (response.status === 204) return undefined;
+        if (!response.ok) throw new Error("status " + response.status);
+        return response.text().then(function (text) {
+          var fresh = new DOMParser().parseFromString(text, "text/html").querySelector("aside.rail");
+          if (!fresh) return;
+          var nav = railEl.querySelector("nav");
+          var freshNav = fresh.querySelector("nav");
+          if (nav && freshNav && syncLeaf(nav, freshNav)) {
+            nav.dispatchEvent(new CustomEvent("aijudge:live", { bubbles: true }));
+          }
+          // 「件数を取得できませんでした」の断り書きは、出たり消えたりする。
+          var note = railEl.querySelector(".railnote");
+          var freshNote = fresh.querySelector(".railnote");
+          if (freshNote && !note) railEl.appendChild(document.importNode(freshNote, true));
+          else if (!freshNote && note) note.remove();
+        });
+      });
+    });
+  }
 })();

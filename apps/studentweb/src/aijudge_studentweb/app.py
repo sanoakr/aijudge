@@ -353,7 +353,10 @@ def current_principal(request: Request) -> Principal | None:
 
 def _resolve_session(request: Request, token: str) -> Principal | None:
     with _state(request).database.unit_of_work() as uow:
-        return AuthService(uow.identity, audit=uow.audit).resolve(token)
+        # 最終操作を記録する（教員画面の「いま使っている人数」・間引いて書く）。
+        principal = AuthService(uow.identity, audit=uow.audit).resolve(token)
+        uow.commit()
+        return principal
 
 
 def require_principal(request: Request) -> Principal:

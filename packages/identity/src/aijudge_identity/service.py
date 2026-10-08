@@ -26,7 +26,7 @@ from aijudge_core.ids import ApiTokenId, CourseId, SessionId, TenantId, UserId, 
 
 from .demo import demo_course_from_env, enrol_into_demo_course
 from .errors import AuthenticationFailed, NotAnInstructor, PermissionDenied
-from .models import ApiToken, Principal, Session, User, UserState
+from .models import ActiveUsers, ApiToken, Principal, Session, User, UserState
 from .passwords import hash_password, needs_rehash, verify_password
 from .repository import IdentityRepository
 
@@ -38,6 +38,11 @@ if TYPE_CHECKING:
 # セッションの有効期間。学生が 1 コマの授業中に切れない程度、かつ
 # 共用端末に置き去りにされたまま延々と生きない程度。
 DEFAULT_SESSION_HOURS = 12
+# 最終操作の記録を書き直す最短の間隔。**1 人が 1 秒に何度も同じ行を更新しない**ための間引き。
+TOUCH_INTERVAL = timedelta(seconds=60)
+# 「いま使っている」とみなす窓。**これより前に最後の操作があった人は数えない** ──
+# スリープした PC・閉じた画面は、サーバからは「操作が止まった」ようにしか見えない。
+ACTIVE_WINDOW = timedelta(minutes=5)
 # ローカルログインの総当たり抑止（#418）。この時間内の失敗を数える。
 LOGIN_FAILURE_WINDOW_MINUTES = 15
 # 同じ ID への失敗がこれに達したら止める。打ち間違いを数回しても届かない値。
@@ -473,17 +478,33 @@ class AuthService:
         """発行済みトークンの一覧。**ハッシュしか持たないので平文は出ない。**"""
         return self._repository.list_api_tokens(tenant_id)
 
-    def resolve(self, token: str) -> Principal | None:
-        """トークンから主体を引く。無効なら None。"""
+    def resolve(self, token: str, *, touch: bool = True) -> Principal | None:
+        """トークンから主体を引く。無効なら None。
+
+        `touch` が真なら、最後に操作した時刻を記録する（間引く・`TOUCH_INTERVAL`）。
+        **画面が裏で自動更新するだけの取得は偽にする** ── 数えると、開いたままの
+        画面が全員「使用中」に見える。
+        """
         if not token:
             return None
+        now = self._clock()
         session = self._repository.find_session_by_token_hash(_token_hash(token))
-        if session is None or not session.is_valid(self._clock()):
+        if session is None or not session.is_valid(now):
             return None
         user = self._repository.get_user(session.user_id)
         if user is None or not user.is_active:
             return None
+        if touch:
+            self._repository.touch_session(session.id, now, min_interval=TOUCH_INTERVAL)
         return _principal(user)
+
+    def active_users(self, tenant_id: TenantId) -> ActiveUsers:
+        """いま使っている人数。直近 `ACTIVE_WINDOW` に操作があった利用者。"""
+        now = self._clock()
+        total, staff = self._repository.count_active_users(tenant_id, now - ACTIVE_WINDOW, now)
+        return ActiveUsers(
+            window_minutes=int(ACTIVE_WINDOW.total_seconds() // 60), total=total, staff=staff
+        )
 
     def logout(self, token: str) -> None:
         session = self._repository.find_session_by_token_hash(_token_hash(token))

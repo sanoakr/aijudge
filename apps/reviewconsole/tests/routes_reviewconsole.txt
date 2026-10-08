@@ -46,6 +46,8 @@ GET /manage/subjects/{name} aijudge_reviewconsole.manage.subjects:subject_detail
 GET /manage/users aijudge_reviewconsole.manage.users:user_list
 GET /manage/users/new aijudge_reviewconsole.manage.users:new_user_form
 GET /manage/users/{user_id} aijudge_reviewconsole.manage.users:user_detail
+GET /online-users aijudge_reviewconsole.app:online_users
+GET /rail-fragment aijudge_reviewconsole.app:rail_fragment
 GET /review/{submission_id}/artifacts/{artifact_id} aijudge_reviewconsole.app:submitted_file
 GET /review/{submission_id}/blind aijudge_reviewconsole.app:blind
 GET /review/{submission_id}/reveal aijudge_reviewconsole.app:reveal

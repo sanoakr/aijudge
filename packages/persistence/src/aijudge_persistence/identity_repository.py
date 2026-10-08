@@ -11,10 +11,10 @@ from __future__ import annotations
 
 import os
 from collections.abc import Iterable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from cryptography.fernet import Fernet, InvalidToken
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.orm import Session as DbSession
 
 from aijudge_core import (
@@ -193,6 +193,7 @@ class SqlIdentityRepository:
                 created_at=session.created_at,
                 expires_at=session.expires_at,
                 revoked_at=session.revoked_at,
+                last_seen_at=session.last_seen_at,
             )
         )
         self._session.flush()
@@ -213,6 +214,7 @@ class SqlIdentityRepository:
             created_at=row.created_at,
             expires_at=row.expires_at,
             revoked_at=row.revoked_at,
+            last_seen_at=row.last_seen_at,
         )
 
     def revoke_session(self, session_id: str, at: datetime) -> None:
@@ -222,6 +224,55 @@ class SqlIdentityRepository:
             .values(revoked_at=at)
         )
         self._session.flush()
+
+    def touch_session(self, session_id: str, at: datetime, *, min_interval: timedelta) -> None:
+        # 条件つきの 1 文にする。**読んでから書く 2 段にしない** ── 同じ人の要求が
+        # 重なっても、書くのは間隔を過ぎた 1 回だけになる。
+        self._session.execute(
+            update(SessionRow)
+            .where(
+                SessionRow.id == str(session_id),
+                or_(SessionRow.last_seen_at.is_(None), SessionRow.last_seen_at < at - min_interval),
+            )
+            .values(last_seen_at=at)
+        )
+        self._session.flush()
+
+    def count_active_users(
+        self, tenant_id: TenantId, since: datetime, now: datetime
+    ) -> tuple[int, int]:
+        active = (
+            select(SessionRow.user_id)
+            .where(
+                SessionRow.tenant_id == str(tenant_id),
+                SessionRow.revoked_at.is_(None),
+                SessionRow.expires_at > now,
+                SessionRow.last_seen_at.is_not(None),
+                SessionRow.last_seen_at >= since,
+            )
+            .distinct()
+            .subquery()
+        )
+        total = self._session.execute(select(func.count()).select_from(active)).scalar_one()
+        # 教員・TA・管理者: テナント管理者、またはどこかのコースで学習者以外の受講がある。
+        staff_by_enrollment = (
+            select(EnrollmentRow.user_id)
+            .where(EnrollmentRow.role != "learner")
+            .distinct()
+            .subquery()
+        )
+        staff = self._session.execute(
+            select(func.count())
+            .select_from(UserRow)
+            .where(
+                UserRow.id.in_(select(active.c.user_id)),
+                or_(
+                    UserRow.is_tenant_admin.is_(True),
+                    UserRow.id.in_(select(staff_by_enrollment.c.user_id)),
+                ),
+            )
+        ).scalar_one()
+        return int(total), int(staff)
 
     def revoke_sessions_for(self, user_id: UserId, at: datetime) -> None:
         self._session.execute(

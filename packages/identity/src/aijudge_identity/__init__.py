@@ -19,7 +19,7 @@ from .demo import (
     enrol_into_demo_course,
 )
 from .errors import AuthenticationFailed, NotAnInstructor, PermissionDenied
-from .models import ApiToken, Principal, Session, User, UserState
+from .models import ActiveUsers, ApiToken, Principal, Session, User, UserState
 from .network import MAX_CIDRS, MAX_NOTE_LENGTH, CampusNetworkSettings, CampusRange
 from .oidc import (
     DEFAULT_LOGIN_LABEL,
@@ -57,6 +57,7 @@ __all__ = [
     "MAX_NOTE_LENGTH",
     "MIN_PASSWORD_LENGTH",
     "TOKEN_PREFIX",
+    "ActiveUsers",
     "ApiToken",
     "AuthService",
     "AuthenticationFailed",
