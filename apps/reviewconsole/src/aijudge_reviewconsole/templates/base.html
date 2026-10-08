@@ -34,6 +34,13 @@
 <header class="top"><div class="inner">
   <a class="brand" href="{{ root_prefix() }}/">aiJudge</a>
   <span class="spacer"></span>
+  {# いま使っている人数（2026-10-08）。**直近 5 分に操作があった人**で、ログインしただけの人は
+     数えない（スリープ・閉じた画面は数えない）。人数だけで名前は出さない。`live.js` が取り直す。 #}
+  {% set online = online_users(request) if online_users is defined else none %}
+  {% if online %}
+  <span class="online" id="online-users" data-url="{{ root_prefix() }}/online-users"
+        title="直近 {{ online.window_minutes }} 分に操作があった人（学習者 {{ online.learners }}・教員等 {{ online.staff }}）">オンライン <b>{{ online.total }}</b> 人</span>
+  {% endif %}
   <span>{{ me.display_name }}</span>
   {# SSO 利用者には出さない（#180）。Google で入った利用者のローカルパスワードは
      誰も知らない捨て値なので、この画面は「現在のパスワードが違います」しか

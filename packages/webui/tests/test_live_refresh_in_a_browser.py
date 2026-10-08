@@ -16,6 +16,7 @@ Playwright とブラウザが無い環境（`uv run --group guide-shots playwrig
 from __future__ import annotations
 
 import http.server
+import json
 import threading
 from collections.abc import Iterator
 
@@ -24,6 +25,14 @@ import pytest
 from aijudge_webui import ASSETS_DIR
 
 playwright_sync = pytest.importorskip("playwright.sync_api")
+
+
+def _rail(n: int) -> str:
+    return (
+        '<aside class="rail" data-refresh-url="/rail-fragment" data-course-id="crs_1">'
+        f'<nav><a class="nav" href="/f"><span class="t">確定処理</span>'
+        f'<span class="c attn" id="railcount">{5 + n}</span></a></nav></aside>'
+    )
 
 
 def _page(n: int) -> str:
@@ -35,6 +44,8 @@ def _page(n: int) -> str:
     )
     attn = " attn" if n >= 1 else ""
     return f"""<!doctype html><html><body><main>
+{_rail(n)}
+<span id="online-users" data-url="/online-users" title="">オンライン <b>1</b> 人</span>
 <span id="count" data-live="count" class="pill{attn}">未確定 {10 - n}</span>
 <table><tbody data-live="rows" data-live-rows>{rows}</tbody></table>
 <div data-live="form"><form><textarea id="just" name="j"></textarea></form>
@@ -47,6 +58,7 @@ class _Site:
         self.n = 0
         self.expired = False
         self.live_requests = 0
+        self.rail_queries: list[str] = []
         outer = self
 
         class Handler(http.server.BaseHTTPRequestHandler):
@@ -75,6 +87,16 @@ class _Site:
             return (ASSETS_DIR / "live.js").read_bytes(), "text/javascript"
         if path.startswith("/login"):
             return b"<html><body>login</body></html>", "text/html; charset=utf-8"
+        if path.startswith("/rail-fragment"):
+            if live == "1":
+                self.live_requests += 1
+            self.rail_queries.append(path)
+            return _rail(self.n).encode(), "text/html; charset=utf-8"
+        if path.startswith("/online-users"):
+            if live == "1":
+                self.live_requests += 1
+            data = {"total": 1 + self.n, "staff": 1, "learners": self.n, "window_minutes": 5}
+            return json.dumps(data).encode(), "application/json"
         if path.startswith("/bump"):
             self.n += 1
             return b"ok", "text/plain"
@@ -157,3 +179,24 @@ def test_it_stops_and_says_so_when_the_login_expires(site: _Site, page) -> None:
         "document.querySelector('#live-status')?.textContent.includes('有効期限')"
     )
     assert "自動更新を止めました" in page.inner_text("#live-status")
+
+
+def test_the_online_count_in_the_bar_is_refreshed(site: _Site, page) -> None:
+    """上部バーの人数は、区画の差し替えとは別の軽い経路で取り直す（どの画面でも動く）。"""
+    assert page.inner_text("#online-users b") == "1"
+    _bump(site, 3)
+
+    page.wait_for_function("document.querySelector('#online-users b').textContent === '4'")
+
+    assert "学習者 3" in page.get_attribute("#online-users", "title")
+
+
+def test_the_rail_counts_are_refreshed_without_fetching_the_page(site: _Site, page) -> None:
+    """帯の件数は、ページ全体ではなく帯だけを返す経路で取り直す（どの画面でも動く）。"""
+    assert page.inner_text("#railcount") == "5"
+    _bump(site, 2)
+
+    page.wait_for_function("document.querySelector('#railcount').textContent === '7'")
+
+    assert site.rail_queries, "帯の取り直しの経路を呼んでいない"
+    assert "course_id=crs_1" in site.rail_queries[0], "どのコースの帯かを伝えていない"

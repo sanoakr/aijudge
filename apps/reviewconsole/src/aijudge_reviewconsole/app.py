@@ -29,7 +29,10 @@ blind 画面のレスポンスには AI の判定を一切含めない。CSS で
 
 from __future__ import annotations
 
+import logging
 import os
+import threading
+import time
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from functools import partial
@@ -38,7 +41,7 @@ from typing import Annotated
 from urllib.parse import urlencode
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request, Response
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -92,6 +95,7 @@ from aijudge_grading import load_profile, project_observations
 from aijudge_identity import (
     DEFAULT_LOGIN_LABEL,
     INSTRUCTOR_ROLES,
+    ActiveUsers,
     AuthenticationFailed,
     AuthService,
     GoogleOidcProvider,
@@ -115,7 +119,7 @@ from .io_results import io_results
 from .live_poll import LivePollMiddleware
 from .notices import Notices
 from .overview import digests_for, load_units
-from .rail_context import RAIL_COURSE_ID, rail_context
+from .rail_context import RAIL_COURSE_ID, rail_context, rail_for
 from .sampling import is_blind_sample
 from .submissions import (
     STATE_LABELS,
@@ -207,6 +211,22 @@ def _learner_link(request: Request, course: object = None) -> str:
 
 TEMPLATES.env.globals["learner_link"] = _learner_link
 
+
+def _online_users(request: Request) -> ActiveUsers | None:
+    """上部バーに出す「いま使っている人数」。**数えられなくても画面は出す**（None）。"""
+    console = getattr(request.app.state, "aijudge", None)
+    principal = getattr(request.state, webapp.PRINCIPAL_STATE, None)
+    if console is None or principal is None:
+        return None
+    try:
+        return console.active_users(principal.tenant_id)  # type: ignore[no-any-return]
+    except Exception:
+        logging.getLogger(__name__).warning("active users unavailable", exc_info=True)
+        return None
+
+
+TEMPLATES.env.globals["online_users"] = _online_users
+
 # 画面に埋め込んでよい種別。それ以外はダウンロードさせる（#75）。
 INLINE_KINDS = (ArtifactKind.IMAGE, ArtifactKind.PDF, ArtifactKind.VIDEO)
 
@@ -223,6 +243,8 @@ ENV_ALLOWED_HOSTS = "AIJUDGE_ALLOWED_HOSTS"
 # **誰がどの提出を開いたかは残す方に価値がある**（盲検の抽出や再確認の経緯）。
 # CSS も残さない ── 1 ページ 1 行増えるだけで、内容は毎回同じ。
 QUIET_PATHS = ("/images/", "/static/")
+# 「いま使っている人数」を使い回す秒数（画面ごとの再集計を避ける）。
+ACTIVE_USERS_CACHE_SECONDS = 10.0
 
 SESSION_COOKIE = "aijudge_session"
 DEFAULT_TENANT = "ten_" + "0" * 32
@@ -299,6 +321,24 @@ class Console:
         # 以前は `last_*` の 8 属性でコース単位に持ち、読んでも消さなかったので、
         # 同じコースの別の教員にも出て、開き直すたびに出続けた。
         self.notices = Notices()
+        # 「いま使っている人数」の使い回し。**画面を開くたびに DB を数えない** ──
+        # 教員の画面は 1 ページごとに上部バーでこれを出し、自動更新も取り直す。
+        self._active_users: dict[str, tuple[float, ActiveUsers]] = {}
+        self._active_users_lock = threading.Lock()
+
+    def active_users(self, tenant_id: TenantId) -> ActiveUsers:
+        """いま使っている人数（直近の操作があった利用者）。短い間だけ使い回す。"""
+        key = str(tenant_id)
+        now = time.monotonic()
+        with self._active_users_lock:
+            cached = self._active_users.get(key)
+            if cached is not None and now - cached[0] < ACTIVE_USERS_CACHE_SECONDS:
+                return cached[1]
+        with self.database.unit_of_work() as uow:
+            counted = AuthService(uow.identity, audit=uow.audit).active_users(tenant_id)
+        with self._active_users_lock:
+            self._active_users[key] = (now, counted)
+        return counted
 
     def blind_sample_rate(self, subject_profile: str) -> float:
         """科目プロファイルが宣言した blind 抽出率。
@@ -461,7 +501,13 @@ def current_principal(request: Request) -> Principal | None:
 
 def _resolve_session(request: Request, token: str) -> Principal | None:
     with _state(request).database.unit_of_work() as uow:
-        return AuthService(uow.identity, audit=uow.audit).resolve(token)
+        # **自動更新の取得（`X-Aijudge-Live`）は「操作」に数えない。** 数えると、開いたままの
+        # 画面が全員「使用中」に見える（「いま使っている人数」・`AuthService.active_users`）。
+        principal = AuthService(uow.identity, audit=uow.audit).resolve(
+            token, touch=not notices.live_poll.get()
+        )
+        uow.commit()
+        return principal
 
 
 def require_principal(request: Request) -> Principal:
@@ -559,6 +605,40 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
     from .similarity import register as register_similarity
 
     app.include_router(register_similarity(TEMPLATES))
+
+    @app.get("/online-users")
+    def online_users(request: Request) -> JSONResponse:
+        """上部バーの「オンライン N 人」を取り直す（`live.js`）。**人数だけ** ── 名前は出さない。
+
+        `live.js` は `X-Aijudge-Live` を付けて呼ぶので、この取得自体は「操作」に数えない
+        （数えると、画面を開いているだけで自分が使用中になり続ける）。
+        """
+        principal = require_principal(request)
+        counted = console.active_users(principal.tenant_id)
+        return JSONResponse(
+            {
+                "total": counted.total,
+                "staff": counted.staff,
+                "learners": counted.learners,
+                "window_minutes": counted.window_minutes,
+            },
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @app.get("/rail-fragment", response_class=HTMLResponse)
+    def rail_fragment(request: Request, course_id: str = "", path: str = "") -> HTMLResponse:
+        """左の帯だけを返す（`live.js` が件数を取り直す）。
+
+        ページ全体を取り直さない ── `/review/…` のような、開くだけで状態が動きうる画面を
+        定期的に描き直さずに、どの画面でも帯の件数を新しくできる。組み立ては
+        `rail_context` と同じ（`rail_for`）で、認可も帯が自分で確かめる。
+        """
+        require_principal(request)
+        rail = rail_for(request, course_id=course_id or None, path=path)
+        if rail is None:
+            return HTMLResponse("", status_code=204)
+        html = TEMPLATES.get_template("_rail.html").render({"rail": rail})
+        return HTMLResponse(html, headers={"Cache-Control": "no-store"})
 
     # -- ログイン ----------------------------------------------------------
     #

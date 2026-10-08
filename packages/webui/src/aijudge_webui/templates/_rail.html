@@ -13,7 +13,7 @@
      2. 小項目は帯より内側に字下げする（従属が見て分かる）
      3. 件数はすべて同じ右端で揃える（縦に読み比べられる）
 #}
-<aside class="rail" aria-label="このコースの行き先">
+<aside class="rail" aria-label="このコースの行き先"{% if rail.refresh_url %} data-refresh-url="{{ rail.refresh_url }}" data-course-id="{{ rail.course_id }}"{% endif %}>
   <a class="brand" href="{{ rail.href }}">
     <b>{{ rail.title }}</b>
     {% if rail.subtitle %}<span class="side">{{ rail.subtitle }}</span>{% endif %}

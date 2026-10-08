@@ -6,7 +6,7 @@ PostgreSQL 実装は persistence 側にある。
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Protocol, runtime_checkable
 
 from aijudge_core import Course, CourseGroup, Enrollment, Role, term_sort_key
@@ -63,6 +63,23 @@ class IdentityRepository(Protocol):
     def find_session_by_token_hash(self, token_hash: str) -> Session | None: ...
 
     def revoke_session(self, session_id: str, at: datetime) -> None: ...
+
+    def touch_session(self, session_id: str, at: datetime, *, min_interval: timedelta) -> None:
+        """最終操作の時刻を記録する。**前回の記録から `min_interval` 未満なら書かない**。
+
+        要求のたびに書くと、1 人が 1 秒に何度も同じ行を更新する。人数を数えるのに
+        要る精度は分の単位なので、間引いて構わない。
+        """
+        ...
+
+    def count_active_users(
+        self, tenant_id: TenantId, since: datetime, now: datetime
+    ) -> tuple[int, int]:
+        """`since` 以降に操作があった、有効なセッションの利用者数。
+
+        返すのは `(全員, うち教員・TA・管理者)`。同じ人の複数のセッションは 1 人と数える。
+        """
+        ...
 
     # -- API トークン --
 
@@ -266,6 +283,35 @@ class InMemoryIdentityRepository:
         session = self._sessions.get(session_id)
         if session is not None:
             self._sessions[session_id] = session.model_copy(update={"revoked_at": at})
+
+    def touch_session(self, session_id: str, at: datetime, *, min_interval: timedelta) -> None:
+        session = self._sessions.get(session_id)
+        if session is None:
+            return
+        last = session.last_seen_at
+        if last is not None and at - last < min_interval:
+            return
+        self._sessions[session_id] = session.model_copy(update={"last_seen_at": at})
+
+    def count_active_users(
+        self, tenant_id: TenantId, since: datetime, now: datetime
+    ) -> tuple[int, int]:
+        active: set[UserId] = set()
+        for session in self._sessions.values():
+            if session.tenant_id != tenant_id or not session.is_valid(now):
+                continue
+            if session.last_seen_at is None or session.last_seen_at < since:
+                continue
+            active.add(session.user_id)
+        staff = 0
+        for user_id in active:
+            user = self._users.get(user_id)
+            is_staff = (user is not None and user.is_tenant_admin) or any(
+                enrollment.user_id == user_id and enrollment.role is not Role.LEARNER
+                for enrollment in self._enrollments.values()
+            )
+            staff += 1 if is_staff else 0
+        return len(active), staff
 
     def revoke_sessions_for(self, user_id: UserId, at: datetime) -> None:
         for session_id, session in list(self._sessions.items()):

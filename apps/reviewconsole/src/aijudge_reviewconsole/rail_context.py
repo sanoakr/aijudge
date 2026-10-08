@@ -116,7 +116,28 @@ def _resolved(rail: Rail, path: str) -> Rail:
         groups=groups,
         href=f"{prefix}{rail.href}",
         counts_unavailable=rail.counts_unavailable,
+        course_id=rail.course_id,
+        refresh_url=f"{prefix}/rail-fragment",
     )
+
+
+def rail_for(request: Request, *, course_id: str | None, path: str) -> Rail | None:
+    """帯だけを組む（`live.js` が件数を取り直す経路）。ページ全体は描かない。
+
+    `rail_context` と同じ組み立て（`_build`）と同じ現在地の照合を通す ── 別々に書くと、
+    取り直した帯と最初に描いた帯が食い違う。`path` は接頭辞つきの `location.pathname`。
+    """
+    console = getattr(request.app.state, "aijudge", None)
+    principal = getattr(request.state, webapp.PRINCIPAL_STATE, None)
+    if console is None or principal is None:
+        return None
+    if course_id:
+        setattr(request.state, RAIL_COURSE_ID, course_id)
+    try:
+        return _resolved(_build(console, request, principal), path.removeprefix(root_prefix()))
+    except Exception:
+        logger.warning("rail unavailable", exc_info=True)
+        return None
 
 
 def _build(console, request: Request, principal) -> Rail:

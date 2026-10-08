@@ -427,6 +427,9 @@ class SessionRow(Base):
     created_at: Mapped[datetime] = mapped_column(Timestamp)
     expires_at: Mapped[datetime] = mapped_column(Timestamp, index=True)
     revoked_at: Mapped[datetime | None] = mapped_column(Timestamp, nullable=True)
+    # 最後に操作があった時刻（2026-10-08）。「いま使っている人数」を数える。
+    # 書くのは間引く（`aijudge_identity.service.TOUCH_INTERVAL`）。
+    last_seen_at: Mapped[datetime | None] = mapped_column(Timestamp, nullable=True, index=True)
 
     __table_args__ = (
         # トークンからセッションを引くのが毎リクエストの操作。

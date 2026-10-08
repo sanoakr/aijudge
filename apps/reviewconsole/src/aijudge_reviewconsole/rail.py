@@ -77,6 +77,10 @@ class Rail:
     #: 数えられなかったか（ADR 0017 §3）。行き先は出すが数字は出さない。
     counts_unavailable: bool = False
     extras: dict[str, str] = field(default_factory=dict)
+    #: 帯の件数を取り直す先と、どのコースの帯か（`live.js`・2026-10-08）。空なら取り直さない。
+    #: 取り直しは**帯だけ**を返す軽い経路で、ページ全体は取り直さない。
+    course_id: str = ""
+    refresh_url: str = ""
 
 
 def course_rail(
@@ -176,6 +180,7 @@ def course_rail(
         groups=tuple(groups),
         href=base,
         counts_unavailable=contested is None and unfinalized is None,
+        course_id=str(course.id),
     )
 
 

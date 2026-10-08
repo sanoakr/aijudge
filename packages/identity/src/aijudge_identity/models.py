@@ -95,9 +95,30 @@ class Session(BaseModel):
     created_at: datetime
     expires_at: datetime
     revoked_at: datetime | None = None
+    # 最後に操作があった時刻（2026-10-08）。**ログインの有効期限とは別の事実** ──
+    # 期限内でも、画面を閉じた・PC がスリープした人は操作していない。書き込みは
+    # 間引く（`TOUCH_INTERVAL`）ので、実際の最終操作より最大その間隔だけ古い。
+    last_seen_at: datetime | None = None
 
     def is_valid(self, now: datetime) -> bool:
         return self.revoked_at is None and self.expires_at > now
+
+
+class ActiveUsers(BaseModel):
+    """いま使っている人数（直近の操作があった利用者）。**人数だけで、名前は持たない。**"""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    #: 数えた窓（分）。画面にこの値を書くので、数えた側が持つ。
+    window_minutes: int
+    #: 直近に操作があった利用者の数（同じ人の複数のセッションは 1 人）。
+    total: int
+    #: うち教員・TA・管理者（どこかのコースで学習者以外の受講をもつか、テナント管理者）。
+    staff: int
+
+    @property
+    def learners(self) -> int:
+        return self.total - self.staff
 
 
 class ApiToken(BaseModel):
