@@ -279,23 +279,32 @@ document.querySelectorAll(".checkrow .nojs").forEach(function (el) { el.remove()
    選択（ドラッグ）を潰さないよう、**押した位置から動いていたら開かない**。
    一覧の課題名をコピーしたい、は普通の操作である。 #}
 (function () {
-  var rows = document.querySelectorAll("tr.row-link[data-href]");
-  if (!rows.length) return;
-  rows.forEach(function (row) {
-    row.setAttribute("data-clickable", "1");
-    row.style.cursor = "pointer";
-    var from = null;
-    row.addEventListener("mousedown", function (event) {
-      from = [event.clientX, event.clientY];
+  function bind(root) {
+    var rows = root.querySelectorAll("tr.row-link[data-href]");
+    rows.forEach(function (row) {
+      // 付け直しで二重に結ばない（自動更新が行を差し替えたときも通る）。
+      if (row.getAttribute("data-clickable")) return;
+      row.setAttribute("data-clickable", "1");
+      row.style.cursor = "pointer";
+      var from = null;
+      row.addEventListener("mousedown", function (event) {
+        from = [event.clientX, event.clientY];
+      });
+      row.addEventListener("click", function (event) {
+        // 行の中のリンクやボタンは、そちらの動きを優先する。
+        if (event.target.closest("a, button, input, label")) return;
+        if (from && Math.hypot(event.clientX - from[0], event.clientY - from[1]) > 4) return;
+        // 修飾キーと中クリックは、ブラウザの「別タブで開く」に任せる。
+        if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
+        window.location.href = row.getAttribute("data-href");
+      });
     });
-    row.addEventListener("click", function (event) {
-      // 行の中のリンクやボタンは、そちらの動きを優先する。
-      if (event.target.closest("a, button, input, label")) return;
-      if (from && Math.hypot(event.clientX - from[0], event.clientY - from[1]) > 4) return;
-      // 修飾キーと中クリックは、ブラウザの「別タブで開く」に任せる。
-      if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
-      window.location.href = row.getAttribute("data-href");
-    });
+  }
+  bind(document);
+  // 自動更新（`live.js`）が区画を差し替えたあとに、新しい行へも付ける。
+  document.addEventListener("aijudge:live", function (event) {
+    bind(event.target);
+    event.target.querySelectorAll(".js-only").forEach(function (el) { el.hidden = false; });
   });
 })();
 
@@ -845,5 +854,7 @@ document.addEventListener("submit", function (event) {
   badge.hidden = false;
 });
 </script>
+{# 残数・一覧の自動更新（2026-10-08）。`data-live` を付けた区画だけを取り直す。 #}
+<script src="{{ static_url('live.js') }}" defer></script>
 </body>
 </html>

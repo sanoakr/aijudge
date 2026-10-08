@@ -184,7 +184,7 @@ def test_every_course_row_has_the_same_six_counts_in_order(world: World) -> None
     world.register("teacher", Role.INSTRUCTOR)
     page = world.client("teacher").get("/").text
 
-    blocks = re.findall(r'<span class="meta stats">(.*?)</span>\s*</a>', page, re.S)
+    blocks = re.findall(r'<span class="meta stats"[^>]*>(.*?)</span>\s*</a>', page, re.S)
     assert blocks, "担当コースの件数が見つからない"
     for block in blocks:
         labels = [

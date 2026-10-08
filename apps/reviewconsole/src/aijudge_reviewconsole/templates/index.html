@@ -21,11 +21,11 @@
       </span>
     </span>
     {% if d.error %}
-    <span class="meta stats">
+    <span class="meta stats" data-live="digest-{{ d.course.id }}">
       <span class="attn">課題の設定に不整合があり集計できません: {{ d.error }}</span>
     </span>
     {% else %}
-    <span class="meta stats">
+    <span class="meta stats" data-live="digest-{{ d.course.id }}">
       <span><b>{{ d.units }}</b> 問題セット</span>
       <span><b>{{ d.tasks }}</b> 課題</span>
       <span><b>{{ d.learners }}</b> 名</span>

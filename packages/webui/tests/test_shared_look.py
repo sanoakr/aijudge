@@ -28,6 +28,8 @@ def test_the_assets_are_shipped_with_the_package() -> None:
         "console.css",
         # ブラウザ IDE の画面（`docs/design/online-coding-test.md` §5）。
         "ide.js",
+        # 教員画面の残数・一覧の自動更新（`data-live` の区画だけ取り直す）。
+        "live.js",
         # 試験中の画面の静止画（ADR 0027）と、その実測ページ（画像はどこにも送らない）。
         "screen.js",
         "screen_probe.html",
