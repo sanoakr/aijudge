@@ -499,3 +499,59 @@ def test_an_empty_late_penalty_means_none_for_the_unit(database: Database, tmp_p
 def test_a_bad_late_penalty_is_refused(tmp_path: Path, bad: str) -> None:
     with pytest.raises(AdminError, match="late_penalty"):
         load_course_definition(_write_definition(tmp_path, _with_unit_setting(bad)))
+
+
+CERT_LINE = "認定証の画面キャプチャを提出してください。"
+
+
+def _cert_versions(database: Database, course_id) -> list[int]:
+    with database.unit_of_work() as uow:
+        task = next(
+            t for t in uow.tasks.list_for_course(course_id) if t.title == "認定証を提出する"
+        )
+        return sorted(version.version for version in uow.tasks.list_versions(task.id))
+
+
+def _apply_text(database: Database, root: Path, text: str, *, revise: bool = False):
+    return apply_course_definition(
+        database,
+        _write_definition(root, text),
+        tenant_id=TENANT,
+        profiles_dir=PROFILES,
+        authored_by=AUTHOR,
+        revise=revise,
+    )
+
+
+def test_a_task_revised_many_times_can_be_reapplied_without_revise(
+    database: Database, tmp_path: Path
+) -> None:
+    """**最新の版と同じ定義なら、`--revise` なしで流し直しても止まらない**（2026-10-08）。
+
+    候補は版 1 として組まれ、以前は「保存済みの版 1」と比べていたので、版を重ねた課題は
+    定義が最新の版と同じでも必ず止まった（prog2 ex01/p1・版 12）。
+    """
+    texts = [DEFINITION, DEFINITION.replace(CERT_LINE, CERT_LINE + "（直した）")]
+    texts.append(texts[1].replace("（直した）", "（もう一度直した）"))
+    first = _apply_text(database, tmp_path / "v1", texts[0])
+    _apply_text(database, tmp_path / "v2", texts[1], revise=True)
+    _apply_text(database, tmp_path / "v3", texts[2], revise=True)
+    assert _cert_versions(database, first.course.id) == [1, 2, 3]
+
+    _apply_text(database, tmp_path / "again", texts[2])  # 例外にならない
+
+    assert _cert_versions(database, first.course.id) == [1, 2, 3], "版が増えている"
+
+
+def test_a_changed_definition_without_revise_names_the_latest_version(
+    database: Database, tmp_path: Path
+) -> None:
+    """違うときは、最新の版の番号と `--revise` を示して断る。何も保存しない。"""
+    first = _apply_text(database, tmp_path / "v1", DEFINITION)
+    revised = DEFINITION.replace(CERT_LINE, CERT_LINE + "（直した）")
+    _apply_text(database, tmp_path / "v2", revised, revise=True)
+
+    with pytest.raises(AdminError, match=r"最新は版 2.*--revise"):
+        _apply_text(database, tmp_path / "back", DEFINITION)  # 版 1 の内容に戻した定義
+
+    assert _cert_versions(database, first.course.id) == [1, 2]
