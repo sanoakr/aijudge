@@ -40,6 +40,7 @@ from aijudge_core import (
     Task,
     TaskVersion,
     effective_aggregation,
+    effective_late_penalty_steps,
     final_score,
     late_penalty_for,
     new_id,
@@ -338,9 +339,9 @@ class GradingWorker:
         # 通り提出時刻で判定する。
         if submission.auto_closed:
             return run
-        penalty = late_penalty_for(
-            task.due_at, submission.deadline_timestamp, course.late_penalty_steps
-        )
+        # **課題（ユニット）の指定があればそれを使う。** 無ければコースの段。
+        steps = effective_late_penalty_steps(task.late_penalty_steps, course.late_penalty_steps)
+        penalty = late_penalty_for(task.due_at, submission.deadline_timestamp, steps)
         if penalty is None:
             return run
 

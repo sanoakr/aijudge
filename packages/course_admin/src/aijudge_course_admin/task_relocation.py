@@ -245,6 +245,9 @@ def _rebuild(
                 # 落ち、コース一覧が 500 になった。2026-10-04、network の test5）。
                 "accepts_until": head.accepts_until,
                 "grading_starts_at": head.grading_starts_at,
+                # 遅延の減点も回の性質（移した課題だけコースの段に戻ると、同じ回の中で
+                # 減点がばらつく）。
+                "late_penalty_steps": head.late_penalty_steps,
                 "auto_finalize_after_minutes": head.auto_finalize_after_minutes,
             }
         # 並びは移動先の末尾。**番号を持たない課題も数に入れる**（#484 の守り）。

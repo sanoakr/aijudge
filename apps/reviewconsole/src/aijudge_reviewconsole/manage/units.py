@@ -41,6 +41,8 @@ from aijudge_course_admin import rubric
 from aijudge_course_admin.answer_mode import editor_blockers, file_upload_required
 from aijudge_course_admin.errors import AdminError
 from aijudge_course_admin.finalization import finalize_tasks, pending_breakdown
+from aijudge_course_admin.late_penalty import split_for_form, steps_from_form
+from aijudge_course_admin.late_penalty import summarize as summarize_penalty
 from aijudge_course_admin.tasks import clear_unit
 from aijudge_grading import EvaluatorRegistry
 
@@ -105,6 +107,33 @@ def _answer_mode_update(course, group, *, by_file: bool, by_editor: bool) -> dic
             )
     mode = AnswerMode.EDITOR if by_editor else AnswerMode.UPLOAD
     return {"answer_mode": mode, "file_upload": by_file}
+
+
+# 減点の入力欄に、いまの段のほかに足しておく空の行の数（コースの設定画面と同じ）。
+PENALTY_BLANK_ROWS = 2
+
+
+def _penalty_from_form(form, mode: str, first_percent: str):
+    """画面の入力から、この回の減点の段を決める。
+
+    `course` は「コースの設定に従う」（None）。`unit` は「この回だけ決める」で、
+    **すべて空欄なら「減点しない」**（空のタプル）── コースに段があっても外せる。
+    """
+    if mode != "unit":
+        return None
+    try:
+        return steps_from_form(
+            first_percent,
+            list(
+                zip(
+                    [str(v) for v in form.getlist("penalty_hours")],
+                    [str(v) for v in form.getlist("penalty_percent")],
+                    strict=False,
+                )
+            ),
+        )
+    except AdminError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
 
 
 def _apply_unit_update(
@@ -512,6 +541,17 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
                 },
                 "unit": group,
                 "tasks": rows,
+                # 遅延の減点（この回の上書き）。**空の行を足して出す**（段を足せるように）。
+                "unit_penalty_first": split_for_form(group.late_penalty_steps or ())[0],
+                "unit_penalty_rows": split_for_form(group.late_penalty_steps or ())[1]
+                + [{"hours": "", "percent": ""} for _ in range(PENALTY_BLANK_ROWS)],
+                "course_penalty_text": summarize_penalty(course.late_penalty_steps),
+                # いま実際に効いている減点（この回の設定、無ければコースの設定）。
+                "effective_penalty_text": summarize_penalty(
+                    course.late_penalty_steps
+                    if group.late_penalty_steps is None
+                    else group.late_penalty_steps
+                ),
                 # 「丸ごと片付ける」を押す前に出す内訳（#59）。**押してから
                 # でないと分からないのでは確認にならない** ── 1 回の操作で
                 # 課題ごとに削除か取り下げかが変わる。
@@ -1011,6 +1051,12 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
         grace = _parse_minutes(text("after_minutes"))
         if grace != (None if group.grace_from_course else group.grace):
             update["auto_finalize_after_minutes"] = grace
+        # **欄が送られてきたときだけ読む。** 欄の無い古い画面から保存されると、空の入力が
+        # 「この回は減点しない」に化ける。印（`penalty_present`）で見分ける。
+        if flag("penalty_present"):
+            wanted = _penalty_from_form(form, text("penalty_mode"), text("penalty_first_percent"))
+            if wanted != group.late_penalty_steps:
+                update["late_penalty_steps"] = wanted
         by_file, by_editor = flag("file_upload"), flag("editor")
         if (by_file, by_editor) != (group.file_upload, group.editor):
             update |= _answer_mode_update(course, group, by_file=by_file, by_editor=by_editor)

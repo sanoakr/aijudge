@@ -13,6 +13,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 from typing import Annotated
+from urllib.parse import unquote
 
 from fastapi import APIRouter, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import HTMLResponse
@@ -42,8 +43,8 @@ from aijudge_course_admin.grading_settings import save as save_grading_settings
 from aijudge_course_admin.grading_settings import template_of, try_settings
 from aijudge_course_admin.grading_settings import validate as validate_grading_settings
 from aijudge_course_admin.late_penalty import describe as describe_penalty
-from aijudge_course_admin.late_penalty import parse_steps as parse_penalty_steps
-from aijudge_course_admin.late_penalty import to_rows as penalty_rows
+from aijudge_course_admin.late_penalty import split_for_form, steps_from_form
+from aijudge_course_admin.late_penalty import summarize as summarize_penalty
 from aijudge_course_admin.operations import ensure_course
 from aijudge_course_admin.roster import RosterError, parse_roster
 from aijudge_course_admin.syllabus import (
@@ -253,7 +254,11 @@ def _course_page(
                 render_markdown(course.description) if course.description else None
             ),
             # 遅延の減点ルール（ADR 0013）。% で出す（保存は割合）。
-            "penalty_rows": _penalty_form_rows(course),
+            "penalty_first": _penalty_form(course)[0],
+            "penalty_rows": _penalty_form(course)[1],
+            # この設定ではなく自分の設定で減点している問題セット（コースの設定を変えても
+            # 動かない回を、変える前に見せる）。
+            "penalty_overrides": _penalty_overrides(console, course),
             "suffix_groups": SUFFIX_GROUPS,
             "course_suffixes": course.upload_suffixes or DEFAULT_UPLOAD_SUFFIXES,
             # 束の上限（#161）。**画面に書く値をコードから取る** ──
@@ -315,10 +320,25 @@ def _course_page(
 PENALTY_BLANK_ROWS = 2
 
 
-def _penalty_form_rows(course) -> list[dict[str, str]]:
-    """減点ルールの入力欄。いまの段に空の行を足して出す（段を足せるように）。"""
-    return penalty_rows(course.late_penalty_steps) + [
-        {"hours": "", "percent": ""} for _ in range(PENALTY_BLANK_ROWS)
+def _penalty_form(course) -> tuple[str, list[dict[str, str]]]:
+    """減点ルールの入力欄。1 行目（締切後の減点率）と、空の行を足した 2 行目以降。"""
+    first, rest = split_for_form(course.late_penalty_steps)
+    return first, rest + [{"hours": "", "percent": ""} for _ in range(PENALTY_BLANK_ROWS)]
+
+
+def _penalty_overrides(console, course) -> list[dict[str, str]]:
+    """コースの設定に従わず、自分の減点ルールを持つ問題セット。"""
+    from ..overview import unit_key
+
+    with console.database.unit_of_work() as uow:
+        tasks = uow.tasks.list_for_course(course.id)
+    seen: dict[str, tuple] = {}
+    for task in tasks:
+        if task.late_penalty_steps is not None:
+            seen.setdefault(unit_key(task), task.late_penalty_steps)
+    return [
+        {"key": key, "label": unquote(key), "text": summarize_penalty(steps)}
+        for key, steps in sorted(seen.items())
     ]
 
 
@@ -567,14 +587,15 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
         penalty_steps = course.late_penalty_steps
         if form.get("penalty_present"):
             try:
-                penalty_steps = parse_penalty_steps(
+                penalty_steps = steps_from_form(
+                    str(form.get("penalty_first_percent") or ""),
                     list(
                         zip(
                             [str(v) for v in form.getlist("penalty_hours")],
                             [str(v) for v in form.getlist("penalty_percent")],
                             strict=False,
                         )
-                    )
+                    ),
                 )
             except AdminError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from None

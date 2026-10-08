@@ -224,3 +224,37 @@ def test_a_penalty_that_does_not_flip_the_verdict_is_not_flagged() -> None:
 def test_without_a_boundary_nothing_is_flagged() -> None:
     run = _run(level=1, penalty=late_penalty_for(DUE, DUE + timedelta(hours=1), LADDER))
     assert not penalty_crosses_boundary(final_score(run, _task_version()), None)
+
+
+# -- 課題（ユニット）単位の上書き（2026-10-08） ------------------------------------
+
+
+def test_the_task_rule_wins_over_the_course_rule() -> None:
+    from aijudge_core import effective_late_penalty_steps
+
+    course = (LatePenaltyStep(after_hours=0.0, ratio=0.1),)
+    mine = (LatePenaltyStep(after_hours=0.0, ratio=0.5),)
+
+    assert effective_late_penalty_steps(mine, course) == mine
+    assert effective_late_penalty_steps(None, course) == course, "None はコースに従う"
+    assert effective_late_penalty_steps((), course) == (), "空は「減点しない」の明示"
+
+
+def test_a_task_rule_must_be_sorted_and_unique() -> None:
+    from aijudge_core import Task
+    from aijudge_core.ids import CourseId, TaskId
+
+    base = {"id": TaskId("tsk_" + "a" * 32), "course_id": CourseId("crs_" + "b" * 32), "title": "t"}
+    ok = Task(**base, late_penalty_steps=(LatePenaltyStep(after_hours=0.0, ratio=0.5),))
+    assert ok.late_penalty_steps is not None
+    assert Task(**base).late_penalty_steps is None, "既定はコースに従う"
+    assert Task(**base, late_penalty_steps=()).late_penalty_steps == ()
+
+    with pytest.raises(ValueError, match="sorted"):
+        Task(
+            **base,
+            late_penalty_steps=(
+                LatePenaltyStep(after_hours=24.0, ratio=0.3),
+                LatePenaltyStep(after_hours=0.0, ratio=0.1),
+            ),
+        )

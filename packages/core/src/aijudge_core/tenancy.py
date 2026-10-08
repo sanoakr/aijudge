@@ -11,8 +11,8 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from .grading import LatePenaltyStep
 from .ids import CourseGroupId, CourseId, TenantId, UserId
+from .late_penalty import LatePenaltyStep, check_steps_sorted
 from .task import Aggregation
 
 
@@ -118,9 +118,7 @@ class Course(BaseModel):
 
     @model_validator(mode="after")
     def _check_penalty_steps(self) -> Self:
-        hours = [step.after_hours for step in self.late_penalty_steps]
-        if hours != sorted(set(hours)):
-            raise ValueError("late_penalty_steps must be sorted by after_hours and unique")
+        check_steps_sorted(self.late_penalty_steps)
         return self
 
 

@@ -143,6 +143,23 @@ def test_moving_follows_the_target_accepts_until_too(database: Database, course)
     assert all(t.accepts_until is None or t.accepts_until >= t.due_at for t in tasks if t.due_at)
 
 
+def test_moving_follows_the_target_late_penalty_too(database: Database, course) -> None:
+    """**減点も回の性質。** 移した課題だけコースの段に戻ると、同じ回の中で減点がばらつく。"""
+    from aijudge_core import LatePenaltyStep
+
+    half = (LatePenaltyStep(after_hours=0.0, ratio=0.5),)
+    _task(database, course, "test5/echoClient5", "test5", due_at=DUE)
+    with database.unit_of_work() as uow:
+        head = next(t for t in uow.tasks.list_for_course(course.id) if t.unit == "test5")
+        uow.tasks.save_task(head.model_copy(update={"late_penalty_steps": half}))
+        uow.commit()
+    first = _task(database, course, "test4/wordstats.py", "test4")
+
+    moved = move_task(database, task_id=first.task.id, unit="test5")
+
+    assert moved.task.late_penalty_steps == half
+
+
 def test_renaming_within_the_same_unit(database: Database, course) -> None:
     saved = _task(database, course, "test5/echoClient", "test5")
     moved = move_task(database, task_id=saved.task.id, unit="test5", name="echoClient_comments.py")

@@ -61,6 +61,32 @@ def to_rows(steps: Sequence[LatePenaltyStep]) -> list[dict[str, str]]:
     ]
 
 
+def split_for_form(steps: Sequence[LatePenaltyStep]) -> tuple[str, list[dict[str, str]]]:
+    """画面用に、段を「締切後の減点率」と「2 段目以降」に分ける。
+
+    1 行目は**締切を過ぎたら**当たる段（超過 0 時間）で、減点率だけを入れる。
+    2 行目以降は遅延時間と減点率。**0 時間の段が無いルール**（たとえば 24 時間を
+    超えてから減点する）は、1 行目が空で 2 行目以降に出る ── 黙って 0 時間の段を
+    作らず、保存し直しても同じルールのまま残る。
+    """
+    first = ""
+    rest: list[LatePenaltyStep] = []
+    for step in steps:
+        if step.after_hours == 0.0 and not first:
+            first = _plain(step.ratio * PERCENT)
+        else:
+            rest.append(step)
+    return first, to_rows(rest)
+
+
+def steps_from_form(
+    first_percent: str, rows: Sequence[tuple[str, str]]
+) -> tuple[LatePenaltyStep, ...]:
+    """`split_for_form` の逆。1 行目の減点率は超過 0 時間の段になる。"""
+    combined = [("0", first_percent)] if first_percent.strip() else []
+    return parse_steps([*combined, *rows])
+
+
 def describe(steps: Sequence[LatePenaltyStep]) -> list[dict[str, float]]:
     """監査に残す形。**割合ではなく % で書く** ── 読む人が画面と照らし合わせるため。"""
     return [
@@ -69,9 +95,20 @@ def describe(steps: Sequence[LatePenaltyStep]) -> list[dict[str, float]]:
     ]
 
 
+def summarize(steps: Sequence[LatePenaltyStep]) -> str:
+    """段を 1 行の日本語にする。画面の「コースの設定: …」に使う。"""
+    if not steps:
+        return "減点なし"
+    return "／".join(
+        f"締切を {_plain(step.after_hours)} 時間超えたら"
+        f"総合点から {_plain(step.ratio * PERCENT)}% を引く"
+        for step in steps
+    )
+
+
 def _plain(value: float) -> str:
     rounded = round(value, 4)
     return str(int(rounded)) if rounded == int(rounded) else str(rounded)
 
 
-__all__ = ["describe", "parse_steps", "to_rows"]
+__all__ = ["describe", "parse_steps", "split_for_form", "steps_from_form", "summarize", "to_rows"]

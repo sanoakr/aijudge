@@ -35,6 +35,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+from pydantic import BaseModel
+
 from aijudge_audit import AuditAction
 from aijudge_authoring import TaskSpec, build_task_version, content
 from aijudge_core import Course, Task, TaskVersion, normalize_suffixes
@@ -69,6 +71,7 @@ _UNIT_SETTINGS = (
     "confidential_until_open",
     "campus_only",
     "clear_points",
+    "late_penalty_steps",
 )
 _COURSE_FIELDS = ("description", "upload_suffixes", "knowledge_components")
 
@@ -80,6 +83,8 @@ def _plain(value: Any) -> Any:
         return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
     if isinstance(value, Enum):
         return value.value
+    if isinstance(value, BaseModel):
+        return _plain(value.model_dump(mode="json"))
     if isinstance(value, dict):
         return {str(key): _plain(item) for key, item in value.items()}
     if isinstance(value, list | tuple):
