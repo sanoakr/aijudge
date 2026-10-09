@@ -513,7 +513,7 @@ def _resolve_session(request: Request, token: str) -> Principal | None:
 def require_principal(request: Request) -> Principal:
     principal = current_principal(request)
     if principal is None:
-        raise HTTPException(status_code=401, detail="ログインしてください")
+        raise webapp.LoginRequired()
     return principal
 
 
@@ -557,6 +557,11 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
     # 接頭辞を落として渡すので、アプリ自身は常にルート直下で受ける
     # （リンク側だけが `root_prefix()` を足す・`urls.py` と同じ考え方）。
     app.mount(webui.STATIC_MOUNT, StaticFiles(directory=webui.ASSETS_DIR), name="static")
+
+    # セッションが切れたページは、JSON の 401 ではなくログイン画面へ送り、
+    # ログイン後に元のページへ戻す（`aijudge_webapp.login_return`）。戻り先は
+    # 接頭辞なしで持ち、`Location` を作るときに接頭辞を足す。
+    webapp.install_login_return(app, prefix=root_prefix)
 
     # **`Host` を 1 か所で検査する**（#116）。`Host` も `X-Forwarded-*` も
     # クライアントが決められるので、通してしまうと、それを読む全ての処理が
@@ -647,7 +652,12 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
     # ログイン画面（このページ）からはリンクしない。
 
     @app.get("/login", response_class=HTMLResponse)
-    def login_form(request: Request, changed: str = "", error: str = "") -> HTMLResponse:
+    def login_form(
+        request: Request,
+        changed: str = "",
+        error: str = "",
+        next_: str = Query("", alias="next"),
+    ) -> HTMLResponse:
         with console.database.unit_of_work() as uow:
             settings = uow.identity.get_oidc_settings(TenantId(DEFAULT_TENANT))
         return TEMPLATES.TemplateResponse(
@@ -659,11 +669,12 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 "google_configured": settings is not None,
                 # 機関ごとの呼び名（#209）。未設定なら既定が出る。
                 "login_label": settings.login_label if settings else DEFAULT_LOGIN_LABEL,
+                "next": webapp.safe_next(next_),
             },
         )
 
     @app.get("/auth/login")
-    def auth_login(request: Request) -> Response:
+    def auth_login(request: Request, next_: str = Query("", alias="next")) -> Response:
         """Google の認可エンドポイントへ渡す（#124・#125）。"""
         with console.database.unit_of_work() as uow:
             settings = uow.identity.get_oidc_settings(TenantId(DEFAULT_TENANT))
@@ -675,12 +686,11 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
             settings, redirect_uri=_external_url(request, "/auth/callback")
         )
         response = RedirectResponse(url, status_code=303)
-        response.set_cookie(
-            OIDC_STATE_COOKIE,
-            f"{state}:{nonce}",
-            max_age=600,
-            **session_cookie_kwargs(forwarded_proto=request.headers.get("x-forwarded-proto")),
+        cookie_kwargs = session_cookie_kwargs(
+            forwarded_proto=request.headers.get("x-forwarded-proto")
         )
+        response.set_cookie(OIDC_STATE_COOKIE, f"{state}:{nonce}", max_age=600, **cookie_kwargs)
+        webapp.keep_next(response, webapp.safe_next(next_), cookie_kwargs)
         return response
 
     @app.get("/auth/callback", response_class=HTMLResponse)
@@ -704,10 +714,13 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                     "changed": False,
                     "google_configured": True,
                     "login_label": label,
+                    # 押し直したときにも元のページへ戻れるように、預かりを画面へ戻す。
+                    "next": webapp.kept_next(request),
                 },
                 status_code=401,
             )
             response.delete_cookie(OIDC_STATE_COOKIE, path="/")
+            response.delete_cookie(webapp.NEXT_COOKIE, path="/")
             return response
 
         if error:
@@ -743,13 +756,15 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
             ).login_with_google(tenant_id=TenantId(DEFAULT_TENANT), identity=identity)
             uow.commit()
 
-        response = RedirectResponse("/", status_code=303)
+        # ログインし直した人は、開いていたページへ戻す（`aijudge_webapp.login_return`）。
+        response = RedirectResponse(webapp.kept_next(request) or "/", status_code=303)
         response.set_cookie(
             SESSION_COOKIE,
             token,
             **session_cookie_kwargs(forwarded_proto=request.headers.get("x-forwarded-proto")),
         )
         response.delete_cookie(OIDC_STATE_COOKIE, path="/")
+        response.delete_cookie(webapp.NEXT_COOKIE, path="/")
         return response
 
     # -- ローカルパスワードログイン（隠し経路。#121・#125）-------------------
@@ -758,9 +773,13 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
     # トップのログイン画面（`/login`）からは意図的にリンクしない。
 
     @app.get("/auth/local", response_class=HTMLResponse)
-    def local_login_form(request: Request, changed: str = "") -> HTMLResponse:
+    def local_login_form(
+        request: Request, changed: str = "", next_: str = Query("", alias="next")
+    ) -> HTMLResponse:
         return TEMPLATES.TemplateResponse(
-            request, "login_local.html", {"error": None, "changed": bool(changed)}
+            request,
+            "login_local.html",
+            {"error": None, "changed": bool(changed), "next": webapp.safe_next(next_)},
         )
 
     @app.post("/auth/local")
@@ -768,7 +787,9 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
         request: Request,
         login: Annotated[str, Form()],
         password: Annotated[str, Form()],
+        next_: Annotated[str, Form(alias="next")] = "",
     ) -> Response:
+        back = webapp.safe_next(next_)
         with console.database.unit_of_work() as uow:
             try:
                 _, token = AuthService(
@@ -784,10 +805,13 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 # （ADR 0016）。巻き戻すべき「操作」はここには無い。
                 uow.commit()
                 return TEMPLATES.TemplateResponse(
-                    request, "login_local.html", {"error": str(exc)}, status_code=401
+                    request,
+                    "login_local.html",
+                    {"error": str(exc), "next": back},
+                    status_code=401,
                 )
             uow.commit()
-        response = RedirectResponse("/", status_code=303)
+        response = RedirectResponse(back or "/", status_code=303)
         response.set_cookie(
             SESSION_COOKIE,
             token,

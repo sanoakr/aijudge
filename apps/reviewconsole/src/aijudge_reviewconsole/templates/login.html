@@ -22,6 +22,8 @@
     {% if changed %}<div class="note">パスワードを変更しました。新しいパスワードでログインしてください。</div>{% endif %}
     {% if google_configured %}
     <form method="get" action="{{ root_prefix() }}/auth/login">
+      {# ログインし直した後に戻るページ（`aijudge_webapp.login_return`）。 #}
+      {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
       <button type="submit" class="gate-go">{{ login_label }}</button>
     </form>
     <p class="gate-note">
