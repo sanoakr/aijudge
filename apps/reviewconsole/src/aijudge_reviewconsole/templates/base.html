@@ -863,5 +863,7 @@ document.addEventListener("submit", function (event) {
 </script>
 {# 残数・一覧の自動更新（2026-10-08）。`data-live` を付けた区画だけを取り直す。 #}
 <script src="{{ static_url('live.js') }}" defer></script>
+{# 締切までの残り（問題セットの一覧）。学生の画面と同じ script を読む（2026-10-10）。 #}
+<script src="{{ static_url('countdown.js') }}" defer></script>
 </body>
 </html>

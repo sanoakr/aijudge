@@ -135,6 +135,7 @@ from .task import (
     effective_max_score,
     max_scores_by_version,
     position_for,
+    set_window_at,
 )
 from .tenancy import MAX_GROUP_NAME_LENGTH, Course, CourseGroup, Enrollment, Role, Tenant
 from .terms import (
@@ -287,6 +288,7 @@ __all__ = [
     "renormalize",
     "resolve_conflicts",
     "score_withheld",
+    "set_window_at",
     "settles_at",
     "term_sort_key",
     "video_retention_expires_at",

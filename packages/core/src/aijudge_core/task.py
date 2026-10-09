@@ -331,6 +331,36 @@ class SubmissionWindow(StrEnum):
     CLOSED = "closed"
 
 
+def set_window_at(
+    *,
+    opens_at: datetime | None,
+    submissions_open_at: datetime | None,
+    due_at: datetime | None,
+    accepts_until: datetime | None,
+    now: datetime,
+) -> SubmissionWindow:
+    """問題セットの代表の日程から、いまどの段階かを決める（2026-10-10）。
+
+    **学習者の一覧と教員の一覧で同じ答えを出すために 1 か所に置く。** 以前は
+    学習者側（`aijudge_studentweb.app._set_state`）にだけあり、教員の一覧は
+    「学生に公開中」の 1 本で、出せるセットと受付を終えたセットが混ざっていた。
+    判定を書き写すと、学生には「受付終了」と出ているセットを教員側が
+    「提出できる」に並べる、が起きる。
+
+    代表値は呼ぶ側が決める（最も早い公開・提出開始、最も遅い締切・受付終了）。
+    順序は `Task.submission_window_at` と同じ。締切ちょうどを減点側に入れるのは
+    学習者の一覧が元からそうだったため（変えると一覧の見え方が変わる）。
+    """
+    opens = submissions_open_at or opens_at
+    if opens is not None and now < opens:
+        return SubmissionWindow.NOT_OPEN
+    if accepts_until is not None and now > accepts_until:
+        return SubmissionWindow.CLOSED
+    if due_at is not None and now >= due_at:
+        return SubmissionWindow.LATE
+    return SubmissionWindow.OPEN
+
+
 # 回・位置を持たない課題を並びの末尾へ送るための値。
 _UNORDERED = 10**6
 

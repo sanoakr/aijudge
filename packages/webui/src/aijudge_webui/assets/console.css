@@ -502,6 +502,11 @@ table.io-diff td.missing{color:var(--muted);font-style:italic}
 .sets-band{margin:18px 0 4px;font-size:1rem}
 .menu.sets-staff,.menu.sets-instructors{border:2px dashed var(--shu);border-radius:4px;padding:4px}
 .sets-band-instructors{color:var(--shu)}
+/* 学生に公開中の帯の中を、学生の画面と同じ段階で分ける（2026-10-10）。帯の見出しより
+   一段小さく ── 帯（誰に見えているか）の下の区分であることを大きさで言う。
+   受付を終えたセットはもう学生が動かさないので、行を薄くして出せるセットを先に読ませる。 */
+.sets-stage{margin:12px 0 4px;font-size:.875rem;font-weight:600;color:var(--ink-2)}
+.sets-stage-closed + .menu.sets .row{opacity:.75}
 
 /* ほぼ使わない取り消しの操作（受講の取り消しなど）。**目に入っても押したくならない
    形にする** ── 畳んだ小さな灰色の文字から開く。開いた先のボタンも副次の見た目。 */

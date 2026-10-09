@@ -28,10 +28,12 @@ from aijudge_core import (
     LatePenaltyStep,
     ReviewState,
     Role,
+    SubmissionWindow,
     Task,
     TaskVersion,
     grace_minutes,
     may_see,
+    set_window_at,
 )
 from aijudge_course_admin.finalization import pending_counts
 
@@ -108,6 +110,15 @@ class UnitGroup:
     # 誤って公開した、公開し忘れた、に気づけるように。判定は `may_see` と同じ事実で、
     # セットの中に学生に見えている課題が 1 つでもあれば `learners`。
     visibility: str = "learners"
+    # **学生の画面でいまどの段階か**（2026-10-10）。学生に公開中のセットを、学生の
+    # 一覧と同じ区分 ── 提出できる・締切後（減点して出せる）・提出開始前・受付終了 ──
+    # で分けて並べる。「学生に公開中」の 1 本では、いま出せるセットと受付を終えた
+    # セットが混ざり、学期の後半には終わった回に埋もれる。判定は学生側と同じ
+    # `set_window_at` で、代表値の採り方（最も早い公開・最も遅い締切と受付終了）も同じ。
+    window: SubmissionWindow = SubmissionWindow.OPEN
+    # 締切までの秒数（過ぎていれば負）。**サーバが数える** ── 画面が自分の時計と
+    # 締切を比べると、時計のずれが表示のずれになる（学生の一覧と同じ・#73）。
+    seconds_to_due: int | None = None
     # 出題先（名簿の ID）。**全課題で揃っていればその値**、ばらついていれば
     # 空にして `audience_mixed` を立てる（黙らせない）。空で揃っていれば全員。
     audience: tuple[str, ...] = ()
@@ -289,6 +300,14 @@ def load_units(
                 late_penalty_steps=tasks[0].late_penalty_steps if tasks else None,
                 late_penalty_mixed=len({task.late_penalty_steps for task in tasks}) > 1,
                 visibility=_visibility(tasks, moment),
+                window=set_window_at(
+                    opens_at=min(opens) if opens else None,
+                    submissions_open_at=min(starts) if starts else None,
+                    due_at=due_at,
+                    accepts_until=max(accepts) if accepts else None,
+                    now=moment,
+                ),
+                seconds_to_due=None if due_at is None else int((due_at - moment).total_seconds()),
                 completion=bool(tasks) and all(task.editor_completion for task in tasks),
                 completion_mixed=len({task.editor_completion for task in tasks}) > 1,
                 stalled=sum(stuck.get(task.id, 0) for task, _ in items),
