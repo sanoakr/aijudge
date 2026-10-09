@@ -59,6 +59,7 @@ from aijudge_core import (
     kind_for,
     may_see,
     may_submit_before_open,
+    set_window_at,
 )
 from aijudge_core.ids import (
     ArtifactId,
@@ -1719,18 +1720,25 @@ def _set_state(group: dict[str, object], now: datetime) -> SetState:
     """**判定は `Task.submission_window_at` と同じ順序で行う。**
 
     ここと課題ページで違う答えを出すと、一覧では「提出できる」なのに開くと
-    出せない、が起きる。
+    出せない、が起きる。判定そのものは core の `set_window_at` にある ──
+    教員の問題セット一覧も同じ判定で分けるので、書き写さない（2026-10-10）。
     """
-    opens = group["submissions_open_at"] or group["opens_at"]
-    if opens is not None and now < opens:
-        return SetState.ANNOUNCED
-    accepts_until = group["accepts_until"]
-    if accepts_until is not None and now > accepts_until:
-        return SetState.CLOSED
-    due_at = group["due_at"]
-    if due_at is not None and now >= due_at:
-        return SetState.LATE
-    return SetState.OPEN
+    window = set_window_at(
+        opens_at=group["opens_at"],
+        submissions_open_at=group["submissions_open_at"],
+        due_at=group["due_at"],
+        accepts_until=group["accepts_until"],
+        now=now,
+    )
+    return _STATE_FOR_WINDOW[window]
+
+
+_STATE_FOR_WINDOW: dict[SubmissionWindow, SetState] = {
+    SubmissionWindow.NOT_OPEN: SetState.ANNOUNCED,
+    SubmissionWindow.OPEN: SetState.OPEN,
+    SubmissionWindow.LATE: SetState.LATE,
+    SubmissionWindow.CLOSED: SetState.CLOSED,
+}
 
 
 # -- 権限つきの読み出し ------------------------------------------------------

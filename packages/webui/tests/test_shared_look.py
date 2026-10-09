@@ -30,6 +30,8 @@ def test_the_assets_are_shipped_with_the_package() -> None:
         "ide.js",
         # 教員画面の残数・一覧の自動更新（`data-live` の区画だけ取り直す）。
         "live.js",
+        # 締切までの残り。学生の一覧と教員の問題セット一覧が同じものを読む（2026-10-10）。
+        "countdown.js",
         # 試験中の画面の静止画（ADR 0027）と、その実測ページ（画像はどこにも送らない）。
         "screen.js",
         "screen_probe.html",

@@ -4,7 +4,10 @@
 
 2 段の一覧       問題セットの行は「どのセットか」と「問数・日程」の 2 段。
                  1 行に 7 列を並べていたので、日付が入ると幅が足りずに折り返した。
-同じ時刻は 1 度  開始が公開と同時なら書かない。日程が無ければ 1 語で言う。
+日程は学生と同じ  公開・提出開始・締切・受付終了を学生の一覧と同じ語で出す
+                 （2026-10-10）。以前は「開始が公開と同時なら書かない」「日程が
+                 無ければ 1 語で言う」だったが、教員がこの一覧で確かめたいのは
+                 学生にどう見えているかで、書き方が違うと学生の画面を開き直す。
 控えめな取り消し  受講の取り消しは畳んだ小さな文字から開き、押すときに確かめる。
                  学期中にまず使わない操作が、各行に朱のボタンで並んでいた。
 """
@@ -34,12 +37,14 @@ def test_a_unit_is_listed_on_two_lines(world: World) -> None:
 
     assert 'class="s-main"' in row
     assert 'class="s-meta desc"' in row
-    # 日程が無ければ「未設定」を 3 度並べず、1 語で言う。
-    assert "日程未設定" in row
-    assert "公開" not in row
+    # 日程が無ければ、学生の一覧と同じく項目ごとに「未設定」と書く。
+    assert "公開 <em>未設定</em>" in row
+    assert "締切 <em>未設定</em>" in row
+    # 締切が無ければ残り時間は数えない。
+    assert "data-deadline-in" not in row
 
 
-def test_the_start_is_omitted_when_it_is_the_opening(world: World) -> None:
+def test_the_dates_read_as_on_the_learner_list(world: World) -> None:
     world.register("teacher", Role.INSTRUCTOR)
     _import_example(world)
     unit = _unit_of(world)
@@ -54,8 +59,10 @@ def test_the_start_is_omitted_when_it_is_the_opening(world: World) -> None:
 
     assert "公開 10-01 10:40" in row
     assert "締切 10-15 23:59" in row
-    assert "開始" not in row
-    assert "日程未設定" not in row
+    # 提出開始を別に入れていなければ、学生の一覧と同じく「公開と同時」。
+    assert "提出開始 公開と同時" in row
+    # 残り時間はサーバが数えた秒数を渡す（`countdown.js` が読む）。
+    assert "data-deadline-in=" in row
 
 
 def test_removing_an_enrolment_is_folded_and_confirmed(world: World) -> None:

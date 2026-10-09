@@ -615,6 +615,41 @@ def test_without_an_end_the_deadline_does_not_close_submissions() -> None:
     assert task.accepts_submissions_at(long_after)
 
 
+def test_a_set_window_follows_the_task_window() -> None:
+    """問題セットの段階は、学生と教員の一覧が同じ関数で決める（2026-10-10）。
+
+    受付終了が空なら閉じない・締切ちょうどは減点側、は学生の一覧が元から
+    そうだったもの。ここが変わると、両方の一覧の見え方が一緒に変わる。
+    """
+    from datetime import timedelta
+
+    from aijudge_core import SubmissionWindow, set_window_at
+
+    due = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
+    schedule = {
+        "opens_at": due - timedelta(days=7),
+        "submissions_open_at": None,
+        "due_at": due,
+        "accepts_until": due + timedelta(hours=24),
+    }
+
+    def at(moment: datetime, **changes: object) -> SubmissionWindow:
+        return set_window_at(**{**schedule, **changes}, now=moment)  # type: ignore[arg-type]
+
+    assert at(due - timedelta(days=8)) is SubmissionWindow.NOT_OPEN
+    assert at(due - timedelta(minutes=1)) is SubmissionWindow.OPEN
+    assert at(due) is SubmissionWindow.LATE
+    assert at(due + timedelta(hours=24)) is SubmissionWindow.LATE
+    assert at(due + timedelta(hours=25)) is SubmissionWindow.CLOSED
+    # 提出開始が公開より後なら、その間はまだ出せない。
+    assert (
+        at(due - timedelta(days=6), submissions_open_at=due - timedelta(days=1))
+        is SubmissionWindow.NOT_OPEN
+    )
+    # 受付終了が無ければ閉じない。
+    assert at(due + timedelta(days=365), accepts_until=None) is SubmissionWindow.LATE
+
+
 def test_an_end_before_the_deadline_is_refused() -> None:
     """減点提出できる時間が負になる日程を保存させない。"""
     from datetime import timedelta

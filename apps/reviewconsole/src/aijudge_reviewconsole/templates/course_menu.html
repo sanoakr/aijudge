@@ -1,5 +1,54 @@
 {% extends "base.html" %}
 {% block title %}問題セット — {{ course.title }} — aiJudge{% endblock %}
+{# 1 セットぶんの行の並び。帯と、学生に公開中の段階の両方で使う。 #}
+{% macro set_rows(rows, band) %}
+<nav class="menu sets sets-{{ band }}">
+  {# 学期を通すと 15 行前後になる。**1 セットを 2 段に収める**（2026-09-26）。
+     1 行に 7 列を並べていたので、日付が入ると幅が足りずに折り返し、
+     行ごとに高さが揃わなかった。上段は「どのセットか」と札、下段は小さく
+     問数と日程 ── 下段は列の幅を固定して、締切を縦に読み比べられるようにする。
+     開始が公開と同時なら書かない（同じ時刻を 2 度読ませない）。 #}
+  {% for unit in rows %}
+  {# 中身が全部学習者に出ていないセットは、行そのものを分ける（#83）──
+     セットの中の課題には印を付けたが、**コースに並ぶセット自体**は生きて
+     いるものと同じ見た目のままだった。 #}
+  <a class="row{% if unit.hidden and unit.hidden == unit.count %} hidden-from-learners{% endif %}"
+     href="{{ root_prefix() }}/manage/courses/{{ course.id }}/units/{{ unit.key }}">
+    <span class="s-main">
+      <b class="c-key">{{ unit.unit or unit.label }}</b>
+      {% if unit.unit and unit.session is not none %}<span class="c-num desc">{{ unit.label }}</span>{% endif %}
+      {% if unit.hidden %}<span class="pill no">{% if unit.hidden == unit.count %}出題していません{% else %}{{ unit.hidden }} 問非出題{% endif %}</span>{% endif %}
+    </span>
+    {# **日程は学生の画面と同じ形で出す**（2026-10-10）── 公開・提出開始・締切・
+       受付終了と残り時間。語も「未設定」「公開と同時」も studentweb の `course.html`
+       に揃える。教員がここで読むのは「学生にはいまどう見えているか」なので、
+       違う書き方をすると学生の画面を開いて確かめ直すことになる。
+       残り時間はサーバが渡した秒数から数える（共有の `countdown.js`・#73）。 #}
+    <span class="s-meta desc">
+      <span class="c-count">{{ unit.count }} 問</span>
+      <span class="c-date">公開 {% if unit.opens_at %}{{ unit.opens_at | local('%m-%d %H:%M') }}{% else %}<em>未設定</em>{% endif %}</span>
+      <span class="c-date">提出開始 {% if unit.submissions_open_at %}{{ unit.submissions_open_at | local('%m-%d %H:%M') }}{% elif unit.opens_at %}公開と同時{% else %}<em>未設定</em>{% endif %}</span>
+      <span class="c-date">締切 {% if unit.due_at %}{{ unit.due_at | local('%m-%d %H:%M') }}{% else %}<em>未設定</em>{% endif %}</span>
+      {% if unit.accepts_until %}<span class="c-date">受付終了 {{ unit.accepts_until | local('%m-%d %H:%M') }}</span>{% endif %}
+      {% if unit.due_at %}
+      <span class="c-date countdown js-only" hidden
+            data-deadline-in="{{ unit.seconds_to_due }}"
+            data-state="{{ unit.window.value }}"></span>
+      {% endif %}
+    </span>
+    <span class="c-open" data-live="cm-open-{{ unit.key }}">
+      {# 期限が過ぎたのに、自動では閉じない未確定（異議申立・要レビュー・
+         採点失敗・猶予の未設定）が残っていれば教員が見るべき状態。猶予中と
+         AI 評価待ちは待てば閉じるので「要対応」にしない（2026-10-01）。 #}
+      {% if unit.unfinalized %}
+        <span class="pill {{ 'attn' if unit.needs_attention }}">未確定 {{ unit.unfinalized }}{% if unit.needs_attention %}・要対応{% endif %}</span>
+      {% else %}<span class="desc">未確定 0</span>{% endif %}
+    </span>
+  </a>
+  {% endfor %}
+</nav>
+{% endmacro %}
+
 {% block body %}
 {# **見出しは帯の項目名と同じ語にする**（#300）。この画面が持つのは問題セットの
    一覧と、その日程と、確定がどこまで進んだか ── コース名は帯とパンくずが
@@ -50,44 +99,28 @@
 {% if rows %}
 <h2 class="sets-band sets-band-{{ band }}">{{ heading }} <span class="desc">{{ rows | length }} セット</span></h2>
 {% if note %}<p class="desc">{{ note }}</p>{% endif %}
-<nav class="menu sets sets-{{ band }}">
-  {# 学期を通すと 15 行前後になる。**1 セットを 2 段に収める**（2026-09-26）。
-     1 行に 7 列を並べていたので、日付が入ると幅が足りずに折り返し、
-     行ごとに高さが揃わなかった。上段は「どのセットか」と札、下段は小さく
-     問数と日程 ── 下段は列の幅を固定して、締切を縦に読み比べられるようにする。
-     開始が公開と同時なら書かない（同じ時刻を 2 度読ませない）。 #}
-  {% for unit in rows %}
-  {# 中身が全部学習者に出ていないセットは、行そのものを分ける（#83）──
-     セットの中の課題には印を付けたが、**コースに並ぶセット自体**は生きて
-     いるものと同じ見た目のままだった。 #}
-  <a class="row{% if unit.hidden and unit.hidden == unit.count %} hidden-from-learners{% endif %}"
-     href="{{ root_prefix() }}/manage/courses/{{ course.id }}/units/{{ unit.key }}">
-    <span class="s-main">
-      <b class="c-key">{{ unit.unit or unit.label }}</b>
-      {% if unit.unit and unit.session is not none %}<span class="c-num desc">{{ unit.label }}</span>{% endif %}
-      {% if unit.hidden %}<span class="pill no">{% if unit.hidden == unit.count %}出題していません{% else %}{{ unit.hidden }} 問非出題{% endif %}</span>{% endif %}
-    </span>
-    <span class="s-meta desc">
-      <span class="c-count">{{ unit.count }} 問</span>
-      {% if unit.opens_at or unit.submissions_open_at or unit.due_at %}
-      <span class="c-date">公開 {% if unit.opens_at %}{{ unit.opens_at | local('%m-%d %H:%M') }}{% else %}<em>—</em>{% endif %}</span>
-      <span class="c-date">締切 {% if unit.due_at %}{{ unit.due_at | local('%m-%d %H:%M') }}{% else %}<em>—</em>{% endif %}</span>
-      {% if unit.submissions_open_at %}<span class="c-date">開始 {{ unit.submissions_open_at | local('%m-%d %H:%M') }}</span>{% endif %}
-      {% else %}
-      <span class="c-date"><em>日程未設定</em></span>
-      {% endif %}
-    </span>
-    <span class="c-open" data-live="cm-open-{{ unit.key }}">
-      {# 期限が過ぎたのに、自動では閉じない未確定（異議申立・要レビュー・
-         採点失敗・猶予の未設定）が残っていれば教員が見るべき状態。猶予中と
-         AI 評価待ちは待てば閉じるので「要対応」にしない（2026-10-01）。 #}
-      {% if unit.unfinalized %}
-        <span class="pill {{ 'attn' if unit.needs_attention }}">未確定 {{ unit.unfinalized }}{% if unit.needs_attention %}・要対応{% endif %}</span>
-      {% else %}<span class="desc">未確定 0</span>{% endif %}
-    </span>
-  </a>
-  {% endfor %}
-</nav>
+{% if band == 'learners' %}
+{# **学生に公開中のセットは、学生の画面と同じ段階で分ける**（2026-10-10）。1 本の
+   一覧では、いま出せるセットと受付を終えたセットが混ざり、学期の後半には終わった
+   回に埋もれて「いま出ている回」が探しにくい。見出しの語と並べる順は学生の一覧
+   （studentweb の `SET_LABELS`）に揃える ── 同じセットを教員と学生が違う名前で
+   呼ばないように。判定は `overview.UnitGroup.window`（core の `set_window_at`）。 #}
+{% set stages = [
+  ('open', '提出できる'),
+  ('late', '締切を過ぎた（減点して提出できる）'),
+  ('not_open', '提出開始前'),
+  ('closed', '受付を終了した'),
+] %}
+{% for stage, stage_heading in stages %}
+{% set stage_rows = rows | selectattr('window', 'equalto', stage) | list %}
+{% if stage_rows %}
+<h3 class="sets-stage sets-stage-{{ stage }}">{{ stage_heading }} <span class="desc">{{ stage_rows | length }} セット</span></h3>
+{{ set_rows(stage_rows, band) }}
+{% endif %}
+{% endfor %}
+{% else %}
+{{ set_rows(rows, band) }}
+{% endif %}
 {% endif %}
 {% endfor %}
 {% else %}
