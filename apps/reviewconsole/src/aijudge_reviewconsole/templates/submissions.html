@@ -186,7 +186,7 @@
       </td>
       <td class="fit" data-label="状態">
         {# 異議申立は教員が読むまで閉じない ── 対応待ちであって、悪い状態ではない。 #}
-        <span class="pill {{ 'attn' if row.contested }}">{{ row.state_label }}</span>
+        <span class="pill {{ 'attn' if row.contested or row.grading_failed }}">{{ row.state_label }}</span>
         {# blind 抽出に当たり、まだ段階が付いていない提出（ADR 0005）。
            **隠さずに印を付ける** ── 開くと AI の判定を見る前に採点する画面に
            回されるので、その理由が行の側に無いと TA は面食らう（app.py）。 #}

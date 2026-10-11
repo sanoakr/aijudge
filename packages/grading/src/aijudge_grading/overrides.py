@@ -85,6 +85,7 @@ def effective(
             data[key] = merged
         else:
             data[key] = value
+    _drop_inherited_options_for_unused(data, overrides)
     try:
         profile = SubjectProfile.model_validate(data)
     except Exception as exc:
@@ -96,6 +97,28 @@ def effective(
             # 存在しない評価器名・種別違い。起動時と同じ検査をここでもする。
             raise OverrideError(f"採点設定が不正です: {exc}") from None
     return profile
+
+
+def _drop_inherited_options_for_unused(data: dict[str, Any], overrides: dict[str, Any]) -> None:
+    """コースが走らせない評価器の、**雛形から受け継いだ**設定を外す（2026-10-11）。
+
+    コースが評価器の一覧（`deterministic` / `ai_evaluators`）を上書きすると、
+    その一覧は保存した時点で凍る。後から雛形に評価器を足し、その設定
+    （`evaluator_options`）も足すと、重ねた結果は「走らせない評価器に設定がある」で
+    検査に落ち、**そのコースの採点が全件失敗する**。実際に起きた（2026-10-11、
+    `c_indent_check` を運用の雛形に足したら prog2 の採点が 6 時間止まった）。
+
+    走らない評価器の設定は誰にも読まれないので、外しても採点は変わらない。
+    **コース自身が書いた設定は外さない** ── それは画面で保存したときの誤りで、
+    保存の検査で教員に返すべきもの（黙って捨てると、効くと思った値が効かない）。
+    """
+    run = set(data.get("deterministic") or ()) | set(data.get("ai_evaluators") or ())
+    own = overrides.get("evaluator_options")
+    own_keys = set(own) if isinstance(own, dict) else set()
+    options = data.get("evaluator_options") or {}
+    data["evaluator_options"] = {
+        name: option for name, option in options.items() if name in run or name in own_keys
+    }
 
 
 #: 決定的評価器が共有する、テストケース 1 件の実行上限の設定名（#491）。
