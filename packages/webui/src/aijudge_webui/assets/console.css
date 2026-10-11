@@ -556,6 +556,9 @@ form.settings{padding:6px 22px 0}
 .setting-value{font-size:.88rem;color:var(--ink);display:flex;flex-wrap:wrap;align-items:center;gap:6px 16px}
 .setting-value > .note,.setting-value > p.note,.setting-value > div.note{flex-basis:100%}
 .setting-value .desc{font-size:.78rem;margin:0}
+/* 遅延の減点の段（`_penalty_inputs.html`）。横並びの設定欄の中でも新しい行から始め、段を縦に積む
+   （2026-10-11。ユニットの画面で、ラジオの行に 1 段目が続いて並んでいた）。 */
+.setting-value > .penalty-rows{flex-basis:100%;display:flex;flex-direction:column;align-items:flex-start;gap:6px}
 .setting-value label.check{display:inline-flex;align-items:center;gap:6px;margin:0;font-size:.88rem;color:var(--ink)}
 .setting-value input[type=number]{font:inherit;padding:5px 8px}
 .schedule-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(12.5rem,1fr));gap:8px 12px}
