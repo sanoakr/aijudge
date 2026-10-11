@@ -126,6 +126,8 @@ class _Frame:
     open_column: int = 0
     # switch の中で、ラベルの下の文を 1 段下げるか（ラベルが switch より深い流儀）。
     case_offset: int | None = None
+    # この中で `else` を待っている `if` の行の深さ（内側ほど後ろ）。
+    ifs: list[int] = field(default_factory=list)
 
     @property
     def body_level(self) -> int:
@@ -140,9 +142,13 @@ class _Scanner:
     in_preprocessor: bool = False
     paren_depth: int = 0
     frames: list[_Frame] = field(default_factory=list)
-    # 波括弧を省いた制御文が、次の文を何段下げるか。
-    pending: int = 0
+    # どの `{` の中でもない所で `else` を待っている `if` の深さ。
+    root_ifs: list[int] = field(default_factory=list)
+    # 波括弧を省いた制御文の次の文の深さ（制御文の行の深さ + 1）。None なら下げない。
+    next_level: int | None = None
     pending_switch: bool = False
+    # 複数行にまたがる制御文の頭の行の深さ。
+    header_level: int = 0
     # 前の数えた行が文の途中で終わったか（式の折り返し）。
     continued: bool = False
     # 複数行にまたがる制御文の頭（`for (i = 0;` で折り返した）。
@@ -221,24 +227,44 @@ def _classify(s: _Scanner, raw: str, number: int) -> IndentLine | None:
     # 行頭の `}` を先に閉じる。その行は対応する `{` の行と同じ深さ。
     level: int | None = None
     rest = stripped
+    closed = False
     while rest.startswith("}"):
         level = s.frames.pop().open_level if s.frames else 0
-        s.pending = 0
+        s.next_level = None
         rest = rest[1:].lstrip()
+        closed = True
 
     top = s.frames[-1] if s.frames else None
+    ifs = top.ifs if top is not None else s.root_ifs
+    header = _CONTROL.match(rest)
+    keyword = header.group(1) if header else ""
     if level is None:
         base = top.body_level if top else 0
-        if rest.startswith("{") and s.pending:
+        if rest.startswith("{") and s.next_level is not None:
             # 括弧を次の行に置く書き方。`{` は制御文と同じ深さ。
-            level = base + s.pending - 1
+            level = s.next_level - 1
         elif top is not None and top.is_switch and _LABEL.match(rest):
             level = _label_level(top, indent)
+        elif keyword == "else" and ifs and s.next_level is None:
+            # `else` は対応する `if` と同じ深さ。1 行で閉じた `if (c) x;` の後でも、
+            # 外側の制御文の下げ（`for (…)` の本体など）を失わない。
+            level = ifs[-1]
         else:
-            level = base + s.pending
+            level = s.next_level if s.next_level is not None else base
+
+    # `else` を待っている `if` を整える。`else` は直近の `if` と組になって消え、
+    # 文の頭（`}` や `{` で始まらない行）は、同じ深さ以上の `if` をもう `else` が
+    # 来ないものとして消す。`if`（`else if` を含む）の行は自分の深さを積む。
+    if keyword == "else":
+        if ifs and ifs[-1] == level:
+            ifs.pop()
+    elif not closed and not rest.startswith("{"):
+        ifs[:] = [depth for depth in ifs if depth < level]
+    if keyword == "if" or re.match(r"^else\s+if\b", rest):
+        ifs.append(level)
 
     # この行の字句を最後まで読み、括弧と波括弧を数える。
-    opens_switch = s.pending_switch or bool(re.match(r"^switch\b", rest))
+    opens_switch = s.pending_switch or keyword == "switch"
     for ch in rest:
         if ch == "(":
             s.paren_depth += 1
@@ -249,27 +275,28 @@ def _classify(s: _Scanner, raw: str, number: int) -> IndentLine | None:
                 _Frame(open_level=level, is_switch=opens_switch, open_column=_column(indent))
             )
             opens_switch = False
-            s.pending = 0
+            s.next_level = None
             s.pending_switch = False
         elif ch == "}" and s.frames:
             s.frames.pop()
 
     tail = stripped[-1]
-    header = _CONTROL.match(rest)
+    if header:
+        s.header_level = level
     if header or s.header_open:
         if s.paren_depth > 0:
             s.header_open = True
         else:
             s.header_open = False
             if tail not in ";{}":
-                # 波括弧を省いた制御文。次の文を 1 段下げる。
-                s.pending += 1
-                s.pending_switch = bool(header and header.group(1) == "switch")
+                # 波括弧を省いた制御文。次の文は制御文の行より 1 段深い。
+                s.next_level = s.header_level + 1
+                s.pending_switch = s.pending_switch or keyword == "switch"
             elif tail == ";":
-                # `if (x) a;` のように 1 行で閉じた。外側の制御文の下げもここで使い切る。
-                s.pending = 0
+                # `if (x) a;` のように 1 行で閉じた。
+                s.next_level = None
     elif tail == ";" and s.paren_depth == 0:
-        s.pending = 0
+        s.next_level = None
     s.continued = s.paren_depth == 0 and not s.header_open and tail not in ";{}:)" and not header
     if skip:
         return None

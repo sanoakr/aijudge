@@ -204,6 +204,73 @@ def test_a_one_line_if_does_not_indent_the_next_line() -> None:
     )
 
 
+def test_else_after_a_one_line_if_keeps_the_outer_body_level() -> None:
+    """波括弧を省いた `for` の本体の中で、1 行の `if` に `else` が続く形（2026-10-11）。
+
+    1 行で閉じた `if` が外側の `for` の下げまで打ち消し、`else` の行を 1 段浅いと
+    判定していた（2025 の ex12/p3・p5 の参照解答。正しい書き方を崩れと数えていた）。
+    """
+    assert (
+        _broken(
+            """
+            void show(int a[3][3])
+            {
+                for (int i = 0; i < 3; i++) {
+                    for (int j = 0; j < 3; j++)
+                        if (a[i][j] == 1) printf("x");
+                        else if (a[i][j] == -1) printf("+");
+                        else printf(" ");
+                    printf("\\n");
+                }
+            }
+            """
+        )
+        == []
+    )
+
+
+def test_a_nested_else_pairs_with_the_nearest_if() -> None:
+    assert (
+        _broken(
+            """
+            int main(void)
+            {
+                if (a)
+                    if (b) x = 1;
+                    else x = 2;
+                else
+                    x = 3;
+                if (c) {
+                    x = 4;
+                } else if (d) {
+                    x = 5;
+                }
+                else
+                {
+                    x = 6;
+                }
+                return x;
+            }
+            """
+        )
+        == []
+    )
+
+
+def test_an_else_out_of_line_with_its_if_is_broken() -> None:
+    assert _broken(
+        """
+        int main(void)
+        {
+            for (i = 0; i < n; i++)
+                if (a[i] > 0) p++;
+            else n++;
+            return 0;
+        }
+        """
+    ) == [5]
+
+
 def test_braces_on_their_own_line_follow_the_statement() -> None:
     assert (
         _broken(
