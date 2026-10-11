@@ -60,6 +60,7 @@ YAML に同じフィールドがあればそちらが勝つ。**既存の課題�
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -68,13 +69,14 @@ import yaml
 
 from aijudge_authoring import TaskSpec
 from aijudge_authoring.importers import companion, sharif_judge
-from aijudge_core import AnswerMode, Course, LatePenaltyStep, Task
+from aijudge_core import HUMAN_SCORED, AnswerMode, Course, LatePenaltyStep, Task
 from aijudge_core.ids import TenantId, UserId
 from aijudge_course_admin.answer_mode import editor_blockers, file_upload_required
 from aijudge_course_admin.authoring import save_task
 from aijudge_course_admin.errors import AdminError
 from aijudge_course_admin.late_penalty import parse_steps
 from aijudge_course_admin.operations import ensure_course
+from aijudge_grading import OverrideError, effective_profile, load_profile
 from aijudge_unit_of_work import Store
 
 __all__ = [
@@ -459,6 +461,7 @@ def apply_course_definition(
             uow.identity.save_course(course)
             uow.commit()
 
+    _refuse_unrun_evaluators(course, definition.tasks, profiles_dir)
     for task in definition.tasks:
         save_task(
             database,
@@ -472,6 +475,48 @@ def apply_course_definition(
         )
     _apply_unit_settings(database, course, definition.unit_settings)
     return AppliedCourse(course=course, tasks=len(definition.tasks), created=created)
+
+
+def _refuse_unrun_evaluators(course: Course, tasks: Sequence[TaskSpec], profiles_dir: Path) -> None:
+    """課題の観点が、このコースで走らない評価器を指していたら**投入しない**（2026-10-11）。
+
+    走る評価器は、課題のプロファイルにコースの上書きを重ねたもの（採点ワーカーと
+    同じ・`effective_profile`）。コースが評価器の一覧を上書きしていると、雛形に
+    足した評価器はそのコースでは走らない。走らない評価器の観点は誰にも採点されず、
+    提出ごとに採点が失敗する ── 画面から観点を保存する経路は同じ理由で断っている
+    （`_refuse_undeclared`・prog2 ex01-2）が、定義から入れる経路は素通りしていた。
+
+    課題を 1 件も保存する前に断る。直し方はコースの採点設定で評価器を足すこと。
+    """
+    missing: list[str] = []
+    profiles: dict[str, set[str]] = {}
+    for task in tasks:
+        name = task.subject_profile or course.subject_profile
+        if name not in profiles:
+            try:
+                base = load_profile(profiles_dir / f"{name}.yaml")
+                applied = effective_profile(base, course.grading_overrides)
+            except (OSError, ValueError, OverrideError):
+                # 読めない雛形・壊れた上書きは、ここでは判断しない（保存側と採点側が言う）。
+                profiles[name] = set()
+                continue
+            profiles[name] = set(applied.deterministic) | set(applied.ai_evaluators)
+        run = profiles[name]
+        if not run:
+            continue
+        for criterion in task.criteria:
+            evaluator = criterion.evaluator or ""
+            if evaluator and evaluator != HUMAN_SCORED and evaluator not in run:
+                missing.append(f"{task.key or '?'} の観点「{criterion.code}」（{evaluator}）")
+    if missing:
+        shown = "、".join(missing[:5]) + (
+            f" ほか {len(missing) - 5} 件" if len(missing) > 5 else ""
+        )
+        raise AdminError(
+            f"このコースで走らない評価器を指す観点があります: {shown}。"
+            "このまま入れると、その観点は誰も採点せず提出が失敗します。"
+            "コースの採点設定（deterministic / ai_evaluators）にその評価器を足してください"
+        )
 
 
 def _apply_unit_settings(

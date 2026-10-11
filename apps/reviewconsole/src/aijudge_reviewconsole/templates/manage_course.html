@@ -172,6 +172,13 @@
     雛形（<span class="mono">{{ course.subject_profile }}</span>）は複数のコースで共有する既定なので、この画面からは変更しません。
     空欄の項目には、雛形の値が使われます。
   {% endcall %}</h3>
+  {% if override_error %}
+  <div class="note warn" style="margin:8px 0">
+    <strong>保存されている採点設定が壊れていて、このコースの採点はすべて失敗しています。</strong>
+    下の欄には雛形の値を出しています（保存された値ではありません）。内容を確かめて「保存」すると直ります。
+    <div class="desc mono" style="margin-top:4px">{{ override_error }}</div>
+  </div>
+  {% endif %}
   <p class="desc">{% if changed %}雛形（<span class="mono">{{ course.subject_profile }}</span>）から変えているもの:
     {% for key in changed %}<span class="mono">{{ key }}</span>{% if not loop.last %}, {% endif %}{% endfor %}
   {% else %}雛形（<span class="mono">{{ course.subject_profile }}</span>）のままです。{% endif %}</p>

@@ -117,3 +117,37 @@ def test_a_driver_without_expected_output_is_refused(tmp_path: Path) -> None:
     (tmp_path / "ex10" / "p2" / "check" / "out" / "output1.txt").unlink()
     with pytest.raises(AdminError, match="関数の検査が壊れています"):
         load_course_definition(path)
+
+
+def test_a_criterion_the_course_does_not_run_is_refused_before_saving(
+    database: Database, tmp_path: Path
+) -> None:
+    """コースが評価器の一覧を上書きしていて、そこに無い評価器を観点が指すなら断る
+    （2026-10-11・prog2 は一覧を凍らせていて、足した評価器が走らなかった）。"""
+    first = tmp_path / "first"
+    first.mkdir()
+    applied = apply_course_definition(
+        database,
+        _write(first, FUNCTION + CORRECTNESS.format(weight=0.9)),
+        tenant_id=TENANT,
+        profiles_dir=PROFILES,
+        authored_by=AUTHOR,
+    )
+    with database.unit_of_work() as uow:
+        course = uow.identity.get_course(applied.course.id)
+        uow.identity.save_course(
+            course.model_copy(update={"grading_overrides": {"deterministic": ["code_test_runner"]}})
+        )
+        uow.commit()
+
+    second = tmp_path / "second"
+    second.mkdir()
+    with pytest.raises(AdminError, match="c_function_check"):
+        apply_course_definition(
+            database,
+            _write(second, FUNCTION + CORRECTNESS.format(weight=0.9)),
+            tenant_id=TENANT,
+            profiles_dir=PROFILES,
+            authored_by=AUTHOR,
+            revise=True,
+        )

@@ -209,10 +209,15 @@ def _course_page(
     registry = EvaluatorRegistry().load_installed()
     base = template_of(course, console.profiles_dir)
     current = values if values is not None else course.grading_overrides
+    override_error: str | None = None
     try:
         applied = effective_profile(base, current, registry)
-    except OverrideError:
+    except OverrideError as exc:
+        # **黙って雛形を出さない**（2026-10-11）。雛形の値で欄を埋めるのは直す手掛かり
+        # として残すが、それだけだと「印が付いている＝保存されている」と読める。実際は
+        # 保存された上書きが壊れていて、このコースの採点は全件失敗している。
         applied = base
+        override_error = str(exc)
 
     with console.database.unit_of_work() as uow:
         enrollments = uow.identity.list_enrollments(course.id)
@@ -293,6 +298,7 @@ def _course_page(
             "profile": applied,
             "overrides": current,
             "changed": diff(base, current),
+            "override_error": override_error,
             "locked": LOCKED_KEYS,
             # インストール済みから選ばせる。**自由入力にしない** ── 存在しない
             # 名前を書けると、その科目の採点が恒久的に失敗する。

@@ -138,6 +138,9 @@ class Row:
     #: 課題の中で何回目か（版をまたぐ・`aijudge_core.attempt_ordinals`）。0 は数えられなかった。
     #: `Submission.attempt` は版ごとに 1 から数えるので、そのまま出すと重なる。
     attempt_no: int = 0
+    #: 採点のジョブが再試行の上限まで落ちたか（2026-10-11）。採点が無い提出を一律に
+    #: 「採点中」と出していたので、採点が止まっていても一覧からは待っているように見えた。
+    grading_failed: bool = False
     #: 学習者にいま出ている版の番号（2026-09-25）。提出の版と違えば一覧に並べて出す。
     current_version: int | None = None
 
@@ -166,7 +169,7 @@ class Row:
     @property
     def state_label(self) -> str:
         if self.run is None:
-            return "採点中"
+            return "採点に失敗" if self.grading_failed else "採点中"
         if self.finalized_by is FinalizationSource.INSTRUCTOR_REVIEW:
             return "確定（教員が確認）"
         if self.finalized_by is FinalizationSource.INSTRUCTOR_BULK:
@@ -453,6 +456,11 @@ def load_rows(
         paging = Page(number=number)
     runs = uow.runs.latest_for_many([s.id for s in submissions])  # type: ignore[attr-defined]
     decisions = uow.reviews.decisions_for_runs([r.id for r in runs.values()])  # type: ignore[attr-defined]
+    # 採点の無い提出だけ、落ちたジョブがあるかを引く（1 回の問い合わせ）。
+    failed = {
+        job.submission_id
+        for job in uow.jobs.failed_for([s.id for s in submissions if s.id not in runs])  # type: ignore[attr-defined]
+    }
 
     versions: dict[str, TaskVersion] = {}
     tasks: dict[str, Task] = {}
@@ -518,6 +526,7 @@ def load_rows(
                 finalized_by_login=_actor_login(finalization, review, uow, actors),
                 contested=request is not None and not request.resolved,
                 attempt_no=numbers.get(submission.id, 0),
+                grading_failed=run is None and submission.id in failed,
                 current_version=current.get(str(task.id)),
             )
         )
