@@ -354,6 +354,15 @@ class GradingPipeline:
         # ゲートで打ち切った観点。**人採点の宣言より強い** ── 打ち切られた
         # 以上そこに入れるべき値は無く、人を待たせる理由も無い。
         cut = set(gate_skipped(task_version.criteria, tuple(scores), aggregation))
+        # **打ち切った観点に付いていた点は捨てる**（2026-10-11）。決定的評価器は
+        # 観点ごとではなく 1 回で全部に答えるので、打ち切りより後ろの観点にも
+        # 点を付けて返してくる（正しさ → インデントを AND で組むと、インデントの
+        # 評価器はコンパイルに失敗した提出にも答える）。残すと、その点と
+        # 「打ち切り分の 0%」が二重に数えられ、重みの合計が 1.0 を超えて集約が
+        # 落ちる（1.5 になった）。AND の定義は「以降は評価せず 0% として数える」
+        # なので、評価器の生の出力（`evaluator_results`）だけを記録に残す。
+        if cut:
+            scores = [score for score in scores if score.criterion_id not in cut]
         awaiting_human = tuple(
             c.id for c in task_version.criteria if c.scored_by_human and c.id not in cut
         )

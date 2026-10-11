@@ -73,6 +73,12 @@ def task_version():
     )
 
 
+def _runner_result(run):  # type: ignore[no-untyped-def]
+    """テスト実行の評価器の結果。**位置で取らない** ── プロファイルに決定的評価器が
+    増えると並びが変わる（2026-10-11、`c_indent_check` を名前順で先頭に足した）。"""
+    return next(r for r in run.evaluator_results if r.evaluator_id == "code_test_runner")
+
+
 def test_import_reads_the_real_assignment_format(task_version) -> None:
     title, tag = sharif_judge.parse_title(task_version.statement)
     assert title == "最大値・最小値・平均値"
@@ -234,7 +240,7 @@ int main(void) {
     run, _ = _grade(source, task_version)
 
     assert 0.0 < run.score_ratio < 1.0
-    cases = run.evaluator_results[0].raw_output["cases"]
+    cases = _runner_result(run).raw_output["cases"]
     failed = [case["name"] for case in cases if not case["passed"]]
     assert failed == ["case1", "case5"]
     # 決定的に確定した観点なので、確信度は下がらない。
@@ -247,9 +253,9 @@ def test_a_compile_error_is_a_zero_not_an_evaluator_failure(task_version) -> Non
     run, _ = _grade("int main(void) { this is not C }\n", task_version)
 
     assert run.score_ratio == pytest.approx(0.0)
-    assert run.evaluator_results[0].status is EvaluatorStatus.OK
+    assert _runner_result(run).status is EvaluatorStatus.OK
     assert "コンパイルに失敗" in run.criterion_scores[0].rationale
-    assert "compile_error" in run.evaluator_results[0].raw_output
+    assert "compile_error" in _runner_result(run).raw_output
 
 
 @needs_c_compiler
@@ -264,7 +270,7 @@ def test_an_infinite_loop_is_caught_by_the_timeout(task_version) -> None:
     )
 
     assert run.score_ratio == pytest.approx(0.0)
-    cases = run.evaluator_results[0].raw_output["cases"]
+    cases = _runner_result(run).raw_output["cases"]
     assert len(cases) == 5
     assert all(case["reason"] == "timeout" for case in cases), [c["reason"] for c in cases]
 
