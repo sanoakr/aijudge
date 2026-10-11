@@ -240,16 +240,19 @@ def _test_cases(version: TaskVersion) -> tuple[TestCaseSpec, ...]:
 
     `payload` のキー名は評価器が読むものと一致していなければならない
     （`spec.py` ── 違う名前だと全ケースが黙って不合格になる）。
+
+    **評価器と payload ごと写す**（2026-10-11）。以前は入力と期待出力だけを写し、
+    評価器を課題の既定に倒していたので、関数の検査（`c_function_check`）や伴走
+    プロセスのケース（`network_test_runner`）は、複製先で検査用のソースや段取りを
+    失った入出力ケースになっていた（例外は出ない）。
     """
     return tuple(
-        TestCaseSpec.model_validate(
-            {
-                "name": case.name,
-                "input": str(case.payload.get("input", "")),
-                "expected": str(case.payload.get("expected", "")),
-                "hidden": case.hidden,
-                "weight": case.weight,
-            }
+        TestCaseSpec(
+            name=case.name,
+            evaluator=case.evaluator_id,
+            payload=dict(case.payload),
+            hidden=case.hidden,
+            weight=case.weight,
         )
         for case in version.test_cases
     )

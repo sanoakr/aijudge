@@ -43,6 +43,12 @@ _INPUT_RE = re.compile(r"^input(?P<index>\d+)\.txt$")
 
 DEFAULT_EVALUATOR = "code_test_runner"
 AI_EVALUATOR = "rubric_ai_judge"
+# 関数の検査（2026-10-11）。評価器は import しない（名前で指すだけ・ADR 0002）。
+FUNCTION_CHECK_EVALUATOR = "c_function_check"
+FUNCTION_CHECK_DIR = "check"
+FUNCTION_CHECK_DRIVER = "driver.c"
+# 評価器が検査用のソースを読む `payload` のキー（`aijudge_eval_code_test_runner.DRIVER_KEY`）。
+FUNCTION_CHECK_DRIVER_KEY = "driver"
 
 
 class ImportError_(Exception):
@@ -131,6 +137,51 @@ def collect_test_cases(
                     "expected": output_path.read_text(encoding="utf-8"),
                 },
                 # Sharif Judge の既定に合わせ、テストの中身は学生に見せない。
+                hidden=True,
+                weight=1.0,
+            )
+        )
+    return tuple(cases)
+
+
+def collect_function_checks(problem_dir: Path) -> tuple[TestCase, ...]:
+    """`check/` の関数の検査を TestCase にする（無ければ空）。
+
+        pN/check/driver.c          検査用の main()（指定の関数を呼んで結果を出力する）
+        pN/check/out/output1.txt   その期待出力（1 ファイル = 1 件）
+        pN/check/in/input1.txt     標準入力（任意。無ければ空）
+
+    `in/` を任意にしたのは、検査用の main() はふつう入力を読まないから。
+    `driver.c` が無いのに `out/` がある（またはその逆）なら壊れている ── 黙って
+    0 件にすると、関数の検査を書いたつもりの課題が検査なしで採点される。
+    """
+    check_dir = problem_dir / FUNCTION_CHECK_DIR
+    if not check_dir.is_dir():
+        return ()
+    driver_path = check_dir / FUNCTION_CHECK_DRIVER
+    out_dir = check_dir / "out"
+    outputs = sorted(out_dir.glob("output*.txt")) if out_dir.is_dir() else []
+    if not driver_path.is_file() or not outputs:
+        raise ImportError_(
+            f"{FUNCTION_CHECK_DIR}/ needs both {FUNCTION_CHECK_DRIVER} and out/outputN.txt"
+        )
+    driver = driver_path.read_text(encoding="utf-8")
+    cases: list[TestCase] = []
+    for output_path in outputs:
+        match = re.fullmatch(r"output(?P<index>\d+)\.txt", output_path.name)
+        if match is None:
+            continue
+        index = match.group("index")
+        input_path = check_dir / "in" / f"input{index}.txt"
+        cases.append(
+            TestCase(
+                name=f"function{index}",
+                evaluator_id=FUNCTION_CHECK_EVALUATOR,
+                payload={
+                    "input": input_path.read_text(encoding="utf-8") if input_path.is_file() else "",
+                    "expected": output_path.read_text(encoding="utf-8"),
+                    FUNCTION_CHECK_DRIVER_KEY: driver,
+                },
                 hidden=True,
                 weight=1.0,
             )

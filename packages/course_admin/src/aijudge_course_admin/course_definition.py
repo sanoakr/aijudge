@@ -48,7 +48,9 @@
 
 `problem_dir` を書いた課題は、`desc.md` を問題文、`in/` `out/` をテスト
 ケース、`<name>.c` / `.py` を参照解答として読む（`importers/sharif_judge`
-と同じ規則）。`key` `unit` `position` `session` はディレクトリ名から決まる。
+と同じ規則）。`check/`（`driver.c` と `out/`）があれば関数の検査として
+`c_function_check` あてに読む（2026-10-11・観点の名指しが要る）。
+`key` `unit` `position` `session` はディレクトリ名から決まる。
 YAML に同じフィールドがあればそちらが勝つ。**既存の課題ディレクトリを
 そのまま使えること**が、この定義形式を移行元と同じ木に置ける条件である。
 
@@ -324,7 +326,44 @@ def _from_problem_dir(raw: dict[str, Any], problem_dir: Path) -> dict[str, Any]:
             }
             for case in cases
         ]
+        raw["test_cases"] += _function_checks(raw, problem_dir)
     return raw
+
+
+def _function_checks(raw: dict[str, Any], problem_dir: Path) -> list[dict[str, Any]]:
+    """`check/` の関数の検査（2026-10-11）を、評価器と payload ごと定義に入れる。
+
+    **観点が `c_function_check` を名指ししていなければ断る**（`_from_companion` と同じ
+    理由）── 誰も読まないケースは保存のときに外れ、検査を書いたのに関数を確かめない
+    課題が黙ってできる。
+    """
+    try:
+        checks = sharif_judge.collect_function_checks(problem_dir)
+    except sharif_judge.ImportError_ as exc:
+        raise AdminError(f"{problem_dir} の関数の検査が壊れています: {exc}") from exc
+    if not checks:
+        return []
+    declared = raw.get("criteria") or []
+    if not any(
+        isinstance(item, dict) and item.get("evaluator") == sharif_judge.FUNCTION_CHECK_EVALUATOR
+        for item in declared
+    ):
+        raise AdminError(
+            f"{problem_dir} には {sharif_judge.FUNCTION_CHECK_DIR}/ がありますが、課題 "
+            f"{raw.get('key', '?')} の観点がどれも {sharif_judge.FUNCTION_CHECK_EVALUATOR} を"
+            f"指していません。関数の観点に evaluator: {sharif_judge.FUNCTION_CHECK_EVALUATOR} を"
+            "書いてください"
+        )
+    return [
+        {
+            "name": case.name,
+            "evaluator": case.evaluator_id,
+            "payload": dict(case.payload),
+            "hidden": case.hidden,
+            "weight": case.weight,
+        }
+        for case in checks
+    ]
 
 
 def _from_companion(raw: dict[str, Any], problem_dir: Path) -> dict[str, Any]:
