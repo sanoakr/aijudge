@@ -258,3 +258,16 @@ def test_the_console_does_not_edit_the_checks_as_io_cases() -> None:
     registry = default_registry()
     assert protocol.test_case_shape(registry.get(FUNCTION_CHECK_ID)) == "function"
     assert protocol.test_case_shape(registry.get("code_test_runner")) == "io"
+
+
+def test_a_driver_without_prototypes_still_names_the_missing_function(task_version) -> None:
+    """検査用のソースがプロトタイプを書かない形（`const` の有無を問わないため）でも、
+    関数が無ければ 0 点で、理由に関数の名前が出る。"""
+    driver = DRIVER.replace("int sqsum(int n);\n", "")
+    (io1, io2, check) = task_version.test_cases
+    bare = check.model_copy(update={"payload": {**check.payload, DRIVER_KEY: driver}})
+    version = task_version.model_copy(update={"test_cases": (io1, io2, bare)})
+    run = _grade(INLINE, version)
+    assert run.score_ratio == pytest.approx(0.0)
+    assert "関数 sqsum() が定義されていません" in _score_of(run, FUNCTION.id).rationale
+    assert _grade(REFERENCE, version).score_ratio == pytest.approx(1.0)

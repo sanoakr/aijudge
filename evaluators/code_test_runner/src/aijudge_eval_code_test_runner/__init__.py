@@ -615,11 +615,15 @@ def _check_entry(
     return entry
 
 
-# 未定義の関数を指すリンカのメッセージ。GNU ld（運用のコンテナ）と
-# Apple ld（手元の macOS）の両方。
+# 未定義の関数を指すメッセージ。GNU ld（運用のコンテナ）と Apple ld（手元の macOS）の
+# リンカのものに加え、検査用のソースがプロトタイプを書かない場合のコンパイラのもの
+# （gcc 14 以降・clang ではエラー）。プロトタイプを書かないのは、`const int a[]` と
+# `int a[]` のどちらで書いても通すため（ex11/p5〜p7）── 書けば片方が型の食い違いになる。
 _UNDEFINED = (
     re.compile(r"undefined reference to [`'\"]?(?P<name>\w+)"),
     re.compile(r'"_(?P<name>\w+)", referenced from'),
+    re.compile(r"implicit declaration of function [`'\"‘]?(?P<name>\w+)"),
+    re.compile(r"call to undeclared function [`'\"‘]?(?P<name>\w+)"),
 )
 _CONFLICTING = re.compile(r"conflicting types for [`'\"‘]?(?P<name>\w+)")
 
