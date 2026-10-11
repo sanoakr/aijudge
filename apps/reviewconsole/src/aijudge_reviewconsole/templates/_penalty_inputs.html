@@ -11,6 +11,10 @@
 
    `rows` は 2 段目以降（`[{"hours": …, "percent": …}]`）。空の行は呼ぶ側が足す。 #}
 {% macro penalty_inputs(first_percent, rows) -%}
+{# **段はまとめて 1 つの箱に入れ、新しい行から縦に並べる**（2026-10-11）。設定欄
+   （`.setting-value`）は横に並べて折り返すので、箱が無いとユニットの画面で
+   「この回だけ決める」のラジオと同じ行に 1 段目が続いて並んでいた。 #}
+<div class="penalty-rows">
 <div class="inline-field">
   締切を過ぎたら 総合点から
   <input name="penalty_first_percent" type="number" step="any" min="0" max="100" style="max-width:6rem"
@@ -25,4 +29,5 @@
          aria-label="減点 %（{{ loop.index + 1 }} 段目）" value="{{ row.percent }}"> % を引く
 </div>
 {% endfor %}
+</div>
 {%- endmacro %}

@@ -170,3 +170,24 @@ def test_the_page_shows_which_rule_is_in_force(world: World) -> None:
     page = world.client("teacher").get(page_url).text
     assert "（この回の設定）" in page
     assert "総合点から 50% を引く" in page
+
+
+def test_the_steps_start_on_their_own_line(world: World) -> None:
+    """段はまとめて 1 つの箱に入る（2026-10-11）。
+
+    設定欄は横に並べて折り返すので、箱が無いと「この回だけ決める」のラジオと
+    同じ行に 1 段目が続いて並んでいた。箱は CSS で新しい行から縦に積む。
+    """
+    import re
+
+    world.register("teacher", Role.INSTRUCTOR)
+    _import_example(world)
+    unit = _unit_of(world)
+
+    page = world.client("teacher").get(f"/manage/courses/{world.course.id}/units/{unit}").text
+
+    box = re.search(r'<div class="penalty-rows">(.*?)</div>\s*<span class="desc">', page, re.S)
+    assert box, "減点の段が箱に入っていない"
+    assert 'name="penalty_first_percent"' in box.group(1)
+    assert 'name="penalty_hours"' in box.group(1)
+    assert 'name="penalty_mode"' not in box.group(1), "ラジオは箱の外（上の行）に置く"
