@@ -19,6 +19,19 @@ ADR 0002 の主張（科目の追加でコアと採点エンジンが変わら�
 
 判定は決定的（`conclusive=True`）。ここで不正解が確定した観点は
 AI 評価器に問い合わせず、AI の判断で覆されることもない（設計原則 P3）。
+
+## 関数の検査（`c_function_check`・2026-10-11）
+
+同じパッケージに 2 つ目の評価器を置く（`CFunctionCheck`）。課題が「指定の関数を
+定義すること」を求めるときのためにある ── 入出力だけを見ると、関数を使わずに
+`main()` へ全部書いた解も満点になる。コンパイルと実行の部品はこちらと共有する
+（違うのはソースのつなぎ方だけで、伴走プロセスを立てる `network_test_runner` の
+ような実行の仕方の違いは無い）。
+
+**評価器を分けたのは、検証データを入出力のケースと混ぜないため。** 同じ評価器の
+ケースに印を付けて混ぜると、入出力の編集欄（コンソール）や IDE のテスト実行が
+それを入出力として扱い、保存のたびに検査用のソースが落ちる。評価器が違えば、
+画面は形（`test_case_shape`）で見分け、IDE は自分あてのケースしか読まない。
 """
 
 from __future__ import annotations
@@ -31,6 +44,7 @@ from aijudge_core import (
     EvaluatorKind,
     EvaluatorStatus,
     Evidence,
+    TestCase,
     WholeSpan,
     new_id,
 )
@@ -60,14 +74,18 @@ EVALUATOR_ID = "code_test_runner"
 __all__ = [
     "DEFAULT_CASE_TIMEOUT_SECONDS",
     "DEFAULT_COMPILE_TIMEOUT_SECONDS",
+    "DRIVER_KEY",
     "EVALUATOR_ID",
+    "FUNCTION_CHECK_ID",
     "LANGUAGES",
     "OPTION_CASE_TIMEOUT",
     "OPTION_COMPILE_TIMEOUT",
+    "CFunctionCheck",
     "CodeTestRunner",
     "Language",
     "UnknownLanguage",
     "build",
+    "build_function_check",
     "format_only_mismatch",
     "normalize_output",
     "resolve_language",
@@ -313,7 +331,7 @@ class CodeTestRunner:
                 compiled = self._compile(workspace, language, compile_limits)
                 if compiled is not None and not compiled.ok:
                     return self._compile_failure(request, criterion, source_id, compiled)
-                cases = self._run_cases(request, workspace, language, case_limits)
+                cases = self._run_cases(list(request.test_cases), workspace, language, case_limits)
         except SandboxError as exc:
             # 隔離できないなら採点しない。
             return EvaluationOutcome(
@@ -407,7 +425,7 @@ class CodeTestRunner:
 
         観点側の `evaluator_id` 指定を優先し、無ければ最初の未割当を採る。
         """
-        explicit = [c for c in request.task_version.criteria if c.evaluator_id == EVALUATOR_ID]
+        explicit = [c for c in request.task_version.criteria if c.evaluator_id == self.evaluator_id]
         if explicit:
             return explicit[0]
         unassigned = [c for c in request.task_version.criteria if c.evaluator_id is None]
@@ -428,13 +446,13 @@ class CodeTestRunner:
 
     def _run_cases(
         self,
-        request: EvaluationRequest,
+        test_cases: list[TestCase],
         workspace: Workspace,
         language: Language,
         limits: Limits,
     ) -> list[dict[str, object]]:
         cases: list[dict[str, object]] = []
-        for case in request.test_cases:
+        for case in test_cases:
             expected = normalize_output(str(case.payload.get("expected", "")))
             entry: dict[str, object] = {
                 "name": case.name,
@@ -561,6 +579,242 @@ class CodeTestRunner:
         )
 
 
+# 提出の `main` に付ける別名。検査用の `main()` と衝突させないため。学習者が
+# 書きそうにない名前にしてある。
+_STUDENT_MAIN = "aijudge_student_main"
+
+
+def _with_driver(source: bytes, driver: str) -> bytes:
+    """提出のソースの後ろに検査用のソースをつなぐ。
+
+    `#define main` で提出の `main` を別名にし、`#undef` してから検査用の
+    `main()` を置く。`#line` はエラーの行番号を学習者のファイルに合わせるため
+    （つないだ分だけずれると、自分のコードのどこが悪いのか読めない）。
+    """
+    text = source.decode("utf-8", errors="replace")
+    if not text.endswith("\n"):
+        text += "\n"
+    return (
+        f'#define main {_STUDENT_MAIN}\n#line 1 "main.c"\n{text}'
+        f'#undef main\n#line 1 "function_check.c"\n{driver}'
+    ).encode()
+
+
+def _check_entry(
+    case: TestCase, *, passed: bool, reason: str, detail: str | None = None
+) -> dict[str, object]:
+    entry: dict[str, object] = {
+        "name": case.name,
+        "weight": case.weight,
+        "hidden": case.hidden,
+        "passed": passed,
+        "reason": reason,
+    }
+    if detail is not None:
+        entry["compile_error"] = detail
+    return entry
+
+
+# 未定義の関数を指すリンカのメッセージ。GNU ld（運用のコンテナ）と
+# Apple ld（手元の macOS）の両方。
+_UNDEFINED = (
+    re.compile(r"undefined reference to [`'\"]?(?P<name>\w+)"),
+    re.compile(r'"_(?P<name>\w+)", referenced from'),
+)
+_CONFLICTING = re.compile(r"conflicting types for [`'\"‘]?(?P<name>\w+)")
+
+
+def _function_check_rationale(failed: list[dict[str, object]]) -> str:
+    """関数の検査に落ちた理由を、学習者が直せる言い方で返す。"""
+    head = "指定された関数の検査に通りませんでした。"
+    for case in failed:
+        detail = str(case.get("compile_error", ""))
+        if not detail:
+            continue
+        for pattern in _UNDEFINED:
+            if match := pattern.search(detail):
+                return head + f"関数 {match.group('name')}() が定義されていません。"
+        if match := _CONFLICTING.search(detail):
+            return head + f"関数 {match.group('name')}() の引数か返り値の型が課題の指定と違います。"
+        excerpt = _compile_excerpt(detail)
+        return head + (f"{excerpt} " if excerpt else "")
+    if any(case.get("reason") == "timeout" for case in failed):
+        return head + "関数の呼び出しが時間内に終わりませんでした。"
+    return head + "関数の結果が期待と違いました。"
+
+
+FUNCTION_CHECK_ID = "c_function_check"
+#: 検査用のソース（`main()` を含む）を持つ `payload` のキー。
+DRIVER_KEY = "driver"
+
+
+class CFunctionCheck(CodeTestRunner):
+    """指定の関数が定義されているかを、検査用の `main()` から呼んで確かめる。
+
+    提出のソースの `main` を別名に置き換え、その後ろに教員の検査用 `main()` を
+    つないで **1 本の翻訳単位として**コンパイルし、出力を期待出力と比べる。
+
+    - 関数が無ければリンクで、引数や返り値の型が違えばコンパイルで落ちる。
+      1 本にしたのはこのため ── 別々にコンパイルしてリンクすると型の違いが
+      通り、未定義動作のまま値を比べることになる。
+    - **1 件でも通らなければ 0%、全部通れば 100%。** 部分点は付けない ──
+      関数があるかどうかを問う観点で、AND の先頭に置けば「関数が無ければ
+      0 点」（2025 年度の扱い）になる。
+    - 提出がそもそもコンパイルできなければ 0%（正しさの観点と同じ扱い）。
+    """
+
+    evaluator_id = FUNCTION_CHECK_ID
+    # 入出力の形ではない（検査用のソースを持つ）。**画面に入出力の欄で編集させない**
+    # ── させると保存のたびに検査用のソースが落ちる。知らない形は編集欄を出さない。
+    test_case_shape = "function"
+
+    def evaluate(self, request: EvaluationRequest) -> EvaluationOutcome:
+        criterion = self._target_criterion(request)
+        if criterion is None:
+            return EvaluationOutcome(
+                status=EvaluatorStatus.SKIPPED,
+                raw_output={"reason": "no criterion is assigned to this evaluator"},
+            )
+        if not request.test_cases:
+            # 検査が無いのに観点だけある。**満点にしない**（確かめていない）。
+            return EvaluationOutcome(
+                status=EvaluatorStatus.SKIPPED,
+                raw_output={"reason": "no function checks"},
+            )
+        source_id, source = self._source(request)
+        if source is None or source_id is None:
+            return EvaluationOutcome(
+                status=EvaluatorStatus.FAILED,
+                error="no source artifact found in the submission",
+            )
+        try:
+            language = resolve_language(request.options)
+        except UnknownLanguage as exc:
+            return EvaluationOutcome(status=EvaluatorStatus.FAILED, error=str(exc))
+        if language.compile_argv is None or not language.source_name.endswith(".c"):
+            # つなぎ方（`main` の置き換え）は C のもの。他の言語で黙って通すと、
+            # 検査していないのに検査済みに見える。
+            return EvaluationOutcome(
+                status=EvaluatorStatus.FAILED,
+                error=f"{FUNCTION_CHECK_ID} supports C only, not {language.label}",
+            )
+
+        budget = request.timeout_seconds
+        case_limits = _limits(
+            min(
+                budget,
+                _seconds_option(request.options, OPTION_CASE_TIMEOUT, DEFAULT_CASE_TIMEOUT_SECONDS),
+            )
+        )
+        compile_limits = _limits(
+            min(
+                budget,
+                _seconds_option(
+                    request.options, OPTION_COMPILE_TIMEOUT, DEFAULT_COMPILE_TIMEOUT_SECONDS
+                ),
+            )
+        )
+        try:
+            sandbox = self._resolve_sandbox(request.options)
+            with sandbox.workspace() as workspace:
+                # 提出そのものがコンパイルできるかを先に見る。できないのに検査の
+                # 失敗として「関数が定義されていません」と言うと、直す先を誤らせる。
+                workspace.write(language.source_name, source)
+                compiled = self._compile(workspace, language, compile_limits)
+                if compiled is not None and not compiled.ok:
+                    return self._compile_failure(request, criterion, source_id, compiled)
+                checked = self._run_checks(
+                    list(request.test_cases),
+                    source,
+                    workspace,
+                    language,
+                    compile_limits,
+                    case_limits,
+                )
+        except SandboxError as exc:
+            return EvaluationOutcome(
+                status=EvaluatorStatus.FAILED,
+                error=f"cannot execute the submission safely: {exc}",
+            )
+
+        failed = [case for case in checked if not case["passed"]]
+        ratio = 0.0 if failed else 1.0
+        rationale = (
+            _function_check_rationale(failed)
+            if failed
+            else f"指定された関数の検査 {len(checked)} 件に通りました。"
+        )
+        return EvaluationOutcome(
+            status=EvaluatorStatus.OK,
+            scores=(
+                self._score(
+                    criterion_id=criterion.id,
+                    weight=criterion.weight,
+                    ratio=ratio,
+                    level=self._level_for(criterion, ratio),
+                    artifact_id=source_id,
+                    content_hash=self._content_hash(request, source_id),
+                    rationale=rationale,
+                    note=None,
+                ),
+            ),
+            raw_output={
+                "cases": checked,
+                "sandbox": sandbox.name,
+                "isolation": sandbox.isolation.value,
+            },
+        )
+
+    def _target_criterion(self, request: EvaluationRequest):
+        """観点が名指ししたときだけ担当する。
+
+        **未割当の観点を拾わない。** 拾うと、関数の検査を持たない課題で
+        正しさの観点を横取りしうる。
+        """
+        explicit = [c for c in request.task_version.criteria if c.evaluator_id == self.evaluator_id]
+        return explicit[0] if explicit else None
+
+    def _run_checks(
+        self,
+        checks: list[TestCase],
+        source: bytes,
+        workspace: Workspace,
+        language: Language,
+        compile_limits: Limits,
+        case_limits: Limits,
+    ) -> list[dict[str, object]]:
+        """検査用のソースごとに 1 回コンパイルし、そのケースを走らせる。
+
+        コンパイルやリンクに失敗したら、そのソースのケースはすべて不合格。
+        """
+        results: list[dict[str, object]] = []
+        drivers: dict[str, list[TestCase]] = {}
+        for case in checks:
+            drivers.setdefault(str(case.payload.get(DRIVER_KEY, "")), []).append(case)
+        for driver, group in drivers.items():
+            if not driver.strip():
+                results += [
+                    _check_entry(case, passed=False, reason="no driver source") for case in group
+                ]
+                continue
+            workspace.write(language.source_name, _with_driver(source, driver))
+            compiled = self._compile(workspace, language, compile_limits)
+            if compiled is not None and not compiled.ok:
+                detail = (compiled.stderr or compiled.stdout).strip()[:2000]
+                results += [
+                    _check_entry(case, passed=False, reason="compile failed", detail=detail)
+                    for case in group
+                ]
+                continue
+            results += self._run_cases(group, workspace, language, case_limits)
+        return results
+
+
 def build() -> CodeTestRunner:
     """entry point から呼ばれるファクトリ。"""
     return CodeTestRunner()
+
+
+def build_function_check() -> CFunctionCheck:
+    """`c_function_check` の entry point から呼ばれるファクトリ。"""
+    return CFunctionCheck()

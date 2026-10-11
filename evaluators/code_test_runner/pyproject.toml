@@ -14,6 +14,7 @@ dependencies = [
 # 構造で保証する仕掛け。採点エンジンはこの名前でしか評価器を知らない。
 [project.entry-points."aijudge.evaluators"]
 code_test_runner = "aijudge_eval_code_test_runner:build"
+c_function_check = "aijudge_eval_code_test_runner:build_function_check"
 
 [build-system]
 requires = ["hatchling"]
