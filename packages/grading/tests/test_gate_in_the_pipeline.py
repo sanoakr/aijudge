@@ -228,3 +228,57 @@ def test_or_keeps_asking_and_keeps_the_old_behaviour() -> None:
     assert judge.asked == ["readable", "fast"]
     assert run.skipped_criteria == ()
     assert run.score_ratio == pytest.approx(0.7)
+
+
+class _Layout:
+    """決定的評価器。**打ち切りより後ろの観点（readable）にも答える。**
+
+    観点ごとに呼ばれる AI と違い、決定的評価器は 1 回で担当の観点すべてに答える。
+    正しさ → インデントを AND で組んだ課題（prog2・2026-10-11）がこの形。
+    """
+
+    evaluator_id = "layout"
+    kind = EvaluatorKind.DETERMINISTIC
+
+    def evaluate(self, request: EvaluationRequest) -> EvaluationOutcome:
+        criterion = next(c for c in request.task_version.criteria if c.id == C3)
+        return EvaluationOutcome(
+            scores=(
+                CriterionScore(
+                    id=CriterionScoreId(new_id("cs")),
+                    criterion_id=C3,
+                    evaluator_result_id=EvaluatorResultId(new_id("evr")),
+                    kind=EvaluatorKind.DETERMINISTIC,
+                    level=1,
+                    score_ratio=1.0,
+                    weight=criterion.weight,
+                    confidence=1.0,
+                    conclusive=True,
+                    rationale="字下げを数えた。",
+                ),
+            )
+        )
+
+
+def test_a_deterministic_score_after_the_gate_is_dropped() -> None:
+    """二重に数えない。残すと重みの合計が 1.0 を超えて採点が落ちていた。"""
+    judge = _Judge()
+    registry = EvaluatorRegistry()
+    registry.register(_Tests())
+    registry.register(_Layout())
+    registry.register(judge)
+    profile = SubjectProfile(
+        name="test_subject", deterministic=("tests", "layout"), ai_evaluators=("judge",)
+    )
+    run = GradingPipeline(registry, profile).run(
+        _task_version(),
+        _submission(),
+        lambda _artifact: b"int main(){}",
+        aggregation=Aggregation.AND,
+    )
+
+    assert run.score_ratio == pytest.approx(0.3)
+    assert run.skipped_criteria == (C3, C4)
+    assert C3 not in {score.criterion_id for score in run.criterion_scores}
+    # 評価器が答えたこと自体は記録に残る（P8）。
+    assert any(result.evaluator_id == "layout" for result in run.evaluator_results)
