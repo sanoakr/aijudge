@@ -6,6 +6,18 @@
 <div class="subsection" id="companion">
   <input type="hidden" name="companion_present" value="1">
   {% include "_companion_cases.html" %}
+  {# 参照解答（2026-10-12）。入出力の観点の中にしか出していなかったので、
+     クライアント・サーバの課題では版が持っているのに画面のどこにも出なかった
+     （network test5/echoClient5 で「参照解答が無い」と読まれた）。**読むだけ** ──
+     欄（`reference_solution`）を送らない保存は版の値を引き継ぐ（`task_data.py`）。
+     教員だけが見る（`task_readonly.html` には足さない）。 #}
+  {% if version and version.reference_solution %}
+  <details id="reference" style="margin-top:12px">
+    <summary><b>参照解答</b>
+      <span class="desc">{{ version.reference_solution.splitlines() | length }} 行 · 教員だけが見られます</span></summary>
+    <pre class="code" style="margin-top:8px">{{ version.reference_solution }}</pre>
+  </details>
+  {% endif %}
   <details id="companion-edit" style="margin-top:12px"
     {%- if saved_key is defined and saved_key == 'companion_revised' %} open{% endif %}>
     <summary><b>クライアント・サーバのケースを直す</b><span class="desc">（保存すると新しい版になります）</span></summary>
