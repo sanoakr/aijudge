@@ -61,7 +61,7 @@ IMAGES_DIR = REPO_ROOT / "docs" / "guide" / "images"
 TASKS_DIR = HERE / "tasks" / "ex01"
 SOURCES_DIR = HERE / "sources"
 
-WEB_PORT = 8080
+WEB_PORT = 8766
 CONSOLE_PORT = 8765
 WEB = f"http://localhost:{WEB_PORT}"
 CONSOLE = f"http://localhost:{CONSOLE_PORT}"

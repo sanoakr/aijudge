@@ -25,7 +25,12 @@ EnvironmentFile=/srv/aijudge/config/aijudge.env
 #
 # `.venv/bin` を直接呼ぶ ── `uv run` は再起動のたびに解決をやり直すので、
 # 常駐サービスでは直接パスの方が速く確実。
-ExecStart=/opt/aijudge/.venv/bin/aijudge-web --host 127.0.0.1 --port 8080
+#
+# ポートは 8766（8080 は PAIR 1.0.0 の llama.cpp 用プロキシと衝突する）。
+# **nginx の転送先と対になっている** ── vhost はデプロイで配られない
+# （`bootstrap.sh` が最初に置くだけ）ので、ここを変えるときは運用機の
+# nginx を先に新しいポートへ向けておく。逆順だと学習者 UI が 502 になる。
+ExecStart=/opt/aijudge/.venv/bin/aijudge-web --host 127.0.0.1 --port 8766
 # journald でこのサービスの行を引くための名札（ADR 0016）。
 SyslogIdentifier=aijudge-web
 Restart=on-failure

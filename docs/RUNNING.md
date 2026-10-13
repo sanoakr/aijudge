@@ -4,12 +4,30 @@ aiJudge は、次のプロセスに分かれて動く。**採点はレビュー�
 レビューとは独立に実行する**（ADR 0007）。
 
 ```
-aijudge-web       学習者：提出と結果表示                    :8080
+aijudge-web       学習者：提出と結果表示                    :8766
 aijudge-worker    採点：キューを消費                        （常駐・段階ごとに立てる）
 aijudge-relay     イベント：outbox を購読者へ流す            （常駐・1 本だけ）
 aijudge-review    教員：確認して確定 + 科目・課題の管理      :8765
 aijudge-finalize  成績：締切を過ぎた分を自動確定            （cron か常駐）
 aijudge-admin     運用：学期の頭の一括操作（CLI）
+```
+
+学習者アプリは v1.49 まで `:8080` だった。8080 は PAIR 1.0.0 の llama.cpp 用
+プロキシが `[::]:8080` で取るため、同じホストに PAIR を置くと先に起動した側が
+勝ち、学習者 UI が上がらないことがある。外部アプリの既定ポート（PAIR の
+`11434` / `1234` / `8080`）は動かさず、aiJudge の側が避ける。
+
+**運用機で 8080 から移すときは、nginx を先に切り替える。** vhost はデプロイで
+配られない（`bootstrap.sh` が最初に置くだけ）ので、unit だけが先に変わると
+nginx が 8080 へ転送し続けて 502 になり、デプロイの疎通確認も落ちる。移行の
+間は、upstream で新しいポートを優先し、古いポートを予備にしておく。
+
+```nginx
+upstream aijudge_web {
+    server 127.0.0.1:8766;
+    server 127.0.0.1:8080 backup;   # 新しい版が出て安定したら消す
+}
+# location の proxy_pass を http://aijudge_web; にして nginx -t && reload
 ```
 
 コース・課題・締切・受講の管理は、教員コンソールの `/manage` で行う。
@@ -211,7 +229,7 @@ print(s.name, s.isolation.value, sorted(l.value for l in s.limitations))
 公開され、LAN には公開されない。
 
 ```fish
-tailscale serve --bg --https=443 8080     # 学生 UI
+tailscale serve --bg --https=443 8766     # 学生 UI
 tailscale serve --bg --https=8443 8765    # 教員 UI
 
 # → https://<ホスト名>.<tailnet>.ts.net/       学生
@@ -228,7 +246,7 @@ tailscale serve reset      # 取り消し
 
 ```fish
 set -l ts (tailscale ip -4)
-uv run aijudge-web    --host $ts --port 8080
+uv run aijudge-web    --host $ts --port 8766
 uv run aijudge-review --host $ts --port 8765
 ```
 
@@ -258,7 +276,7 @@ tailnet は教員・TA の端末をつなぐには十分だが、**学生向け�
 リンクすると、その名前でアクセスしていない人の Cookie が送られず、移動した先で
 「ログインしてください」と表示されてしまう。
 
-もう一方のポートが既定（8765 / 8080）でない場合は、そのポートだけを指定する。
+もう一方のポートが既定（8765 / 8766）でない場合は、そのポートだけを指定する。
 
 ```fish
 set -gx AIJUDGE_CONSOLE_PORT 9765   # 学習者アプリが渡す先のポート
@@ -338,7 +356,7 @@ curl -s -o /dev/null -w '%{redirect_url}\n' \
 ```
 
 `redirect_uri` の値がそのまま表示される。**この値を、GCP の承認済み URI と 1 文字ずつ
-照合する**のが最も速い。学習者側は、`:8080` に対して同じことをする。
+照合する**のが最も速い。学習者側は、`:8766` に対して同じことをする。
 
 ### 受け付けるアカウント（#220）
 
@@ -404,7 +422,7 @@ JavaScript を無効にしていると切り替えは表示されず、端末の
 | `AIJUDGE_SECURE_COOKIES` | セッション Cookie に `Secure` を付ける（`1`/`0`）。未設定なら `X-Forwarded-Proto` で判断 | 未設定 |
 | `AIJUDGE_CONSOLE_URL` | 学習者アプリが出す教員コンソールの場所（#103）。逆プロキシの後ろなど、相手が別ホストのときだけ指定する | 未設定（開いているホスト名 + `AIJUDGE_CONSOLE_PORT`） |
 | `AIJUDGE_LEARNER_URL` | 教員コンソールが出す学習者アプリの場所（#103） | 未設定（開いているホスト名 + `AIJUDGE_LEARNER_PORT`） |
-| `AIJUDGE_CONSOLE_PORT` / `AIJUDGE_LEARNER_PORT` | 相手のポート（URL 未設定のときに使う・#114） | `8765` / `8080` |
+| `AIJUDGE_CONSOLE_PORT` / `AIJUDGE_LEARNER_PORT` | 相手のポート（URL 未設定のときに使う・#114） | `8765` / `8766` |
 | `AIJUDGE_TIMEZONE` | 画面に出す日時と、締切の入力欄のタイムゾーン（IANA 名）。保存は常に UTC。未設定・不正なら `Asia/Tokyo` | `Asia/Tokyo` |
 | `AIJUDGE_CONSOLE_ROOT_PREFIX` | コンソールを接頭辞の下に出す（`/console` など）。逆プロキシで 1 つのホストにまとめるときに使う。**Google の承認済みリダイレクト URI にもこの接頭辞が入る** | 未設定（ルート直下） |
 | `AIJUDGE_ALLOWED_HOSTS` | 受け付ける `Host`（コンマ区切り・#116）。**逆プロキシを前に立てるなら設定する** | `*`（素通し） |
@@ -1020,7 +1038,7 @@ TA には表示しない。TA は採点を分担するが、習熟度は成績�
 **接続元は、`X-Forwarded-For` の右端の値**（逆プロキシが書いた値）で判定する
 （`aijudge_telemetry.client_ip`）。左端の値はクライアントが自由に書けるので、
 左端で判定すると、学内のアドレスを名乗るだけで提出できてしまう。**アプリに、逆プロキシを通さず直接アクセス
-できないようにしておくこと。** 現在の構成では、`127.0.0.1:8080` だけで待ち受けている。
+できないようにしておくこと。** 現在の構成では、`127.0.0.1:8766` だけで待ち受けている。
 
 **この設定は、採点と確定には影響しない。** 既に提出されたものは、そのまま扱われる。
 

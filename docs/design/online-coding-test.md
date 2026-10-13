@@ -79,7 +79,7 @@
 %%{init: {"flowchart": {"wrappingWidth": 460}} }%%
 flowchart TB
     B["学習者のブラウザ<br/>Monaco · タブ · カウントダウン<br/>行動記録のバッファ"]
-    W["aijudge-web :8080<br/>IDE 画面 · 実行要求 · 行動記録の受け口<br/>提出は既存の accept()"]
+    W["aijudge-web :8766<br/>IDE 画面 · 実行要求 · 行動記録の受け口<br/>提出は既存の accept()"]
     DB[("PostgreSQL<br/>run_requests · ide_* （新設）<br/>grading_jobs （既存）")]
     R["aijudge-runner@1..K （新設）<br/>sandbox を持つ"]
     G["aijudge-worker （既存・無変更）"]

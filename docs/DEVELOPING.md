@@ -128,7 +128,7 @@ several assumptions about constrained decoding did not survive contact.
 ## Grading and reviewing are separate processes
 
 ```fish
-uv run aijudge-web                             # learners submit          :8080
+uv run aijudge-web                             # learners submit          :8766
 uv run aijudge-worker --phase deterministic    # the fast lane
 uv run aijudge-worker --phase ai               # the slow one, arriving later
 uv run aijudge-review                          # instructors confirm      :8765

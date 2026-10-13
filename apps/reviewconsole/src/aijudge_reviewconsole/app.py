@@ -303,7 +303,7 @@ class Console:
         video_store: StreamingArtifactStore | None = None,
         observations: ObservationFileStore | None = None,
         learner_url: str = "",
-        learner_port: int = 8080,
+        learner_port: int = 8766,
     ) -> None:
         self.database = database
         self.store = artifact_store

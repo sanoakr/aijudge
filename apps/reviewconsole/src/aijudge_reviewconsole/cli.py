@@ -93,7 +93,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--learner-port",
         type=int,
-        default=int(os.environ.get("AIJUDGE_LEARNER_PORT", 8080)),
+        default=int(os.environ.get("AIJUDGE_LEARNER_PORT", 8766)),
         help="学習者アプリのポート（--learner-url が空のときに使う）",
     )
     parser.add_argument("--host", default="127.0.0.1", help="既定は localhost のみ")

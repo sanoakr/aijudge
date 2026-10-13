@@ -233,7 +233,11 @@ def main(argv: list[str] | None = None) -> int:
         help="教員コンソールのポート（--console-url が空のときに使う）",
     )
     parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=8080)
+    # 8080 は使わない。PAIR 1.0.0 の llama.cpp 用プロキシが `[::]:8080` を取り、
+    # 先に起動した側が勝つ ── 同じホストに PAIR を置く運用機・開発機で、再起動の
+    # 順番しだいで学習者 UI が上がらなくなる。外部アプリの既定ポートは動かせない
+    # ので、こちらが避ける。コンソール（8765）の隣にしておく。
+    parser.add_argument("--port", type=int, default=8766)
     parser.add_argument(
         "--workers",
         type=int,
