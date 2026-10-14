@@ -55,7 +55,7 @@ aiJudge は学内のサーバ 1 台で動き、学習者のデータをそのサ
 
 ```mermaid
 flowchart TB
-    L["学習者<br/>aijudge-web :8080"]
+    L["学習者<br/>aijudge-web :8766"]
     I["教員<br/>aijudge-review :8765"]
     F["aijudge-finalize<br/>締切を過ぎた成績を確定"]
 
@@ -141,7 +141,7 @@ uv run alembic upgrade head                 # スキーマの作成・更新
 
 uv run aijudge-admin staff --login sensei --role instructor \
     --course <id> --password '...'      # 利用者の作成は CLI だけ（画面には出さない）
-uv run aijudge-web                          # 学習者      :8080
+uv run aijudge-web                          # 学習者      :8766
 uv run aijudge-review                       # 教員        :8765
 uv run aijudge-worker --phase deterministic
 uv run aijudge-worker --phase ai

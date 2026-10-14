@@ -118,7 +118,7 @@ AIJUDGE_LIVE_LLM=1 uv run pytest evals/test_llm_live.py -v -s
 ## 採点とレビューは別のプロセス
 
 ```fish
-uv run aijudge-web                             # 学習者が提出する          :8080
+uv run aijudge-web                             # 学習者が提出する          :8766
 uv run aijudge-worker --phase deterministic    # 速い段階
 uv run aijudge-worker --phase ai               # 遅い段階（あとから届く）
 uv run aijudge-review                          # 教員が確定する            :8765

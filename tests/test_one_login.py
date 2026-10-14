@@ -69,7 +69,7 @@ class World:
         )
         self.plain_learner = TestClient(
             create_learner(StudentApp(self.database, store, profiles_dir=PROFILES)),
-            base_url="http://mnemosyne.example.jp:8080",
+            base_url="http://mnemosyne.example.jp:8766",
         )
         self.taught, _ = ensure_course(
             self.database,
@@ -201,7 +201,7 @@ def test_the_link_stays_on_the_host_the_browser_is_using(world: World) -> None:
 
     world.plain_console.cookies.set(CONSOLE_COOKIE, response.cookies[LEARNER_COOKIE])
     console_landing = world.plain_console.get("/").text
-    assert f"http://mnemosyne.example.jp:8080/courses/{world.attended.id}" in console_landing
+    assert f"http://mnemosyne.example.jp:8766/courses/{world.attended.id}" in console_landing
 
 
 def test_a_configured_url_still_wins(world: World) -> None:

@@ -88,7 +88,7 @@ set per task in the console.
 
 ```mermaid
 flowchart TB
-    L["Learner<br/>aijudge-web :8080"]
+    L["Learner<br/>aijudge-web :8766"]
     I["Instructor<br/>aijudge-review :8765"]
     F["aijudge-finalize<br/>closes grades past the deadline"]
 
@@ -187,7 +187,7 @@ uv run alembic upgrade head                 # create or update the schema
 
 uv run aijudge-admin staff --login sensei --role instructor \
     --course <id> --password '...'      # accounts are CLI-only, never a web form
-uv run aijudge-web                          # learners      :8080
+uv run aijudge-web                          # learners      :8766
 uv run aijudge-review                       # instructors   :8765
 uv run aijudge-worker --phase deterministic
 uv run aijudge-worker --phase ai
