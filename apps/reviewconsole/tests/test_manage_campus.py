@@ -10,6 +10,8 @@
 
 from __future__ import annotations
 
+import re
+
 from test_manage import World
 from test_manage import world as world  # フィクスチャを借りる
 
@@ -204,3 +206,130 @@ def test_the_unit_page_warns_when_no_range_is_configured(world: World) -> None:
     page = client.get(f"/manage/courses/{world.course.id}/units/{unit}").text
 
     assert "この制限は効いていません" in page
+
+
+# ---------------------------------------------------------------------------
+# キャンパス・教室ごとのまとまり（#621）
+# ---------------------------------------------------------------------------
+
+GROUPED = """## 全学
+133.83.0.0/16  # 有線 LAN
+
+## 瀬田
+10.50.124.0/24  # 542情報実習室
+10.20.32.0/19  # ru-wifi
+"""
+
+
+def test_heading_lines_group_the_ranges_below_them(world: World) -> None:
+    """`## 瀬田` の下の範囲が「瀬田」にまとまって保存される。見出しは範囲に数えない。"""
+    _register_range(world, GROUPED)
+
+    with world.database.unit_of_work() as uow:
+        settings = uow.identity.get_campus_networks(world.course.tenant_id)
+    assert settings is not None
+    assert [(r.cidr, r.group) for r in settings.ranges] == [
+        ("133.83.0.0/16", "全学"),
+        ("10.50.124.0/24", "瀬田"),
+        ("10.20.32.0/19", "瀬田"),
+    ]
+
+
+def test_the_registration_box_writes_the_headings_back(world: World) -> None:
+    """開き直した登録欄は、保存したときと同じ書式（見出し行つき）で出る。"""
+    _register_range(world, GROUPED)
+
+    page = world.client("boss").get("/manage/campus-networks").text
+
+    assert "## 全学\n133.83.0.0/16  # 有線 LAN\n\n## 瀬田\n10.50.124.0/24" in page
+
+
+def test_ranges_before_any_heading_stay_ungrouped_and_come_first(world: World) -> None:
+    """見出しより前の範囲はまとまり無し。書き戻すと先頭に来る ── 後ろに置くと、
+    次に保存したときに直前の見出しへ吸い込まれる。"""
+    _register_range(world, "133.83.0.0/16  # 有線 LAN\n## 瀬田\n10.20.32.0/19  # ru-wifi")
+
+    page = world.client("boss").get("/manage/campus-networks").text
+
+    assert "133.83.0.0/16  # 有線 LAN\n\n## 瀬田\n10.20.32.0/19  # ru-wifi" in page
+
+
+def test_a_heading_longer_than_the_limit_is_refused(world: World) -> None:
+    world.register("boss", Role.ADMIN, tenant_admin=True)
+
+    response = world.client("boss").post(
+        "/manage/campus-networks",
+        data={"cidrs": "## " + "あ" * 41 + f"\n{CAMPUS}"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 400
+
+
+def test_the_unit_page_shows_one_section_per_heading(world: World) -> None:
+    """教員の画面はまとまりごとに見出しを付け、全体とまとまりの一括操作を出す。"""
+    _register_range(world, GROUPED)
+    world.register("teacher", Role.INSTRUCTOR)
+    __import__("test_manage")._import_example(world)
+    unit = _unit_of(world)
+
+    page = world.client("teacher").get(f"/manage/courses/{world.course.id}/units/{unit}").text
+
+    assert page.count('class="campus-section"') == 2
+    assert page.index("全学") < page.index("瀬田")
+    assert page.count('data-campus-check="section"') == 2
+    assert 'data-campus-check="all"' in page and 'data-campus-uncheck="all"' in page
+
+
+def test_without_headings_the_list_has_no_section_titles(world: World) -> None:
+    """見出しを使わない登録は、これまでどおり 1 まとまり（見出し無し）で並ぶ。"""
+    _register_range(world, f"{CAMPUS}  # 1 号館\n133.83.82.0/25  # 2 号館")
+    world.register("teacher", Role.INSTRUCTOR)
+    __import__("test_manage")._import_example(world)
+    unit = _unit_of(world)
+
+    page = world.client("teacher").get(f"/manage/courses/{world.course.id}/units/{unit}").text
+
+    assert page.count('class="campus-section"') == 1
+    assert 'data-campus-check="section"' not in page
+    assert "その他" not in page
+
+
+def test_ranges_without_a_heading_go_under_other_when_headings_are_used(world: World) -> None:
+    _register_range(world, f"{CAMPUS}  # 1 号館\n## 瀬田\n10.20.32.0/19  # ru-wifi")
+    world.register("teacher", Role.INSTRUCTOR)
+    __import__("test_manage")._import_example(world)
+    unit = _unit_of(world)
+
+    page = world.client("teacher").get(f"/manage/courses/{world.course.id}/units/{unit}").text
+
+    assert page.count('class="campus-section"') == 2
+    assert page.index("瀬田") < page.index("その他")
+
+
+def test_regrouping_does_not_change_what_a_unit_accepts(world: World) -> None:
+    """選択は CIDR で照合する。まとめ方を変えても、選んだ範囲はそのまま残る。"""
+    _register_range(world, GROUPED)
+    world.register("teacher", Role.INSTRUCTOR)
+    task_id = __import__("test_manage")._import_example(world)
+    unit = _unit_of(world)
+    world.client("teacher").post(
+        f"/manage/courses/{world.course.id}/units/{unit}/campus-only",
+        data={"campus_only": "1", "campus_ranges": ["10.20.32.0/19"]},
+        follow_redirects=False,
+    )
+
+    world.client("boss").post(
+        "/manage/campus-networks",
+        data={"cidrs": "## 無線\n10.20.32.0/19  # 瀬田\n## 有線\n133.83.0.0/16"},
+        follow_redirects=False,
+    )
+
+    with world.database.unit_of_work() as uow:
+        from aijudge_core.ids import TaskId
+
+        saved = uow.tasks.get_task(TaskId(task_id))
+    assert saved.campus_ranges == ("10.20.32.0/19",)
+    page = world.client("teacher").get(f"/manage/courses/{world.course.id}/units/{unit}").text
+    assert re.search(r'value="10\.20\.32\.0/19"\s+checked', page)
+    assert not re.search(r'value="133\.83\.0\.0/16"\s+checked', page)
