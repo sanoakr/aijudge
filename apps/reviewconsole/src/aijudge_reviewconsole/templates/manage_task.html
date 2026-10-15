@@ -584,7 +584,8 @@
   <form class="op attn" method="post"
         action="{{ root_prefix() }}/manage/courses/{{ course.id }}/tasks/{{ task.id }}/regrade">
     <div class="op-name">いまの版で採点し直す{% call help() %}
-      これらは訂正より前に提出されたもので、古い版の基準で点が付いています。<br>
+      訂正より前に提出され古い版の基準で点が付いている提出と、採点に失敗した提出、
+      <strong>評価器（実行テストなど）が失敗して確認待ちになった提出</strong>を採点し直します。<br>
     <strong>確定済みの提出は採点し直しません</strong>（確定した成績を、システムが勝手に変えないためです）。
     過去の採点も消えません。新しい採点が終わると、古い採点に「置き換わった」印が付きます（P8）。
     {% endcall %}

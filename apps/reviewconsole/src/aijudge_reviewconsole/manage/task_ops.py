@@ -32,7 +32,7 @@ from ..audit_context import recorder_for
 from ..overview import unit_key
 from ..urls import RedirectResponse
 from .common import _console, _first_error, _parse_when, _plain, _require_instructor
-from .task_page import _chosen_suffixes, _failed_without_run, _task_of
+from .task_page import _chosen_suffixes, _regrade_targets, _task_of
 
 #: 実行時間の上限（#491）が範囲外のときの知らせ。
 _CASE_TIMEOUT_REFUSED = (
@@ -141,15 +141,18 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
 
         service = SubmissionService(console.database.unit_of_work, console.store)
         with console.database.unit_of_work() as uow:
-            rows = uow.reviews.unfinalized_for_task(task.id)
-            failed = _failed_without_run(uow, task)
-        queued = 0
-        targets = [
-            submission
-            for submission, run, _request in rows
-            if run.context.task_version_id != version.id
-        ] + list(failed)
-        for submission in targets:
+            found = _regrade_targets(uow, task, version)
+        # 冪等キーの区別（`discriminator`）。訂正による再採点と採点の失敗は従来どおり
+        # 版だけで区別する。**評価器の失敗は、失敗した採点の id を混ぜる**（#620）──
+        # 同じ版で以前に再採点した提出と同じキーになり、評価器を直して押しても
+        # ジョブが積まれない、という壊れ方をしないため。新しい採点も失敗すれば
+        # 別の id になるので、次に押したときにまた積める。
+        targets = [(submission, "") for submission in found.on_old_version]
+        targets += [(submission, "") for submission in found.failed_without_run]
+        targets += [
+            (submission, f"evaluator-failed:{run.id}") for submission, run in found.evaluator_failed
+        ]
+        for submission, discriminator in targets:
             service.request_regrade(
                 tenant_id=course.tenant_id,
                 submission_id=submission.id,
@@ -159,9 +162,15 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
                 # あって、課題の種類を変える操作ではない。
                 subject_profile=version.subject_profile,
                 task_version_id=version.id,
+                discriminator=discriminator,
             )
-            queued += 1
-        console.notices.put(me.user_id, course.id, notices.REGRADED, queued, scope=task_id)
+        console.notices.put(
+            me.user_id,
+            course.id,
+            notices.REGRADED,
+            {"total": len(targets), "evaluator_failed": len(found.evaluator_failed)},
+            scope=task_id,
+        )
         return RedirectResponse(
             f"/manage/courses/{course_id}/tasks/{task_id}/edit?saved=regraded#saved",
             status_code=303,
