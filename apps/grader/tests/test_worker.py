@@ -95,6 +95,7 @@ class World:
         )
         registry = EvaluatorRegistry().load_installed()
         registry.replace(RubricAiJudge(LlmGateway(self.provider), model="stub"))
+        self.registry = registry
 
         self.service = SubmissionService(self.database.unit_of_work, self.store, clock=self.clock)
         self.worker = GradingWorker(
@@ -411,6 +412,41 @@ def test_stopping_mid_grade_returns_the_job_uncounted(world: World) -> None:
     assert result is not None and result.error == STOPPED
     with world.database.unit_of_work() as uow:
         (job,) = [j for j in [uow.jobs.get(result.job.id)] if j is not None]
+        assert job.state is JobState.QUEUED
+        assert job.attempts == 0
+        assert not uow.runs.list_for(accepted.submission.id)
+
+
+@needs_c_compiler
+def test_stopping_inside_an_evaluator_is_not_recorded_as_its_failure(world: World) -> None:
+    """**評価器の最中に停止が届いても、評価器の失敗として保存しない**（2026-10-15）。
+
+    パイプラインは評価器の例外を `except Exception` で「評価器が失敗した」と記録する。
+    停止の合図がそこに捕まると、実行テストが失敗した採点として保存され、確認待ちに
+    回った（デプロイの再起動のたびに、そのとき採点中だった提出がそうなった）。
+    合図は評価器を素通りしてワーカーまで届き、ジョブは数えずにキューへ戻る。
+    """
+    from aijudge_core import EvaluatorKind
+    from aijudge_grader.worker import STOPPED
+
+    worker = world.worker
+
+    class StoppedMidRun:
+        evaluator_id = "code_test_runner"
+        kind = EvaluatorKind.DETERMINISTIC
+
+        def evaluate(self, request):
+            worker.interrupt()  # シグナルが実行テストの最中に届いた
+            raise AssertionError("interrupt did not stop grading")
+
+    world.registry.replace(StoppedMidRun())
+    accepted = world.submit()
+    result = worker.run_once()
+
+    assert result is not None and result.error == STOPPED
+    with world.database.unit_of_work() as uow:
+        job = uow.jobs.get(result.job.id)
+        assert job is not None
         assert job.state is JobState.QUEUED
         assert job.attempts == 0
         assert not uow.runs.list_for(accepted.submission.id)
