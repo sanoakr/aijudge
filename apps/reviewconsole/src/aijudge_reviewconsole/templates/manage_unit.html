@@ -125,29 +125,34 @@
           <button type="button" class="minor" data-campus-uncheck="all">すべて外す</button>
         </p>
         {% endif %}
+        {# まとまりごとに 1 行（2026-10-15）。枠で囲むとまとまり 1 つで 80px ほど取り、7 つで
+           画面が縦に伸びた。左に名前と付け外し、右にチェックを横に並べる。CIDR は
+           マウスを重ねると出す ── 教員が読むのは注釈で、CIDR を並べると行が折り返す。 #}
+        <div class="campus-rows">
         {% for section in campus_choices.sections %}
-        <fieldset class="campus-section" data-campus-section>
+        <div class="campus-row" data-campus-section>
           {% if section.name %}
-          <legend>
-            {{ section.name }}
-            <button type="button" class="minor" data-campus-check="section">すべて選ぶ</button>
+          <div class="campus-row-name">
+            <span>{{ section.name }}</span>
+            <button type="button" class="minor" data-campus-check="section">選ぶ</button>
             <button type="button" class="minor" data-campus-uncheck="section">外す</button>
-          </legend>
+          </div>
           {% endif %}
           <div class="checks">
           {% for r in section.ranges %}
-          <label class="check">
+          <label class="check tight" title="{{ r.cidr }}">
             <input type="checkbox" name="campus_ranges" value="{{ r.cidr }}"
               {{ 'checked' if r.cidr in campus_choices.chosen }}>
-            {{ r.note or '（注釈なし）' }} <span class="mono campus-cidr">{{ r.cidr }}</span>
+            {{ r.note or r.cidr }}
             {% if campus_choices.here == r.cidr %}<span class="pill ok">いまの接続元はここ</span>{% endif %}
           </label>
           {% endfor %}
           </div>
-        </fieldset>
+        </div>
         {% else %}
         <p class="note warn tight">登録された範囲がありません。</p>
         {% endfor %}
+        </div>
         <p class="desc tight">
           いまの接続元: <span class="mono">{{ campus_choices.source_ip or '不明' }}</span>
           {% if not campus_choices.here %}（登録された範囲には当たりません）{% endif %}

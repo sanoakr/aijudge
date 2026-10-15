@@ -681,11 +681,16 @@ td.task-key{white-space:normal;overflow-wrap:anywhere;font-size:.85em;min-width:
 /* 上部バーの「オンライン N 人」（2026-10-08）。控えめに。 */
 .online{font-size:.85rem;opacity:.85;white-space:nowrap}
 .online b{font-variant-numeric:tabular-nums}
-/* 学内ネットワークの選択（#621）。キャンパス・教室ごとの見出しで区切り、
-   読むのは注釈なので CIDR は小さく薄く出す。 */
-.campus-bulk{display:flex;gap:8px;margin:6px 0 10px}
-.campus-section{padding:8px 14px;margin:0 0 10px}
-.campus-section legend{display:inline-flex;align-items:center;gap:8px}
-.campus-section legend button.minor{font-size:.75rem;padding:1px 8px}
-.campus-cidr{font-size:.75rem;color:var(--muted)}
+/* 学内ネットワークの選択（#621）。まとまりごとに 1 行で、左に名前と付け外し、
+   右にチェックを横に並べる。CIDR は title（マウスを重ねると出る）に回す。 */
+.campus-bulk{display:flex;gap:8px;margin:4px 0 6px}
+.campus-rows{border-top:1px solid var(--line-soft);margin:0 0 6px}
+.campus-row{display:grid;grid-template-columns:15em 1fr;gap:4px 12px;align-items:center;
+  padding:3px 0;border-bottom:1px solid var(--line-soft)}
+.campus-row:not(:has(.campus-row-name)){grid-template-columns:1fr}
+.campus-row-name{display:flex;align-items:center;gap:6px;font-weight:700;font-size:.9rem}
+.campus-row-name span{flex:1;white-space:nowrap}
+.campus-row-name button.minor{font-size:.72rem;padding:0 7px}
+.campus-row .checks{gap:0 16px}
+@media (max-width:640px){.campus-row{grid-template-columns:1fr}}
 

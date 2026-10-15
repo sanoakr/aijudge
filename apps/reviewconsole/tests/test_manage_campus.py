@@ -275,7 +275,7 @@ def test_the_unit_page_shows_one_section_per_heading(world: World) -> None:
 
     page = world.client("teacher").get(f"/manage/courses/{world.course.id}/units/{unit}").text
 
-    assert page.count('class="campus-section"') == 2
+    assert page.count('class="campus-row"') == 2
     assert page.index("全学") < page.index("瀬田")
     assert page.count('data-campus-check="section"') == 2
     assert 'data-campus-check="all"' in page and 'data-campus-uncheck="all"' in page
@@ -290,7 +290,7 @@ def test_without_headings_the_list_has_no_section_titles(world: World) -> None:
 
     page = world.client("teacher").get(f"/manage/courses/{world.course.id}/units/{unit}").text
 
-    assert page.count('class="campus-section"') == 1
+    assert page.count('class="campus-row"') == 1
     assert 'data-campus-check="section"' not in page
     assert "その他" not in page
 
@@ -303,7 +303,7 @@ def test_ranges_without_a_heading_go_under_other_when_headings_are_used(world: W
 
     page = world.client("teacher").get(f"/manage/courses/{world.course.id}/units/{unit}").text
 
-    assert page.count('class="campus-section"') == 2
+    assert page.count('class="campus-row"') == 2
     assert page.index("瀬田") < page.index("その他")
 
 
