@@ -81,8 +81,16 @@ LEASE_LOST = "lease lost to another worker; result discarded"
 STOPPED = "worker stopped; the job went back to the queue uncounted"
 
 
-class WorkerStopping(Exception):
-    """停止の要求（SIGTERM）で採点を打ち切る。`GradingWorker.interrupt` が投げる。"""
+class WorkerStopping(BaseException):
+    """停止の要求（SIGTERM）で採点を打ち切る。`GradingWorker.interrupt` が投げる。
+
+    **`Exception` ではなく `BaseException` を継ぐ**（`KeyboardInterrupt` と同じ）。
+    合図はシグナルハンドラから、評価器や抽出器の実行の最中に投げられる。パイプラインは
+    それらの例外を `except Exception` で「評価器が失敗した」と記録するので、`Exception`
+    を継ぐとそこで捕まり、実行テストが失敗した採点として保存されて確認待ちに回った
+    （2026-10-15、デプロイの再起動のたびに、そのとき採点中だった提出がそうなった）。
+    ワーカーの `except WorkerStopping` まで素通りさせ、ジョブを数えずにキューへ戻す。
+    """
 
 
 class PermanentGradingError(Exception):
