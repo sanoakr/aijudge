@@ -14,6 +14,13 @@ CI はテストを `pytest -n auto`（pytest-xdist）で並列に流す。1 プ�
 呼ばれる `pytest_configure` で差し替える ── 9 ファイルは何も変えずに済む。
 
 並列でないとき（手元の既定）と、変数が無いときは何もしない。
+
+**テストは本物の LLM に届かせない**（#616）。LLM の向き先は既定で
+`localhost:11434` で、CI には何も無いので接続がすぐ拒否されて先へ進むが、
+手元で LLM が動いていると本当に生成を待つ（2026-10-15、PAIR のプロキシに
+置き換わってから `pytest` が終わらなくなった）。結果が「手元で LLM が動いて
+いるか」で変わるので、`AIJUDGE_LIVE_LLM=1` を明示したとき以外は向き先を
+閉じたポートに差し替え、従系は外す。シェルで export された値も上書きする。
 """
 
 from __future__ import annotations
@@ -25,14 +32,36 @@ import pytest
 ENV_TEST_DATABASE_URL = "AIJUDGE_TEST_DATABASE_URL"
 #: pytest-xdist が worker の中で立てる変数（`gw0`, `gw1`, …）。
 ENV_XDIST_WORKER = "PYTEST_XDIST_WORKER"
+#: 本物の LLM を使うテスト（`evals/test_llm_live.py`）を走らせるときだけ "1" にする。
+ENV_LIVE_LLM = "AIJUDGE_LIVE_LLM"
+#: 何も待ち受けていないポート。接続は CI と同じくすぐ拒否される。
+CLOSED_LLM_URL = "http://127.0.0.1:9"
+#: 主系の向き先。閉じたポートへ差し替える。
+LLM_URL_VARIABLES = ("AIJUDGE_LLM_BASE_URL", "AIJUDGE_LLM_VISION_BASE_URL")
+#: 従系の向き先。残すと主系が拒否されたあとにそちらへ回るので、外す。
+LLM_FALLBACK_VARIABLES = (
+    "AIJUDGE_LLM_FALLBACK_BASE_URL",
+    "AIJUDGE_LLM_VISION_FALLBACK_BASE_URL",
+)
 
 
 def pytest_configure(config: pytest.Config) -> None:
+    _keep_tests_off_real_llms()
     worker = os.environ.get(ENV_XDIST_WORKER)
     base = os.environ.get(ENV_TEST_DATABASE_URL, "")
     if not worker or not base.startswith("postgresql"):
         return
     os.environ[ENV_TEST_DATABASE_URL] = _database_for_worker(base, worker)
+
+
+def _keep_tests_off_real_llms() -> None:
+    """LLM の向き先を閉じたポートにする（#616）。worker の中でも呼ばれる。"""
+    if os.environ.get(ENV_LIVE_LLM) == "1":
+        return
+    for name in LLM_URL_VARIABLES:
+        os.environ[name] = CLOSED_LLM_URL
+    for name in LLM_FALLBACK_VARIABLES:
+        os.environ.pop(name, None)
 
 
 def _database_for_worker(base: str, worker: str) -> str:
