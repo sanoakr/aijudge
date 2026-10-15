@@ -163,6 +163,21 @@ def test_stdin_is_delivered(sandbox) -> None:
     assert result.stdout.strip() == "21"
 
 
+def test_output_that_is_not_valid_utf8_comes_back_replaced() -> None:
+    """**出力が UTF-8 として読めなくても、実行結果は返る**（2026-10-15）。
+
+    厳密に読むと UnicodeDecodeError で採点ごと失敗した（prog2 ex02/p3、
+    57 MB の出力が文字の途中で切れた）。読めないバイトは置換文字になり、
+    比較で「違う出力」として扱われる。自分で書いたコマンドだけを走らせる。
+    """
+    with UnsafeLocalSandbox(allow_unsafe=True).workspace() as workspace:
+        result = workspace.run(
+            ExecRequest(argv=("/bin/sh", "-c", "printf 'ok \\343\\201'"), limits=FAST)
+        )
+    assert result.stdout.startswith("ok ")
+    assert "\ufffd" in result.stdout
+
+
 def test_writing_outside_the_workspace_is_refused() -> None:
     """`../` で作業域の外にファイルを置けないこと。"""
     with (

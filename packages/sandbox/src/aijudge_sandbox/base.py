@@ -223,6 +223,13 @@ class LocalWorkspace:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
+                # **読めないバイトは置き換える。** 出力は提出が書いた任意のバイト列で、
+                # UTF-8 とは限らない。厳密に読むと `communicate` が UnicodeDecodeError
+                # を投げ、採点ごと失敗する（2026-10-01、prog2 ex02/p3 の提出が 57 MB を
+                # 書き、文字の途中で切れた）。出力の正誤は比較が決めるので、置換文字が
+                # 入れば「違う出力」として正しく不正解になる。
+                encoding="utf-8",
+                errors="replace",
                 cwd=self.path,
                 env=env,
                 # 独立したセッションにして、孫まで一括で落とせるようにする。
