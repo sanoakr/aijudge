@@ -83,7 +83,11 @@ def compute_input_hash(submission: Submission, contents: dict[ArtifactId, bytes]
 
 
 def derive_kc_outcomes(
-    task_version: TaskVersion, scores: tuple[CriterionScore, ...]
+    task_version: TaskVersion,
+    scores: tuple[CriterionScore, ...],
+    *,
+    score_ratio: float,
+    confidence: float,
 ) -> tuple[KcOutcome, ...]:
     """観点別スコアを KC 単位に畳む（設計原則 P6）。
 
@@ -91,11 +95,18 @@ def derive_kc_outcomes(
     観点と KC を直接対応づける粒度は PoC-2 の課題（そのときは QMatrixEntry に
     criterion_id を足す）。ここを先に作り込まないのは、実データで
     その粒度が必要かどうかを確かめてから決めたいため。
+
+    **総合比率は run が出した値を受け取り、ここで集約し直さない**（2026-10-15）。
+    以前は `aggregate(scores)` を自前で呼んでいたが、AND ゲートで打ち切った観点と
+    人が採点する観点は `scores` に入らず `zero_weight` として数えるので、重みの
+    合計が 1.0 に届かず落ちた。prog2 ex04（正しさ → インデントの AND・KC 付き）で、
+    正しさが 0% の提出がすべて採点失敗になった。総合点と KC の値が別々に
+    計算されると、食い違う余地も残る。
     """
     if not task_version.q_matrix or not scores:
         return ()
 
-    total_ratio, confidence = aggregate(scores)
+    total_ratio = score_ratio
     score_ids: tuple[CriterionScoreId, ...] = tuple(score.id for score in scores)
     # QMatrixEntry.weight はまだ使っていない。使うべきかどうかは
     # 観点 × KC の粒度を実データで確かめてから決める。
@@ -456,7 +467,9 @@ class GradingPipeline:
             ),
             evaluator_results=tuple(results),
             criterion_scores=final,
-            kc_outcomes=derive_kc_outcomes(task_version, final),
+            kc_outcomes=derive_kc_outcomes(
+                task_version, final, score_ratio=score_ratio, confidence=confidence
+            ),
             score_ratio=score_ratio,
             confidence=confidence,
             routing=routing,
