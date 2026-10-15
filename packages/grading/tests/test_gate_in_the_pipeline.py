@@ -27,6 +27,7 @@ from aijudge_core import (
     EvaluatorKind,
     Evidence,
     Provenance,
+    QMatrixEntry,
     Routing,
     RubricCriterion,
     RubricLevel,
@@ -40,6 +41,7 @@ from aijudge_core.ids import (
     CriterionId,
     CriterionScoreId,
     EvaluatorResultId,
+    KcId,
     SubmissionId,
     TaskId,
     TaskVersionId,
@@ -69,10 +71,11 @@ def _criterion(criterion_id: CriterionId, code: str, weight: float) -> RubricCri
     )
 
 
-def _task_version() -> TaskVersion:
+def _task_version(*, kcs: tuple[str, ...] = ()) -> TaskVersion:
     """評価順は宣言の並び。上から「動く」「正しい」「読める」「速い」。"""
+    version_id = TaskVersionId(new_id("tsv"))
     return TaskVersion(
-        id=TaskVersionId(new_id("tsv")),
+        id=version_id,
         task_id=TaskId(new_id("tsk")),
         version=1,
         subject_profile="test_subject",
@@ -84,6 +87,7 @@ def _task_version() -> TaskVersion:
             _criterion(C4, "fast", 0.2),
         ),
         max_score=100.0,
+        q_matrix=tuple(QMatrixEntry(task_version_id=version_id, kc_id=KcId(kc)) for kc in kcs),
         provenance=Provenance(authored_by=UserId(new_id("usr"))),
         created_at=NOW,
     )
@@ -179,7 +183,7 @@ class _Judge:
         )
 
 
-def _run(aggregation: Aggregation):
+def _run(aggregation: Aggregation, *, kcs: tuple[str, ...] = ()):
     judge = _Judge()
     registry = EvaluatorRegistry()
     registry.register(_Tests())
@@ -189,7 +193,7 @@ def _run(aggregation: Aggregation):
     )
     pipeline = GradingPipeline(registry, profile)
     run = pipeline.run(
-        _task_version(),
+        _task_version(kcs=kcs),
         _submission(),
         lambda _artifact: b"int main(){}",
         aggregation=aggregation,
@@ -282,3 +286,17 @@ def test_a_deterministic_score_after_the_gate_is_dropped() -> None:
     assert C3 not in {score.criterion_id for score in run.criterion_scores}
     # 評価器が答えたこと自体は記録に残る（P8）。
     assert any(result.evaluator_id == "layout" for result in run.evaluator_results)
+
+
+def test_a_cut_on_a_task_with_knowledge_components_still_grades() -> None:
+    """**KC 付きの課題でも、打ち切った提出の採点が落ちない**（2026-10-15）。
+
+    KC の値を出すところだけが打ち切り分（0% の重み）を知らずに集約し直し、
+    「重みの合計が 0.5」で落ちていた。prog2 ex04（正しさ → インデントの AND）で、
+    正しさが 0% の提出がすべて採点失敗になった。KC には総合点と同じ値が入る。
+    """
+    run, _ = _run(Aggregation.AND, kcs=("kc_loops", "kc_arrays"))
+
+    assert run.score_ratio == pytest.approx(0.3)
+    assert [outcome.kc_id for outcome in run.kc_outcomes] == ["kc_loops", "kc_arrays"]
+    assert all(outcome.score_ratio == pytest.approx(0.3) for outcome in run.kc_outcomes)
