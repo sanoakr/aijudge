@@ -681,3 +681,11 @@ td.task-key{white-space:normal;overflow-wrap:anywhere;font-size:.85em;min-width:
 /* 上部バーの「オンライン N 人」（2026-10-08）。控えめに。 */
 .online{font-size:.85rem;opacity:.85;white-space:nowrap}
 .online b{font-variant-numeric:tabular-nums}
+/* 学内ネットワークの選択（#621）。キャンパス・教室ごとの見出しで区切り、
+   読むのは注釈なので CIDR は小さく薄く出す。 */
+.campus-bulk{display:flex;gap:8px;margin:6px 0 10px}
+.campus-section{padding:8px 14px;margin:0 0 10px}
+.campus-section legend{display:inline-flex;align-items:center;gap:8px}
+.campus-section legend button.minor{font-size:.75rem;padding:1px 8px}
+.campus-cidr{font-size:.75rem;color:var(--muted)}
+

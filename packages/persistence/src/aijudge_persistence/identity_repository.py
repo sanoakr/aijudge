@@ -479,7 +479,8 @@ class SqlIdentityRepository:
         # `cidrs` は旧い形の読み手のために残す（注釈は `ranges` が持つ）。
         payload = {
             "cidrs": list(settings.cidrs),
-            "ranges": [{"cidr": r.cidr, "note": r.note} for r in settings.ranges],
+            # `group` は見出し（#621）。持たない旧い保存は空のまとまりとして読む。
+            "ranges": [{"cidr": r.cidr, "note": r.note, "group": r.group} for r in settings.ranges],
         }
         if row is None:
             self._session.add(

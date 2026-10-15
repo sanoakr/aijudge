@@ -45,6 +45,7 @@ from aijudge_course_admin.late_penalty import split_for_form, steps_from_form
 from aijudge_course_admin.late_penalty import summarize as summarize_penalty
 from aijudge_course_admin.tasks import clear_unit
 from aijudge_grading import EvaluatorRegistry
+from aijudge_identity.network import group_ranges
 
 from .. import notices
 from ..audit_context import recorder_for, source_ip_of
@@ -224,6 +225,27 @@ def _chosen_ranges(console, me, chosen: list[str]) -> tuple[str, ...]:
     return picked
 
 
+#: 見出しを使っている登録で、見出しの無い範囲をまとめる名前（#621）。
+UNGROUPED_SECTION = "その他"
+
+
+def _campus_sections(ranges: tuple) -> list[dict]:
+    """選ぶ画面の見出しとその中の範囲（#621）。**登録した見出しの順**に並べる。
+
+    見出しを 1 つも使っていない登録は、見出しの無い 1 まとまりとして返す ──
+    「その他」だけが出ると、何と比べての「その他」かが読めない。見出しを使って
+    いる登録では、見出しの無い範囲を「その他」として最後に置く。
+    """
+    sections = group_ranges(ranges)
+    if all(not name for name, _ in sections):
+        return [{"name": "", "ranges": ranges}] if ranges else []
+    named = [{"name": name, "ranges": members} for name, members in sections if name]
+    rest = [members for name, members in sections if not name]
+    if rest:
+        named.append({"name": UNGROUPED_SECTION, "ranges": rest[0]})
+    return named
+
+
 def _campus_choices(console, me, request: Request, group) -> dict:
     """受け付ける範囲の選択肢。いまの接続元が当たる範囲に印を付ける。"""
     import ipaddress
@@ -245,6 +267,7 @@ def _campus_choices(console, me, request: Request, group) -> dict:
     known = {entry.cidr for entry in ranges}
     return {
         "ranges": ranges,
+        "sections": _campus_sections(ranges),
         "chosen": chosen,
         "source_ip": source,
         "here": here,
