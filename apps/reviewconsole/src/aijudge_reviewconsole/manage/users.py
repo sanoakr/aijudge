@@ -18,7 +18,9 @@ from aijudge_core.ids import CourseId, UserId
 from aijudge_course_admin.roster import generate_password
 from aijudge_identity import AuthenticationFailed, AuthService, Principal
 from aijudge_identity.network import (
+    GROUP_HEADING,
     MAX_CIDRS,
+    MAX_GROUP_LENGTH,
     MAX_NOTE_LENGTH,
     CampusNetworkSettings,
     CampusRange,
@@ -47,6 +49,24 @@ def _require_local_account(me: Principal) -> None:
     """
     if me.is_external:
         raise HTTPException(status_code=404, detail="この利用者にパスワードはありません")
+
+
+def _campus_text(settings: CampusNetworkSettings | None) -> str:
+    """登録欄に出す文字列。保存のときに読む書式と同じ形で書き戻す（#621）。
+
+    まとまりごとに `## 見出し` の行を置き、まとまりの間は 1 行空ける。見出しの
+    無いまとまり（見出しより前の範囲・見出しを使う前の登録）は先頭に置く ──
+    見出しの後ろに書くと、次に保存したときにその見出しへ吸い込まれる。
+    """
+    if settings is None:
+        return ""
+    blocks: list[str] = []
+    groups = sorted(settings.grouped(), key=lambda item: item[0] != "")
+    for name, ranges in groups:
+        lines = [f"{GROUP_HEADING} {name}"] if name else []
+        lines += [f"{r.cidr}  # {r.note}" if r.note else r.cidr for r in ranges]
+        blocks.append("\n".join(lines))
+    return "\n\n".join(blocks)
 
 
 def register(router: APIRouter, templates: Jinja2Templates) -> None:
@@ -466,8 +486,10 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
                 "cidrs": cidrs,
                 "ranges": ranges,
                 "note_max": MAX_NOTE_LENGTH,
+                "group_max": MAX_GROUP_LENGTH,
                 # 1 行 1 件。`#` より後ろがその範囲の注釈（教室・回線）。
-                "text": "\n".join(f"{r.cidr}  # {r.note}" if r.note else r.cidr for r in ranges),
+                # まとまりは `## 見出し` の行で書き戻す（#621）。
+                "text": _campus_text(settings),
                 "source_ip": source,
                 "access": campus_access(source, cidrs),
                 "saved": SAVED_MESSAGES.get(saved),
@@ -491,15 +513,26 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
         console = _console(request)
 
         lines = [line.strip() for line in cidrs.splitlines() if line.strip()]
-        if len(lines) > MAX_CIDRS:
+        if sum(1 for line in lines if not line.startswith(GROUP_HEADING)) > MAX_CIDRS:
             raise HTTPException(status_code=400, detail=f"範囲は {MAX_CIDRS} 件までです")
         # **1 行ずつ確かめる。** `parse_cidrs` は読めるものだけを返す設計
         # なので、ここで数を比べても「どれが読めなかったか」は言えない。
         # 書式は `範囲  # 注釈`。`#` より後ろが、教員が受け付ける場所を選ぶときに
         # 読む説明（どの教室か・無線か有線か）になる。
+        # `## 瀬田` のような見出し行の下の範囲は、そのまとまりに入る（#621）。
+        # 教員が選ぶ画面で、キャンパス・教室ごとに見出しを付けて並べるため。
         entries: list[CampusRange] = []
         bad: list[str] = []
+        group = ""
         for line in lines:
+            if line.startswith(GROUP_HEADING):
+                group = line.removeprefix(GROUP_HEADING).strip()
+                if len(group) > MAX_GROUP_LENGTH:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"見出しは {MAX_GROUP_LENGTH} 文字までです: {group[:20]}…",
+                    )
+                continue
             address, _, note = line.partition("#")
             parsed = parse_cidrs([address])
             if not parsed:
@@ -510,7 +543,7 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
                     status_code=400,
                     detail=f"注釈は {MAX_NOTE_LENGTH} 文字までです: {address.strip()}",
                 )
-            entries.append(CampusRange(cidr=str(parsed[0]), note=note.strip()))
+            entries.append(CampusRange(cidr=str(parsed[0]), note=note.strip(), group=group))
         if bad:
             raise HTTPException(
                 status_code=400,
@@ -535,10 +568,10 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
                 summary=f"学内ネットワークを変えた（{len(entries)} 件）",
                 detail={
                     "before": [
-                        {"cidr": r.cidr, "note": r.note}
+                        {"cidr": r.cidr, "note": r.note, "group": r.group}
                         for r in (() if before is None else before.ranges)
                     ],
-                    "after": [{"cidr": r.cidr, "note": r.note} for r in entries],
+                    "after": [{"cidr": r.cidr, "note": r.note, "group": r.group} for r in entries],
                 },
             )
             uow.commit()

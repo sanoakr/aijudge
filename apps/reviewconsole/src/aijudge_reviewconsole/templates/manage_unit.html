@@ -116,13 +116,35 @@
          チェックを入れたときだけ出す。 #}
       <div class="campus-ranges" id="campus-ranges" {{ 'hidden' if not unit.campus_only }}>
         <p class="desc tight"><strong>受け付ける範囲</strong>（1 つ以上選んでください）</p>
-        {% for r in campus_choices.ranges %}
-        <label class="check">
-          <input type="checkbox" name="campus_ranges" value="{{ r.cidr }}"
-            {{ 'checked' if r.cidr in campus_choices.chosen }}>
-          <span class="mono">{{ r.cidr }}</span> {{ r.note or '（注釈なし）' }}
-          {% if campus_choices.here == r.cidr %}<span class="pill ok">いまの接続元はここ</span>{% endif %}
-        </label>
+        {# キャンパス・教室ごとにまとめて並べる（#621）。まとまりはテナント管理者が
+           登録欄の見出し行（`## 瀬田`）で決める。読むのは注釈なので CIDR は控えめに出す。
+           「すべて選ぶ／外す」はチェックを付け外しするだけで、保存はいつもの保存ボタン。 #}
+        {% if campus_choices.ranges %}
+        <p class="campus-bulk">
+          <button type="button" class="minor" data-campus-check="all">すべて選ぶ</button>
+          <button type="button" class="minor" data-campus-uncheck="all">すべて外す</button>
+        </p>
+        {% endif %}
+        {% for section in campus_choices.sections %}
+        <fieldset class="campus-section" data-campus-section>
+          {% if section.name %}
+          <legend>
+            {{ section.name }}
+            <button type="button" class="minor" data-campus-check="section">すべて選ぶ</button>
+            <button type="button" class="minor" data-campus-uncheck="section">外す</button>
+          </legend>
+          {% endif %}
+          <div class="checks">
+          {% for r in section.ranges %}
+          <label class="check">
+            <input type="checkbox" name="campus_ranges" value="{{ r.cidr }}"
+              {{ 'checked' if r.cidr in campus_choices.chosen }}>
+            {{ r.note or '（注釈なし）' }} <span class="mono campus-cidr">{{ r.cidr }}</span>
+            {% if campus_choices.here == r.cidr %}<span class="pill ok">いまの接続元はここ</span>{% endif %}
+          </label>
+          {% endfor %}
+          </div>
+        </fieldset>
         {% else %}
         <p class="note warn tight">登録された範囲がありません。</p>
         {% endfor %}
@@ -148,6 +170,20 @@
           var box = document.querySelector('input[name="campus_only"]');
           var panel = document.getElementById("campus-ranges");
           if (box && panel) box.addEventListener("change", function () { panel.hidden = !box.checked; });
+          // まとめて付け外し（#621）。"all" はパネル全体、"section" は押したまとまりだけ。
+          function toggle(button, checked, scope) {
+            var root = scope === "section" ? button.closest("[data-campus-section]") : panel;
+            if (!root) return;
+            root.querySelectorAll('input[name="campus_ranges"]').forEach(function (input) {
+              input.checked = checked;
+            });
+          }
+          if (panel) panel.addEventListener("click", function (event) {
+            var button = event.target.closest("button[data-campus-check], button[data-campus-uncheck]");
+            if (!button) return;
+            var check = button.dataset.campusCheck;
+            toggle(button, Boolean(check), check || button.dataset.campusUncheck);
+          });
         })();
       </script>
       {% if unit.campus_only and not campus_configured %}

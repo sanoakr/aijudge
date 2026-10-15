@@ -22,6 +22,12 @@ MAX_CIDRS = 64
 #: 注釈の長さの上限。教室名と回線の種類が書ければ足りる。
 MAX_NOTE_LENGTH = 120
 
+#: まとまり（見出し）の名前の長さの上限。キャンパス名や「情報実習室」が書ければ足りる。
+MAX_GROUP_LENGTH = 40
+
+#: 登録欄で見出しを表す行頭（#621）。`## 瀬田` の下の範囲が「瀬田」にまとまる。
+GROUP_HEADING = "##"
+
 
 class CampusRange(BaseModel):
     """学内の 1 範囲と、それが**どの教室・どの回線か**の注釈。
@@ -38,6 +44,10 @@ class CampusRange(BaseModel):
     #: 範囲を書き直すたびに選択との対応を持ち替える場所が増える。
     cidr: str
     note: str = Field(default="", max_length=MAX_NOTE_LENGTH)
+    #: どのまとまり（キャンパス・教室など）に入るか。教員が選ぶ画面で見出しになる
+    #: （#621）。**判定にも選択の照合にも使わない** ── 照合は CIDR だけなので、
+    #: まとめ方を変えても、どの問題セットの受付も変わらない。空はまとまり無し。
+    group: str = Field(default="", max_length=MAX_GROUP_LENGTH)
 
 
 class CampusNetworkSettings(BaseModel):
@@ -80,3 +90,25 @@ class CampusNetworkSettings(BaseModel):
             return self.ranges
         wanted = set(chosen)
         return tuple(entry for entry in self.ranges if entry.cidr in wanted)
+
+    def grouped(self) -> tuple[tuple[str, tuple[CampusRange, ...]], ...]:
+        """まとまりごとの範囲（`group_ranges`）。"""
+        return group_ranges(self.ranges)
+
+
+def group_ranges(
+    ranges: tuple[CampusRange, ...],
+) -> tuple[tuple[str, tuple[CampusRange, ...]], ...]:
+    """まとまりごとの範囲。**見出しが最初に出た順**で、中の並びも登録順（#621）。
+
+    まとまりの無い範囲は名前が空のまとまりに入る。登録欄で見出しより前に
+    書いた範囲と、見出しを使う前に登録した範囲がここに来る。
+    """
+    order: list[str] = []
+    members: dict[str, list[CampusRange]] = {}
+    for entry in ranges:
+        if entry.group not in members:
+            order.append(entry.group)
+            members[entry.group] = []
+        members[entry.group].append(entry)
+    return tuple((name, tuple(members[name])) for name in order)
