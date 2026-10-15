@@ -127,7 +127,7 @@
         {% endif %}
         {# まとまりごとに 1 行（2026-10-15）。枠で囲むとまとまり 1 つで 80px ほど取り、7 つで
            画面が縦に伸びた。左に名前と付け外し、右にチェックを横に並べる。CIDR は
-           マウスを重ねると出す ── 教員が読むのは注釈で、CIDR を並べると行が折り返す。 #}
+           注釈の後ろに小さく出す（同じ注釈の範囲を見分けるのに要る）。 #}
         <div class="campus-rows">
         {% for section in campus_choices.sections %}
         <div class="campus-row" data-campus-section>
@@ -140,10 +140,10 @@
           {% endif %}
           <div class="checks">
           {% for r in section.ranges %}
-          <label class="check tight" title="{{ r.cidr }}">
+          <label class="check tight">
             <input type="checkbox" name="campus_ranges" value="{{ r.cidr }}"
               {{ 'checked' if r.cidr in campus_choices.chosen }}>
-            {{ r.note or r.cidr }}
+            {{ r.note or '（注釈なし）' }} <span class="mono campus-cidr">{{ r.cidr }}</span>
             {% if campus_choices.here == r.cidr %}<span class="pill ok">いまの接続元はここ</span>{% endif %}
           </label>
           {% endfor %}
