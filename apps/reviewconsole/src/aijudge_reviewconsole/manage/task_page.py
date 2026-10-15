@@ -20,6 +20,7 @@ from aijudge_core import (
     SUFFIX_GROUPS,
     Course,
     EvaluatorKind,
+    EvaluatorStatus,
     normalize_suffixes,
 )
 from aijudge_core.ids import TaskId, derived_id
@@ -285,23 +286,59 @@ def _record_gates(console, profile, version) -> None:
         uow.commit()
 
 
-def _regradable(console, task, version) -> int:
-    """この課題で、**まだ確定していない**うち古い版で採点されている件数。
+class RegradeTargets:
+    """「いまの版で再採点」が積む提出。**件数の表示と積む処理が同じ集合を見る。**
+
+    - `on_old_version`: 未確定で、いまの版より古い版で採点されたもの（課題の訂正）
+    - `failed_without_run`: 採点が上限まで落ちて結果の無いもの（2026-09-22）
+    - `evaluator_failed`: 未確定で、いまの版で採点は済んだが**評価器が失敗した**もの
+      （#620）。その評価器の観点は点が付かず確認待ちに回る。2026-10-15、評価器の
+      不具合（実行テストの `UnicodeDecodeError`・停止の合図 `WorkerStopping`）を直して
+      デプロイしたあと、このボタンでは 1 件も積めず、運用機でスクリプトを流した。
+      `(提出, 失敗した採点)` の組で持つ ── 冪等キーに採点の id を混ぜるため。
+
+    3 つは重ならない（版が違う・結果が無い・版が同じ）。
+    """
+
+    def __init__(self, on_old_version, failed_without_run, evaluator_failed) -> None:
+        self.on_old_version = tuple(on_old_version)
+        self.failed_without_run = tuple(failed_without_run)
+        self.evaluator_failed = tuple(evaluator_failed)
+
+    @property
+    def count(self) -> int:
+        return len(self.on_old_version) + len(self.failed_without_run) + len(self.evaluator_failed)
+
+
+def _regrade_targets(uow, task, version) -> RegradeTargets:
+    """この課題で、**まだ確定していない**うち採点し直す提出。
 
     確定済みは数えない。確定は「この成績で閉じた」という事実で（ADR 0010）、
     あとから機械が採点し直すと、確定の記録が指す採点と学習者に見える採点が
     食い違う。訂正前に確定した提出を直すのは、教員が 1 件ずつ読む仕事として
     残す。
     """
+    rows = uow.reviews.unfinalized_for_task(task.id)
+    on_old_version = [
+        submission
+        for submission, run, _request in rows
+        if run.context.task_version_id != version.id
+    ]
+    evaluator_failed = [
+        (submission, run)
+        for submission, run, _request in rows
+        if run.context.task_version_id == version.id
+        and any(result.status is EvaluatorStatus.FAILED for result in run.evaluator_results)
+    ]
+    return RegradeTargets(on_old_version, _failed_without_run(uow, task), evaluator_failed)
+
+
+def _regradable(console, task, version) -> int:
+    """「いまの版で再採点」で積む件数（`_regrade_targets` と同じ集合）。"""
     if task is None or version is None:
         return 0
     with console.database.unit_of_work() as uow:
-        rows = uow.reviews.unfinalized_for_task(task.id)
-        failed = _failed_without_run(uow, task)
-    on_old_version = sum(
-        1 for _submission, run, _request in rows if run.context.task_version_id != version.id
-    )
-    return on_old_version + len(failed)
+        return _regrade_targets(uow, task, version).count
 
 
 def _save_revision(
@@ -722,7 +759,14 @@ def _saved_note(request: Request, me, course, task, saved: str) -> str | None:
     queued = _console(request).notices.take(me.user_id, course.id, notices.REGRADED, scope=task.id)
     if queued is None:
         return message
-    return f"{queued} 件を{message}"
+    if not isinstance(queued, dict):
+        return f"{queued} 件を{message}"
+    # **評価器の失敗による分を分けて言う**（#620）。課題の訂正による再採点と
+    # 混ざると、評価器の不具合を直したあとに押した教員が、何件が直ったのか読めない。
+    note = f"{queued['total']} 件を{message}"
+    if queued.get("evaluator_failed"):
+        note += f"。うち {queued['evaluator_failed']} 件は、評価器の失敗で確認待ちだった提出です"
+    return note
 
 
 def _with_pruned(request: Request, me, course, task, message: str | None) -> str | None:

@@ -5980,6 +5980,138 @@ def test_a_submission_whose_grading_failed_is_regraded_on_the_current_version(
     assert queued.task_version_id == latest.id, "古い版のままで再実行している"
 
 
+def _run_with(submission_id, version_id, *, status: str):
+    """実行テストの結果が `status` の採点（評価器の生の結果だけを持つ最小の形）。"""
+    from aijudge_core import GradingRun, new_id
+
+    run_id = new_id("grn")
+    return GradingRun.model_validate(
+        {
+            "id": run_id,
+            "submission_id": str(submission_id),
+            "context": {
+                "task_version_id": str(version_id),
+                "subject_profile": "cs_lang_c_intro",
+                "rubric_version": "r@1",
+                # 提出ごとに別の中身（同じハッシュは同じ入力として 1 件にまとまる）
+                "input_hash": f"sha256:{run_id}",
+                "pipeline_version": "1",
+            },
+            "evaluator_results": [
+                {
+                    "id": new_id("evr"),
+                    "evaluator_id": "code_test_runner",
+                    "kind": "deterministic",
+                    "status": status,
+                    "error": "WorkerStopping: " if status == "failed" else None,
+                }
+            ],
+            "criterion_scores": [],
+            # 点の無い採点は理由が要る（評価器が落ちた観点は「未採点」になる）
+            "unscored_criteria": ["crt_" + "1" * 32],
+            "score_ratio": 0.0,
+            "confidence": 1.0,
+            "routing": "review_required",
+            "created_at": datetime.now(UTC).isoformat(),
+        }
+    )
+
+
+def test_a_run_whose_evaluator_failed_is_regraded_on_the_current_version(world: World) -> None:
+    """**いまの版で採点済みでも、評価器が失敗した未確定の採点は再採点に拾う**（#620）。
+
+    2026-10-15、実行テストの不具合（`UnicodeDecodeError`・`WorkerStopping`）を直して
+    デプロイしたあと、確認待ちに回った提出をこのボタンで採点し直そうとしたが、
+    版が同じで結果もあるので 1 件も積まれなかった。確定済みと、評価器が全部
+    通った採点は動かさない（P5・ADR 0010）。
+    """
+    from aijudge_core import ArtifactKind, Finalization, FinalizationSource, new_id
+    from aijudge_core.ids import FinalizationId
+    from aijudge_submission import (
+        IncomingFile,
+        JobReason,
+        SubmissionService,
+        job_idempotency_key,
+    )
+
+    world.register("teacher", Role.INSTRUCTOR)
+    # 学習者ごとに 1 件（同じ学習者の出し直しは 1 件にまとまる）
+    learners = [world.register(f"s240000{n}", Role.LEARNER) for n in (1, 2, 3)]
+    client = world.client("teacher")
+    client.post(
+        f"/manage/courses/{world.course.id}/tasks",
+        data={
+            "key_suffix": "p2",
+            "unit": "ex04",
+            "statement": "## [必須] 配列 ##\n\n書きなさい。",
+            "position": "1",
+            "readability_weight": "0.3",
+        },
+    )
+    with world.database.unit_of_work() as uow:
+        (task,) = uow.tasks.list_for_course(world.course.id)
+        version = uow.tasks.latest_published_version(task.id)
+    assert version is not None
+
+    service = SubmissionService(world.database.unit_of_work, world.console.store)
+
+    def submit(learner):
+        return service.accept(
+            tenant_id=TENANT,
+            task_version_id=version.id,
+            learner_id=learner.user_id,
+            subject_profile="cs_lang_c_intro",
+            files=[IncomingFile(filename="p2.c", kind=ArtifactKind.CODE, payload=b"int main(){}")],
+        ).submission
+
+    failed, passed, closed = (submit(learner) for learner in learners)
+    runs = {
+        failed.id: _run_with(failed.id, version.id, status="failed"),
+        passed.id: _run_with(passed.id, version.id, status="ok"),
+        closed.id: _run_with(closed.id, version.id, status="failed"),
+    }
+    with world.database.unit_of_work() as uow:
+        for run in runs.values():
+            uow.runs.save(run)
+        uow.reviews.save_finalization(
+            Finalization(
+                id=FinalizationId(new_id("fin")),
+                grading_run_id=runs[closed.id].id,
+                source=FinalizationSource.AUTOMATIC,
+                justification="締切から所定の時間が経過したため自動確定しました。",
+                finalized_at=datetime.now(UTC),
+            )
+        )
+        uow.commit()
+
+    task_id = str(task.id)
+    page = client.get(f"/manage/courses/{world.course.id}/tasks/{task_id}/edit").text
+    assert "いまの版で再採点（1 件）" in page, "評価器が失敗した採点が再採点の対象に出ていない"
+
+    response = client.post(
+        f"/manage/courses/{world.course.id}/tasks/{task_id}/regrade", follow_redirects=False
+    )
+    assert response.status_code == 303, response.text
+
+    def queued(submission) -> bool:
+        key = job_idempotency_key(
+            submission.id,
+            JobReason.REGRADE,
+            discriminator=f"evaluator-failed:{runs[submission.id].id}:{version.id}",
+        )
+        with world.database.unit_of_work() as uow:
+            return uow.jobs.find_by_idempotency_key(key) is not None
+
+    assert queued(failed), "評価器が失敗した未確定の採点が積まれていない"
+    assert not queued(passed), "評価器が全部通った採点を積んだ"
+    assert not queued(closed), "確定済みの採点を積んだ（確定した成績が動く）"
+
+    # 件数は、評価器の失敗による分を分けて言う。
+    notice = client.get(response.headers["location"].split("#")[0]).text
+    assert "1 件をこの版で採点し直します" in notice
+    assert "うち 1 件は、評価器の失敗で確認待ちだった提出です" in notice
+
+
 # --------------------------------------------------------------------------
 # 受講者（別ページ）
 # --------------------------------------------------------------------------
