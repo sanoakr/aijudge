@@ -12,9 +12,11 @@ Phase 0 の既定は PostgreSQL。SQLite も動くが、**行ロックが無い*
 
 from __future__ import annotations
 
+import json
 import os
 from collections.abc import Iterator
 from contextlib import contextmanager
+from typing import Any
 
 from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -74,6 +76,7 @@ def create_db_engine(
             echo=echo,
             connect_args={"check_same_thread": False},
             poolclass=StaticPool,
+            json_serializer=dumps_without_nul,
         )
     return create_engine(
         resolved,
@@ -81,7 +84,37 @@ def create_db_engine(
         pool_pre_ping=True,
         pool_size=pool_size,
         max_overflow=max_overflow,
+        json_serializer=dumps_without_nul,
     )
+
+
+#: NUL の代わりに入れる文字。読めなかったことが残る置換文字（U+FFFD）。
+NUL_REPLACEMENT = "\ufffd"
+
+
+def dumps_without_nul(value: Any) -> str:
+    """JSON にする前に、文字列の中の NUL（U+0000）を置換文字に替える。
+
+    **PostgreSQL の JSONB は NUL を保存できない**（`\\u0000 cannot be converted
+    to text`）。採点結果にはプログラムの出力がそのまま入るので、NUL を書く
+    提出 1 件で採点の保存が落ち、決定的ワーカーのプロセスごと止まった
+    （2026-10-15、prog2 ex03/p8・ex04/p2。systemd が再起動するたびに同じジョブを
+    掴み直す）。SQLite は保存できてしまうので、方言を問わず同じ値にする ──
+    「SQLite では NUL、PostgreSQL では落ちる」差を残すと、テストで気づけない。
+
+    出力の比較は採点時に済んでいて、ここで替えても点は変わらない。
+    """
+    return json.dumps(_without_nul(value))
+
+
+def _without_nul(value: Any) -> Any:
+    if isinstance(value, str):
+        return value.replace("\x00", NUL_REPLACEMENT)
+    if isinstance(value, dict):
+        return {_without_nul(key): _without_nul(item) for key, item in value.items()}
+    if isinstance(value, list | tuple):
+        return [_without_nul(item) for item in value]
+    return value
 
 
 def create_schema(engine: Engine) -> None:
