@@ -42,7 +42,7 @@ from aijudge_core.ids import (
     UserId,
 )
 
-from .jobs import GradingJob, JobState
+from .jobs import GradingJob, JobLane, JobState
 from .protocols import (
     ImmutabilityViolation,
     RunDecision,
@@ -385,6 +385,7 @@ class InMemoryJobQueue:
         lease_seconds: float,
         subject_profile: str | None = None,
         phase: GradingPhase | None = None,
+        lane: JobLane | None = None,
     ) -> GradingJob | None:
         candidates = [
             job
@@ -392,6 +393,7 @@ class InMemoryJobQueue:
             if job.is_available(now)
             and (subject_profile is None or job.subject_profile == subject_profile)
             and (phase is None or job.phase is phase)
+            and (lane is None or job.lane is lane)
         ]
         if not candidates:
             return None
@@ -428,7 +430,10 @@ class InMemoryJobQueue:
         )
 
     def pending_count(
-        self, subject_profile: str | None = None, phase: GradingPhase | None = None
+        self,
+        subject_profile: str | None = None,
+        phase: GradingPhase | None = None,
+        lane: JobLane | None = None,
     ) -> int:
         return sum(
             1
@@ -436,6 +441,7 @@ class InMemoryJobQueue:
             if job.state in (JobState.QUEUED, JobState.RUNNING)
             and (subject_profile is None or job.subject_profile == subject_profile)
             and (phase is None or job.phase is phase)
+            and (lane is None or job.lane is lane)
         )
 
     def position_in_queue(
@@ -462,6 +468,7 @@ class InMemoryJobQueue:
             1
             for job in self._items.values()
             if job.phase is phase
+            and job.lane is mine.lane
             and (
                 job.state is JobState.RUNNING
                 or (

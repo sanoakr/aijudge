@@ -4,6 +4,8 @@
     uv run aijudge-worker                   # 常駐して待つ
     uv run aijudge-worker --subject cs_lang_c_intro   # 科目を絞る（GPU の割り当てを分ける）
     uv run aijudge-worker --phase deterministic  # 速い段階だけを担当する
+    uv run aijudge-worker --phase deterministic --lane default        # 書き起こしは回す
+    uv run aijudge-worker --phase deterministic --lane transcription  # 回された分を採点する
 
 **レビューとは独立に走る。** レビューは採点の前提条件ではない（ADR 0007）。
 
@@ -11,6 +13,11 @@
 うち 95% が LLM）。同じワーカーに任せると、テスト実行が終わっている提出の結果が
 前に並んだ他人の LLM 待ちの後ろで止まる。`--phase deterministic` を 1 本立てれば、
 決定的評価の結果は待たされない（設計方針 §9.1 の「p95 < 30 秒」はこの形で満たす）。
+
+**決定的段階の中でも列を分ける**（#627）。画像の書き起こしはビジョンモデルを呼ぶので、
+決定的段階でも 1 件数分かかる。`--lane default` のワーカーはそれを自分では採点せず
+`transcription` の列へ回し、`--lane transcription` のワーカーが採点する。**両方を立てる
+構成でだけ** `--lane default` を使うこと ── 回した先を誰も取らなければ採点は来ない。
 """
 
 from __future__ import annotations
@@ -26,7 +33,7 @@ from pathlib import Path
 from aijudge_core import GradingPhase
 from aijudge_course_admin.justification import JustificationWriter
 from aijudge_persistence import ENV_DATABASE_URL, Database, ObservationFileStore
-from aijudge_submission import FilesystemArtifactStore
+from aijudge_submission import FilesystemArtifactStore, JobLane
 from aijudge_telemetry import configure_logging
 
 from .feedback import build_feedback_generator
@@ -109,6 +116,15 @@ def main(argv: list[str] | None = None) -> int:
             "テスト実行の結果が AI 待ちの後ろで止まらない"
         ),
     )
+    parser.add_argument(
+        "--lane",
+        default=None,
+        choices=[lane.value for lane in JobLane],
+        help=(
+            "この列のジョブだけ処理する。default は書き起こしの要る提出を transcription へ回す"
+            "（transcription のワーカーも立てること）。省略すると列を問わず全部を採点する"
+        ),
+    )
     parser.add_argument("--name", default=os.uname().nodename, help="ワーカーの識別子")
     parser.add_argument("--once", action="store_true", help="キューが空になったら終わる")
     parser.add_argument("--poll-seconds", type=float, default=2.0, help="常駐時の待ち間隔")
@@ -121,6 +137,7 @@ def main(argv: list[str] | None = None) -> int:
 
     configure_logging(f"worker-{args.name}")
     phase = None if args.phase is None else GradingPhase(args.phase)
+    lane = None if args.lane is None else JobLane(args.lane)
     worker, database = build_worker(args)
 
     if not database.supports_row_locking:
@@ -133,7 +150,9 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if args.once:
-            graded, errors = worker.run_until_empty(subject_profile=args.subject, phase=phase)
+            graded, errors = worker.run_until_empty(
+                subject_profile=args.subject, phase=phase, lane=lane
+            )
             print(f"採点した提出: {graded} 件")
             for error in errors:
                 print(f"  失敗: {error}", file=sys.stderr)
@@ -145,12 +164,14 @@ def main(argv: list[str] | None = None) -> int:
         signal.signal(signal.SIGTERM, _stop)
         logger.info("ワーカー %s を開始しました", args.name)
         while not _stopping:
-            result = worker.run_once(subject_profile=args.subject, phase=phase)
+            result = worker.run_once(subject_profile=args.subject, phase=phase, lane=lane)
             if result is None:
                 time.sleep(args.poll_seconds)
                 continue
             if result.graded:
                 logger.info("採点しました: %s", result.job.submission_id)
+            elif result.handed_off:
+                logger.info("書き起こしの列へ回しました: %s", result.job.submission_id)
             else:
                 logger.warning("失敗: %s: %s", result.job.submission_id, result.error)
         logger.info("停止しました")

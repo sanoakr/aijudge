@@ -374,6 +374,81 @@ def test_position_in_queue(database: Database) -> None:
             assert uow.jobs.position_in_queue(s, GradingPhase.DETERMINISTIC, NOW) >= 1
 
 
+def test_a_job_moved_to_another_lane_is_taken_only_from_that_lane(database: Database) -> None:
+    """書き起こしの列へ回したジョブは、ふつうの列のワーカーに取られない（#627）。
+
+    列は行の `lane` で絞る。付け替え（`update`）が列を写さないと、回した
+    ジョブがふつうの列に残り、書き起こしの列のワーカーには永久に来ない。
+    """
+    from aijudge_core import GradingPhase
+    from aijudge_submission import JobLane
+
+    service = a_service(database)
+    subs = [
+        service.accept(
+            tenant_id=TENANT,
+            task_version_id=TASK_VERSION,
+            learner_id=UserId(f"usr_{i:032d}"),
+            subject_profile="cs_lang_c_intro",
+            files=code(f"int main(void){{return {i};}}"),
+        ).submission.id
+        for i in range(3)
+    ]
+
+    with database.unit_of_work() as uow:
+        first = uow.jobs.reserve(NOW, worker="det", lease_seconds=60.0, lane=JobLane.DEFAULT)
+        assert first is not None
+        uow.jobs.update(first.moved_to(JobLane.TRANSCRIPTION, NOW))
+        uow.commit()
+
+    with database.unit_of_work() as uow:
+        assert uow.jobs.pending_count(lane=JobLane.TRANSCRIPTION) == 1
+        assert uow.jobs.pending_count(lane=JobLane.DEFAULT) == 2
+        # 回したジョブは自分の列で先頭。ふつうの列の 2 件は前に数えない。
+        assert uow.jobs.position_in_queue(first.submission_id, GradingPhase.DETERMINISTIC, NOW) == 0
+
+        default_taken = [
+            uow.jobs.reserve(NOW, worker="det", lease_seconds=60.0, lane=JobLane.DEFAULT)
+            for _ in range(3)
+        ]
+        # 同じ時刻に積んだジョブは id の順に出るので、順序ではなく顔ぶれを見る。
+        assert {job.submission_id for job in default_taken if job is not None} == {
+            s for s in subs if s != first.submission_id
+        }
+        assert default_taken[-1] is None
+
+        moved = uow.jobs.reserve(NOW, worker="tr1", lease_seconds=60.0, lane=JobLane.TRANSCRIPTION)
+        assert moved is not None
+        assert moved.id == first.id
+        assert moved.lane is JobLane.TRANSCRIPTION
+        # 回しただけでは試行に数えない。取った今が 1 回目。
+        assert moved.attempts == 1
+
+
+def test_a_worker_without_a_lane_takes_every_lane(database: Database) -> None:
+    """列を指定しないワーカーは列を問わない（ワーカー 1 本の構成・#627）。"""
+    from aijudge_submission import JobLane
+
+    service = a_service(database)
+    service.accept(
+        tenant_id=TENANT,
+        task_version_id=TASK_VERSION,
+        learner_id=LEARNER,
+        subject_profile="cs_lang_c_intro",
+        files=code(),
+    )
+    with database.unit_of_work() as uow:
+        job = uow.jobs.reserve(NOW, worker="det", lease_seconds=60.0)
+        assert job is not None
+        uow.jobs.update(job.moved_to(JobLane.TRANSCRIPTION, NOW))
+        uow.commit()
+
+    with database.unit_of_work() as uow:
+        again = uow.jobs.reserve(NOW, worker="any", lease_seconds=60.0)
+        assert again is not None
+        assert again.lane is JobLane.TRANSCRIPTION
+
+
 def test_a_reserved_job_is_not_handed_out_twice(database: Database) -> None:
     service = a_service(database)
     service.accept(

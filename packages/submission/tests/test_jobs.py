@@ -21,6 +21,7 @@ from aijudge_core.ids import (
 from aijudge_submission import (
     LEASE_LOST_ERROR,
     GradingJob,
+    JobLane,
     JobReason,
     JobState,
     follow_up_idempotency_key,
@@ -224,6 +225,32 @@ def test_a_released_job_goes_back_uncounted() -> None:
     assert released.attempts == 0
     assert released.available_at == later
     assert released.worker is None and released.lease_expires_at is None
+
+
+def test_a_job_moved_to_another_lane_goes_back_uncounted() -> None:
+    """列の付け替えは採点を始める前なので、試行に数えない（#627）。
+
+    数えると、書き起こしの要る提出だけ上限が 1 回少なくなる。
+    """
+    job = make().reserved(NOW, worker="det", lease_seconds=60.0)
+    later = NOW + timedelta(seconds=1)
+    moved = job.moved_to(JobLane.TRANSCRIPTION, later)
+    assert moved.lane is JobLane.TRANSCRIPTION
+    assert moved.state is JobState.QUEUED
+    assert moved.attempts == 0
+    assert moved.available_at == later
+    assert moved.worker is None and moved.lease_expires_at is None
+    # 冪等キーは変えない。新しいジョブではなく、同じジョブの並び直しである。
+    assert moved.idempotency_key == job.idempotency_key
+    with pytest.raises(ValueError, match="cannot move"):
+        moved.moved_to(JobLane.DEFAULT, later)
+
+
+def test_a_job_without_a_stored_lane_reads_as_the_default_lane() -> None:
+    """列を足す前に保存したジョブ（document に `lane` が無い）も読める。"""
+    stored = make().model_dump(mode="json")
+    del stored["lane"]
+    assert GradingJob.model_validate(stored).lane is JobLane.DEFAULT
 
 
 def test_a_lease_can_be_extended_only_while_running() -> None:

@@ -456,6 +456,19 @@ uv run aijudge-worker --phase ai --name ai4 &
 `--phase` を付けないワーカーは、両方の段階のジョブを処理する。開発機ではそれで十分だが、**締切前に提出が集中すると、
 決定的評価が AI 評価の後ろに並ぶ**ので、運用では分ける。
 
+**画像や文書を書き起こす課題があるなら、決定的段階も 2 つの列に分ける**（#627）。書き起こしは
+ビジョンモデルを呼ぶので、決定的段階でも 1 件に数分かかる（2026-10-16 は 1.5〜4 分）。同じ列に
+並べると、1 秒で終わるテスト実行の提出がその後ろで待たされる（その日は約 50 分待った）。
+
+```fish
+uv run aijudge-worker --phase deterministic --lane default --name det1 &        # 書き起こしは回す
+uv run aijudge-worker --phase deterministic --lane transcription --name tr1 &   # 回された分を採点する
+```
+
+`--lane default` のワーカーは、書き起こしの要る提出を採点せずに `transcription` の列へ回す。
+**`--lane transcription` のワーカーが 1 本も無いと、回した提出は採点されない。** 書き起こしの列を
+立てないなら、`--lane` を付けない（列を問わず全部を自分で採点する。従来どおり）。
+
 ### イベントのリレー（#328）
 
 ```fish
@@ -516,6 +529,7 @@ uv run aijudge-relay --once # 空になるまで流して終わる（cron でも
 | 学習者アプリのプロセス数 | `AIJUDGE_WEB_WORKERS`（EnvironmentFile） | 2 |
 | 教員コンソールのプロセス数 | 1 固定（`aijudge-review.service`） | 1 |
 | 決定的ワーカー | `aijudge-worker-det.service` | 1 |
+| 書き起こしのワーカー（#627） | `aijudge.target` の `Wants=`（`aijudge-worker-transcribe@1`〜`@2`） | 2 |
 | AI ワーカー | `aijudge.target` の `Wants=`（@1〜@4） | 4 |
 | 1 プロセスあたりの DB 接続 | `packages/persistence/.../engine.py` | `pool_size 10 + max_overflow 20` |
 | DB の上限 | postgresql の `max_connections` | 300 |
@@ -524,9 +538,12 @@ uv run aijudge-relay --once # 空になるまで流して終わる（cron でも
 見積りは**プロセス数 × 30**（`pool_size + max_overflow`）。
 
 ```
-web 2 + review 1 + det 1 + ai 4 + finalize 1 = 9 プロセス
-9 × 30 = 270（最悪）   9 × 10 = 90（定常）
+web 2 + review 1 + det 1 + transcribe 2 + ai 4 + finalize 1 = 11 プロセス
+11 × 30 = 330（最悪）   11 × 10 = 110（定常）
 ```
+
+**書き起こしのワーカーを足した時点で（#627）、それまでの `max_connections` 300 は最悪値を
+下回る。** 導入の前に上げること（例: 400）。
 
 **`max_connections` は、この最悪値を上回るようにすること。** 定常値で決めると、
 締切前の集中時にちょうど足りなくなる。接続が足りなくなるのは、最も混雑している瞬間である。

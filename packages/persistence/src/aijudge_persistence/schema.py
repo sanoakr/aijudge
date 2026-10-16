@@ -313,6 +313,8 @@ class GradingJobRow(Base):
     reason: Mapped[str] = mapped_column(String(32))
     # 段階。**列にする。** ワーカーがここで絞って取るので、JSON の中では引けない。
     phase: Mapped[str] = mapped_column(String(32), index=True, default="deterministic")
+    # 列（`JobLane`・#627）。段階と同じ理由で列にする。既存の行は DEFAULT で読む。
+    lane: Mapped[str] = mapped_column(String(32), default="default", server_default="default")
     idempotency_key: Mapped[str] = mapped_column(String(192))
     state: Mapped[str] = mapped_column(String(32))
     attempts: Mapped[int] = mapped_column(Integer)
@@ -330,6 +332,8 @@ class GradingJobRow(Base):
         Index("ix_jobs_profile_state", "subject_profile", "state"),
         # 段階を絞るワーカーの取得クエリ。
         Index("ix_jobs_phase_available", "phase", "state", "available_at"),
+        # 列も絞るワーカー（決定的段階の 2 つの列）の取得クエリ。
+        Index("ix_jobs_phase_lane_available", "phase", "lane", "state", "available_at"),
     )
 
 

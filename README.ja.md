@@ -145,6 +145,8 @@ uv run aijudge-web                          # 学習者      :8766
 uv run aijudge-review                       # 教員        :8765
 uv run aijudge-worker --phase deterministic
 uv run aijudge-worker --phase ai
+# 画像・文書の書き起こしがあるなら速い段階を 2 つの列に分ける（docs/RUNNING.md・#627）:
+#   --phase deterministic --lane default  と  --phase deterministic --lane transcription
 uv run aijudge-runner                       # ブラウザのエディタの試しの実行（採点ではない）
 uv run aijudge-ide-close --once             # エディタの問題セットの受付終了時に自動保存を提出
 ```

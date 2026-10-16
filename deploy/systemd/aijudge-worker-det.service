@@ -2,6 +2,11 @@
 # （ADR 0011）── 遅い LLM 呼び出しの後ろに、2 秒で終わるテスト実行が
 # 並んで待たされない。決定的評価はサンドボックス（Docker）を使うので
 # docker.service にも依存する。
+#
+# **書き起こしの要る提出は自分では採点しない**（`--lane default`・#627）。画像の
+# 書き起こしはビジョンモデルを呼ぶので 1 件数分かかり、ここで採点すると後ろの
+# テスト実行がすべて待たされる（2026-10-16 に約 50 分）。`transcription` の列へ回し、
+# `aijudge-worker-transcribe@` が採点する。あちらを止めるなら、ここも `--lane` を外す。
 [Unit]
 Description=aiJudge worker (deterministic phase)
 # 失敗したらメールで知らせる（#422）。
@@ -16,7 +21,7 @@ User=aijudge
 Group=aijudge
 WorkingDirectory=/opt/aijudge
 EnvironmentFile=/srv/aijudge/config/aijudge.env
-ExecStart=/opt/aijudge/.venv/bin/aijudge-worker --phase deterministic --name det
+ExecStart=/opt/aijudge/.venv/bin/aijudge-worker --phase deterministic --lane default --name det
 # journald でこのサービスの行を引くための名札（ADR 0016）。
 SyslogIdentifier=aijudge-worker-det
 Restart=on-failure
