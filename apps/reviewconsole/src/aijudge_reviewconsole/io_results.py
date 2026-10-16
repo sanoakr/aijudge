@@ -105,6 +105,9 @@ class NetworkCase:
     companion_stdout: str | None
     # 待ち受けなかったとき、待たれた側（背景のプロセス）の標準エラー出力。
     background_stderr: str | None
+    # 提出物の標準エラー出力（#626）。**落ちた理由はここにしか出ない** ── 構文エラーや
+    # 例外で止まった提出は標準出力が空なので、これが無いと「出力なし」しか読めない。
+    stderr: str | None
     # 出力が記録されているか。時間切れ・待ち受けなしでは記録されない。
     recorded: bool
 
@@ -219,6 +222,7 @@ def _network_case(entry: dict[str, object], defined: TestCase | None) -> Network
         submission_stdout=_short(entry.get("submission_stdout"), keep_empty=True),
         companion_stdout=_short(entry.get("companion_stdout"), keep_empty=True),
         background_stderr=_short(entry.get("background_stderr")),
+        stderr=_short(entry.get("stderr")),
         recorded=recorded,
     )
 

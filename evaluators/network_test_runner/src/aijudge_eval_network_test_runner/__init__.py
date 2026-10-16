@@ -23,6 +23,7 @@ Sharif Judge が採点できなかった課題がここに入る（ADR 0008）�
 from __future__ import annotations
 
 import math
+import signal
 from typing import Any
 
 from aijudge_core import (
@@ -71,6 +72,65 @@ _MAX_PROCESSES = 64
 _MAX_OUTPUT_BYTES = 1024 * 1024
 
 _EXCERPT_CHARS = 2000
+# 根拠（学習者に返る説明）に載せるエラーの長さ。全文は raw_output に残る。
+_ERROR_EXCERPT_CHARS = 300
+
+# 起動スクリプトが待ち受け側を止めるときの終了コード（`background.kill()`）。
+# **これは提出物の異常終了ではない。** サーバ役の提出物は止められるまで動き続けるのが
+# 正しい姿なので、この値を「落ちた」と読むと、正しいサーバが全部異常終了に見える。
+_KILLED_BY_LAUNCHER = -signal.SIGKILL
+
+# 理由の語は code_test_runner と揃える。コンソールの表示（`io_results._reason`）が
+# 両方を同じ語で読む。
+REASON_TIMEOUT = "timeout"
+REASON_NONZERO_EXIT = "nonzero exit"
+REASON_OUTPUT_MISMATCH = "output mismatch"
+
+
+def _last_error_line(case: dict[str, object]) -> str:
+    """エラー出力の要点。Python の traceback は最後の行に型と説明が出る。"""
+    lines = [line.strip() for line in str(case.get("stderr", "")).splitlines() if line.strip()]
+    return lines[-1][:_ERROR_EXCERPT_CHARS] if lines else ""
+
+
+def _common_error(failed: list[dict[str, object]]) -> str | None:
+    """落ちたケースに共通する、出力の照合より前の理由。無ければ None（#626）。
+
+    **「出力に現れなかったもの」より先に言う。** 起動直後に落ちた提出に期待する
+    出力を並べても、学習者には「何かが足りない」としか読めない ── 実際に
+    2026-10-16 の test5 では、構文エラーや `with int(input())` の TypeError で
+    1 行も出力しなかった提出に、その説明が返っていた。
+    """
+    if all(case.get("reason") == REASON_TIMEOUT for case in failed):
+        return (
+            "プログラムが時間内に終わりませんでした"
+            "（入力を待ち続けている、相手の応答を待ち続けている、など）。"
+        )
+    crashed = [case for case in failed if case.get("reason") == REASON_NONZERO_EXIT]
+    if not crashed:
+        return None
+    message = _last_error_line(crashed[0])
+    if not message:
+        return f"プログラムがエラーで止まりました（終了コード {crashed[0].get('exit_code')}）。"
+    if len(crashed) == len(failed):
+        return f"プログラムがエラーで止まりました: {message}"
+    return f"プログラムがエラーで止まったケースがあります: {message}"
+
+
+def _unbuffered(argv: tuple[str, ...]) -> tuple[str, ...]:
+    """Python なら出力をため込ませない（`-u`）。
+
+    **時間切れで止められると、ため込んだ出力は消える**（#626）。パイプへの出力は
+    Python がブロック単位でため込むので、途中まで正しく動いていても「出力なし」として
+    記録され、教員も学習者も何が起きたか読めなかった。`-I` は環境変数
+    （`PYTHONUNBUFFERED`）を読まないので、引数で渡す。
+
+    言語の定義（`aijudge_toolchain`）は変えない ── code_test_runner と共有しており、
+    出力の多い提出を gVisor の上でため込まずに書くと、1 行ごとのシステムコールで遅くなる。
+    """
+    if argv and argv[0].startswith("python") and "-u" not in argv:
+        return (argv[0], "-u", *argv[1:])
+    return argv
 
 
 class PayloadError(Exception):
@@ -258,8 +318,8 @@ class NetworkTestRunner:
         for filename, content in (payload.get("fixtures") or {}).items():
             workspace.write(str(filename), str(content))
 
-        submission_argv = language.run_argv
-        companion_argv = ("python3", "-I", companion_name)
+        submission_argv = _unbuffered(language.run_argv)
+        companion_argv = ("python3", "-u", "-I", companion_name)
         # `{host}` と `{port}` を埋める。課題の入力には本番のホスト・ポートが
         # 書かれているので、伴走プロセスの値に差し替える必要がある。
         fill = {"host": launcher.COMPANION_HOST, "port": str(port)}
@@ -334,6 +394,20 @@ class NetworkTestRunner:
             "submission_stdout": submission_out[:_EXCERPT_CHARS],
             "companion_stdout": companion_out[:_EXCERPT_CHARS],
         }
+        # **提出物がどう終わったかを残す**（#626）。以前は標準出力しか残さず、
+        # 起動直後の構文エラーも、終わらずに打ち切られたプログラムも「出力が一致しない・
+        # 出力なし」と同じ顔で記録された。2026-10-16 の network test5 では 96 件中
+        # 約 65 件がそうなり、原因を知るには運用機で評価器を動かし直すしかなかった。
+        submission = self._submission_report(role, report)
+        stderr = str(submission.get("stderr") or "").strip()
+        if stderr:
+            entry["stderr"] = stderr[-_EXCERPT_CHARS:]
+        exit_code = submission.get("returncode")
+        if isinstance(exit_code, int):
+            entry["exit_code"] = exit_code
+        foreground_timed_out = bool(report.get("foreground", {}).get("timed_out"))
+        if foreground_timed_out:
+            entry["timed_out"] = True
 
         missing = [
             needle
@@ -346,13 +420,38 @@ class NetworkTestRunner:
             if needle not in companion_out
         ]
         if missing or missing_companion:
+            # **判定は変えない。** 通るかどうかは今までどおり出力だけで決まる。
+            # 変えるのは、落ちたときに残す理由だけである。
             return entry | {
                 "passed": False,
-                "reason": "output mismatch",
+                "reason": self._failure_reason(role, foreground_timed_out, exit_code),
                 "missing": missing,
                 "missing_companion": missing_companion,
             }
         return entry | {"passed": True}
+
+    @staticmethod
+    def _submission_report(role: str, report: dict) -> dict:
+        """起動スクリプトの報告のうち、提出物のプロセスの分。"""
+        key = "foreground" if role == ROLE_CLIENT else "background"
+        value = report.get(key, {})
+        return value if isinstance(value, dict) else {}
+
+    @staticmethod
+    def _failure_reason(role: str, foreground_timed_out: bool, exit_code: object) -> str:
+        """落ちたケースの理由。**時間切れ → 異常終了 → 出力の不一致**の順に見る。
+
+        サーバ役の提出物では、前景は伴走クライアントである。その時間切れは
+        「提出物のサーバが応答を返さなかった」ことを意味するので、同じく時間切れとする。
+        サーバ役が起動スクリプトに止められた終了コード（`_KILLED_BY_LAUNCHER`）は
+        異常終了ではない。
+        """
+        if foreground_timed_out:
+            return REASON_TIMEOUT
+        crashed = isinstance(exit_code, int) and exit_code not in (0, _KILLED_BY_LAUNCHER)
+        if crashed:
+            return REASON_NONZERO_EXIT
+        return REASON_OUTPUT_MISMATCH
 
     @staticmethod
     def _split(role: str, report: dict) -> tuple[str, str]:
@@ -377,6 +476,10 @@ class NetworkTestRunner:
         not_listening = [case for case in failed if case.get("reason") == "not_listening"]
         if len(not_listening) == len(failed):
             return head + str(not_listening[0].get("detail", "待ち受けが始まりませんでした。"))
+
+        common = _common_error(failed)
+        if common:
+            return head + common
 
         missing: list[str] = []
         for case in failed:

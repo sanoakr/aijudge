@@ -117,6 +117,30 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
 
 HTTP_SERVER_NEVER_BINDS = "print('starting')\n"
 
+# --- 落ち方の記録（#626）。2026-10-16 の network test5 で実際にあった形 ---
+# 起動直後の構文エラー。1 行も出力しない。
+CLIENT_SYNTAX_ERROR = "def ask port(low, high):\n    return low\n"
+# 接続のあと、整数を `with` に渡して落ちる。
+CLIENT_TYPE_ERROR = """\
+import socket
+host = input()
+with int(input()) as port:
+    pass
+"""
+# 送受信したあと、`quit` で終わらずに入力を待ち続ける。
+CLIENT_NEVER_ENDS = """\
+import socket, time
+host = input()
+port = int(input())
+with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+    s.connect((host, port))
+    send = b'Hello'
+    s.sendall(send)
+    print('Send', repr(send))
+    print('Received', repr(s.recv(1024)))
+    time.sleep(3600)
+"""
+
 # --- サーバ課題の伴走クライアント（httpCheckClient 相当）---
 HTTP_CLIENT = """\
 import socket
@@ -370,3 +394,100 @@ def test_no_criterion_means_skipped(sandbox) -> None:
     )
     outcome = NetworkTestRunner(sandbox).evaluate(request)
     assert outcome.status is EvaluatorStatus.SKIPPED
+
+
+# --------------------------------------------------------------------------
+# 落ち方の記録（#626）
+# --------------------------------------------------------------------------
+
+
+def _hello_case() -> SpecCase:
+    case = _client_case()
+    return case.model_copy(
+        update={
+            "payload": dict(case.payload)
+            | {"expected_contains": ["Send b'Hello, world'"], "input": "{host}\n{port}\n"}
+        }
+    )
+
+
+def test_a_client_that_does_not_compile_is_recorded_as_a_crash(sandbox) -> None:
+    """構文エラーは「出力が違う」ではなく異常終了として残り、学習者に要点が返る。"""
+    outcome = _run(sandbox, CLIENT_SYNTAX_ERROR, (_hello_case(),))
+    case = outcome.raw_output["cases"][0]
+    assert case["reason"] == "nonzero exit"
+    assert case["exit_code"] == 1
+    assert "SyntaxError" in case["stderr"]
+    assert "SyntaxError" in outcome.scores[0].rationale
+    assert outcome.scores[0].score_ratio == pytest.approx(0.0)
+
+
+def test_a_client_that_raises_reports_the_exception(sandbox) -> None:
+    outcome = _run(sandbox, CLIENT_TYPE_ERROR, (_hello_case(),))
+    case = outcome.raw_output["cases"][0]
+    assert case["reason"] == "nonzero exit"
+    assert "TypeError" in outcome.scores[0].rationale
+
+
+def test_a_client_that_never_ends_keeps_what_it_printed(sandbox) -> None:
+    """打ち切られても、それまでの出力は残る（ため込ませない）。"""
+    request = _request(CLIENT_NEVER_ENDS, (_hello_case(),))
+    request = request.model_copy(
+        update={"options": dict(request.options) | {"case_timeout_seconds": 3.0}}
+    )
+    outcome = NetworkTestRunner(sandbox).evaluate(request)
+    case = outcome.raw_output["cases"][0]
+    assert case["reason"] == "timeout"
+    assert case["timed_out"] is True
+    assert "Send b'Hello'" in case["submission_stdout"], "打ち切りで出力が消えた"
+    assert "時間内に終わりませんでした" in outcome.scores[0].rationale
+
+
+def test_a_correct_server_stopped_by_the_launcher_is_not_a_crash(sandbox) -> None:
+    """サーバは止められるまで動くのが正しい。止められた終了コードを異常終了と読まない。"""
+    bad = _server_case()
+    bad = bad.model_copy(
+        update={"payload": dict(bad.payload) | {"expected_contains": ["絶対に出ない文字列"]}}
+    )
+    outcome = _run(sandbox, HTTP_SERVER_OK, (bad,))
+    case = outcome.raw_output["cases"][0]
+    assert case["reason"] == "output mismatch"
+    assert "エラーで止まり" not in outcome.scores[0].rationale
+
+
+# --- 純粋な判定（コンテナ不要） ---
+
+
+def test_python_runs_unbuffered_and_other_languages_are_untouched() -> None:
+    from aijudge_eval_network_test_runner import _unbuffered
+
+    assert _unbuffered(("python3", "-I", "main.py")) == ("python3", "-u", "-I", "main.py")
+    assert _unbuffered(("python3", "-u", "main.py")) == ("python3", "-u", "main.py")
+    assert _unbuffered(("./main",)) == ("./main",)
+
+
+def test_failure_reasons_are_ordered_timeout_then_crash_then_output() -> None:
+    from aijudge_eval_network_test_runner import _KILLED_BY_LAUNCHER, NetworkTestRunner
+
+    reason = NetworkTestRunner._failure_reason
+    assert reason("client", True, 1) == "timeout"
+    assert reason("client", False, 1) == "nonzero exit"
+    assert reason("client", False, 0) == "output mismatch"
+    assert reason("server", False, _KILLED_BY_LAUNCHER) == "output mismatch"
+    assert reason("server", False, None) == "output mismatch"
+
+
+def test_the_rationale_names_a_crash_before_the_missing_output() -> None:
+    runner = NetworkTestRunner.__new__(NetworkTestRunner)
+    failed = [
+        {
+            "name": "a",
+            "reason": "nonzero exit",
+            "exit_code": 1,
+            "stderr": "Traceback (most recent call last):\nValueError: invalid literal",
+            "missing": ["Send b'abc'"],
+        }
+    ]
+    text = runner._rationale(0, 1, failed)
+    assert "ValueError: invalid literal" in text
+    assert "出力に現れなかったもの" not in text
