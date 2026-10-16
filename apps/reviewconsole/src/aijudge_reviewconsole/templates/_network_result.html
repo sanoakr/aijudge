@@ -36,6 +36,10 @@
     <p class="desc">提出物の出力（採点のとき記録・先頭 2000 文字まで）</p>
     <pre class="code">{{ case.submission_stdout if case.submission_stdout else '（出力なし）' }}</pre>
     {% endif %}
+    {% if case.stderr %}
+    <p class="desc">提出物の標準エラー出力</p>
+    <pre class="code">{{ case.stderr }}</pre>
+    {% endif %}
     {% if case.companion_input %}
     <p class="desc">伴走プロセス（{{ 'クライアント' if case.role == 'server' else 'サーバ' }}）への入力</p>
     <pre class="code io-input">{{ case.companion_input.rstrip("\n") }}</pre>

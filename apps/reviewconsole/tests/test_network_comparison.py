@@ -153,6 +153,38 @@ NOT_LISTENING = {
 }
 
 
+CRASHED = {
+    "name": "case3",
+    "weight": 1.0,
+    "role": "client",
+    "port": 50007,
+    "passed": False,
+    "reason": "nonzero exit",
+    "exit_code": 1,
+    "submission_stdout": "",
+    "companion_stdout": "Connected by ('127.0.0.1', 41000)\n",
+    "stderr": "  File \"/work/main.py\", line 5\nSyntaxError: expected '('",
+    "missing": ["hello", "bye"],
+    "missing_companion": [],
+}
+
+
+def test_a_crash_shows_its_exit_code_and_error_output() -> None:
+    """落ちた提出は「出力が違う・出力なし」ではなく、異常終了と例外を見せる（#626）。
+
+    2026-10-16 の test5 では、構文エラーで 1 行も出さなかった提出が「出力なし」としか
+    出ず、教員は運用機で評価器を動かし直して理由を調べた。
+    """
+    result = io_results(_task(), _run([CRASHED]))[CORRECT]
+    (case,) = result.network_cases
+    assert case.reason == "異常終了（終了コード 1）"
+    assert case.stderr is not None and "SyntaxError" in case.stderr
+
+    html = TEMPLATES.env.get_template("_io_result.html").render(io=result)
+    assert "提出物の標準エラー出力" in html
+    assert "SyntaxError: expected" in html
+
+
 def test_each_expected_fragment_says_whether_it_was_found() -> None:
     result = io_results(_task(), _run([MISMATCH]))[CORRECT]
 
