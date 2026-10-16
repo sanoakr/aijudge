@@ -63,6 +63,7 @@ from aijudge_persistence import Database, ObservationFileStore
 from aijudge_submission import (
     ArtifactStore,
     GradingJob,
+    JobLane,
     JobReason,
     follow_up_idempotency_key,
     gradable_contents,
@@ -79,6 +80,8 @@ LEASE_RENEWAL_FRACTION = 1 / 3
 LEASE_LOST = "lease lost to another worker; result discarded"
 # 停止を求められて、採点中のジョブをキューへ戻したときの記録（#424）。
 STOPPED = "worker stopped; the job went back to the queue uncounted"
+# 書き起こしの要る提出を、その列へ回したときの記録（#627）。
+HANDED_OFF = "needs transcription; moved to the transcription lane uncounted"
 
 
 class WorkerStopping(BaseException):
@@ -91,6 +94,14 @@ class WorkerStopping(BaseException):
     （2026-10-15、デプロイの再起動のたびに、そのとき採点中だった提出がそうなった）。
     ワーカーの `except WorkerStopping` まで素通りさせ、ジョブを数えずにキューへ戻す。
     """
+
+
+class HandOff(Exception):
+    """このジョブは別の列のワーカーが取る。**採点を始める前に**投げる（#627）。"""
+
+    def __init__(self, lane: JobLane) -> None:
+        super().__init__(lane.value)
+        self.lane = lane
 
 
 class PermanentGradingError(Exception):
@@ -109,6 +120,8 @@ class WorkResult:
     job: GradingJob
     run: GradingRun | None = None
     error: str | None = None
+    # 別の列へ回した（#627）。採点していないが、失敗でもない。
+    handed_off: bool = False
 
     @property
     def graded(self) -> bool:
@@ -147,6 +160,8 @@ class GradingWorker:
         self._grading = False
         # 決定的段階のあとに積む AI 段階のジョブ。1 件処理するあいだだけ持つ。
         self._follow_up: tuple[GradingJob, TaskVersion] | None = None
+        # 書き起こしの要る提出を回すか（`run_once(lane=DEFAULT)`・#627）。1 件ごとに決める。
+        self._hands_off = False
 
     # -- 1 件処理 ----------------------------------------------------------
 
@@ -155,12 +170,19 @@ class GradingWorker:
         *,
         subject_profile: str | None = None,
         phase: GradingPhase | None = None,
+        lane: JobLane | None = None,
     ) -> WorkResult | None:
         """ジョブを 1 つ処理する。無ければ None。
 
         `phase` を渡すとその段階のジョブだけを取る。**決定的評価専用の
         ワーカーを立てるためにある** ── 立てないと、テスト実行が終わって
         いる提出の結果が、前に並んだ他人の LLM 待ちの後ろで止まる。
+
+        `lane` を渡すとその列のジョブだけを取る（#627）。**DEFAULT を渡した
+        ワーカーは、書き起こしの要る決定的段階を自分では採点せず、
+        TRANSCRIPTION の列へ回す。** 回した先を取るワーカー
+        （`lane=TRANSCRIPTION`）が立っている構成でだけ DEFAULT を渡すこと ──
+        渡さなければ（None）列を問わず全部を自分で採点する（従来どおり）。
         """
         now = self._clock()
 
@@ -172,7 +194,9 @@ class GradingWorker:
                 lease_seconds=self._lease_seconds,
                 subject_profile=subject_profile,
                 phase=phase,
+                lane=lane,
             )
+            self._hands_off = lane is JobLane.DEFAULT
             # **渡すジョブが無くても commit する。** 探す途中で、試行を使い
             # 切ったリース切れを FAILED にしている（#398）。捨てると次の周回で
             # また同じ行を見つけ、永久に FAILED にならない。
@@ -200,6 +224,9 @@ class GradingWorker:
                         run = self._grade(job)
                 finally:
                     self._grading = False
+            except HandOff as hand_off:
+                logger.info("handing off", extra={"lane": hand_off.lane.value})
+                return self._record_hand_off(job, hand_off.lane)
             except WorkerStopping:
                 logger.info("stopping; returning the job to the queue")
                 return self._record_release(job)
@@ -224,6 +251,7 @@ class GradingWorker:
         *,
         subject_profile: str | None = None,
         phase: GradingPhase | None = None,
+        lane: JobLane | None = None,
         limit: int = 1000,
     ) -> tuple[int, tuple[str, ...]]:
         """キューが空になるまで処理する。
@@ -234,11 +262,13 @@ class GradingWorker:
         graded = 0
         errors: list[str] = []
         for _ in range(limit):
-            result = self.run_once(subject_profile=subject_profile, phase=phase)
+            result = self.run_once(subject_profile=subject_profile, phase=phase, lane=lane)
             if result is None:
                 break
             if result.graded:
                 graded += 1
+            elif result.handed_off:
+                continue
             else:
                 errors.append(f"{result.job.submission_id}: {result.error}")
         return graded, tuple(errors)
@@ -285,8 +315,16 @@ class GradingWorker:
             task_version.aggregation,
             None if course is None else course.rubric_aggregation,
         )
-        contents = gradable_contents(submission, self._store)
         pipeline = GradingPipeline(self._registry, profile)
+        if (
+            self._hands_off
+            and job.phase is GradingPhase.DETERMINISTIC
+            and pipeline.needs_transcription(task_version, submission)
+        ):
+            # **成果物を読む前に回す。** 判定は成果物の種類だけで決まり、
+            # プロファイル（コースの上書き込み）と課題版はここでしか揃わない。
+            raise HandOff(JobLane.TRANSCRIPTION)
+        contents = gradable_contents(submission, self._store)
         run = pipeline.run(
             task_version,
             submission,
@@ -474,6 +512,17 @@ class GradingWorker:
             uow.jobs.update(released)
             uow.commit()
         return WorkResult(job=released, error=STOPPED)
+
+    def _record_hand_off(self, job: GradingJob, lane: JobLane) -> WorkResult:
+        now = self._clock()
+        with self._database.unit_of_work() as uow:
+            current = uow.jobs.lock(job.id)
+            if current is None or not current.held_by(job):
+                return self._lease_lost(job, current)
+            moved = current.moved_to(lane, now)
+            uow.jobs.update(moved)
+            uow.commit()
+        return WorkResult(job=moved, error=HANDED_OFF, handed_off=True)
 
     # -- リース ------------------------------------------------------------
 

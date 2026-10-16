@@ -18,6 +18,7 @@ from datetime import UTC, datetime
 from test_upgrading_a_running_deployment import _StubJudge, _task_version
 
 from aijudge_core import (
+    HUMAN_SCORED,
     Artifact,
     ArtifactKind,
     ArtifactRole,
@@ -144,3 +145,41 @@ def test_a_kind_nobody_claims_passes_through_untouched() -> None:
 
     assert documents.seen == []
     assert run.extractions == ()
+
+
+# --------------------------------------------------------------------------
+# 列の選択（#627）。ワーカーは成果物を読む前に、書き起こしが要るかを訊く。
+# --------------------------------------------------------------------------
+
+
+def test_an_image_needs_transcription_when_an_extractor_claims_it() -> None:
+    """書き起こしの要る提出は、遅い列のワーカーへ回される。"""
+    pipeline = _pipeline(_KindExtractor("images", (ArtifactKind.IMAGE,)))
+    assert pipeline.needs_transcription(_task_version(), _submission(ArtifactKind.IMAGE))
+
+
+def test_code_does_not_need_transcription() -> None:
+    """**同じ科目のプログラムの提出は回さない。** 回すと、1 秒で終わる
+    テスト実行が書き起こしの列の後ろに並ぶ ── 分けた意味が逆になる。"""
+    pipeline = _pipeline(_KindExtractor("images", (ArtifactKind.IMAGE,)))
+    assert not pipeline.needs_transcription(_task_version(), _submission(ArtifactKind.CODE))
+
+
+def test_nothing_needs_transcription_when_the_subject_declares_no_extractor() -> None:
+    pipeline = _pipeline()
+    assert not pipeline.needs_transcription(_task_version(), _submission(ArtifactKind.IMAGE))
+
+
+def test_nothing_needs_transcription_when_every_criterion_is_scored_by_a_human() -> None:
+    """人だけが採点する課題では書き起こさない（`_extract` と同じ規則）。"""
+    pipeline = _pipeline(_KindExtractor("images", (ArtifactKind.IMAGE,)))
+    human_only = _task_version()
+    human_only = human_only.model_copy(
+        update={
+            "criteria": tuple(
+                criterion.model_copy(update={"evaluator_id": HUMAN_SCORED})
+                for criterion in human_only.criteria
+            )
+        }
+    )
+    assert not pipeline.needs_transcription(human_only, _submission(ArtifactKind.IMAGE))

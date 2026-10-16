@@ -66,6 +66,29 @@ class JobReason(StrEnum):
     """再採点。モデル更新や観点の修正のあとに全件流し直す用途。"""
 
 
+class JobLane(StrEnum):
+    """どのワーカーの列に並ぶか。**採点の段階（`GradingPhase`）とは別の軸である。**
+
+    段階は「パイプラインのどこまでを走らせるか」で、列は「誰が取るか」。
+    画像の書き起こし（ビジョンモデル）は決定的段階の中で走る ── 書き起こした
+    本文を `text_pattern_check` が照合するので、段階としては決定的評価の
+    一部である。ところが所要時間は LLM のそれで、1 件 1.5〜4 分かかった
+    （2026-10-16、network 第 5 回）。同じ列に並べると、1 秒で終わるテスト
+    実行の提出がその後ろで約 50 分待たされた（#627）。ADR 0011 が段階で
+    キューを分けた理由と同じことが、段階の内側で起きた。
+
+    段階を増やさずに列で分けるのは、段階が画面と採点の意味を持つからである
+    （`awaiting(..., DETERMINISTIC)` は「テスト結果がまだ来ていない」を表す）。
+    書き起こしの列に移ったジョブも、学習者から見れば決定的段階のままである。
+    """
+
+    DEFAULT = "default"
+    """ふつうの列。何も指定しないワーカーもここから取る。"""
+
+    TRANSCRIPTION = "transcription"
+    """書き起こし（画像・文書 → 本文）の要る決定的段階。遅い。"""
+
+
 class GradingJob(BaseModel):
     """採点 1 回分のジョブ。
 
@@ -85,6 +108,9 @@ class GradingJob(BaseModel):
     # どの段階か。速い段階と遅い段階を別のジョブにして、ワーカーを分けられる
     # ようにする（`GradingPhase` 参照）。
     phase: GradingPhase = GradingPhase.DETERMINISTIC
+    # どの列に並ぶか（`JobLane`）。積むときは常に DEFAULT で、書き起こしの
+    # 要る提出だけを決定的段階のワーカーが付け替える（`moved_to`）。
+    lane: JobLane = JobLane.DEFAULT
     # AI 段階が土台にする決定的評価の結果。DETERMINISTIC では None。
     base_run_id: GradingRunId | None = None
     # 同じキーのジョブは 1 つしか作らない。再投入は既存のジョブを返す。
@@ -217,6 +243,18 @@ class GradingJob(BaseModel):
                 "updated_at": now,
             }
         )
+
+    def moved_to(self, lane: JobLane, now: datetime) -> GradingJob:
+        """別の列へ付け替えて、**試行に数えずに**キューへ戻す（#627）。
+
+        取ったワーカーが「これは自分の列の仕事ではない」と判断したときに使う。
+        まだ何も採点していないので、試行を数えると書き起こしの要る提出だけ
+        上限が 1 回少なくなる。新しいジョブは作らない ── 作ると冪等キーが
+        二重になり、同じ提出を二度採点する経路ができる。
+        """
+        if self.state is not JobState.RUNNING:
+            raise ValueError(f"cannot move a {self.state} job")
+        return self.released(now).model_copy(update={"lane": lane})
 
     def lease_extended(self, now: datetime, lease_seconds: float) -> GradingJob:
         """採点中のリースを延ばす（#399）。

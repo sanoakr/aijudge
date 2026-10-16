@@ -1,0 +1,39 @@
+# 書き起こし（画像・文書 → 本文）の要る決定的段階を処理するワーカー（#627）。
+# worker-det（`--lane default`）が、書き起こしの要る提出を自分では採点せずに
+# この列へ回す。書き起こしはビジョンモデルを呼ぶので 1 件数分かかることがあり
+# （2026-10-16 は 1.5〜4 分）、同じ列に並べると 1 秒で終わるテスト実行の提出が
+# その後ろで約 50 分待たされた。
+#
+# テンプレートユニット。本数はビジョンの経路に合わせる ── 画像を読むモデルが
+# 載っているのは PAIR の 16 GB 機 2 台なので、2 本から（`aijudge.target`）。
+# 決定的段階なので評価器はサンドボックス（Docker）も使う。
+[Unit]
+Description=aiJudge worker (deterministic phase, transcription lane, instance %i)
+# 失敗したらメールで知らせる（#422）。
+OnFailure=aijudge-notify@%n.service
+PartOf=aijudge.target
+After=network-online.target postgresql.service docker.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=aijudge
+Group=aijudge
+WorkingDirectory=/opt/aijudge
+EnvironmentFile=/srv/aijudge/config/aijudge.env
+ExecStart=/opt/aijudge/.venv/bin/aijudge-worker --phase deterministic --lane transcription --name tr%i
+# journald でこのサービスの行を引くための名札（ADR 0016）。
+SyslogIdentifier=aijudge-worker-tr%i
+Restart=on-failure
+# 停止の要求（SIGTERM）では採点中のジョブをキューへ戻してから止まる（#424）。
+# 戻すのは 1 回の DB 書き込みで済むので、これで足りる。超えたら SIGKILL。
+TimeoutStopSec=60
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/srv/aijudge /var/lib/aijudge
+PrivateTmp=yes
+
+[Install]
+WantedBy=aijudge.target

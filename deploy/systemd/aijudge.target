@@ -12,6 +12,10 @@ Wants=aijudge-web.service aijudge-review.service aijudge-worker-det.service
 Wants=aijudge-relay.service
 Wants=aijudge-worker-ai@1.service aijudge-worker-ai@2.service
 Wants=aijudge-worker-ai@3.service aijudge-worker-ai@4.service
+# 書き起こしの要る決定的段階（#627）。worker-det が `--lane default` で回すので、
+# **これが 1 本も動いていないと画像の提出は採点されない。** 本数はビジョンの経路
+# （PAIR の 16 GB 機 2 台）に合わせる。
+Wants=aijudge-worker-transcribe@1.service aijudge-worker-transcribe@2.service
 Wants=aijudge-finalize.timer
 # 提出どうしの類似（#203）。受付が閉じた課題だけを回す。
 Wants=aijudge-similarity.timer

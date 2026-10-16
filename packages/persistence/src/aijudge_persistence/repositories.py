@@ -59,7 +59,7 @@ from aijudge_core.ids import (
     TenantId,
     UserId,
 )
-from aijudge_submission import GradingJob, GradingPhase, JobState, SubmissionCounts
+from aijudge_submission import GradingJob, GradingPhase, JobLane, JobState, SubmissionCounts
 from aijudge_submission.protocols import (
     AttentionCounts,
     ImmutabilityViolation,
@@ -1126,6 +1126,7 @@ class SqlJobQueue:
         lease_seconds: float,
         subject_profile: str | None = None,
         phase: GradingPhase | None = None,
+        lane: JobLane | None = None,
     ) -> GradingJob | None:
         """実行可能なジョブを 1 つ取る。
 
@@ -1151,6 +1152,10 @@ class SqlJobQueue:
             # 「決定的評価の結果を先に返す」の実体（GradingPhase 参照）。
             queued = queued.where(GradingJobRow.phase == phase.value)
             expired = expired.where(GradingJobRow.phase == phase.value)
+        if lane is not None:
+            # 書き起こしの要る提出が、1 秒で終わる提出の前を塞がない（#627）。
+            queued = queued.where(GradingJobRow.lane == lane.value)
+            expired = expired.where(GradingJobRow.lane == lane.value)
 
         for statement in (queued, expired):
             statement = statement.order_by(
@@ -1279,7 +1284,10 @@ class SqlJobQueue:
         return tuple(GradingJob.model_validate(row.document) for row in rows)
 
     def pending_count(
-        self, subject_profile: str | None = None, phase: GradingPhase | None = None
+        self,
+        subject_profile: str | None = None,
+        phase: GradingPhase | None = None,
+        lane: JobLane | None = None,
     ) -> int:
         statement = select(GradingJobRow).where(
             GradingJobRow.state.in_((JobState.QUEUED.value, JobState.RUNNING.value))
@@ -1288,6 +1296,8 @@ class SqlJobQueue:
             statement = statement.where(GradingJobRow.subject_profile == subject_profile)
         if phase is not None:
             statement = statement.where(GradingJobRow.phase == phase.value)
+        if lane is not None:
+            statement = statement.where(GradingJobRow.lane == lane.value)
         return len(self._session.execute(statement).scalars().all())
 
     def position_in_queue(
@@ -1316,6 +1326,7 @@ class SqlJobQueue:
             .select_from(GradingJobRow)
             .where(
                 GradingJobRow.phase == phase.value,
+                GradingJobRow.lane == mine.lane,
                 GradingJobRow.state == JobState.RUNNING.value,
             )
         )
@@ -1339,6 +1350,7 @@ class SqlJobQueue:
             .select_from(GradingJobRow)
             .where(
                 GradingJobRow.phase == phase.value,
+                GradingJobRow.lane == mine.lane,
                 GradingJobRow.state == JobState.QUEUED.value,
                 GradingJobRow.available_at <= now,
                 before_me,
@@ -1357,6 +1369,7 @@ def _job_row(job: GradingJob) -> GradingJobRow:
         subject_profile=job.subject_profile,
         reason=job.reason.value,
         phase=job.phase.value,
+        lane=job.lane.value,
         idempotency_key=job.idempotency_key,
         state=job.state.value,
         attempts=job.attempts,
@@ -1370,6 +1383,8 @@ def _job_row(job: GradingJob) -> GradingJobRow:
 
 def _apply(row: GradingJobRow, job: GradingJob) -> None:
     row.state = job.state.value
+    # 列は付け替わる（`GradingJob.moved_to`）。写さないと、取る側は古い列で絞る。
+    row.lane = job.lane.value
     row.attempts = job.attempts
     row.available_at = job.available_at
     row.lease_expires_at = job.lease_expires_at

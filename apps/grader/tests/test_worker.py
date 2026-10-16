@@ -1020,3 +1020,123 @@ def test_a_learner_submission_still_leaves_one(world: World) -> None:
         PROFILE, str(world.task_version.task_id), str(accepted.submission.id)
     )
     assert stored, "学習者の提出まで落ちている"
+
+
+# --------------------------------------------------------------------------
+# 書き起こしの列（#627）
+# --------------------------------------------------------------------------
+
+
+class _StubTranscriber:
+    """`image_text` の替え玉。ビジョンモデルを呼ばず、呼ばれたことだけ記録する。"""
+
+    extractor_id = "image_text"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def applies_to(self, kind: ArtifactKind) -> bool:
+        return kind is ArtifactKind.IMAGE
+
+    def extract(self, artifact, payload: bytes):
+        from aijudge_core import Extraction
+
+        self.calls += 1
+        return Extraction(text=b"int main(void){return 0;}", engine="stub")
+
+
+@pytest.fixture
+def transcriber(monkeypatch: pytest.MonkeyPatch) -> _StubTranscriber:
+    """ワーカーが組むパイプラインに替え玉の抽出器を渡す（実物は LLM を呼ぶ）。"""
+    from aijudge_grading import pipeline
+
+    stub = _StubTranscriber()
+
+    def load_installed(self):
+        self.register(stub)
+        return self
+
+    monkeypatch.setattr(pipeline.ExtractorRegistry, "load_installed", load_installed)
+    return stub
+
+
+def _submit_image(world: World):
+    return world.service.accept(
+        tenant_id=TENANT,
+        task_version_id=world.task_version.id,
+        learner_id=LEARNER,
+        subject_profile=PROFILE,
+        files=[IncomingFile(filename="cert.png", kind=ArtifactKind.IMAGE, payload=b"\x89PNG")],
+    )
+
+
+def test_the_default_lane_hands_an_image_to_the_transcription_lane(
+    world: World, transcriber: _StubTranscriber
+) -> None:
+    """書き起こしの要る提出は、ふつうの列のワーカーが採点せずに回す。
+
+    2026-10-16 は、1 件数分かかる書き起こしの後ろで、1 秒で終わるテスト実行の
+    提出が約 50 分待たされた。**回すのは書き起こしを走らせる前**である。
+    """
+    from aijudge_core import GradingPhase
+    from aijudge_submission import JobLane
+
+    accepted = _submit_image(world)
+    result = world.worker.run_once(phase=GradingPhase.DETERMINISTIC, lane=JobLane.DEFAULT)
+
+    assert result is not None and result.handed_off
+    assert not result.graded
+    assert transcriber.calls == 0, "回す前に書き起こした"
+    with world.database.unit_of_work() as uow:
+        job = uow.jobs.get(accepted.job.id)
+        assert job is not None
+        assert job.lane is JobLane.TRANSCRIPTION
+        assert job.state is JobState.QUEUED
+        # 採点を始めていないので試行に数えない。
+        assert job.attempts == 0
+        assert uow.runs.latest_for(accepted.submission.id) is None
+        # 学習者の画面では、まだ決定的段階の結果待ちのままである。
+        assert uow.jobs.awaiting(accepted.submission.id, GradingPhase.DETERMINISTIC)
+    # ふつうの列からはもう取れない。
+    assert world.worker.run_once(phase=GradingPhase.DETERMINISTIC, lane=JobLane.DEFAULT) is None
+
+
+def test_the_transcription_lane_takes_what_was_handed_off(
+    world: World, transcriber: _StubTranscriber
+) -> None:
+    from aijudge_core import GradingPhase
+    from aijudge_submission import JobLane
+
+    accepted = _submit_image(world)
+    world.worker.run_once(phase=GradingPhase.DETERMINISTIC, lane=JobLane.DEFAULT)
+
+    result = world.worker.run_once(phase=GradingPhase.DETERMINISTIC, lane=JobLane.TRANSCRIPTION)
+    assert result is not None
+    assert result.job.id == accepted.job.id
+    assert not result.handed_off, "書き起こしの列が、もう一度回した"
+    assert transcriber.calls == 1
+
+
+@needs_c_compiler
+def test_code_stays_in_the_default_lane(world: World, transcriber: _StubTranscriber) -> None:
+    """プログラムの提出は回さない。回すと、分けた意味が逆になる。"""
+    from aijudge_core import GradingPhase
+    from aijudge_submission import JobLane
+
+    world.submit()
+    result = world.worker.run_once(phase=GradingPhase.DETERMINISTIC, lane=JobLane.DEFAULT)
+    assert result is not None and result.graded
+    assert not result.handed_off
+
+
+def test_a_worker_without_a_lane_transcribes_by_itself(
+    world: World, transcriber: _StubTranscriber
+) -> None:
+    """列を指定しないワーカーは回さない（書き起こしの列が無い構成で、採点が来なくなる）。"""
+    from aijudge_core import GradingPhase
+
+    _submit_image(world)
+    result = world.worker.run_once(phase=GradingPhase.DETERMINISTIC)
+    assert result is not None
+    assert not result.handed_off
+    assert transcriber.calls == 1

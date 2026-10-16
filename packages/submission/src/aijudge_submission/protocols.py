@@ -38,7 +38,7 @@ from aijudge_core.ids import (
     UserId,
 )
 
-from .jobs import GradingJob
+from .jobs import GradingJob, JobLane
 
 
 class SubmissionStoreError(Exception):
@@ -573,11 +573,15 @@ class JobQueue(Protocol):
         lease_seconds: float,
         subject_profile: str | None = None,
         phase: GradingPhase | None = None,
+        lane: JobLane | None = None,
     ) -> GradingJob | None:
         """実行可能なジョブを 1 つ取る。無ければ None。
 
         リースの切れた RUNNING も取り直しの対象にする。ただし試行を使い
         切ったものは渡さず FAILED にする（`GradingJob.taken`・#398）。
+
+        `lane` が None なら列を問わない（ワーカー 1 本の構成。書き起こしの
+        列を立てていない環境で、付け替えたジョブが誰にも取られないことを防ぐ）。
         """
         ...
 
@@ -605,7 +609,10 @@ class JobQueue(Protocol):
         ...
 
     def pending_count(
-        self, subject_profile: str | None = None, phase: GradingPhase | None = None
+        self,
+        subject_profile: str | None = None,
+        phase: GradingPhase | None = None,
+        lane: JobLane | None = None,
     ) -> int:
         """待ち行列の長さ。締切前の滞留を見るのに使う。"""
         ...
@@ -619,6 +626,8 @@ class JobQueue(Protocol):
         RUNNING（別ワーカーが処理中）は 1 件として数える。まだ動いていない
         提出（`awaiting` が偽）や、時刻まで寝かせてあるジョブは `None`。
         `reserve` と同じ順序（`available_at, created_at, id`）で数える。
+        **数えるのは自分と同じ列（`lane`）だけ**（#627）。別の列のジョブは
+        別のワーカーが取るので、前に並んでいない。
         """
         ...
 

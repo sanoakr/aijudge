@@ -72,6 +72,15 @@ if [ "${declared}" != "0" ] && [ "${running}" != "${declared}" ]; then
     problems+=("AI ワーカーが ${running} 本（宣言は ${declared} 本）")
 fi
 
+# 書き起こしのワーカー（#627）。worker-det が回すので、足りないと画像の提出が待たされる。
+declared=$(grep -o 'aijudge-worker-transcribe@[0-9]*\.service' "${REPO_DIR}/deploy/systemd/aijudge.target" \
+           2>/dev/null | sort -u | wc -l | tr -d ' ')
+running=$(systemctl list-units 'aijudge-worker-transcribe@*.service' --state=running --no-legend --plain \
+          2>/dev/null | wc -l | tr -d ' ')
+if [ "${declared}" != "0" ] && [ "${running}" != "${declared}" ]; then
+    problems+=("書き起こしのワーカーが ${running} 本（宣言は ${declared} 本）")
+fi
+
 # 2.5 イベントのリレーが動いているか（#328）
 #
 # **止まっていても採点は完了する。** だから気づけない ── 実際、購読者は

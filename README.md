@@ -191,6 +191,8 @@ uv run aijudge-web                          # learners      :8766
 uv run aijudge-review                       # instructors   :8765
 uv run aijudge-worker --phase deterministic
 uv run aijudge-worker --phase ai
+# with image/document transcription, split the fast lane (docs/RUNNING.md, #627):
+#   --phase deterministic --lane default   and   --phase deterministic --lane transcription
 uv run aijudge-runner                       # trial runs from the browser editor (not grading)
 uv run aijudge-ide-close --once             # submit the last autosave when an editor set closes
 ```

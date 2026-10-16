@@ -26,6 +26,7 @@ from aijudge_core import (
     EvaluatorResult,
     EvaluatorStatus,
     Extraction,
+    Extractor,
     GradingCompleted,
     GradingContext,
     GradingPhase,
@@ -479,6 +480,30 @@ class GradingPipeline:
             created_at=datetime.now(UTC),
         )
 
+    def needs_transcription(self, task_version: TaskVersion, submission: Submission) -> bool:
+        """この提出の決定的段階が、書き起こし（抽出器）を走らせるか。
+
+        **ワーカーの列を選ぶためにある**（#627）。書き起こしはビジョンモデルを
+        呼ぶので 1 件数分かかることがあり、テスト実行だけの提出と同じ列に
+        並べると、その後ろを塞ぐ。判定は `_extract` と同じ規則で、成果物の
+        中身は読まない（種類だけで決まる）── 中身を読む前に列を選べるように。
+        """
+        chosen = self._transcribers(task_version)
+        return any(
+            extractor.applies_to(artifact.kind)
+            for artifact in submission.gradable_artifacts
+            for extractor in chosen
+        )
+
+    def _transcribers(self, task_version: TaskVersion) -> list[Extractor]:
+        """この課題版で使う抽出器。**誰も読まないなら空**（`_extract` の説明を参照）。"""
+        declared = self._profile.input.transcription
+        if not declared or self._extractors is None:
+            return []
+        if all(criterion.scored_by_human for criterion in task_version.criteria):
+            return []
+        return [self._extractors.get(name) for name in declared]
+
     def _extract(
         self,
         task_version: TaskVersion,
@@ -505,12 +530,9 @@ class GradingPipeline:
         レポート（PDF）が同じ科目に並ぶのは実際の運用そのもので、1 つしか
         当てられないと片方が黙って書き起こされないまま人へ回る。
         """
-        declared = self._profile.input.transcription
-        if not declared or self._extractors is None:
+        chosen = self._transcribers(task_version)
+        if not chosen:
             return (), contents
-        if all(criterion.scored_by_human for criterion in task_version.criteria):
-            return (), contents
-        chosen = [self._extractors.get(name) for name in declared]
         found: list[Extraction] = []
         for artifact in submission.gradable_artifacts:
             payload = contents.get(artifact.id)
