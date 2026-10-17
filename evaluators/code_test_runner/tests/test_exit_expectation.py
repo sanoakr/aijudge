@@ -134,3 +134,45 @@ def test_the_rationale_says_why_a_zero_exit_failed() -> None:
     text = runner._rationale(1, 2, failed)
     assert "bad_input" in text
     assert "0 以外の終了コード" in text
+
+
+def _failed(name: str, *, code: int, expected: str, actual: str, stderr: str = "") -> dict:
+    return {
+        "name": name,
+        "reason": "nonzero exit",
+        "exit_code": code,
+        "expected": [expected],
+        "actual": [actual],
+        "stderr": stderr,
+    }
+
+
+def test_a_right_output_with_return_1_is_not_called_a_mismatch() -> None:
+    """**出力は合っていて終了コードだけが違う。** 以前は「不一致: case1, …」とだけ
+    返り、学習者には理由が分からなかった（2026-10-18 の試験の確認）。"""
+    failed = [_failed(f"case{i}", code=1, expected="3", actual="3") for i in range(1, 6)]
+    text = CodeTestRunner()._rationale(0, 5, failed, c_like=True)
+    assert "不一致" not in text
+    assert "すべてのケースで出力は正しいですが、終了コード 1 で終わっています" in text
+    assert "return 0;" in text
+
+
+def test_an_exit_code_is_named_beside_a_real_mismatch() -> None:
+    failed = [
+        _failed("case1", code=1, expected="3", actual="3"),
+        {"name": "case2", "reason": "output mismatch", "expected": ["4"], "actual": ["5"]},
+    ]
+    text = CodeTestRunner()._rationale(0, 2, failed)
+    assert "不一致: case1, case2" in text
+    assert "case1 は出力は正しいですが、終了コード 1" in text
+
+
+def test_a_crash_with_a_traceback_is_not_told_to_return_0() -> None:
+    """例外で止まったなら、理由は例外。「0 で終えて」は直す先を取り違えさせる。"""
+    failed = [
+        _failed("case1", code=1, expected="3", actual="", stderr="ZeroDivisionError: x"),
+        _failed("case2", code=1, expected="4", actual="", stderr="ZeroDivisionError: x"),
+    ]
+    text = CodeTestRunner()._rationale(0, 2, failed)
+    assert "ZeroDivisionError" in text
+    assert "0 で終えて" not in text

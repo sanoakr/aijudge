@@ -277,6 +277,39 @@ def _common_error(failed: list[dict[str, object]]) -> str | None:
     return next(iter(messages))[:_ERROR_EXCERPT_CHARS]
 
 
+def _exit_note(
+    failed: list[dict[str, object]], *, all_failed: bool, c_like: bool
+) -> tuple[str, bool]:
+    """0 で終えるべきケースが 0 以外で終わったことの説明と、それが唯一の理由か。
+
+    **異常終了で途中まで出たものには言わない。** 例外の traceback が出て出力も
+    違うなら、理由は例外であって終了コードではない ── 「0 で終えてください」と
+    言うと直す先を取り違えさせる。言うのは、出力が合っているか、エラー出力が
+    空のとき（`return 1;` や `exit(1);` で自分から終えた形）だけ。
+    """
+    exits = [
+        case
+        for case in failed
+        if case.get("reason") == "nonzero exit"
+        and (case.get("expected") == case.get("actual") or not str(case.get("stderr", "")).strip())
+    ]
+    if not exits:
+        return "", False
+    codes = "・".join(sorted({str(case.get("exit_code")) for case in exits}))
+    fix = "0 で終えてください" + ("（main は return 0; で終える）" if c_like else "")
+    output_right = all(case.get("expected") == case.get("actual") for case in exits)
+    if all_failed and len(exits) == len(failed):
+        subject = "すべてのケースで"
+    else:
+        names = ", ".join(str(case["name"]) for case in exits[:5])
+        subject = f"{names}{' ほか' if len(exits) > 5 else ''} は"
+    if output_right:
+        text = f"{subject}出力は正しいですが、終了コード {codes} で終わっています。{fix}。"
+    else:
+        text = f"{subject}終了コード {codes} で終わっています。{fix}。"
+    return text, output_right and len(exits) == len(failed)
+
+
 def _seconds_option(options: dict[str, object], key: str, default: float) -> float:
     """科目プロファイルからの上限を読む。不正な値は既定に落とす。
 
@@ -402,7 +435,12 @@ class CodeTestRunner:
                     level=self._level_for(criterion, ratio),
                     artifact_id=source_id,
                     content_hash=self._content_hash(request, source_id),
-                    rationale=self._rationale(len(cases) - len(failed), len(cases), failed),
+                    rationale=self._rationale(
+                        len(cases) - len(failed),
+                        len(cases),
+                        failed,
+                        c_like=language.source_name.endswith(".c"),
+                    ),
                     note=None,
                 ),
             ),
@@ -555,11 +593,24 @@ class CodeTestRunner:
                 best = level
         return best.level
 
-    def _rationale(self, passed: int, total: int, failed: list[dict[str, object]]) -> str:
+    def _rationale(
+        self,
+        passed: int,
+        total: int,
+        failed: list[dict[str, object]],
+        *,
+        c_like: bool = False,
+    ) -> str:
         if not failed:
             return f"テストケース {total} 件すべてに正しい出力を返しました。"
 
         head = f"テストケース {total} 件中 {passed} 件が一致しました。"
+        exit_note, exit_only = _exit_note(failed, all_failed=passed == 0, c_like=c_like)
+        if exit_only:
+            # **出力は合っていて、終了コードだけが理由。**「不一致」と書くと出力の
+            # 側を探させる（2026-10-18 の試験の確認で、`return 1;` の解答に
+            # 「不一致: case1, …」とだけ返っていた）。
+            return head + exit_note
 
         # 全件が同じエラーで落ちているなら、それを書く。
         #
@@ -568,7 +619,7 @@ class CodeTestRunner:
         # 「出力が違う」としか伝わらない。C の segfault も同じ形になる。
         common = _common_error(failed) if passed == 0 else None
         if common is not None:
-            return head + f"すべて同じエラーで停止しています: {common}"
+            return head + f"すべて同じエラーで停止しています: {common}" + exit_note
 
         # **書式だけが違う場合も、全件が同じ理由で落ちる。** 上の
         # `_common_error` は stderr かシグナルがある場合しか働かないので、
@@ -589,7 +640,7 @@ class CodeTestRunner:
             if zero
             else ""
         )
-        return head + f"不一致: {names}{suffix}。" + note
+        return head + f"不一致: {names}{suffix}。" + exit_note + note
 
     def _format_note(self, failed: list[dict[str, object]]) -> str | None:
         """全ケースが同じ書式の食い違いで落ちているなら、その説明。
