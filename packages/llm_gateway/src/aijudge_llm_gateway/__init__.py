@@ -56,7 +56,13 @@ DEFAULT_MODEL = "gemma4:e4b"
 # 別のモデルへ回せるようにしてある。未設定なら通常の経路をそのまま使う
 # （繋がらないより、設定が 1 か所で済む方が運用しやすい。画像を読めない
 # 相手に渡そうとすれば Gateway が `CapabilityMismatch` で断る）。
-DEFAULT_VISION_MODEL = "qwen3-vl:8b"
+#
+# **`qwen3-vl:8b` ではなく instruct 版を指す**（2026-10-17・ADR 0021 §6）。
+# `qwen3-vl:8b` の中身は thinking 版（`8b-thinking` とモデル層が同一）で、
+# ollama 0.40 系では `think: false` を渡しても毎回 1 万文字ほど考えてから
+# 答える。出力の上限 4,000 トークンをその思考が使い切り、10/16 は paiza の
+# 画像 38 枚が打ち切りで読めず、1 枚に約 3 分かかった。
+DEFAULT_VISION_MODEL = "qwen3-vl:8b-instruct"
 
 ENV_BASE_URL = "AIJUDGE_LLM_BASE_URL"
 ENV_MODEL = "AIJUDGE_LLM_MODEL"
