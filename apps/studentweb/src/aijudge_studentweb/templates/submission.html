@@ -4,10 +4,12 @@
    受付が終わっていれば、ボタンを消さずにそう書く（`ResubmitLink`）。 #}
 {% macro resubmit_block() %}
 {% if resubmit %}
-<div class="actions resubmit" style="justify-content:flex-start">
+{# 右寄せ（2026-10-18・`.actions` の既定）。ほかの画面の操作と同じ位置に置く。
+   ボタンが端に来るよう、ファイルで出すリンクを先に並べる。 #}
+<div class="actions resubmit">
   {% if resubmit.url %}
-  <a class="button" href="{{ resubmit.url }}">{{ resubmit.label }}</a>
   {% if resubmit.file_url %}<a class="desc" href="{{ resubmit.file_url }}">ファイルで提出する</a>{% endif %}
+  <a class="button" href="{{ resubmit.url }}">{{ resubmit.label }}</a>
   {% else %}
   <span class="desc">この課題の提出の受付は終了しています。</span>
   {% endif %}
