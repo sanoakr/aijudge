@@ -29,6 +29,7 @@
       test4: {campus_only: true}                            # 学内からだけ受け付ける（試験）
       ex4: {clear_points: 60}                               # 合計 60 点でクリア
       ex6: {late_penalty: [{after_hours: 0, percent: 50}]}  # 締切後は総合点から 50% を引く
+      ex7: {failed_inputs: after_deadline}  # 落ちたケースの入力は締切後に見せる
     tasks:
       - key: ex1/cert                       # TaskSpec のフィールドをそのまま書く
         unit: ex1
@@ -42,8 +43,8 @@
         readability_weight: 0.3             # （YAML からの相対パス）
 
 `answer_mode`・`editor_completion`・`file_upload`・`confidential_until_open`・`campus_only`・
-`clear_points`・`late_penalty` は**問題セットの値**で、`/manage` の切り替えと同じく回の全課題に
-入れる（課題ごとには書けない）。書いた回だけを変え、書かない回は画面で切り替えた値を残す。
+`clear_points`・`late_penalty`・`failed_inputs` は**問題セットの値**で、`/manage` の切り替えと
+同じく回の全課題に入れる（課題ごとには書けない）。書いた回だけを変え、書かない回は画面で切り替えた値を残す。
 `editor` にできない課題（提出形式に `.c`・`.py`・`.md` が無い）があれば投入を止める。
 
 `problem_dir` を書いた課題は、`desc.md` を問題文、`in/` `out/` をテスト
@@ -69,7 +70,7 @@ import yaml
 
 from aijudge_authoring import TaskSpec
 from aijudge_authoring.importers import companion, sharif_judge
-from aijudge_core import HUMAN_SCORED, AnswerMode, Course, LatePenaltyStep, Task
+from aijudge_core import HUMAN_SCORED, AnswerMode, Course, FailedInputs, LatePenaltyStep, Task
 from aijudge_core.ids import TenantId, UserId
 from aijudge_course_admin.answer_mode import editor_blockers, file_upload_required
 from aijudge_course_admin.authoring import save_task
@@ -134,6 +135,9 @@ _UNIT_SETTING_KEYS = (
     # 遅延の減点（2026-10-08）。`[{after_hours: 0, percent: 50}]` の形で書く。
     # 書かなければコースの設定に従い、`[]` は「この回は減点しない」。
     "late_penalty",
+    # 落ちたテストケースの入力を学習者に見せるか（2026-10-18）。
+    # `immediately`（既定）・`after_deadline`・`never`。
+    "failed_inputs",
 )
 # 定義側だけの語彙。`TaskSpec` に渡す前に解決して消す。
 _PROBLEM_DIR = "problem_dir"
@@ -213,6 +217,15 @@ def _unit_settings(unit: str, raw: dict[str, Any], path: Path) -> dict[str, Any]
         settings["clear_points"] = None if value is None else float(value)
     if "late_penalty" in raw:
         settings["late_penalty_steps"] = _late_penalty_steps(unit, raw["late_penalty"], path)
+    if "failed_inputs" in raw:
+        try:
+            settings["failed_inputs"] = FailedInputs(str(raw["failed_inputs"]))
+        except ValueError:
+            wanted = "・".join(choice.value for choice in FailedInputs)
+            raise AdminError(
+                f"units.{unit}.failed_inputs は {wanted} のどれかです"
+                f": {raw['failed_inputs']!r}（{path}）"
+            ) from None
     for flag in ("editor_completion", "file_upload", "confidential_until_open", "campus_only"):
         if flag not in raw:
             continue

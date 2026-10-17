@@ -19,6 +19,7 @@ from aijudge_authoring import TaskSpec, build_task_version
 from aijudge_authoring.repository import TaskStoreError, content
 from aijudge_core import (
     AnswerMode,
+    FailedInputs,
     ReviewState,
     Task,
     TaskVersion,
@@ -246,6 +247,9 @@ def save_task(
             # 画面の静止画（ADR 0027）。引き継がないと、試験の課題を 1 つ直した
             # 瞬間にその課題だけ撮らなくなる。
             screen_capture=existing.screen_capture if existing else False,
+            # 落ちたケースの入力を見せるか（2026-10-18）。引き継がないと、「締切後」に
+            # した試験の課題を 1 つ直した瞬間に、その課題だけ試験中に入力が見える。
+            failed_inputs=existing.failed_inputs if existing else FailedInputs.IMMEDIATELY,
             # 実行時間の上限も（#491）。引き継がないと、時間のかかる問題の文面を
             # 1 つ直した瞬間に上限が既定（2 秒など）へ戻り、正しい提出が時間切れになる。
             # 提出形式と同じく、**明示された場合だけ上書きする**。定義を流し直しても、

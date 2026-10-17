@@ -28,6 +28,7 @@ from aijudge_core import (
     SUFFIX_GROUPS,
     AnswerMode,
     EvaluatorKind,
+    FailedInputs,
     GradeWindow,
     ReviewState,
     Task,
@@ -1068,6 +1069,17 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
         ):
             if flag(name) != current:
                 update[field] = flag(name)
+        # 落ちたケースの入力（2026-10-18）。**欄が送られてきたときだけ読む** ──
+        # 欄の無い古い画面から保存されて、既定に戻らないように。
+        if text("failed_inputs"):
+            try:
+                shown = FailedInputs(text("failed_inputs"))
+            except ValueError:
+                raise HTTPException(
+                    status_code=400, detail="落ちたケースの入力の見せ方が不正です"
+                ) from None
+            if shown != group.failed_inputs:
+                update["failed_inputs"] = shown
         clear_points = _parse_clear_points(text("clear_points"))
         if clear_points != group.clear_points:
             update["clear_points"] = clear_points

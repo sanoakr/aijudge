@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from aijudge_core import HUMAN_SCORED, AnswerMode, LatePenaltyStep
+from aijudge_core import HUMAN_SCORED, AnswerMode, FailedInputs, LatePenaltyStep
 from aijudge_core.ids import TenantId, UserId
 from aijudge_course_admin.course_definition import apply_course_definition, load_course_definition
 from aijudge_course_admin.operations import AdminError, ensure_course
@@ -463,6 +463,22 @@ def test_a_unit_carries_its_clear_points(database: Database, tmp_path) -> None:
 def test_a_bad_clear_points_is_refused(tmp_path: Path) -> None:
     with pytest.raises(AdminError, match="clear_points"):
         load_course_definition(_write_definition(tmp_path, _with_unit_setting("clear_points: -1")))
+
+
+def test_a_unit_carries_its_failed_inputs(database: Database, tmp_path) -> None:
+    """`failed_inputs` は問題セットの値で、回の全課題に入る（2026-10-18）。"""
+    text = _with_unit_setting("failed_inputs: after_deadline")
+    result = _apply(database, _write_definition(tmp_path, text))
+    tasks, _versions = _tasks(database, result.course.id)
+    in_set = [task for task in tasks.values() if task.unit == "ex1"]
+    assert in_set and all(task.failed_inputs is FailedInputs.AFTER_DEADLINE for task in in_set)
+
+
+def test_a_misspelt_failed_inputs_is_refused(tmp_path: Path) -> None:
+    with pytest.raises(AdminError, match="failed_inputs"):
+        load_course_definition(
+            _write_definition(tmp_path, _with_unit_setting("failed_inputs: later"))
+        )
 
 
 def test_a_unit_carries_its_late_penalty(database: Database, tmp_path) -> None:

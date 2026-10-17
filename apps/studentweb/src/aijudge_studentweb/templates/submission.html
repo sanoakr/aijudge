@@ -141,6 +141,18 @@
             <br><span class="desc">該当行: {{ row.evidence_lines | join(', ') }}</span>
           {% endif %}
         {% else %}<span class="desc">—</span>{% endif %}
+        {# 落ちたケースの入力（2026-10-18）。**期待出力は出さない**（答えになる）。
+           出すかどうかの判断は `visibility.py` にある。 #}
+        {% if row.failed_inputs %}
+          <div class="failed-inputs">
+            <span class="desc">正しく動かなかった入力{% if row.more_failed %}（最初の {{ row.failed_inputs | length }} 件）{% endif %}:</span>
+            {% for case in row.failed_inputs %}
+              <div class="desc mono">{{ case.name }}</div>
+              <pre>{% if case.input %}{{ case.input }}{% else %}（入力なし）{% endif %}{% if case.truncated %}
+…（以下省略）{% endif %}</pre>
+            {% endfor %}
+          </div>
+        {% endif %}
       </td>
     </tr>
   {% endfor %}

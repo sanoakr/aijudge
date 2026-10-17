@@ -2178,6 +2178,11 @@ def _submission_view(
                 task.auto_finalize_after_minutes, course.auto_finalize_after_minutes
             ),
             reviews=review_count,
+            # 落ちたケースの入力を見せるか（2026-10-18）。「締切後」の締切は、
+            # 遅れての提出を受け付ける最後（`accepts_until`）── `due_at` で
+            # 開けると、遅れて出す人が入力を見てから出せる。
+            failed_inputs=task.failed_inputs,
+            deadline=task.accepts_until or task.due_at,
         )
     )
     return LoadedSubmission(

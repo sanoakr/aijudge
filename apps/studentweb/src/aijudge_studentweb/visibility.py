@@ -51,6 +51,11 @@ S6 が止まっていれば AI 評価器は飛ばされ、その観点は `unsco
 学習者に対する嘘になる（ADR 0010）。前者は人が根拠を書いており、後者は
 まだ誰も読んでいない ── 学習者が異議を申し立てるかどうかの判断が変わる。
 
+**落ちたテストケースの入力は見せる。期待出力は見せない**（2026-10-18）。
+「不一致: case1」だけでは、非公開のケースでどの入力のときに間違えたのかが
+分からず、直しようがない。期待出力まで見せると答えそのものになる。いつ
+見せるかは問題セットの設定（`Task.failed_inputs`）で、既定はすぐ。
+
 **この判断は UI ではなくここに置く。** テンプレートの `{% if %}` に散らすと、
 画面を 1 つ足したときに漏れる。
 """
@@ -63,6 +68,7 @@ from datetime import UTC, datetime
 from aijudge_core import (
     CriterionScore,
     EvaluatorKind,
+    FailedInputs,
     Finalization,
     FinalizationSource,
     GradeWindow,
@@ -76,6 +82,21 @@ from aijudge_core import (
     score_withheld,
     settles_at,
 )
+
+# 見せる入力の件数と長さの上限。**全部は出さない** ── 1 観点に数十件のケースが
+# あると画面が入力で埋まり、肝心の根拠が読めなくなる。最初に落ちたものから見れば、
+# 直す糸口には足りる。
+MAX_FAILED_INPUTS = 3
+MAX_FAILED_INPUT_CHARS = 1000
+
+
+@dataclass(frozen=True)
+class FailedInput:
+    """落ちたテストケース 1 件の入力。期待出力は持たない（答えになる）。"""
+
+    name: str
+    input: str
+    truncated: bool = False
 
 
 @dataclass(frozen=True)
@@ -96,6 +117,10 @@ class CriterionView:
     adjusted: bool = False
     # AI が判定した観点か。決定的評価（テスト実行）と区別して見せる。
     by_ai: bool = False
+    # 落ちたテストケースの入力（最初の `MAX_FAILED_INPUTS` 件）。
+    failed_inputs: tuple[FailedInput, ...] = ()
+    # 落ちたケースが見せた件数より多いか。
+    more_failed: bool = False
 
     @property
     def label(self) -> str:
@@ -216,6 +241,10 @@ def build_result_view(
     #: 誰がいつ何を書いたかではない（それはスタッフ側で辿れる）。
     reviews: int = 1,
     now: datetime | None = None,
+    #: 落ちたケースの入力を見せるか（`Task.failed_inputs`）と、そのときの締切。
+    #: **渡されなければ見せない** ── 呼ぶ側が課題を知らない経路で漏らさない。
+    failed_inputs: FailedInputs | None = None,
+    deadline: datetime | None = None,
 ) -> ResultView:
     """採点結果を学習者向けの表示に畳む。
 
@@ -248,6 +277,7 @@ def build_result_view(
     gated = set(run.skipped_criteria)
     by_human = set(run.awaiting_human)
     confirmed = finalization is not None or review is not None
+    show_inputs = _shows_failed_inputs(failed_inputs, deadline, now or datetime.now(UTC))
 
     views: list[CriterionView] = []
     for criterion in task_version.criteria:
@@ -291,6 +321,7 @@ def build_result_view(
             level = review.level_for(criterion.id, score.level)
             adjusted = criterion.id in review.adjusted_levels
 
+        failed = _failed_inputs(run, task_version, score) if show_inputs else ()
         views.append(
             CriterionView(
                 criterion=criterion,
@@ -301,6 +332,8 @@ def build_result_view(
                 adjusted=adjusted,
                 # AI の判定か、決定的評価か。学習者が区別できるようにする。
                 by_ai=score.kind is EvaluatorKind.AI,
+                failed_inputs=failed[:MAX_FAILED_INPUTS],
+                more_failed=len(failed) > MAX_FAILED_INPUTS,
             )
         )
 
@@ -387,3 +420,58 @@ def _evidence_lines(score: CriterionScore) -> tuple[int, ...]:
         if span.kind == "line":
             lines.update(range(span.start_line, span.end_line + 1))
     return tuple(sorted(lines))
+
+
+def _shows_failed_inputs(
+    setting: FailedInputs | None, deadline: datetime | None, now: datetime
+) -> bool:
+    """落ちたケースの入力を、いま見せてよいか。
+
+    「締切後」で締切が無い課題には見せない ── 過ぎる時刻が無いのだから、
+    「すぐ」と同じに倒すと、締切後にしたかった設定が黙って効かなくなる。
+    """
+    if setting is None or setting is FailedInputs.NEVER:
+        return False
+    if setting is FailedInputs.IMMEDIATELY:
+        return True
+    return deadline is not None and now >= deadline
+
+
+def _failed_inputs(
+    run: GradingRun, task_version: TaskVersion, score: CriterionScore
+) -> tuple[FailedInput, ...]:
+    """この観点を判定した評価器が落としたケースの入力。
+
+    入力は**採点に使った版**の検証データから引く（`task_version`）── 評価器の
+    生の出力は入力を持たない。名前と評価器の両方で突き合わせる。入力の形を
+    持たない検証データ（項目表・関数の検査）は何も出さない。
+    """
+    result = next(
+        (item for item in run.evaluator_results if item.id == score.evaluator_result_id), None
+    )
+    if result is None:
+        return ()
+    cases = result.raw_output.get("cases")
+    if not isinstance(cases, list | tuple):
+        return ()
+    inputs = {
+        case.name: case.payload.get("input")
+        for case in task_version.test_cases
+        if case.evaluator_id == result.evaluator_id
+    }
+    out: list[FailedInput] = []
+    for entry in cases:
+        if not isinstance(entry, dict) or entry.get("passed") is not False:
+            continue
+        name = str(entry.get("name", ""))
+        text = inputs.get(name)
+        if not isinstance(text, str):
+            continue
+        out.append(
+            FailedInput(
+                name=name,
+                input=text[:MAX_FAILED_INPUT_CHARS],
+                truncated=len(text) > MAX_FAILED_INPUT_CHARS,
+            )
+        )
+    return tuple(out)

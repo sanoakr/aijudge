@@ -299,6 +299,21 @@ class TaskVersion(BaseModel):
         raise KeyError(f"no criterion {criterion_id!r} in {self.id!r}")
 
 
+class FailedInputs(StrEnum):
+    """落ちたテストケースの**入力**を学習者に見せるか（2026-10-18 決定）。
+
+    「不一致: case1」だけでは、非公開のケースでどの入力のときに間違えたのかが
+    分からない。入力だけを見せ、**期待出力は見せない**（答えそのものになる）。
+    """
+
+    # 結果と一緒にすぐ見せる（既定・試験中も）。
+    IMMEDIATELY = "immediately"
+    # 締切（`accepts_until`、無ければ `due_at`）を過ぎてから見せる。
+    AFTER_DEADLINE = "after_deadline"
+    # 見せない（従来どおり、ケース名だけ）。
+    NEVER = "never"
+
+
 class AnswerMode(StrEnum):
     """学習者がどう答えるか（ADR 0026）。
 
@@ -511,6 +526,12 @@ class Task(BaseModel):
     # 止まる。**既定は撮らない**（演習では撮らない）。`tasks.document` に入るので
     # 列は増えない。
     screen_capture: bool = False
+    # 落ちたテストケースの入力を学習者に見せるか（`FailedInputs`・2026-10-18）。
+    # **学内限定と同じ性質の値である** ── 課題が持つが、値を決めるのは問題セット
+    # 単位。既定は「すぐ見せる」で、試験中も変えない運用を想定している
+    # （どの入力で間違えたかが分からないと、学習者は直しようがない）。
+    # `tasks.document` に入るので列は増えない。
+    failed_inputs: FailedInputs = FailedInputs.IMMEDIATELY
     # テストケース 1 件の実行時間の上限（秒・#491）。**この課題だけ**科目・コースの
     # 既定（`evaluator_options.<評価器>.case_timeout_seconds`）を上書きする。数値計算の
     # ように、正しい解でも時間のかかる問題のため。None は既定のまま。

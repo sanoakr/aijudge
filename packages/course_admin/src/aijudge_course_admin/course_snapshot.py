@@ -72,6 +72,7 @@ _UNIT_SETTINGS = (
     "campus_only",
     "clear_points",
     "late_penalty_steps",
+    "failed_inputs",
 )
 _COURSE_FIELDS = ("description", "upload_suffixes", "knowledge_components")
 
