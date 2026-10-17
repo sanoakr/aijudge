@@ -248,9 +248,13 @@ def _test_case_specs(version: TaskVersion, evaluator: str) -> list[dict[str, Any
     for case in version.test_cases:
         spec: dict[str, Any] = {"name": case.name}
         payload = dict(case.payload)
-        if set(payload) == {"input", "expected"}:
+        if set(payload) - {"exit_code"} == {"input", "expected"}:
             spec["input"] = payload["input"]
             spec["expected"] = payload["expected"]
+            # 終了コードの期待（2026-10-18）も入出力の欄として書く。payload の形に
+            # 倒すと、`in/` `out/` に書き戻せる課題まで YAML に展開される。
+            if "exit_code" in payload:
+                spec["exit_code"] = payload["exit_code"]
         else:
             # 入出力の形をしない検証データ（レポートの必須節など・#302）。
             # **空の input/expected を混ぜない。**
@@ -447,6 +451,9 @@ def _plain_cases(spec: TaskSpec) -> bool:
             return False
         if case.payload or not case.hidden or case.weight != 1.0 or case.evaluator is not None:
             return False
+        if case.exit_code != "zero":
+            # `in/` `out/` には終了コードの置き場が無い。書き戻すと消える。
+            return False
     return bool(spec.test_cases)
 
 
@@ -551,6 +558,8 @@ def _test_case_specs_from(spec: TaskSpec) -> list[dict[str, Any]]:
         else:
             row["input"] = case.input
             row["expected"] = case.expected
+            if case.exit_code != "zero":
+                row["exit_code"] = case.exit_code
         if not case.hidden:
             row["hidden"] = False
         if case.weight != 1.0:

@@ -14,7 +14,7 @@ Sharif Judge のディレクトリ形式を知っているのは `importers/shar
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Self
+from typing import Literal, Self
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -74,6 +74,31 @@ class TestCaseSpec(BaseModel):
     evaluator: str | None = None
     #: 入出力以外の中身。**形は評価器が決める**（P1）。空なら入力と期待出力。
     payload: dict[str, object] = Field(default_factory=dict)
+    #: 期待する終了の仕方（2026-10-18）。`zero`（既定）・`nonzero`・`any`。
+    #:
+    #: 入出力の形のときだけ使う。`payload` に `exit_code` として入り、
+    #: `code_test_runner` が読む（`aijudge_eval_code_test_runner.exit_expectation`）。
+    #: 既定のときは payload に書かない ── 書くと、終了コードを気にしない既存の
+    #: 課題まで中身が変わり、取り込み直しで版が上がる。
+    exit_code: Literal["zero", "nonzero", "any"] = "zero"
+
+    @model_validator(mode="after")
+    def _exit_code_belongs_to_io(self) -> Self:
+        # **2 か所に書かせない。** payload を持つ宣言は形を評価器が決めるので、
+        # 終了コードも payload の中に書く。両方に書けると、どちらが効くのかを
+        # 読み手が知っていなければならない。
+        if self.payload and self.exit_code != "zero":
+            raise ValueError(
+                f"{self.name}: payload を書くときは exit_code も payload の中に書いてください"
+            )
+        return self
+
+    def io_payload(self) -> dict[str, object]:
+        """入出力の形の payload。`exit_code` は既定でないときだけ載せる。"""
+        payload: dict[str, object] = {"input": self.input, "expected": self.expected}
+        if self.exit_code != "zero":
+            payload["exit_code"] = self.exit_code
+        return payload
 
 
 class LevelSpec(BaseModel):
@@ -489,9 +514,7 @@ def build_task_version(
             # `payload` を持つ宣言はそれをそのまま渡す ── 入出力の形をしない
             # 検証データ（レポートの必須節など）に、空の input/expected を
             # 混ぜない。
-            payload=dict(case.payload)
-            if case.payload
-            else {"input": case.input, "expected": case.expected},
+            payload=dict(case.payload) if case.payload else case.io_payload(),
             hidden=case.hidden,
             weight=case.weight,
         )

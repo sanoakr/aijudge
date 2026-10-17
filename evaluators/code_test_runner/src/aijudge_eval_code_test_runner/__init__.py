@@ -76,6 +76,11 @@ __all__ = [
     "DEFAULT_COMPILE_TIMEOUT_SECONDS",
     "DRIVER_KEY",
     "EVALUATOR_ID",
+    "EXIT_ANY",
+    "EXIT_CODE_KEY",
+    "EXIT_EXPECTATIONS",
+    "EXIT_NONZERO",
+    "EXIT_ZERO",
     "FUNCTION_CHECK_ID",
     "LANGUAGES",
     "OPTION_CASE_TIMEOUT",
@@ -86,6 +91,7 @@ __all__ = [
     "UnknownLanguage",
     "build",
     "build_function_check",
+    "exit_expectation",
     "format_only_mismatch",
     "normalize_output",
     "resolve_language",
@@ -150,6 +156,48 @@ def format_only_mismatch(expected: list[str], actual: list[str]) -> str | None:
             "出力は数値として同じですが、書き方（桁数や小数点以下の表示）が課題文の指定と違います。"
         )
     return None
+
+
+# **終了コードの期待**（2026-10-18）。テストケースの `payload["exit_code"]` に書く。
+#
+# 既定は `zero`（0 で終わること）で、書かなければ従来どおりである。C の規約では
+# 0 が成功、`EXIT_FAILURE` が失敗を表す。「入力が不正なら何も出力せずに終了する」
+# ケースで `return 1;` と書くのは慣習どおりの書き方なのに、以前は 0 以外を一律に
+# 不正解にしていた ── 課題文に「エラーでも 0 で終えること」と注記して回避して
+# いたが、それは教えている規約と逆である。規約どおりに採点できるよう、ケースごとに
+# 期待を書けるようにした（問題単位では足りない。1 つの問題に正常系とエラー系の
+# ケースが混ざる）。
+#
+# **どの期待でも、シグナルによる終了と時間切れは不正解のまま。** 緩めるのは
+# 「正常に終了し、終了コードが 0 以外」だけである。docker では 124（時間切れ）と
+# 128+N（シグナル）が提出の `exit()` と区別できない（ADR 0006）ので、その値で
+# 自分から終えた提出も、`nonzero`・`any` で不正解になる。
+EXIT_CODE_KEY = "exit_code"
+EXIT_ZERO = "zero"
+EXIT_NONZERO = "nonzero"
+EXIT_ANY = "any"
+EXIT_EXPECTATIONS = (EXIT_ZERO, EXIT_NONZERO, EXIT_ANY)
+
+
+def exit_expectation(payload: dict[str, object]) -> str:
+    """テストケースが期待する終了の仕方。**知らない値は `zero` に倒す。**
+
+    宣言の側（`TestCaseSpec`）が値を検査するので、ここに知らない値が来るのは
+    手で DB を書いた場合くらいである。緩い側に倒すと、誤記が採点を甘くする。
+    """
+    value = payload.get(EXIT_CODE_KEY, EXIT_ZERO)
+    return str(value) if value in EXIT_EXPECTATIONS else EXIT_ZERO
+
+
+def _exit_matches(result: ExecResult, expectation: str) -> bool:
+    """終了の仕方が期待どおりか。シグナルで死んだものはどの期待でも通さない。"""
+    if result.signal_name is not None:
+        return False
+    if expectation == EXIT_ANY:
+        return True
+    if expectation == EXIT_NONZERO:
+        return result.exit_code != 0
+    return result.exit_code == 0
 
 
 # テストケース 1 件あたりの実行上限（秒）。科目プロファイルの
@@ -473,17 +521,25 @@ class CodeTestRunner:
                 continue
 
             actual = normalize_output(result.stdout)
-            passed = result.exit_code == 0 and actual == expected
+            expectation = exit_expectation(case.payload)
+            exit_ok = _exit_matches(result, expectation)
+            passed = exit_ok and actual == expected
             entry |= {
                 "passed": passed,
                 "exit_code": result.exit_code,
                 "expected": expected,
                 "actual": actual,
             }
+            if expectation != EXIT_ZERO:
+                # 既定と違う期待で判定したことを残す。画面が理由を言い分ける。
+                entry["expected_exit"] = expectation
             if result.signal_name:
                 entry["signal"] = result.signal_name
                 entry["reason"] = f"killed by {result.signal_name}"
-            elif result.exit_code != 0:
+            elif not exit_ok and result.exit_code == 0:
+                # `nonzero` を期待したのに 0 で終えた（エラーを成功として返した）。
+                entry["reason"] = "zero exit"
+            elif not exit_ok:
                 entry["reason"] = "nonzero exit"
                 entry["stderr"] = result.stderr.strip()[:2000]
             elif not passed:
@@ -524,7 +580,16 @@ class CodeTestRunner:
 
         names = ", ".join(str(case["name"]) for case in failed[:5])
         suffix = " ほか" if len(failed) > 5 else ""
-        return head + f"不一致: {names}{suffix}。"
+        # **0 で終えたことが理由なら言う**（2026-10-18）。出力が合っていても落ちる
+        # ので、「不一致」とだけ返すと出力の側を探させてしまう。
+        zero = [str(case["name"]) for case in failed if case.get("reason") == "zero exit"]
+        note = (
+            f"{', '.join(zero[:5])} は、エラーとして 0 以外の終了コードで終えることを"
+            "求めています（例: return 1;）。"
+            if zero
+            else ""
+        )
+        return head + f"不一致: {names}{suffix}。" + note
 
     def _format_note(self, failed: list[dict[str, object]]) -> str | None:
         """全ケースが同じ書式の食い違いで落ちているなら、その説明。

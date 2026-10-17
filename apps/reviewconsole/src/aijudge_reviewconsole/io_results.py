@@ -313,9 +313,17 @@ def _reason(entry: dict[str, object]) -> str:
     if reason == "timeout":
         return "時間切れ"
     if entry.get("signal"):
+        code = entry.get("exit_code")
+        if isinstance(code, int) and code > 0:
+            # コンテナ越しでは 128+N で届く（ADR 0006）。提出が自分でその値を
+            # `exit()` した場合と区別できないので、値も並べて見せる。
+            return f"強制終了（{entry['signal']}・終了コード {code}）"
         return f"強制終了（{entry['signal']}）"
     if reason == "nonzero exit":
         return f"異常終了（終了コード {entry.get('exit_code')}）"
+    if reason == "zero exit":
+        # このケースは 0 以外での終了を期待している（`expected_exit`・2026-10-18）。
+        return "終了コードが 0（このケースは 0 以外での終了を期待）"
     if reason == "output mismatch":
         return "出力が違う"
     if reason == "not_listening":

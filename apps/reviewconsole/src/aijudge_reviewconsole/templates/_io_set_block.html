@@ -65,6 +65,10 @@
       <p class="desc" style="margin:8px 0">
         入力と期待出力は<strong>改行も含めてそのまま</strong>使われます（末尾に改行を 1 つ入れるのが普通です）。
         名前・入力・期待出力が空の行は捨てます。
+        <strong>終了コード</strong>は、ふつうは「0」です。「入力が不正なら何も出力せずに終了する」のように
+        エラーで終えるケースは「0 以外」にすると、<span class="mono">return 1;</span> や
+        <span class="mono">exit(EXIT_FAILURE);</span> で終える解答を正解にできます
+        （どれを選んでも、異常終了や時間切れは不正解です）。
         {% if version.reference_solution %}<strong>保存前に参照解答を全ケースで走らせ、通らなければ保存しません。</strong>
         {% else %}参照解答が無いので、入出力の整合は確かめずに保存します。{% endif %}
       </p>
@@ -76,7 +80,7 @@
       <table class="testcases">
         <thead><tr>
           <th class="fit">消す</th><th class="fit">名前</th><th class="fit">重み</th><th class="fit">学習者に</th>
-          <th>入力</th><th>期待出力</th>
+          <th class="fit">終了コード</th><th>入力</th><th>期待出力</th>
         </tr></thead>
         <tbody>
         {% for case in io_cases %}
@@ -87,6 +91,11 @@
             <td class="fit"><select name="case_hidden">
               <option value="1" {{ 'selected' if case.hidden }}>見せない</option>
               <option value="0" {{ 'selected' if not case.hidden }}>見せる</option></select></td>
+            {% set exit_code = case.payload.get('exit_code', 'zero') %}
+            <td class="fit"><select name="case_exit">
+              <option value="zero" {{ 'selected' if exit_code not in ['nonzero', 'any'] }}>0</option>
+              <option value="nonzero" {{ 'selected' if exit_code == 'nonzero' }}>0 以外</option>
+              <option value="any" {{ 'selected' if exit_code == 'any' }}>問わない</option></select></td>
             <td><textarea name="case_input" rows="3" class="mono">{{ case.payload.get('input', '') }}</textarea></td>
             <td><textarea name="case_expected" rows="3" class="mono">{{ case.payload.get('expected', '') }}</textarea></td>
           </tr>
@@ -97,6 +106,7 @@
           <td class="fit"><input name="case_name" placeholder="case{{ io_cases | length + 1 }}"></td>
           <td class="fit"><input name="case_weight" type="number" step="0.1" min="0.1" value="1.0"></td>
           <td class="fit"><select name="case_hidden"><option value="1">見せない</option><option value="0">見せる</option></select></td>
+          <td class="fit"><select name="case_exit"><option value="zero">0</option><option value="nonzero">0 以外</option><option value="any">問わない</option></select></td>
           <td><textarea name="case_input" rows="3" class="mono"></textarea></td>
           <td><textarea name="case_expected" rows="3" class="mono"></textarea></td>
         </tr>
