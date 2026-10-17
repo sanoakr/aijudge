@@ -41,6 +41,7 @@ from aijudge_core.ids import (
     UserId,
 )
 
+from .image_integrity import INCOMPLETE_IMAGE, image_is_complete
 from .jobs import (
     DEFAULT_MAX_ATTEMPTS,
     GradingJob,
@@ -188,6 +189,11 @@ class SubmissionService:
         """
         if not files:
             raise SubmissionRejected("提出物がありません")
+        for incoming in files:
+            # **切れた画像はその場で断る**（#633）。通すと採点で初めて読めないと
+            # 分かり、そのとき学習者は画面を離れている。
+            if incoming.kind is ArtifactKind.IMAGE and not image_is_complete(incoming.payload):
+                raise SubmissionRejected(f"{incoming.filename}: {INCOMPLETE_IMAGE}")
 
         key = idempotency_key or content_idempotency_key(task_version_id, learner_id, files)
         now = self._clock()
