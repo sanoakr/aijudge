@@ -471,7 +471,16 @@ def test_the_header_and_countdown_are_outside_noscript(world: World) -> None:
 
 # -- 画像・PDF をエディタの画面から出す（2026-09-25） ---------------------------
 
-PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
+# **最後まである PNG にする**（#633）。署名の後ろを 0 で埋めただけの PNG は、受付が
+# 「途中で切れた画像」として断る。IHDR と IEND だけの最小の形（CRC は受付が見ない）。
+PNG = (
+    b"\x89PNG\r\n\x1a\n"
+    + b"\x00\x00\x00\x0dIHDR"
+    + b"\x00" * 13
+    + b"\x00" * 4
+    + b"\x00\x00\x00\x00IEND"
+    + b"\x00" * 4
+)
 
 
 def _second_task(world: World, suffixes: tuple[str, ...], *, title: str = "認定証"):
