@@ -21,6 +21,7 @@ from fastapi.testclient import TestClient
 
 from aijudge_authoring.importers import sharif_judge
 from aijudge_core import (
+    AnswerMode,
     Course,
     FailedInputs,
     Finalization,
@@ -2561,3 +2562,76 @@ def test_a_unit_set_to_never_shows_no_inputs(world: World) -> None:
     world.worker.run_until_empty()
 
     assert "正しく動かなかった入力" not in world.client.get(location).text
+
+
+# -- 結果画面からの出し直しと、ほかの提出（2026-10-18） ----------------------
+
+
+def _set_task(world: World, **update) -> None:
+    with world.database.unit_of_work() as uow:
+        task = uow.tasks.get_task(world.task_version.task_id)
+        uow.tasks.save_task(task.model_copy(update=update))
+        uow.commit()
+
+
+def test_the_result_page_offers_to_submit_again(world: World) -> None:
+    world.register("s2400001")
+    world.login("s2400001")
+    location = world.submit().headers["location"]
+
+    body = world.client.get(location).text
+
+    assert f'href="/tasks/{world.task_version.id}#submit"' in body
+    assert "この課題をもう一度提出する" in body
+
+
+def test_an_editor_task_sends_the_learner_back_to_the_editor(world: World) -> None:
+    world.register("s2400001")
+    world.login("s2400001")
+    location = world.submit().headers["location"]
+    _set_task(world, answer_mode=AnswerMode.EDITOR, unit="ex01")
+
+    body = world.client.get(location).text
+
+    assert f'href="/courses/{COURSE}/ide?unit=ex01"' in body
+    # ファイルでも出せる課題（既定）なら、課題の画面の提出欄も残す。
+    assert f'href="/tasks/{world.task_version.id}#submit"' in body
+
+
+def test_after_the_window_closes_the_page_says_so(world: World) -> None:
+    """**ボタンを消すだけにしない。** 出し直せないのか、場所が別なのかが分からない。"""
+    world.register("s2400001")
+    world.login("s2400001")
+    location = world.submit().headers["location"]
+    past = datetime.now(UTC) - timedelta(hours=1)
+    _set_task(world, due_at=past - timedelta(hours=1), accepts_until=past)
+
+    body = world.client.get(location).text
+
+    assert "提出の受付は終了しています" in body
+    assert "#submit" not in body
+
+
+def test_the_result_page_lists_the_other_attempts(world: World) -> None:
+    world.register("s2400001")
+    world.login("s2400001")
+    first = world.submit(b"int main(void) { return 0; }\n").headers["location"]
+    second = world.submit(b"int main(void) { return 0; } /* 2 */\n").headers["location"]
+
+    body = world.client.get(second).text
+
+    assert "これまでの提出" in body
+    assert f'href="{first}"' in body, "前の提出へ行けない"
+    assert "この提出" in body
+    assert f'href="{second}"' not in body, "いま見ている提出に自分へのリンクが出ている"
+
+
+def test_other_learners_attempts_are_not_listed(world: World) -> None:
+    world.register("s2400001")
+    world.register("s2400002")
+    world.login("s2400002")
+    theirs = world.submit(b"int main(void) { return 0; } /* theirs */\n").headers["location"]
+    world.login("s2400001")
+    mine = world.submit().headers["location"]
+
+    assert f'href="{theirs}"' not in world.client.get(mine).text

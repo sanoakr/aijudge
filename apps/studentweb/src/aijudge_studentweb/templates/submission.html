@@ -1,5 +1,20 @@
 {% extends "base.html" %}
 {% block title %}提出 {{ attempt_no }} 回目 — aiJudge{% endblock %}
+{# もう一度提出する（2026-10-18）。結果を見て直したら、課題の画面を探さずに出し直せる。
+   受付が終わっていれば、ボタンを消さずにそう書く（`ResubmitLink`）。 #}
+{% macro resubmit_block() %}
+{% if resubmit %}
+<div class="actions resubmit" style="justify-content:flex-start">
+  {% if resubmit.url %}
+  <a class="button" href="{{ resubmit.url }}">{{ resubmit.label }}</a>
+  {% if resubmit.file_url %}<a class="desc" href="{{ resubmit.file_url }}">ファイルで提出する</a>{% endif %}
+  {% else %}
+  <span class="desc">この課題の提出の受付は終了しています。</span>
+  {% endif %}
+</div>
+{% endif %}
+{% endmacro %}
+
 {% block body %}
 <h1>{{ task.statement.split("\n")[0] | replace("#", "") | trim }} — 提出 {{ attempt_no }} 回目</h1>
 
@@ -41,6 +56,10 @@
   <noscript>この画面を再読み込みして確認してください。</noscript>
 </div>
 {% endif %}
+
+{# 結果がまだ無いあいだ（採点待ち・試験の保留）も出し直せる。結果があれば、
+   結果を読んだあと（下）に出す。 #}
+{% if not run %}{{ resubmit_block() }}{% endif %}
 
 {% if run %}
 
@@ -178,6 +197,8 @@
 <div class="card">{{ view.review_comment }}</div>
 {% endif %}
 
+{{ resubmit_block() }}
+
 <h2>採点の再確認を依頼する{% if view.provisional_pending %}（{{ view.settles_at | local('%m/%d %H:%M') }} まで）{% endif %}</h2>
 {% if view.can_request_review %}
 <form method="post" action="/submissions/{{ submission.id }}/request-review" class="card">
@@ -219,6 +240,12 @@
 </div>
 {% endif %}
 
+{% endif %}
+
+{# この課題への自分の提出（2026-10-18）。出し直しの前後で、どれが採用されているかと
+   ほかの回の結果を、課題の画面に戻らずに行き来できる。 #}
+{% if attempts %}
+{% with current_id = submission.id %}{% include "_attempts_table.html" %}{% endwith %}
 {% endif %}
 
 {# **種別で出し分ける**（#75）。以前は何でもテキストとして出していたので、

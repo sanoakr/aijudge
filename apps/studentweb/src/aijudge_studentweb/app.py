@@ -1377,6 +1377,10 @@ def create_app(app_state: StudentApp) -> FastAPI:
                 # 出す** ── 「この提出で何点だったか」ではなく「何を問われた
                 # 提出か」である。習熟度の推定値は出さない。
                 "knowledge_components": knowledge_components_of(app_state, loaded.version),
+                # もう一度提出する先（2026-10-18）。結果を見て直したら、その場から出し直せる。
+                "resubmit": _resubmit_link(app_state, me, loaded.task, loaded.course),
+                # この課題への自分の提出（課題の画面と同じ一覧・2026-10-18）。
+                **_attempts_of(app_state, me, loaded.task, loaded.course),
                 **build_context(
                     loaded.course, loaded.task, loaded.version, loaded.submission, attempt_no
                 ),
@@ -2010,6 +2014,75 @@ def _staff_visibility(task, role: Role, moment) -> str | None:
     if task.audience_group_ids:
         return "この課題は一部の学生（出題先の名簿）だけに出題されています。"
     return None
+
+
+@dataclass(frozen=True)
+class ResubmitLink:
+    """結果画面から、同じ課題をもう一度提出する先（2026-10-18）。
+
+    `url` が None なら受付が終わっている。**ボタンを消すだけにしない** ── 消すと、
+    出し直せないのか、出し直す場所が別にあるのかが学習者に分からない。
+    """
+
+    url: str | None
+    label: str = "この課題をもう一度提出する"
+    # エディタの課題でファイルでも出せるときの、課題の画面の提出欄。
+    file_url: str | None = None
+
+
+def _resubmit_link(
+    app_state: StudentApp, me: Principal, task: Task, course: Course
+) -> ResubmitLink | None:
+    """もう一度提出する先。出せない課題（取り下げ・公開版なし）なら None。
+
+    **行き先は最新の公開版**である。結果を見ている提出が古い版へのものでも、
+    いま出すなら課題の画面と同じ版に出す（一覧と同じ `latest_published_version`）。
+    受付の判定は課題の画面と同じ述語を通す ── 画面ごとに違う答えを出すと、
+    ボタンが出ているのに押すと断られる、が起きる。
+    """
+    if task.withdrawn:
+        return None
+    with app_state.database.unit_of_work() as uow:
+        version = uow.tasks.latest_published_version(task.id)
+    if version is None:
+        return None
+    window = task.submission_window_at(now())
+    if window is SubmissionWindow.CLOSED:
+        return ResubmitLink(url=None)
+    if window is SubmissionWindow.NOT_OPEN and not may_submit_before_open(
+        task, _role_in(app_state, course.id, me.user_id), now=now()
+    ):
+        return ResubmitLink(url=None)
+    task_url = f"/tasks/{version.id}#submit"
+    if task.answer_mode is AnswerMode.EDITOR:
+        return ResubmitLink(
+            url=f"/courses/{course.id}/ide?unit={quote(task.unit or '')}",
+            label="エディタで直してもう一度提出する",
+            file_url=task_url if task.file_upload else None,
+        )
+    return ResubmitLink(url=task_url)
+
+
+def _attempts_of(
+    app_state: StudentApp, me: Principal, task: Task, course: Course
+) -> dict[str, object]:
+    """この課題への自分の提出の一覧（`progress`・`attempts`）。課題の画面と同じ求め方。
+
+    **自分の提出だけ**である（`load_progress` は学習者で絞る）。ほかの学習者の提出は
+    出さない。版は課題の画面と同じ最新の公開版で引く ── 版をまたいで数える。
+    """
+    with app_state.database.unit_of_work() as uow:
+        version = uow.tasks.latest_published_version(task.id)
+        if version is None:
+            return {"progress": EMPTY, "attempts": ()}
+        progress = load_progress(
+            uow,
+            tenant_id=me.tenant_id,
+            learner_id=me.user_id,
+            course=course,
+            rows=((task, version),),
+        ).get(version.id, EMPTY)
+    return {"progress": progress, "attempts": tuple(reversed(progress.attempts))}
 
 
 def _role_in(app_state: StudentApp, course_id: CourseId, user_id: UserId) -> Role:
