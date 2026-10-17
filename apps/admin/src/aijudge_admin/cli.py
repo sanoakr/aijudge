@@ -46,6 +46,7 @@ from aijudge_course_admin.operations import (
     list_tasks,
     set_password,
 )
+from aijudge_course_admin.regrade import execute_regrade, plan_regrade, reviewed_submissions
 from aijudge_course_admin.roster import RosterError, load_roster, write_credentials
 from aijudge_course_admin.tasks import clear_unit
 from aijudge_course_admin.video_purge import plan_video_purge, purge_videos
@@ -1155,6 +1156,54 @@ def _read_logins(path: Path) -> list[str]:
     return logins
 
 
+def cmd_regrade(args: argparse.Namespace) -> int:
+    """課題の提出を、**確定済みも含めて**いまの採点器で採点し直す。
+
+    規則は `aijudge_course_admin.regrade` にある。ここは入口で、**下見を出して
+    から確認を挟む** ── 何件の確定を開け直し、何件の人の採点が新しい成績に
+    効かなくなるのかを見ずに流せる形にしない。画面には置かない（モジュールの
+    説明を参照）。
+    """
+    database = _database(args)
+    try:
+        plans = [
+            plan_regrade(
+                database, tenant_id=_tenant(args), course_id=CourseId(args.course), task=task
+            )
+            for task in args.task
+        ]
+        for plan in plans:
+            print(f"課題: {plan.task.title}（採点に使う版 {plan.version.version}）")
+            print(f"  採点し直す提出   {len(plan.targets):4d} 件")
+            print(f"  うち確定済み     {plan.finalized:4d} 件（開け直します）")
+            print(
+                f"  うち人の採点あり {plan.reviewed:4d} 件"
+                "（調整した段階・コメント・減点の免除は新しい成績に効きません）"
+            )
+            print(f"  採点が未着       {plan.without_run:4d} 件")
+        if not args.yes and not _confirmed("採点し直します。よろしいですか [y/N]: "):
+            print("中止しました")
+            return 1
+        from aijudge_submission import SubmissionService
+
+        service = SubmissionService(database.unit_of_work, _artifact_store(args))
+        for plan in plans:
+            queued = execute_regrade(
+                database, service, plan, tenant_id=_tenant(args), reason=args.reason
+            )
+            print(f"積みました: {plan.task.title} {queued} 件")
+            # **あとで見比べるための一覧。** 教員が読んだ判断が新しい成績に効かなく
+            # なる提出なので、新しい点と見比べられるよう id を出す（個人情報ではない）。
+            for target in reviewed_submissions(plan):
+                print(f"  人の採点があった提出: {target.submission.id}")
+    except AdminError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    finally:
+        database.dispose()
+    return 0
+
+
 def cmd_task_list(args: argparse.Namespace) -> int:
     database = _database(args)
     try:
@@ -1270,6 +1319,18 @@ def build_parser() -> argparse.ArgumentParser:
     course_delete.add_argument("--course", required=True, help="コース ID")
     course_delete.add_argument("--yes", action="store_true", help="確認を省く")
     course_delete.set_defaults(func=cmd_course_delete)
+
+    # 確定済みも含めた再採点（2026-10-17）。**画面には置かない**（`regrade` の説明）。
+    regrade = sub.add_parser(
+        "regrade", help="課題の提出を確定済みも含めて採点し直す（下見を出してから確認する）"
+    )
+    regrade.add_argument("--course", required=True, help="コース ID")
+    regrade.add_argument(
+        "--task", required=True, action="append", help="課題の id か鍵（例: ex4/paiza4）。複数可"
+    )
+    regrade.add_argument("--reason", required=True, help="理由（監査ログに残る。10 文字以上）")
+    regrade.add_argument("--yes", action="store_true", help="確認を省く")
+    regrade.set_defaults(func=cmd_regrade)
 
     # デモコースのリセット（#194）。**`course` の下に置かない** ── 対象は
     # 環境変数が指す 1 つに固定されており、コースを選べる操作ではない。
