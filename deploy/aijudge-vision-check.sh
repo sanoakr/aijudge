@@ -20,7 +20,7 @@
 # 確かめること ── それがこのスクリプトに引数でホストを渡せる理由である。
 set -uo pipefail
 
-MODEL="${AIJUDGE_LLM_VISION_MODEL:-qwen3-vl:8b}"
+MODEL="${AIJUDGE_LLM_VISION_MODEL:-qwen3-vl:8b-instruct}"
 
 hosts=("$@")
 if [ "${#hosts[@]}" -eq 0 ]; then
