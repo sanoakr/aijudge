@@ -545,3 +545,25 @@ def test_a_file_that_is_not_c_is_not_judged() -> None:
 def test_editor_submissions_without_a_filename_are_judged() -> None:
     outcome = CIndentCheck().evaluate(_request(_src(GOOD_4), filename=None))
     assert outcome.status is EvaluatorStatus.OK
+
+
+FLAT = """
+int main(void)
+{
+int a = 1;
+if (a) {
+a = 2;
+}
+return a;
+}
+"""
+
+
+def test_the_rationale_reads_as_japanese() -> None:
+    """「単位を4 スペース」「単位をなしと推定」と書かない（2026-10-18 の確認）。"""
+    good = CIndentCheck().evaluate(_request(_src(GOOD_4))).scores[0].rationale
+    assert "字下げの単位を 4 スペース と推定し" in good
+
+    flat = CIndentCheck().evaluate(_request(_src(FLAT))).scores[0].rationale
+    assert "なしと推定" not in flat
+    assert "字下げが見つからないため" in flat

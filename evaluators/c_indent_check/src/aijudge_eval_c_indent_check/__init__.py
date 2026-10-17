@@ -463,8 +463,14 @@ class CIndentCheck:
     ) -> str:
         parts = []
         for _, report in reports:
+            # **単位が無いときは「なし」と推定したと書かない**（2026-10-18）。
+            # 「単位をなしと推定」は日本語として読めない。字下げが見つからない
+            # ことをそのまま言う。
             head = (
-                f"字下げの単位を{report.unit_label}と推定し、{len(report.counted)} 行を数えました"
+                f"字下げが見つからないため単位を推定できず、{len(report.counted)} 行を数えました"
+                if report.unit is None
+                else f"字下げの単位を {report.unit_label} と推定し、"
+                f"{len(report.counted)} 行を数えました"
             )
             if not report.broken:
                 parts.append(f"{head}。すべて入れ子の深さどおりです")
