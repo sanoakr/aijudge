@@ -21,6 +21,7 @@ from aijudge_course_admin import rubric
 from aijudge_course_admin.task_verifier import TaskVerifier, outputs_for
 from aijudge_course_admin.test_cases import InputProposer, SolutionWriter, TestCaseWriter
 from aijudge_eval_code_test_runner import EVALUATOR_ID as CODE_TEST_RUNNER
+from aijudge_eval_code_test_runner import EXIT_EXPECTATIONS, EXIT_ZERO, exit_expectation
 from aijudge_grading import EvaluatorRegistry, load_profile, test_case_shape
 
 from .. import notices
@@ -77,6 +78,7 @@ async def _io_draft_from(form) -> tuple:
     expected = [str(v) for v in form.getlist("case_expected")]
     weights = [str(v) for v in form.getlist("case_weight")]
     hidden = [str(v) for v in form.getlist("case_hidden")]
+    exits = [str(v) for v in form.getlist("case_exit")]
     deleted = {str(v) for v in form.getlist("case_delete")}
     out = []
     for index, name in enumerate(names):
@@ -86,16 +88,18 @@ async def _io_draft_from(form) -> tuple:
             weight = float(weights[index]) if index < len(weights) else 1.0
         except ValueError:
             weight = 1.0
+        payload: dict[str, object] = {
+            "input": (inputs[index] if index < len(inputs) else "").replace("\r\n", "\n"),
+            "expected": (expected[index] if index < len(expected) else "").replace("\r\n", "\n"),
+        }
+        exit_code = exits[index] if index < len(exits) else EXIT_ZERO
+        if exit_code in EXIT_EXPECTATIONS and exit_code != EXIT_ZERO:
+            payload["exit_code"] = exit_code
         out.append(
             TestCase(
                 name=name.strip(),
                 evaluator_id=CODE_TEST_RUNNER,
-                payload={
-                    "input": (inputs[index] if index < len(inputs) else "").replace("\r\n", "\n"),
-                    "expected": (expected[index] if index < len(expected) else "").replace(
-                        "\r\n", "\n"
-                    ),
-                },
+                payload=payload,
                 hidden=(hidden[index] if index < len(hidden) else "1") != "0",
                 weight=weight,
             )
@@ -140,7 +144,7 @@ class IoEdit:
 def _io_signature(cases, reference) -> tuple:
     return (
         tuple(
-            (case.name, case.input, case.expected, case.hidden, float(case.weight))
+            (case.name, case.input, case.expected, case.exit_code, case.hidden, float(case.weight))
             for case in cases
         ),
         reference,
@@ -161,6 +165,10 @@ def io_edit_from_form(console, version, form, *, allow_unchanged_empty: bool = F
     expected = [str(v) for v in form.getlist("case_expected")]
     weights = [str(v) for v in form.getlist("case_weight")]
     hidden = [str(v) for v in form.getlist("case_hidden")]
+    # 終了コードの期待（2026-10-18）。**欄が無い経路**（古い画面・API）から来たら、
+    # いまの版の値を名前で引き継ぐ ── 既定に倒すと、触っていない `nonzero` の
+    # ケースが保存のたびに `zero` へ戻る（ex01-2 の件と同じ形の取りこぼし）。
+    exits = [str(v) for v in form.getlist("case_exit")]
     deleted = {str(v) for v in form.getlist("case_delete")}
     # 参照解答は入出力セットと一緒に保存する（#305）。**ひと組だから** ──
     # 門 1 は両方を突き合わせる検査で、片方だけ先に保存できると、教員が
@@ -187,6 +195,11 @@ def io_edit_from_form(console, version, form, *, allow_unchanged_empty: bool = F
         (case.evaluator_id for case in version.test_cases if case.evaluator_id in io_ids),
         CODE_TEST_RUNNER,
     )
+    kept_exit = {
+        case.name: exit_expectation(case.payload)
+        for case in version.test_cases
+        if case.evaluator_id in io_ids
+    }
 
     cases: list[TestCaseSpec] = []
     seen: set[str] = set()
@@ -209,11 +222,17 @@ def io_edit_from_form(console, version, form, *, allow_unchanged_empty: bool = F
             raise HTTPException(
                 status_code=400, detail=f"{name}: 重みが数値ではありません"
             ) from None
+        exit_code = at(exits, index) or kept_exit.get(name, EXIT_ZERO)
+        if exit_code not in EXIT_EXPECTATIONS:
+            raise HTTPException(
+                status_code=400, detail=f"{name}: 終了コードの指定 {exit_code!r} は使えません"
+            )
         cases.append(
             TestCaseSpec(
                 name=name,
                 input=text_in,
                 expected=text_out,
+                exit_code=exit_code,  # type: ignore[arg-type]
                 hidden=at(hidden, index, "1") != "0",
                 weight=weight,
                 evaluator=io_evaluator,
@@ -254,6 +273,7 @@ def io_edit_from_form(console, version, form, *, allow_unchanged_empty: bool = F
             name=case.name,
             input=str(case.payload.get("input", "")),
             expected=str(case.payload.get("expected", "")),
+            exit_code=exit_expectation(case.payload),  # type: ignore[arg-type]
             hidden=case.hidden,
             weight=case.weight,
             evaluator=case.evaluator_id,
@@ -280,7 +300,7 @@ def io_edit_from_form(console, version, form, *, allow_unchanged_empty: bool = F
                     TestCase(
                         name=case.name,
                         evaluator_id=io_evaluator,
-                        payload={"input": case.input, "expected": case.expected},
+                        payload=case.io_payload(),
                         hidden=case.hidden,
                         weight=case.weight,
                     )
