@@ -69,6 +69,9 @@ class AuditAction(StrEnum):
     # -- 成績 --
     REVIEW_RECORDED = "review.recorded"
     GRADE_FINALIZED = "grade.finalized"
+    # 確定済みも含めて課題の提出を採点し直した（`aijudge-admin regrade`）。確定した
+    # 成績を開け直す操作なので、何件・なぜを残す。
+    GRADES_REGRADED = "grades.regraded"
     # blind 採点の訂正（ADR 0031）。元の blind 採点は残り、訂正を追記する。
     BLIND_MARK_CORRECTED = "blind_mark.corrected"
     # -- 採点の設定 --
