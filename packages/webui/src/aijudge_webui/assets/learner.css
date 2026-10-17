@@ -127,3 +127,9 @@ main:has(.ide-head){max-width:none}
 .failed-inputs{margin-top:8px}
 .failed-inputs pre{margin:4px 0 8px;padding:6px 8px;background:var(--surface-2);border:1px solid var(--line-soft);
   border-radius:3px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:16em;overflow-y:auto}
+/* 結果画面の「もう一度提出する」（2026-10-18）。行き先は別の画面なのでリンクだが、
+   次にとる行動なのでボタンと同じ見た目にする。 */
+a.button{display:inline-block;font-weight:700;background:var(--shu);color:#fff;border-radius:3px;
+  padding:10px 22px;text-decoration:none;white-space:nowrap}
+a.button:hover{filter:brightness(1.08)}
+.resubmit{gap:12px;align-items:center;margin:16px 0}
