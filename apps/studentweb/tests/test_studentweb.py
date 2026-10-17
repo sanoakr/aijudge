@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import html
 import re
 import shutil
 from datetime import UTC, datetime, timedelta
@@ -21,6 +22,7 @@ from fastapi.testclient import TestClient
 from aijudge_authoring.importers import sharif_judge
 from aijudge_core import (
     Course,
+    FailedInputs,
     Finalization,
     FinalizationSource,
     HumanReview,
@@ -2520,3 +2522,42 @@ def test_a_set_short_of_its_clear_points_has_no_badge(world: World) -> None:
     body = world.client.get(f"/courses/{COURSE}").text
     assert '<span class="pill ok">クリア' not in body
     assert "クリアまであと" in body
+
+
+# 何も出力しない解答。全ケースが落ちる。
+SILENT = b"int main(void) { return 0; }\n"
+
+
+@needs_c_compiler
+def test_the_inputs_of_failed_cases_are_shown_but_not_the_expected_output(
+    world: World,
+) -> None:
+    """**非公開のケースでも入力は見せる。期待出力は見せない**（2026-10-18）。"""
+    world.register("s2400001")
+    world.login("s2400001")
+    location = world.submit(SILENT).headers["location"]
+    world.worker.run_until_empty()
+
+    body = world.client.get(location).text
+    cases = world.task_version.test_cases
+    assert all(case.hidden for case in cases), "例題のケースは非公開のはず"
+    assert "正しく動かなかった入力" in body
+    for case in cases[:3]:
+        assert html.escape(str(case.payload["input"]).strip()) in body
+    for case in cases:
+        expected = str(case.payload["expected"]).strip()
+        assert f"<pre>{html.escape(expected)}" not in body, "期待出力が出ている"
+
+
+@needs_c_compiler
+def test_a_unit_set_to_never_shows_no_inputs(world: World) -> None:
+    with world.database.unit_of_work() as uow:
+        task = uow.tasks.get_task(world.task_version.task_id)
+        uow.tasks.save_task(task.model_copy(update={"failed_inputs": FailedInputs.NEVER}))
+        uow.commit()
+    world.register("s2400001")
+    world.login("s2400001")
+    location = world.submit(SILENT).headers["location"]
+    world.worker.run_until_empty()
+
+    assert "正しく動かなかった入力" not in world.client.get(location).text

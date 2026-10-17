@@ -217,6 +217,24 @@
     </div>
   </div>
 
+  {# 落ちたテストケースの入力（2026-10-18）。期待出力は見せない。既定は「すぐ」。 #}
+  <div class="setting" id="failed-inputs">
+    <div class="setting-name">落ちたテストケースの入力{% call help() %}
+      この設定は、この問題セットの<strong>すべての課題</strong>に適用されます。
+      結果画面で、正しく動かなかったテストケースの<strong>入力だけ</strong>を学習者に見せます（観点ごとに最初の 3 件）。
+      <strong>期待出力は見せません。</strong>非公開のケースの入力も見せます。
+      「締切後」は、遅れての提出の受付終了（無ければ締切）を過ぎてから見せます。締切の無い課題では見せません。
+    {% endcall %}</div>
+    <div class="setting-value">
+      <select name="failed_inputs">
+        <option value="immediately" {{ 'selected' if unit.failed_inputs.value == 'immediately' }}>すぐ見せる</option>
+        <option value="after_deadline" {{ 'selected' if unit.failed_inputs.value == 'after_deadline' }}>締切後に見せる</option>
+        <option value="never" {{ 'selected' if unit.failed_inputs.value == 'never' }}>見せない</option>
+      </select>
+      {% if unit.failed_inputs_mixed %}<p class="note warn tight">このセットの中で値がばらついています。変えて保存すると、全課題に同じ値が入ります。</p>{% endif %}
+    </div>
+  </div>
+
   {# 答え方（ADR 0026）。**2 つのチェック**（2026-09-24）── 両方（演習の既定）、
      エディタだけ（試験）、ファイルだけ（従来）。両方外すことはできない（保存する側が断る）。 #}
   <div class="setting" id="answer-mode">
