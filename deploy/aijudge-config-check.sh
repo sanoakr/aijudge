@@ -73,12 +73,15 @@ if [ "${declared}" != "0" ] && [ "${running}" != "${declared}" ]; then
 fi
 
 # 書き起こしのワーカー（#627）。worker-det が回すので、足りないと画像の提出が待たされる。
-declared=$(grep -o 'aijudge-worker-transcribe@[0-9]*\.service' "${REPO_DIR}/deploy/systemd/aijudge.target" \
-           2>/dev/null | sort -u | wc -l | tr -d ' ')
-running=$(systemctl list-units 'aijudge-worker-transcribe@*.service' --state=running --no-legend --plain \
-          2>/dev/null | wc -l | tr -d ' ')
-if [ "${declared}" != "0" ] && [ "${running}" != "${declared}" ]; then
-    problems+=("書き起こしのワーカーが ${running} 本（宣言は ${declared} 本）")
+# **変数を分ける。** `running` は下の 3（待ち時間の目安）と 4（接続数）が AI ワーカーの
+# 本数として読む。ここで上書きしたので、v1.52.0 の初回の検査は AI 4 本を 2 本と取り違え、
+# 「AIJUDGE_AI_WORKERS=4 が実際の 2 本と違う」と誤って知らせた（2026-10-17）。
+tr_declared=$(grep -o 'aijudge-worker-transcribe@[0-9]*\.service' \
+              "${REPO_DIR}/deploy/systemd/aijudge.target" 2>/dev/null | sort -u | wc -l | tr -d ' ')
+tr_running=$(systemctl list-units 'aijudge-worker-transcribe@*.service' --state=running \
+             --no-legend --plain 2>/dev/null | wc -l | tr -d ' ')
+if [ "${tr_declared}" != "0" ] && [ "${tr_running}" != "${tr_declared}" ]; then
+    problems+=("書き起こしのワーカーが ${tr_running} 本（宣言は ${tr_declared} 本）")
 fi
 
 # 2.5 イベントのリレーが動いているか（#328）
@@ -106,8 +109,8 @@ fi
 # 4. 接続数が足りるか
 web=$(_unit_env aijudge-web.service AIJUDGE_WEB_WORKERS)
 web="${web:-1}"
-# web + review 1 + det 1 + ai N + finalize 1
-processes=$(( web + 1 + 1 + running + 1 ))
+# web + review 1 + det 1 + 書き起こし M + ai N + finalize 1
+processes=$(( web + 1 + 1 + tr_running + running + 1 ))
 # IDE の runner（K 本）と受付終了時の自動提出（1）。枠が小さいので別に数える。
 runners=$(systemctl list-units 'aijudge-runner@*.service' --state=running --no-legend --plain \
           2>/dev/null | wc -l | tr -d ' ')
