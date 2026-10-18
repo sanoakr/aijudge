@@ -18,7 +18,9 @@ class _Strict(BaseModel):
 
 
 def _course(code: str) -> Course:
-    return Course.model_construct(id=f"crs_{code}", code=code, title=code, term="t")  # type: ignore[arg-type]
+    return Course.model_construct(  # type: ignore[arg-type]
+        id=f"crs_{code}", code=code, title=code, term="t", subject_profile="p"
+    )
 
 
 def test_a_bad_course_is_reported_and_the_others_still_listed(
@@ -35,7 +37,7 @@ def test_a_bad_course_is_reported_and_the_others_still_listed(
         next_due=None,
     )
 
-    def fake(database: object, course: Course, *, now: object = None) -> overview.CourseDigest:
+    def fake(database: object, course: Course, **_: object) -> overview.CourseDigest:
         if course.code == "bad":
             _Strict()
         return good

@@ -23,6 +23,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 
 from fastapi import Request
 
@@ -165,20 +166,54 @@ def _build(console, request: Request, principal) -> Rail:
         # TA にはコースの設定を出さない（`manage/` の権限と揃える）。
         # **テナント管理者は受講登録が無くても管理できる**（#128）。
         can_manage = is_admin or (enrollment is not None and enrollment.role in INSTRUCTOR_ROLES)
-        counts = uow.reviews.attention_counts_for_course(course_id)
-        tasks = {str(task.id): task for task in uow.tasks.list_for_course(course_id)}
-        # blind 採点の残り（2026-10-01）。**抽出率が 0 の科目では引かない。**
-        rate = console.blind_sample_rate(course.subject_profile)
-        candidates = uow.reviews.blind_candidates_for_course(course_id) if rate > 0 else ()
+        attention = course_attention(
+            uow, course, blind_rate=console.blind_sample_rate(course.subject_profile)
+        )
 
-    manual, waiting = _split_unfinalized(course, tasks, counts)
     return course_rail(
         course,
-        contested=counts.contested,
-        unfinalized=manual,
-        finalize_waiting=waiting,
-        blind=sum(1 for submission_id in candidates if is_blind_sample(submission_id, rate)),
+        contested=attention.contested,
+        unfinalized=attention.manual,
+        finalize_waiting=attention.waiting,
+        blind=attention.blind,
         can_manage=can_manage,
+    )
+
+
+@dataclass(frozen=True)
+class CourseAttention:
+    """コースで人が動かないと進まないものの件数（帯の数字そのもの）。
+
+    `waiting` は自動確定を待っている未確定で、放っておけば閉じる ── 数えるが、
+    対応の要るものには入れない。
+    """
+
+    contested: int
+    manual: int
+    waiting: int
+    blind: int
+
+    @property
+    def needs_attention(self) -> bool:
+        return self.contested > 0 or self.manual > 0 or self.blind > 0
+
+
+def course_attention(uow, course, *, blind_rate: float) -> CourseAttention:
+    """帯と担当コースの一覧が**同じ数え方**で読む件数（2026-10-19）。
+
+    一覧に別の数え方を書くと、一覧で「要対応」と出たコースを開いても帯に
+    数字が無い、という食い違いが起きる。どちらもここから取る。
+    """
+    counts = uow.reviews.attention_counts_for_course(course.id)
+    tasks = {str(task.id): task for task in uow.tasks.list_for_course(course.id)}
+    # blind 採点の残り（2026-10-01）。**抽出率が 0 の科目では引かない。**
+    candidates = uow.reviews.blind_candidates_for_course(course.id) if blind_rate > 0 else ()
+    manual, waiting = _split_unfinalized(course, tasks, counts)
+    return CourseAttention(
+        contested=counts.contested,
+        manual=manual,
+        waiting=waiting,
+        blind=sum(1 for submission_id in candidates if is_blind_sample(submission_id, blind_rate)),
     )
 
 

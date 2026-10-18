@@ -871,7 +871,9 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
             "index.html",
             {
                 "me": principal,
-                "digests": digests_for(console.database, courses),
+                "digests": digests_for(
+                    console.database, courses, blind_rate=console.blind_sample_rate
+                ),
                 # 採点しないコース（学習者として取っているもの）。
                 "attending": attending,
                 # 学習者アプリの場所。**設定されていなければ案内だけ出す** ──
