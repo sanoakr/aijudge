@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from urllib.parse import quote, unquote
@@ -37,6 +38,8 @@ from aijudge_core import (
     set_window_at,
 )
 from aijudge_course_admin.finalization import pending_counts
+
+from .rail_context import course_attention
 
 
 def unit_key(task: Task) -> str:
@@ -193,10 +196,26 @@ class CourseDigest:
     #: 数えられなかった理由。**空でなければ数字は出さない**（0 と読まれるため）。
     #: 課題 1 件の不整合でコース一覧全体が 500 になった（2026-10-04）ことへの守り。
     error: str | None = None
+    # 未確定のうち手動の確定が要る件数と、blind 採点の残り（2026-10-19）。
+    # **帯の「確定処理」「blind 採点」と同じ数**（`course_attention`）── 一覧で
+    # 要対応と出たコースを開いて、帯に数字が無いと何を待っているのか辿れない。
+    manual: int = 0
+    blind: int = 0
 
     @property
     def needs_attention(self) -> bool:
-        return self.contested > 0 or self.drafts > 0
+        return self.contested > 0 or self.drafts > 0 or self.manual > 0 or self.blind > 0
+
+    @property
+    def attention_items(self) -> tuple[tuple[str, int], ...]:
+        """要対応の内訳。語は帯の項目名に揃える（#300）、0 件のものは出さない。"""
+        items = (
+            ("再確認の依頼", self.contested),
+            ("確定処理", self.manual),
+            ("blind 採点", self.blind),
+            ("未承認の課題", self.drafts),
+        )
+        return tuple((label, count) for label, count in items if count > 0)
 
 
 def _visibility(tasks: list[Task], moment: datetime) -> str:
@@ -388,18 +407,22 @@ def empty_unit(key: str, course: Course, *, now: datetime | None = None) -> Unit
     )
 
 
-def course_digest(database: object, course: Course, *, now: datetime | None = None) -> CourseDigest:
+def course_digest(
+    database: object, course: Course, *, now: datetime | None = None, blind_rate: float = 0.0
+) -> CourseDigest:
     """1 コースぶんのダイジェスト。
 
     未確定の件数は課題ごとに引くので、**コース数ぶん繰り返すと重い**。
     担当コースは教員 1 人あたり数件という前提でこの形にしている。
+
+    `blind_rate` は科目プロファイルの blind 抽出率。0 なら blind 採点は数えない。
     """
     moment = now or datetime.now(UTC)
     pending = pending_counts(database, course.id)  # type: ignore[arg-type]
     with database.unit_of_work() as uow:  # type: ignore[attr-defined]
         tasks = uow.tasks.list_for_course(course.id)
         enrollments = uow.identity.list_enrollments(course.id)
-        contested = len(uow.reviews.requested_for_course(course.id))
+        attention = course_attention(uow, course, blind_rate=blind_rate)
         task_ids = {task.id for task in tasks}
         drafts = sum(
             1 for version in uow.tasks.list_versions_in_review() if version.task_id in task_ids
@@ -411,19 +434,32 @@ def course_digest(database: object, course: Course, *, now: datetime | None = No
         tasks=len(tasks),
         learners=sum(1 for row in enrollments if row.role is Role.LEARNER),
         unfinalized=sum(pending.values()),
-        contested=contested,
+        contested=attention.contested,
         drafts=drafts,
         next_due=min(upcoming) if upcoming else None,
+        manual=attention.manual,
+        blind=attention.blind,
     )
 
 
 def digests_for(
-    database: object, courses: list[Course], *, now: datetime | None = None
+    database: object,
+    courses: list[Course],
+    *,
+    now: datetime | None = None,
+    blind_rate: Callable[[str], float] | None = None,
 ) -> tuple[CourseDigest, ...]:
-    return tuple(_digest_or_error(database, course, now=now) for course in courses)
+    """`blind_rate` は科目プロファイル名から抽出率を返す（`Console.blind_sample_rate`）。"""
+    rate = blind_rate or (lambda _profile: 0.0)
+    return tuple(
+        _digest_or_error(database, course, now=now, blind_rate=rate(course.subject_profile))
+        for course in courses
+    )
 
 
-def _digest_or_error(database: object, course: Course, *, now: datetime | None) -> CourseDigest:
+def _digest_or_error(
+    database: object, course: Course, *, now: datetime | None, blind_rate: float
+) -> CourseDigest:
     """1 コースが読めなくても、他のコースの一覧は出す。
 
     読めない原因（保存済みの課題が検証に落ちる等）は、そのコースを開く
@@ -431,7 +467,7 @@ def _digest_or_error(database: object, course: Course, *, now: datetime | None) 
     理由を載せる。
     """
     try:
-        return course_digest(database, course, now=now)
+        return course_digest(database, course, now=now, blind_rate=blind_rate)
     except ValueError as error:  # pydantic.ValidationError は ValueError の子
         logger.exception("コース %s のダイジェストを作れませんでした", course.id)
         reason = str(error).splitlines()[-2:] or ["原因不明"]

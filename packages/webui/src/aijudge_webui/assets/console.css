@@ -212,6 +212,8 @@ h3:first-child{margin-top:0}
 /* 名前の側の補足（コード・学期・次の締切）は段落の余白を持たせない ── `.desc` の
    下余白が入ると、狭い幅で 1 項目ずつ段が開き、行の高さがコースごとに揃わない。 */
 .menu.courses .row .what .desc{margin:0}
+/* 要対応の札の区画（index.html）。空のときは格子の隙間を取らない。 */
+.menu.courses .attention:empty{display:none}
 .stats{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:2px 16px;
   font-size:.85rem;color:var(--muted)}
 /* **件数は列を揃える**（2026-09-27）。流し込み（flex）だと、コース名の長さと数字の
