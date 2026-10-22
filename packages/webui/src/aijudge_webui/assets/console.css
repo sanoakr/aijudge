@@ -251,6 +251,21 @@ h2[id]{scroll-margin-top:16px}
 .hist .fill{width:100%;background:var(--verd);border-radius:2px 2px 0 0;min-height:2px}
 .hist .n{line-height:1}
 .hist .x{color:var(--muted)}
+/* 提出の時刻（2026-10-22）。推移は棒が 100 本を超えうるので**隙間を詰める**
+   ── 6px のままだと携帯の幅で棒そのものが消える。目盛りは間引いてあるので、
+   はみ出しても隣の棒の下に重ならない（`TIMELINE_LABELS`）。 */
+.hist.timeline,.hist.hours{gap:1px;height:110px}
+.hist.timeline .bar,.hist.hours .bar{min-width:0}
+.hist.timeline .fill,.hist.hours .fill{height:calc(var(--h, 0) * 100%)}
+/* 目盛りと「締切」の字は縮めず、棒の側を縮める。いちばん高い棒（100%）で字の分だけ
+   はみ出し、その棒の目盛りだけが下にずれていた。 */
+.hist.timeline .x,.hist.hours .x{white-space:nowrap;overflow:visible;font-size:.66rem;
+  line-height:1;min-height:1em;flex:none}
+.hist.timeline .bar.due::before{flex:none}
+/* 締切を含む棒。**色だけに頼らない** ── 上に「締切」の字も添える。 */
+.hist.timeline .bar.due .fill{background:var(--shu)}
+.hist.timeline .bar.due::before{content:"締切";font-size:.62rem;color:var(--shu);white-space:nowrap}
+.hist.hours .fill{background:var(--ai)}
 /* 1 行に並ぶ入力は**高さを揃える**。select と input で既定の余白が違い、
    並べると段差になる。 */
 .row-form input:not([type=checkbox]):not([type=radio]),.row-form select{

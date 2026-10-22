@@ -132,6 +132,58 @@
   {% endif %}
 </div>
 
+<h2>提出の時刻</h2>
+{# **いつ提出されたか**（2026-10-22）。数える行は上の分布と同じで、採点待ちも
+   数える（点ではなく、来た時刻の図）。2 枚に分けるのは読めるものが違うから ──
+   推移は締切との関係（駆け込み・出足）を、時刻帯は日付をまたいだ癖（深夜・
+   授業中）を見せる。棒の幅は範囲で変わる（`submissions.timeline_for`）。
+
+   **棒の高さは 0〜1 の割合で渡し、% にするのは CSS**（`--h`）。この図は採点待ちの
+   提出でも描くので、`height:100.0%` と書くと、保留を 0% と出していないかを本文の
+   「0%」で確かめるテスト（test_video_review）に、点ではない値が混ざる。 #}
+<div class="card" data-live="sub-timeline">
+  {% if timeline.bins %}
+  <p class="desc" style="margin:0 0 8px">推移（棒 1 本 = {{ timeline.width }}）</p>
+  <div class="hist timeline">
+    {% for b in timeline.bins %}
+    <div class="bar{{ ' due' if b.has_due }}"
+         title="{{ b.start | local('%m-%d %H:%M') }}〜{{ b.end | local('%m-%d %H:%M') }}: {{ b.count }} 件{{ '（締切を含む）' if b.has_due }}">
+      <span class="fill" style="--h:{{ (b.count / timeline.peak) | round(3) if timeline.peak else 0 }}"></span>
+      <span class="x">{% if b.labelled %}{{ b.start | local('%H時' if timeline.width == '1 時間' else '%m-%d') }}{% endif %}</span>
+    </div>
+    {% endfor %}
+  </div>
+  <p class="desc" style="margin:10px 0 0">
+    {{ timeline.bins[0].start | local('%m-%d %H:%M') }}〜{{ timeline.bins[-1].end | local('%m-%d %H:%M') }}・該当 {{ timeline.total }} 件（最多の棒 {{ timeline.peak }} 件）
+    {% if timeline.due_at %}
+    <br>締切 <strong>{{ timeline.due_at | local('%m-%d %H:%M') }}</strong>
+    {%- if timeline.bins | selectattr('has_due') | list %}（赤い印の棒）{% endif %}・
+    締切前 24 時間に <strong>{{ timeline.before_due }} 件</strong>
+    （{{ '%.0f' | format(100 * timeline.before_due / timeline.total) }}%）・締切後 {{ timeline.after_due }} 件
+    {% endif %}
+  </p>
+
+  <p class="desc" style="margin:18px 0 8px">時刻帯（日付をまたいで、何時台に出たか）</p>
+  <div class="hist hours">
+    {% for count in timeline.hours %}
+    <div class="bar" title="{{ loop.index0 }} 時台: {{ count }} 件">
+      <span class="fill" style="--h:{{ (count / timeline.hour_peak) | round(3) if timeline.hour_peak else 0 }}"></span>
+      <span class="x">{{ loop.index0 if loop.index0 % 3 == 0 else '' }}</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  {# 得点の分布と同じ言い分け（#273）── 試行だけなのか、提出が無いのか。 #}
+  <p class="desc" style="margin:0">
+    {% if timeline.trials and not timeline.total %}
+      この条件に合うのは<strong>教員・TA の試行だけ</strong>です（{{ timeline.trials }} 件）。
+    {% else %}
+      この条件に合う提出がありません。
+    {% endif %}
+  </p>
+  {% endif %}
+</div>
+
 <h2>提出</h2>
 {# **黙って切らない**（#233）。上限に達したときだけ言う ── 「最近の提出が
    無い」のか「読み込んでいない」のかは、出さなければ区別できない。
