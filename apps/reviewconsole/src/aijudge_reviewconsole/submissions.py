@@ -404,6 +404,11 @@ DAILY_SPAN = timedelta(days=62)
 TIMELINE_LABELS = 8
 #: 「締切の直前」とみなす幅。駆け込みがどれだけあるかを数で言う。
 DUE_RUSH = timedelta(hours=24)
+#: 締切前を 1 時間ごとに描く幅（2026-10-22）。1 週間の演習は推移が 1 日ごとになり、
+#: 締切当日の何時に集まったのかが読めなかった。
+DUE_CLOSEUP = timedelta(hours=48)
+#: 締切前の図で目盛りを書く間隔（時）。
+CLOSEUP_LABEL_HOURS = 6
 HOURS_PER_DAY = 24
 
 
@@ -441,6 +446,9 @@ class Timeline:
     #: 締切前 `DUE_RUSH` のうちに来た件数と、締切より後に来た件数。
     before_due: int = 0
     after_due: int = 0
+    #: 締切前 `DUE_CLOSEUP` を 1 時間ごとに描いた棒。推移が既に 1 時間ごとなら空
+    #: （同じ図を 2 度出さない）。締切が無くても空。
+    closeup: tuple[TimeBin, ...] = ()
 
     @property
     def peak(self) -> int:
@@ -449,6 +457,10 @@ class Timeline:
     @property
     def hour_peak(self) -> int:
         return max(self.hours, default=0)
+
+    @property
+    def closeup_peak(self) -> int:
+        return max((b.count for b in self.closeup), default=0)
 
 
 def _floor(moment: datetime, width: str) -> datetime:
@@ -515,9 +527,12 @@ def timeline_for(
         for position, (start, count) in enumerate(zip(starts, counts, strict=True))
     )
     before = after = 0
+    closeup: tuple[TimeBin, ...] = ()
     if due_local is not None:
         before = sum(1 for m in moments if due_local - DUE_RUSH <= m <= due_local)
         after = sum(1 for m in moments if m > due_local)
+        if width != "1 時間":
+            closeup = _closeup(moments, due_local)
     return Timeline(
         bins=bins,
         width=width,
@@ -527,7 +542,27 @@ def timeline_for(
         due_at=due_at,
         before_due=before,
         after_due=after,
+        closeup=closeup,
     )
+
+
+def _closeup(moments: list[datetime], due_local: datetime) -> tuple[TimeBin, ...]:
+    """締切前 `DUE_CLOSEUP` を 1 時間ごとに。最後の棒は締切を含む棒。"""
+    bins: list[TimeBin] = []
+    cursor = _floor(due_local - DUE_CLOSEUP, "1 時間")
+    while cursor <= due_local:
+        end = _step(cursor, "1 時間")
+        bins.append(
+            TimeBin(
+                start=cursor,
+                end=end,
+                count=sum(1 for m in moments if cursor <= m < end),
+                labelled=cursor.hour % CLOSEUP_LABEL_HOURS == 0,
+                has_due=cursor <= due_local < end,
+            )
+        )
+        cursor = end
+    return tuple(bins)
 
 
 #: 一覧が一度に読む上限（#233）。数千件を一度に描かないための仕組みで、

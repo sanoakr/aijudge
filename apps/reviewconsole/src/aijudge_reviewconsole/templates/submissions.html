@@ -149,7 +149,7 @@
     <div class="bar{{ ' due' if b.has_due }}"
          title="{{ b.start | local('%m-%d %H:%M') }}〜{{ b.end | local('%m-%d %H:%M') }}: {{ b.count }} 件{{ '（締切を含む）' if b.has_due }}">
       <span class="fill" style="--h:{{ (b.count / timeline.peak) | round(3) if timeline.peak else 0 }}"></span>
-      <span class="x">{% if b.labelled %}{{ b.start | local('%H時' if timeline.width == '1 時間' else '%m-%d') }}{% endif %}</span>
+      <span class="x">{% if b.labelled %}{{ '%d時' % b.start.hour if timeline.width == '1 時間' else b.start | local('%m-%d') }}{% endif %}</span>
     </div>
     {% endfor %}
   </div>
@@ -162,6 +162,21 @@
     （{{ '%.0f' | format(100 * timeline.before_due / timeline.total) }}%）・締切後 {{ timeline.after_due }} 件
     {% endif %}
   </p>
+
+  {# **締切前の 2 日間は 1 時間ごとに**（2026-10-22）。1 週間の演習は推移が 1 日ごとに
+     なり、締切当日の何時に集まったのかが読めない。推移が既に 1 時間ごとなら出さない。 #}
+  {% if timeline.closeup %}
+  <p class="desc" style="margin:18px 0 8px">締切前の 2 日間（棒 1 本 = 1 時間）</p>
+  <div class="hist timeline closeup">
+    {% for b in timeline.closeup %}
+    <div class="bar{{ ' due' if b.has_due }}"
+         title="{{ b.start | local('%m-%d %H:%M') }}〜{{ b.end | local('%H:%M') }}: {{ b.count }} 件{{ '（締切を含む）' if b.has_due }}">
+      <span class="fill" style="--h:{{ (b.count / timeline.closeup_peak) | round(3) if timeline.closeup_peak else 0 }}"></span>
+      <span class="x">{% if b.labelled %}{{ b.start | local('%m-%d') if b.start.hour == 0 else '%d時' % b.start.hour }}{% endif %}</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
 
   <p class="desc" style="margin:18px 0 8px">時刻帯（日付をまたいで、何時台に出たか）</p>
   <div class="hist hours">

@@ -105,3 +105,31 @@ def test_the_submissions_page_shows_when_work_arrived(world: World) -> None:
     assert "提出の時刻" in body
     assert 'class="hist timeline"' in body
     assert 'class="hist hours"' in body
+
+
+def test_the_two_days_before_the_deadline_are_drawn_hour_by_hour() -> None:
+    """1 週間の演習は推移が 1 日ごとになるので、締切前 2 日間を 1 時間ごとに足す。"""
+    due = START + timedelta(days=7, hours=12)  # 10-29 12:00 JST
+    rows = (
+        _row(1, START),
+        _row(2, due - timedelta(hours=3, minutes=30)),
+        _row(3, due - timedelta(minutes=20)),
+        _row(4, due - timedelta(minutes=5)),
+    )
+    chart = timeline_for(rows, Filters(), due_at=due)
+
+    assert chart.width == "1 日"
+    assert len(chart.closeup) == 49, "48 時間ぶんと、締切を含む 1 本"
+    assert chart.closeup[-1].has_due
+    assert chart.closeup[-1].count == 0, "締切ちょうどの 12 時台には来ていない"
+    assert chart.closeup[-2].count == 2, "11 時台に 2 件"
+    assert sum(b.count for b in chart.closeup) == 3
+
+
+def test_no_closeup_without_a_deadline_or_when_already_hourly() -> None:
+    week = (_row(1, START), _row(2, START + timedelta(days=6)))
+    assert timeline_for(week, Filters()).closeup == ()
+
+    short = (_row(1, START), _row(2, START + timedelta(hours=5)))
+    hourly = timeline_for(short, Filters(), due_at=START + timedelta(hours=6))
+    assert hourly.width == "1 時間" and hourly.closeup == ()
