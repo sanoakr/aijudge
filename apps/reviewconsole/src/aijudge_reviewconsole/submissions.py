@@ -19,8 +19,9 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
-from datetime import datetime
+from datetime import datetime, timedelta
 
+import aijudge_webui as webui
 from aijudge_core import (
     Course,
     Finalization,
@@ -352,6 +353,27 @@ def distribution_for(
     どちらを数えても棒の高さは同じである。ここで要るのは「学習者・課題ごとの
     最高点」だけで、その値に曖昧さは無い。
     """
+    counted, trials = _counted(rows, filters, count_trials=count_trials)
+
+    result = Distribution(total=len(counted), trials=trials)
+    for row in counted:
+        if row.final_ratio is None:
+            continue
+        result.scored += 1
+        percent = max(0.0, min(1.0, row.final_ratio)) * 100
+        index = BUCKETS - 1 if percent >= 100 else int(percent // 10)
+        result.counts[index] += 1
+    return result
+
+
+def _counted(
+    rows: tuple[ScoredRow, ...], filters: Filters, *, count_trials: bool
+) -> tuple[list[ScoredRow], int]:
+    """図が数える行と、試行として落とした件数。**図はすべてこれを通す。**
+
+    得点の分布と提出時刻の図（2026-10-22）が違う行を数えると、並んだ 2 枚が
+    違う範囲を描くことになる ── 読み手はどちらも一覧と同じ範囲だと読む。
+    """
     counted = list(rows) if count_trials else [row for row in rows if not row.is_trial]
     trials = len(rows) - len(counted)
 
@@ -370,16 +392,177 @@ def distribution_for(
         return best.get((str(row.learner_id), str(row.task_id))) == row.final_ratio
 
     counted = [row for row in counted if filters.matches_scored(row, adopted=is_adopted(row))]
+    return counted, trials
 
-    result = Distribution(total=len(counted), trials=trials)
-    for row in counted:
-        if row.final_ratio is None:
-            continue
-        result.scored += 1
-        percent = max(0.0, min(1.0, row.final_ratio)) * 100
-        index = BUCKETS - 1 if percent >= 100 else int(percent // 10)
-        result.counts[index] += 1
-    return result
+
+#: 推移の棒の幅を決める範囲（2026-10-22）。**範囲で幅を変える** ── 1 回の演習
+#: （1 週間）を 1 時間ごとに描くと 168 本になり、学期全体を 1 日ごとに描くと
+#: 120 本になる。どちらも携帯の幅（360px）では棒が 2px を切って形が読めない。
+HOURLY_SPAN = timedelta(hours=48)
+DAILY_SPAN = timedelta(days=62)
+#: 横軸に出す目盛りの数の上限。全部の棒に書くと字が重なる。
+TIMELINE_LABELS = 8
+#: 「締切の直前」とみなす幅。駆け込みがどれだけあるかを数で言う。
+DUE_RUSH = timedelta(hours=24)
+#: 締切前を 1 時間ごとに描く幅（2026-10-22）。1 週間の演習は推移が 1 日ごとになり、
+#: 締切当日の何時に集まったのかが読めなかった。
+DUE_CLOSEUP = timedelta(hours=48)
+#: 締切前の図で目盛りを書く間隔（時）。
+CLOSEUP_LABEL_HOURS = 6
+HOURS_PER_DAY = 24
+
+
+@dataclass(frozen=True)
+class TimeBin:
+    """推移の棒 1 本。`start` は表示のタイムゾーンでの区切りの始まり。"""
+
+    start: datetime
+    end: datetime
+    count: int
+    #: 横軸に目盛りを書く棒か（`TIMELINE_LABELS`）。
+    labelled: bool = False
+    #: 締切がこの棒の中にあるか。
+    has_due: bool = False
+
+
+@dataclass(frozen=True)
+class Timeline:
+    """提出がいつ来たか（2026-10-22）。**実際の日時の推移と、時刻帯の 2 つを持つ。**
+
+    推移は締切との関係（駆け込み・出足）を、時刻帯は日付をまたいだ癖（深夜・
+    授業中）を見せる ── 片方からもう片方は読めない。
+
+    **採点待ちも数える。** 点の図ではなく、提出が来た時刻の図である。
+    """
+
+    bins: tuple[TimeBin, ...] = ()
+    #: 棒 1 本の幅の呼び名（「1 時間」「1 日」「1 週」）。
+    width: str = ""
+    hours: tuple[int, ...] = (0,) * HOURS_PER_DAY
+    total: int = 0
+    trials: int = 0
+    #: 絞り込んだ問題セット・問題の締切。絞っていなければ None（回ごとに違う）。
+    due_at: datetime | None = None
+    #: 締切前 `DUE_RUSH` のうちに来た件数と、締切より後に来た件数。
+    before_due: int = 0
+    after_due: int = 0
+    #: 締切前 `DUE_CLOSEUP` を 1 時間ごとに描いた棒。推移が既に 1 時間ごとなら空
+    #: （同じ図を 2 度出さない）。締切が無くても空。
+    closeup: tuple[TimeBin, ...] = ()
+
+    @property
+    def peak(self) -> int:
+        return max((b.count for b in self.bins), default=0)
+
+    @property
+    def hour_peak(self) -> int:
+        return max(self.hours, default=0)
+
+    @property
+    def closeup_peak(self) -> int:
+        return max((b.count for b in self.closeup), default=0)
+
+
+def _floor(moment: datetime, width: str) -> datetime:
+    """棒の区切りの始まりへ切り下げる（表示のタイムゾーンで）。"""
+    hour = moment.replace(minute=0, second=0, microsecond=0)
+    if width == "1 時間":
+        return hour
+    day = hour.replace(hour=0)
+    if width == "1 日":
+        return day
+    return day - timedelta(days=day.weekday())  # 週は月曜から
+
+
+def _step(start: datetime, width: str) -> datetime:
+    """次の区切り。**壁時計で足す** ── 夏時間のある地域で日の区切りがずれない。"""
+    delta = {"1 時間": timedelta(hours=1), "1 日": timedelta(days=1)}.get(width)
+    naive = start.replace(tzinfo=None) + (delta or timedelta(days=7))
+    return naive.replace(tzinfo=start.tzinfo)
+
+
+def timeline_for(
+    rows: tuple[ScoredRow, ...],
+    filters: Filters,
+    *,
+    count_trials: bool = False,
+    due_at: datetime | None = None,
+) -> Timeline:
+    """提出時刻の図。数える行は得点の分布と同じ（`_counted`）。"""
+    counted, trials = _counted(rows, filters, count_trials=count_trials)
+    zone = webui.display_zone()
+    moments = sorted(
+        local for row in counted if (local := webui.to_local(row.submitted_at)) is not None
+    )
+    if not moments:
+        return Timeline(total=len(counted), trials=trials, due_at=due_at)
+
+    hours = [0] * HOURS_PER_DAY
+    for moment in moments:
+        hours[moment.hour] += 1
+
+    span = moments[-1] - moments[0]
+    width = "1 時間" if span <= HOURLY_SPAN else "1 日" if span <= DAILY_SPAN else "1 週"
+    due_local = None if due_at is None else due_at.astimezone(zone)
+    starts: list[datetime] = []
+    cursor = _floor(moments[0], width)
+    while cursor <= moments[-1]:
+        starts.append(cursor)
+        cursor = _step(cursor, width)
+    counts = [0] * len(starts)
+    index = 0
+    for moment in moments:
+        while index + 1 < len(starts) and starts[index + 1] <= moment:
+            index += 1
+        counts[index] += 1
+    every = max(1, -(-len(starts) // TIMELINE_LABELS))
+    bins = tuple(
+        TimeBin(
+            start=start,
+            end=_step(start, width),
+            count=count,
+            labelled=position % every == 0,
+            has_due=due_local is not None and start <= due_local < _step(start, width),
+        )
+        for position, (start, count) in enumerate(zip(starts, counts, strict=True))
+    )
+    before = after = 0
+    closeup: tuple[TimeBin, ...] = ()
+    if due_local is not None:
+        before = sum(1 for m in moments if due_local - DUE_RUSH <= m <= due_local)
+        after = sum(1 for m in moments if m > due_local)
+        if width != "1 時間":
+            closeup = _closeup(moments, due_local)
+    return Timeline(
+        bins=bins,
+        width=width,
+        hours=tuple(hours),
+        total=len(counted),
+        trials=trials,
+        due_at=due_at,
+        before_due=before,
+        after_due=after,
+        closeup=closeup,
+    )
+
+
+def _closeup(moments: list[datetime], due_local: datetime) -> tuple[TimeBin, ...]:
+    """締切前 `DUE_CLOSEUP` を 1 時間ごとに。最後の棒は締切を含む棒。"""
+    bins: list[TimeBin] = []
+    cursor = _floor(due_local - DUE_CLOSEUP, "1 時間")
+    while cursor <= due_local:
+        end = _step(cursor, "1 時間")
+        bins.append(
+            TimeBin(
+                start=cursor,
+                end=end,
+                count=sum(1 for m in moments if cursor <= m < end),
+                labelled=cursor.hour % CLOSEUP_LABEL_HOURS == 0,
+                has_due=cursor <= due_local < end,
+            )
+        )
+        cursor = end
+    return tuple(bins)
 
 
 #: 一覧が一度に読む上限（#233）。数千件を一度に描かないための仕組みで、
@@ -734,6 +917,8 @@ __all__ = [
     "Filters",
     "Row",
     "ScoredRow",
+    "TimeBin",
+    "Timeline",
     "adopted_ids",
     "distribution_for",
     "distribution_of",
@@ -741,4 +926,5 @@ __all__ = [
     "load_scored",
     "newest_first",
     "summarize",
+    "timeline_for",
 ]

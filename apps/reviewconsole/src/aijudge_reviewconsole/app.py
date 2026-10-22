@@ -128,6 +128,7 @@ from .submissions import (
     distribution_for,
     load_rows,
     load_scored,
+    timeline_for,
 )
 from .urls import RedirectResponse, prefixed, root_prefix
 
@@ -1096,6 +1097,15 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                     filters,
                     count_trials=_is_demo_course(course.id) and not filters.role,
                 ),
+                # **いつ提出されたか**（2026-10-22）。数える行は得点の分布と同じ
+                # （試行の扱いも同じ）。締切は問題か問題セットで絞ったときだけ渡す
+                # ── 絞っていなければ回ごとに締切が違い、1 本の線では言えない。
+                "timeline": timeline_for(
+                    scored,
+                    filters,
+                    count_trials=_is_demo_course(course.id) and not filters.role,
+                    due_at=_filtered_due_at(choices, filters),
+                ),
                 # **切れたことを画面が言う**（#233）。分布も同じ行から
                 # 作るので、母数が全部でないことは図の側にも要る。
                 "truncated": listing.truncated,
@@ -1106,6 +1116,17 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 "can_view_activity": viewer in INSTRUCTOR_ROLES,
             },
         )
+
+    def _filtered_due_at(choices: tuple, filters: Filters) -> datetime | None:
+        """絞り込んだ問題（なければ問題セット）の締切。どちらも選んでいなければ None。"""
+        for group in choices:
+            if filters.task:
+                for task_obj, _version in group.tasks:
+                    if str(task_obj.id) == filters.task:
+                        return task_obj.due_at
+            elif filters.unit and group.key == filters.unit:
+                return group.due_at
+        return None
 
     @app.get("/courses/{course_id}/finalize", response_class=HTMLResponse)
     def finalize_queue(request: Request, course_id: str, me: Me) -> HTMLResponse:
