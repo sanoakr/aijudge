@@ -53,8 +53,37 @@ elif [ "$NOW" != "$PREV" ]; then
     echo "detail    : $OUT"
     [ "$NOW" = NG3 ] && echo "streak    : $STREAK checks in a row"
     echo
-    echo "参照: docs/design/disk-and-recovery-plan.md §3.9.5-A"
-    echo "確認: curl -sS http://localhost:11435/api/tags"
+    # 影響とやること（2026-10-25）。状態の番号と参照先だけでは、採点が止まっている
+    # のか・どちらの機械を見ればよいのかを毎回探すことになった。
+    echo "== 影響 =="
+    case $NOW in
+      OK)  echo "主系が答えていて、従系も答えます。対応は不要です。" ;;
+      NG1) echo "主系が答えず、従系（学外）で採点しています。採点は進みますが遅く、従系も止まれば AI の採点が止まります。今日中に主系を直す。" ;;
+      NG2) echo "主系も従系も答えません。AI の観点と画像の書き起こしが止まり、その提出は合計点が出ません。授業中・締切前なら最優先で直す。" ;;
+      NG3) echo "従系が答えません。主系が採点しているので、いまは影響がありません。主系が止まると AI の採点も止まります。" ;;
+      *)   echo "検査の結果を判定できませんでした（detail を見る）。" ;;
+    esac
+    if [ "$NOW" != OK ]; then
+      echo
+      echo "== やること =="
+      # URL は環境ファイルの値で埋める（**ホスト名をリポジトリに書かない**）。
+      primary=${AIJUDGE_LLM_BASE_URL:-<AIJUDGE_LLM_BASE_URL>}
+      fallback=${AIJUDGE_LLM_FALLBACK_BASE_URL:-<AIJUDGE_LLM_FALLBACK_BASE_URL>}
+      case $NOW in
+        NG1|NG2)
+          echo "1. 主系の応答を見る（運用機で）: curl -sS --max-time 10 ${primary%/}/api/tags"
+          echo "2. 答えないなら、主系（${primary}）のサーバを起き直す。プロキシ（PAIR など）なら、その下のノードが見えているかも確かめる"
+          echo "3. 答えるのに NG なら、確定モデルが一覧にあるか: 1 の結果に detail のモデル名があるか（無ければ pull し直す）" ;;
+      esac
+      case $NOW in
+        NG2|NG3)
+          echo "従系を見る: curl -sS --max-time 10 ${fallback%/}/api/tags。OS の更新・再起動の途中なら、戻るまで待てば直る。戻らなければ従系の機械で LLM のサーバを起き直す" ;;
+      esac
+      echo "背景: docs/design/disk-and-recovery-plan.md §3.9.5-A"
+      echo
+      echo "== 直ったら =="
+      echo "この検査（30 分ごと）が「LLM primary ... -> OK」のメールを送ります。"
+    fi
   } | "$NOTIFY" "[$(hostname -s)] LLM primary $PREV -> $(label "$NOW")"
   printf "%s" "$NOW" > "$STATE"
 fi

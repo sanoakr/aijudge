@@ -1,0 +1,181 @@
+#!/usr/bin/env bash
+# unit が失敗したときのメールに、影響とやることを書く（2026-10-25）。
+#
+# なぜ要るか: `aijudge-notify@` のメールは unit 名・状態・journal の 40 行だけで、
+# 読んだ人が「急ぐのか」「何を打てば直るのか」を毎回 deploy/README.md から探す
+# ことになっていた。手順はここに unit ごとに書き、メールの先頭に出す。
+#
+# コマンドは運用機でそのまま打てる形で書く（sh 構文・sudo 付き）。手で実行する
+# コマンドは環境ファイルを先に読む（deploy/README.md「通常運用」・#345）。
+#
+# ホスト名は書かない（このリポジトリは公開物）。出すときに hostname で埋める。
+#
+# 使い方: aijudge-failure-guide <unit 名>   例: aijudge-worker-ai@2.service
+set -uo pipefail
+UNIT=${1:?usage: aijudge-failure-guide <unit>}
+# インスタンスと拡張子を外した名前で引く（aijudge-worker-ai@2.service → aijudge-worker-ai）
+BASE=${UNIT%.service}
+BASE=${BASE%%@*}
+ENVRUN="sudo -u aijudge sh -c 'set -a; . /srv/aijudge/config/aijudge.env; set +a; exec"
+# restic を手で打つときの環境ファイル（unit の EnvironmentFile と同じ規則）
+INSTANCE=""
+case "${UNIT}" in *@*) INSTANCE=${UNIT#*@}; INSTANCE=${INSTANCE%.service} ;; esac
+case "${BASE}" in
+  aijudge-restic-offbox) RESTIC_ENV=/srv/aijudge/config/aijudge-restic-${INSTANCE}.env ;;
+  aijudge-restic-check) RESTIC_ENV=/srv/aijudge/config/${INSTANCE}.env ;;
+  *) RESTIC_ENV=/srv/aijudge/config/aijudge-restic.env ;;
+esac
+RESTIC="sudo -u aijudge bash -c 'set -a; source ${RESTIC_ENV}; set +a; restic"
+
+impact=""
+steps=()
+after=""
+
+case "${BASE}" in
+  aijudge-autodeploy)
+    impact="新しい v* タグがデプロイされていません。古い版が動き続けるので、画面からは気づけません（v0.35.1 では 8 リリース分が 2 日間止まっていた）。急ぎではないが、今日中に直す。"
+    steps=(
+      "原因を見る: journalctl -u aijudge-autodeploy -n 100 --no-pager"
+      "最後まで通った版と作業ツリーの版を比べる: sudo cat /var/lib/aijudge/deployed-tag; sudo -u aijudge git -C /opt/aijudge describe --tags"
+      "'Your local changes ... uv.lock' で止まっていたら: sudo -u aijudge git -C /opt/aijudge checkout -- uv.lock（タグ側で pyproject と uv.lock の版がずれていないかも確かめる）"
+      "migration・uv sync の失敗なら原因を直す。直せば次の周回（5 分後）に同じタグを自動で試し直す。すぐ入れるなら: ${ENVRUN} /opt/aijudge/deploy/deploy.sh <タグ>'"
+      "新しい版そのものが壊れているなら、前の版に固定して切り戻す: echo <前のタグ> | sudo -u aijudge tee /var/lib/aijudge/deploy-pin（deploy/README.md「切り戻し」）"
+    )
+    after="フッターの版（コンソールのログイン画面の aiJudge x.y.z）が最新のタグになれば直っています。この unit の回復メールは来ません。"
+    ;;
+  aijudge-units)
+    impact="unit とスクリプトの配布が止まっています。動いているサービスはそのままですが、新しい版の unit・検査スクリプトが届きません。急ぎではない。"
+    steps=(
+      "原因を見る: journalctl -u aijudge-units -n 100 --no-pager"
+      "署名を確かめられない（知らない鍵・署名なしのタグ）なら、deploy/README.md「unit の配布と署名」の手順で鍵とミラーを確かめる"
+      "直したら配り直す: sudo systemctl start aijudge-units.service"
+    )
+    after="sudo systemctl start aijudge-units.service がエラー無く終われば直っています。翌日の aijudge-config-check が「スクリプトがずれている」を出さなくなります。"
+    ;;
+  aijudge-web|aijudge-review)
+    who=$([ "${BASE}" = aijudge-web ] && echo "学生の画面" || echo "教員のコンソール")
+    impact="${who}が使えない可能性があります（502）。授業中・締切前なら最優先で直す。"
+    steps=(
+      "原因を見る: journalctl -u ${BASE} -n 100 --no-pager"
+      "起き直す: sudo systemctl restart ${BASE}"
+      "すぐまた落ちるなら、journal の最後の例外を見る（環境ファイル・ディレクトリの権限・DB 接続が多い）"
+      "DB が落ちていないか: systemctl status postgresql"
+    )
+    after="aijudge-http-check が 5 分以内に「web NG -> OK」のメールを送ります。手で確かめるなら: curl -s -o /dev/null -w '%{http_code}\\n' <学生画面の URL>/login"
+    ;;
+  aijudge-worker-det|aijudge-worker-transcribe|aijudge-worker-ai)
+    case "${BASE}" in
+      aijudge-worker-det) what="すべての提出の決定的な採点（テスト実行）が進みません。学生には「採点中」のまま見えます" ;;
+      aijudge-worker-transcribe) what="画像提出の書き起こしが進みません。画像で出した提出が「採点中」のまま止まります" ;;
+      *) what="AI の観点が採点されません（決定的な観点は進む）。AI の観点が未採点のあいだ、合計点は出ません" ;;
+    esac
+    impact="${what}。他のワーカーが動いていれば一部は進みます。授業中・締切前なら最優先で直す。"
+    steps=(
+      "原因を見る: journalctl -u ${UNIT} -n 100 --no-pager"
+      "起き直す: sudo systemctl restart ${UNIT}"
+      "LLM が原因（接続できない・応答しない）なら、LLM の状態を見る: grep LLM_ /srv/aijudge/config/aijudge.env で主系の URL を見て curl -sS --max-time 10 <URL>/api/tags（主系・従系の状態は aijudge-llm-primary-check のメール）"
+      "キューの状態を見る: コンソールの提出一覧で「採点中」が減っていくか"
+    )
+    after="キューに残った提出は、起き直したワーカーが順に採点します。aijudge-queue-check（5 分ごと）が「grading queue NG -> OK」のメールを送ります。"
+    ;;
+  aijudge-runner)
+    impact="ブラウザのエディタで「実行」が使えない、または遅くなります（runner は複数本あり、残りが受け持つ）。エディタで受ける試験の最中なら最優先。"
+    steps=(
+      "原因を見る: journalctl -u ${UNIT} -n 100 --no-pager"
+      "起き直す: sudo systemctl restart ${UNIT}"
+    )
+    after="aijudge-queue-check が runner の停止も見ていて、戻れば「grading queue NG -> OK」のメールを送ります。"
+    ;;
+  aijudge-relay)
+    impact="採点は完了しますが、習熟度（知識要素）が更新されません。イベントは DB に溜まっていて失われないので、急ぎではない。"
+    steps=(
+      "原因を見る: journalctl -u aijudge-relay -n 100 --no-pager"
+      "起き直す: sudo systemctl restart aijudge-relay"
+    )
+    after="起き直すと溜まったイベントをまとめて流します（習熟度の推移は実際の提出時刻で並ぶ）。aijudge-queue-check が「grading queue NG -> OK」のメールを送ります。"
+    ;;
+  aijudge-ide-close)
+    impact="受付終了時の自動提出（エディタの自動保存の最新を出す）が止まっています。受付を終えた問題セットがあれば、学生の最後の作業が提出されていません。止まってから 24 時間以内に直せば、次の実行が取りこぼしなく拾い直す。"
+    steps=(
+      "原因を見る: journalctl -u aijudge-ide-close -n 100 --no-pager"
+      "何が出るかだけ見る: ${ENVRUN} /opt/aijudge/.venv/bin/aijudge-ide-close --once --dry-run'"
+      "直したら流す（何度流しても同じ結果になる）: sudo systemctl start aijudge-ide-close.service"
+      "24 時間より前に閉じた分を拾うなら: ${ENVRUN} /opt/aijudge/.venv/bin/aijudge-ide-close --once --lookback-hours 72'"
+    )
+    after="sudo systemctl start aijudge-ide-close.service がエラー無く終われば直っています。この unit の回復メールは来ません（1 分ごとの timer が動き続けます）。"
+    ;;
+  aijudge-finalize)
+    impact="締切後の自動確定が進まず、成績が閉じません。学生に見える点は変わらないので、急ぎではない（学期末の成績提出の前には直す）。"
+    steps=(
+      "原因を見る: journalctl -u aijudge-finalize -n 100 --no-pager"
+      "課題の設定の不整合（受付終了が締切より前など）なら、コンソールの問題セットの画面で直す"
+      "直したら流す: sudo systemctl start aijudge-finalize.service"
+    )
+    after="コンソールの担当コース一覧で「未確定」が減っていけば直っています。この unit の回復メールは来ません。"
+    ;;
+  aijudge-similarity)
+    impact="提出の類似（Dolos）の結果が更新されません。採点・成績には影響しない。急ぎではない。"
+    steps=(
+      "原因を見る: journalctl -u aijudge-similarity -n 100 --no-pager"
+      "直したら流す: sudo systemctl start aijudge-similarity.service"
+    )
+    after="コンソールの「提出の類似」に新しい結果が出れば直っています。この unit の回復メールは来ません。"
+    ;;
+  aijudge-db-backup|aijudge-pg-basebackup|aijudge-restic-backup|aijudge-restic-offbox)
+    impact="バックアップが取れていません。サービスは動いていますが、障害が起きたときに戻せる時点が古くなります。今日中に直す。"
+    steps=(
+      "原因を見る: journalctl -u ${UNIT} -n 100 --no-pager"
+      "空きを見る: df -h / /srv/aijudge /work（満杯なら aijudge-storage-check のメールも来ている）"
+      "restic で 'repository is already locked' なら、他に restic が動いていない（pgrep -a restic）のを確かめてから: ${RESTIC} unlock'"
+      "restic で exit 3（読めないファイル）なら、aijudge が読めないファイルを探す（aijudge-config-check のメールに出る）"
+      "受け先（オフボックス）に届かないなら、受け先の機械とネットワークを確かめる"
+      "直したら取り直す: sudo systemctl start ${UNIT}"
+    )
+    after="sudo systemctl start ${UNIT} がエラー無く終われば直っています。この unit の回復メールは来ません。週次の aijudge-restic-check が鮮度も確かめます。"
+    ;;
+  aijudge-restic-check)
+    impact="バックアップの受け先の検査が失敗しました。受け先が壊れている、または最新のバックアップが古すぎる可能性があります。今日中に確かめる。"
+    steps=(
+      "原因を見る: journalctl -u ${UNIT} -n 100 --no-pager（鮮度か、受け先の整合性か）"
+      "鮮度なら、取る側の unit（aijudge-restic-backup / aijudge-restic-offbox@…）が失敗していないか: systemctl list-units --failed 'aijudge-*'"
+      "整合性なら、手で流して中身を見る: ${RESTIC} check'（最新の時刻は: ${RESTIC} snapshots --latest 1'）"
+      "直したら検査し直す: sudo systemctl start ${UNIT}"
+    )
+    after="sudo systemctl start ${UNIT} がエラー無く終われば直っています。この unit の回復メールは来ません。"
+    ;;
+  aijudge-config-check|aijudge-http-check|aijudge-queue-check|aijudge-storage-check|aijudge-llm-primary-check|aijudge-purge-preview)
+    impact="監視そのものが止まっています。 これらの検査は問題を見つけても失敗せずメールで知らせる作りなので、失敗したのは検査スクリプトが動けなかったからです。直るまで、この検査が見ている障害は知らされません。"
+    steps=(
+      "原因を見る: journalctl -u ${UNIT} -n 100 --no-pager"
+      "スクリプトが無い・古いなら、配り直す: sudo systemctl start aijudge-units.service"
+      "環境ファイルの値が無い（'not set'）なら、/srv/aijudge/config/aijudge.env を確かめる"
+      "直したら流す: sudo systemctl start ${UNIT}"
+    )
+    after="sudo systemctl start ${UNIT} がエラー無く終われば直っています。"
+    ;;
+  *)
+    impact="この unit の影響はまだここに書かれていません（deploy/aijudge-failure-guide に足すこと）。"
+    steps=(
+      "原因を見る: journalctl -u ${UNIT} -n 100 --no-pager"
+      "役割を見る: systemctl cat ${UNIT}"
+      "直したら: sudo systemctl start ${UNIT}（常駐なら restart）"
+    )
+    after="sudo systemctl status ${UNIT} が active（oneshot なら直前の実行が成功）になれば直っています。"
+    ;;
+esac
+
+echo "== 何が起きたか =="
+echo "$(hostname -f) の ${UNIT} が失敗しました。"
+echo
+echo "== 影響 =="
+echo "${impact}"
+echo
+echo "== やること（運用機で） =="
+n=1
+for step in "${steps[@]}"; do
+  echo "${n}. ${step}"
+  n=$((n + 1))
+done
+echo
+echo "== 直ったら =="
+echo "${after}"

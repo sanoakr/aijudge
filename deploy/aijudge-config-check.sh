@@ -151,7 +151,7 @@ fi
 for name in aijudge-restic-backup.sh aijudge-restic-offbox.sh aijudge-db-backup.sh \
             aijudge-pg-basebackup.sh aijudge-storage-check.sh aijudge-llm-primary-check.sh \
             aijudge-config-check.sh aijudge-restic-check.sh aijudge-purge-preview.sh \
-            aijudge-notify; do
+            aijudge-notify aijudge-failure-guide; do
     src="${REPO_DIR}/deploy/${name}"
     [ -e "${src}" ] || continue
     cmp -s "${src}" "/usr/local/sbin/${name}" || problems+=("スクリプトがずれている: ${name}")
@@ -206,8 +206,34 @@ if [ "${NOW}" != "${PREV}" ] && command -v /usr/local/sbin/aijudge-notify >/dev/
         echo
         echo "${detail}"
         echo
-        echo "配り直し: sudo systemctl start aijudge-units.service"
-        echo "参照    : docs/RUNNING.md「並列度は 4 か所に散っている」"
+        # 影響とやること（2026-10-25）。問題の種類ごとに出す ── 配り直しの 1 行だけ
+        # では、それで直るのか（ずれ）・人が設定するのか（timer・接続数）が分からない。
+        echo "== 影響 =="
+        if [ "${NOW}" = OK ]; then
+            echo "設定は揃っています。対応は不要です。"
+        else
+            echo "いま壊れているとは限りませんが、次のデプロイ・締切の集中・障害のときに効くはずの設定がずれています。急ぎではない。今週中に直す。"
+            echo
+            echo "== やること（運用機で） =="
+            n=1
+            step() { echo "${n}. $1"; n=$((n + 1)); }
+            if printf '%s' "${detail}" | grep -q 'ずれている\|unit'; then
+                step "unit・スクリプトのずれは、署名済みタグから配り直せば直る: sudo systemctl start aijudge-units.service"
+            fi
+            if printf '%s' "${detail}" | grep -q 'timer が有効でない'; then
+                step "バックアップの timer を有効にする: sudo systemctl enable --now <上の timer 名>（受け先の設定が済んでいるので有効にしてよい）"
+            fi
+            if printf '%s' "${detail}" | grep -q '読めないファイル'; then
+                step "aijudge が読めないファイルの持ち主と権限を直す: sudo chown aijudge:aijudge <ファイル>（restic が exit 3 で落ちる原因）"
+            fi
+            if printf '%s' "${detail}" | grep -qi 'max_connections\|ワーカー\|worker'; then
+                step "ワーカーの本数と DB の接続数を揃える: docs/RUNNING.md「並列度を決める値は複数の場所にある」"
+            fi
+            step "上に当てはまらないものは detail の文言で docs/RUNNING.md を引く"
+            echo
+            echo "== 直ったら =="
+            echo "この検査（日次）が「aiJudge config NG -> OK」のメールを送ります。すぐ確かめるなら: sudo systemctl start aijudge-config-check.service"
+        fi
     } | /usr/local/sbin/aijudge-notify "[$(hostname -s)] aiJudge config ${PREV} -> ${NOW}"
 fi
 mkdir -p "$(dirname "${STATE}")" 2>/dev/null || true

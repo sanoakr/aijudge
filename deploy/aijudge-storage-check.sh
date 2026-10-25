@@ -59,13 +59,38 @@ if [ "$NOW" != "$PREV" ]; then
       echo "問題:"
       printf '  - %s\n' "${PROBLEMS[@]}"
     else
-      echo "すべて正常に戻りました。"
+      echo "すべて正常に戻りました。対応は不要です。"
     fi
     echo
     df -h / /srv/aijudge /work 2>/dev/null
-    echo
-    echo "参照: docs/design/disk-and-recovery-plan.md §3.9.18"
-    echo "WAL が溜まっている場合: journalctl -u postgresql@18-main | grep archive"
+    # 影響とやること（2026-10-25）。参照先を 1 行書くだけでは、急ぐのか・何を消して
+    # よいのかを毎回探すことになった。**問題の種類ごとに出す。**
+    if [ "${#PROBLEMS[@]}" -gt 0 ]; then
+      all=$(printf '%s\n' "${PROBLEMS[@]}")
+      echo
+      echo "== 影響 =="
+      echo "/ が満杯になると DB が止まり、/srv/aijudge が満杯になると提出を受けられません。WAL アーカイブの失敗は / を埋める先行指標です。使用率が 95% を超えていれば最優先で直す。"
+      echo
+      echo "== やること（運用機で） =="
+      n=1
+      step() { echo "${n}. $1"; n=$((n + 1)); }
+      if printf '%s' "$all" | grep -q 'WAL\|pg_stat_archiver'; then
+        step "WAL アーカイブの失敗の原因を見る: journalctl -u postgresql@18-main --no-pager | grep -i archive | tail -20（受け先の空き・権限が多い）"
+        step "溜まっている量を見る: sudo du -sh /var/lib/postgresql/18/main/pg_wal（pg_wal の中は手で消さない。アーカイブが通れば PostgreSQL が自分で消す）"
+      fi
+      if printf '%s' "$all" | grep -q '使用率'; then
+        step "何が増えたかを見る: sudo du -xh --max-depth=2 <埋まっているマウント> | sort -h | tail -15"
+        step "/srv/aijudge なら、保存期間を過ぎた動画・作業の記録を下見する: sudo -u aijudge sh -c 'set -a; . /srv/aijudge/config/aijudge.env; set +a; exec /opt/aijudge/.venv/bin/aijudge-admin video purge'（消すのは --apply。docs/RUNNING.md「動画の保存期間」）"
+        step "/ なら、journal と古い DB ダンプ: journalctl --disk-usage; ls -lh /srv/aijudge/backups/db | tail"
+      fi
+      if printf '%s' "$all" | grep -q 'df が読めない\|PostgreSQL 停止中'; then
+        step "マウントか PostgreSQL が落ちている: findmnt /srv/aijudge /work; systemctl status postgresql --no-pager"
+      fi
+      step "背景と判断の基準: docs/design/disk-and-recovery-plan.md §3.9.18"
+      echo
+      echo "== 直ったら =="
+      echo "この検査が「storage NG -> OK」のメールを送ります。"
+    fi
   } | /usr/local/sbin/aijudge-notify "[$(hostname -s)] storage $PREV -> $NOW"
   printf '%s' "$NOW" > "$STATE"
 fi

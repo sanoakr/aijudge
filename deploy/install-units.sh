@@ -117,6 +117,7 @@ SBIN_SCRIPTS=(
     aijudge-purge-preview.sh
     aijudge-config-check.sh
     aijudge-notify
+    aijudge-failure-guide
 )
 SBIN=/usr/local/sbin
 LIBDST=/usr/local/lib/aijudge
