@@ -40,6 +40,43 @@ for unit in aijudge-worker-det aijudge-relay $(systemctl list-units 'aijudge-wor
 done
 
 NOW=$([ ${#problems[@]} -eq 0 ] && echo OK || echo NG)
+
+# メールに書く「影響とやること」（2026-10-25）。**見つけた問題の種類ごとに出す** ──
+# 確認のコマンドを 1 行並べるだけでは、読んだ人が急ぐのか・何を打てば直るのかを
+# 毎回探すことになった。
+guide() {
+    local all
+    all=$(printf '%s\n' "${problems[@]:-}")
+    if [ "$NOW" = OK ]; then
+        echo "== 影響 =="
+        echo "採点キューは捌けていて、ワーカーもすべて動いています。対応は不要です。"
+        return
+    fi
+    echo "== 影響 =="
+    echo "提出の採点が遅れているか、止まっています。学生には「採点中」のまま見えます。授業中・締切前なら最優先で直す。"
+    echo
+    echo "== やること（運用機で） =="
+    local n=1
+    step() { echo "${n}. $1"; n=$((n + 1)); }
+    if printf '%s' "$all" | grep -q '^psql:'; then
+        step "DB を読めていません。PostgreSQL を確かめる: systemctl status postgresql（止まっていれば学生の画面も使えない）"
+    fi
+    if printf '%s' "$all" | grep -q ' is '; then
+        step "止まっている unit（上の issue の '... is inactive/failed'）を起き直す: sudo systemctl restart <unit 名>"
+        step "すぐまた止まるなら原因を見る: journalctl -u <unit 名> -n 100 --no-pager"
+    fi
+    if printf '%s' "$all" | grep -q 'oldest waiting'; then
+        step "ワーカーが動いているのに滞留しているなら、締切前の集中か LLM の遅れ。ai・transcription の列なら LLM の応答を見る: curl -sS --max-time 10 ${AIJUDGE_LLM_BASE_URL:-<AIJUDGE_LLM_BASE_URL>}/api/tags（主系・従系は aijudge-llm-primary-check のメール）"
+        step "集中なら待てば捌ける。5 分ごとに検査していて、滞留の中身が変われば再びメールが来る。捌けなければワーカーを足す（docs/RUNNING.md「並列度を決める値は複数の場所にある」）"
+    fi
+    if printf '%s' "$all" | grep -q 'FAILED'; then
+        step "失敗したジョブの原因を見る: journalctl -u aijudge-worker-det -u 'aijudge-worker-transcribe@*' -u 'aijudge-worker-ai@*' -p warning -n 100 --no-pager"
+        step "コンソールの提出一覧で状態が「採点できませんでした」の提出を確かめ、原因（課題の設定・LLM）を直してから採点し直す（docs/RUNNING.md「確定済みも含めて採点し直す」）"
+    fi
+    echo
+    echo "== 直ったら =="
+    echo "この検査（5 分ごと）が「grading queue NG -> OK」のメールを送ります。"
+}
 # 同じ NG でも中身が変われば知らせる（滞留から失敗へ、など）。
 SIGNATURE="$NOW $(printf '%s\n' "${problems[@]:-}" | sed 's/[0-9]\+/N/g' | sort | tr '\n' ';')"
 PREV=$(cat "$STATE" 2>/dev/null || echo UNKNOWN)
@@ -50,7 +87,7 @@ if [ "$SIGNATURE" != "$PREV" ]; then
         echo "state : ${PREV%% *} -> $NOW"
         for line in "${problems[@]:-}"; do [ -n "$line" ] && echo "issue : $line"; done
         echo
-        echo "確認: コンソールの「採点の状況」、journalctl -u aijudge-worker-det -u 'aijudge-worker-transcribe@*' -u 'aijudge-worker-ai@*' -n 50"
+        guide
     } | /usr/local/sbin/aijudge-notify "[$(hostname -s)] grading queue ${PREV%% *} -> $NOW"
     printf "%s" "$SIGNATURE" > "$STATE"
 fi

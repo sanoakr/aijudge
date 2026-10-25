@@ -25,9 +25,25 @@ if [ "$NOW" != "$PREV" ]; then
     {
         echo "host      : $(hostname -f)"
         echo "transition: $PREV -> $NOW"
-        for line in "${failures[@]:-}"; do echo "failed    : $line"; done
+        for line in "${failures[@]:-}"; do [ -n "$line" ] && echo "failed    : $line"; done
         echo
-        echo "確認: systemctl status aijudge-web aijudge-review; journalctl -u aijudge-web -n 50"
+        # 影響とやること（2026-10-25）。確認のコマンドを 1 行並べるだけでは、どちらの
+        # 画面が落ちていて何を打てば直るのかを毎回探すことになった。
+        echo "== 影響 =="
+        if [ "$NOW" = OK ]; then
+            echo "学生の画面とコンソールの /login が 200 を返しています。対応は不要です。"
+        else
+            echo "上の URL が開けません（000 は接続できない・502 はアプリが応答しない）。学生か教員が画面を使えません。授業中・締切前なら最優先で直す。"
+            echo
+            echo "== やること（運用機で） =="
+            echo "1. どちらが落ちているか: systemctl status aijudge-web aijudge-review --no-pager（学生の URL なら aijudge-web、コンソールの URL なら aijudge-review）"
+            echo "2. 起き直す: sudo systemctl restart aijudge-web（または aijudge-review）"
+            echo "3. active なのに 502 なら、プロセスが残ったまま応答していない（2026-09-21 の形）。journal の最後の例外を見る: journalctl -u aijudge-web -n 100 --no-pager"
+            echo "4. 両方 000 なら、nginx か DB: systemctl status nginx postgresql --no-pager"
+            echo
+            echo "== 直ったら =="
+            echo "この検査（5 分ごと）が「web NG -> OK」のメールを送ります。"
+        fi
     } | /usr/local/sbin/aijudge-notify "[$(hostname -s)] web $PREV -> $NOW"
     printf "%s" "$NOW" > "$STATE"
 fi

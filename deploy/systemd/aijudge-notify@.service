@@ -7,11 +7,15 @@
 # 起こりうる。
 #
 # root で走る（他の unit の journal を読むため）。実行するのは root 所有の
-# `/usr/local/sbin/aijudge-notify` と systemctl / journalctl だけで、
-# チェックアウトの中のものは実行しない。
+# `/usr/local/sbin/aijudge-notify`・`aijudge-failure-guide` と systemctl / journalctl
+# だけで、チェックアウトの中のものは実行しない。
+#
+# **先頭に影響とやることを書く**（`aijudge-failure-guide`・2026-10-25）。unit 名と
+# journal だけでは、読んだ人が急ぐのか・何を打てば直るのかを毎回探すことになった。
+# 案内が無い（配る前の機械）ときも状態と journal は送る。
 [Unit]
 Description=aiJudge failure notice for %i
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh -c '{ echo "unit: %i"; echo; systemctl status --no-pager --lines=0 "%i"; echo; journalctl -u "%i" -n 40 --no-pager -o short-iso; } | /usr/local/sbin/aijudge-notify "[$$(hostname -s)] %i failed"'
+ExecStart=/bin/sh -c '{ /usr/local/sbin/aijudge-failure-guide "%i" 2>/dev/null || echo "unit: %i"; echo; echo "== 状態 =="; systemctl status --no-pager --lines=0 "%i"; echo; echo "== journal（直近 40 行） =="; journalctl -u "%i" -n 40 --no-pager -o short-iso; } | /usr/local/sbin/aijudge-notify "[$$(hostname -s)] %i failed"'

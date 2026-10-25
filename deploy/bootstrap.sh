@@ -49,6 +49,7 @@ install -m 755 \
     "${DEPLOY_DIR}/aijudge-storage-check.sh" \
     "${DEPLOY_DIR}/aijudge-llm-primary-check.sh" \
     "${DEPLOY_DIR}/aijudge-notify" \
+    "${DEPLOY_DIR}/aijudge-failure-guide" \
     "${DEPLOY_DIR}/aijudge-config-check.sh" \
     /usr/local/sbin/
 # 配る側（#417）。以後は署名済みタグから自分自身を配り直す。署名の検証に要る

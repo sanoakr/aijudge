@@ -30,6 +30,7 @@ git で追跡しないローカルファイルとして持っている）。
 | `aijudge-llm-primary-check.sh` | プライマリ LLM が確定モデルを提供しているか（30 分ごと・状態が変わったときだけ通知。フォールバックもできない NG3 だけは、2 回続いてから通知する。`AIJUDGE_LLM_NG3_CONFIRM`） |
 | `lib/llm-primary-check.py` | 上の判定の本体。**どちらのプロバイダが応答したか**で判定する（`/usr/local/lib/aijudge/`） |
 | `aijudge-notify` | 日本語のメールを文字化けさせずに送る。上記の検査は、すべてこのコマンドで通知する |
+| `aijudge-failure-guide` | unit が失敗したときのメールの先頭に、その unit の**影響とやること**を書く（`aijudge-notify@` から呼ぶ）。新しい unit に `OnFailure=` を付けたら、ここにも案内を足す（`tests/test_alert_mails_say_what_to_do.py` が落ちる） |
 | `journald/aijudge.conf` | 運用ログの保存期間とディスク上限（`/etc/systemd/journald.conf.d/` に置く） |
 
 **スクリプトは `/usr/local/sbin/` に置く**（`lib/` のものは `/usr/local/lib/aijudge/`）。
