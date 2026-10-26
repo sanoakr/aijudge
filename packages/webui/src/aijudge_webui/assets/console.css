@@ -712,3 +712,52 @@ td.task-key{white-space:normal;overflow-wrap:anywhere;font-size:.85em;min-width:
 .campus-cidr{font-size:.72rem;color:var(--muted)}
 @media (max-width:640px){.campus-row{grid-template-columns:1fr}}
 
+
+/* 成績の表（2026-10-26）。**表の中だけを横に送る** ── 課題が 30 を超えるとページの
+   幅に収まらず、ページごと横に動くと見出しもメニューも一緒に流れる。学習者と合計の
+   2 列は左に貼り付けて、送っても誰の行かが分かるようにする。 */
+.gradebook-wrap{overflow-x:auto;border:1px solid var(--line-soft);border-radius:4px;
+  background:var(--surface);max-width:100%}
+.gradebook{border-collapse:separate;border-spacing:0;font-size:.82rem;width:max-content;min-width:100%}
+.gradebook th,.gradebook td{padding:5px 8px;border-bottom:1px solid var(--line-soft);
+  white-space:nowrap;text-align:right;background:var(--surface)}
+.gradebook thead th{background:var(--surface-2);font-weight:600;vertical-align:bottom}
+.gradebook th.unit{text-align:center;border-left:1px solid var(--line-soft)}
+.gradebook th.task{max-width:7.5rem;overflow:hidden;text-overflow:ellipsis;font-weight:500;
+  text-transform:none;letter-spacing:0}
+.gradebook th.task small,.gradebook .who small{display:block;color:var(--muted);font-weight:400;
+  font-size:.72rem;overflow:hidden;text-overflow:ellipsis}
+.gradebook .who{position:sticky;left:0;z-index:2;text-align:left;width:10rem;min-width:10rem;max-width:10rem;box-sizing:border-box;
+  overflow:hidden;text-overflow:ellipsis}
+.gradebook .sum{position:sticky;left:10rem;z-index:2;border-right:1px solid var(--line);min-width:6.5rem}
+.gradebook thead .who,.gradebook thead .sum{z-index:3;background:var(--surface-2)}
+.gradebook .sum .pct{display:block;color:var(--muted)}
+.gradebook tbody tr:hover td,.gradebook tbody tr:hover th{background:var(--surface-2)}
+.gradebook td.g a{color:inherit;text-decoration:none}
+.gradebook td.g a:hover{text-decoration:underline}
+/* 状態の見分け。**色だけに頼らない** ── 未確定は点線の下線、依頼ありは「!」。 */
+.g.open a,.legend .g.open{border-bottom:1px dotted var(--muted)}
+.g.contested{color:var(--shu)}
+.gradebook td.g.contested a::before{content:"! "}
+.g.withheld,.g.grading{color:var(--kin)}
+.g.missing{color:var(--shu);opacity:.8}
+.g.excluded,.g.upcoming{color:var(--muted);opacity:.6}
+.legend{display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:8px}
+/* **携帯の幅でも表のまま横に送る。** `base.css` はこの幅で表をすべて 1 行 1 枚に
+   畳む（#231）が、成績の表を畳むと 1 人ぶんが課題の数だけ縦に並び、人と人を
+   見比べられない。#231 で横に送る案が採れなかったのは表を `display:block` に
+   したからで、ここは表を表のまま枠（`.gradebook-wrap`）の中で送る。 */
+@media (max-width:560px){
+  table.gradebook{display:table;width:max-content}
+  table.gradebook thead{display:table-header-group}
+  table.gradebook tbody{display:table-row-group}
+  table.gradebook tr{display:table-row;border:0;padding:0;margin:0;border-radius:0}
+  table.gradebook td,table.gradebook th{display:table-cell;padding:5px 8px;
+    border-bottom:1px solid var(--line-soft);white-space:nowrap}
+  table.gradebook td:empty{display:table-cell}
+}
+@media (max-width:640px){
+  /* 携帯では貼り付ける 2 列を細くする（360px の幅で課題の列が 2 本は見えるように）。 */
+  .gradebook .who{width:7rem;min-width:7rem;max-width:7rem}
+  .gradebook .sum{left:7rem;min-width:5rem}
+}

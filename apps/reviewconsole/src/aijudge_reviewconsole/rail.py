@@ -109,6 +109,9 @@ def course_rail(
         title="採点",
         items=(
             RailItem("提出", f"{base}/submissions"),
+            # 学習者 × 課題の成績（2026-10-26）。TA にも出す ── 採点している学生の
+            # 到達が見えないと質問に答えられない。CSV の書き出しは教員だけ。
+            RailItem("成績", f"{base}/grades"),
             RailItem(
                 "再確認の依頼",
                 f"{base}/queue",

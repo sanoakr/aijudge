@@ -612,6 +612,11 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
 
     app.include_router(register_similarity(TEMPLATES))
 
+    # 成績の一覧と CSV（2026-10-26）。画面は TA も、CSV は教員だけ（書き出しは監査に残る）。
+    from .grades import register as register_grades
+
+    app.include_router(register_grades(TEMPLATES))
+
     @app.get("/online-users")
     def online_users(request: Request) -> JSONResponse:
         """上部バーの「オンライン N 人」を取り直す（`live.js`）。**人数だけ** ── 名前は出さない。

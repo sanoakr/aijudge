@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+{% block title %}成績 — {{ course.title }} — aiJudge{% endblock %}
+{% block body %}
+<h1>成績</h1>
+<p class="subtitle">{{ course.title }}・{{ book.rows | length }} 名を表示（受講 {{ book.learners }} 名）・課題 {{ book.columns | length }}</p>
+
+{# 絞り込みは URL に載せる（提出一覧と同じ）。選ぶ欄はその場で、打つ欄は Enter か
+   欄を離れたときに送る。 #}
+<form method="get" action="{{ root_prefix() }}/courses/{{ course.id }}/grades" class="card" id="filters"
+      onchange="this.requestSubmit()">
+  <div class="field row-form">
+    <span><label for="g-q">学習者（部分一致）</label>
+      <input id="g-q" name="q" value="{{ filters.q }}" placeholder="ログイン名・氏名"
+             style="max-width:11rem" autocomplete="off" enterkeyhint="search"
+             {{ 'autofocus' if filters.q }}
+             onfocus="this.setSelectionRange(this.value.length, this.value.length)"></span>
+    <span><label for="g-unit">問題セット</label>
+      <select id="g-unit" name="unit">
+        <option value="">すべて</option>
+        {% for u in units %}
+        <option value="{{ u.key }}" {{ 'selected' if filters.unit == u.key }}>{{ u.label }}</option>
+        {% endfor %}
+      </select></span>
+    {% if groups %}
+    <span><label for="g-group">グループ</label>
+      <select id="g-group" name="group">
+        <option value="">すべて</option>
+        {% for g in groups %}
+        <option value="{{ g.id }}" {{ 'selected' if filters.group == g.id|string }}>{{ g.name }}</option>
+        {% endfor %}
+      </select></span>
+    {% endif %}
+    <span><label for="g-flag">残っているもの</label>
+      <select id="g-flag" name="flag">
+        <option value="">すべての人</option>
+        {% for key, label in flags.items() %}
+        <option value="{{ key }}" {{ 'selected' if filters.flag == key }}>{{ label }}</option>
+        {% endfor %}
+      </select></span>
+    <span><label for="g-sort">並び</label>
+      <select id="g-sort" name="sort">
+        {% for key, label in sorts.items() %}
+        <option value="{{ key }}" {{ 'selected' if filters.sort == key }}>{{ label }}</option>
+        {% endfor %}
+      </select></span>
+    <noscript><button type="submit">絞り込み</button></noscript>
+  </div>
+  <p class="desc" style="margin:10px 0 0">
+    点は<strong>採用提出</strong>（学習者ごと・課題ごとに最も点の高い提出、遅延の減点後）です。学習者の画面と同じ規則です。
+    合計の満点に入るのは出題された課題だけで、未提出は 0 点、対象外（出題先のグループに入っていない）と公開前は数えません。
+    {% if filters.unit %}問題セットで絞ると、合計はその問題セットの小計になります。{% endif %}
+    {% if filters.active %}<a href="{{ root_prefix() }}/courses/{{ course.id }}/grades">絞り込みを外す</a>{% endif %}
+  </p>
+  {% if can_export %}
+  <p class="desc" style="margin:8px 0 0">
+    CSV（いまの絞り込みのまま）:
+    <a href="{{ root_prefix() }}/courses/{{ course.id }}/grades.csv{% if csv_query %}?{{ csv_query | urlencode }}{% endif %}">1 人 1 行</a>
+    ・<a href="{{ root_prefix() }}/courses/{{ course.id }}/grades.csv?{{ dict(csv_query, shape='long') | urlencode }}">学習者 × 課題で 1 行</a>
+    <span class="desc">── 書き出したことは監査ログに残ります。</span>
+  </p>
+  {% endif %}
+</form>
+
+{% if book.unpointed %}
+<div class="note">
+  <p style="margin:0">
+    配点の無い課題が {{ book.unpointed | length }} 件あります。割合（0.0〜1.0）を <strong>1 点満点</strong>として合計に入れています。
+    配点を決めると、それまでの提出にもその配点が当たります。
+  </p>
+  <p class="desc" style="margin:6px 0 0">
+    {% for c in book.unpointed %}{% if not loop.first %}・{% endif %}{% if can_export %}<a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/tasks/{{ c.task.id }}/edit">{{ c.task.title }}</a>{% else %}{{ c.task.title }}{% endif %}{% endfor %}
+  </p>
+</div>
+{% endif %}
+
+{% if not book.columns %}
+<p class="desc">まだ課題がありません。</p>
+{% elif not book.rows %}
+<p class="desc">条件に当たる学習者がいません。</p>
+{% else %}
+{# **表は横に送る。** 課題が 30 を超える表を畳むと、1 人ぶんが携帯で 1 画面を超える。
+   学習者と合計の列は左に貼り付けて、送っても誰の行かが分かるようにする。 #}
+<div class="gradebook-wrap">
+<table class="gradebook">
+  <thead>
+    <tr>
+      <th class="who" rowspan="2">学習者</th>
+      <th class="sum" rowspan="2">合計</th>
+      {% for u in book.units %}<th class="unit" colspan="{{ u.span }}">{{ u.label }}</th>{% endfor %}
+    </tr>
+    <tr>
+      {% for c in book.columns %}
+      <th class="task" title="{{ c.task.title }}">{{ c.task.title }}<small>{% if c.pointed %}{{ fmt(c.max_points) }} 点{% else %}割合{% endif %}</small></th>
+      {% endfor %}
+    </tr>
+  </thead>
+  <tbody>
+  {% for row in book.rows %}
+    <tr>
+      <th class="who" scope="row"><span class="mono">{{ row.login }}</span><small>{{ row.name }}</small></th>
+      <td class="sum">
+        {% if row.total.possible %}
+          <b>{{ fmt(row.total.earned) }}</b><small> / {{ fmt(row.total.possible) }}</small>
+          <small class="pct">{{ "%.1f" | format(row.total.ratio * 100) }}%</small>
+        {% else %}<span class="desc">—</span>{% endif %}
+      </td>
+      {% for cell in row.cells %}
+      <td class="g {{ cell.state }}" title="{{ cell.label }}">
+        {%- if cell.state in ('finalized', 'open', 'contested') -%}
+          <a href="{{ root_prefix() }}/review/{{ cell.submission_id }}/reveal">{{ fmt(cell.points) }}</a>
+        {%- elif cell.state in ('withheld', 'grading') -%}
+          <a href="{{ root_prefix() }}/review/{{ cell.submission_id }}/reveal">{{ cell.label }}</a>
+        {%- elif cell.state == 'missing' -%}未提出
+        {%- elif cell.state == 'excluded' -%}対象外
+        {%- endif -%}
+      </td>
+      {% endfor %}
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+<p class="desc legend">
+  <span class="g finalized">確定</span>
+  <span class="g open">未確定</span>
+  <span class="g contested">再確認の依頼あり</span>
+  <span class="g withheld">保留・採点中</span>
+  <span class="g missing">未提出（0 点）</span>
+  <span class="g excluded">対象外</span>
+  ・空欄は公開前の課題です。点を押すとその提出を開きます。
+</p>
+{% endif %}
+{% endblock %}
