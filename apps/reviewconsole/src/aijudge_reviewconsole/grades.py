@@ -26,8 +26,9 @@ import io
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
 
@@ -157,25 +158,35 @@ class GradeFilters:
     """絞り込み。**URL の問い合わせ文字列がそのまま入る**（提出一覧と同じ）。"""
 
     q: str = ""
-    unit: str = ""
+    #: 選んだ問題セット（複数・2026-10-26）。`units_chosen` が偽なら全部。
+    units: tuple[str, ...] = ()
+    #: 問題セットを明示して選んだか（URL の `u=1`）。**「全て解除」を「全部」と
+    #: 区別するためにある** ── 何も選ばないことを空の `unit` だけで表すと、初めて
+    #: 開いたとき（全部）と見分けが付かない。
+    units_chosen: bool = False
     group: str = ""
     flag: str = ""
     sort: str = "login"
 
+    def selects(self, unit_key: str) -> bool:
+        return not self.units_chosen or unit_key in self.units
+
     @property
     def active(self) -> bool:
-        return bool(self.q or self.unit or self.group or self.flag)
+        return bool(self.q or self.units_chosen or self.group or self.flag)
 
-    def query(self) -> dict[str, str]:
-        """CSV のリンクに持ち歩く条件（空は落とす）。"""
-        values = {
-            "q": self.q,
-            "unit": self.unit,
-            "group": self.group,
-            "flag": self.flag,
-            "sort": "" if self.sort == "login" else self.sort,
-        }
-        return {key: value for key, value in values.items() if value}
+    def query(self) -> list[tuple[str, str]]:
+        """CSV のリンクに持ち歩く条件（空は落とす）。`unit` は選んだ数だけ繰り返す。"""
+        pairs = [
+            ("q", self.q),
+            ("group", self.group),
+            ("flag", self.flag),
+            ("sort", "" if self.sort == "login" else self.sort),
+        ]
+        if self.units_chosen:
+            pairs.append(("u", "1"))
+            pairs += [("unit", key) for key in self.units]
+        return [(key, value) for key, value in pairs if value]
 
 
 @dataclass(frozen=True)
@@ -286,7 +297,7 @@ def build_gradebook(
     """表を組む。**I/O をしない** ── 読むのは `load_gradebook`。"""
     chosen = filters or GradeFilters()
     every = tuple(columns)
-    shown = tuple(c for c in every if not chosen.unit or c.unit_key == chosen.unit)
+    shown = tuple(c for c in every if chosen.selects(c.unit_key))
     people = tuple(learners)
     enrolled = {person.user_id for person in people}
 
@@ -603,10 +614,11 @@ def load_gradebook(
 def register(templates: Jinja2Templates) -> APIRouter:
     router = APIRouter()
 
-    def _filters(q: str, unit: str, group: str, flag: str, sort: str) -> GradeFilters:
+    def _filters(q: str, unit: list[str], u: int, group: str, flag: str, sort: str) -> GradeFilters:
         return GradeFilters(
             q=q.strip(),
-            unit=unit,
+            units=tuple(dict.fromkeys(key for key in unit if key)),
+            units_chosen=bool(u),
             group=group,
             flag=flag if flag in FLAG_LABELS else "",
             sort=sort if sort in SORT_LABELS else "login",
@@ -617,7 +629,8 @@ def register(templates: Jinja2Templates) -> APIRouter:
         request: Request,
         course_id: str,
         q: str = "",
-        unit: str = "",
+        unit: Annotated[list[str], Query()] = [],  # noqa: B006 ── FastAPI が毎回作り直す
+        u: int = 0,
         group: str = "",
         flag: str = "",
         sort: str = "login",
@@ -629,7 +642,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         console = request.app.state.aijudge
         me = require_principal(request)
         viewer = _grader_role(console, me, CourseId(course_id))
-        filters = _filters(q, unit, group, flag, sort)
+        filters = _filters(q, unit, u, group, flag, sort)
         moment = datetime.now(UTC)
         with console.database.unit_of_work() as uow:
             course = uow.identity.get_course(CourseId(course_id))
@@ -664,7 +677,8 @@ def register(templates: Jinja2Templates) -> APIRouter:
         request: Request,
         course_id: str,
         q: str = "",
-        unit: str = "",
+        unit: Annotated[list[str], Query()] = [],  # noqa: B006 ── FastAPI が毎回作り直す
+        u: int = 0,
         group: str = "",
         flag: str = "",
         sort: str = "login",
@@ -681,7 +695,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
         console = request.app.state.aijudge
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
-        filters = _filters(q, unit, group, flag, sort)
+        filters = _filters(q, unit, u, group, flag, sort)
         long = shape == "long"
         with console.database.unit_of_work() as uow:
             book = load_gradebook(

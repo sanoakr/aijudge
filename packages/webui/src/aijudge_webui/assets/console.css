@@ -713,6 +713,13 @@ td.task-key{white-space:normal;overflow-wrap:anywhere;font-size:.85em;min-width:
 @media (max-width:640px){.campus-row{grid-template-columns:1fr}}
 
 
+/* 成績の問題セットの選択（複数）。回が 15 前後並ぶので折り返して詰める。 */
+.unit-picks{border:0;margin:12px 0 0;padding:0;display:flex;flex-wrap:wrap;gap:4px 14px}
+.unit-picks legend{display:flex;align-items:center;gap:8px;font-size:.85rem;color:var(--ink-2);
+  margin-bottom:6px;padding:0}
+.unit-picks legend button{padding:2px 10px;font-size:.78rem}
+.unit-picks .check{font-size:.85rem;white-space:nowrap}
+
 /* 成績の提出数の分布。課題が 16 を超えると棒が 30 本を超えるので隙間と字を詰める。 */
 .hist.dense{gap:2px}
 .hist.dense .bar{min-width:0}
