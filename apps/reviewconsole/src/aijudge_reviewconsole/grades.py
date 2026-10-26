@@ -141,6 +141,16 @@ class LearnerRow:
     def count(self, *states: str) -> int:
         return sum(1 for cell in self.cells if cell.state in states)
 
+    @property
+    def assigned(self) -> int:
+        """出された課題の数（対象外と公開前を除く）。"""
+        return sum(1 for cell in self.cells if cell.counted)
+
+    @property
+    def submitted(self) -> int:
+        """出された課題のうち、1 件でも提出した課題の数。"""
+        return self.assigned - self.count("missing")
+
 
 @dataclass(frozen=True)
 class GradeFilters:
@@ -191,6 +201,69 @@ class Learner:
     login: str
     name: str
     groups: frozenset[CourseGroupId] = frozenset()
+
+
+#: 合計点の分布の階級。提出一覧の得点の分布と同じ 11 本（100% は独立）。
+TOTAL_BUCKETS = 11
+#: 提出数の分布で目盛りを書く本数の上限。課題が 30 を超えると、携帯の幅（360px）で
+#: 2 桁の目盛りが隣と重なる。
+COUNT_LABELS = 8
+
+
+@dataclass(frozen=True)
+class Histogram:
+    """人数の分布。**表と同じ行から作る** ── 絞り込みがそのまま図にも効く。"""
+
+    counts: tuple[int, ...]
+    #: 棒ごとの目盛り。空の字は目盛りを書かない棒。
+    labels: tuple[str, ...]
+    #: 棒ごとの説明（`title`）。
+    titles: tuple[str, ...]
+    #: 図に入った人数。
+    total: int
+    mean: float | None = None
+
+    @property
+    def peak(self) -> int:
+        return max(self.counts, default=0)
+
+
+def total_histogram(book: Gradebook) -> Histogram:
+    """合計（%）の分布。分母が 0 の人（全部が対象外・公開前）は入れない。"""
+    counts = [0] * TOTAL_BUCKETS
+    ratios = [row.total.ratio for row in book.rows if row.total.ratio is not None]
+    for ratio in ratios:
+        percent = max(0.0, min(1.0, ratio)) * 100
+        counts[TOTAL_BUCKETS - 1 if percent >= 100 else int(percent // 10)] += 1
+    labels = tuple("100" if i == TOTAL_BUCKETS - 1 else str(i * 10) for i in range(TOTAL_BUCKETS))
+    return Histogram(
+        counts=tuple(counts),
+        labels=labels,
+        titles=tuple(f"{label}% 台: {n} 名" for label, n in zip(labels, counts, strict=True)),
+        total=len(ratios),
+        mean=sum(ratios) / len(ratios) * 100 if ratios else None,
+    )
+
+
+def submitted_histogram(book: Gradebook) -> Histogram:
+    """提出した課題の数の分布（0 〜 出された課題の数）。
+
+    **延べの提出回数ではない。** 出し直しが学習の形なので、回数はよくできる人ほど
+    少なくなりうる ── 「どれだけ手を付けたか」を見るのは課題の数である。
+    """
+    rows = [row for row in book.rows if row.assigned]
+    top = max((row.assigned for row in rows), default=0)
+    counts = [0] * (top + 1)
+    for row in rows:
+        counts[row.submitted] += 1
+    step = max(1, -(-len(counts) // COUNT_LABELS))
+    return Histogram(
+        counts=tuple(counts),
+        labels=tuple(str(i) if i % step == 0 else "" for i in range(top + 1)),
+        titles=tuple(f"{i} 課題: {n} 名" for i, n in enumerate(counts)),
+        total=len(rows),
+        mean=sum(row.submitted for row in rows) / len(rows) if rows else None,
+    )
 
 
 def format_points(value: float | None) -> str:
@@ -573,6 +646,8 @@ def register(templates: Jinja2Templates) -> APIRouter:
                 "course": course,
                 "section": {"label": "成績", "href": f"/courses/{course.id}/grades"},
                 "book": book,
+                "totals": total_histogram(book),
+                "submitted": submitted_histogram(book),
                 "filters": filters,
                 "units": _spans(unit_choices),
                 "groups": groups,

@@ -24,6 +24,8 @@ from aijudge_reviewconsole.grades import (
     Learner,
     build_gradebook,
     long_csv,
+    submitted_histogram,
+    total_histogram,
     wide_csv,
 )
 from aijudge_submission.protocols import ScoredRow
@@ -169,6 +171,26 @@ def test_the_csv_opens_in_excel_and_cannot_run_a_formula() -> None:
     assert "y260002,'=HYPERLINK(1),第 1 回,p2,0.5,1,0.5,未確定" in long[2 + 4]
 
 
+def test_the_histograms_count_learners_from_the_same_rows() -> None:
+    rows = (
+        _row(1, ALICE, POINTED, 1.0),
+        _row(2, ALICE, RATIO, 1.0, version=V_RATIO),
+        _row(3, BOB, POINTED, 0.25),
+    )
+    book = _book(rows)
+    totals = total_histogram(book)
+    assert totals.total == 2
+    assert totals.counts[10] == 1, "ALICE は 21 / 21 で 100%"
+    assert totals.counts[2] == 1, "BOB は 5 / 21 で 20% 台"
+
+    submitted = submitted_histogram(book)
+    assert submitted.counts == (0, 1, 1), "出された課題は 2 つ（追試は対象外・次回は公開前）"
+    assert submitted.mean == 1.5
+
+    only_bob = submitted_histogram(_book(rows, GradeFilters(q="0002")))
+    assert only_bob.total == 1, "絞り込みが図にも効く"
+
+
 # -- 画面と CSV の経路 ----------------------------------------------------------
 
 
@@ -180,6 +202,7 @@ def test_the_page_lists_the_learner_and_the_csv_is_audited(world: World) -> None
     page = world.client.get(f"/courses/{COURSE}/grades")
     assert page.status_code == 200
     assert "s2400001" in page.text and 'class="gradebook"' in page.text
+    assert "合計点の分布" in page.text and "提出数の分布" in page.text
     assert "grades.csv" in page.text
 
     exported = world.client.get(f"/courses/{COURSE}/grades.csv?shape=long")
