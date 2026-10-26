@@ -713,6 +713,11 @@ td.task-key{white-space:normal;overflow-wrap:anywhere;font-size:.85em;min-width:
 @media (max-width:640px){.campus-row{grid-template-columns:1fr}}
 
 
+/* 成績の提出数の分布。課題が 16 を超えると棒が 30 本を超えるので隙間と字を詰める。 */
+.hist.dense{gap:2px}
+.hist.dense .bar{min-width:0}
+.hist.dense .n,.hist.dense .x{font-size:.6rem;white-space:nowrap;line-height:1.2;min-height:1.2em}
+
 /* 成績の表（2026-10-26）。**表の中だけを横に送る** ── 課題が 30 を超えるとページの
    幅に収まらず、ページごと横に動くと見出しもメニューも一緒に流れる。学習者と合計の
    2 列は左に貼り付けて、送っても誰の行かが分かるようにする。 */

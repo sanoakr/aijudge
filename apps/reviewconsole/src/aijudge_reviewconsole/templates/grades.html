@@ -73,6 +73,49 @@
 </div>
 {% endif %}
 
+{# **図は表と同じ行から描く**（提出一覧と同じ配置）── 絞り込みがそのまま図にも効く。
+   平均だけでは二山（できた人と手が付かなかった人）が片方の数字に潰れる。 #}
+{% macro hist(h, cls='') %}
+<div class="hist{{ ' ' ~ cls if cls }}">
+  {% for count in h.counts %}
+  <div class="bar" title="{{ h.titles[loop.index0] }}">
+    <span class="n">{{ count if count else '' }}</span>
+    <span class="fill" style="height:{{ (100 * count / h.peak) | round(1) if h.peak else 0 }}%"></span>
+    <span class="x">{{ h.labels[loop.index0] }}</span>
+  </div>
+  {% endfor %}
+</div>
+{% endmacro %}
+{% if book.rows %}
+<h2>合計点の分布</h2>
+<div class="card">
+  {% if totals.total %}
+  {{ hist(totals) }}
+  <p class="desc" style="margin:10px 0 0">
+    {{ totals.total }} 名・合計（%）の平均 <strong>{{ '%.1f' | format(totals.mean) }}%</strong>
+    ・横軸は合計の満点に対する割合（10% 刻み）
+  </p>
+  {% else %}
+  <p class="desc" style="margin:0">出された課題がまだありません。</p>
+  {% endif %}
+</div>
+
+<h2>提出数の分布</h2>
+<div class="card">
+  {% if submitted.total %}
+  {{ hist(submitted, cls='dense' if submitted.counts | length > 16 else '') }}
+  <p class="desc" style="margin:10px 0 0">
+    {{ submitted.total }} 名・提出した課題の数の平均 <strong>{{ '%.1f' | format(submitted.mean) }}</strong>
+    ・横軸は 1 件でも提出した課題の数（延べの提出回数ではありません）
+  </p>
+  {% else %}
+  <p class="desc" style="margin:0">出された課題がまだありません。</p>
+  {% endif %}
+</div>
+
+<h2>成績</h2>
+{% endif %}
+
 {% if not book.columns %}
 <p class="desc">まだ課題がありません。</p>
 {% elif not book.rows %}
