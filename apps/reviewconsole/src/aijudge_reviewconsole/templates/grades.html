@@ -14,13 +14,6 @@
              style="max-width:11rem" autocomplete="off" enterkeyhint="search"
              {{ 'autofocus' if filters.q }}
              onfocus="this.setSelectionRange(this.value.length, this.value.length)"></span>
-    <span><label for="g-unit">問題セット</label>
-      <select id="g-unit" name="unit">
-        <option value="">すべて</option>
-        {% for u in units %}
-        <option value="{{ u.key }}" {{ 'selected' if filters.unit == u.key }}>{{ u.label }}</option>
-        {% endfor %}
-      </select></span>
     {% if groups %}
     <span><label for="g-group">グループ</label>
       <select id="g-group" name="group">
@@ -45,17 +38,37 @@
       </select></span>
     <noscript><button type="submit">絞り込み</button></noscript>
   </div>
+  {# **問題セットは複数選べる**（2026-10-26）。前期の範囲だけ・演習だけ、のように
+     いくつかの回をまとめて合計を見たい。`u=1` は「明示して選んだ」の印で、
+     これが無いリンク（初めて開いたとき）は全部を選んだものとして扱う。 #}
+  <fieldset class="unit-picks">
+    <legend>問題セット
+      <button type="button" class="minor" onclick="pickUnits(this.form, true)">全て選択</button>
+      <button type="button" class="minor" onclick="pickUnits(this.form, false)">全て解除</button>
+    </legend>
+    <input type="hidden" name="u" value="1">
+    {% for u in units %}
+    <label class="check"><input type="checkbox" name="unit" value="{{ u.key }}"
+      {{ 'checked' if filters.selects(u.key) }}> {{ u.label }}</label>
+    {% endfor %}
+  </fieldset>
+  <script>
+    function pickUnits(form, on) {
+      form.querySelectorAll('input[name=unit]').forEach(box => { box.checked = on; });
+      form.requestSubmit();
+    }
+  </script>
   <p class="desc" style="margin:10px 0 0">
     点は<strong>採用提出</strong>（学習者ごと・課題ごとに最も点の高い提出、遅延の減点後）です。学習者の画面と同じ規則です。
     合計の満点に入るのは出題された課題だけで、未提出は 0 点、対象外（出題先のグループに入っていない）と公開前は数えません。
-    {% if filters.unit %}問題セットで絞ると、合計はその問題セットの小計になります。{% endif %}
+    {% if filters.units_chosen %}合計は選んだ問題セットの分だけです。{% endif %}
     {% if filters.active %}<a href="{{ root_prefix() }}/courses/{{ course.id }}/grades">絞り込みを外す</a>{% endif %}
   </p>
   {% if can_export %}
   <p class="desc" style="margin:8px 0 0">
     CSV（いまの絞り込みのまま）:
     <a href="{{ root_prefix() }}/courses/{{ course.id }}/grades.csv{% if csv_query %}?{{ csv_query | urlencode }}{% endif %}">1 人 1 行</a>
-    ・<a href="{{ root_prefix() }}/courses/{{ course.id }}/grades.csv?{{ dict(csv_query, shape='long') | urlencode }}">学習者 × 課題で 1 行</a>
+    ・<a href="{{ root_prefix() }}/courses/{{ course.id }}/grades.csv?{{ (csv_query + [('shape', 'long')]) | urlencode }}">学習者 × 課題で 1 行</a>
     <span class="desc">── 書き出したことは監査ログに残ります。</span>
   </p>
   {% endif %}
@@ -117,7 +130,7 @@
 {% endif %}
 
 {% if not book.columns %}
-<p class="desc">まだ課題がありません。</p>
+<p class="desc">{{ '問題セットが選ばれていません。' if filters.units_chosen else 'まだ課題がありません。' }}</p>
 {% elif not book.rows %}
 <p class="desc">条件に当たる学習者がいません。</p>
 {% else %}

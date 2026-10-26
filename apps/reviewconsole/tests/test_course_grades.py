@@ -143,7 +143,7 @@ def test_search_unit_flag_and_sort() -> None:
     assert [r.login for r in _book(rows, GradeFilters(q="花子")).rows] == ["y260001"]
     assert [r.login for r in _book(rows, GradeFilters(q="0002")).rows] == ["y260002"]
 
-    unit = _book(rows, GradeFilters(unit="1"))
+    unit = _book(rows, GradeFilters(units=("1",), units_chosen=True))
     assert [c.task.title for c in unit.columns] == ["p1", "p2"]
     assert unit.rows[0].total.possible == 21.0
 
@@ -155,6 +155,22 @@ def test_search_unit_flag_and_sort() -> None:
 
     ranked = _book(rows, GradeFilters(sort="total_asc"))
     assert [r.login for r in ranked.rows] == ["y260002", "y260001"]
+
+
+def test_several_units_can_be_chosen_and_none_means_none() -> None:
+    rows = (_row(1, ALICE, POINTED, 1.0),)
+    both = _book(rows, GradeFilters(units=("1", "exam"), units_chosen=True))
+    assert [c.task.title for c in both.columns] == ["p1", "p2", "追試"]
+
+    cleared = _book(rows, GradeFilters(units_chosen=True))
+    assert cleared.columns == (), "全て解除は「全部」ではない"
+    assert cleared.rows[0].total.possible == 0.0
+
+    fresh = _book(rows, GradeFilters(units=("1",)))
+    assert len(fresh.columns) == 4, "印（u=1）が無いリンクは全部"
+
+    query = GradeFilters(units=("1", "2"), units_chosen=True).query()
+    assert query == [("u", "1"), ("unit", "1"), ("unit", "2")], "CSV のリンクに持ち歩く"
 
 
 def test_the_csv_opens_in_excel_and_cannot_run_a_formula() -> None:
@@ -204,6 +220,10 @@ def test_the_page_lists_the_learner_and_the_csv_is_audited(world: World) -> None
     assert "s2400001" in page.text and 'class="gradebook"' in page.text
     assert "合計点の分布" in page.text and "提出数の分布" in page.text
     assert "grades.csv" in page.text
+
+    picked = world.client.get(f"/courses/{COURSE}/grades?u=1")
+    assert "問題セットが選ばれていません" in picked.text
+    assert 'name="unit"' in picked.text and "全て選択" in picked.text
 
     exported = world.client.get(f"/courses/{COURSE}/grades.csv?shape=long")
     assert exported.status_code == 200
