@@ -62,6 +62,12 @@ The console is for reading what arrived and deciding — it never grades.
   Dolos looks for similar pairs and the course's instructors are shown them.
   Dolos runs in the network-less sandbox, so submissions never leave the
   machine; nothing is judged or deducted (ADR 0029).
+- **A gradebook per course.** Learners by tasks, with the score each learner's
+  adopted submission earned (the same rule as the learner's own view), unit
+  subtotals and a course total. Search, filter by unit, group or what is still
+  outstanding, and export as CSV. Tasks without points count their ratio as one
+  point. Assistants can view it; only instructors can export, and every export
+  is audited.
 - **Blind marking for measurement**, sampled by the system — never by choice —
   so agreement between a person and the machine can be measured honestly.
 - **Built from the same parts as the learner's side.** The rail of
@@ -334,6 +340,7 @@ uv run aijudge-admin activity purge --apply # actually delete
 | Knowledge components and mastery | Skeleton running; none of its acceptance criteria can be judged yet |
 | Browser editor (online coding test) | Working; load-tested locally with 150 learners, **not yet on the production host** |
 | Similarity between submissions (Dolos) | Working; runs in the sandbox after grading, shown to the course's instructors only, never graded |
+| Gradebook and CSV export | Working; CSV export for instructors only, audited |
 
 The two "not yet" rows are stated rather than omitted on purpose: this codebase
 reports `NOT_MEASURED` wherever it cannot justify a number, and treats that as
