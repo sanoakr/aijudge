@@ -15,6 +15,7 @@ from aijudge_core import (
     SkillObservation,
     SkillPoint,
     SkillState,
+    effective_points,
 )
 from aijudge_core.ids import KcId, TenantId, UserId
 
@@ -84,6 +85,9 @@ class SkillRepository(Protocol):
 
         `kc_ids` が空なら KC で絞らない。`learner_ids` は空なら空を返す
         （`list_states_for` と同じ作法）。`scope` の点だけを返す（ADR 0032）。
+
+        **描く点を返す**（`aijudge_core.effective_points`）。作り直しがあれば、その時刻より
+        前は作り直した点で、以降はふだんの点で返す。古い点は消えずに表に残っている。
         """
         ...
 
@@ -195,7 +199,7 @@ class InMemorySkillRepository:
         ]
         # 古い順。同着は観測数で解く（同じ日に何度も動くため）。
         found.sort(key=lambda point: (point.recorded_at, point.observation_count))
-        return tuple(found)
+        return effective_points(found)
 
     def get_kc(self, kc_id: KcId) -> KnowledgeComponent | None:
         return self._kcs.get(kc_id)

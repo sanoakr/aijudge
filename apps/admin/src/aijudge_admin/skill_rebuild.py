@@ -11,8 +11,11 @@
   1 コースだけ作り直すと、他のコースの観測が抜けた値になる。
 - 再生するのは提出ごとの**最新の採点**だけ。暫定の採点・動作確認の提出・確信度の
   足りない判定は、ふだんの更新と同じく数えない（`SkillService` が判断する）。
-- **推移（`SkillPoint`）は消さない**（P8）。再生の途中では点を書かず、作り直した値を
-  最後に 1 点ずつ足す。いつ作り直したかは監査ログに残す。
+- **推移（`SkillPoint`）は消さない**（P8）。再生しながら、そのときどきの値を
+  **提出の時刻で**点に書き、作り直しの時刻（`rebuilt_at`）を持たせる。描くときは、
+  作り直しより前はこの点を、それ以降はふだんの点を使う（`effective_points`）。
+  提出の順に再生するので、各時点の値はその時点までの提出だけから出たものになる
+  （後から見た最終値で過去を描かない）。いつ作り直したかは監査ログに残す。
 """
 
 from __future__ import annotations
@@ -21,7 +24,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from aijudge_audit import AuditAction, AuditRecorder
-from aijudge_core import GradingCompleted, MasteryModel, MasteryScope, SkillPoint
+from aijudge_core import GradingCompleted
 from aijudge_core.ids import TaskId, TaskVersionId, TenantId
 from aijudge_grading import grading_completed_event
 from aijudge_persistence import Database
@@ -84,36 +87,19 @@ def rebuild_skills(database: Database, tenant_id: TenantId, *, now: datetime) ->
 
     with database.unit_of_work() as uow:
         uow.skills.clear(tenant_id)
-        service = SkillService(uow.skills, record_points=False)
+        service = SkillService(uow.skills, rebuilt_at=now)
         replayed = 0
         learners = set()
         for event in events:
             if event.is_trial:
                 # 動作確認の提出は習熟度に積まない（`skill_subscriber` と同じ）。
                 continue
-            service.apply(event, observed_at=event.occurred_at)
+            # 点は**提出の時刻**で書く。再生の順（提出の順）とそろえるため ── 採点の時刻で
+            # 書くと、あとで再採点した提出の点が、後の提出の点より後ろに並ぶ。
+            service.apply(event, observed_at=event.submitted_at or event.occurred_at)
             replayed += 1
             learners.add(event.learner_id)
         states = uow.skills.list_states_for(tenant_id, tuple(sorted(learners)))
-        for state in states:
-            # 作り直した値を、作り直した時刻の点として足す（過去の点は残す）。
-            # 範囲（演習だけ・試験だけ・両方）ごとに、値のあるものだけ。
-            for scope in MasteryScope:
-                value = state.mastery_in(scope)
-                if value is None:
-                    continue
-                uow.skills.append_point(
-                    SkillPoint(
-                        tenant_id=tenant_id,
-                        learner_id=state.learner_id,
-                        kc_id=state.kc_id,
-                        mastery=value,
-                        observation_count=state.count_in(scope),
-                        model=MasteryModel.BKT,
-                        scope=scope,
-                        recorded_at=now,
-                    )
-                )
         report = RebuildReport(
             courses=courses,
             submissions=submissions,

@@ -52,12 +52,16 @@ class SkillService:
         max_evidence: int = MAX_EVIDENCE,
         min_confidence: float = MIN_CONFIDENCE,
         record_points: bool = True,
+        rebuilt_at: datetime | None = None,
     ) -> None:
         self._repository = repository
         # 推移の点を書くか。**作り直しでは切る** ── 過去の採点を再生するたびに
         # 過去の日付の点を足すと、そのとき実際に出していた値の記録（P8）に
         # 作り直した値が混ざる。作り直しは終わったときに 1 点ずつ足す。
         self._record_points = record_points
+        # 作り直しの時刻（ADR 0032 §5）。作り直しでは、再生した採点の時刻で点を書き、
+        # この時刻を点に持たせる ── 描くときに古い数え方の点と見分けるため。
+        self._rebuilt_at = rebuilt_at
         # パラメータは観測ごとに監督の有無で選ぶ（`bkt.parameters_for`・ADR 0032）。
         self._max_evidence = max_evidence
         self._min_confidence = min_confidence
@@ -231,6 +235,7 @@ class SkillService:
                     model=MasteryModel.BKT,
                     scope=scope,
                     recorded_at=observed_at,
+                    rebuilt_at=self._rebuilt_at,
                 )
             )
         if MasteryScope.ALL not in moved:

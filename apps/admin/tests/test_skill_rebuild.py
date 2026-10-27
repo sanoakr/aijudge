@@ -10,7 +10,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -183,14 +183,56 @@ def test_a_trial_submission_is_not_replayed(database: Database, world) -> None:
 
 
 def test_past_points_are_kept_and_the_rebuild_is_recorded(database: Database, world) -> None:
+    """古い数え方の点は表に残す（P8）。**描く点**は作り直した点に置き換わる。"""
+    from sqlalchemy import func, select
+
+    from aijudge_persistence.schema import SkillPointRow
+
     rebuild_skills(database, TENANT, now=NOW)
 
     with database.unit_of_work() as uow:
         points = uow.skills.history(TENANT, (LEARNER,))
         events = uow.audit.list_recent(TENANT, action=AuditAction.SKILLS_REBUILT)
-    assert [point.observation_count for point in points] == [3, 1]
-    assert points[-1].recorded_at == NOW
+    with database.engine.connect() as connection:
+        old = connection.execute(
+            select(func.count())
+            .select_from(SkillPointRow)
+            .where(SkillPointRow.rebuilt_at.is_(None))
+        ).scalar_one()
+    assert old == 1, "古い数え方の点が消えている"
     assert len(events) == 1
+    # 誤答 → 誤答（同じ課題・値は動かない）→ 正答。動いたときだけ点がある。
+    assert [round(point.mastery, 3) for point in points] == [0.184, 0.456]
+    assert all(point.rebuilt_at == NOW for point in points)
+
+
+def test_the_rebuilt_trend_follows_submission_time(database: Database, world) -> None:
+    """作り直した点は、作り直した時刻ではなく**提出の時刻**に並ぶ（過去にさかのぼる）。"""
+    rebuild_skills(database, TENANT, now=NOW + timedelta(days=30))
+
+    with database.unit_of_work() as uow:
+        points = uow.skills.history(TENANT, (LEARNER,))
+    assert all(point.recorded_at < NOW + timedelta(days=30) for point in points)
+
+
+def test_points_after_the_rebuild_are_drawn_too(database: Database, world) -> None:
+    """作り直しの後に動いた点（ふだんの点）は、作り直した点の後ろに続けて描く。"""
+    rebuild_skills(database, TENANT, now=NOW)
+    later = SkillPoint(
+        tenant_id=TENANT,
+        learner_id=LEARNER,
+        kc_id=KC,
+        mastery=0.7,
+        observation_count=2,
+        model=MasteryModel.BKT,
+        recorded_at=NOW + timedelta(hours=1),
+    )
+    with database.unit_of_work() as uow:
+        uow.skills.append_point(later)
+        uow.commit()
+    with database.unit_of_work() as uow:
+        points = uow.skills.history(TENANT, (LEARNER,))
+    assert points[-1].mastery == 0.7 and points[-1].rebuilt_at is None
 
 
 def test_running_it_twice_gives_the_same_values(database: Database, world) -> None:
