@@ -17,7 +17,7 @@
 {% endif %}
 
 {# 比べ方の切り替え。URL に残すので、戻っても共有しても同じ表示で開く。 #}
-<nav class="tabs sim-modes" aria-label="比べ方">
+<nav class="tabs" aria-label="比べ方">
   {% for key, label in modes.items() %}
   <a href="{{ root_prefix() }}/courses/{{ course.id }}/similarity?mode={{ key.value }}"
      {% if key == mode %}aria-current="page"{% endif %}>{{ label }}</a>
