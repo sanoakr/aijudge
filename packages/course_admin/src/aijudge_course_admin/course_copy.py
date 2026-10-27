@@ -36,7 +36,7 @@ from typing import Any
 
 from aijudge_authoring import TaskSpec, TestCaseSpec
 from aijudge_authoring import images as statement_images
-from aijudge_core import Course, ReviewState, TaskVersion
+from aijudge_core import Course, ReviewState, SimilarityReference, Task, TaskVersion
 from aijudge_core.ids import CourseId, UserId
 from aijudge_course_admin.authoring import save_task
 from aijudge_course_admin.errors import AdminError
@@ -205,6 +205,10 @@ def _copy_tasks(
                     # 実行時間の上限は**写す**（#491）。問題そのものの性質で、
                     # 日程と違って学期が変わっても同じ。
                     case_timeout_seconds=task.case_timeout_seconds,
+                    # 類似で比べる相手も写す。**このコースの課題を指していたもの
+                    # （`course` の無いもの）は元のコースを指すように直す** ── 写した先の
+                    # 同じ課題を指すと、自分の課題と比べることになる。
+                    similarity_references=_references_from(task, source),
                 )
             )
 
@@ -222,6 +226,16 @@ def _copy_tasks(
 
     copied_images = _copy_images(artifact_store, source.id, target.id, sorted(image_names))
     return len(specs), copied_images, skipped
+
+
+def _references_from(task: Task, source: Course) -> tuple[SimilarityReference, ...]:
+    """写す課題の比べる相手。**このコースの課題（`course` 無し）は元のコースに固定する。**"""
+    return tuple(
+        reference.model_copy(update={"course": source.code, "term": source.term})
+        if reference.task is not None and reference.course is None
+        else reference
+        for reference in task.similarity_references
+    )
 
 
 def _kc_keys(uow: UnitOfWork, version: TaskVersion) -> tuple[tuple[str, ...], bool]:

@@ -294,6 +294,8 @@ def _common_fields(
     }
     if task.accepted_suffixes:
         raw["accepted_suffixes"] = tuple(task.accepted_suffixes)
+    if task.similarity_references:
+        raw["similarity_references"] = task.similarity_references
     if version.subject_profile != course.subject_profile:
         # 課題が自分のプロファイルを持つ場合だけ書く（#195）。既定と同じ値を
         # 書くと、コースのプロファイルを変えたときに課題側が古い値で残る。

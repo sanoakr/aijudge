@@ -62,7 +62,13 @@ _TASK_ALWAYS = ("title", "unit", "session")
 # 位置も、書かなければいまの位置を残す（#484）── 位置を書かない定義（network の
 # ように問題ディレクトリ名から位置が決まらないもの）を「位置が空」と読むと、
 # 位置を埋めた DB と毎回食い違う（実際に同期の初回判定が止まった・2026-09-27）。
-_TASK_IF_WRITTEN = ("position", "accepted_suffixes", "case_timeout_seconds", *UNIT_SCHEDULE_KEYS)
+_TASK_IF_WRITTEN = (
+    "position",
+    "accepted_suffixes",
+    "case_timeout_seconds",
+    "similarity_references",
+    *UNIT_SCHEDULE_KEYS,
+)
 # 問題セットの値（`course_definition._UNIT_SETTING_KEYS` と同じ並び）。
 _UNIT_SETTINGS = (
     "answer_mode",
@@ -125,6 +131,7 @@ def _file_task_values(
         "position": spec.position,
         "accepted_suffixes": normalize_suffixes(spec.accepted_suffixes),
         "case_timeout_seconds": spec.case_timeout_seconds,
+        "similarity_references": spec.similarity_references,
     } | {name: getattr(spec, name) for name in UNIT_SCHEDULE_KEYS}
     for name, value in written.items():
         if value:

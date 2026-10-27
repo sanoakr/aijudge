@@ -205,7 +205,13 @@ def test_revising_a_campus_only_task_keeps_the_restriction(world) -> None:
 # 「作り直しで引き継ぐか」を決めさせるため。決めずに足すと、既定値に戻る
 # （`withdrawn`・`campus_only` で実際にそうなった）。
 FROM_THE_SPEC = {"id", "course_id", "title", "unit", "session", "position"}
-FROM_THE_SPEC_OR_KEPT = {"opens_at", "due_at", "accepted_suffixes", "case_timeout_seconds"}
+FROM_THE_SPEC_OR_KEPT = {
+    "opens_at",
+    "due_at",
+    "accepted_suffixes",
+    "case_timeout_seconds",
+    "similarity_references",
+}
 KEPT = {
     "submissions_open_at",
     "grading_starts_at",

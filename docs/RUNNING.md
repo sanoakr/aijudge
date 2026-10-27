@@ -1304,6 +1304,20 @@ digest で固定したイメージのまま、提出物と同じ sandbox（gViso
 
 モデルを替えたら、`run.json` の `image` が変わるので全課題が測り直される。
 
+**過年度のレポートの束（#653・ADR 0029 §8）。** 課題の `similarity_references` に `{archive: <名前>}` と
+書いた束を、年度ごとのフォルダから取り込む（下の階層も読む。PDF・docx・Markdown・LaTeX）:
+
+```sh
+aijudge-admin similarity archive import --name network-2025-report1 \
+  --label "2025 年度 ネットワーク レポート 1" --dir /path/to/2025/report1
+aijudge-admin similarity archive list
+aijudge-admin similarity archive delete --name network-2025-report1
+```
+
+置かれるのは `AIJUDGE_SIMILARITY_DIR/archives/<名前>/` の、取り出した本文だけである（PDF は
+置かない）。**バックアップしない。** 文字が埋め込まれていない PDF は取り込めず、その旨を表示する。
+入れ直すときは先に `delete` する。
+
 **運用機で 1 度だけ手で行う作業**は次のとおりである（どれもリポジトリの外のファイルを扱う）。
 
 1. **報告の置き場所。** `aijudge.env` に `AIJUDGE_SIMILARITY_DIR=/work/aijudge/similarity` を

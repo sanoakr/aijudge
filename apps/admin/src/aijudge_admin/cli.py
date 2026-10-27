@@ -26,7 +26,13 @@ from pathlib import Path
 from aijudge_audit import AuditAction, AuditRecorder
 from aijudge_core import DIVISIONS, Role
 from aijudge_core.ids import CourseId, TaskId, TenantId
-from aijudge_course_admin import code_similarity, content_similarity, groups
+from aijudge_course_admin import (
+    code_similarity,
+    content_similarity,
+    groups,
+    reference_similarity,
+    similarity_archive,
+)
 from aijudge_course_admin.activity_purge import plan_activity_purge, purge_activity
 from aijudge_course_admin.course_definition import apply_course_definition
 from aijudge_course_admin.course_export import DiffState, diff_course, export_course
@@ -587,6 +593,20 @@ def cmd_similarity_run(args: argparse.Namespace) -> int:
                     )
                 else:
                     print(code_similarity.run_payload(run))
+            else:
+                # 指定した相手（他の課題・過年度の束）とも比べる（#653）。
+                for mode in reference_similarity.REFERENCE_MODES:
+                    run = reference_similarity.run_references(
+                        database,
+                        task_id,
+                        artifact_store=_artifact_store(args),
+                        root=args.similarity_dir,
+                        mode=mode,
+                        content=content,
+                        force=True,
+                    )
+                    if run is not None:
+                        print(code_similarity.run_payload(run))
         if waiting:
             return 1
     except LookupError as exc:
@@ -594,6 +614,39 @@ def cmd_similarity_run(args: argparse.Namespace) -> int:
         return 2
     finally:
         database.dispose()
+    return 0
+
+
+def cmd_similarity_archive(args: argparse.Namespace) -> int:
+    """過年度のレポートの束を取り込む・一覧する・消す（#653）。
+
+    取り込むのは取り出した本文だけ（PDF そのものは置かない）。画面には束のラベルと文書の
+    番号しか出ない。消すと、それと比べた報告も次の周回で消える。
+    """
+    if args.similarity_dir is None:
+        print(
+            f"{code_similarity.ENV_SIMILARITY_DIR}（--similarity-dir）がありません",
+            file=sys.stderr,
+        )
+        return 2
+    root = args.similarity_dir
+    try:
+        if args.archive_command == "import":
+            manifest = similarity_archive.import_archive(
+                root, name=args.name, label=args.label, source=args.dir
+            )
+            print(similarity_archive.manifest_json(manifest))
+            for skipped in manifest.skipped:
+                print(f"本文を取り出せませんでした: {skipped}", file=sys.stderr)
+        elif args.archive_command == "list":
+            for manifest in similarity_archive.list_archives(root):
+                print(similarity_archive.manifest_json(manifest))
+        elif not similarity_archive.delete_archive(root, args.name):
+            print(f"束 {args.name!r} はありません", file=sys.stderr)
+            return 2
+    except similarity_archive.ArchiveError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
     return 0
 
 
@@ -1418,6 +1471,28 @@ def build_parser() -> argparse.ArgumentParser:
         help="報告の置き場所（review の AIJUDGE_SIMILARITY_DIR と同じ場所）",
     )
     sim_run.set_defaults(func=cmd_similarity_run)
+    sim_archive = similarity.add_parser(
+        "archive", help="過年度のレポートの束（比べる相手・#653）"
+    ).add_subparsers(dest="archive_command", required=True)
+    archive_import = sim_archive.add_parser("import", help="フォルダの PDF・docx などを取り込む")
+    archive_import.add_argument(
+        "--name", required=True, help="束の名前（例: network-2025-report1）"
+    )
+    archive_import.add_argument(
+        "--label", required=True, help="画面に出る出どころ（例: 2025 年度 ネットワーク レポート 1）"
+    )
+    archive_import.add_argument("--dir", type=Path, required=True, help="取り込むフォルダ")
+    sim_archive.add_parser("list", help="取り込んだ束の一覧")
+    archive_delete = sim_archive.add_parser("delete", help="束を消す（比べた報告も消える）")
+    archive_delete.add_argument("--name", required=True)
+    for archive_parser in sim_archive.choices.values():
+        archive_parser.add_argument(
+            "--similarity-dir",
+            type=Path,
+            default=code_similarity.similarity_root(),
+            help="報告の置き場所（AIJUDGE_SIMILARITY_DIR）",
+        )
+        archive_parser.set_defaults(func=cmd_similarity_archive)
     sim_viewer = similarity.add_parser(
         "install-viewer",
         help="Dolos の画面（静的ファイル）を検査と同じイメージから取り出して置く",
