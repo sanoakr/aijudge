@@ -179,17 +179,9 @@ details.sim-unit > summary::-webkit-details-marker{display:none}
 details.sim-unit > summary::before{content:"▸";color:var(--muted);margin-right:2px}
 details.sim-unit[open] > summary::before{content:"▾"}
 details.sim-unit > summary h2{margin:0}
-/* 比べ方のタブと、その説明。**画面で一番大事な選択なので目立たせる**（2026-10-28）──
-   ふつうのタブの大きさでは、切り替えられることに気づかれなかった。説明はタブと地続きの
-   帯にして、どの比べ方の結果を見ているかを常に示す。 */
-nav.tabs.sim-modes{margin:16px 0 0;border-bottom-color:var(--ai)}
-nav.tabs.sim-modes a{padding:10px 22px;font-size:1rem;font-weight:600;color:var(--ink-2)}
-nav.tabs.sim-modes a[aria-current]{color:var(--ai);border-color:var(--ai);border-top-width:3px;
-  border-bottom:2px solid var(--ai-soft);background:var(--ai-soft)}
-.sim-mode-note{margin:0 0 18px;padding:10px 14px;
-  border:1px solid var(--ai);border-top:0;border-radius:0 0 4px 4px;font-size:.92rem;color:var(--ink)}
-.sim-mode-note strong{color:var(--ai)}
-@media (max-width:560px){nav.tabs.sim-modes a{padding:8px 10px;font-size:.88rem}}
+/* 比べ方の説明。タブはほかの画面と同じ（`nav.tabs`）で、説明はその直下に 1 行だけ。 */
+.sim-mode-note{margin:-8px 0 18px;font-size:.92rem;color:var(--ink-2)}
+.sim-mode-note strong{color:var(--ink)}
 /* 内容としての根拠の段落。2 人の段落を上下に並べて読み比べる。 */
 details.passages{margin:8px 0}
 details.passages > summary{cursor:pointer;font-size:.85rem;color:var(--ink-2)}
