@@ -9,7 +9,13 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Protocol, runtime_checkable
 
-from aijudge_core import KnowledgeComponent, SkillObservation, SkillPoint, SkillState
+from aijudge_core import (
+    KnowledgeComponent,
+    MasteryScope,
+    SkillObservation,
+    SkillPoint,
+    SkillState,
+)
 from aijudge_core.ids import KcId, TenantId, UserId
 
 
@@ -65,11 +71,12 @@ class SkillRepository(Protocol):
         *,
         kc_ids: tuple[KcId, ...] = (),
         since: datetime | None = None,
+        scope: MasteryScope = MasteryScope.ALL,
     ) -> tuple[SkillPoint, ...]:
         """記録された推移。古い順。
 
         `kc_ids` が空なら KC で絞らない。`learner_ids` は空なら空を返す
-        （`list_states_for` と同じ作法）。
+        （`list_states_for` と同じ作法）。`scope` の点だけを返す（ADR 0032）。
         """
         ...
 
@@ -158,6 +165,7 @@ class InMemorySkillRepository:
         *,
         kc_ids: tuple[KcId, ...] = (),
         since: datetime | None = None,
+        scope: MasteryScope = MasteryScope.ALL,
     ) -> tuple[SkillPoint, ...]:
         wanted = {str(learner_id) for learner_id in learner_ids}
         if not wanted:
@@ -170,6 +178,7 @@ class InMemorySkillRepository:
             and str(point.learner_id) in wanted
             and (not kcs or str(point.kc_id) in kcs)
             and (since is None or point.recorded_at >= since)
+            and point.scope is scope
         ]
         # 古い順。同着は観測数で解く（同じ日に何度も動くため）。
         found.sort(key=lambda point: (point.recorded_at, point.observation_count))

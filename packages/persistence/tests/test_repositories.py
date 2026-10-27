@@ -1595,3 +1595,34 @@ def test_an_observation_is_kept_once_per_task(skill_repo) -> None:
     assert set(by_task) == {"a", "e"}
     assert by_task["a"].score_ratio == 1.0
     assert by_task["e"].exam is True
+
+
+def test_history_is_read_per_scope(skill_repo) -> None:
+    """推移は範囲（演習だけ・試験だけ・両方）ごとに読む（ADR 0032）。"""
+    from datetime import UTC, datetime
+
+    from aijudge_core import MasteryModel, MasteryScope, SkillPoint
+    from aijudge_core.ids import KcId, TenantId, UserId
+
+    tenant, learner = TenantId("ten_" + "0" * 32), UserId("usr_" + "1" * 32)
+    at = datetime(2026, 10, 28, 9, 0, tzinfo=UTC)
+    with skill_repo() as uow:
+        for scope, mastery in ((MasteryScope.ALL, 0.5), (MasteryScope.EXAM, 0.7)):
+            uow.skills.append_point(
+                SkillPoint(
+                    tenant_id=tenant,
+                    learner_id=learner,
+                    kc_id=KcId("kc_" + "2" * 32),
+                    mastery=mastery,
+                    observation_count=1,
+                    model=MasteryModel.BKT,
+                    scope=scope,
+                    recorded_at=at,
+                )
+            )
+        uow.commit()
+    with skill_repo() as uow:
+        assert [p.mastery for p in uow.skills.history(tenant, (learner,))] == [0.5]
+        exam = uow.skills.history(tenant, (learner,), scope=MasteryScope.EXAM)
+        assert [(p.mastery, p.scope) for p in exam] == [(0.7, MasteryScope.EXAM)]
+        assert uow.skills.history(tenant, (learner,), scope=MasteryScope.PRACTICE) == ()
