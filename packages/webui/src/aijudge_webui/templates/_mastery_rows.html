@@ -30,6 +30,15 @@
       <span class="desc">観測 {{ row.observation_count }} 回</span>
     </span>
   </div>
+  {# 演習と試験を合わせた値の隣に、演習のみ・試験のみを小さく出す（ADR 0032）。
+     切り替えずに差が読める ──「演習ではできているが試験ではできていない」。 #}
+  {% if row.scope == 'all' %}
+  <p class="desc kcrow-split">
+    演習のみ {% if row.practice_mastery is none %}記録なし{% else %}{{ '%.0f' | format(row.practice_mastery * 100) }}%{% endif %}
+    <span class="sep">·</span>
+    試験のみ {% if row.exam_mastery is none %}記録なし{% else %}{{ '%.0f' | format(row.exam_mastery * 100) }}%{% endif %}
+  </p>
+  {% endif %}
 
   {# 2 本の帯。**同じ物差し（0〜100%）で重ねる** ── 縦に並べると、知識要素
      をまたいで長さを見比べられる。 #}

@@ -20,6 +20,8 @@
   <a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/kc">知識要素</a>
 </div>
 
+{% include "_mastery_scope.html" %}
+
 {% if not view.measured %}
 <div class="note warn">
   <strong>まだ記録がありません。</strong>
@@ -51,18 +53,33 @@
 <div class="card">
   {# **縦軸は 0–100% で固定**（`mastery.polyline`）。データに合わせて詰めると、
      0.62 から 0.64 への動きが画面いっぱいの上昇に見える。 #}
-  <svg viewBox="0 0 {{ chart.width }} {{ chart.height }}" width="100%" height="{{ chart.height }}"
-       role="img" aria-label="習熟度の平均の推移" style="overflow:visible">
-    {% for ratio in [0.0, 0.5, 1.0] %}
-    <line x1="0" x2="{{ chart.width }}"
-          y1="{{ chart.height - ratio * chart.height }}" y2="{{ chart.height - ratio * chart.height }}"
-          stroke="var(--line-soft)" stroke-width="1"></line>
-    {% endfor %}
-    <polyline points="{{ line }}" fill="none" stroke="var(--ai)" stroke-width="2"
-              stroke-linejoin="round" stroke-linecap="round"></polyline>
+  {# **軸に目盛りを付ける。** 縦は 0〜100% の 25% 刻み、横は日付（両端と間引いた途中）。
+     図の外側に余白を取り、目盛りの文字はその余白に置く。線の座標はサーバが作る
+     （`mastery.polyline` / `mastery.x_ticks`）ので、ここでは平行移動するだけ。 #}
+  {% set pad_left, pad_top, pad_bottom = 44, 8, 24 %}
+  <svg viewBox="0 0 {{ chart.width + pad_left + 12 }} {{ chart.height + pad_top + pad_bottom }}"
+       width="100%" height="{{ chart.height + pad_top + pad_bottom }}"
+       role="img" aria-label="習熟度の平均の推移（縦軸 0〜100%、横軸 日付）">
+    <g transform="translate({{ pad_left }},{{ pad_top }})" font-size="11" fill="var(--ink-2)">
+      {% for ratio in y_ticks %}
+      {% set y = chart.height - ratio * chart.height %}
+      <line x1="0" x2="{{ chart.width }}" y1="{{ y }}" y2="{{ y }}"
+            stroke="var(--line-soft)" stroke-width="1"></line>
+      <text x="-6" y="{{ y }}" text-anchor="end" dominant-baseline="middle">{{ '%.0f' | format(ratio * 100) }}%</text>
+      {% endfor %}
+      <line x1="0" x2="0" y1="0" y2="{{ chart.height }}" stroke="var(--line)" stroke-width="1"></line>
+      {% for x, label in x_ticks %}
+      <line x1="{{ x }}" x2="{{ x }}" y1="{{ chart.height }}" y2="{{ chart.height + 4 }}"
+            stroke="var(--line)" stroke-width="1"></line>
+      <text x="{{ x }}" y="{{ chart.height + 16 }}"
+            text-anchor="{{ 'start' if loop.first and not loop.last else ('end' if loop.last and not loop.first else 'middle') }}">{{ label }}</text>
+      {% endfor %}
+      <polyline points="{{ line }}" fill="none" stroke="var(--ai)" stroke-width="2"
+                stroke-linejoin="round" stroke-linecap="round"></polyline>
+    </g>
   </svg>
   <p class="desc" style="margin:10px 0 0">
-    縦は 0〜100%。各日の値は<strong>その日時点の平均</strong>です
+    縦は習熟度（0〜100%）、横は日付。各日の値は<strong>その日時点の平均</strong>です
     （その日に採点された人だけの平均ではありません）。
     {% if view.trend %}
     <br>

@@ -44,6 +44,7 @@ from aijudge_core import (
     CampusAccess,
     Course,
     GradingPhase,
+    MasteryScope,
     ReviewRequest,
     Role,
     Submission,
@@ -84,7 +85,7 @@ from aijudge_identity import (
 )
 from aijudge_identity.origin_check import SameOriginMiddleware
 from aijudge_persistence import Database
-from aijudge_skill.portfolio import split_evidence
+from aijudge_skill.portfolio import SCOPE_LABELS, parse_scope, split_evidence
 from aijudge_submission import (
     ArtifactStore,
     FilesystemUploadSessions,
@@ -644,7 +645,7 @@ def create_app(app_state: StudentApp) -> FastAPI:
         )
 
     @app.get("/courses/{course_id}/mastery", response_class=HTMLResponse)
-    def my_mastery(request: Request, course_id: str, me: Me) -> HTMLResponse:
+    def my_mastery(request: Request, course_id: str, me: Me, scope: str = "") -> HTMLResponse:
         """自分の知識要素ごとの習熟度（#335）。
 
         **教員が受講者 1 人を見る画面と同じものを描く**（`_mastery_rows.html`）
@@ -656,7 +657,8 @@ def create_app(app_state: StudentApp) -> FastAPI:
         出すと、学習者は確定した評価として読む。
         """
         course_obj, _tasks = _course_and_tasks(app_state, me, CourseId(course_id))
-        rows = my_mastery_rows(app_state, me, course_obj)
+        chosen = parse_scope(scope)
+        rows = my_mastery_rows(app_state, me, course_obj, scope=chosen)
         return TEMPLATES.TemplateResponse(
             request,
             "mastery.html",
@@ -664,6 +666,9 @@ def create_app(app_state: StudentApp) -> FastAPI:
                 "me": me,
                 "course": course_obj,
                 "rows": rows,
+                # 演習のみ・試験のみ・両方（ADR 0032）。教員の画面と同じ語で切り替える。
+                "scope": chosen,
+                "scopes": SCOPE_LABELS,
                 "evidence_of": True,
                 **build_context(course_obj),
             },
@@ -1761,7 +1766,9 @@ def _tenant(raw: str):
 DEFAULT_TENANT = "ten_" + "0" * 32
 
 
-def my_mastery_rows(app_state: StudentApp, me, course) -> tuple:
+def my_mastery_rows(
+    app_state: StudentApp, me, course, *, scope: MasteryScope = MasteryScope.ALL
+) -> tuple:
     """この学習者の、このコースが使う知識要素ぶんの習熟度（#335）。
 
     **根拠はこのコースの提出だけを開く。** 習熟度はコースをまたいで積み
@@ -1769,12 +1776,12 @@ def my_mastery_rows(app_state: StudentApp, me, course) -> tuple:
     ここに出すのは、その科目の成績に近い情報を出すことになる。教員の画面と
     同じ規則である（`mastery.split_evidence`）。
     """
-    scope = set(course.knowledge_components)
+    in_course = set(course.knowledge_components)
     with app_state.database.unit_of_work() as uow:
         labels = {}
         for kc_id in {state.kc_id for state in uow.skills.list_states(me.tenant_id, me.user_id)}:
             kc = uow.skills.get_kc(kc_id)
-            if kc is not None and kc.key in scope:
+            if kc is not None and kc.key in in_course:
                 labels[str(kc_id)] = (kc.key, kc.label)
         states = [
             state
@@ -1783,7 +1790,7 @@ def my_mastery_rows(app_state: StudentApp, me, course) -> tuple:
         ]
         course_of, title_of = _evidence_origins(uow, states)
 
-    rows = [
+    split = [
         split_evidence(
             state,
             course_of=course_of,
@@ -1791,9 +1798,12 @@ def my_mastery_rows(app_state: StudentApp, me, course) -> tuple:
             course_id=str(course.id),
             key=labels[str(state.kc_id)][0],
             label=labels[str(state.kc_id)][1],
+            scope=scope,
         )
         for state in states
     ]
+    # その範囲の観測が無い知識要素は並べない（ADR 0032）。
+    rows = [row for row in split if row is not None]
     rows.sort(key=lambda row: row.label)
     return tuple(rows)
 

@@ -697,3 +697,12 @@ button.minor:hover{filter:none;background:var(--surface-2);border-color:var(--in
 .upload-list{margin:8px 0 0;padding-left:1.4em}
 .upload-list li{display:flex;gap:10px;align-items:center;margin:4px 0}
 .upload-list li .mono{flex:1 1 auto;word-break:break-all}
+/* 習熟度の範囲の切り替え（演習と試験・演習のみ・試験のみ・ADR 0032）。学生と教員の両方の画面に出すので
+   base に置く。見た目はコンソールのタブ（`nav.tabs`）に揃える。 */
+nav.scopes{display:flex;flex-wrap:wrap;gap:2px;border-bottom:2px solid var(--line);margin:0 0 14px}
+nav.scopes a{padding:8px 16px;font-size:.9rem;color:var(--ink-2);text-decoration:none;
+  border:1px solid transparent;border-bottom:0;border-radius:4px 4px 0 0;margin-bottom:-2px}
+nav.scopes a:hover{background:var(--surface-2)}
+nav.scopes a[aria-current]{background:var(--surface);border-color:var(--line);color:var(--ink);font-weight:600;
+  border-bottom:2px solid var(--surface)}
+.kcrow-split{font-size:.85rem}
