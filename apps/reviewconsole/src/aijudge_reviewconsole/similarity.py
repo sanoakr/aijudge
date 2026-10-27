@@ -8,7 +8,7 @@
 
 - 入口（`/courses/{id}/similarity`）: 問題セット・課題ごとの回、上位の組、仮の名前と
   学習者の対応。`run.json` と `pairs.csv` だけで作る（DB に表は無い）。**比べ方を
-  切り替える**（`?mode=code|text`・#569）。組の表には同じ組のもう一方の類似度も並べる
+  切り替える**（`?mode=code|text|content`・#569）。組の表には同じ組のほかの比べ方の値も並べる
   ── コードは違うのにテキストが高い組（説明文の写し）、コードが同じでテキストが下がる組
   （コメントの書き換え）は、片方だけ見ても分からない
 - Dolos の画面（`/courses/{id}/similarity/{課題}/{回}/`）: Dolos の web（静的ファイル）を
@@ -23,6 +23,7 @@ Dolos の画面には **CSP で外への通信を塞ぐ**。配布物は Google 
 from __future__ import annotations
 
 import csv
+import json
 import mimetypes
 import os
 from functools import lru_cache
@@ -59,9 +60,17 @@ TOP_PAIRS = 5
 #: 回し直した報告は読み直す。
 PAIRS_CACHE = 128
 
-MODE_LABELS = {SimilarityMode.CODE: "コードとして", SimilarityMode.TEXT: "テキストとして"}
+MODE_LABELS = {
+    SimilarityMode.CODE: "コードとして",
+    SimilarityMode.TEXT: "テキストとして",
+    SimilarityMode.CONTENT: "内容として",
+}
 #: 表の列名と「〜だけ」の札に使う短い名前。
-MODE_SHORT = {SimilarityMode.CODE: "コード", SimilarityMode.TEXT: "テキスト"}
+MODE_SHORT = {
+    SimilarityMode.CODE: "コード",
+    SimilarityMode.TEXT: "テキスト",
+    SimilarityMode.CONTENT: "内容",
+}
 
 #: Dolos の画面に付ける CSP。**外への通信を全部止める**（配布物は Google Fonts を
 #: 読みに行く）。Monaco の差分とワーカーのために `blob:` を許す。手元の Chromium で、
@@ -99,6 +108,7 @@ REASON_LABELS = {
     "mixed_languages": "言語が混ざっている",
     "sandbox_unavailable": "実行環境が使えなかった（次の周回で回し直します）",
     "tool_failed": "検査が失敗した（次の周回で回し直します）",
+    "embedding_unavailable": "埋め込みのモデルが使えなかった（次の周回で回し直します）",
 }
 
 
@@ -146,6 +156,18 @@ def top_pairs(run: SimilarityRun, root: Path, limit: int = TOP_PAIRS) -> list[di
         {"left": left, "right": right, "similarity": similarity, "longest": longest}
         for left, right, similarity, longest in _pairs(run, root)[:limit]
     ]
+
+
+def passages(run: SimilarityRun, root: Path) -> dict[str, list[dict[str, Any]]]:
+    """内容としての根拠の段落（`"S-001|S-002"` → 段落の組）。無ければ空。"""
+    from aijudge_course_admin.content_similarity import PASSAGES_FILE
+
+    try:
+        raw = (run_dir(root, run) / DATA_DIR / PASSAGES_FILE).read_text(encoding="utf-8")
+        loaded = json.loads(raw)
+    except (OSError, ValueError):
+        return {}
+    return loaded if isinstance(loaded, dict) else {}
 
 
 def similarity_by_submissions(run: SimilarityRun, root: Path) -> dict[frozenset[str], float]:
@@ -196,6 +218,9 @@ def register(templates: Jinja2Templates) -> APIRouter:
         run = read_run(target)
         if run is None or not run.measured or str(run.course_id) != str(course_id):
             raise HTTPException(status_code=404, detail="報告が見つかりません")
+        if run.mode is SimilarityMode.CONTENT:
+            # 内容としての回は Dolos の報告ではない（根拠の段落は入口に出す）。
+            raise HTTPException(status_code=404, detail="報告が見つかりません")
         return root, run
 
     @router.get("/courses/{course_id}/similarity", response_class=HTMLResponse)
@@ -216,9 +241,8 @@ def register(templates: Jinja2Templates) -> APIRouter:
                 both = by_task[task_id]
                 # 選んだ比べ方の回が無い課題（Markdown はテキストだけ）は、ある方を出す。
                 # 切り替えた途端にカードが消えると、調べていないように見える。
-                run = both.get(chosen) or next(iter(both.values()))
-                other_mode = next(m for m in SimilarityMode if m is not run.mode)
-                other = both.get(other_mode)
+                run = both.get(chosen) or next(both[m] for m in SimilarityMode if m in both)
+                others = [both[m] for m in SimilarityMode if m in both and m is not run.mode]
                 people: dict[str, tuple[str, str]] = {}
                 ids: dict[str, str] = {}
                 for item in run.submissions:
@@ -230,16 +254,25 @@ def register(templates: Jinja2Templates) -> APIRouter:
                     )
                     ids[item.pseudonym] = str(item.submission_id)
                 pairs = top_pairs(run, root) if run.measured and root is not None else []
-                if other is not None and other.measured and root is not None:
-                    table = similarity_by_submissions(other, root)
-                    for pair in pairs:
-                        key = frozenset((ids.get(pair["left"], ""), ids.get(pair["right"], "")))
-                        pair["other"] = table.get(key)
+                tables = {
+                    other.mode: similarity_by_submissions(other, root)
+                    for other in others
+                    if other.measured and root is not None
+                }
+                evidence = (
+                    passages(run, root)
+                    if run.mode is SimilarityMode.CONTENT and root is not None
+                    else {}
+                )
+                for pair in pairs:
+                    key = frozenset((ids.get(pair["left"], ""), ids.get(pair["right"], "")))
+                    pair["others"] = {mode: table.get(key) for mode, table in tables.items()}
+                    pair["passages"] = evidence.get(f"{pair['left']}|{pair['right']}", [])
                 units.setdefault(run.unit or "未分類", []).append(
                     {
                         "run": run,
                         "only": None if run.mode is chosen else run.mode,
-                        "other_mode": other_mode,
+                        "other_modes": [other.mode for other in others],
                         "people": people,
                         "pairs": pairs,
                         "reason": REASON_LABELS.get(

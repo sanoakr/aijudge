@@ -179,6 +179,11 @@ details.sim-unit > summary::-webkit-details-marker{display:none}
 details.sim-unit > summary::before{content:"▸";color:var(--muted);margin-right:2px}
 details.sim-unit[open] > summary::before{content:"▾"}
 details.sim-unit > summary h2{margin:0}
+/* 内容としての根拠の段落。2 人の段落を上下に並べて読み比べる。 */
+details.passages{margin:8px 0}
+details.passages > summary{cursor:pointer;font-size:.85rem;color:var(--ink-2)}
+.passage-pair{border-left:3px solid var(--line);padding:4px 0 4px 10px;margin:8px 0}
+.passage-pair blockquote{margin:4px 0;font-size:.85rem;white-space:pre-wrap}
 /* 描画した Markdown。見出しが本文より小さくならない程度に抑える
    （シラバスは節が多く、既定の h1/h2 では画面が見出しで埋まる）。 */
 .markdown{font-size:.9rem;line-height:1.75;border-left:2px solid var(--line-soft);

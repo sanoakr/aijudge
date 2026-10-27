@@ -1293,6 +1293,17 @@ digest で固定したイメージのまま、提出物と同じ sandbox（gViso
 課題ごとに**コードとして**と**テキストとして**（コメントも含めて文字で比べる）の 2 回を回す
 （ADR 0029 §6）。v1.62.0 に上げた直後の最初の周回で、締切を過ぎた全課題のテキストの回がまとめて走る。
 
+**内容として（埋め込み・ADR 0029 §7）は、モデルを設定したときだけ回る。** 手順:
+
+1. 主系（PAIR の**全ノード**）と従系（slab-llm）に、**同じ**埋め込みモデルを入れる
+   （`ollama pull qwen3-embedding:4b`）。digest がそろっているかを `ollama list` で確かめる ──
+   違うモデルの値は比べられず、PAIR がノードごとに振り分けると結果が混ざる
+2. `aijudge.env` に `AIJUDGE_SIMILARITY_EMBEDDING_MODEL=qwen3-embedding:4b` を追加する
+3. 次の周回で、締切を過ぎた文書の課題（Markdown・LaTeX・PDF・docx）がまとめて測られる。
+   モデルが応答しなければ「埋め込みのモデルが使えなかった」と残し、次の周回で回し直す
+
+モデルを替えたら、`run.json` の `image` が変わるので全課題が測り直される。
+
 **運用機で 1 度だけ手で行う作業**は次のとおりである（どれもリポジトリの外のファイルを扱う）。
 
 1. **報告の置き場所。** `aijudge.env` に `AIJUDGE_SIMILARITY_DIR=/work/aijudge/similarity` を

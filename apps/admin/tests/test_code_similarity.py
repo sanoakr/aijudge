@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import contextlib
 import csv
+import json
 import os
 import shutil
 from collections.abc import Iterator
@@ -30,6 +31,7 @@ from aijudge_core.ids import ArtifactId, SubmissionId, TenantId, UserId
 from aijudge_course_admin import code_similarity
 from aijudge_course_admin.code_similarity import (
     DOLOS_IMAGE,
+    DOLOS_MODES,
     REPORT_FILES,
     TEXT_PARAMS,
     NotMeasuredReason,
@@ -514,7 +516,7 @@ def test_the_cli_runs_every_task_of_a_unit(
 
     called: list[tuple[str, bool]] = []
 
-    def record(database, task_id, *, artifact_store, root, force, mode):
+    def record(database, task_id, *, artifact_store, root, force, mode, content):
         called.append((str(task_id), force, mode))
         return None
 
@@ -558,7 +560,7 @@ def test_only_tasks_past_the_close_are_run(database, store, task, root, fake) ->
 
     later = code_similarity.sweep(database, now=CLOSE + timedelta(hours=1), **kwargs)
     assert [t.id for t in later.due] == [task.id]
-    assert [run.mode for run in later.ran] == list(SimilarityMode), "コードとテキストの両方"
+    assert [run.mode for run in later.ran] == list(DOLOS_MODES), "コードとテキストの両方"
 
     # **何度走らせても同じ結果になる。** 入力が同じなら回さない。
     again = code_similarity.sweep(database, now=CLOSE + timedelta(hours=2), **kwargs)
@@ -656,3 +658,160 @@ def test_it_waits_until_grading_is_done(database, store, task, root, fake) -> No
         uow.commit()
     done = code_similarity.sweep(database, now=CLOSE + timedelta(hours=3), **kwargs)
     assert len(done.ran) == 2 and done.grading == []
+
+
+# --------------------------------------------------------------------------
+# 内容として（埋め込み・content_similarity）
+# --------------------------------------------------------------------------
+
+ABOUT_TCP = "TCP の接続は SYN、SYN/ACK、ACK の 3 回のやり取りで確立されることを観察した。" * 3
+SAID_AGAIN = "観察の結果、TCP では 3 つのパケットを交換してから接続が張られると分かった。" * 3
+ABOUT_DNS = "DNS の応答は TTL の間キャッシュされ、2 回目の問い合わせは速かった。" * 3
+
+
+@dataclass
+class FakeGateway:
+    """言い換えも同じ向きになる埋め込み（本物のモデルの代わり）。送られた文と種別を覚える。"""
+
+    fail: bool = False
+    seen: list[tuple[tuple[str, ...], object]] = field(default_factory=list)
+
+    def embed(self, texts, *, model, data_class, timeout_seconds):
+        from aijudge_llm_gateway import LlmError
+
+        self.seen.append((texts, data_class))
+        if self.fail:
+            raise LlmError("model not found")
+        return tuple((1.0, 0.0) if "TCP" in text else (0.0, 1.0) for text in texts)
+
+
+def _settings(gateway: FakeGateway):
+    from aijudge_course_admin.content_similarity import ContentSettings
+
+    return ContentSettings(gateway=gateway, model="qwen3-embedding:4b")  # type: ignore[arg-type]
+
+
+def _report(database, store, task, learner, body: str, *, kind=ArtifactKind.MARKDOWN):
+    suffix = ".md" if kind is ArtifactKind.MARKDOWN else ".pdf"
+    return submit(database, store, task, learner, body.encode(), filename=f"r{suffix}", kind=kind)
+
+
+def test_paragraphs_are_joined_and_split() -> None:
+    from aijudge_course_admin.content_similarity import (
+        MAX_PARAGRAPH_CHARS,
+        MIN_PARAGRAPH_CHARS,
+        paragraphs,
+    )
+
+    short = "## 目的\n\n" + "あ" * (MIN_PARAGRAPH_CHARS + 5)
+    assert paragraphs(short) == ["## 目的 " + "あ" * (MIN_PARAGRAPH_CHARS + 5)], (
+        "見出しは次へつなぐ"
+    )
+    # PDF から取り出した本文には空行が無い。文の切れ目で分ける。
+    long = ("い" * 99 + "。") * 20
+    parts = paragraphs(long)
+    assert len(parts) > 1 and all(len(p) <= MAX_PARAGRAPH_CHARS for p in parts)
+    assert "".join(parts) == long
+
+
+def test_content_finds_the_paraphrase(database, store, task, root, fake) -> None:
+    from aijudge_course_admin.content_similarity import PASSAGES_FILE
+    from aijudge_llm_gateway import DataClass
+
+    first = _report(database, store, task, "1", ABOUT_TCP)
+    second = _report(database, store, task, "2", SAID_AGAIN)
+    _report(database, store, task, "3", ABOUT_DNS)
+    submit(database, store, task, "4", SOURCE_A)  # コードは内容としては比べない
+    gateway = FakeGateway()
+
+    run = run_for_task(
+        database,
+        task.id,
+        artifact_store=store,
+        root=root,
+        now=AT,
+        sandbox_factory=fake,
+        mode=SimilarityMode.CONTENT,
+        content=_settings(gateway),
+    )
+
+    assert run is not None and run.measured and run.mode is SimilarityMode.CONTENT
+    assert run.image == "embedding:qwen3-embedding:4b" and run.unit_of_length == "段落"
+    assert len(run.submissions) == 3 and fake.argv == [], "Dolos は呼ばない"
+    # **学習者の文は PERSONAL で送る**（P7。手元のモデルにしか行かない）。
+    assert {data_class for _texts, data_class in gateway.seen} == {DataClass.PERSONAL}
+    rows = list(csv.DictReader((run_dir(root, run) / "data" / "pairs.csv").open()))
+    top = rows[0]
+    names = {s.submission_id: s.pseudonym for s in run.submissions}
+    assert {top["leftFilePath"], top["rightFilePath"]} == {
+        f"{names[first]}.txt",
+        f"{names[second]}.txt",
+    }
+    assert float(top["similarity"]) > 0.99 and int(top["longestFragment"]) == 1
+    assert run.baseline == 0.0, "3 組のうち 2 組は無関係（中央値）"
+    evidence = json.loads((run_dir(root, run) / "data" / PASSAGES_FILE).read_text("utf-8"))
+    passage = evidence[f"{names[first]}|{names[second]}"][0]
+    assert "SYN" in passage["left"] and "3 つのパケット" in passage["right"]
+
+    # 同じ入力・同じモデルなら回さない。モデルを替えたら測り直す（値が比べられない）。
+    kwargs = {"artifact_store": store, "root": root, "mode": SimilarityMode.CONTENT}
+    assert run_for_task(database, task.id, now=AT, content=_settings(gateway), **kwargs) is None
+    from aijudge_course_admin.content_similarity import ContentSettings
+
+    other = ContentSettings(gateway=gateway, model="bge-m3")  # type: ignore[arg-type]
+    assert run_for_task(database, task.id, now=AT, content=other, **kwargs) is not None
+
+
+def test_content_is_off_without_a_model(database, store, task, root, fake) -> None:
+    _report(database, store, task, "1", ABOUT_TCP)
+    _report(database, store, task, "2", SAID_AGAIN)
+    kwargs = {"artifact_store": store, "root": root, "sandbox_factory": fake}
+    assert run_for_task(database, task.id, now=AT, mode=SimilarityMode.CONTENT, **kwargs) is None
+    report = code_similarity.sweep(database, now=CLOSE + timedelta(hours=1), **kwargs)
+    assert SimilarityMode.CONTENT not in {r.mode for r in report.ran}
+
+
+def test_an_unavailable_model_is_retried(database, store, task, root) -> None:
+    _report(database, store, task, "1", ABOUT_TCP)
+    _report(database, store, task, "2", SAID_AGAIN)
+    gateway = FakeGateway(fail=True)
+    kwargs = {
+        "artifact_store": store,
+        "root": root,
+        "mode": SimilarityMode.CONTENT,
+        "content": _settings(gateway),
+    }
+    failed = run_for_task(database, task.id, now=AT, **kwargs)
+    assert failed is not None and failed.not_measured is NotMeasuredReason.EMBEDDING_UNAVAILABLE
+    gateway.fail = False
+    again = run_for_task(database, task.id, now=AT + timedelta(minutes=15), **kwargs)
+    assert again is not None and again.measured
+
+
+def test_pdfs_are_read_with_the_grading_extractor(
+    database, store, task, root, fake, monkeypatch
+) -> None:
+    """PDF は採点と同じ抽出で本文にする。読めない PDF は入れず、数を残す。"""
+    import aijudge_ext_document_text as extractor
+
+    def text_of(payload: bytes, kind):
+        if payload == b"scan":
+            raise extractor.DocumentTextError("文字が埋め込まれていません")
+        return payload.decode()
+
+    monkeypatch.setattr(extractor, "text_of", text_of)
+    _report(database, store, task, "1", ABOUT_TCP, kind=ArtifactKind.PDF)
+    _report(database, store, task, "2", SAID_AGAIN, kind=ArtifactKind.PDF)
+    _report(database, store, task, "3", "scan", kind=ArtifactKind.PDF)
+    kwargs = {"artifact_store": store, "root": root, "now": AT, "sandbox_factory": fake}
+
+    content = run_for_task(
+        database, task.id, mode=SimilarityMode.CONTENT, content=_settings(FakeGateway()), **kwargs
+    )
+    assert content is not None and len(content.submissions) == 2
+    assert "読めなかった提出 1 件" in content.detail
+    # テキストとして（Dolos）も、取り出した本文を渡す。
+    text = run_for_task(database, task.id, mode=SimilarityMode.TEXT, **kwargs)
+    assert text is not None and len(text.submissions) == 2
+    assert "SYN" in fake.seen[0]["ds/" + text.submissions[0].pseudonym + ".txt"].decode()
+    assert run_for_task(database, task.id, **kwargs) is None, "PDF はコードとしては比べない"

@@ -26,7 +26,7 @@ from pathlib import Path
 from aijudge_audit import AuditAction, AuditRecorder
 from aijudge_core import DIVISIONS, Role
 from aijudge_core.ids import CourseId, TaskId, TenantId
-from aijudge_course_admin import code_similarity, groups
+from aijudge_course_admin import code_similarity, content_similarity, groups
 from aijudge_course_admin.activity_purge import plan_activity_purge, purge_activity
 from aijudge_course_admin.course_definition import apply_course_definition
 from aijudge_course_admin.course_export import DiffState, diff_course, export_course
@@ -561,8 +561,9 @@ def cmd_similarity_run(args: argparse.Namespace) -> int:
             print("対象の課題がありません", file=sys.stderr)
             return 2
         waiting = 0
+        content = content_similarity.settings_from_env()
         for task_id in task_ids:
-            # コードとして・テキストとして、の両方を回す（#569）。
+            # コードとして・テキストとして、モデルが設定されていれば内容としても回す（#569）。
             for mode in code_similarity.SimilarityMode:
                 try:
                     run = code_similarity.run_for_task(
@@ -572,6 +573,7 @@ def cmd_similarity_run(args: argparse.Namespace) -> int:
                         root=args.similarity_dir,
                         force=args.force,
                         mode=mode,
+                        content=content,
                     )
                 except code_similarity.GradingPending as pending:
                     # 1 課題の採点待ちで、同じ問題セットの他の課題を止めない。

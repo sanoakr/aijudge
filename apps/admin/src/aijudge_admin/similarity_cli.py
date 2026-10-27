@@ -27,7 +27,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from aijudge_core.ids import CourseId
-from aijudge_course_admin import code_similarity
+from aijudge_course_admin import code_similarity, content_similarity
 from aijudge_persistence import ENV_DATABASE_URL, Database
 from aijudge_submission import FilesystemArtifactStore
 from aijudge_telemetry import configure_logging
@@ -98,6 +98,8 @@ def main(argv: list[str] | None = None) -> int:
             now=now,
             course_id=None if args.course is None else CourseId(args.course),
             dry_run=args.dry_run,
+            # 内容として（埋め込み）は、モデルが設定されたときだけ回す。
+            content=content_similarity.settings_from_env(),
         )
     finally:
         database.dispose()

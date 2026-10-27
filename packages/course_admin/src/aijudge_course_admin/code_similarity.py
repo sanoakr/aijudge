@@ -18,7 +18,10 @@
   Dolos の `-C`（コメントを含める）は、コメントを「ここにコメントがある」という 1 つの
   印として数えるだけで、**中身は比べない**（手元で確かめた: 同じ説明文を写した組も、
   まったく違う説明文の組も、類似度が変わらなかった）。コメントの写しを見るには
-  テキストとして比べるしかない。Markdown・LaTeX の提出はテキストだけで比べる
+  テキストとして比べるしかない。Markdown・LaTeX・PDF・docx の提出はテキストだけで比べる
+  （PDF・docx は採点と同じ抽出 `document_text` で本文にしてから）
+- **3 つ目は内容として**（`content_similarity`・埋め込み）。言い換えを見る。Dolos は使わない。
+  モデル（`AIJUDGE_SIMILARITY_EMBEDDING_MODEL`）が設定されたときだけ回す
 
 運用機で実測した制限（2026-09-29・gVisor）: プロセス数は 64 が要る（32 で分析が
 落ち、24 以下ではコンテナが立たない）。メモリ 512 MiB で C 300 件が通り、256 MiB
@@ -40,6 +43,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path, PurePosixPath
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -48,6 +52,9 @@ from aijudge_core.ids import CourseId, SubmissionId, TaskId
 from aijudge_sandbox import ExecRequest, Limits, Sandbox, SandboxError, build_tool_sandbox
 from aijudge_submission import ArtifactStore
 from aijudge_unit_of_work import Store, StoreUnitOfWork
+
+if TYPE_CHECKING:
+    from .content_similarity import ContentSettings
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +96,18 @@ LANGUAGE_BY_SUFFIX = {".c": "c", ".h": "c", ".py": "python"}
 
 #: テキストとして比べる成果物の種類。**本文がそのまま読めるものだけ**（PDF・docx は
 #: 抽出の層を通してからになる・ADR 0022）。コードは言語を問わない ── 文字で比べるので。
-TEXT_KINDS = frozenset({ArtifactKind.CODE, ArtifactKind.MARKDOWN, ArtifactKind.LATEX})
+TEXT_KINDS = frozenset(
+    {
+        ArtifactKind.CODE,
+        ArtifactKind.MARKDOWN,
+        ArtifactKind.LATEX,
+        ArtifactKind.PDF,
+        ArtifactKind.DOCX,
+    }
+)
+#: 内容として比べる成果物の種類。**コードは入れない** ── コードの言い換えは、コードとしての
+#: 比較（識別子の抽象化）がもう拾う。埋め込みはコードの構造を見ない。
+CONTENT_KINDS = TEXT_KINDS - {ArtifactKind.CODE}
 #: Dolos で文字単位に比べる「言語」。
 CHAR_LANGUAGE = "char"
 
@@ -127,10 +145,25 @@ class SimilarityMode(StrEnum):
 
     CODE = "code"
     TEXT = "text"
+    #: 埋め込みで内容の近さを測る（`content_similarity`）。Dolos は使わない。
+    CONTENT = "content"
 
     @property
     def params(self) -> tuple[str, ...]:
-        return DOLOS_PARAMS if self is SimilarityMode.CODE else TEXT_PARAMS
+        """Dolos に渡す引数。内容としての引数は `ContentSettings.params` が持つ。"""
+        if self is SimilarityMode.CODE:
+            return DOLOS_PARAMS
+        return TEXT_PARAMS if self is SimilarityMode.TEXT else ()
+
+    @property
+    def kinds(self) -> frozenset[ArtifactKind]:
+        if self is SimilarityMode.CODE:
+            return frozenset({ArtifactKind.CODE})
+        return TEXT_KINDS if self is SimilarityMode.TEXT else CONTENT_KINDS
+
+
+#: Dolos で回す比べ方。
+DOLOS_MODES = (SimilarityMode.CODE, SimilarityMode.TEXT)
 
 
 class GradingPending(Exception):
@@ -155,11 +188,17 @@ class NotMeasuredReason(StrEnum):
     MIXED_LANGUAGES = "mixed_languages"
     SANDBOX_UNAVAILABLE = "sandbox_unavailable"
     TOOL_FAILED = "tool_failed"
+    #: 埋め込みのモデルが応答しない・入っていない（内容として）。
+    EMBEDDING_UNAVAILABLE = "embedding_unavailable"
 
     @property
     def retryable(self) -> bool:
         """入力が同じでも、次に回せば測れうるか（環境の不調）。"""
-        return self in (NotMeasuredReason.SANDBOX_UNAVAILABLE, NotMeasuredReason.TOOL_FAILED)
+        return self in (
+            NotMeasuredReason.SANDBOX_UNAVAILABLE,
+            NotMeasuredReason.TOOL_FAILED,
+            NotMeasuredReason.EMBEDDING_UNAVAILABLE,
+        )
 
 
 class RunSubmission(BaseModel):
@@ -198,6 +237,9 @@ class SimilarityRun(BaseModel):
     sandbox: str | None = None
     isolation: str | None = None
     duration_ms: int = Field(default=0, ge=0)
+    #: 組の近さの中央値（内容としてだけ）。同じ課題のレポートは写していなくても近いので、
+    #: 画面はこの値からの差を示す。
+    baseline: float | None = None
 
     @property
     def measured(self) -> bool:
@@ -205,8 +247,13 @@ class SimilarityRun(BaseModel):
 
     @property
     def unit_of_length(self) -> str:
-        """「最長の一致」の単位。Dolos はコードではトークン、文字単位では文字で数える。"""
-        return "文字" if self.mode is SimilarityMode.TEXT else "トークン"
+        """「最長の一致」の単位。Dolos はコードではトークン、文字単位では文字で数える。
+        内容としては、互いに最も近く、しきい値を超えた段落の組の数。"""
+        return {
+            SimilarityMode.CODE: "トークン",
+            SimilarityMode.TEXT: "文字",
+            SimilarityMode.CONTENT: "段落",
+        }[self.mode]
 
 
 @dataclass(frozen=True)
@@ -217,6 +264,7 @@ class _Entry:
     filename: str
     storage_key: str
     content_hash: str
+    kind: ArtifactKind
     language: str | None
     #: 仮の名前。**どちらの比べ方でも同じ人は同じ名前**（画面で 2 つの類似度を並べる）。
     pseudonym: str
@@ -240,9 +288,8 @@ def _latest_per_learner(submissions: Iterable[Submission]) -> list[Submission]:
 
 def _artifact(submission: Submission, mode: SimilarityMode) -> Artifact | None:
     """比べる成果物（最初の 1 つ）。消されたものは使わない。"""
-    kinds = {ArtifactKind.CODE} if mode is SimilarityMode.CODE else TEXT_KINDS
     for artifact in submission.gradable_artifacts:
-        if artifact.kind in kinds and not artifact.is_purged:
+        if artifact.kind in mode.kinds and not artifact.is_purged:
             return artifact
     return None
 
@@ -262,6 +309,7 @@ def _entries(submissions: Sequence[Submission], mode: SimilarityMode) -> list[_E
                 filename=artifact.filename or "",
                 storage_key=artifact.storage_key,
                 content_hash=artifact.content_hash,
+                kind=artifact.kind,
                 language=(
                     LANGUAGE_BY_SUFFIX.get(suffix) if mode is SimilarityMode.CODE else CHAR_LANGUAGE
                 ),
@@ -269,6 +317,36 @@ def _entries(submissions: Sequence[Submission], mode: SimilarityMode) -> list[_E
             )
         )
     return entries
+
+
+def _read_text(entry: _Entry, store: ArtifactStore) -> bytes | None:
+    """比べる本文。PDF・docx は**採点と同じ抽出**で本文にする（別に実装すると、片方だけが
+    壊れた PDF を読める差が出る）。読めなければ `None`（その提出は入れない）。"""
+    payload = store.get(entry.storage_key)
+    if not entry.kind.is_document:
+        return payload
+    from aijudge_ext_document_text import DocumentTextError, text_of
+
+    try:
+        return text_of(payload, entry.kind).encode("utf-8")
+    except DocumentTextError as exc:
+        logger.info("本文を取り出せませんでした: %s（%s）", entry.submission.id, exc)
+        return None
+
+
+def _readable(
+    entries: Sequence[_Entry], store: ArtifactStore
+) -> tuple[list[_Entry], list[bytes], int]:
+    """読めた提出と本文、読めなかった数。"""
+    kept: list[_Entry] = []
+    contents: list[bytes] = []
+    for entry in entries:
+        content = _read_text(entry, store)
+        if content is None:
+            continue
+        kept.append(entry)
+        contents.append(content)
+    return kept, contents, len(entries) - len(kept)
 
 
 def input_hash(entries: Sequence[_Entry], *, image: str, params: Sequence[str]) -> str:
@@ -396,13 +474,18 @@ def run_for_task(
     sandbox_factory: SandboxFactory = build_tool_sandbox,
     force: bool = False,
     mode: SimilarityMode = SimilarityMode.CODE,
+    content: ContentSettings | None = None,
 ) -> SimilarityRun | None:
     """1 課題を 1 つの比べ方で調べて報告を残す。**入力が前回と同じなら何もしない**（`None`）。
 
     前回が環境の不調で測れなかった（`retryable`）なら、入力が同じでも回し直す。
     **採点が終わっていない提出があれば `GradingPending`**（決定的・AI の両段階。試験の
     一括採点で寝かせてあるものも含む）。`force` は手で回すとき用で、どちらも飛ばす。
+
+    内容として（`SimilarityMode.CONTENT`）は `content` が要る。無ければ回さない（`None`）。
     """
+    if mode is SimilarityMode.CONTENT and content is None:
+        return None
     at = now or datetime.now(UTC)
     tool = image or os.environ.get(ENV_SIMILARITY_IMAGE, "").strip() or DOLOS_IMAGE
     with database.unit_of_work() as uow:
@@ -426,7 +509,12 @@ def run_for_task(
         # テキストとしては PDF・動画など）は、記録も残さない ──
         # 入口のページが「測れない」で埋まる。
         return None
-    fingerprint = input_hash(entries, image=tool, params=mode.params)
+    if mode is SimilarityMode.CONTENT:
+        assert content is not None
+        tool, params = content.tool, content.params
+    else:
+        params = mode.params
+    fingerprint = input_hash(entries, image=tool, params=params)
 
     previous = latest_run(root, task.course_id, task.id, mode)
     if (
@@ -437,6 +525,11 @@ def run_for_task(
     ):
         return None
 
+    if mode is SimilarityMode.CONTENT:
+        assert content is not None
+        run = _measure_content(task, entries, fingerprint, content, artifact_store, at, root)
+        _keep_only(root, run)
+        return run
     run = _measure(
         task,
         entries,
@@ -450,6 +543,47 @@ def run_for_task(
     )
     _keep_only(root, run)
     return run
+
+
+def _measure_content(
+    task: Task,
+    entries: Sequence[_Entry],
+    fingerprint: str,
+    settings: ContentSettings,
+    store: ArtifactStore,
+    at: datetime,
+    root: Path,
+) -> SimilarityRun:
+    from . import content_similarity
+
+    def refuse(reason: NotMeasuredReason, detail: str) -> SimilarityRun:
+        return _not_measured(
+            task,
+            fingerprint,
+            reason,
+            detail,
+            mode=SimilarityMode.CONTENT,
+            tool=settings.tool,
+            at=at,
+            root=root,
+            params=settings.params,
+        )
+
+    if len(entries) > MAX_SUBMISSIONS:
+        return refuse(
+            NotMeasuredReason.TOO_MANY,
+            f"文書の提出が {len(entries)} 件で、1 回の上限（{MAX_SUBMISSIONS} 件）を超えます",
+        )
+    kept, contents, skipped = _readable(entries, store)
+    if len(kept) < MIN_SUBMISSIONS:
+        return refuse(
+            NotMeasuredReason.TOO_FEW,
+            f"本文を読めた提出が {len(kept)} 件です（読めなかった提出 {skipped} 件）",
+        )
+    texts = [content.decode("utf-8", errors="replace") for content in contents]
+    return content_similarity.measure(
+        task, kept, texts, fingerprint, settings=settings, at=at, root=root, skipped=skipped
+    )
 
 
 def _run_id(at: datetime, mode: SimilarityMode = SimilarityMode.CODE) -> str:
@@ -537,7 +671,12 @@ def _measure(
             f"言語が混ざっています: {sorted(str(lang) for lang in languages)}",
         )
     language = str(languages.pop())
-    contents = [store.get(entry.storage_key) for entry in entries]
+    entries, contents, skipped = _readable(entries, store)
+    if len(entries) < MIN_SUBMISSIONS:
+        return refuse(
+            NotMeasuredReason.TOO_FEW,
+            f"本文を読めた提出が {len(entries)} 件です（読めなかった提出 {skipped} 件）",
+        )
     files, info = build_dataset(entries, contents, language)
     submissions = tuple(
         RunSubmission(
@@ -616,6 +755,9 @@ def _measure(
             "sandbox": sandbox.name,
             "isolation": sandbox.isolation.value,
             "duration_ms": duration,
+            "detail": f"読めなかった提出 {skipped} 件（文字が埋め込まれていない PDF など）"
+            if skipped
+            else "",
         }
     )
     _write_run(target, run)
@@ -717,6 +859,7 @@ def sweep(
     course_id: CourseId | None = None,
     dry_run: bool = False,
     sandbox_factory: SandboxFactory = build_tool_sandbox,
+    content: ContentSettings | None = None,
 ) -> SweepReport:
     """受付が閉じた課題を回し、消えた提出の報告を消す（`aijudge-similarity` が呼ぶ）。
 
@@ -748,8 +891,9 @@ def sweep(
     if dry_run:
         return report
     for task in report.due:
-        # 比べ方ごとに回す。採点待ちなら両方とも次の周回へ（待ちはどちらで数えても同じ）。
-        for mode in SimilarityMode:
+        # 比べ方ごとに回す。採点待ちならどれも次の周回へ（待ちはどれで数えても同じ）。
+        # 内容としては、埋め込みのモデルが設定されたときだけ（`content`）。
+        for mode in (*DOLOS_MODES, SimilarityMode.CONTENT) if content else DOLOS_MODES:
             try:
                 run = run_for_task(
                     database,
@@ -759,6 +903,7 @@ def sweep(
                     now=at,
                     sandbox_factory=sandbox_factory,
                     mode=mode,
+                    content=content,
                 )
             except GradingPending as waiting:
                 report.grading.append(waiting)

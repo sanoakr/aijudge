@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -104,7 +105,7 @@ def _report(
     pairs: str = PAIRS,
 ) -> SimilarityRun:
     run = SimilarityRun(
-        run_id="20261002T010000000000Z" + ("" if mode is SimilarityMode.CODE else "-text"),
+        run_id="20261002T010000000000Z" + ("" if mode is SimilarityMode.CODE else f"-{mode.value}"),
         mode=mode,
         course_id=course_id,
         task_id=TaskId(task_id),
@@ -112,8 +113,9 @@ def _report(
         task_title="合計を出す",
         created_at=NOW,
         image=DOLOS_IMAGE,
-        language="c" if mode is SimilarityMode.CODE else "char",
+        language={SimilarityMode.CODE: "c", SimilarityMode.TEXT: "char"}.get(mode),
         input_hash="h",
+        baseline=0.5 if mode is SimilarityMode.CONTENT else None,
         submissions=tuple(
             RunSubmission(
                 submission_id=_submission(world, task_id, learner),
@@ -215,6 +217,45 @@ def test_a_text_only_task_still_shows_under_code(world: World, places) -> None:
 
     page = world.client("teacher").get(f"/courses/{world.course.id}/similarity").text
     assert "テキストだけ" in page and "97%" in page
+
+
+def test_content_shows_the_close_paragraphs_instead_of_dolos(world: World, places) -> None:
+    """内容としては Dolos の報告ではない。根拠の段落を入口に出し、中央値を添える。"""
+    root, _web = places
+    world.register("teacher", Role.INSTRUCTOR)
+    a = world.register("s2400001", Role.LEARNER)
+    b = world.register("s2400002", Role.LEARNER)
+    task_id = _import_example(world)
+    _report(world, root, world.course.id, task_id, [a, b])
+    content = _report(
+        world,
+        root,
+        world.course.id,
+        task_id,
+        [a, b],
+        mode=SimilarityMode.CONTENT,
+        pairs="id,leftFilePath,rightFilePath,similarity,longestFragment\n"
+        "0,S-001.txt,S-002.txt,0.88,2\n",
+    )
+    (run_dir(root, content) / DATA_DIR / "passages.json").write_text(
+        json.dumps(
+            {
+                "S-001|S-002": [
+                    {"similarity": 0.91, "left": "三者間の握手", "right": "3 回のやり取り"}
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    client = world.client("teacher")
+
+    page = client.get(f"/courses/{world.course.id}/similarity?mode=content").text
+    assert "88%" in page and "97%" in page, "コードとしての値も並ぶ"
+    assert "中央値は 50%" in page and "近い段落" in page
+    assert "三者間の握手" in page and "3 回のやり取り" in page
+    assert "Dolos で開く（内容として）" not in page
+    viewer = f"/courses/{world.course.id}/similarity/{task_id}/{content.run_id}/"
+    assert client.get(viewer).status_code == 404
 
 
 def test_an_assistant_cannot_open_it(world: World, places) -> None:
