@@ -934,6 +934,30 @@ def cmd_password(args: argparse.Namespace) -> int:
 # --------------------------------------------------------------------------
 
 
+def cmd_skill_rebuild(args: argparse.Namespace) -> int:
+    """習熟度を過去の採点記録から作り直す（ADR 0032）。
+
+    数え方（課題ごとの最終提出・試験の重み）を変える前に積まれた習熟度を、
+    いまの数え方で畳み直す。**テナント全体を作り直す**（習熟度はコースをまたぐ）。
+    推移の点は消さず、作り直した値を今の時刻で足す。
+    """
+    from .skill_rebuild import rebuild_skills
+
+    tenant = _tenant(args)
+    if not args.yes and not _confirmed(
+        f"テナント {tenant} の習熟度をすべて作り直します。よろしいですか [y/N]: "
+    ):
+        print("中止しました")
+        return 1
+    report = rebuild_skills(_database(args), tenant, now=datetime.now(UTC))
+    print(
+        f"作り直しました: コース {report.courses}・提出 {report.submissions} 件・"
+        f"再生した採点 {report.replayed} 件・学習者 {report.learners} 人・"
+        f"習熟度 {report.states} 件"
+    )
+    return 0
+
+
 def cmd_kc_seed(args: argparse.Namespace) -> int:
     """骨格を投入する（`subjects/kc/<名前空間>.yaml`）。
 
@@ -1498,6 +1522,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="骨格ファイル（既定は <profiles>/kc/<名前空間>.yaml）",
     )
     seed_p.set_defaults(func=cmd_kc_seed)
+
+    skill = sub.add_parser("skill", help="習熟度").add_subparsers(
+        dest="skill_command", required=True
+    )
+    rebuild = skill.add_parser(
+        "rebuild", help="過去の採点記録から作り直す（ADR 0032。テナント全体。推移は残す）"
+    )
+    rebuild.add_argument("--yes", action="store_true", help="確認を省く")
+    rebuild.set_defaults(func=cmd_skill_rebuild)
 
     task = sub.add_parser("task", help="課題").add_subparsers(dest="task_command", required=True)
     imp = task.add_parser("import", help="Sharif Judge の課題ディレクトリを取り込む")

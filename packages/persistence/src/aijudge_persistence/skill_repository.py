@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session as DbSession
 
 from aijudge_core import (
@@ -130,6 +130,12 @@ class SqlSkillRepository:
         else:
             row.submitted_at = observation.submitted_at
             row.document = document
+        self._session.flush()
+
+    def clear(self, tenant_id: TenantId) -> None:
+        """習熟度と観測を消す。**推移（`skill_points`）は残す**（P8）。"""
+        for row_type in (SkillObservationRow, SkillStateRow):
+            self._session.execute(delete(row_type).where(row_type.tenant_id == str(tenant_id)))
         self._session.flush()
 
     # -- 推移 --------------------------------------------------------------

@@ -50,6 +50,13 @@ class SkillRepository(Protocol):
         """
         ...
 
+    def clear(self, tenant_id: TenantId) -> None:
+        """テナントの習熟度と観測を消す。**推移（`SkillPoint`）は消さない**（P8）。
+
+        作り直し（`aijudge-admin skill rebuild`・ADR 0032）だけが呼ぶ。
+        """
+        ...
+
     def append_point(self, point: SkillPoint) -> None:
         """習熟度が動いた瞬間を記録する。**追記のみ**（`SkillPoint`）。
 
@@ -147,6 +154,12 @@ class InMemorySkillRepository:
             str(observation.task_id),
         )
         self._observations[key] = observation
+
+    def clear(self, tenant_id: TenantId) -> None:
+        self._states = {k: v for k, v in self._states.items() if v.tenant_id != tenant_id}
+        self._observations = {
+            k: v for k, v in self._observations.items() if v.tenant_id != tenant_id
+        }
 
     def append_point(self, point: SkillPoint) -> None:
         self._points.append(point)

@@ -50,8 +50,13 @@ class SkillService:
         *,
         max_evidence: int = MAX_EVIDENCE,
         min_confidence: float = MIN_CONFIDENCE,
+        record_points: bool = True,
     ) -> None:
         self._repository = repository
+        # 推移の点を書くか。**作り直しでは切る** ── 過去の採点を再生するたびに
+        # 過去の日付の点を足すと、そのとき実際に出していた値の記録（P8）に
+        # 作り直した値が混ざる。作り直しは終わったときに 1 点ずつ足す。
+        self._record_points = record_points
         # パラメータは観測ごとに監督の有無で選ぶ（`bkt.parameters_for`・ADR 0032）。
         self._max_evidence = max_evidence
         self._min_confidence = min_confidence
@@ -184,6 +189,8 @@ class SkillService:
             )
         )
         if state is not None and state.mastery == mastery and state.observation_count == count:
+            return None
+        if not self._record_points:
             return None
         # **動いた瞬間を残す**（#328）。`SkillState` は最新の 1 行を持ち替える
         # ので、ここで残さないと推移は二度と読めない。
