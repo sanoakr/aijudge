@@ -186,7 +186,7 @@ nav.tabs.sim-modes{margin:16px 0 0;border-bottom-color:var(--ai)}
 nav.tabs.sim-modes a{padding:10px 22px;font-size:1rem;font-weight:600;color:var(--ink-2)}
 nav.tabs.sim-modes a[aria-current]{color:var(--ai);border-color:var(--ai);border-top-width:3px;
   border-bottom:2px solid var(--ai-soft);background:var(--ai-soft)}
-.sim-mode-note{margin:0 0 18px;padding:10px 14px;background:var(--ai-soft);
+.sim-mode-note{margin:0 0 18px;padding:10px 14px;
   border:1px solid var(--ai);border-top:0;border-radius:0 0 4px 4px;font-size:.92rem;color:var(--ink)}
 .sim-mode-note strong{color:var(--ai)}
 @media (max-width:560px){nav.tabs.sim-modes a{padding:8px 10px;font-size:.88rem}}
