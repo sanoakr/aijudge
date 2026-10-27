@@ -174,6 +174,7 @@ dependencies = [
     { name = "aijudge-grading" },
     { name = "aijudge-identity" },
     { name = "aijudge-persistence" },
+    { name = "aijudge-skill" },
     { name = "aijudge-submission" },
     { name = "aijudge-telemetry" },
 ]
@@ -187,6 +188,7 @@ requires-dist = [
     { name = "aijudge-grading", editable = "packages/grading" },
     { name = "aijudge-identity", editable = "packages/identity" },
     { name = "aijudge-persistence", editable = "packages/persistence" },
+    { name = "aijudge-skill", editable = "packages/skill" },
     { name = "aijudge-submission", editable = "packages/submission" },
     { name = "aijudge-telemetry", editable = "packages/telemetry" },
 ]
