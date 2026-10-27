@@ -138,12 +138,13 @@ def test_a_single_point_still_draws() -> None:
     assert polyline(trend([_point(A, KC1, 0.5)]), width=100, height=40) != ""
 
 
-def _evidence(run: str, *, verified: bool = False) -> SkillEvidence:
+def _evidence(run: str, *, verified: bool = False, exam: bool = False) -> SkillEvidence:
     return SkillEvidence(
         grading_run_id=GradingRunId("grn_" + run * 32),
         criterion_score_id=CriterionScoreId("cs_" + "d" * 32),
         score_ratio=1.0,
         human_verified=verified,
+        exam=exam,
         observed_at=NOW,
     )
 
@@ -187,3 +188,19 @@ def test_evidence_that_cannot_be_traced_is_not_called_someone_elses() -> None:
 
     assert row.here == ()
     assert row.elsewhere == 1
+
+
+def test_evidence_says_whether_it_came_from_an_exam() -> None:
+    """試験の根拠は習熟度に重く効く（ADR 0032）。どちらで得たかを画面に渡す。"""
+    state = _state(A, KC1, 0.7, evidence=(_evidence("1", exam=True), _evidence("2")))
+
+    row = split_evidence(
+        state,
+        course_of={"grn_" + "1" * 32: "crs_here", "grn_" + "2" * 32: "crs_here"},
+        title_of={"grn_" + "1" * 32: "試験", "grn_" + "2" * 32: "演習"},
+        course_id="crs_here",
+        key="cs.loops",
+        label="くりかえし",
+    )
+
+    assert {e.task_title: e.exam for e in row.here} == {"試験": True, "演習": False}

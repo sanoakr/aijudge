@@ -12,7 +12,16 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .ids import CredentialId, CriterionScoreId, GradingRunId, KcId, TenantId, UserId
+from .ids import (
+    CredentialId,
+    CriterionScoreId,
+    GradingRunId,
+    KcId,
+    SubmissionId,
+    TaskId,
+    TenantId,
+    UserId,
+)
 
 
 class MasteryModel(StrEnum):
@@ -43,6 +52,35 @@ class SkillEvidence(BaseModel):
     #: 評価器が自己一貫性から測るもので、推定の側で足せる情報ではない。
     confidence: float | None = Field(default=None, ge=0.0, le=1.0)
     human_verified: bool = False
+    #: 監督のある試験での観測か（ADR 0032）。ポートフォリオで試験と演習の根拠を分けて示す。
+    exam: bool = False
+    observed_at: datetime
+
+
+class SkillObservation(BaseModel):
+    """習熟度の観測 1 件。**学習者 × KC × 課題で 1 件**（ADR 0032）。
+
+    以前は採点 1 回ごとに観測を足していたので、出し直しや再採点の回数が
+    習熟度を動かした。いまは課題ごとに**最終提出の結果**だけを持ち、新しい
+    提出や再採点が来たら置き換える。習熟度はこの並びを BKT で畳み直して出す。
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    tenant_id: TenantId
+    learner_id: UserId
+    kc_id: KcId
+    task_id: TaskId
+    submission_id: SubmissionId
+    grading_run_id: GradingRunId
+    criterion_score_id: CriterionScoreId
+    score_ratio: float = Field(ge=0.0, le=1.0)
+    confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    #: 監督のある試験での観測か（`Task.exam`）。BKT のパラメータを分ける。
+    exam: bool = False
+    #: 提出の時刻。**どれが最終提出かと、畳む順序をこれで決める** ── 採点の
+    #: 終わった時刻で決めると、再送や遅れた再採点で古い提出が「最新」になる。
+    submitted_at: datetime
     observed_at: datetime
 
 

@@ -12,10 +12,17 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 
-from aijudge_core import KnowledgeComponent, MasteryModel, SkillPoint, SkillState, new_id
+from aijudge_core import (
+    KnowledgeComponent,
+    MasteryModel,
+    SkillObservation,
+    SkillPoint,
+    SkillState,
+    new_id,
+)
 from aijudge_core.ids import KcId, TenantId, UserId
 
-from .schema import KnowledgeComponentRow, SkillPointRow, SkillStateRow
+from .schema import KnowledgeComponentRow, SkillObservationRow, SkillPointRow, SkillStateRow
 
 
 class SqlSkillRepository:
@@ -84,6 +91,46 @@ class SqlSkillRepository:
             .order_by(SkillStateRow.learner_id, SkillStateRow.kc_id)
         ).scalars()
         return tuple(SkillState.model_validate(row.document) for row in rows)
+
+    # -- 観測（ADR 0032）---------------------------------------------------
+
+    def list_observations(
+        self, tenant_id: TenantId, learner_id: UserId, kc_id: KcId
+    ) -> tuple[SkillObservation, ...]:
+        rows = self._session.execute(
+            select(SkillObservationRow).where(
+                SkillObservationRow.tenant_id == str(tenant_id),
+                SkillObservationRow.learner_id == str(learner_id),
+                SkillObservationRow.kc_id == str(kc_id),
+            )
+        ).scalars()
+        return tuple(SkillObservation.model_validate(row.document) for row in rows)
+
+    def save_observation(self, observation: SkillObservation) -> None:
+        """**置き換える。** 課題ごとに最終提出の結果だけを持つ。"""
+        key = (
+            str(observation.tenant_id),
+            str(observation.learner_id),
+            str(observation.kc_id),
+            str(observation.task_id),
+        )
+        row = self._session.get(SkillObservationRow, key)
+        document = observation.model_dump(mode="json")
+        if row is None:
+            self._session.add(
+                SkillObservationRow(
+                    tenant_id=key[0],
+                    learner_id=key[1],
+                    kc_id=key[2],
+                    task_id=key[3],
+                    submitted_at=observation.submitted_at,
+                    document=document,
+                )
+            )
+        else:
+            row.submitted_at = observation.submitted_at
+            row.document = document
+        self._session.flush()
 
     # -- 推移 --------------------------------------------------------------
 

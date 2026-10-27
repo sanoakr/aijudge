@@ -594,7 +594,18 @@ class GradingWorker:
 
             submission = uow.submissions.get(job.submission_id)
             if submission is not None:
-                uow.outbox.append(grading_completed_event(run, submission, tenant_id=job.tenant_id))
+                # 習熟度を課題ごとの最終提出で数え、試験を重く見るための事実（ADR 0032）。
+                version = uow.tasks.get_version(submission.task_version_id)
+                task = None if version is None else uow.tasks.get_task(version.task_id)
+                uow.outbox.append(
+                    grading_completed_event(
+                        run,
+                        submission,
+                        tenant_id=job.tenant_id,
+                        task_id=None if version is None else version.task_id,
+                        exam=task is not None and task.exam,
+                    )
+                )
             done = job.completed(now, run.id)
             uow.jobs.update(done)
 

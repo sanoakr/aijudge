@@ -38,6 +38,7 @@ from .ids import (
     GradingRunId,
     KcId,
     SubmissionId,
+    TaskId,
     TaskVersionId,
     TenantId,
     UserId,
@@ -106,6 +107,16 @@ class GradingCompleted(_Event):
     # その独立が崩れる。
     is_trial: bool = False
     kc_outcomes: tuple[KcOutcome, ...] = ()
+    # 習熟度を課題ごとの最終提出で数えるための事実（ADR 0032）。**S7 は課題も
+    # 提出も引けない**（`is_trial` と同じ理由）ので、採点の側で焼き付けて渡す。
+    #
+    # **既定は「書かれていない」**。この欄より前に outbox に積まれたイベントは
+    # 値を持たない ── S7 は版の ID と採点完了の時刻で代える（`SkillService`）。
+    task_id: TaskId | None = None
+    # 監督のある試験の課題か（`Task.exam`）。BKT のパラメータを分ける。
+    exam: bool = False
+    # 提出の時刻。どれが最終提出かは採点の終わった順ではなく、提出の順で決める。
+    submitted_at: datetime | None = None
 
 
 class SkillStateUpdated(_Event):

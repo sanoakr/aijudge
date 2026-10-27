@@ -96,6 +96,7 @@ from .skill import (
     CredentialExport,
     MasteryModel,
     SkillEvidence,
+    SkillObservation,
     SkillPoint,
     SkillState,
 )
@@ -233,6 +234,7 @@ __all__ = [
     "RubricCriterion",
     "RubricLevel",
     "SkillEvidence",
+    "SkillObservation",
     "SkillPoint",
     "SkillState",
     "SkillStateUpdated",

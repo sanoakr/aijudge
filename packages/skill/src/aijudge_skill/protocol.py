@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Protocol, runtime_checkable
 
-from aijudge_core import KnowledgeComponent, SkillPoint, SkillState
+from aijudge_core import KnowledgeComponent, SkillObservation, SkillPoint, SkillState
 from aijudge_core.ids import KcId, TenantId, UserId
 
 
@@ -34,6 +34,19 @@ class SkillRepository(Protocol):
 
         `learner_ids` が空なら空を返す ── 「全員」の意味にしない。取り違えると
         テナント全員の習熟度を 1 コースの画面に並べることになる。
+        """
+        ...
+
+    def list_observations(
+        self, tenant_id: TenantId, learner_id: UserId, kc_id: KcId
+    ) -> tuple[SkillObservation, ...]:
+        """学習者 × KC の観測。**課題ごとに 1 件**（ADR 0032）。順序は決めない。"""
+        ...
+
+    def save_observation(self, observation: SkillObservation) -> None:
+        """観測を書く。**同じ学習者 × KC × 課題があれば置き換える**（最終提出だけを持つ）。
+
+        古い提出の結果で上書きしないかの判断は呼ぶ側（`SkillService`）が持つ。
         """
         ...
 
@@ -88,6 +101,7 @@ class InMemorySkillRepository:
     def __init__(self, kcs: tuple[KnowledgeComponent, ...] = ()) -> None:
         self._states: dict[tuple[str, str, str], SkillState] = {}
         self._points: list[SkillPoint] = []
+        self._observations: dict[tuple[str, str, str, str], SkillObservation] = {}
         self._kcs = {kc.id: kc for kc in kcs}
 
     def get_state(self, tenant_id: TenantId, learner_id: UserId, kc_id: KcId) -> SkillState | None:
@@ -115,6 +129,24 @@ class InMemorySkillRepository:
             for state in self._states.values()
             if state.tenant_id == tenant_id and str(state.learner_id) in wanted
         )
+
+    def list_observations(
+        self, tenant_id: TenantId, learner_id: UserId, kc_id: KcId
+    ) -> tuple[SkillObservation, ...]:
+        return tuple(
+            item
+            for item in self._observations.values()
+            if item.tenant_id == tenant_id and item.learner_id == learner_id and item.kc_id == kc_id
+        )
+
+    def save_observation(self, observation: SkillObservation) -> None:
+        key = (
+            str(observation.tenant_id),
+            str(observation.learner_id),
+            str(observation.kc_id),
+            str(observation.task_id),
+        )
+        self._observations[key] = observation
 
     def append_point(self, point: SkillPoint) -> None:
         self._points.append(point)

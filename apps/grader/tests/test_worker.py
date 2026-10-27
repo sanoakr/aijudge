@@ -647,6 +647,23 @@ def test_the_completed_event_carries_the_score(world: World) -> None:
     assert 0.0 <= events[0].score_ratio <= 1.0
 
 
+@needs_c_compiler
+def test_the_completed_event_carries_the_task_and_whether_it_is_an_exam(world: World) -> None:
+    """習熟度を課題ごとの最終提出で数え、試験を重く見るための事実（ADR 0032）。"""
+    with world.database.unit_of_work() as uow:
+        task = uow.tasks.get_task(world.task_version.task_id)
+        uow.tasks.save_task(task.model_copy(update={"exam": True}))
+        uow.commit()
+    world.submit()
+    world.worker.run_once()
+    with world.database.unit_of_work() as uow:
+        events = [e for e in uow.outbox.unpublished() if isinstance(e, GradingCompleted)]
+    assert len(events) == 1
+    assert events[0].task_id == world.task_version.task_id
+    assert events[0].exam is True
+    assert events[0].submitted_at is not None
+
+
 # --------------------------------------------------------------------------
 # フィードバック（設計方針 §04 step 6）
 # --------------------------------------------------------------------------
