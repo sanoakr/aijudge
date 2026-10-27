@@ -171,6 +171,14 @@ details.syllabus > summary::-webkit-details-marker{display:none}
 details.syllabus > summary::before{content:"▸";color:var(--muted);margin-right:2px}
 details.syllabus[open] > summary::before{content:"▾"}
 details.syllabus .open-hint{margin-left:auto}
+/* 提出の類似の問題セット。**畳んで並べる** ── 課題ごとに上位の組の表が付くので、
+   開いたままだと回が増えるほど目当ての課題が遠くなる。 */
+details.sim-unit > summary{cursor:pointer;display:flex;flex-wrap:wrap;align-items:baseline;
+  gap:4px 14px;margin:18px 0 10px}
+details.sim-unit > summary::-webkit-details-marker{display:none}
+details.sim-unit > summary::before{content:"▸";color:var(--muted);margin-right:2px}
+details.sim-unit[open] > summary::before{content:"▾"}
+details.sim-unit > summary h2{margin:0}
 /* 描画した Markdown。見出しが本文より小さくならない程度に抑える
    （シラバスは節が多く、既定の h1/h2 では画面が見出しで埋まる）。 */
 .markdown{font-size:.9rem;line-height:1.75;border-left:2px solid var(--line-soft);

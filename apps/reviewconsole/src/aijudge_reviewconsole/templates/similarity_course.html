@@ -20,8 +20,14 @@
 <div class="note">Dolos の画面の配布物（<code>AIJUDGE_DOLOS_WEB_DIR</code>）が用意されていないので、報告は開けません。上位の組だけを出します。</div>
 {% endif %}
 
+{# 問題セットごとに**畳む**（2026-10-28）。課題ごとに上位の組の表が付くので、開いたままだと
+   回が増えるほど目当ての課題までスクロールが長くなる。いちばん新しい（最後の）問題セット
+   だけ開いておく ── 締切の後に見に来るのはたいていそれである。 #}
 {% for unit, items in units.items() %}
-<h2>{{ unit }}</h2>
+{% set top = items | map(attribute='pairs') | map('first') | select | map(attribute='similarity') | max %}
+<details class="sim-unit" {{ 'open' if loop.last }}>
+<summary><h2>{{ unit }}</h2>
+  <span class="desc">{{ items | length }} 課題{% if top is number %} · 最も高い類似度 {{ '%.0f' | format(top * 100) }}%{% endif %}</span></summary>
 {% for item in items %}
 {% set run = item.run %}
 <section class="card">
@@ -67,6 +73,7 @@
   {% endif %}
 </section>
 {% endfor %}
+</details>
 {% else %}
 <p class="desc">まだ報告がありません。受付が閉じ、採点が終わった課題から順に調べます。</p>
 {% endfor %}
