@@ -103,6 +103,10 @@ class UnitGroup:
     # `campus_only` と同じく、混ざりは別に持って黙らせない。
     confidential: bool = False
     confidential_mixed: bool = False
+    # 監督のある試験か（ADR 0032）。全課題がそうなら真。**一覧で印を出す** ──
+    # 付け忘れると試験が演習として習熟度に数えられ、画面からは気づけない。
+    exam: bool = False
+    exam_mixed: bool = False
     # 受け付ける学内の範囲（`Task.campus_ranges`）。課題ごとに違えば和を取る。
     # 空は「全範囲」（範囲を選べるようになる前の設定）。
     campus_ranges: tuple[str, ...] = ()
@@ -307,6 +311,9 @@ def load_units(
                 confidential=bool(tasks) and all(task.confidential_until_open for task in tasks),
                 confidential_mixed=any(task.confidential_until_open for task in tasks)
                 and not all(task.confidential_until_open for task in tasks),
+                exam=bool(tasks) and all(task.exam for task in tasks),
+                exam_mixed=any(task.exam for task in tasks)
+                and not all(task.exam for task in tasks),
                 screen_capture=bool(tasks) and all(task.screen_capture for task in tasks),
                 screen_capture_mixed=any(task.screen_capture for task in tasks)
                 and not all(task.screen_capture for task in tasks),

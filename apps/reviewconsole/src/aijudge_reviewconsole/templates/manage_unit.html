@@ -349,6 +349,21 @@
     </div>
   </div>
 
+  <h3 class="settings-group">習熟度</h3>
+  {# 監督のある試験か（ADR 0032）。習熟度の推定で、試験の観測を重く、監督のない演習の正答を軽く見る。 #}
+  <div class="setting" id="exam">
+    <div class="setting-name">試験として扱う{% call help() %}
+      対面で監督するなど、<strong>本人が解いたと担保できる回</strong>にチェックを入れます。
+      習熟度の推定で、この回の結果を重く見ます。監督のない演習の正答は、他人のコードの写しや生成 AI の出力でも得られるので、軽く見ます。
+      形式が小テストでも、監督しない回にはチェックを入れません。採点と成績には影響しません。
+    {% endcall %}</div>
+    <div class="setting-value">
+      <label class="check"><input type="checkbox" name="exam" value="1" {{ 'checked' if unit.exam }}>
+        監督のある試験（習熟度で重く見る）</label>
+      {% if unit.exam_mixed %}<p class="note warn tight">このセットの中で値がばらついています。変えて保存すると、全課題に同じ値が入ります。</p>{% endif %}
+    </div>
+  </div>
+
   <h3 class="settings-group">成績</h3>
   {# 問題セットのクリア点（2026-09-25）。学習者のコース一覧で、合計点（割合 × 配点）が
      この値以上のセットに「クリア」が付く。配点は各課題の版の max_score（課題の定義で書く）。 #}
@@ -412,7 +427,7 @@
   {# **押す場所を探させない**（KC の画面と同じ `.deskbar`）。画面の底に貼る。 #}
   <div class="deskbar">
     <span class="spacer save-state">
-      {% if saved_key in ['settings', 'unchanged', 'number', 'schedule', 'campus_only', 'screen_capture', 'answer_mode', 'clear_points', 'completion', 'confidential', 'audience', 'grace'] %}
+      {% if saved_key in ['settings', 'unchanged', 'number', 'schedule', 'campus_only', 'screen_capture', 'answer_mode', 'clear_points', 'completion', 'confidential', 'exam', 'audience', 'grace'] %}
       <span class="flash" id="saved">{{ saved }}</span>
       {% else %}この問題セットの全課題に反映します{% endif %}
     </span>

@@ -896,6 +896,27 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
             saved="confidential",
         )
 
+    @router.post("/courses/{course_id}/units/{unit}/exam")
+    def set_unit_exam(
+        request: Request,
+        course_id: str,
+        unit: str,
+        exam: Annotated[str, Form()] = "",
+    ) -> Response:
+        """**問題セットを試験（監督のある回）として扱うかを切り替える**（ADR 0032）。
+
+        習熟度の推定で、監督のない演習の正答は割り引き、試験の観測は重く見る。
+        学内限定と同じく、値はセット単位で決めて全課題に入れる（`_update_unit`）。
+        監査ログに残る ── 学習者の記録の読み方を変える操作である。
+        """
+        return _update_unit(
+            request,
+            course_id,
+            unit,
+            update={"exam": bool(exam.strip())},
+            saved="exam",
+        )
+
     @router.post("/courses/{course_id}/units/{unit}/audience")
     def set_unit_audience(
         request: Request,
@@ -1065,6 +1086,7 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
         for field, name, current in (
             ("editor_completion", "completion", group.completion),
             ("confidential_until_open", "confidential", group.confidential),
+            ("exam", "exam", group.exam),
             ("screen_capture", "screen_capture", group.screen_capture),
         ):
             if flag(name) != current:

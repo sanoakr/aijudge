@@ -42,7 +42,7 @@
       - problem_dir: ex1/p1                 # Sharif Judge 形式の問題ディレクトリ
         readability_weight: 0.3             # （YAML からの相対パス）
 
-`answer_mode`・`editor_completion`・`file_upload`・`confidential_until_open`・`campus_only`・
+`answer_mode`・`editor_completion`・`file_upload`・`confidential_until_open`・`campus_only`・`exam`・
 `clear_points`・`late_penalty`・`failed_inputs` は**問題セットの値**で、`/manage` の切り替えと
 同じく回の全課題に入れる（課題ごとには書けない）。書いた回だけを変え、書かない回は画面で切り替えた値を残す。
 `editor` にできない課題（提出形式に `.c`・`.py`・`.md` が無い）があれば投入を止める。
@@ -131,6 +131,8 @@ _UNIT_SETTING_KEYS = (
     "file_upload",
     "confidential_until_open",
     "campus_only",
+    # 監督のある試験か（ADR 0032）。習熟度の重みを分けるための値。
+    "exam",
     "clear_points",
     # 遅延の減点（2026-10-08）。`[{after_hours: 0, percent: 50}]` の形で書く。
     # 書かなければコースの設定に従い、`[]` は「この回は減点しない」。
@@ -226,7 +228,13 @@ def _unit_settings(unit: str, raw: dict[str, Any], path: Path) -> dict[str, Any]
                 f"units.{unit}.failed_inputs は {wanted} のどれかです"
                 f": {raw['failed_inputs']!r}（{path}）"
             ) from None
-    for flag in ("editor_completion", "file_upload", "confidential_until_open", "campus_only"):
+    for flag in (
+        "editor_completion",
+        "file_upload",
+        "confidential_until_open",
+        "campus_only",
+        "exam",
+    ):
         if flag not in raw:
             continue
         if not isinstance(raw[flag], bool):

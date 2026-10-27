@@ -571,3 +571,21 @@ def test_a_changed_definition_without_revise_names_the_latest_version(
         _apply_text(database, tmp_path / "back", DEFINITION)  # 版 1 の内容に戻した定義
 
     assert _cert_versions(database, first.course.id) == [1, 2]
+
+
+def test_a_unit_can_be_an_exam(database: Database, tmp_path) -> None:
+    """`exam` は問題セットの値で、回の全課題に入る（ADR 0032）。書かれていない回は触らない。"""
+    text = _with_unit_setting("exam: true").replace(
+        "  - key: ex1/cert\n    unit: ex1\n", "  - key: ex1/cert\n    unit: ex0\n"
+    )
+    result = _apply(database, _write_definition(tmp_path, text))
+    tasks, _versions = _tasks(database, result.course.id)
+    in_set = [task for task in tasks.values() if task.unit == "ex1"]
+    assert len(in_set) == 2
+    assert all(task.exam for task in in_set)
+    assert tasks["認定証を提出する"].exam is False
+
+
+def test_a_misspelt_exam_is_refused(tmp_path: Path) -> None:
+    with pytest.raises(AdminError, match="exam"):
+        load_course_definition(_write_definition(tmp_path, _with_unit_setting("exam: sometimes")))
