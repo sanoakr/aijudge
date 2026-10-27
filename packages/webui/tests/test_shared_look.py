@@ -45,6 +45,8 @@ def test_the_assets_are_shipped_with_the_package() -> None:
         # 習熟度の行（#335）。**学生と教員が同じものを描く** ── 別々に書くと、
         # 片方を直した日にもう片方だけが古くなる。
         "_mastery_rows.html",
+        # 習熟度の範囲の切り替え（演習と試験・演習のみ・試験のみ・ADR 0032）。同じく両方で使う。
+        "_mastery_scope.html",
         "_rail.html",
         "_theme_boot.html",
         # 配色のボタン（ヘッダとフッタの両方に置く・2026-09-25）。script は `_theme_switch`。
