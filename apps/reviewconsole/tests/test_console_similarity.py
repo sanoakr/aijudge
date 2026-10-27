@@ -32,6 +32,7 @@ from aijudge_course_admin.code_similarity import (
     DOLOS_IMAGE,
     REPORT_FILES,
     RunSubmission,
+    SimilarityMode,
     SimilarityRun,
     run_dir,
 )
@@ -62,6 +63,8 @@ def places(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path]
 def _submission(world: World, task_id: str, learner) -> SubmissionId:
     submission_id = SubmissionId("sub_" + str(learner.user_id)[4:])
     with world.database.unit_of_work() as uow:
+        if uow.submissions.get(submission_id) is not None:
+            return submission_id
         version = uow.tasks.latest_version(TaskId(task_id))
         uow.submissions.save(
             Submission(
@@ -90,16 +93,26 @@ def _submission(world: World, task_id: str, learner) -> SubmissionId:
     return submission_id
 
 
-def _report(world: World, root: Path, course_id: CourseId, task_id: str, learners) -> SimilarityRun:
+def _report(
+    world: World,
+    root: Path,
+    course_id: CourseId,
+    task_id: str,
+    learners,
+    *,
+    mode: SimilarityMode = SimilarityMode.CODE,
+    pairs: str = PAIRS,
+) -> SimilarityRun:
     run = SimilarityRun(
-        run_id="20261002T010000000000Z",
+        run_id="20261002T010000000000Z" + ("" if mode is SimilarityMode.CODE else "-text"),
+        mode=mode,
         course_id=course_id,
         task_id=TaskId(task_id),
         unit="ex01",
         task_title="合計を出す",
         created_at=NOW,
         image=DOLOS_IMAGE,
-        language="c",
+        language="c" if mode is SimilarityMode.CODE else "char",
         input_hash="h",
         submissions=tuple(
             RunSubmission(
@@ -116,7 +129,7 @@ def _report(world: World, root: Path, course_id: CourseId, task_id: str, learner
     (directory / "run.json").write_text(run.model_dump_json(), encoding="utf-8")
     for name in REPORT_FILES:
         (directory / DATA_DIR / name).write_text(
-            PAIRS if name == "pairs.csv" else f"{name}\n", encoding="utf-8"
+            pairs if name == "pairs.csv" else f"{name}\n", encoding="utf-8"
         )
     return run
 
@@ -147,6 +160,61 @@ def test_an_instructor_sees_the_pairs_with_names(world: World, places) -> None:
     assert "盗用" not in page.text
     assert f"/similarity/{task_id}/{run.run_id}/" in page.text
     assert [e.target_id for e in _viewed(world)] == [str(world.course.id)]
+
+
+def test_the_page_switches_between_code_and_text(world: World, places) -> None:
+    """**比べ方を切り替える**（#569）。同じ組のもう一方の類似度も並べる。"""
+    root, _web = places
+    world.register("teacher", Role.INSTRUCTOR)
+    a = world.register("s2400001", Role.LEARNER)
+    b = world.register("s2400002", Role.LEARNER)
+    task_id = _import_example(world)
+    code = _report(world, root, world.course.id, task_id, [a, b])
+    text = _report(
+        world,
+        root,
+        world.course.id,
+        task_id,
+        [a, b],
+        mode=SimilarityMode.TEXT,
+        pairs=PAIRS.replace("S-001.c", "S-001.txt")
+        .replace("S-002.c", "S-002.txt")
+        .replace("0.97", "0.41"),
+    )
+    client = world.client("teacher")
+
+    as_code = client.get(f"/courses/{world.course.id}/similarity").text
+    assert as_code.index("97%") < as_code.index("41%"), "選んだ方が先の列"
+    assert f"/similarity/{task_id}/{code.run_id}/" in as_code
+    assert "Dolos で開く（コードとして）" in as_code and "最長の一致（トークン）" in as_code
+
+    as_text = client.get(f"/courses/{world.course.id}/similarity?mode=text").text
+    assert as_text.index("41%") < as_text.index("97%")
+    assert f"/similarity/{task_id}/{text.run_id}/" in as_text
+    assert "Dolos で開く（テキストとして）" in as_text and "最長の一致（文字）" in as_text
+    assert (
+        client.get(f"/courses/{world.course.id}/similarity/{task_id}/{text.run_id}/").status_code
+        == 200
+    )
+
+    # 知らない値は「コードとして」で開く（落とさない）。
+    assert (
+        "Dolos で開く（コードとして）"
+        in client.get(f"/courses/{world.course.id}/similarity?mode=x").text
+    )
+
+
+def test_a_text_only_task_still_shows_under_code(world: World, places) -> None:
+    """Markdown の課題はテキストだけ。切り替えてもカードを消さず「テキストだけ」と出す。"""
+    root, _web = places
+    world.register("teacher", Role.INSTRUCTOR)
+    a = world.register("s2400001", Role.LEARNER)
+    b = world.register("s2400002", Role.LEARNER)
+    task_id = _import_example(world)
+    _report(world, root, world.course.id, task_id, [a, b], mode=SimilarityMode.TEXT)
+
+    page = world.client("teacher").get(f"/courses/{world.course.id}/similarity").text
+    assert "テキストだけ" in page and "97%" in page
 
 
 def test_an_assistant_cannot_open_it(world: World, places) -> None:

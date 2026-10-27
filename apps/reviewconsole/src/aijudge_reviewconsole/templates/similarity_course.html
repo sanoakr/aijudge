@@ -9,6 +9,9 @@
   同じ課題の提出どうしで、似ている組を示します（Dolos）。受付終了（無ければ締切）の
   1 時間後から、その課題の採点が終わったところで自動で調べます。学習者 1 人につき最新の
   提出 1 件を比べます。
+  <strong>コードとして</strong>は変数名を抽象化して構造で比べ、コメントは読みません。
+  <strong>テキストとして</strong>はコメントも含めて文字の並びで比べます（言い換えは見つかりません）。
+  Markdown・LaTeX の提出はテキストとしてだけ比べます。
   <strong>似ていることは不正の判定ではありません。</strong> 同じ課題を解けば似ます
   ── とくに入門課題は書き方がほぼ 1 通りです。該当箇所を読んで判断してください。
   <strong>この画面と報告を開いたことは監査ログに残ります。</strong>
@@ -19,6 +22,14 @@
 {% elif not viewer %}
 <div class="note">Dolos の画面の配布物（<code>AIJUDGE_DOLOS_WEB_DIR</code>）が用意されていないので、報告は開けません。上位の組だけを出します。</div>
 {% endif %}
+
+{# 比べ方の切り替え。URL に残すので、戻っても共有しても同じ表示で開く。 #}
+<nav class="tabs" aria-label="比べ方">
+  {% for key, label in modes.items() %}
+  <a href="{{ root_prefix() }}/courses/{{ course.id }}/similarity?mode={{ key.value }}"
+     {% if key == mode %}aria-current="page"{% endif %}>{{ label }}</a>
+  {% endfor %}
+</nav>
 
 {# 問題セットごとに**畳む**（2026-10-28）。課題ごとに上位の組の表が付くので、開いたままだと
    回が増えるほど目当ての課題までスクロールが長くなる。いちばん新しい（最後の）問題セット
@@ -32,20 +43,23 @@
 {% set run = item.run %}
 <section class="card">
   <h3>{{ run.task_title }}
+    {% if item.only %}<span class="pill">{{ short[item.only] }}だけ</span>{% endif %}
     <span class="desc">{{ run.created_at | local('%m-%d %H:%M') }} に調べました</span></h3>
   {% if run.measured %}
   <p class="desc">
-    {{ run.submissions | length }} 件（{{ run.language }}）を比べました。
-    {% if viewer %}<a href="{{ root_prefix() }}{{ item.href }}" rel="noreferrer">Dolos で開く</a>{% endif %}
+    {{ run.submissions | length }} 件（{{ 'テキスト' if run.language == 'char' else run.language }}）を比べました。
+    {% if viewer %}<a href="{{ root_prefix() }}{{ item.href }}" rel="noreferrer">Dolos で開く（{{ modes[run.mode] }}）</a>{% endif %}
   </p>
   {% if item.pairs %}
   <table class="stack">
-    <thead><tr><th class="fit">類似度</th><th class="grow">組</th><th class="fit">最長の一致（トークン）</th></tr></thead>
+    {% set this_label = short[run.mode] %}{% set other_label = short[item.other_mode] %}
+    <thead><tr><th class="fit">{{ this_label }}</th><th class="fit">{{ other_label }}</th><th class="grow">組</th><th class="fit">最長の一致（{{ run.unit_of_length }}）</th></tr></thead>
     <tbody>
     {% for pair in item.pairs %}
       {% set a = item.people.get(pair.left, ('?', '')) %}{% set b = item.people.get(pair.right, ('?', '')) %}
       <tr>
-        <td class="fit" data-label="類似度">{{ '%.0f' | format(pair.similarity * 100) }}%</td>
+        <td class="fit" data-label="{{ this_label }}">{{ '%.0f' | format(pair.similarity * 100) }}%</td>
+        <td class="fit muted" data-label="{{ other_label }}">{% if pair.other is number %}{{ '%.0f' | format(pair.other * 100) }}%{% else %}—{% endif %}</td>
         <td class="grow" data-label="組">
           <span class="mono">{{ pair.left }}</span> {{ a[0] }} {{ a[1] }}
           <span class="sep">·</span>

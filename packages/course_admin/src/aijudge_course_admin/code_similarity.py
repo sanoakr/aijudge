@@ -13,6 +13,12 @@
 - **報告は全員のコード全文の写しである**（`files.csv`）。提出と同じだけしか残さない
   （提出が消えたら消す・`sweep_orphans`）。バックアップしない
 - **測れなかったら `NOT_MEASURED` と理由を残す。** 「似た組が 0」と区別する
+- **比べ方は 2 つ**（`SimilarityMode`・#569・2026-10-28）。コードとして（識別子を抽象化し、
+  コメントを読まない）と、テキストとして（コメントも含め、提出をそのまま文字で比べる）。
+  Dolos の `-C`（コメントを含める）は、コメントを「ここにコメントがある」という 1 つの
+  印として数えるだけで、**中身は比べない**（手元で確かめた: 同じ説明文を写した組も、
+  まったく違う説明文の組も、類似度が変わらなかった）。コメントの写しを見るには
+  テキストとして比べるしかない。Markdown・LaTeX の提出はテキストだけで比べる
 
 運用機で実測した制限（2026-09-29・gVisor）: プロセス数は 64 が要る（32 で分析が
 落ち、24 以下ではコンテナが立たない）。メモリ 512 MiB で C 300 件が通り、256 MiB
@@ -37,7 +43,7 @@ from pathlib import Path, PurePosixPath
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from aijudge_core import Artifact, GradingPhase, Submission, Task
+from aijudge_core import Artifact, ArtifactKind, GradingPhase, Submission, Task
 from aijudge_core.ids import CourseId, SubmissionId, TaskId
 from aijudge_sandbox import ExecRequest, Limits, Sandbox, SandboxError, build_tool_sandbox
 from aijudge_submission import ArtifactStore
@@ -52,6 +58,7 @@ __all__ = [
     "REPORT_FILES",
     "GradingPending",
     "NotMeasuredReason",
+    "SimilarityMode",
     "SimilarityRun",
     "latest_run",
     "list_runs",
@@ -80,6 +87,12 @@ RUN_SCHEMA_VERSION = 1
 #: コースの上書き・雛形の 3 段を引き直すより、提出されたファイルそのものが確か。
 LANGUAGE_BY_SUFFIX = {".c": "c", ".h": "c", ".py": "python"}
 
+#: テキストとして比べる成果物の種類。**本文がそのまま読めるものだけ**（PDF・docx は
+#: 抽出の層を通してからになる・ADR 0022）。コードは言語を問わない ── 文字で比べるので。
+TEXT_KINDS = frozenset({ArtifactKind.CODE, ArtifactKind.MARKDOWN, ArtifactKind.LATEX})
+#: Dolos で文字単位に比べる「言語」。
+CHAR_LANGUAGE = "char"
+
 #: 受付が閉じてから回すまでの間。**試験では締切の後にまず採点が回る**（受付終了の
 #: 自動提出と、試験の一括採点の待機が一斉に外れる）ので、それを先に通す（2026-09-29 決定）。
 SETTLE_AFTER = timedelta(hours=1)
@@ -103,6 +116,21 @@ LIMITS = Limits(
 #: Dolos に渡す引数。**記録に残す**（同じ入力でも引数で結果が変わる）。
 #: `-M`（多くの提出に出る断片を無視）は実データを見て決める ── いまは既定のまま。
 DOLOS_PARAMS: tuple[str, ...] = ()
+#: テキストとして比べるときの引数。既定の比べる長さ（23 文字）は日本語には長い ──
+#: 1 文をそのまま写した組で 0.32、`-k 10 -w 5` で 0.41（#569 の試し）。**値は仮**で、
+#: 実データで決め直す。`run.json` の `params` に残るので、後で変えても回ごとに分かる。
+TEXT_PARAMS: tuple[str, ...] = ("-k", "10", "-w", "5")
+
+
+class SimilarityMode(StrEnum):
+    """何として比べるか。**課題ごとに両方を回し、画面で切り替える。**"""
+
+    CODE = "code"
+    TEXT = "text"
+
+    @property
+    def params(self) -> tuple[str, ...]:
+        return DOLOS_PARAMS if self is SimilarityMode.CODE else TEXT_PARAMS
 
 
 class GradingPending(Exception):
@@ -152,6 +180,8 @@ class SimilarityRun(BaseModel):
 
     schema_version: int = RUN_SCHEMA_VERSION
     run_id: str
+    # 無い `run.json`（2026-10-28 より前）はコードとして比べた回である。
+    mode: SimilarityMode = SimilarityMode.CODE
     course_id: CourseId
     task_id: TaskId
     unit: str | None = None
@@ -173,6 +203,11 @@ class SimilarityRun(BaseModel):
     def measured(self) -> bool:
         return self.not_measured is None
 
+    @property
+    def unit_of_length(self) -> str:
+        """「最長の一致」の単位。Dolos はコードではトークン、文字単位では文字で数える。"""
+        return "文字" if self.mode is SimilarityMode.TEXT else "トークン"
+
 
 @dataclass(frozen=True)
 class _Entry:
@@ -183,6 +218,8 @@ class _Entry:
     storage_key: str
     content_hash: str
     language: str | None
+    #: 仮の名前。**どちらの比べ方でも同じ人は同じ名前**（画面で 2 つの類似度を並べる）。
+    pseudonym: str
 
 
 def _latest_per_learner(submissions: Iterable[Submission]) -> list[Submission]:
@@ -201,18 +238,21 @@ def _latest_per_learner(submissions: Iterable[Submission]) -> list[Submission]:
     return sorted((item[2] for item in latest.values()), key=lambda s: str(s.id))
 
 
-def _code_artifact(submission: Submission) -> Artifact | None:
-    """採点に使うコードの成果物（最初の 1 つ）。消されたものは使わない。"""
+def _artifact(submission: Submission, mode: SimilarityMode) -> Artifact | None:
+    """比べる成果物（最初の 1 つ）。消されたものは使わない。"""
+    kinds = {ArtifactKind.CODE} if mode is SimilarityMode.CODE else TEXT_KINDS
     for artifact in submission.gradable_artifacts:
-        if artifact.kind.value == "code" and not artifact.is_purged:
+        if artifact.kind in kinds and not artifact.is_purged:
             return artifact
     return None
 
 
-def _entries(submissions: Sequence[Submission]) -> list[_Entry]:
+def _entries(submissions: Sequence[Submission], mode: SimilarityMode) -> list[_Entry]:
+    """**仮の名前は提出の並び（学習者 1 人 1 件）で振る。** 比べる成果物の有無で振り直すと、
+    コードとテキストで同じ人が別の名前になり、画面で 2 つの類似度を並べられない。"""
     entries: list[_Entry] = []
-    for submission in submissions:
-        artifact = _code_artifact(submission)
+    for index, submission in enumerate(submissions, start=1):
+        artifact = _artifact(submission, mode)
         if artifact is None:
             continue
         suffix = PurePosixPath(artifact.filename or "").suffix.lower()
@@ -222,7 +262,10 @@ def _entries(submissions: Sequence[Submission]) -> list[_Entry]:
                 filename=artifact.filename or "",
                 storage_key=artifact.storage_key,
                 content_hash=artifact.content_hash,
-                language=LANGUAGE_BY_SUFFIX.get(suffix),
+                language=(
+                    LANGUAGE_BY_SUFFIX.get(suffix) if mode is SimilarityMode.CODE else CHAR_LANGUAGE
+                ),
+                pseudonym=f"S-{index:03d}",
             )
         )
     return entries
@@ -246,13 +289,13 @@ def build_dataset(
     `info.csv` の `full_name`・`labels`・`created_at` はそのまま画面に出る。実名や
     学籍番号を入れない ── 仮の名前と提出の対応は `run.json` に残し、コンソールが引く。
     """
-    suffix = {"c": ".c", "python": ".py"}[language]
+    suffix = {"c": ".c", "python": ".py", CHAR_LANGUAGE: ".txt"}[language]
     files: dict[str, bytes] = {}
     out = io.StringIO()
     writer = csv.writer(out, lineterminator="\n")
     writer.writerow(["filename", "id", "full_name", "labels", "created_at"])
     for index, (entry, content) in enumerate(zip(entries, contents, strict=True), start=1):
-        pseudonym = f"S-{index:03d}"
+        pseudonym = entry.pseudonym
         name = f"{pseudonym}{suffix}"
         files[name] = content
         submitted = entry.submission.submitted_at or entry.submission.created_at
@@ -297,17 +340,27 @@ def list_runs(root: Path, course_id: CourseId) -> list[SimilarityRun]:
     if not course.is_dir():
         return runs
     for task in sorted(p for p in course.iterdir() if p.is_dir()):
-        run = latest_run(root, course_id, TaskId(task.name))
-        if run is not None:
-            runs.append(run)
+        for mode in SimilarityMode:
+            run = latest_run(root, course_id, TaskId(task.name), mode)
+            if run is not None:
+                runs.append(run)
     return runs
 
 
-def latest_run(root: Path, course_id: CourseId, task_id: TaskId) -> SimilarityRun | None:
+def latest_run(
+    root: Path,
+    course_id: CourseId,
+    task_id: TaskId,
+    mode: SimilarityMode = SimilarityMode.CODE,
+) -> SimilarityRun | None:
     directory = task_dir(root, course_id, task_id)
     if not directory.is_dir():
         return None
-    runs = [run for p in directory.iterdir() if p.is_dir() and (run := read_run(p)) is not None]
+    runs = [
+        run
+        for p in directory.iterdir()
+        if p.is_dir() and (run := read_run(p)) is not None and run.mode is mode
+    ]
     return max(runs, key=lambda r: r.created_at, default=None)
 
 
@@ -316,10 +369,16 @@ def run_dir(root: Path, run: SimilarityRun) -> Path:
 
 
 def _keep_only(root: Path, run: SimilarityRun) -> None:
-    """課題ごとに最新の 1 回だけ残す。**写しを増やさない。**"""
+    """課題ごと・比べ方ごとに最新の 1 回だけ残す。**写しを増やさない。**
+
+    読めない回（壊れた `run.json`）も消す。もう一方の比べ方の回は残す。
+    """
     directory = task_dir(root, run.course_id, run.task_id)
     for child in directory.iterdir():
-        if child.is_dir() and child.name != run.run_id:
+        if not child.is_dir() or child.name == run.run_id:
+            continue
+        other = read_run(child)
+        if other is None or other.mode is run.mode:
             shutil.rmtree(child, ignore_errors=True)
 
 
@@ -336,8 +395,9 @@ def run_for_task(
     image: str | None = None,
     sandbox_factory: SandboxFactory = build_tool_sandbox,
     force: bool = False,
+    mode: SimilarityMode = SimilarityMode.CODE,
 ) -> SimilarityRun | None:
-    """1 課題を調べて報告を残す。**入力が前回と同じなら何もしない**（`None`）。
+    """1 課題を 1 つの比べ方で調べて報告を残す。**入力が前回と同じなら何もしない**（`None`）。
 
     前回が環境の不調で測れなかった（`retryable`）なら、入力が同じでも回し直す。
     **採点が終わっていない提出があれば `GradingPending`**（決定的・AI の両段階。試験の
@@ -360,14 +420,15 @@ def run_for_task(
         )
     if pending and not force:
         raise GradingPending(task_id, pending)
-    entries = _entries(submissions)
+    entries = _entries(submissions, mode)
     if not entries:
-        # コードの提出が無い課題（レポート・動画など）は、記録も残さない ──
+        # 比べるものが無い課題（コードとしては Markdown・レポート・動画など、
+        # テキストとしては PDF・動画など）は、記録も残さない ──
         # 入口のページが「測れない」で埋まる。
         return None
-    fingerprint = input_hash(entries, image=tool, params=DOLOS_PARAMS)
+    fingerprint = input_hash(entries, image=tool, params=mode.params)
 
-    previous = latest_run(root, task.course_id, task.id)
+    previous = latest_run(root, task.course_id, task.id, mode)
     if (
         not force
         and previous is not None
@@ -380,6 +441,7 @@ def run_for_task(
         task,
         entries,
         fingerprint,
+        mode=mode,
         store=artifact_store,
         tool=tool,
         at=at,
@@ -390,20 +452,25 @@ def run_for_task(
     return run
 
 
-def _run_id(at: datetime) -> str:
-    return at.astimezone(UTC).strftime("%Y%m%dT%H%M%S%fZ")
+def _run_id(at: datetime, mode: SimilarityMode = SimilarityMode.CODE) -> str:
+    """回の名前。**テキストの回には印を付ける** ── 同じ周回で 2 つ回すと時刻が重なる。"""
+    stamp = at.astimezone(UTC).strftime("%Y%m%dT%H%M%S%fZ")
+    return stamp if mode is SimilarityMode.CODE else f"{stamp}-{mode.value}"
 
 
-def _base(task: Task, fingerprint: str, *, tool: str, at: datetime) -> dict[str, object]:
+def _base(
+    task: Task, fingerprint: str, *, mode: SimilarityMode, tool: str, at: datetime
+) -> dict[str, object]:
     return {
-        "run_id": _run_id(at),
+        "run_id": _run_id(at, mode),
+        "mode": mode,
         "course_id": task.course_id,
         "task_id": task.id,
         "unit": task.unit,
         "task_title": task.title,
         "created_at": at,
         "image": tool,
-        "params": DOLOS_PARAMS,
+        "params": mode.params,
         "input_hash": fingerprint,
     }
 
@@ -414,13 +481,18 @@ def _not_measured(
     reason: NotMeasuredReason,
     detail: str,
     *,
+    mode: SimilarityMode,
     tool: str,
     at: datetime,
     root: Path,
     **extra: object,
 ) -> SimilarityRun:
     run = SimilarityRun.model_validate(
-        {**_base(task, fingerprint, tool=tool, at=at), "not_measured": reason, "detail": detail}
+        {
+            **_base(task, fingerprint, mode=mode, tool=tool, at=at),
+            "not_measured": reason,
+            "detail": detail,
+        }
         | extra
     )
     _write_run(task_dir(root, task.course_id, task.id) / run.run_id, run)
@@ -433,6 +505,7 @@ def _measure(
     entries: Sequence[_Entry],
     fingerprint: str,
     *,
+    mode: SimilarityMode,
     store: ArtifactStore,
     tool: str,
     at: datetime,
@@ -441,15 +514,16 @@ def _measure(
 ) -> SimilarityRun:
     def refuse(reason: NotMeasuredReason, detail: str, **extra: object) -> SimilarityRun:
         return _not_measured(
-            task, fingerprint, reason, detail, tool=tool, at=at, root=root, **extra
+            task, fingerprint, reason, detail, mode=mode, tool=tool, at=at, root=root, **extra
         )
 
+    what = "コード" if mode is SimilarityMode.CODE else "テキスト"
     if len(entries) < MIN_SUBMISSIONS:
-        return refuse(NotMeasuredReason.TOO_FEW, f"コードの提出が {len(entries)} 件です")
+        return refuse(NotMeasuredReason.TOO_FEW, f"{what}の提出が {len(entries)} 件です")
     if len(entries) > MAX_SUBMISSIONS:
         return refuse(
             NotMeasuredReason.TOO_MANY,
-            f"コードの提出が {len(entries)} 件で、1 回の上限（{MAX_SUBMISSIONS} 件）を超えます",
+            f"{what}の提出が {len(entries)} 件で、1 回の上限（{MAX_SUBMISSIONS} 件）を超えます",
         )
     languages = {entry.language for entry in entries}
     if None in languages:
@@ -468,11 +542,11 @@ def _measure(
     submissions = tuple(
         RunSubmission(
             submission_id=entry.submission.id,
-            pseudonym=f"S-{index:03d}",
+            pseudonym=entry.pseudonym,
             filename=entry.filename,
             content_hash=entry.content_hash,
         )
-        for index, entry in enumerate(entries, start=1)
+        for entry in entries
     )
 
     try:
@@ -481,7 +555,7 @@ def _measure(
         return refuse(NotMeasuredReason.SANDBOX_UNAVAILABLE, str(exc), language=language)
 
     started = time.monotonic()
-    target = task_dir(root, task.course_id, task.id) / _run_id(at)
+    target = task_dir(root, task.course_id, task.id) / _run_id(at, mode)
     with sandbox.workspace() as workspace:
         for name, content in files.items():
             workspace.write(f"ds/{name}", content)
@@ -501,7 +575,7 @@ def _measure(
                     # 結びつかない。
                     "-n",
                     task.title,
-                    *DOLOS_PARAMS,
+                    *mode.params,
                     "ds/info.csv",
                 ),
                 limits=LIMITS,
@@ -535,7 +609,7 @@ def _measure(
             shutil.copyfile(source, data / name)
 
     run = SimilarityRun.model_validate(
-        _base(task, fingerprint, tool=tool, at=at)
+        _base(task, fingerprint, mode=mode, tool=tool, at=at)
         | {
             "language": language,
             "submissions": submissions,
@@ -546,8 +620,9 @@ def _measure(
     )
     _write_run(target, run)
     logger.info(
-        "類似の検査: %s %d 件 %.1f 秒（%s）",
+        "類似の検査: %s %s %d 件 %.1f 秒（%s）",
         task.id,
+        mode.value,
         len(entries),
         duration / 1000,
         sandbox.name,
@@ -593,7 +668,7 @@ def _sources_remain(uow: StoreUnitOfWork, run: SimilarityRun) -> bool:
         submission = uow.submissions.get(item.submission_id)
         if submission is None:
             return False
-        artifact = _code_artifact(submission)
+        artifact = _artifact(submission, run.mode)
         if artifact is None or artifact.content_hash != item.content_hash:
             return False
     return True
@@ -604,6 +679,7 @@ def run_payload(run: SimilarityRun) -> str:
     return json.dumps(
         {
             "task": str(run.task_id),
+            "mode": run.mode.value,
             "measured": run.measured,
             "reason": run.not_measured.value if run.not_measured else None,
             "submissions": len(run.submissions),
@@ -672,22 +748,27 @@ def sweep(
     if dry_run:
         return report
     for task in report.due:
-        try:
-            run = run_for_task(
-                database,
-                task.id,
-                artifact_store=artifact_store,
-                root=root,
-                now=at,
-                sandbox_factory=sandbox_factory,
-            )
-        except GradingPending as waiting:
-            report.grading.append(waiting)
-            continue
-        except Exception:
-            logger.exception("類似の検査に失敗しました（次の周回で再試行）: %s", task.id)
-            report.failed.append(task.id)
-            continue
-        if run is not None:
-            report.ran.append(run)
+        # 比べ方ごとに回す。採点待ちなら両方とも次の周回へ（待ちはどちらで数えても同じ）。
+        for mode in SimilarityMode:
+            try:
+                run = run_for_task(
+                    database,
+                    task.id,
+                    artifact_store=artifact_store,
+                    root=root,
+                    now=at,
+                    sandbox_factory=sandbox_factory,
+                    mode=mode,
+                )
+            except GradingPending as waiting:
+                report.grading.append(waiting)
+                break
+            except Exception:
+                logger.exception(
+                    "類似の検査に失敗しました（次の周回で再試行）: %s %s", task.id, mode.value
+                )
+                report.failed.append(task.id)
+                continue
+            if run is not None:
+                report.ran.append(run)
     return report
