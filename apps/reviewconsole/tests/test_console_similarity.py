@@ -258,6 +258,49 @@ def test_content_shows_the_close_paragraphs_instead_of_dolos(world: World, place
     assert client.get(viewer).status_code == 404
 
 
+def test_matches_with_references_show_only_where_they_came_from(world: World, places) -> None:
+    """相手（他の課題・過年度の束）と近いもの（#653）。**相手の側は出どころと類似度だけ。**"""
+    from aijudge_course_admin.code_similarity import ReferenceDocument
+
+    root, _web = places
+    world.register("teacher", Role.INSTRUCTOR)
+    a = world.register("s2400001", Role.LEARNER)
+    b = world.register("s2400002", Role.LEARNER)
+    task_id = _import_example(world)
+    _report(world, root, world.course.id, task_id, [a, b])
+    peers = _report(world, root, world.course.id, task_id, [a, b], mode=SimilarityMode.TEXT)
+    against = peers.model_copy(
+        update={
+            "run_id": peers.run_id + "-ref",
+            "references": (
+                ReferenceDocument(
+                    pseudonym="R-001",
+                    label="2025 年度 ネットワーク レポート 1 の D-007",
+                    content_hash="h",
+                    archive="network-2025-r1",
+                    document="D-007",
+                ),
+            ),
+        }
+    )
+    directory = run_dir(root, against)
+    (directory / DATA_DIR).mkdir(parents=True)
+    (directory / "run.json").write_text(against.model_dump_json(), encoding="utf-8")
+    (directory / DATA_DIR / "pairs.csv").write_text(
+        "id,leftFilePath,rightFilePath,similarity,longestFragment\n0,S-002.txt,R-001.txt,0.61,30\n",
+        encoding="utf-8",
+    )
+    client = world.client("teacher")
+
+    page = client.get(f"/courses/{world.course.id}/similarity").text
+    assert "過去・他コースの提出と近いもの" in page
+    assert "2025 年度 ネットワーク レポート 1 の D-007" in page and "61%" in page
+    assert "s2400002" in page
+    assert "network-2025-r1" not in page, "束の内部の名前も出さない（ラベルだけ）"
+    viewer = f"/courses/{world.course.id}/similarity/{task_id}/{against.run_id}/"
+    assert client.get(viewer).status_code == 404, "相手の本文が見える Dolos の画面は開かない"
+
+
 def test_an_assistant_cannot_open_it(world: World, places) -> None:
     root, _web = places
     world.register("ta", Role.ASSISTANT)

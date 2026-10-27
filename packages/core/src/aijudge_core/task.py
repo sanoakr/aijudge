@@ -314,6 +314,38 @@ class FailedInputs(StrEnum):
     NEVER = "never"
 
 
+class SimilarityReference(BaseModel):
+    """提出の類似で、**この課題の提出と比べる相手**（#653・2026-10-28）。
+
+    過年度のレポートを写していないかを見るため。相手は課題ごとに指定する ── 自動で
+    広く比べると、関係のない課題と比べて空振りが増えるだけである。
+
+    - 他の課題: `course`（コースのコード）・`term`（学期）・`task`（課題のキー）。
+      `course`・`term` を省けばこの課題のコース・学期。ID は導出で決まるので
+      （`course_id_for`）、まだ無いコースを書いても壊れない（見つからなければ比べない）
+    - 取り込んだ過年度の束: `archive`（`aijudge-admin similarity archive import` の名前）
+
+    **相手の側は出どころと類似度しか画面に出さない**（名前も本文も出さない）。
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    course: str | None = None
+    term: str | None = None
+    task: str | None = None
+    archive: str | None = None
+
+    @model_validator(mode="after")
+    def _one_kind(self) -> Self:
+        if (self.task is None) == (self.archive is None):
+            raise ValueError("similarity_references は task か archive のどちらか 1 つを書く")
+        if self.archive is not None and (self.course or self.term):
+            raise ValueError("archive には course・term を書かない")
+        if (self.course is None) != (self.term is None):
+            raise ValueError("他のコースの課題は course と term を両方書く")
+        return self
+
+
 class AnswerMode(StrEnum):
     """学習者がどう答えるか（ADR 0026）。
 
@@ -553,6 +585,9 @@ class Task(BaseModel):
     # 出題先は**学習者にだけ効く**（`aijudge_core.access.may_see`）。教員・TA は
     # 名簿に関係なく見える ── TA が追試の質問に答えられないと困る。
     audience_group_ids: tuple[CourseGroupId, ...] = ()
+    # 提出の類似で比べる相手（`SimilarityReference`・#653）。**空は同じ課題の提出どうしだけ。**
+    # 版ではなく課題に持つ（運用値・採点の基準ではない）。`tasks.document` に入るので列は増えない。
+    similarity_references: tuple[SimilarityReference, ...] = ()
     # 出題を取り下げたか。**削除ではない。**
     #
     # 採点結果は課題版を指しているので（P8）、提出のある課題を消すと過去の

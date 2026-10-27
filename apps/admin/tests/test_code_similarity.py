@@ -202,6 +202,8 @@ class FakeSandbox:
     """Dolos の代わりに報告の 4 ファイルを書く。渡された入力を覚えておく。"""
 
     exit_code: int = 0
+    #: `pairs.csv` に書く中身（無ければファイル名だけ）。
+    pairs: str | None = None
     seen: list[dict[str, bytes]] = field(default_factory=list)
     argv: list[tuple[str, ...]] = field(default_factory=list)
     name: str = "fake"
@@ -239,7 +241,8 @@ class FakeWorkspace:
             out = self._dir / "out"
             out.mkdir(parents=True, exist_ok=True)
             for name in REPORT_FILES:
-                (out / name).write_text(f"{name}\n", encoding="utf-8")
+                body = self.sandbox.pairs if name == "pairs.csv" and self.sandbox.pairs else name
+                (out / name).write_text(f"{body}\n", encoding="utf-8")
         return ExecResult(
             exit_code=self.sandbox.exit_code, stderr="boom" if self.sandbox.exit_code else ""
         )

@@ -260,6 +260,9 @@ def save_task(
             # 教員が画面で広げた拡張子を、定義の流し込みが黙って狭めない。
             accepted_suffixes=normalize_suffixes(spec.accepted_suffixes)
             or (existing.accepted_suffixes if existing else ()),
+            # 類似で比べる相手（#653）も、明示された場合だけ上書きする。
+            similarity_references=spec.similarity_references
+            or (existing.similarity_references if existing else ()),
         )
         uow.tasks.save_task(task)
         try:

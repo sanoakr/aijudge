@@ -91,6 +91,31 @@
   </details>
   {% endfor %}
   {% endif %}
+  {# 指定した相手（他の課題・過年度の束）と近いもの（#653）。**相手の側は出どころと類似度だけ**
+     ── 名前も本文も出さない。 #}
+  {% set refs = item.references %}
+  {% if refs %}
+  <h4>過去・他コースの提出と近いもの</h4>
+  {% if refs.rows %}
+  <table class="stack">
+    <thead><tr><th class="grow">この課題の提出</th><th class="grow">相手（出どころ）</th>{% for m in refs.modes %}<th class="fit">{{ short[m] }}</th>{% endfor %}</tr></thead>
+    <tbody>
+    {% for row in refs.rows %}
+      <tr>
+        <td class="grow" data-label="この課題の提出"><span class="mono">{{ row.learner }}</span> {{ row.person[0] }} {{ row.person[1] }}</td>
+        <td class="grow" data-label="相手">{{ row.source }}</td>
+        {% for m in refs.modes %}{% set v = row["values"].get(m) %}
+        <td class="fit" data-label="{{ short[m] }}">{% if v is number %}{{ '%.0f' | format(v * 100) }}%{% else %}—{% endif %}</td>
+        {% endfor %}
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="desc">相手と比べた結果はまだありません。</p>
+  {% endif %}
+  {% for note in refs.notes %}<p class="desc">{{ note }}</p>{% endfor %}
+  {% endif %}
   <details>
     <summary>仮の名前と学習者の対応（{{ item.people | length }} 名）</summary>
     <table class="stack">

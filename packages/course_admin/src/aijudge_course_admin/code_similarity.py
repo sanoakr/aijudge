@@ -87,6 +87,8 @@ ENV_SIMILARITY_IMAGE = "AIJUDGE_SIMILARITY_IMAGE"
 #: 報告のファイル。画面（Dolos の web）が `data/` の下から読む 4 つだけを残す。
 REPORT_FILES = ("metadata.csv", "pairs.csv", "kgrams.csv", "files.csv")
 RUN_FILE = "run.json"
+#: 取り込んだ過年度の束の置き場所（`AIJUDGE_SIMILARITY_DIR` の下・#653）。
+ARCHIVE_DIR = "archives"
 DATA_DIR = "data"
 RUN_SCHEMA_VERSION = 1
 
@@ -212,6 +214,23 @@ class RunSubmission(BaseModel):
     content_hash: str
 
 
+class ReferenceDocument(BaseModel):
+    """比べる相手の文書 1 件（#653）。**画面には出どころ（`label`）だけを出す。**
+
+    他の課題の提出なら `submission_id`、取り込んだ束なら `archive` と `document`。
+    元が消えたら報告も消す（`_sources_remain`）。
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    pseudonym: str
+    label: str
+    content_hash: str
+    submission_id: SubmissionId | None = None
+    archive: str | None = None
+    document: str | None = None
+
+
 class SimilarityRun(BaseModel):
     """`run.json` の中身。**入口のページ・後始末・自動実行がこれだけを読む。**"""
 
@@ -240,6 +259,13 @@ class SimilarityRun(BaseModel):
     #: 組の近さの中央値（内容としてだけ）。同じ課題のレポートは写していなくても近いので、
     #: 画面はこの値からの差を示す。
     baseline: float | None = None
+    #: 比べた相手（#653）。**空なら同じ課題の提出どうし**（`peers`）。入っていれば、この課題の
+    #: 提出 × 相手の文書だけを比べた回で、`pairs.csv` の右は相手（`R-001`）。
+    references: tuple[ReferenceDocument, ...] = ()
+
+    @property
+    def against_references(self) -> bool:
+        return bool(self.references)
 
     @property
     def measured(self) -> bool:
@@ -419,9 +445,10 @@ def list_runs(root: Path, course_id: CourseId) -> list[SimilarityRun]:
         return runs
     for task in sorted(p for p in course.iterdir() if p.is_dir()):
         for mode in SimilarityMode:
-            run = latest_run(root, course_id, TaskId(task.name), mode)
-            if run is not None:
-                runs.append(run)
+            for against in (False, True):
+                run = latest_run(root, course_id, TaskId(task.name), mode, against=against)
+                if run is not None:
+                    runs.append(run)
     return runs
 
 
@@ -430,14 +457,20 @@ def latest_run(
     course_id: CourseId,
     task_id: TaskId,
     mode: SimilarityMode = SimilarityMode.CODE,
+    *,
+    against: bool = False,
 ) -> SimilarityRun | None:
+    """最新の回。`against` は相手（他の課題・束）と比べた回（#653）。"""
     directory = task_dir(root, course_id, task_id)
     if not directory.is_dir():
         return None
     runs = [
         run
         for p in directory.iterdir()
-        if p.is_dir() and (run := read_run(p)) is not None and run.mode is mode
+        if p.is_dir()
+        and (run := read_run(p)) is not None
+        and run.mode is mode
+        and run.against_references is against
     ]
     return max(runs, key=lambda r: r.created_at, default=None)
 
@@ -456,11 +489,35 @@ def _keep_only(root: Path, run: SimilarityRun) -> None:
         if not child.is_dir() or child.name == run.run_id:
             continue
         other = read_run(child)
-        if other is None or other.mode is run.mode:
+        if other is None or (
+            other.mode is run.mode and other.against_references is run.against_references
+        ):
             shutil.rmtree(child, ignore_errors=True)
 
 
 SandboxFactory = Callable[[str], Sandbox]
+
+
+def load_submissions(
+    database: Store, task_id: TaskId, *, force: bool = False
+) -> tuple[Task, list[Submission]]:
+    """課題と、比べる提出（学習者 1 人 1 件）。**採点が残っていれば `GradingPending`。**"""
+    with database.unit_of_work() as uow:
+        task = uow.tasks.get_task(task_id)
+        if task is None:
+            raise LookupError(f"課題 {task_id!r} がありません")
+        versions = [version.id for version in uow.tasks.list_versions(task_id)]
+        submissions = _latest_per_learner(uow.submissions.list_for_versions(versions))
+        # 未了のジョブ（待機・順番待ち・実行中）がある提出の数。**入力の比較より先に
+        # 数える** ── 採点の途中で届く書き起こしなどで入力が変わる前に回さないため。
+        pending = sum(
+            1
+            for submission in submissions
+            if any(uow.jobs.awaiting(submission.id, phase) for phase in GradingPhase)
+        )
+    if pending and not force:
+        raise GradingPending(task_id, pending)
+    return task, submissions
 
 
 def run_for_task(
@@ -488,21 +545,7 @@ def run_for_task(
         return None
     at = now or datetime.now(UTC)
     tool = image or os.environ.get(ENV_SIMILARITY_IMAGE, "").strip() or DOLOS_IMAGE
-    with database.unit_of_work() as uow:
-        task = uow.tasks.get_task(task_id)
-        if task is None:
-            raise LookupError(f"課題 {task_id!r} がありません")
-        versions = [version.id for version in uow.tasks.list_versions(task_id)]
-        submissions = _latest_per_learner(uow.submissions.list_for_versions(versions))
-        # 未了のジョブ（待機・順番待ち・実行中）がある提出の数。**入力の比較より先に
-        # 数える** ── 採点の途中で届く書き起こしなどで入力が変わる前に回さないため。
-        pending = sum(
-            1
-            for submission in submissions
-            if any(uow.jobs.awaiting(submission.id, phase) for phase in GradingPhase)
-        )
-    if pending and not force:
-        raise GradingPending(task_id, pending)
+    task, submissions = load_submissions(database, task_id, force=force)
     entries = _entries(submissions, mode)
     if not entries:
         # 比べるものが無い課題（コードとしては Markdown・レポート・動画など、
@@ -586,10 +629,13 @@ def _measure_content(
     )
 
 
-def _run_id(at: datetime, mode: SimilarityMode = SimilarityMode.CODE) -> str:
-    """回の名前。**テキストの回には印を付ける** ── 同じ周回で 2 つ回すと時刻が重なる。"""
+def _run_id(
+    at: datetime, mode: SimilarityMode = SimilarityMode.CODE, *, against: bool = False
+) -> str:
+    """回の名前。**コード以外の回には印を付ける** ── 同じ周回で複数回すと時刻が重なる。"""
     stamp = at.astimezone(UTC).strftime("%Y%m%dT%H%M%S%fZ")
-    return stamp if mode is SimilarityMode.CODE else f"{stamp}-{mode.value}"
+    name = stamp if mode is SimilarityMode.CODE else f"{stamp}-{mode.value}"
+    return f"{name}-ref" if against else name
 
 
 def _base(
@@ -787,6 +833,9 @@ def sweep_orphans(database: Store, root: Path) -> list[Path]:
         return removed
     with database.unit_of_work() as uow:
         for course_dir in sorted(p for p in root.iterdir() if p.is_dir()):
+            if course_dir.name == ARCHIVE_DIR:
+                # 取り込んだ過年度の束（#653）。コースではない。消すのは管理用のコマンド。
+                continue
             if uow.identity.get_course(CourseId(course_dir.name)) is None:
                 shutil.rmtree(course_dir, ignore_errors=True)
                 removed.append(course_dir)
@@ -799,13 +848,13 @@ def sweep_orphans(database: Store, root: Path) -> list[Path]:
                     continue
                 for child in sorted(p for p in directory.iterdir() if p.is_dir()):
                     run = read_run(child)
-                    if run is None or not _sources_remain(uow, run):
+                    if run is None or not _sources_remain(uow, run, root):
                         shutil.rmtree(child, ignore_errors=True)
                         removed.append(child)
     return removed
 
 
-def _sources_remain(uow: StoreUnitOfWork, run: SimilarityRun) -> bool:
+def _sources_remain(uow: StoreUnitOfWork, run: SimilarityRun, root: Path) -> bool:
     for item in run.submissions:
         submission = uow.submissions.get(item.submission_id)
         if submission is None:
@@ -813,6 +862,21 @@ def _sources_remain(uow: StoreUnitOfWork, run: SimilarityRun) -> bool:
         artifact = _artifact(submission, run.mode)
         if artifact is None or artifact.content_hash != item.content_hash:
             return False
+    # 相手の文書も（#653）。他の課題の提出が消えた・束を消した、なら報告も消す。
+    from .similarity_archive import archive_hashes
+
+    archives: dict[str, dict[str, str]] = {}
+    for reference in run.references:
+        if reference.submission_id is not None:
+            submission = uow.submissions.get(reference.submission_id)
+            artifact = None if submission is None else _artifact(submission, run.mode)
+            if artifact is None or artifact.content_hash != reference.content_hash:
+                return False
+        elif reference.archive is not None:
+            if reference.archive not in archives:
+                archives[reference.archive] = archive_hashes(root, reference.archive)
+            if archives[reference.archive].get(reference.document or "") != reference.content_hash:
+                return False
     return True
 
 
@@ -916,4 +980,44 @@ def sweep(
                 continue
             if run is not None:
                 report.ran.append(run)
+        else:
+            # 採点待ちでなければ、指定した相手（他の課題・過年度の束）とも比べる（#653）。
+            _sweep_references(
+                database, task, report, root, artifact_store, at, sandbox_factory, content
+            )
     return report
+
+
+def _sweep_references(
+    database: Store,
+    task: Task,
+    report: SweepReport,
+    root: Path,
+    artifact_store: ArtifactStore,
+    at: datetime,
+    sandbox_factory: SandboxFactory,
+    content: ContentSettings | None,
+) -> None:
+    from .reference_similarity import REFERENCE_MODES, clear_reference_runs, run_references
+
+    if not task.similarity_references:
+        clear_reference_runs(root, task)
+        return
+    for mode in REFERENCE_MODES:
+        try:
+            run = run_references(
+                database,
+                task.id,
+                artifact_store=artifact_store,
+                root=root,
+                mode=mode,
+                now=at,
+                sandbox_factory=sandbox_factory,
+                content=content,
+            )
+        except Exception:
+            logger.exception("相手との類似の検査に失敗しました: %s %s", task.id, mode.value)
+            report.failed.append(task.id)
+            continue
+        if run is not None:
+            report.ran.append(run)

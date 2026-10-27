@@ -170,6 +170,53 @@ def passages(run: SimilarityRun, root: Path) -> dict[str, list[dict[str, Any]]]:
     return loaded if isinstance(loaded, dict) else {}
 
 
+def reference_rows(
+    runs: dict[SimilarityMode, SimilarityRun],
+    root: Path | None,
+    people: dict[str, tuple[str, str]],
+    limit: int = TOP_PAIRS,
+) -> dict[str, Any]:
+    """相手（他の課題・過年度の束）と近い組（#653）。**相手の側は出どころと類似度だけ。**
+
+    相手の名前も本文も出さない。並びは内容として（あれば）、無ければテキストとしての値。
+    """
+    if not runs or root is None:
+        return {}
+    measured = {mode: run for mode, run in runs.items() if run.measured}
+    lead = measured.get(SimilarityMode.CONTENT) or measured.get(SimilarityMode.TEXT)
+    notes = [
+        f"{MODE_SHORT[mode]}: {REASON_LABELS.get(run.not_measured.value, run.not_measured.value)}"
+        for mode, run in runs.items()
+        if run.not_measured is not None
+    ]
+    if lead is None:
+        return {"rows": [], "modes": [], "notes": notes}
+    labels = {d.pseudonym: d.label for run in runs.values() for d in run.references}
+    by_learner = {
+        mode: {item.pseudonym: str(item.submission_id) for item in run.submissions}
+        for mode, run in measured.items()
+    }
+    # 学習者の仮の名前は、同じ課題どうしの回と同じ振り方（学習者 1 人 1 件の並び）。
+    values: dict[tuple[str, str], dict[SimilarityMode, float]] = {}
+    for mode, run in measured.items():
+        for left, right, similarity, _longest in _pairs(run, root):
+            submission = by_learner[mode].get(left)
+            if submission is not None:
+                values.setdefault((submission, right), {})[mode] = similarity
+    names = {str(item.submission_id): item.pseudonym for item in lead.submissions}
+    ranked = sorted(values.items(), key=lambda kv: -kv[1].get(lead.mode, 0.0))[:limit]
+    rows = [
+        {
+            "learner": names.get(submission, "?"),
+            "person": people.get(names.get(submission, ""), ("?", "")),
+            "source": labels.get(reference, reference),
+            "values": scores,
+        }
+        for (submission, reference), scores in ranked
+    ]
+    return {"rows": rows, "modes": list(measured), "notes": notes}
+
+
 def similarity_by_submissions(run: SimilarityRun, root: Path) -> dict[frozenset[str], float]:
     """組（提出 ID の 2 つ）→ 類似度。**もう一方の比べ方の値を引くために、提出で突き合わせる**
     ── 仮の名前はそろえて振るが、2026-10-28 より前の回は振り方が違いうる。"""
@@ -218,8 +265,9 @@ def register(templates: Jinja2Templates) -> APIRouter:
         run = read_run(target)
         if run is None or not run.measured or str(run.course_id) != str(course_id):
             raise HTTPException(status_code=404, detail="報告が見つかりません")
-        if run.mode is SimilarityMode.CONTENT:
-            # 内容としての回は Dolos の報告ではない（根拠の段落は入口に出す）。
+        if run.mode is SimilarityMode.CONTENT or run.against_references:
+            # 内容としての回は Dolos の報告ではない（根拠の段落は入口に出す）。相手と比べた回
+            # （#653）は相手の本文を出さないと決めたので開かない（`pairs.csv` しか残していない）。
             raise HTTPException(status_code=404, detail="報告が見つかりません")
         return root, run
 
@@ -231,8 +279,11 @@ def register(templates: Jinja2Templates) -> APIRouter:
         root = similarity_root()
         runs = list_runs(root, course.id) if root is not None else []
         by_task: dict[str, dict[SimilarityMode, SimilarityRun]] = {}
+        # 指定した相手（他の課題・過年度の束）と比べた回は別に持つ（#653）。
+        against: dict[str, dict[SimilarityMode, SimilarityRun]] = {}
         for run in runs:
-            by_task.setdefault(str(run.task_id), {})[run.mode] = run
+            holder = against if run.against_references else by_task
+            holder.setdefault(str(run.task_id), {})[run.mode] = run
         units: dict[str, list[dict[str, Any]]] = {}
         with console.database.unit_of_work() as uow:
             # 課題の並びはコースの一覧と同じ（`list_for_course` の順）。
@@ -279,6 +330,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
                             run.not_measured.value if run.not_measured else "", ""
                         ),
                         "href": f"/courses/{course.id}/similarity/{run.task_id}/{run.run_id}/",
+                        "references": reference_rows(against.get(task_id, {}), root, people),
                     }
                 )
         _audit(

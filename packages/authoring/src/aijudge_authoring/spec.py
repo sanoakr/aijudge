@@ -27,6 +27,7 @@ from aijudge_core import (
     ReviewState,
     RubricCriterion,
     RubricLevel,
+    SimilarityReference,
     TaskVersion,
     TestCase,
     derived_id,
@@ -189,6 +190,9 @@ class TaskSpec(BaseModel):
     case_timeout_seconds: float | None = Field(
         default=None, gt=0.0, le=MAX_TASK_CASE_TIMEOUT_SECONDS
     )
+    # 提出の類似で比べる相手（#653）。他の課題（過年度・他コース）か、取り込んだ過年度の束。
+    # 提出形式と同じく、**書いたときだけ**上書きする。
+    similarity_references: tuple[SimilarityReference, ...] = ()
     # AI が担当する「読みやすさ」の重み。0 なら観点を作らない。
     readability_weight: float = Field(default=0.0, ge=0.0, lt=1.0)
     # 観点の畳み方（AND / OR）。**None ならコースの設定に従う。**
