@@ -1,0 +1,17 @@
+{# 習熟度の範囲の切り替え（ADR 0032）。**学生と教員で同じ部品・同じ語。**
+
+   渡すもの:
+     scope   いまの範囲（`MasteryScope`）
+     scopes  (範囲, 呼び方) の並び（`aijudge_skill.portfolio.SCOPE_LABELS`）
+
+   URL に残す（`?scope=`）── 戻っても共有しても同じ表示で開く。 #}
+<nav class="scopes" aria-label="習熟度の範囲">
+  {% for key, label in scopes %}
+  <a href="?scope={{ key.value }}" {% if key == scope %}aria-current="page"{% endif %}>{{ label }}</a>
+  {% endfor %}
+</nav>
+<p class="desc" style="margin:-6px 0 14px">
+  {%- if scope.value == 'practice' %}演習（監督のない回）の提出だけから見積もった値です。
+  {%- elif scope.value == 'exam' %}試験（監督のある回）の提出だけから見積もった値です。試験を受けていない知識要素は出ません。
+  {%- else %}演習と試験の両方から見積もった値です。試験の結果を重く見ています。{% endif %}
+</p>

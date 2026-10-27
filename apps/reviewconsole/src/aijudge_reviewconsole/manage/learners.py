@@ -120,7 +120,7 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
     """この領域のルートを `router` に登録する（登録の位置は呼ぶ側が決める）。"""
 
     @router.get("/courses/{course_id}/mastery", response_class=HTMLResponse)
-    def mastery_overview(request: Request, course_id: str) -> Response:
+    def mastery_overview(request: Request, course_id: str, scope: str = "") -> Response:
         """コースの習熟度 ── 分布と推移（#328）。
 
         **教員とテナント管理者だけ**（`_require_enrolment_manager`）。TA は
@@ -150,10 +150,12 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
             )
             kcs = tuple((str(kc.id), kc.key, kc.label) for kc in _course_kcs(console, course))
             # **まとめて引く**（#328）。1 人ずつ引くと受講者数ぶんの往復になる。
+            # 演習のみ・試験のみ・両方（ADR 0032）。分布も推移も同じ範囲で描く。
+            chosen = mastery.parse_scope(scope)
             states = uow.skills.list_states_for(me.tenant_id, learners)
-            points = uow.skills.history(me.tenant_id, learners)
+            points = uow.skills.history(me.tenant_id, learners, scope=chosen)
 
-        view = mastery.overview(states, points, kcs=kcs, learners=len(learners))
+        view = mastery.overview(states, points, kcs=kcs, learners=len(learners), scope=chosen)
         return templates.TemplateResponse(
             request,
             "manage_mastery.html",
@@ -170,11 +172,18 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
                 # サーバ側なので、同じ値を 2 か所に置くと片方だけずれる。
                 "chart": {"width": 640, "height": 140},
                 "line": mastery.polyline(view.trend, width=640, height=140),
+                # 軸の目盛り。縦は 0–100% で固定、横は日付（両端と間引いた途中）。
+                "y_ticks": mastery.Y_TICKS,
+                "x_ticks": mastery.x_ticks(view.trend, width=640),
+                "scope": chosen,
+                "scopes": mastery.SCOPE_LABELS,
             },
         )
 
     @router.get("/courses/{course_id}/mastery/{user_id}", response_class=HTMLResponse)
-    def mastery_for_learner(request: Request, course_id: str, user_id: str) -> Response:
+    def mastery_for_learner(
+        request: Request, course_id: str, user_id: str, scope: str = ""
+    ) -> Response:
         """1 人の習熟度と、その根拠（#328）。
 
         **根拠はこのコースのものだけを開く。** 習熟度はコースを跨いで動くので、
@@ -202,7 +211,8 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
             ]
             course_of, title_of = _where_evidence_came_from(uow, states)
 
-        rows = [
+        chosen = mastery.parse_scope(scope)
+        split = [
             mastery.split_evidence(
                 state,
                 course_of=course_of,
@@ -210,9 +220,12 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
                 course_id=str(course.id),
                 key=labels[str(state.kc_id)][0],
                 label=labels[str(state.kc_id)][1],
+                scope=chosen,
             )
             for state in states
         ]
+        # その範囲の観測が無い知識要素は並べない（ADR 0032）。
+        rows = [row for row in split if row is not None]
         rows.sort(key=lambda row: row.key)
         return templates.TemplateResponse(
             request,
@@ -226,6 +239,8 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
                 },
                 "learner": learner,
                 "rows": rows,
+                "scope": chosen,
+                "scopes": mastery.SCOPE_LABELS,
             },
         )
 

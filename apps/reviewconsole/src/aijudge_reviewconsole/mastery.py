@@ -22,8 +22,15 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, datetime
 
-from aijudge_core import SkillPoint, SkillState
-from aijudge_skill.portfolio import Evidence, LearnerKc, confidence_of, split_evidence
+from aijudge_core import MasteryScope, SkillPoint, SkillState
+from aijudge_skill.portfolio import (
+    SCOPE_LABELS,
+    Evidence,
+    LearnerKc,
+    confidence_of,
+    parse_scope,
+    split_evidence,
+)
 
 #: 分布の段数。5 段（0–20 / …／80–100%）。
 #:
@@ -98,6 +105,7 @@ def overview(
     *,
     kcs: tuple[tuple[str, str, str], ...],
     learners: int,
+    scope: MasteryScope = MasteryScope.ALL,
 ) -> Overview:
     """分布と推移に畳む。`kcs` は (kc_id, key, label) の並び（表示の順）。
 
@@ -109,9 +117,12 @@ def overview(
     seen: set[str] = set()
     for state in states:
         kc_id = str(state.kc_id)
-        if kc_id not in wanted:
+        # その範囲の観測が無い組は数えない（ADR 0032）── 0 として数えると、
+        # 試験を受けていない受講者が「試験で全くできなかった」側に入る。
+        value = state.mastery_in(scope)
+        if kc_id not in wanted or value is None:
             continue
-        by_kc[kc_id].append(state.mastery)
+        by_kc[kc_id].append(value)
         seen.add(str(state.learner_id))
 
     rows = []
@@ -201,8 +212,30 @@ def polyline(points: tuple[TrendPoint, ...], *, width: int, height: int) -> str:
     )
 
 
+def x_ticks(points: tuple[TrendPoint, ...], *, width: int, most: int = 5) -> tuple:
+    """推移の横軸の目盛り（位置, 日付の文字）。**両端は必ず出す。**
+
+    点は日ごとに等間隔に並べている（`polyline`）ので、目盛りも点の位置に置く。
+    日が多ければ間引き、`most` 個までにする（文字が重ならないように）。
+    """
+    if not points:
+        return ()
+    if len(points) == 1:
+        return ((0.0, points[0].day.strftime("%m/%d")),)
+    step = width / (len(points) - 1)
+    count = min(most, len(points))
+    indexes = sorted({round(i * (len(points) - 1) / (count - 1)) for i in range(count)})
+    return tuple((index * step, points[index].day.strftime("%m/%d")) for index in indexes)
+
+
+#: 推移の縦軸の目盛り（割合）。0–100% を縦いっぱいに取るので、目盛りも固定。
+Y_TICKS = (0.0, 0.25, 0.5, 0.75, 1.0)
+
+
 __all__ = [
     "BANDS",
+    "SCOPE_LABELS",
+    "Y_TICKS",
     "Evidence",
     "KcRow",
     "LearnerKc",
@@ -211,7 +244,9 @@ __all__ = [
     "band_label",
     "confidence_of",
     "overview",
+    "parse_scope",
     "polyline",
     "split_evidence",
     "trend",
+    "x_ticks",
 ]

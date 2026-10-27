@@ -218,3 +218,104 @@ def test_the_mastery_link_is_its_own_column_not_the_login(world: World) -> None:
     assert "習熟度を見る" in page, "行き先を名乗るリンクになっていない"
     # ログイン ID そのものはリンクにしない。
     assert f'/mastery/{learner}">s1</a>' not in page
+
+
+# -- 演習のみ・試験のみ・両方（ADR 0032）------------------------------------
+
+
+def _record_split(world: World, learner: UserId, kc: KcId, *, practice, exam) -> None:
+    """両方を合わせた値に加えて、演習だけ・試験だけの値と推移の点を入れる。"""
+    from aijudge_core import MasteryScope
+
+    with world.database.unit_of_work() as uow:
+        uow.skills.save_state(
+            SkillState(
+                tenant_id=world.course.tenant_id,
+                learner_id=learner,
+                kc_id=kc,
+                mastery=0.5,
+                model=MasteryModel.BKT,
+                observation_count=2,
+                updated_at=NOW,
+                practice_mastery=practice,
+                practice_count=0 if practice is None else 1,
+                exam_mastery=exam,
+                exam_count=0 if exam is None else 1,
+            )
+        )
+        for scope, value in (
+            (MasteryScope.ALL, 0.5),
+            (MasteryScope.PRACTICE, practice),
+            (MasteryScope.EXAM, exam),
+        ):
+            if value is None:
+                continue
+            uow.skills.append_point(
+                SkillPoint(
+                    tenant_id=world.course.tenant_id,
+                    learner_id=learner,
+                    kc_id=kc,
+                    mastery=value,
+                    observation_count=1,
+                    model=MasteryModel.BKT,
+                    scope=scope,
+                    recorded_at=NOW,
+                )
+            )
+        uow.commit()
+
+
+def test_the_overview_switches_between_practice_exam_and_both(world: World) -> None:
+    """分布も推移も、選んだ範囲の値で描く。**試験を受けていない人は試験のみに数えない。**"""
+    world.register("teacher", Role.INSTRUCTOR)
+    a = world.register("s1", Role.LEARNER).user_id
+    b = world.register("s2", Role.LEARNER).user_id
+    kc = _kc(world, "cs.loops", "くりかえし")
+    _scope(world, ("cs.loops",))
+    _record_split(world, a, kc, practice=0.9, exam=0.2)
+    _record_split(world, b, kc, practice=0.8, exam=None)
+    base = f"/manage/courses/{world.course.id}/mastery"
+
+    page = world.client("teacher").get(base).text
+    assert 'aria-label="習熟度の範囲"' in page
+    assert 'href="?scope=exam"' in page
+
+    exam = world.client("teacher").get(base + "?scope=exam").text
+    assert "記録があるのは 1 名" in exam
+    practice = world.client("teacher").get(base + "?scope=practice").text
+    assert "記録があるのは 2 名" in practice
+
+
+def test_the_trend_has_axis_ticks(world: World) -> None:
+    """推移の図に軸の目盛り（縦は 0〜100%、横は日付）を付ける。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    learner = world.register("s1", Role.LEARNER).user_id
+    kc = _kc(world, "cs.loops", "くりかえし")
+    _scope(world, ("cs.loops",))
+    _record(world, learner, kc, 0.4)
+    _record(world, learner, kc, 0.8, at=NOW + timedelta(days=1))
+
+    page = world.client("teacher").get(f"/manage/courses/{world.course.id}/mastery").text
+
+    for label in ("0%", "25%", "50%", "75%", "100%"):
+        assert f">{label}</text>" in page, f"縦軸の目盛り {label} が無い"
+    assert ">09/16</text>" in page and ">09/17</text>" in page
+
+
+def test_a_learners_page_shows_practice_and_exam_beside_both(world: World) -> None:
+    """両方を合わせた値の隣に、演習のみ・試験のみ。試験のみでは試験の無い KC を出さない。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    learner = world.register("s1", Role.LEARNER).user_id
+    loops = _kc(world, "cs.loops", "くりかえし")
+    arrays = _kc(world, "cs.arrays", "配列")
+    _scope(world, ("cs.loops", "cs.arrays"))
+    _record_split(world, learner, loops, practice=0.9, exam=0.2)
+    _record_split(world, learner, arrays, practice=0.7, exam=None)
+    base = f"/manage/courses/{world.course.id}/mastery/{learner}"
+
+    page = world.client("teacher").get(base).text
+    assert "演習のみ 90%" in page and "試験のみ 20%" in page
+    assert "試験のみ 記録なし" in page
+
+    exam = world.client("teacher").get(base + "?scope=exam").text
+    assert "くりかえし" in exam and "配列" not in exam.split('aria-label="習熟度の範囲"')[1]

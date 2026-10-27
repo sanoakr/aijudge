@@ -18,9 +18,31 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
-from aijudge_core import SkillState
+from aijudge_core import MasteryScope, SkillState
 
-__all__ = ["Evidence", "LearnerKc", "confidence_of", "split_evidence"]
+__all__ = [
+    "SCOPE_LABELS",
+    "Evidence",
+    "LearnerKc",
+    "confidence_of",
+    "parse_scope",
+    "split_evidence",
+]
+
+#: 画面で選ぶ範囲と、その呼び方（ADR 0032）。学生と教員で同じ語を使う。
+SCOPE_LABELS: tuple[tuple[MasteryScope, str], ...] = (
+    (MasteryScope.ALL, "演習と試験"),
+    (MasteryScope.PRACTICE, "演習のみ"),
+    (MasteryScope.EXAM, "試験のみ"),
+)
+
+
+def parse_scope(value: str | None) -> MasteryScope:
+    """URL の `scope` を範囲に直す。**知らない値は両方**（既定）として読む。"""
+    try:
+        return MasteryScope(value or MasteryScope.ALL.value)
+    except ValueError:
+        return MasteryScope.ALL
 
 
 @dataclass(frozen=True)
@@ -59,6 +81,12 @@ class LearnerKc:
     key: str
     label: str
     mastery: float
+    #: どの範囲の値か（ADR 0032）。
+    scope: MasteryScope
+    #: 演習だけ・試験だけの値。**観測が無ければ None。** 範囲を切り替えずに
+    #: 差を読めるよう、両方を合わせた値の隣に小さく出す。
+    practice_mastery: float | None
+    exam_mastery: float | None
     #: 根拠が持つ確信度の平均（#335）。**None は 0 ではない。**
     confidence: float | None
     observation_count: int
@@ -78,8 +106,13 @@ def split_evidence(
     course_id: str,
     key: str,
     label: str,
-) -> LearnerKc:
+    scope: MasteryScope = MasteryScope.ALL,
+) -> LearnerKc | None:
     """根拠を「このコース」と「それ以外」に割る。
+
+    `scope` の範囲の値と根拠だけを出す（ADR 0032）。**その範囲の観測が無い
+    知識要素は None**（呼ぶ側が並びから外す）── 0% として並べると「試験を
+    受けていない」が「試験で全くできなかった」に見える。
 
     **習熟度はコースを跨いで動く。** 1 つの値に、担当していない科目の観測も
     入っている ── そこを黙って混ぜると、教員は自分の課題で説明できない値を
@@ -88,9 +121,14 @@ def split_evidence(
     それ以外は**件数だけ**にする。担当していないコースの課題名は、成績に
     近い情報である。辿れなかったものもこちらに数える（`resolved`）。
     """
+    value = state.mastery_in(scope)
+    if value is None:
+        return None
     here: list[Evidence] = []
     elsewhere = 0
     for item in state.evidence:
+        if scope is not MasteryScope.ALL and item.exam != (scope is MasteryScope.EXAM):
+            continue
         run_id = str(item.grading_run_id)
         where = course_of.get(run_id)
         if where == course_id:
@@ -112,9 +150,12 @@ def split_evidence(
     return LearnerKc(
         key=key,
         label=label,
-        mastery=state.mastery,
+        mastery=value,
+        scope=scope,
+        practice_mastery=state.practice_mastery,
+        exam_mastery=state.exam_mastery,
         confidence=confidence_of(state),
-        observation_count=state.observation_count,
+        observation_count=state.count_in(scope),
         updated_at=state.updated_at,
         here=tuple(here),
         elsewhere=elsewhere,

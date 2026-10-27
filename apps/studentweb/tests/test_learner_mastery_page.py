@@ -125,3 +125,13 @@ def test_nothing_recorded_says_so(world: World) -> None:
     page = world.client.get(f"/courses/{COURSE}/mastery").text
 
     assert "まだ記録がありません" in page
+
+
+def test_the_learner_can_switch_between_practice_exam_and_both(world: World) -> None:
+    """学生も教員と同じ 3 通りで見られる（ADR 0032）。試験の記録が無ければ、そう言う。"""
+    page = _page(world)
+    assert 'aria-label="習熟度の範囲"' in page
+    assert "試験のみ 記録なし" in page
+
+    exam = world.client.get(f"/courses/{COURSE}/mastery?scope=exam").text
+    assert "まだ記録がありません" in exam
