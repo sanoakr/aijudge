@@ -27,6 +27,9 @@ dependencies = [
     "aijudge-submission",
     # 利用者の作成・パスワード・名簿（`operations`）。
     "aijudge-identity",
+    # 内容としての類似（`content_similarity`）で、段落の埋め込みどうしの近さを行列で計算する。
+    # 100 件 × 25 段落でも 2500² の内積になり、純 Python では周回に収まらない。
+    "numpy>=2.5.4",
 ]
 
 [build-system]

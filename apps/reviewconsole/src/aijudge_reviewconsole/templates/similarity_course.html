@@ -11,7 +11,9 @@
   提出 1 件を比べます。
   <strong>コードとして</strong>は変数名を抽象化して構造で比べ、コメントは読みません。
   <strong>テキストとして</strong>はコメントも含めて文字の並びで比べます（言い換えは見つかりません）。
-  Markdown・LaTeX の提出はテキストとしてだけ比べます。
+  <strong>内容として</strong>は段落ごとに意味の近さを測り、言い換えも拾います（Markdown・LaTeX・PDF・Word のレポート）。
+  同じ課題のレポートは写していなくても近くなるので、その課題の中央値と比べて読んでください。
+  PDF・Word は本文を取り出して比べます。図そのものはまだ比べません。
   <strong>似ていることは不正の判定ではありません。</strong> 同じ課題を解けば似ます
   ── とくに入門課題は書き方がほぼ 1 通りです。該当箇所を読んで判断してください。
   <strong>この画面と報告を開いたことは監査ログに残ります。</strong>
@@ -47,29 +49,47 @@
     <span class="desc">{{ run.created_at | local('%m-%d %H:%M') }} に調べました</span></h3>
   {% if run.measured %}
   <p class="desc">
-    {{ run.submissions | length }} 件（{{ 'テキスト' if run.language == 'char' else run.language }}）を比べました。
-    {% if viewer %}<a href="{{ root_prefix() }}{{ item.href }}" rel="noreferrer">Dolos で開く（{{ modes[run.mode] }}）</a>{% endif %}
+    {{ run.submissions | length }} 件（{{ short[run.mode] if run.language in (none, 'char') else run.language }}）を比べました。
+    {% if run.baseline is not none %}この課題の組の中央値は {{ '%.0f' | format(run.baseline * 100) }}% です。{% endif %}
+    {% if run.detail %}{{ run.detail }}。{% endif %}
+    {% if viewer and run.mode.value != 'content' %}<a href="{{ root_prefix() }}{{ item.href }}" rel="noreferrer">Dolos で開く（{{ modes[run.mode] }}）</a>{% endif %}
   </p>
   {% if item.pairs %}
   <table class="stack">
-    {% set this_label = short[run.mode] %}{% set other_label = short[item.other_mode] %}
-    <thead><tr><th class="fit">{{ this_label }}</th><th class="fit">{{ other_label }}</th><th class="grow">組</th><th class="fit">最長の一致（{{ run.unit_of_length }}）</th></tr></thead>
+    {% set this_label = short[run.mode] %}
+    {% set length_label = '近い段落' if run.mode.value == 'content' else '最長の一致（' ~ run.unit_of_length ~ '）' %}
+    <thead><tr><th class="fit">{{ this_label }}</th>{% for m in item.other_modes %}<th class="fit">{{ short[m] }}</th>{% endfor %}<th class="grow">組</th><th class="fit">{{ length_label }}</th></tr></thead>
     <tbody>
     {% for pair in item.pairs %}
       {% set a = item.people.get(pair.left, ('?', '')) %}{% set b = item.people.get(pair.right, ('?', '')) %}
       <tr>
         <td class="fit" data-label="{{ this_label }}">{{ '%.0f' | format(pair.similarity * 100) }}%</td>
-        <td class="fit muted" data-label="{{ other_label }}">{% if pair.other is number %}{{ '%.0f' | format(pair.other * 100) }}%{% else %}—{% endif %}</td>
+        {% for m in item.other_modes %}{% set v = pair.others.get(m) %}
+        <td class="fit muted" data-label="{{ short[m] }}">{% if v is number %}{{ '%.0f' | format(v * 100) }}%{% else %}—{% endif %}</td>
+        {% endfor %}
         <td class="grow" data-label="組">
           <span class="mono">{{ pair.left }}</span> {{ a[0] }} {{ a[1] }}
           <span class="sep">·</span>
           <span class="mono">{{ pair.right }}</span> {{ b[0] }} {{ b[1] }}
         </td>
-        <td class="fit" data-label="最長の一致">{{ pair.longest }}</td>
+        <td class="fit" data-label="{{ length_label }}">{{ pair.longest }}</td>
       </tr>
     {% endfor %}
     </tbody>
   </table>
+  {# 内容としての根拠。**Dolos の画面が無いので、近い段落をここに並べる。** #}
+  {% for pair in item.pairs if pair.passages %}
+  <details class="passages">
+    <summary>{{ pair.left }} · {{ pair.right }} の近い段落（{{ pair.passages | length }} 組）</summary>
+    {% for p in pair.passages %}
+    <div class="passage-pair">
+      <p class="desc">{{ '%.0f' | format(p.similarity * 100) }}%</p>
+      <blockquote><span class="mono">{{ pair.left }}</span> {{ p.left }}</blockquote>
+      <blockquote><span class="mono">{{ pair.right }}</span> {{ p.right }}</blockquote>
+    </div>
+    {% endfor %}
+  </details>
+  {% endfor %}
   {% endif %}
   <details>
     <summary>仮の名前と学習者の対応（{{ item.people | length }} 名）</summary>
