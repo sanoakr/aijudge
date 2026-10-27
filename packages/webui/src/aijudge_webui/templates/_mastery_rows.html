@@ -56,7 +56,9 @@
       {% for item in row.here %}
         <tr>
           <td class="fit desc" data-label="日時">{{ item.observed_at | local('%Y-%m-%d %H:%M') }}</td>
-          <td class="grow" data-label="課題">{{ item.task_title or '（課題が見つかりません）' }}</td>
+          {# 試験の根拠は習熟度に重く効く（ADR 0032）。どちらで得た根拠かを並べて読めるようにする。 #}
+          <td class="grow" data-label="課題">{{ item.task_title or '（課題が見つかりません）' }}
+            {%- if item.exam %} <span class="pill">試験</span>{% endif %}</td>
           <td class="fit" data-label="得点">{{ '%.0f' | format(item.score_ratio * 100) }}%</td>
           {# **誰も読んでいない採点を「確認済み」と書かない**（ADR 0005 / 0010）。 #}
           <td class="fit" data-label="確認">

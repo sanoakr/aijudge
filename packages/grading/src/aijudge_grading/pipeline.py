@@ -46,6 +46,7 @@ from aijudge_core.ids import (
     EvaluatorResultId,
     EventId,
     GradingRunId,
+    TaskId,
     TenantId,
 )
 
@@ -645,9 +646,18 @@ class GradingPipeline:
 
 
 def grading_completed_event(
-    run: GradingRun, submission: Submission, *, tenant_id: TenantId
+    run: GradingRun,
+    submission: Submission,
+    *,
+    tenant_id: TenantId,
+    task_id: TaskId | None = None,
+    exam: bool = False,
 ) -> GradingCompleted:
-    """採点結果を S7 / S9 へ渡すイベントに変換する。"""
+    """採点結果を S7 / S9 へ渡すイベントに変換する。
+
+    `task_id` と `exam` は課題の事実で、採点記録は持たない。呼ぶ側（採点ワーカー）が
+    課題を引いて渡す（ADR 0032）。
+    """
     return GradingCompleted(
         event_id=EventId(new_id("evt")),
         tenant_id=tenant_id,
@@ -662,4 +672,7 @@ def grading_completed_event(
         provisional=run.is_provisional,
         is_trial=submission.is_trial,
         kc_outcomes=run.kc_outcomes,
+        task_id=task_id,
+        exam=exam,
+        submitted_at=submission.submitted_at,
     )

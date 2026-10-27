@@ -9,7 +9,13 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Protocol, runtime_checkable
 
-from aijudge_core import KnowledgeComponent, SkillPoint, SkillState
+from aijudge_core import (
+    KnowledgeComponent,
+    MasteryScope,
+    SkillObservation,
+    SkillPoint,
+    SkillState,
+)
 from aijudge_core.ids import KcId, TenantId, UserId
 
 
@@ -37,6 +43,19 @@ class SkillRepository(Protocol):
         """
         ...
 
+    def list_observations(
+        self, tenant_id: TenantId, learner_id: UserId, kc_id: KcId
+    ) -> tuple[SkillObservation, ...]:
+        """学習者 × KC の観測。**課題ごとに 1 件**（ADR 0032）。順序は決めない。"""
+        ...
+
+    def save_observation(self, observation: SkillObservation) -> None:
+        """観測を書く。**同じ学習者 × KC × 課題があれば置き換える**（最終提出だけを持つ）。
+
+        古い提出の結果で上書きしないかの判断は呼ぶ側（`SkillService`）が持つ。
+        """
+        ...
+
     def append_point(self, point: SkillPoint) -> None:
         """習熟度が動いた瞬間を記録する。**追記のみ**（`SkillPoint`）。
 
@@ -52,11 +71,12 @@ class SkillRepository(Protocol):
         *,
         kc_ids: tuple[KcId, ...] = (),
         since: datetime | None = None,
+        scope: MasteryScope = MasteryScope.ALL,
     ) -> tuple[SkillPoint, ...]:
         """記録された推移。古い順。
 
         `kc_ids` が空なら KC で絞らない。`learner_ids` は空なら空を返す
-        （`list_states_for` と同じ作法）。
+        （`list_states_for` と同じ作法）。`scope` の点だけを返す（ADR 0032）。
         """
         ...
 
@@ -88,6 +108,7 @@ class InMemorySkillRepository:
     def __init__(self, kcs: tuple[KnowledgeComponent, ...] = ()) -> None:
         self._states: dict[tuple[str, str, str], SkillState] = {}
         self._points: list[SkillPoint] = []
+        self._observations: dict[tuple[str, str, str, str], SkillObservation] = {}
         self._kcs = {kc.id: kc for kc in kcs}
 
     def get_state(self, tenant_id: TenantId, learner_id: UserId, kc_id: KcId) -> SkillState | None:
@@ -116,6 +137,24 @@ class InMemorySkillRepository:
             if state.tenant_id == tenant_id and str(state.learner_id) in wanted
         )
 
+    def list_observations(
+        self, tenant_id: TenantId, learner_id: UserId, kc_id: KcId
+    ) -> tuple[SkillObservation, ...]:
+        return tuple(
+            item
+            for item in self._observations.values()
+            if item.tenant_id == tenant_id and item.learner_id == learner_id and item.kc_id == kc_id
+        )
+
+    def save_observation(self, observation: SkillObservation) -> None:
+        key = (
+            str(observation.tenant_id),
+            str(observation.learner_id),
+            str(observation.kc_id),
+            str(observation.task_id),
+        )
+        self._observations[key] = observation
+
     def append_point(self, point: SkillPoint) -> None:
         self._points.append(point)
 
@@ -126,6 +165,7 @@ class InMemorySkillRepository:
         *,
         kc_ids: tuple[KcId, ...] = (),
         since: datetime | None = None,
+        scope: MasteryScope = MasteryScope.ALL,
     ) -> tuple[SkillPoint, ...]:
         wanted = {str(learner_id) for learner_id in learner_ids}
         if not wanted:
@@ -138,6 +178,7 @@ class InMemorySkillRepository:
             and str(point.learner_id) in wanted
             and (not kcs or str(point.kc_id) in kcs)
             and (since is None or point.recorded_at >= since)
+            and point.scope is scope
         ]
         # 古い順。同着は観測数で解く（同じ日に何度も動くため）。
         found.sort(key=lambda point: (point.recorded_at, point.observation_count))

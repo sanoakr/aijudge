@@ -12,12 +12,34 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .ids import CredentialId, CriterionScoreId, GradingRunId, KcId, TenantId, UserId
+from .ids import (
+    CredentialId,
+    CriterionScoreId,
+    GradingRunId,
+    KcId,
+    SubmissionId,
+    TaskId,
+    TenantId,
+    UserId,
+)
 
 
 class MasteryModel(StrEnum):
     BKT = "bkt"
     DKT = "dkt"
+
+
+class MasteryScope(StrEnum):
+    """どの観測から畳んだ習熟度か（ADR 0032）。
+
+    学生にも教員にも、**演習だけ・試験だけ・両方を合わせた値**の 3 通りを見せる。
+    合わせた値は試験を重く見た推定で、演習だけの値との差は「演習ではできて
+    いるが、試験ではできていない」を読む材料になる。
+    """
+
+    ALL = "all"
+    PRACTICE = "practice"
+    EXAM = "exam"
 
 
 class SkillEvidence(BaseModel):
@@ -43,6 +65,35 @@ class SkillEvidence(BaseModel):
     #: 評価器が自己一貫性から測るもので、推定の側で足せる情報ではない。
     confidence: float | None = Field(default=None, ge=0.0, le=1.0)
     human_verified: bool = False
+    #: 監督のある試験での観測か（ADR 0032）。ポートフォリオで試験と演習の根拠を分けて示す。
+    exam: bool = False
+    observed_at: datetime
+
+
+class SkillObservation(BaseModel):
+    """習熟度の観測 1 件。**学習者 × KC × 課題で 1 件**（ADR 0032）。
+
+    以前は採点 1 回ごとに観測を足していたので、出し直しや再採点の回数が
+    習熟度を動かした。いまは課題ごとに**最終提出の結果**だけを持ち、新しい
+    提出や再採点が来たら置き換える。習熟度はこの並びを BKT で畳み直して出す。
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    tenant_id: TenantId
+    learner_id: UserId
+    kc_id: KcId
+    task_id: TaskId
+    submission_id: SubmissionId
+    grading_run_id: GradingRunId
+    criterion_score_id: CriterionScoreId
+    score_ratio: float = Field(ge=0.0, le=1.0)
+    confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    #: 監督のある試験での観測か（`Task.exam`）。BKT のパラメータを分ける。
+    exam: bool = False
+    #: 提出の時刻。**どれが最終提出かと、畳む順序をこれで決める** ── 採点の
+    #: 終わった時刻で決めると、再送や遅れた再採点で古い提出が「最新」になる。
+    submitted_at: datetime
     observed_at: datetime
 
 
@@ -68,6 +119,8 @@ class SkillPoint(BaseModel):
     #: 間引くときの順序はこちらで決める（時刻だけだと同着が並ぶ）。
     observation_count: int = Field(default=0, ge=0)
     model: MasteryModel = MasteryModel.BKT
+    #: どの観測から畳んだ値か。**既定は両方を合わせた値**（この欄より前の点）。
+    scope: MasteryScope = MasteryScope.ALL
     recorded_at: datetime
 
 
@@ -84,6 +137,28 @@ class SkillState(BaseModel):
     observation_count: int = Field(default=0, ge=0)
     evidence: tuple[SkillEvidence, ...] = ()
     updated_at: datetime
+    #: 演習だけ・試験だけで畳んだ値と観測の数（ADR 0032）。**観測が無ければ None** ──
+    #: 0 として持つと「試験を受けていない」と「試験で全くできなかった」が区別できない。
+    practice_mastery: float | None = Field(default=None, ge=0.0, le=1.0)
+    practice_count: int = Field(default=0, ge=0)
+    exam_mastery: float | None = Field(default=None, ge=0.0, le=1.0)
+    exam_count: int = Field(default=0, ge=0)
+
+    def mastery_in(self, scope: MasteryScope) -> float | None:
+        """その範囲の習熟度。**その範囲の観測が無ければ None。**"""
+        if scope is MasteryScope.PRACTICE:
+            return self.practice_mastery
+        if scope is MasteryScope.EXAM:
+            return self.exam_mastery
+        return self.mastery
+
+    def count_in(self, scope: MasteryScope) -> int:
+        """その範囲の観測の数。"""
+        if scope is MasteryScope.PRACTICE:
+            return self.practice_count
+        if scope is MasteryScope.EXAM:
+            return self.exam_count
+        return self.observation_count
 
     @property
     def verified_evidence_count(self) -> int:

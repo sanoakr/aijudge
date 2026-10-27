@@ -1549,3 +1549,80 @@ def test_a_blind_correction_cannot_be_rewritten(review_repo) -> None:
         uow.commit()
     with review_repo() as uow, pytest.raises(ImmutabilityViolation):
         uow.reviews.save_blind_correction(correction.model_copy(update={"levels": {}}))
+
+
+def test_an_observation_is_kept_once_per_task(skill_repo) -> None:
+    """観測は学習者 × KC × 課題で 1 件。**同じ課題は置き換える**（ADR 0032）。"""
+    from datetime import UTC, datetime
+
+    from aijudge_core import SkillObservation
+    from aijudge_core.ids import (
+        CriterionScoreId,
+        GradingRunId,
+        KcId,
+        SubmissionId,
+        TaskId,
+        TenantId,
+        UserId,
+    )
+
+    def observation(task: str, run: str, ratio: float) -> SkillObservation:
+        at = datetime(2026, 10, 28, 9, 0, tzinfo=UTC)
+        return SkillObservation(
+            tenant_id=TenantId("ten_" + "0" * 32),
+            learner_id=UserId("usr_" + "1" * 32),
+            kc_id=KcId("kc_" + "2" * 32),
+            task_id=TaskId("tsk_" + task * 32),
+            submission_id=SubmissionId("sub_" + run * 32),
+            grading_run_id=GradingRunId("grn_" + run * 32),
+            criterion_score_id=CriterionScoreId("cs_" + run * 32),
+            score_ratio=ratio,
+            exam=task == "e",
+            submitted_at=at,
+            observed_at=at,
+        )
+
+    with skill_repo() as uow:
+        uow.skills.save_observation(observation("a", "1", 0.0))
+        uow.skills.save_observation(observation("a", "2", 1.0))  # 出し直し
+        uow.skills.save_observation(observation("e", "3", 1.0))
+        uow.commit()
+    with skill_repo() as uow:
+        found = uow.skills.list_observations(
+            TenantId("ten_" + "0" * 32), UserId("usr_" + "1" * 32), KcId("kc_" + "2" * 32)
+        )
+    by_task = {str(item.task_id)[4:5]: item for item in found}
+    assert set(by_task) == {"a", "e"}
+    assert by_task["a"].score_ratio == 1.0
+    assert by_task["e"].exam is True
+
+
+def test_history_is_read_per_scope(skill_repo) -> None:
+    """推移は範囲（演習だけ・試験だけ・両方）ごとに読む（ADR 0032）。"""
+    from datetime import UTC, datetime
+
+    from aijudge_core import MasteryModel, MasteryScope, SkillPoint
+    from aijudge_core.ids import KcId, TenantId, UserId
+
+    tenant, learner = TenantId("ten_" + "0" * 32), UserId("usr_" + "1" * 32)
+    at = datetime(2026, 10, 28, 9, 0, tzinfo=UTC)
+    with skill_repo() as uow:
+        for scope, mastery in ((MasteryScope.ALL, 0.5), (MasteryScope.EXAM, 0.7)):
+            uow.skills.append_point(
+                SkillPoint(
+                    tenant_id=tenant,
+                    learner_id=learner,
+                    kc_id=KcId("kc_" + "2" * 32),
+                    mastery=mastery,
+                    observation_count=1,
+                    model=MasteryModel.BKT,
+                    scope=scope,
+                    recorded_at=at,
+                )
+            )
+        uow.commit()
+    with skill_repo() as uow:
+        assert [p.mastery for p in uow.skills.history(tenant, (learner,))] == [0.5]
+        exam = uow.skills.history(tenant, (learner,), scope=MasteryScope.EXAM)
+        assert [(p.mastery, p.scope) for p in exam] == [(0.7, MasteryScope.EXAM)]
+        assert uow.skills.history(tenant, (learner,), scope=MasteryScope.PRACTICE) == ()

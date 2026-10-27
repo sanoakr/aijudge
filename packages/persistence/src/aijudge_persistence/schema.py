@@ -633,6 +633,23 @@ class SkillStateRow(Base):
     )
 
 
+class SkillObservationRow(Base):
+    """習熟度の観測（S7・ADR 0032）。**学習者 × KC × 課題で 1 行**。
+
+    課題ごとに最終提出の結果だけを持ち、新しい提出や再採点で置き換える。
+    習熟度（`skill_states`）はこの並びを畳み直した値で、ここから再計算できる。
+    """
+
+    __tablename__ = "skill_observations"
+
+    tenant_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    learner_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    kc_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    task_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    submitted_at: Mapped[datetime] = mapped_column(Timestamp)
+    document: Mapped[dict[str, Any]] = mapped_column(JsonType)
+
+
 class CampusNetworkRow(Base):
     """テナント単位の学内アドレス範囲（#333）。
 
@@ -669,6 +686,9 @@ class SkillPointRow(Base):
     mastery: Mapped[float] = mapped_column(Float)
     observation_count: Mapped[int] = mapped_column(Integer)
     model: Mapped[str] = mapped_column(String(32))
+    # どの観測から畳んだ値か（`MasteryScope`・ADR 0032）。この列より前の点は
+    # 両方を合わせた値なので、既定は `all`。
+    scope: Mapped[str] = mapped_column(String(16), default="all", server_default="all")
     recorded_at: Mapped[datetime] = mapped_column(Timestamp)
 
     __table_args__ = (

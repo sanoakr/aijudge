@@ -12,10 +12,18 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 
-from aijudge_core import KnowledgeComponent, MasteryModel, SkillPoint, SkillState, new_id
+from aijudge_core import (
+    KnowledgeComponent,
+    MasteryModel,
+    MasteryScope,
+    SkillObservation,
+    SkillPoint,
+    SkillState,
+    new_id,
+)
 from aijudge_core.ids import KcId, TenantId, UserId
 
-from .schema import KnowledgeComponentRow, SkillPointRow, SkillStateRow
+from .schema import KnowledgeComponentRow, SkillObservationRow, SkillPointRow, SkillStateRow
 
 
 class SqlSkillRepository:
@@ -85,6 +93,46 @@ class SqlSkillRepository:
         ).scalars()
         return tuple(SkillState.model_validate(row.document) for row in rows)
 
+    # -- 観測（ADR 0032）---------------------------------------------------
+
+    def list_observations(
+        self, tenant_id: TenantId, learner_id: UserId, kc_id: KcId
+    ) -> tuple[SkillObservation, ...]:
+        rows = self._session.execute(
+            select(SkillObservationRow).where(
+                SkillObservationRow.tenant_id == str(tenant_id),
+                SkillObservationRow.learner_id == str(learner_id),
+                SkillObservationRow.kc_id == str(kc_id),
+            )
+        ).scalars()
+        return tuple(SkillObservation.model_validate(row.document) for row in rows)
+
+    def save_observation(self, observation: SkillObservation) -> None:
+        """**置き換える。** 課題ごとに最終提出の結果だけを持つ。"""
+        key = (
+            str(observation.tenant_id),
+            str(observation.learner_id),
+            str(observation.kc_id),
+            str(observation.task_id),
+        )
+        row = self._session.get(SkillObservationRow, key)
+        document = observation.model_dump(mode="json")
+        if row is None:
+            self._session.add(
+                SkillObservationRow(
+                    tenant_id=key[0],
+                    learner_id=key[1],
+                    kc_id=key[2],
+                    task_id=key[3],
+                    submitted_at=observation.submitted_at,
+                    document=document,
+                )
+            )
+        else:
+            row.submitted_at = observation.submitted_at
+            row.document = document
+        self._session.flush()
+
     # -- 推移 --------------------------------------------------------------
 
     def append_point(self, point: SkillPoint) -> None:
@@ -98,6 +146,7 @@ class SqlSkillRepository:
                 mastery=point.mastery,
                 observation_count=point.observation_count,
                 model=point.model.value,
+                scope=point.scope.value,
                 recorded_at=point.recorded_at,
             )
         )
@@ -110,6 +159,7 @@ class SqlSkillRepository:
         *,
         kc_ids: tuple[KcId, ...] = (),
         since: datetime | None = None,
+        scope: MasteryScope = MasteryScope.ALL,
     ) -> tuple[SkillPoint, ...]:
         if not learner_ids:
             return ()
@@ -121,6 +171,7 @@ class SqlSkillRepository:
             query = query.where(SkillPointRow.kc_id.in_([str(x) for x in kc_ids]))
         if since is not None:
             query = query.where(SkillPointRow.recorded_at >= since)
+        query = query.where(SkillPointRow.scope == scope.value)
         # 古い順。同着は観測数で解く（同じ日に何度も動く）。
         rows = self._session.execute(
             query.order_by(SkillPointRow.recorded_at, SkillPointRow.observation_count)
@@ -133,6 +184,7 @@ class SqlSkillRepository:
                 mastery=row.mastery,
                 observation_count=row.observation_count,
                 model=MasteryModel(row.model),
+                scope=MasteryScope(row.scope),
                 recorded_at=row.recorded_at,
             )
             for row in rows

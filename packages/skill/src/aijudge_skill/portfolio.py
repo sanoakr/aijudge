@@ -33,6 +33,8 @@ class Evidence:
     score_ratio: float
     human_verified: bool
     observed_at: datetime
+    # 監督のある試験での根拠か（ADR 0032）。試験の根拠は習熟度に重く効く。
+    exam: bool = False
 
     @property
     def resolved(self) -> bool:
@@ -100,6 +102,7 @@ def split_evidence(
                     score_ratio=item.score_ratio,
                     human_verified=item.human_verified,
                     observed_at=item.observed_at,
+                    exam=item.exam,
                 )
             )
         else:

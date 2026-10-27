@@ -19,6 +19,8 @@ BKT を最初に置くのは、**説明できるから**である。習熟度 0.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 from pydantic import BaseModel, ConfigDict, Field
 
 # 部分点を正誤に落とす閾値。
@@ -85,3 +87,36 @@ def predict_correct(mastery: float, params: BktParameters) -> float:
 def is_correct(score_ratio: float, threshold: float = DEFAULT_CORRECT_THRESHOLD) -> bool:
     """部分点を正誤に畳む。"""
     return score_ratio >= threshold
+
+
+# 監督の有無で分けたパラメータ（ADR 0032）。**値は出発点であって、実データで
+# 当てたものではない。** 試験の正誤を基準に、演習の当て推量を当て直す。
+#
+# 演習（監督なし）の正答は、他人のコードの写しや生成 AI の出力でも得られる。
+# BKT の言葉では「習得していないのに正答する」当て推量なので、P(G) を大きく取る。
+# 誤答の重みはほとんど変えない ── 誤答は写さない。
+PRACTICE_PARAMETERS = BktParameters(prior=0.2, learn=0.15, guess=0.40, slip=0.10)
+# 試験（監督あり）は本人の力がそのまま出るので P(G) を小さく取る。時間の制約で
+# 取りこぼす分を P(S) に見込み、学ぶ機会は主に演習にあるので P(T) を小さくする。
+EXAM_PARAMETERS = BktParameters(prior=0.2, learn=0.05, guess=0.10, slip=0.15)
+
+
+def parameters_for(exam: bool) -> BktParameters:
+    """観測に使うパラメータ。監督のある試験なら `EXAM_PARAMETERS`。"""
+    return EXAM_PARAMETERS if exam else PRACTICE_PARAMETERS
+
+
+def fold(
+    observations: Iterable[tuple[bool, bool]],
+    *,
+    prior: float = PRACTICE_PARAMETERS.prior,
+) -> float:
+    """観測（正誤, 試験か）を順に畳んだ習熟度。**並べる順は呼ぶ側が決める。**
+
+    観測ごとにパラメータを選ぶ ── 試験と演習が混ざった並びを 1 本の推定に
+    することが、ADR 0032 の要点である。
+    """
+    mastery = prior
+    for correct, exam in observations:
+        mastery = posterior(mastery, correct, parameters_for(exam))
+    return mastery
