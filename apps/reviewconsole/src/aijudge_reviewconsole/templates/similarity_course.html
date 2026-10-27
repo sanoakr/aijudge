@@ -17,7 +17,7 @@
 {% endif %}
 
 {# 比べ方の切り替え。URL に残すので、戻っても共有しても同じ表示で開く。 #}
-<nav class="tabs" aria-label="比べ方">
+<nav class="tabs sim-modes" aria-label="比べ方">
   {% for key, label in modes.items() %}
   <a href="{{ root_prefix() }}/courses/{{ course.id }}/similarity?mode={{ key.value }}"
      {% if key == mode %}aria-current="page"{% endif %}>{{ label }}</a>
@@ -29,7 +29,7 @@
   'text': 'コメントも含め、文字の並びのまま比べます。言い換えは拾いません。',
   'content': '段落の意味の近さで比べ、言い換えも拾います。同じ課題は写していなくても近いので、中央値と比べて読んでください。',
 } %}
-<p class="desc">{{ notes[mode.value] }}</p>
+<p class="sim-mode-note"><strong>{{ modes[mode] }}:</strong> {{ notes[mode.value] }}</p>
 
 {# 問題セットごとに**畳む**（2026-10-28）。課題ごとに上位の組の表が付くので、開いたままだと
    回が増えるほど目当ての課題までスクロールが長くなる。いちばん新しい（最後の）問題セット
