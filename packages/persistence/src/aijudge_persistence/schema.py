@@ -686,6 +686,9 @@ class SkillPointRow(Base):
     mastery: Mapped[float] = mapped_column(Float)
     observation_count: Mapped[int] = mapped_column(Integer)
     model: Mapped[str] = mapped_column(String(32))
+    # どの観測から畳んだ値か（`MasteryScope`・ADR 0032）。この列より前の点は
+    # 両方を合わせた値なので、既定は `all`。
+    scope: Mapped[str] = mapped_column(String(16), default="all", server_default="all")
     recorded_at: Mapped[datetime] = mapped_column(Timestamp)
 
     __table_args__ = (

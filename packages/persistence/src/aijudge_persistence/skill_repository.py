@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session as DbSession
 from aijudge_core import (
     KnowledgeComponent,
     MasteryModel,
+    MasteryScope,
     SkillObservation,
     SkillPoint,
     SkillState,
@@ -151,6 +152,7 @@ class SqlSkillRepository:
                 mastery=point.mastery,
                 observation_count=point.observation_count,
                 model=point.model.value,
+                scope=point.scope.value,
                 recorded_at=point.recorded_at,
             )
         )
@@ -163,6 +165,7 @@ class SqlSkillRepository:
         *,
         kc_ids: tuple[KcId, ...] = (),
         since: datetime | None = None,
+        scope: MasteryScope = MasteryScope.ALL,
     ) -> tuple[SkillPoint, ...]:
         if not learner_ids:
             return ()
@@ -174,6 +177,7 @@ class SqlSkillRepository:
             query = query.where(SkillPointRow.kc_id.in_([str(x) for x in kc_ids]))
         if since is not None:
             query = query.where(SkillPointRow.recorded_at >= since)
+        query = query.where(SkillPointRow.scope == scope.value)
         # 古い順。同着は観測数で解く（同じ日に何度も動く）。
         rows = self._session.execute(
             query.order_by(SkillPointRow.recorded_at, SkillPointRow.observation_count)
@@ -186,6 +190,7 @@ class SqlSkillRepository:
                 mastery=row.mastery,
                 observation_count=row.observation_count,
                 model=MasteryModel(row.model),
+                scope=MasteryScope(row.scope),
                 recorded_at=row.recorded_at,
             )
             for row in rows

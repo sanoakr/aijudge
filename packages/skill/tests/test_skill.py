@@ -15,7 +15,14 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from aijudge_core import GradingCompleted, KcOutcome, MasteryModel, Routing, SkillState
+from aijudge_core import (
+    GradingCompleted,
+    KcOutcome,
+    MasteryModel,
+    MasteryScope,
+    Routing,
+    SkillState,
+)
 from aijudge_core.ids import (
     CriterionScoreId,
     EventId,
@@ -395,3 +402,38 @@ def test_an_event_without_a_task_falls_back_to_the_task_version() -> None:
 
     observations = repository.list_observations(TENANT, LEARNER, KC)
     assert [str(item.task_id) for item in observations] == [str(event.task_version_id)]
+
+
+# -- 演習だけ・試験だけ・両方（ADR 0032）------------------------------------
+
+
+def test_practice_and_exam_are_also_folded_on_their_own() -> None:
+    """3 通りを持つ。**観測の無い範囲は None**（0 ではない）。"""
+    service, repository = _service()
+    service.apply(_event(run="a", submitted_at=_at(0)))
+    state = repository.get_state(TENANT, LEARNER, KC)
+    assert state.mastery_in(MasteryScope.PRACTICE) == pytest.approx(0.456)
+    assert state.mastery_in(MasteryScope.EXAM) is None
+    assert state.count_in(MasteryScope.EXAM) == 0
+
+    service.apply(_event(run="e", exam=True, ratio=0.0, submitted_at=_at(5)))
+    state = repository.get_state(TENANT, LEARNER, KC)
+    # 演習だけの値は試験の誤答で動かない。試験だけの値は試験の誤答 1 件ぶん。
+    assert state.mastery_in(MasteryScope.PRACTICE) == pytest.approx(0.456)
+    assert state.mastery_in(MasteryScope.EXAM) == pytest.approx(0.088)
+    assert state.count_in(MasteryScope.ALL) == 2
+    assert state.mastery_in(MasteryScope.ALL) < state.mastery_in(MasteryScope.PRACTICE)
+
+
+def test_each_scope_keeps_its_own_trend() -> None:
+    """推移も範囲ごとに残す。**動いた範囲だけ**点を足す。"""
+    service, repository = _service()
+    service.apply(_event(run="a", submitted_at=_at(0)))
+    service.apply(_event(run="e", exam=True, submitted_at=_at(5)))
+
+    def counts(scope: MasteryScope) -> list[int]:
+        return [p.observation_count for p in repository.history(TENANT, (LEARNER,), scope=scope)]
+
+    assert counts(MasteryScope.ALL) == [1, 2]
+    assert counts(MasteryScope.PRACTICE) == [1]  # 試験の観測では動かない
+    assert counts(MasteryScope.EXAM) == [1]

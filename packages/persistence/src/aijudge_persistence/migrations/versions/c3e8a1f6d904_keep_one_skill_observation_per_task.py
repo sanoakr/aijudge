@@ -1,6 +1,7 @@
 """keep one skill observation per task
 
-習熟度の観測を「学習者 × KC × 課題で 1 行」にする表（ADR 0032）。
+習熟度の観測を「学習者 × KC × 課題で 1 行」にする表と、推移の点がどの観測
+（演習だけ・試験だけ・両方）から畳んだ値かを示す列（ADR 0032）。
 
 以前は採点 1 回ごとに観測を足していた。演習で通るまで出し直した回数や
 再採点が、そのまま習熟度を動かした。課題ごとに最終提出の結果だけを持ち、
@@ -49,7 +50,14 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("tenant_id", "learner_id", "kc_id", "task_id"),
     )
+    # 推移の点がどの観測から畳んだ値か（演習だけ・試験だけ・両方）。既存の点は両方。
+    with op.batch_alter_table("skill_points") as batch:
+        batch.add_column(
+            sa.Column("scope", sa.String(length=16), server_default="all", nullable=False)
+        )
 
 
 def downgrade() -> None:
+    with op.batch_alter_table("skill_points") as batch:
+        batch.drop_column("scope")
     op.drop_table("skill_observations")

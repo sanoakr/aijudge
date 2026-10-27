@@ -16,6 +16,7 @@ from aijudge_core import (
     GradingCompleted,
     KcOutcome,
     MasteryModel,
+    MasteryScope,
     Routing,
     SkillEvidence,
     SkillObservation,
@@ -155,10 +156,22 @@ class SkillService:
         推移の図に出る（ADR 0032 が無くしたかったもの）。
         """
         ordered = sorted(observations, key=lambda item: (item.submitted_at, str(item.task_id)))
-        mastery = fold(
-            ((is_correct(item.score_ratio), item.exam) for item in ordered),
-            prior=PRACTICE_PARAMETERS.prior,
-        )
+        # 3 通りに畳む（ADR 0032）。演習だけ・試験だけは、その種類の観測だけを
+        # その種類のパラメータで畳む ── 合わせた値と同じ出発点（P(L0)）から始める。
+        values: dict[MasteryScope, tuple[float | None, int]] = {}
+        for scope in MasteryScope:
+            chosen = [
+                item
+                for item in ordered
+                if scope is MasteryScope.ALL or item.exam == (scope is MasteryScope.EXAM)
+            ]
+            folded = fold(
+                ((is_correct(item.score_ratio), item.exam) for item in chosen),
+                prior=PRACTICE_PARAMETERS.prior,
+            )
+            values[scope] = (folded if chosen else None, len(chosen))
+        mastery, count = values[MasteryScope.ALL]
+        assert mastery is not None  # 観測を 1 件は足した直後に呼ばれる
         state = self._repository.get_state(tenant_id, learner_id, kc_id)
         previous = None if state is None else state.mastery
         evidence = tuple(
@@ -175,7 +188,6 @@ class SkillService:
             )
             for item in ordered
         )[-self._max_evidence :]
-        count = len(ordered)
         self._repository.save_state(
             SkillState(
                 tenant_id=tenant_id,
@@ -186,25 +198,45 @@ class SkillService:
                 observation_count=count,
                 evidence=evidence,
                 updated_at=observed_at,
+                practice_mastery=values[MasteryScope.PRACTICE][0],
+                practice_count=values[MasteryScope.PRACTICE][1],
+                exam_mastery=values[MasteryScope.EXAM][0],
+                exam_count=values[MasteryScope.EXAM][1],
             )
         )
-        if state is not None and state.mastery == mastery and state.observation_count == count:
+        moved = [
+            scope
+            for scope, (value, scoped_count) in values.items()
+            if value is not None
+            and (
+                state is None
+                or state.mastery_in(scope) != value
+                or state.count_in(scope) != scoped_count
+            )
+        ]
+        if not moved or not self._record_points:
             return None
         if not self._record_points:
             return None
         # **動いた瞬間を残す**（#328）。`SkillState` は最新の 1 行を持ち替える
-        # ので、ここで残さないと推移は二度と読めない。
-        self._repository.append_point(
-            SkillPoint(
-                tenant_id=tenant_id,
-                learner_id=learner_id,
-                kc_id=kc_id,
-                mastery=mastery,
-                observation_count=count,
-                model=MasteryModel.BKT,
-                recorded_at=observed_at,
+        # ので、ここで残さないと推移は二度と読めない。範囲ごとに、動いたものだけ。
+        for scope in moved:
+            value, scoped_count = values[scope]
+            assert value is not None
+            self._repository.append_point(
+                SkillPoint(
+                    tenant_id=tenant_id,
+                    learner_id=learner_id,
+                    kc_id=kc_id,
+                    mastery=value,
+                    observation_count=scoped_count,
+                    model=MasteryModel.BKT,
+                    scope=scope,
+                    recorded_at=observed_at,
+                )
             )
-        )
+        if MasteryScope.ALL not in moved:
+            return None
         return SkillStateUpdated(
             event_id=EventId(new_id("evt")),
             tenant_id=tenant_id,

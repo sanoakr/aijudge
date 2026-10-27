@@ -29,6 +29,19 @@ class MasteryModel(StrEnum):
     DKT = "dkt"
 
 
+class MasteryScope(StrEnum):
+    """どの観測から畳んだ習熟度か（ADR 0032）。
+
+    学生にも教員にも、**演習だけ・試験だけ・両方を合わせた値**の 3 通りを見せる。
+    合わせた値は試験を重く見た推定で、演習だけの値との差は「演習ではできて
+    いるが、試験ではできていない」を読む材料になる。
+    """
+
+    ALL = "all"
+    PRACTICE = "practice"
+    EXAM = "exam"
+
+
 class SkillEvidence(BaseModel):
     """習熟度の根拠となる採点結果への参照。
 
@@ -106,6 +119,8 @@ class SkillPoint(BaseModel):
     #: 間引くときの順序はこちらで決める（時刻だけだと同着が並ぶ）。
     observation_count: int = Field(default=0, ge=0)
     model: MasteryModel = MasteryModel.BKT
+    #: どの観測から畳んだ値か。**既定は両方を合わせた値**（この欄より前の点）。
+    scope: MasteryScope = MasteryScope.ALL
     recorded_at: datetime
 
 
@@ -122,6 +137,28 @@ class SkillState(BaseModel):
     observation_count: int = Field(default=0, ge=0)
     evidence: tuple[SkillEvidence, ...] = ()
     updated_at: datetime
+    #: 演習だけ・試験だけで畳んだ値と観測の数（ADR 0032）。**観測が無ければ None** ──
+    #: 0 として持つと「試験を受けていない」と「試験で全くできなかった」が区別できない。
+    practice_mastery: float | None = Field(default=None, ge=0.0, le=1.0)
+    practice_count: int = Field(default=0, ge=0)
+    exam_mastery: float | None = Field(default=None, ge=0.0, le=1.0)
+    exam_count: int = Field(default=0, ge=0)
+
+    def mastery_in(self, scope: MasteryScope) -> float | None:
+        """その範囲の習熟度。**その範囲の観測が無ければ None。**"""
+        if scope is MasteryScope.PRACTICE:
+            return self.practice_mastery
+        if scope is MasteryScope.EXAM:
+            return self.exam_mastery
+        return self.mastery
+
+    def count_in(self, scope: MasteryScope) -> int:
+        """その範囲の観測の数。"""
+        if scope is MasteryScope.PRACTICE:
+            return self.practice_count
+        if scope is MasteryScope.EXAM:
+            return self.exam_count
+        return self.observation_count
 
     @property
     def verified_evidence_count(self) -> int:
