@@ -7,7 +7,10 @@
 画面は 2 つある。
 
 - 入口（`/courses/{id}/similarity`）: 問題セット・課題ごとの回、上位の組、仮の名前と
-  学習者の対応。`run.json` と `pairs.csv` だけで作る（DB に表は無い）
+  学習者の対応。`run.json` と `pairs.csv` だけで作る（DB に表は無い）。**比べ方を
+  切り替える**（`?mode=code|text`・#569）。組の表には同じ組のもう一方の類似度も並べる
+  ── コードは違うのにテキストが高い組（説明文の写し）、コードが同じでテキストが下がる組
+  （コメントの書き換え）は、片方だけ見ても分からない
 - Dolos の画面（`/courses/{id}/similarity/{課題}/{回}/`）: Dolos の web（静的ファイル）を
   そのまま配り、その回の CSV を `data/` の下に置く。Dolos の画面はデータの場所を
   **ページの URL からの相対**で決める（`location.pathname + "data"`）ので、この形で動く
@@ -22,6 +25,7 @@ from __future__ import annotations
 import csv
 import mimetypes
 import os
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +38,7 @@ from aijudge_core.ids import CourseId, TaskId
 from aijudge_course_admin.code_similarity import (
     DATA_DIR,
     REPORT_FILES,
+    SimilarityMode,
     SimilarityRun,
     list_runs,
     read_run,
@@ -49,6 +54,14 @@ from .urls import root_prefix
 ENV_DOLOS_WEB_DIR = "AIJUDGE_DOLOS_WEB_DIR"
 #: 入口に出す上位の組の数（課題ごと）。全部は Dolos の画面で見る。
 TOP_PAIRS = 5
+#: 読んだ `pairs.csv` を覚えておく数。300 件の課題で 4.5 万行あり、入口を開くたびに
+#: 全課題の 2 つの比べ方を読み直すと遅い。ファイルの更新時刻を鍵に含めるので、
+#: 回し直した報告は読み直す。
+PAIRS_CACHE = 128
+
+MODE_LABELS = {SimilarityMode.CODE: "コードとして", SimilarityMode.TEXT: "テキストとして"}
+#: 表の列名と「〜だけ」の札に使う短い名前。
+MODE_SHORT = {SimilarityMode.CODE: "コード", SimilarityMode.TEXT: "テキスト"}
 
 #: Dolos の画面に付ける CSP。**外への通信を全部止める**（配布物は Google Fonts を
 #: 読みに行く）。Monaco の差分とワーカーのために `blob:` を許す。手元の Chromium で、
@@ -97,31 +110,53 @@ def viewer_root() -> Path | None:
     return path if (path / "index.html").is_file() else None
 
 
-def top_pairs(run: SimilarityRun, root: Path, limit: int = TOP_PAIRS) -> list[dict[str, Any]]:
-    """`pairs.csv` の上位。**名前は仮のまま返す**（学習者への対応は呼ぶ側が付ける）。"""
-    path = run_dir(root, run) / DATA_DIR / "pairs.csv"
+@lru_cache(maxsize=PAIRS_CACHE)
+def _read_pairs(path: str, _mtime_ns: int) -> tuple[tuple[str, str, float, int], ...]:
     try:
-        with path.open(encoding="utf-8", newline="") as handle:
+        with open(path, encoding="utf-8", newline="") as handle:
             rows = list(csv.DictReader(handle))
     except OSError:
-        return []
-    pairs: list[dict[str, Any]] = []
+        return ()
+    pairs: list[tuple[str, str, float, int]] = []
     for row in rows:
         try:
             similarity = float(row["similarity"])
             longest = int(row["longestFragment"])
         except (KeyError, ValueError):
             continue
-        pairs.append(
-            {
-                "left": Path(row.get("leftFilePath", "")).stem,
-                "right": Path(row.get("rightFilePath", "")).stem,
-                "similarity": similarity,
-                "longest": longest,
-            }
-        )
-    pairs.sort(key=lambda p: (-p["similarity"], -p["longest"]))
-    return pairs[:limit]
+        left = Path(row.get("leftFilePath", "")).stem
+        right = Path(row.get("rightFilePath", "")).stem
+        pairs.append((left, right, similarity, longest))
+    pairs.sort(key=lambda p: (-p[2], -p[3]))
+    return tuple(pairs)
+
+
+def _pairs(run: SimilarityRun, root: Path) -> tuple[tuple[str, str, float, int], ...]:
+    path = run_dir(root, run) / DATA_DIR / "pairs.csv"
+    try:
+        mtime = path.stat().st_mtime_ns
+    except OSError:
+        return ()
+    return _read_pairs(str(path), mtime)
+
+
+def top_pairs(run: SimilarityRun, root: Path, limit: int = TOP_PAIRS) -> list[dict[str, Any]]:
+    """`pairs.csv` の上位。**名前は仮のまま返す**（学習者への対応は呼ぶ側が付ける）。"""
+    return [
+        {"left": left, "right": right, "similarity": similarity, "longest": longest}
+        for left, right, similarity, longest in _pairs(run, root)[:limit]
+    ]
+
+
+def similarity_by_submissions(run: SimilarityRun, root: Path) -> dict[frozenset[str], float]:
+    """組（提出 ID の 2 つ）→ 類似度。**もう一方の比べ方の値を引くために、提出で突き合わせる**
+    ── 仮の名前はそろえて振るが、2026-10-28 より前の回は振り方が違いうる。"""
+    by_name = {item.pseudonym: str(item.submission_id) for item in run.submissions}
+    table: dict[frozenset[str], float] = {}
+    for left, right, similarity, _longest in _pairs(run, root):
+        if left in by_name and right in by_name:
+            table[frozenset((by_name[left], by_name[right]))] = similarity
+    return table
 
 
 def register(templates: Jinja2Templates) -> APIRouter:
@@ -164,17 +199,28 @@ def register(templates: Jinja2Templates) -> APIRouter:
         return root, run
 
     @router.get("/courses/{course_id}/similarity", response_class=HTMLResponse)
-    def course_similarity(request: Request, course_id: str) -> HTMLResponse:
+    def course_similarity(request: Request, course_id: str, mode: str = "code") -> HTMLResponse:
         me, course = _instructor(request, course_id)
         console = request.app.state.aijudge
+        chosen = SimilarityMode(mode) if mode in set(SimilarityMode) else SimilarityMode.CODE
         root = similarity_root()
         runs = list_runs(root, course.id) if root is not None else []
+        by_task: dict[str, dict[SimilarityMode, SimilarityRun]] = {}
+        for run in runs:
+            by_task.setdefault(str(run.task_id), {})[run.mode] = run
         units: dict[str, list[dict[str, Any]]] = {}
         with console.database.unit_of_work() as uow:
             # 課題の並びはコースの一覧と同じ（`list_for_course` の順）。
-            order = {t.id: i for i, t in enumerate(uow.tasks.list_for_course(course.id))}
-            for run in sorted(runs, key=lambda r: order.get(r.task_id, len(order))):
+            order = {str(t.id): i for i, t in enumerate(uow.tasks.list_for_course(course.id))}
+            for task_id in sorted(by_task, key=lambda t: order.get(t, len(order))):
+                both = by_task[task_id]
+                # 選んだ比べ方の回が無い課題（Markdown はテキストだけ）は、ある方を出す。
+                # 切り替えた途端にカードが消えると、調べていないように見える。
+                run = both.get(chosen) or next(iter(both.values()))
+                other_mode = next(m for m in SimilarityMode if m is not run.mode)
+                other = both.get(other_mode)
                 people: dict[str, tuple[str, str]] = {}
+                ids: dict[str, str] = {}
                 for item in run.submissions:
                     submission = uow.submissions.get(item.submission_id)
                     user = uow.identity.get_user(submission.learner_id) if submission else None
@@ -182,10 +228,18 @@ def register(templates: Jinja2Templates) -> APIRouter:
                         user.login if user else "?",
                         user.display_name if user else "",
                     )
+                    ids[item.pseudonym] = str(item.submission_id)
                 pairs = top_pairs(run, root) if run.measured and root is not None else []
+                if other is not None and other.measured and root is not None:
+                    table = similarity_by_submissions(other, root)
+                    for pair in pairs:
+                        key = frozenset((ids.get(pair["left"], ""), ids.get(pair["right"], "")))
+                        pair["other"] = table.get(key)
                 units.setdefault(run.unit or "未分類", []).append(
                     {
                         "run": run,
+                        "only": None if run.mode is chosen else run.mode,
+                        "other_mode": other_mode,
                         "people": people,
                         "pairs": pairs,
                         "reason": REASON_LABELS.get(
@@ -194,7 +248,14 @@ def register(templates: Jinja2Templates) -> APIRouter:
                         "href": f"/courses/{course.id}/similarity/{run.task_id}/{run.run_id}/",
                     }
                 )
-        _audit(request, me, str(course.id), str(course.id), "入口", {"runs": len(runs)})
+        _audit(
+            request,
+            me,
+            str(course.id),
+            str(course.id),
+            "入口",
+            {"runs": len(runs), "mode": chosen.value},
+        )
         return templates.TemplateResponse(
             request,
             "similarity_course.html",
@@ -203,6 +264,9 @@ def register(templates: Jinja2Templates) -> APIRouter:
                 "course": course,
                 "section": {"label": "提出の類似", "href": f"/courses/{course.id}/similarity"},
                 "units": units,
+                "mode": chosen,
+                "modes": MODE_LABELS,
+                "short": MODE_SHORT,
                 "configured": root is not None,
                 "viewer": viewer_root() is not None,
             },

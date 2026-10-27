@@ -31,7 +31,9 @@ from aijudge_course_admin import code_similarity
 from aijudge_course_admin.code_similarity import (
     DOLOS_IMAGE,
     REPORT_FILES,
+    TEXT_PARAMS,
     NotMeasuredReason,
+    SimilarityMode,
     latest_run,
     list_runs,
     read_run,
@@ -156,6 +158,7 @@ def submit(
     at: datetime = AT - timedelta(days=2),
     role: Role = Role.LEARNER,
     attempt: int = 1,
+    kind: ArtifactKind = ArtifactKind.CODE,
 ) -> SubmissionId:
     n = next(_counter)
     submission_id = SubmissionId(f"sub_{n:032d}")
@@ -177,7 +180,7 @@ def submit(
                         id=ArtifactId(f"art_{n:032d}"),
                         submission_id=submission_id,
                         role=ArtifactRole.ORIGINAL,
-                        kind=ArtifactKind.CODE,
+                        kind=kind,
                         filename=filename,
                         storage_key=key,
                         content_hash=f"{n:064d}",
@@ -288,6 +291,60 @@ def test_the_same_input_is_not_run_again(database, store, task, root, fake) -> N
     assert not run_dir(root, first).exists()
     assert latest_run(root, task.course_id, task.id) == second
     assert list_runs(root, task.course_id) == [second]
+
+
+def test_text_mode_compares_the_files_as_characters(database, store, task, root, fake):
+    """**テキストとして**: コメントも含めて文字で比べる。Markdown はテキストだけに入る（#569）。"""
+    code = submit(database, store, task, "1", SOURCE_A + "// 説明\n".encode())
+    notes = submit(
+        database, store, task, "2", "# 考察\n".encode(), filename="r.md", kind=ArtifactKind.MARKDOWN
+    )
+    other = submit(database, store, task, "3", SOURCE_A)
+    kwargs = {"artifact_store": store, "root": root, "now": AT, "sandbox_factory": fake}
+
+    as_code = run_for_task(database, task.id, **kwargs)
+    as_text = run_for_task(database, task.id, mode=SimilarityMode.TEXT, **kwargs)
+
+    assert as_code is not None and as_text is not None
+    assert {s.submission_id for s in as_code.submissions} == {code, other}
+    assert {s.submission_id for s in as_text.submissions} == {code, notes, other}
+    assert as_text.mode is SimilarityMode.TEXT and as_text.language == "char"
+    assert as_text.params == TEXT_PARAMS and as_text.unit_of_length == "文字"
+    assert fake.argv[1][:4] == ("dolos", "run", "-l", "char")
+    assert fake.argv[1][-len(TEXT_PARAMS) - 1 : -1] == TEXT_PARAMS
+    assert sorted(fake.seen[1]) == ["ds/S-001.txt", "ds/S-002.txt", "ds/S-003.txt", "ds/info.csv"]
+    assert "説明" in fake.seen[1]["ds/S-001.txt"].decode()
+
+    # **同じ人は同じ仮の名前**（画面で 2 つの類似度を並べる）。Markdown の人は欠番になる。
+    names = {s.submission_id: s.pseudonym for s in as_code.submissions}
+    assert names == {
+        s.submission_id: s.pseudonym for s in as_text.submissions if s.submission_id != notes
+    }
+    assert sorted(names.values()) == ["S-001", "S-003"]
+
+    # 回は比べ方ごとに 1 つずつ残る（片方を回し直しても、もう片方は消えない）。
+    assert as_code.run_id != as_text.run_id
+    assert list_runs(root, task.course_id) == [as_code, as_text]
+    assert latest_run(root, task.course_id, task.id, SimilarityMode.TEXT) == as_text
+    submit(database, store, task, "4", SOURCE_A)
+    again = run_for_task(database, task.id, **(kwargs | {"now": AT + timedelta(hours=1)}))
+    assert again is not None and run_dir(root, as_text).exists()
+    assert not run_dir(root, as_code).exists()
+
+
+def test_an_earlier_report_reads_as_code(database, store, task, root, fake) -> None:
+    """2026-10-28 より前の `run.json` には `mode` が無い。コードとして比べた回として読む。"""
+    submit(database, store, task, "1", SOURCE_A)
+    submit(database, store, task, "2", SOURCE_A)
+    run = run_for_task(
+        database, task.id, artifact_store=store, root=root, now=AT, sandbox_factory=fake
+    )
+    assert run is not None
+    path = run_dir(root, run) / "run.json"
+    document = path.read_text(encoding="utf-8").replace('"mode": "code",', "")
+    assert '"mode"' not in document
+    path.write_text(document, encoding="utf-8")
+    assert read_run(run_dir(root, run)) == run
 
 
 def test_a_tool_failure_is_recorded_and_retried(database, store, task, root, fake) -> None:
@@ -425,6 +482,15 @@ def test_live_dolos_under_runsc(database, store, task, root, monkeypatch) -> Non
     assert len(pairs) == 3
     assert max(float(pair["similarity"]) for pair in pairs) > 0.9
 
+    # テキストとしては、変数名を変えただけで一致が切れる（文字で比べるので）。
+    text = run_for_task(
+        database, task.id, artifact_store=store, root=root, now=AT, mode=SimilarityMode.TEXT
+    )
+    assert text is not None and text.measured and text.language == "char", text
+    rows = list(csv.DictReader((run_dir(root, text) / "data" / "pairs.csv").open()))
+    assert len(rows) == 3
+    assert max(float(row["similarity"]) for row in rows) < 0.9
+
 
 # --------------------------------------------------------------------------
 # CLI（aijudge-admin similarity run）
@@ -448,8 +514,8 @@ def test_the_cli_runs_every_task_of_a_unit(
 
     called: list[tuple[str, bool]] = []
 
-    def record(database, task_id, *, artifact_store, root, force):
-        called.append((str(task_id), force))
+    def record(database, task_id, *, artifact_store, root, force, mode):
+        called.append((str(task_id), force, mode))
         return None
 
     monkeypatch.setattr(code_similarity, "run_for_task", record)
@@ -469,7 +535,7 @@ def test_the_cli_runs_every_task_of_a_unit(
         ]
     )
     assert code == 0
-    assert called == [(str(task.id), True)]
+    assert called == [(str(task.id), True, mode) for mode in SimilarityMode]
     assert "--force で回し直す" in capsys.readouterr().out
 
 
@@ -492,11 +558,11 @@ def test_only_tasks_past_the_close_are_run(database, store, task, root, fake) ->
 
     later = code_similarity.sweep(database, now=CLOSE + timedelta(hours=1), **kwargs)
     assert [t.id for t in later.due] == [task.id]
-    assert len(later.ran) == 1
+    assert [run.mode for run in later.ran] == list(SimilarityMode), "コードとテキストの両方"
 
     # **何度走らせても同じ結果になる。** 入力が同じなら回さない。
     again = code_similarity.sweep(database, now=CLOSE + timedelta(hours=2), **kwargs)
-    assert again.ran == [] and len(fake.argv) == 1
+    assert again.ran == [] and len(fake.argv) == 2
 
 
 def test_the_dry_run_touches_nothing(database, store, task, root, fake) -> None:
@@ -589,4 +655,4 @@ def test_it_waits_until_grading_is_done(database, store, task, root, fake) -> No
         uow.jobs.update(job.model_copy(update={"state": JobState.CANCELLED}))
         uow.commit()
     done = code_similarity.sweep(database, now=CLOSE + timedelta(hours=3), **kwargs)
-    assert len(done.ran) == 1 and done.grading == []
+    assert len(done.ran) == 2 and done.grading == []

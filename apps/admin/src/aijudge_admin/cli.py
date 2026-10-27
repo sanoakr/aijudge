@@ -562,23 +562,29 @@ def cmd_similarity_run(args: argparse.Namespace) -> int:
             return 2
         waiting = 0
         for task_id in task_ids:
-            try:
-                run = code_similarity.run_for_task(
-                    database,
-                    task_id,
-                    artifact_store=_artifact_store(args),
-                    root=args.similarity_dir,
-                    force=args.force,
-                )
-            except code_similarity.GradingPending as pending:
-                # 1 課題の採点待ちで、同じ問題セットの他の課題を止めない。
-                print(f"{pending}。採点が終わってから回します（--force で今すぐ回す）")
-                waiting += 1
-                continue
-            if run is None:
-                print(f"{task_id}: 前回と同じ入力なので回しませんでした（--force で回し直す）")
-            else:
-                print(code_similarity.run_payload(run))
+            # コードとして・テキストとして、の両方を回す（#569）。
+            for mode in code_similarity.SimilarityMode:
+                try:
+                    run = code_similarity.run_for_task(
+                        database,
+                        task_id,
+                        artifact_store=_artifact_store(args),
+                        root=args.similarity_dir,
+                        force=args.force,
+                        mode=mode,
+                    )
+                except code_similarity.GradingPending as pending:
+                    # 1 課題の採点待ちで、同じ問題セットの他の課題を止めない。
+                    print(f"{pending}。採点が終わってから回します（--force で今すぐ回す）")
+                    waiting += 1
+                    break
+                if run is None:
+                    print(
+                        f"{task_id} {mode.value}: 前回と同じ入力か、比べるものが無いので"
+                        "回しませんでした（--force で回し直す）"
+                    )
+                else:
+                    print(code_similarity.run_payload(run))
         if waiting:
             return 1
     except LookupError as exc:
