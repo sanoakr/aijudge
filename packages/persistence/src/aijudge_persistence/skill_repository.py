@@ -19,6 +19,7 @@ from aijudge_core import (
     SkillObservation,
     SkillPoint,
     SkillState,
+    effective_points,
     new_id,
 )
 from aijudge_core.ids import KcId, TenantId, UserId
@@ -154,6 +155,7 @@ class SqlSkillRepository:
                 model=point.model.value,
                 scope=point.scope.value,
                 recorded_at=point.recorded_at,
+                rebuilt_at=point.rebuilt_at,
             )
         )
         self._session.flush()
@@ -182,7 +184,8 @@ class SqlSkillRepository:
         rows = self._session.execute(
             query.order_by(SkillPointRow.recorded_at, SkillPointRow.observation_count)
         ).scalars()
-        return tuple(
+        # 描く点を選ぶ（作り直しより前は作り直した点で・`effective_points`）。
+        return effective_points(
             SkillPoint(
                 tenant_id=TenantId(row.tenant_id),
                 learner_id=UserId(row.learner_id),
@@ -192,6 +195,7 @@ class SqlSkillRepository:
                 model=MasteryModel(row.model),
                 scope=MasteryScope(row.scope),
                 recorded_at=row.recorded_at,
+                rebuilt_at=row.rebuilt_at,
             )
             for row in rows
         )

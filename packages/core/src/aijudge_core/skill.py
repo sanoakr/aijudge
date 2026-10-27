@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import datetime
 from enum import StrEnum
 
@@ -122,6 +123,31 @@ class SkillPoint(BaseModel):
     #: どの観測から畳んだ値か。**既定は両方を合わせた値**（この欄より前の点）。
     scope: MasteryScope = MasteryScope.ALL
     recorded_at: datetime
+    #: 作り直し（`aijudge-admin skill rebuild`・ADR 0032）が書いた点なら、その作り直しの
+    #: 時刻。`recorded_at` は再生した採点の時刻（過去）になる。**ふだんの点は None。**
+    #: 古い点は消さずに残し、描くときにどちらを使うかを `effective_points` が決める。
+    rebuilt_at: datetime | None = None
+
+
+def effective_points(points: Iterable[SkillPoint]) -> tuple[SkillPoint, ...]:
+    """推移として描く点を選ぶ（ADR 0032 §5）。**記録は消さない。描く点だけを選ぶ。**
+
+    最新の作り直し（`rebuilt_at` の最大）があれば、その時刻より前は**作り直した点**で、
+    その時刻以降は**ふだんの点**で描く。作り直しより前のふだんの点（古い数え方の値）と、
+    それより古い作り直しの点は描かない ── 混ぜると、同じ日に 2 つの数え方の値が並ぶ。
+
+    作り直しが無ければ、渡された点をそのまま返す。順序は保つ（古い順で渡す）。
+    """
+    items = tuple(points)
+    stamps = [point.rebuilt_at for point in items if point.rebuilt_at is not None]
+    if not stamps:
+        return items
+    latest = max(stamps)
+    return tuple(
+        point
+        for point in items
+        if point.rebuilt_at == latest or (point.rebuilt_at is None and point.recorded_at >= latest)
+    )
 
 
 class SkillState(BaseModel):

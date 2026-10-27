@@ -690,6 +690,8 @@ class SkillPointRow(Base):
     # 両方を合わせた値なので、既定は `all`。
     scope: Mapped[str] = mapped_column(String(16), default="all", server_default="all")
     recorded_at: Mapped[datetime] = mapped_column(Timestamp)
+    # 作り直し（`skill rebuild`）が書いた点なら、その作り直しの時刻（ADR 0032 §5）。
+    rebuilt_at: Mapped[datetime | None] = mapped_column(Timestamp, nullable=True)
 
     __table_args__ = (
         # 「このコースの受講者の、この期間の推移」── 分布と推移の画面が使う。

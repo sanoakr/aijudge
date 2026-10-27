@@ -100,6 +100,7 @@ from .skill import (
     SkillObservation,
     SkillPoint,
     SkillState,
+    effective_points,
 )
 from .spans import (
     ArtifactSpan,
@@ -270,6 +271,7 @@ __all__ = [
     "effective_aggregation",
     "effective_late_penalty_steps",
     "effective_max_score",
+    "effective_points",
     "final_score",
     "format_term",
     "gate_skipped",
