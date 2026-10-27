@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from aijudge_audit import AuditAction, AuditRecorder
-from aijudge_core import GradingCompleted, MasteryModel, SkillPoint
+from aijudge_core import GradingCompleted, MasteryModel, MasteryScope, SkillPoint
 from aijudge_core.ids import TaskId, TaskVersionId, TenantId
 from aijudge_grading import grading_completed_event
 from aijudge_persistence import Database
@@ -97,17 +97,23 @@ def rebuild_skills(database: Database, tenant_id: TenantId, *, now: datetime) ->
         states = uow.skills.list_states_for(tenant_id, tuple(sorted(learners)))
         for state in states:
             # 作り直した値を、作り直した時刻の点として足す（過去の点は残す）。
-            uow.skills.append_point(
-                SkillPoint(
-                    tenant_id=tenant_id,
-                    learner_id=state.learner_id,
-                    kc_id=state.kc_id,
-                    mastery=state.mastery,
-                    observation_count=state.observation_count,
-                    model=MasteryModel.BKT,
-                    recorded_at=now,
+            # 範囲（演習だけ・試験だけ・両方）ごとに、値のあるものだけ。
+            for scope in MasteryScope:
+                value = state.mastery_in(scope)
+                if value is None:
+                    continue
+                uow.skills.append_point(
+                    SkillPoint(
+                        tenant_id=tenant_id,
+                        learner_id=state.learner_id,
+                        kc_id=state.kc_id,
+                        mastery=value,
+                        observation_count=state.count_in(scope),
+                        model=MasteryModel.BKT,
+                        scope=scope,
+                        recorded_at=now,
+                    )
                 )
-            )
         report = RebuildReport(
             courses=courses,
             submissions=submissions,

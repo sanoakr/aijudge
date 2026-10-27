@@ -216,8 +216,6 @@ class SkillService:
         ]
         if not moved or not self._record_points:
             return None
-        if not self._record_points:
-            return None
         # **動いた瞬間を残す**（#328）。`SkillState` は最新の 1 行を持ち替える
         # ので、ここで残さないと推移は二度と読めない。範囲ごとに、動いたものだけ。
         for scope in moved:
