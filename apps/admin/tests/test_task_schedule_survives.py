@@ -215,6 +215,7 @@ KEPT = {
     "campus_only",
     "campus_ranges",
     "confidential_until_open",
+    "exam",
     "audience_group_ids",
     "answer_mode",
     "editor_completion",
@@ -251,6 +252,19 @@ def test_revising_a_confidential_task_keeps_it_from_assistants(world) -> None:
     with database.unit_of_work() as uow:
         after = uow.tasks.get_task(saved.task.id)
     assert after.confidential_until_open is True, "直したら秘匿が外れている"
+
+
+def test_revising_an_exam_task_keeps_it_an_exam(world) -> None:
+    """試験の課題を 1 つ直しても、演習として習熟度に数えられるようにならない（ADR 0032）。"""
+    database, course = world
+    saved = _save(database, course, "本文")
+    _schedule_the_unit(database, saved.task.id, exam=True)
+
+    _save(database, course, "本文（誤字を直した）")
+
+    with database.unit_of_work() as uow:
+        after = uow.tasks.get_task(saved.task.id)
+    assert after.exam is True, "直したら試験の印が外れている"
 
 
 def test_revising_a_task_keeps_its_audience(world) -> None:

@@ -17,6 +17,8 @@
     <span class="s-main">
       <b class="c-key">{{ unit.unit or unit.label }}</b>
       {% if unit.unit and unit.session is not none %}<span class="c-num desc">{{ unit.label }}</span>{% endif %}
+      {# 試験の印（ADR 0032）。付け忘れると試験が演習として習熟度に数えられるので、一覧で見えるようにする。 #}
+      {% if unit.exam %}<span class="pill">試験</span>{% elif unit.exam_mixed %}<span class="pill attn">一部が試験</span>{% endif %}
       {% if unit.hidden %}<span class="pill no">{% if unit.hidden == unit.count %}出題していません{% else %}{{ unit.hidden }} 問非出題{% endif %}</span>{% endif %}
     </span>
     {# **日程は学生の画面と同じ形で出す**（2026-10-10）── 公開・提出開始・締切・

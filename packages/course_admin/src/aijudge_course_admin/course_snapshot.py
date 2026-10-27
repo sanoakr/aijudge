@@ -70,6 +70,7 @@ _UNIT_SETTINGS = (
     "file_upload",
     "confidential_until_open",
     "campus_only",
+    "exam",
     "clear_points",
     "late_penalty_steps",
     "failed_inputs",
