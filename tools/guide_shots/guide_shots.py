@@ -485,6 +485,17 @@ def blind_mark(page: Any, submission: str, *, correctness: int, readability: int
     page.click("form[action$='/blind'] button[type=submit]")
 
 
+def finalize(page: Any, submission: str, comment: str) -> None:
+    """開示して確定する。**blind 採点が AI と全観点で一致した提出は、もう確定している**
+    （その場で確定する・v1.40.0）。そのときは確定のフォームが畳まれているので何もしない
+    ── 書こうとすると、見えない欄を 30 秒待って落ちた（2026-10-29）。"""
+    page.goto(f"{CONSOLE}/review/{submission}/reveal")
+    if not page.locator("#comment").is_visible():
+        return
+    page.fill("#comment", comment)
+    page.click("form[action$='/finalize'] button[type=submit]")
+
+
 def _raise_if_evaluator_failed(state: Path, submission: str) -> None:
     """評価器が失敗した採点で先へ進まない。
 
@@ -616,26 +627,24 @@ def scenario(state: Path, playwright: Any) -> None:
     blind_mark(
         page, submission_id(state, "y230002", 1, course=course), correctness=0, readability=0
     )
-    page.goto(f"{CONSOLE}/review/{first}/reveal")
-    page.fill(
-        "#comment",
+    finalize(
+        page,
+        first,
         "テストケース 5 件すべて通過を確認しました。変数名は役割を表しており、判定は妥当です。",
     )
-    page.click("form[action$='/finalize'] button[type=submit]")
     page.context.close()
 
     # 教員が y230003 の再確認の依頼に答える（判定は据え置き）。
     page = page_as(CONSOLE, INSTRUCTOR[0], width=1200, height=1600)
     questioned = submission_id(state, "y230003", 1, course=course)
     blind_mark(page, questioned, correctness=0, readability=0)
-    page.goto(f"{CONSOLE}/review/{questioned}/reveal")
-    page.fill(
-        "#comment",
+    finalize(
+        page,
+        questioned,
         "提出されたプログラムは平均値を出力していません（printf が最大値と最小値の 2 つ"
         "だけ）。入力例 1 の期待出力は「2 2 2.000」で、平均値の桁ではなく項目の不足が"
         "原因です。判定は据え置きます。",
     )
-    page.click("form[action$='/finalize'] button[type=submit]")
     page.context.close()
 
     # 学生がお試しコースをエディタで解く。**作業の記録の画面はここから撮る** ──
@@ -871,6 +880,8 @@ def capture(state: Path, playwright: Any, login_url: str) -> None:
     s.shot("in-activity", full=True)
     page.goto(f"{CONSOLE}/courses/{course}/similarity")
     s.shot("in-similarity", full=True)
+    page.goto(f"{CONSOLE}/courses/{course}/grades")
+    s.shot("in-grades", full=True)
     page.goto(f"{CONSOLE}/manage/courses/{course}")
     # 共通設定も 1 つのフォームで、節は h3（2026-09-26）。
     s.shot(
