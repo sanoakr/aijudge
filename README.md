@@ -59,9 +59,14 @@ The console is for reading what arrived and deciding — it never grades.
   be replayed by the course's instructors only, every view audited. Places worth
   a look are marked; nothing is judged or deducted (ADR 0023, 0024, 0026).
 - **Similarity between submissions.** Once a task has closed and been graded,
-  Dolos looks for similar pairs and the course's instructors are shown them.
-  Dolos runs in the network-less sandbox, so submissions never leave the
-  machine; nothing is judged or deducted (ADR 0029).
+  similar pairs are shown to the course's instructors, compared three ways:
+  as code (Dolos, identifiers abstracted), as text (Dolos on characters,
+  comments included) and by content (paragraph embeddings from a local model,
+  which catch paraphrase in reports). A task can also be compared with other
+  tasks, earlier terms or imported bundles of past reports; only the source
+  and the score of the other side are shown. Dolos runs in the network-less
+  sandbox and embeddings never leave our own machines; nothing is judged or
+  deducted (ADR 0029).
 - **A gradebook per course.** Learners by tasks, with the score each learner's
   adopted submission earned (the same rule as the learner's own view), unit
   subtotals and a course total. Search, filter by unit, group or what is still
@@ -339,7 +344,7 @@ uv run aijudge-admin activity purge --apply # actually delete
 | Grading accuracy | **Not yet measured.** The records are being captured; the gate reports NOT_MEASURED |
 | Knowledge components and mastery | Skeleton running; none of its acceptance criteria can be judged yet |
 | Browser editor (online coding test) | Working; load-tested locally with 150 learners, **not yet on the production host** |
-| Similarity between submissions (Dolos) | Working; runs in the sandbox after grading, shown to the course's instructors only, never graded |
+| Similarity between submissions | Working as code and as text; by content (embeddings) and against past reports configured, awaiting the first closed report task |
 | Gradebook and CSV export | Working; CSV export for instructors only, audited |
 
 The two "not yet" rows are stated rather than omitted on purpose: this codebase
