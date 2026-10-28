@@ -45,7 +45,9 @@ from aijudge_submission import IncomingFile, InMemoryArtifactStore, SubmissionSe
 KC = KcId("kc_" + "5" * 32)
 LEARNER = UserId("usr_" + "4" * 32)
 TEACHER = UserId("usr_" + "8" * 32)
-NOW = datetime(2026, 10, 28, 12, 0, tzinfo=UTC)
+#: 作り直した時刻。提出は実際の時刻で受け付けるので、**実際の時刻より後**に置く ──
+#: 固定の日付にすると、その日付を過ぎた CI で並び順が崩れて落ちた（2026-10-28）。
+NOW = datetime.now(UTC).replace(microsecond=0) + timedelta(days=1)
 
 
 @pytest.fixture
