@@ -278,6 +278,7 @@ def measure(
                     pseudonym=entry.pseudonym,
                     filename=entry.filename,
                     content_hash=entry.content_hash,
+                    staff=entry.staff,
                 )
                 for entry in entries
             ),

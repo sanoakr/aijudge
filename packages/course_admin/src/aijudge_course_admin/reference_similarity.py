@@ -54,7 +54,7 @@ from .code_similarity import (
     _entries,
     _Entry,
     _keep_only,
-    _latest_per_learner,
+    _latest_per_person,
     _readable,
     _run_id,
     _write_run,
@@ -132,14 +132,15 @@ def resolve(
                 )
                 continue
             versions = [version.id for version in uow.tasks.list_versions(target.id)]
-            submissions = _latest_per_learner(uow.submissions.list_for_versions(versions))
+            submissions = _latest_per_person(uow.submissions.list_for_versions(versions))
             source = f"{other_course.title}（{other_course.term}）{target.title}"
             for entry in _entries(submissions, mode):
                 found.append(
                     (
                         ReferenceDocument(
                             pseudonym="",
-                            label=f"{source} の提出",
+                            # 教員・TA の答えも相手に入る。出どころで分ける。
+                            label=f"{source} の{'教員・TA の' if entry.staff else ''}提出",
                             content_hash=entry.content_hash,
                             submission_id=entry.submission.id,
                         ),
@@ -275,6 +276,7 @@ def run_references(
                     pseudonym=e.pseudonym,
                     filename=e.filename,
                     content_hash=e.content_hash,
+                    staff=e.staff,
                 )
                 for e in kept
             ),

@@ -161,6 +161,7 @@ def submit(
     role: Role = Role.LEARNER,
     attempt: int = 1,
     kind: ArtifactKind = ArtifactKind.CODE,
+    is_demo: bool = False,
 ) -> SubmissionId:
     n = next(_counter)
     submission_id = SubmissionId(f"sub_{n:032d}")
@@ -174,6 +175,7 @@ def submit(
                 task_version_id=version.id,
                 learner_id=UserId(f"usr_{learner:0>32}"),
                 submitted_as=role,
+                is_demo=is_demo,
                 attempt=attempt,
                 state=SubmissionState.SUBMITTED,
                 submitted_at=at,
@@ -254,31 +256,56 @@ def fake(tmp_path: Path, monkeypatch) -> FakeSandbox:
     return FakeSandbox()
 
 
-def test_one_submission_per_learner_under_pseudonyms(database, store, task, root, fake) -> None:
+def test_one_submission_per_person_under_pseudonyms(database, store, task, root, fake) -> None:
     submit(database, store, task, "1", b"old", attempt=1, at=AT - timedelta(days=3))
     latest = submit(database, store, task, "1", SOURCE_A, attempt=2)
     other = submit(database, store, task, "2", SOURCE_A + b"// b\n")
-    submit(database, store, task, "3", b"teacher", role=Role.INSTRUCTOR)
+    # 教員・TA の提出も比べる（2026-10-30）── 成績には数えないが、模範解答に近い答えである。
+    submit(database, store, task, "3", b"check", role=Role.INSTRUCTOR, at=AT - timedelta(days=4))
+    teacher = submit(database, store, task, "3", b"teacher", role=Role.INSTRUCTOR, attempt=2)
+    assistant = submit(database, store, task, "4", b"assistant", role=Role.ASSISTANT)
 
     run = run_for_task(
         database, task.id, artifact_store=store, root=root, now=AT, sandbox_factory=fake
     )
 
     assert run is not None and run.measured and run.language == "c"
-    assert {s.submission_id for s in run.submissions} == {latest, other}
+    assert {s.submission_id for s in run.submissions} == {latest, other, teacher, assistant}
+    assert {s.submission_id for s in run.submissions if s.staff} == {teacher, assistant}
     files = fake.seen[0]
-    assert sorted(files) == ["ds/S-001.c", "ds/S-002.c", "ds/info.csv"]
-    assert b"old" not in files.values() and b"teacher" not in files.values()
+    assert sorted(files) == [
+        "ds/S-001.c",
+        "ds/S-002.c",
+        "ds/T-001.c",
+        "ds/T-002.c",
+        "ds/info.csv",
+    ]
+    assert b"old" not in files.values() and b"check" not in files.values()
     # **画面に出る名前に実名も利用者 ID も提出 ID も入れない。**
     info = files["ds/info.csv"].decode()
     rows = list(csv.DictReader(info.splitlines()))
-    assert [row["full_name"] for row in rows] == ["S-001", "S-002"]
+    assert [row["full_name"] for row in rows] == ["S-001", "S-002", "T-001", "T-002"]
+    assert [row["labels"] for row in rows] == ["", "", "教員・TA", "教員・TA"]
     assert "usr_" not in info and "sub_" not in info
     assert fake.argv[0][:6] == ("dolos", "run", "-l", "c", "-f", "csv")
 
     directory = run_dir(root, run)
     assert sorted(p.name for p in (directory / "data").iterdir()) == sorted(REPORT_FILES)
     assert read_run(directory) == run
+
+
+def test_demo_submissions_are_not_compared(database, store, task, root, fake) -> None:
+    """デモへの提出は誰でも出せる場所のものなので比べない（教員・TA の提出とは違う）。"""
+    kept = submit(database, store, task, "1", SOURCE_A)
+    submit(database, store, task, "2", SOURCE_A)
+    demo = submit(database, store, task, "5", b"demo", is_demo=True)
+
+    run = run_for_task(
+        database, task.id, artifact_store=store, root=root, now=AT, sandbox_factory=fake
+    )
+
+    assert run is not None and kept in {s.submission_id for s in run.submissions}
+    assert demo not in {s.submission_id for s in run.submissions}
 
 
 def test_the_same_input_is_not_run_again(database, store, task, root, fake) -> None:

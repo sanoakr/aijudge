@@ -103,7 +103,12 @@ def _report(
     *,
     mode: SimilarityMode = SimilarityMode.CODE,
     pairs: str = PAIRS,
+    staff: tuple = (),
 ) -> SimilarityRun:
+    # 教員・TA（`staff`）は学習者の後ろに `T-001` から並べる（`_entries` と同じ振り方）。
+    named = [(f"S-{i:03d}", p, False) for i, p in enumerate(learners, start=1)] + [
+        (f"T-{i:03d}", p, True) for i, p in enumerate(staff, start=1)
+    ]
     run = SimilarityRun(
         run_id="20261002T010000000000Z" + ("" if mode is SimilarityMode.CODE else f"-{mode.value}"),
         mode=mode,
@@ -118,12 +123,13 @@ def _report(
         baseline=0.5 if mode is SimilarityMode.CONTENT else None,
         submissions=tuple(
             RunSubmission(
-                submission_id=_submission(world, task_id, learner),
-                pseudonym=f"S-{i:03d}",
+                submission_id=_submission(world, task_id, person),
+                pseudonym=pseudonym,
                 filename="main.c",
                 content_hash="0" * 64,
+                staff=is_staff,
             )
-            for i, learner in enumerate(learners, start=1)
+            for pseudonym, person, is_staff in named
         ),
     )
     directory = run_dir(root, run)
@@ -162,6 +168,25 @@ def test_an_instructor_sees_the_pairs_with_names(world: World, places) -> None:
     assert "盗用" not in page.text
     assert f"/similarity/{task_id}/{run.run_id}/" in page.text
     assert [e.target_id for e in _viewed(world)] == [str(world.course.id)]
+    assert "教員・TA" not in page.text  # 学習者どうしだけの回には印が出ない
+
+
+def test_a_staff_submission_is_marked(world: World, places) -> None:
+    """教員・TA の提出も比べる（2026-10-30）。**学習者どうしの組と読み違えないよう印を出す。**"""
+    root, _web = places
+    world.register("teacher", Role.INSTRUCTOR)
+    a = world.register("s2400001", Role.LEARNER)
+    ta = world.register("ta0001", Role.ASSISTANT)
+    task_id = _import_example(world)
+    pairs = PAIRS.replace("ds/S-002.c", "ds/T-001.c")
+    _report(world, root, world.course.id, task_id, [a], staff=(ta,), pairs=pairs)
+
+    page = world.client("teacher").get(f"/courses/{world.course.id}/similarity")
+
+    assert page.status_code == 200
+    assert "T-001" in page.text and "ta0001" in page.text
+    assert '<span class="pill">教員・TA</span>' in page.text
+    assert "成績・統計には数えません" in page.text
 
 
 def test_the_page_switches_between_code_and_text(world: World, places) -> None:
