@@ -13,6 +13,9 @@
 - **報告は全員のコード全文の写しである**（`files.csv`）。提出と同じだけしか残さない
   （提出が消えたら消す・`sweep_orphans`）。バックアップしない
 - **測れなかったら `NOT_MEASURED` と理由を残す。** 「似た組が 0」と区別する
+- **教員・TA の提出も比べる**（`_latest_per_person`）。成績にも統計にも数えない提出
+  （`is_trial`）だが、教員・TA に解いてもらった答えは模範解答に近い。学習者の提出がそれに
+  近ければ、答えが出回った手がかりになる。仮の名前は `T-001` と分け、画面に印を出す
 - **比べ方は 2 つ**（`SimilarityMode`・#569・2026-10-28）。コードとして（識別子を抽象化し、
   コメントを読まない）と、テキストとして（コメントも含め、提出をそのまま文字で比べる）。
   Dolos の `-C`（コメントを含める）は、コメントを「ここにコメントがある」という 1 つの
@@ -47,7 +50,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from aijudge_core import Artifact, ArtifactKind, GradingPhase, Submission, Task
+from aijudge_core import Artifact, ArtifactKind, GradingPhase, Role, Submission, Task
 from aijudge_core.ids import CourseId, SubmissionId, TaskId
 from aijudge_sandbox import ExecRequest, Limits, Sandbox, SandboxError, build_tool_sandbox
 from aijudge_submission import ArtifactStore
@@ -112,6 +115,11 @@ TEXT_KINDS = frozenset(
 CONTENT_KINDS = TEXT_KINDS - {ArtifactKind.CODE}
 #: Dolos で文字単位に比べる「言語」。
 CHAR_LANGUAGE = "char"
+#: 仮の名前の頭。学習者と教員・TA で分ける（`_entries`）。
+STUDENT_PREFIX = "S"
+STAFF_PREFIX = "T"
+#: Dolos の `info.csv` で教員・TA の提出に付けるラベル。
+STAFF_LABEL = "教員・TA"
 
 #: 受付が閉じてから回すまでの間。**試験では締切の後にまず採点が回る**（受付終了の
 #: 自動提出と、試験の一括採点の待機が一斉に外れる）ので、それを先に通す（2026-09-29 決定）。
@@ -212,6 +220,9 @@ class RunSubmission(BaseModel):
     pseudonym: str
     filename: str
     content_hash: str
+    #: 教員・TA の提出か（仮の名前は `T-001`）。この欄より前の回は値を持たない ── 当時は
+    #: 教員・TA の提出を比べていなかったので、既定の偽で正しい。
+    staff: bool = False
 
 
 class ReferenceDocument(BaseModel):
@@ -295,15 +306,26 @@ class _Entry:
     #: 仮の名前。**どちらの比べ方でも同じ人は同じ名前**（画面で 2 つの類似度を並べる）。
     pseudonym: str
 
+    @property
+    def staff(self) -> bool:
+        return self.submission.submitted_as is not Role.LEARNER
 
-def _latest_per_learner(submissions: Iterable[Submission]) -> list[Submission]:
-    """学習者 1 人につき最新の提出 1 件。**成績に数える提出だけ**（教員・TA・デモは除く）。
+
+def _latest_per_person(submissions: Iterable[Submission]) -> list[Submission]:
+    """1 人につき最新の提出 1 件。**学習者に加えて教員・TA の提出も入れる。デモは除く。**
 
     再提出を全部入れると、自分自身との組が上位を埋める。
+
+    **ここで訊いているのは「比べるか」であって「数えるか」（`is_trial`）ではない。**
+    教員・TA の提出は成績にも統計にも数えないが、比べる相手には入れる ── 教員・TA に
+    演習や試験を解いてもらった答えは模範解答に近く、学習者の提出がそれに近いことは
+    答えが出回った手がかりになる（2026-10-30 決定）。動作確認でわざと誤った提出も
+    入るが、1 人 1 件の最新だけなので、最後に本番の答えを出せば置き換わる。デモの
+    提出は誰でも出せる場所のものなので比べない。
     """
     latest: dict[str, tuple[datetime, int, Submission]] = {}
     for submission in submissions:
-        if submission.is_trial or submission.submitted_at is None:
+        if submission.is_demo or submission.submitted_at is None:
             continue
         key = (submission.submitted_at, submission.attempt, submission)
         current = latest.get(submission.learner_id)
@@ -321,10 +343,17 @@ def _artifact(submission: Submission, mode: SimilarityMode) -> Artifact | None:
 
 
 def _entries(submissions: Sequence[Submission], mode: SimilarityMode) -> list[_Entry]:
-    """**仮の名前は提出の並び（学習者 1 人 1 件）で振る。** 比べる成果物の有無で振り直すと、
-    コードとテキストで同じ人が別の名前になり、画面で 2 つの類似度を並べられない。"""
+    """**仮の名前は提出の並び（1 人 1 件）で振る。** 比べる成果物の有無で振り直すと、
+    コードとテキストで同じ人が別の名前になり、画面で 2 つの類似度を並べられない。
+
+    学習者は `S-001`、教員・TA は `T-001` から別々に数える。Dolos の画面でも、
+    どの組が教員・TA の答えとの組かが名前で分かる。"""
     entries: list[_Entry] = []
-    for index, submission in enumerate(submissions, start=1):
+    counters = {STUDENT_PREFIX: 0, STAFF_PREFIX: 0}
+    for submission in submissions:
+        prefix = STUDENT_PREFIX if submission.submitted_as is Role.LEARNER else STAFF_PREFIX
+        counters[prefix] += 1
+        index = counters[prefix]
         artifact = _artifact(submission, mode)
         if artifact is None:
             continue
@@ -339,7 +368,7 @@ def _entries(submissions: Sequence[Submission], mode: SimilarityMode) -> list[_E
                 language=(
                     LANGUAGE_BY_SUFFIX.get(suffix) if mode is SimilarityMode.CODE else CHAR_LANGUAGE
                 ),
-                pseudonym=f"S-{index:03d}",
+                pseudonym=f"{prefix}-{index:03d}",
             )
         )
     return entries
@@ -390,6 +419,8 @@ def build_dataset(
 ) -> tuple[dict[str, bytes], str]:
     """Dolos に渡すファイルと `info.csv`。**名前は仮のもの**（`S-001` など）にする。
 
+    教員・TA の提出には `labels` に印を付ける（Dolos の画面はラベルで色を分ける）。
+
     `info.csv` の `full_name`・`labels`・`created_at` はそのまま画面に出る。実名や
     学籍番号を入れない ── 仮の名前と提出の対応は `run.json` に残し、コンソールが引く。
     """
@@ -408,7 +439,7 @@ def build_dataset(
                 name,
                 str(index),
                 pseudonym,
-                "",
+                STAFF_LABEL if entry.staff else "",
                 submitted.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S +0000"),
             ]
         )
@@ -501,13 +532,13 @@ SandboxFactory = Callable[[str], Sandbox]
 def load_submissions(
     database: Store, task_id: TaskId, *, force: bool = False
 ) -> tuple[Task, list[Submission]]:
-    """課題と、比べる提出（学習者 1 人 1 件）。**採点が残っていれば `GradingPending`。**"""
+    """課題と、比べる提出（1 人 1 件・教員・TA 込み）。**採点が残っていれば `GradingPending`。**"""
     with database.unit_of_work() as uow:
         task = uow.tasks.get_task(task_id)
         if task is None:
             raise LookupError(f"課題 {task_id!r} がありません")
         versions = [version.id for version in uow.tasks.list_versions(task_id)]
-        submissions = _latest_per_learner(uow.submissions.list_for_versions(versions))
+        submissions = _latest_per_person(uow.submissions.list_for_versions(versions))
         # 未了のジョブ（待機・順番待ち・実行中）がある提出の数。**入力の比較より先に
         # 数える** ── 採点の途中で届く書き起こしなどで入力が変わる前に回さないため。
         pending = sum(
@@ -730,6 +761,7 @@ def _measure(
             pseudonym=entry.pseudonym,
             filename=entry.filename,
             content_hash=entry.content_hash,
+            staff=entry.staff,
         )
         for entry in entries
     )

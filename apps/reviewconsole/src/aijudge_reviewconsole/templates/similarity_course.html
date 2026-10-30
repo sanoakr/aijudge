@@ -66,9 +66,9 @@
         <td class="fit muted" data-label="{{ short[m] }}">{% if v is number %}{{ '%.0f' | format(v * 100) }}%{% else %}—{% endif %}</td>
         {% endfor %}
         <td class="grow" data-label="組">
-          <span class="mono">{{ pair.left }}</span> {{ a[0] }} {{ a[1] }}
+          <span class="mono">{{ pair.left }}</span> {{ a[0] }} {{ a[1] }}{% if pair.left in item.staff %} <span class="pill">教員・TA</span>{% endif %}
           <span class="sep">·</span>
-          <span class="mono">{{ pair.right }}</span> {{ b[0] }} {{ b[1] }}
+          <span class="mono">{{ pair.right }}</span> {{ b[0] }} {{ b[1] }}{% if pair.right in item.staff %} <span class="pill">教員・TA</span>{% endif %}
         </td>
         <td class="fit" data-label="{{ length_label }}">{{ pair.longest }}</td>
       </tr>
@@ -100,7 +100,7 @@
     <tbody>
     {% for row in refs.rows %}
       <tr>
-        <td class="grow" data-label="この課題の提出"><span class="mono">{{ row.learner }}</span> {{ row.person[0] }} {{ row.person[1] }}</td>
+        <td class="grow" data-label="この課題の提出"><span class="mono">{{ row.learner }}</span> {{ row.person[0] }} {{ row.person[1] }}{% if row.learner in item.staff %} <span class="pill">教員・TA</span>{% endif %}</td>
         <td class="grow" data-label="相手">{{ row.source }}</td>
         {% for m in refs.modes %}{% set v = row["values"].get(m) %}
         <td class="fit" data-label="{{ short[m] }}">{% if v is number %}{{ '%.0f' | format(v * 100) }}%{% else %}—{% endif %}</td>
@@ -115,12 +115,13 @@
   {% for note in refs.notes %}<p class="desc">{{ note }}</p>{% endfor %}
   {% endif %}
   <details>
-    <summary>仮の名前と学習者の対応（{{ item.people | length }} 名）</summary>
+    <summary>仮の名前と提出者の対応（{{ item.people | length }} 名）</summary>
+    {% if item.staff %}<p class="desc">教員・TA の提出（T-）も比べています。成績・統計には数えません。</p>{% endif %}
     <table class="stack">
-      <thead><tr><th class="fit">仮の名前</th><th class="fit">学習者</th><th class="grow">氏名</th></tr></thead>
+      <thead><tr><th class="fit">仮の名前</th><th class="fit">提出者</th><th class="grow">氏名</th></tr></thead>
       <tbody>
       {% for pseudonym, person in item.people | dictsort %}
-        <tr><td class="fit mono">{{ pseudonym }}</td><td class="fit mono">{{ person[0] }}</td><td class="grow">{{ person[1] }}</td></tr>
+        <tr><td class="fit mono">{{ pseudonym }}</td><td class="fit mono">{{ person[0] }}</td><td class="grow">{{ person[1] }}{% if pseudonym in item.staff %} <span class="pill">教員・TA</span>{% endif %}</td></tr>
       {% endfor %}
       </tbody>
     </table>

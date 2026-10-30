@@ -325,6 +325,9 @@ def register(templates: Jinja2Templates) -> APIRouter:
                         "only": None if run.mode is chosen else run.mode,
                         "other_modes": [other.mode for other in others],
                         "people": people,
+                        # 教員・TA の提出（印を出す）。比べはするが、学習者どうしの組と
+                        # 読み違えないように分ける。
+                        "staff": {item.pseudonym for item in run.submissions if item.staff},
                         "pairs": pairs,
                         "reason": REASON_LABELS.get(
                             run.not_measured.value if run.not_measured else "", ""

@@ -22,6 +22,7 @@ from test_code_similarity import (
     FakeGateway,
     _report,
     _settings,
+    submit,
 )
 from test_code_similarity import database as database  # フィクスチャを借りる
 from test_code_similarity import fake as fake
@@ -177,6 +178,53 @@ def test_content_against_another_task_and_the_cache(
     run_references(database, task.id, now=AT, force=True, **kwargs)
     again = sum(len(texts) for texts, _ in gateway.seen) - sent
     assert again == 1, "束の文書は送り直さない（この課題の提出だけ）"
+
+
+def test_staff_submissions_of_another_task_say_so(database, store, task, root, tmp_path) -> None:
+    """他の課題の教員・TA の答えも相手に入る（2026-10-30）。**出どころで分ける。**"""
+    from test_code_similarity import AUTHOR, DEFINITION, PROFILES, TENANT
+
+    from aijudge_core import Role
+    from aijudge_course_admin.course_definition import apply_course_definition
+    from aijudge_course_admin.reference_similarity import resolve
+
+    definition = tmp_path / "past.yaml"
+    definition.write_text(DEFINITION.replace("2026-後期", "2025-後期"), encoding="utf-8")
+    past = apply_course_definition(
+        database, path=definition, tenant_id=TENANT, profiles_dir=PROFILES, authored_by=AUTHOR
+    ).course
+    with database.unit_of_work() as uow:
+        past_task = uow.tasks.list_for_course(past.id)[0]
+    submit(
+        database,
+        store,
+        past_task,
+        "1",
+        ABOUT_TCP.encode(),
+        filename="r.md",
+        kind=ArtifactKind.MARKDOWN,
+    )
+    submit(
+        database,
+        store,
+        past_task,
+        "9",
+        SAID_AGAIN.encode(),
+        filename="r.md",
+        kind=ArtifactKind.MARKDOWN,
+        role=Role.ASSISTANT,
+    )
+    _refer(database, task, SimilarityReference(course="sim-demo", term="2025-後期", task="ex01/p1"))
+    with database.unit_of_work() as uow:
+        task = uow.tasks.get_task(task.id)
+
+    references, missing = resolve(
+        database, task, SimilarityMode.TEXT, artifact_store=store, root=root
+    )
+
+    assert missing == []
+    labels = {r.document.label.removeprefix("類似の検査（2025-後期）") for r in references}
+    assert labels == {"合計を出す の提出 R-001", "合計を出す の教員・TA の提出 R-002"}
 
 
 def test_no_references_means_no_run(database, store, task, root, fake) -> None:
