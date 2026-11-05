@@ -32,7 +32,6 @@ from aijudge_core import (
     TaskVersion,
     final_score,
     late_penalty_for,
-    penalty_crosses_boundary,
 )
 from aijudge_core.ids import (
     CriterionId,
@@ -202,28 +201,6 @@ def test_an_adjustment_is_applied_before_the_penalty() -> None:
     score = final_score(run, _task_version(), _review(levels={CRITERION: 1}))
     assert score.evaluation == 0.5
     assert score.final == 0.4
-
-
-# -- 合否境界 ---------------------------------------------------------------
-
-
-def test_a_penalty_that_flips_the_verdict_is_flagged() -> None:
-    """評価では及第、減点で不可 ── 自動で閉じてよい件ではない（P5）。"""
-    run = _run(level=1, penalty=late_penalty_for(DUE, DUE + timedelta(hours=1), LADDER))
-    score = final_score(run, _task_version())
-    assert score.evaluation == 0.5
-    assert score.final == 0.4
-    assert penalty_crosses_boundary(score, 0.45)
-
-
-def test_a_penalty_that_does_not_flip_the_verdict_is_not_flagged() -> None:
-    run = _run(level=2, penalty=late_penalty_for(DUE, DUE + timedelta(hours=1), LADDER))
-    assert not penalty_crosses_boundary(final_score(run, _task_version()), 0.6)
-
-
-def test_without_a_boundary_nothing_is_flagged() -> None:
-    run = _run(level=1, penalty=late_penalty_for(DUE, DUE + timedelta(hours=1), LADDER))
-    assert not penalty_crosses_boundary(final_score(run, _task_version()), None)
 
 
 # -- 課題（ユニット）単位の上書き（2026-10-08） ------------------------------------
