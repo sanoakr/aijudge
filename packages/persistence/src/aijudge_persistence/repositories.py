@@ -60,6 +60,7 @@ from aijudge_core.ids import (
     UserId,
 )
 from aijudge_submission import GradingJob, GradingPhase, JobLane, JobState, SubmissionCounts
+from aijudge_submission.jobs import JobReason
 from aijudge_submission.protocols import (
     AttentionCounts,
     ImmutabilityViolation,
@@ -1243,6 +1244,35 @@ class SqlJobQueue:
         for row in rows:
             row.available_at = now
             row.updated_at = now
+        return len(rows)
+
+    def reschedule_waiting(
+        self, submission_ids: Sequence[SubmissionId], starts_at: datetime | None, now: datetime
+    ) -> int:
+        """寝かせてあるジョブを新しい採点開始時刻に合わせる。**件数を返す。**
+
+        **提出の採点待ちだけを動かす。** 再試行の待ち（`attempts` が 1 以上）は
+        間隔の制御なので触らない。すでに取れるジョブも触らない（`release_waiting`）。
+        """
+        if not submission_ids:
+            return 0
+        available_at = max(now, starts_at) if starts_at else now
+        rows = (
+            self._session.execute(
+                select(GradingJobRow).where(
+                    GradingJobRow.submission_id.in_([str(i) for i in submission_ids]),
+                    GradingJobRow.state == JobState.QUEUED.value,
+                    GradingJobRow.reason == JobReason.SUBMISSION.value,
+                    GradingJobRow.attempts == 0,
+                    GradingJobRow.available_at > now,
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for row in rows:
+            job = GradingJob.model_validate(row.document)
+            _apply(row, job.model_copy(update={"available_at": available_at, "updated_at": now}))
         return len(rows)
 
     def waiting_count(self, submission_ids: Sequence[SubmissionId], now: datetime) -> int:

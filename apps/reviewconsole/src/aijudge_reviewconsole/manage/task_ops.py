@@ -21,6 +21,7 @@ from aijudge_core import MAX_TASK_CASE_TIMEOUT_SECONDS, MIN_JUSTIFICATION_LENGTH
 from aijudge_core.ids import CourseId, TaskId
 from aijudge_course_admin.errors import AdminError
 from aijudge_course_admin.finalization import finalize_task
+from aijudge_course_admin.grading_start import follow_grading_start
 from aijudge_course_admin.task_relocation import copy_task as copy_task_as
 from aijudge_course_admin.task_relocation import move_task as relocate_task
 from aijudge_course_admin.tasks import delete as delete_task
@@ -399,6 +400,7 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
 
         with console.database.unit_of_work() as uow:
             uow.tasks.save_task(updated)
+            follow_grading_start(uow, task, updated)
             # **締切は誰がいつ動かしたかを言えないといけない**（ADR 0013）。
             # セット単位の記録（`_update_unit`）と同じ理由で、1 件の操作も残す。
             recorder_for(uow, request, me).record(
@@ -497,6 +499,7 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
         ]
         with console.database.unit_of_work() as uow:
             uow.tasks.save_task(updated)
+            follow_grading_start(uow, task, updated)
             recorder = recorder_for(uow, request, me)
             for summary, field, diff in records:
                 if not diff:

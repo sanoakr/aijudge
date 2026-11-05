@@ -20,7 +20,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -388,3 +388,48 @@ def test_revising_a_task_keeps_its_late_penalty(world) -> None:
     with database.unit_of_work() as uow:
         after = uow.tasks.get_task(saved.task.id)
     assert after.late_penalty_steps == steps, "直したら課題の減点がコースの設定に戻っている"
+
+
+def test_applying_a_new_grading_start_moves_submissions_already_waiting(world, tmp_path) -> None:
+    """**定義の流し込みで開始時刻が変わっても、待機中の提出が従う**（2026-11-05）。"""
+    from aijudge_core import ArtifactKind
+    from aijudge_core.ids import UserId
+    from aijudge_submission import FilesystemArtifactStore, IncomingFile, SubmissionService
+
+    database, course = world
+    far_future = datetime.now(UTC) + timedelta(days=30)
+    moved_to = far_future - timedelta(days=1)
+    saved = _save(database, course, "本文")
+    _schedule_the_unit(
+        database,
+        saved.task.id,
+        opens_at=None,
+        submissions_open_at=None,
+        due_at=None,
+        accepts_until=None,
+        grading_starts_at=far_future,
+    )
+    waiting = SubmissionService(
+        database.unit_of_work, FilesystemArtifactStore(tmp_path / "artifacts")
+    ).accept(
+        tenant_id=TENANT,
+        task_version_id=saved.version.id,
+        learner_id=UserId("usr_learner"),
+        subject_profile=course.subject_profile,
+        files=[IncomingFile(filename="main.c", kind=ArtifactKind.CODE, payload=b"int main;")],
+        grading_starts_at=far_future,
+    )
+
+    save_task(
+        database,
+        course_id=course.id,
+        spec=TaskSpec(
+            key="ex1/p1", statement="本文", title="課題", unit="ex1", grading_starts_at=moved_to
+        ),
+        subject_profile=course.subject_profile,
+        authored_by=TEACHER,
+        revise=True,
+    )
+
+    with database.unit_of_work() as uow:
+        assert uow.jobs.get(waiting.job.id).available_at == moved_to

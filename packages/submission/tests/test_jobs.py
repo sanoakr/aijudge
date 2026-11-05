@@ -401,3 +401,40 @@ def test_position_is_none_when_nothing_is_queued_or_held() -> None:
         )
     )
     assert held.position_in_queue(held_sub, GradingPhase.DETERMINISTIC, NOW) is None
+
+
+def test_the_in_memory_queue_follows_a_new_grading_start_the_same_way() -> None:
+    """インメモリも同じ規則。提出の採点待ちだけを動かす。"""
+    from datetime import UTC, datetime, timedelta
+
+    from aijudge_core.ids import GradingJobId, SubmissionId, TaskVersionId, TenantId
+    from aijudge_submission import GradingJob, JobReason
+
+    NOW = datetime(2026, 11, 5, 8, 0, tzinfo=UTC)
+    queue = InMemoryJobQueue()
+    template = GradingJob(
+        id=GradingJobId("job_" + "a" * 32),
+        tenant_id=TenantId("ten_" + "0" * 32),
+        submission_id=SubmissionId("sub_" + "a" * 32),
+        task_version_id=TaskVersionId("tsv_" + "a" * 32),
+        subject_profile="cs_lang_c_intro",
+        reason=JobReason.SUBMISSION,
+        idempotency_key="waiting",
+        max_attempts=3,
+        available_at=NOW + timedelta(hours=2),
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    queue.enqueue(template)
+    queue.enqueue(
+        template.model_copy(
+            update={
+                "id": GradingJobId("job_" + "b" * 32),
+                "reason": JobReason.REGRADE,
+                "idempotency_key": "regrade",
+            }
+        )
+    )
+
+    assert queue.reschedule_waiting([template.submission_id], NOW + timedelta(hours=1), NOW) == 1
+    assert queue.get(template.id).available_at == NOW + timedelta(hours=1)

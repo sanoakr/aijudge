@@ -374,6 +374,73 @@ def test_position_in_queue(database: Database) -> None:
             assert uow.jobs.position_in_queue(s, GradingPhase.DETERMINISTIC, NOW) >= 1
 
 
+def _a_waiting_job(database: Database, starts_at):
+    return a_service(database).accept(
+        tenant_id=TENANT,
+        task_version_id=TASK_VERSION,
+        learner_id=LEARNER,
+        subject_profile="cs_lang_c_intro",
+        files=code(),
+        grading_starts_at=starts_at,
+    )
+
+
+@pytest.mark.parametrize(
+    ("new_start", "expected"),
+    [
+        (NOW + timedelta(hours=1), NOW + timedelta(hours=1)),
+        (NOW + timedelta(hours=3), NOW + timedelta(hours=3)),
+        (NOW - timedelta(hours=1), NOW),
+        (None, NOW),
+    ],
+    ids=["earlier", "later", "already-past", "cleared"],
+)
+def test_a_waiting_job_follows_a_new_grading_start(database: Database, new_start, expected) -> None:
+    """**採点開始を変えたら、変更前の提出も新しい時刻に従う。**"""
+    result = _a_waiting_job(database, NOW + timedelta(hours=2))
+
+    with database.unit_of_work() as uow:
+        moved = uow.jobs.reschedule_waiting([result.submission.id], new_start, NOW)
+        uow.commit()
+    assert moved == 1
+
+    with database.unit_of_work() as uow:
+        assert uow.jobs.get(result.job.id).available_at == expected
+
+
+def test_a_job_that_can_already_run_is_not_put_back_to_sleep(database: Database) -> None:
+    """**いま取れるジョブは動かさない。** 「いままでの提出を採点」の結果を巻き戻さない。"""
+    result = _a_waiting_job(database, None)
+
+    with database.unit_of_work() as uow:
+        moved = uow.jobs.reschedule_waiting(
+            [result.submission.id], NOW + timedelta(hours=2), NOW + timedelta(seconds=1)
+        )
+        uow.commit()
+    assert moved == 0
+
+    with database.unit_of_work() as uow:
+        assert uow.jobs.get(result.job.id).available_at == NOW
+
+
+def test_a_retry_keeps_its_backoff_when_the_grading_start_moves(database: Database) -> None:
+    """**再試行の待ちは採点開始とは別物。** 間隔の制御を崩さない。"""
+    result = _a_waiting_job(database, None)
+    retry_at = NOW + timedelta(minutes=5)
+
+    with database.unit_of_work() as uow:
+        job = uow.jobs.reserve(NOW + timedelta(seconds=1), worker="w1", lease_seconds=60.0)
+        uow.jobs.update(job.failed(NOW, "boom", backoff_seconds=300.0))
+        uow.commit()
+
+    with database.unit_of_work() as uow:
+        assert uow.jobs.reschedule_waiting([result.submission.id], None, NOW) == 0
+        uow.commit()
+
+    with database.unit_of_work() as uow:
+        assert uow.jobs.get(result.job.id).available_at == retry_at
+
+
 def test_a_job_moved_to_another_lane_is_taken_only_from_that_lane(database: Database) -> None:
     """書き起こしの列へ回したジョブは、ふつうの列のワーカーに取られない（#627）。
 

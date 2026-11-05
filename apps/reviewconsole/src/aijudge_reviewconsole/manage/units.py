@@ -42,6 +42,7 @@ from aijudge_course_admin import rubric
 from aijudge_course_admin.answer_mode import editor_blockers, file_upload_required
 from aijudge_course_admin.errors import AdminError
 from aijudge_course_admin.finalization import finalize_tasks, pending_breakdown
+from aijudge_course_admin.grading_start import follow_grading_start
 from aijudge_course_admin.late_penalty import split_for_form, steps_from_form
 from aijudge_course_admin.late_penalty import summarize as summarize_penalty
 from aijudge_course_admin.tasks import clear_unit
@@ -164,6 +165,7 @@ def _apply_unit_update(
             raise HTTPException(status_code=400, detail=_first_error(exc)) from None
         before |= {key: getattr(task, key, None) for key in update}
         uow.tasks.save_task(updated)
+        follow_grading_start(uow, task, updated)
     # **締切と自動確定の猶予はここを通る。** どちらも成績がいつ閉じるかを
     # 決める値で（ADR 0013・ADR 0014）、後から「誰がいつ動かしたか」を
     # 言えないと、締切を巡る問い合わせに答えられない。

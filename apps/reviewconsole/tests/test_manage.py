@@ -7662,6 +7662,48 @@ def test_grading_now_does_not_turn_the_exam_setting_off(world: World) -> None:
     assert task.grading_starts_at is not None, "試験の設定が解除された"
 
 
+def test_changing_the_grading_start_moves_submissions_already_waiting(world: World) -> None:
+    """**提出のときの時刻に固定しない**（2026-11-05・prog2 ex07）。
+
+    開始を早めても変更前の提出が古い時刻まで待ち続け、採点が止まったように見えた。
+    """
+    from zoneinfo import ZoneInfo
+
+    from aijudge_core import ArtifactKind
+    from aijudge_core.ids import TaskId, UserId
+    from aijudge_submission import IncomingFile, SubmissionService
+
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    old = datetime.now(UTC) + timedelta(hours=2)
+    task_id, unit = _exam_unit(world, starts_at=old)
+
+    with world.database.unit_of_work() as uow:
+        version = uow.tasks.latest_version(TaskId(task_id))
+    service = SubmissionService(world.database.unit_of_work, world.console.store)
+    waiting = service.accept(
+        tenant_id=world.course.tenant_id,
+        task_version_id=version.id,
+        learner_id=UserId("usr_learner"),
+        subject_profile=version.subject_profile,
+        files=[IncomingFile(filename="main.c", kind=ArtifactKind.CODE, payload=b"int main;")],
+        grading_starts_at=old,
+    )
+
+    new = (datetime.now(UTC) + timedelta(hours=1)).replace(second=0, microsecond=0)
+    response = client.post(
+        f"/manage/courses/{world.course.id}/units/{unit}/schedule",
+        data={
+            "grading_starts_at": new.astimezone(ZoneInfo("Asia/Tokyo")).strftime("%Y-%m-%dT%H:%M")
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+
+    with world.database.unit_of_work() as uow:
+        assert uow.jobs.get(waiting.job.id).available_at == new
+
+
 def test_a_grading_start_before_submissions_open_is_refused(world: World) -> None:
     """提出が始まる前に「採点を待つ」状態を作らない。
 
