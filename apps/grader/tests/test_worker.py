@@ -915,6 +915,23 @@ def test_a_late_submission_is_penalised_after_the_evaluation(world: World) -> No
 
 
 @needs_c_compiler
+def test_a_penalty_that_flips_the_verdict_does_not_change_the_routing(world: World) -> None:
+    """**減点では振り分けを変えない**（ADR 0013 §5）。満点が境界を下回っても人に回さない。"""
+    world.set_course(LADDER)
+    world.set_task_penalty((LatePenaltyStep(after_hours=0.0, ratio=0.7),))
+    world.set_due(NOW - timedelta(hours=1))
+    world.submit()
+    world.worker.run_until_empty()
+
+    with world.database.unit_of_work() as uow:
+        run = uow.runs.latest_for(_only_submission(uow))
+
+    score = final_score(run, world.task_version)
+    assert score.evaluation >= 0.6 > score.final, "境界をまたぐ提出になっていない"
+    assert run.routing is Routing.AUTO
+
+
+@needs_c_compiler
 def test_an_auto_closed_submission_is_never_penalised(world: World) -> None:
     """**受付終了時の自動提出は、締切を過ぎていても減点しない**（2026-10-02）。"""
     world.set_course(LADDER)

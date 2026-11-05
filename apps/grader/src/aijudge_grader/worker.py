@@ -35,16 +35,13 @@ from aijudge_core import (
     EvaluatorKind,
     GradingPhase,
     GradingRun,
-    Routing,
     Submission,
     Task,
     TaskVersion,
     effective_aggregation,
     effective_late_penalty_steps,
-    final_score,
     late_penalty_for,
     new_id,
-    penalty_crosses_boundary,
 )
 from aijudge_core.ids import GradingJobId
 from aijudge_feedback import FeedbackGenerator
@@ -344,7 +341,6 @@ class GradingWorker:
             task=task,
             course=course,
             task_version=task_version,
-            profile=profile,
         )
 
         if job.phase is GradingPhase.DETERMINISTIC and pipeline.has_ai_work(
@@ -365,7 +361,6 @@ class GradingWorker:
         task: Task | None,
         course: Course | None,
         task_version: TaskVersion,
-        profile: SubjectProfile,
     ) -> GradingRun:
         """遅延の減点を付ける。**採点したあとに、採点の外から当てる。**
 
@@ -391,14 +386,9 @@ class GradingWorker:
         if penalty is None:
             return run
 
-        penalized = run.model_copy(update={"penalty": penalty})
-        score = final_score(penalized, task_version)
-        if penalty_crosses_boundary(score, profile.review_policy.boundary_score):
-            # 評価としては及第だったものが、遅延だけで不可になる。自動で
-            # 閉じずに教員が見る（P5）。遅延の事実に迷いは無いが、免除する
-            # かどうかの判断は人にしか無い。
-            penalized = penalized.model_copy(update={"routing": Routing.REVIEW_REQUIRED})
-        return penalized
+        # **減点では振り分けを変えない**（2026-11-05・ADR 0013 §5）。振り分けは評価だけで
+        # 決まる。免除したい提出は、教員が開いて `penalty_waived` を付ける。
+        return run.model_copy(update={"penalty": penalty})
 
     def _with_feedback(
         self, run: GradingRun, task_version: TaskVersion, contents: dict

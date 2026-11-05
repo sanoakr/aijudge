@@ -795,15 +795,3 @@ def _reviewed_evaluation(run: GradingRun, task_version: TaskVersion, review: Hum
             weight = score.weight
         total += criterion.level_for(level).score_ratio * weight
     return min(1.0, max(0.0, total))
-
-
-def penalty_crosses_boundary(score: FinalScore, boundary: float | None) -> bool:
-    """減点だけで合否が入れ替わるか。
-
-    入れ替わるなら自動で閉じない ── 評価としては及第だったものが事務上の
-    理由で不可になる件は、**教員が見てから確定させる**（P5）。遅延の事実に
-    迷いは無いが、免除するかどうかの判断は人にしか無い。
-    """
-    if boundary is None or not score.penalized:
-        return False
-    return score.evaluation >= boundary > score.final
