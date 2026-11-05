@@ -639,6 +639,17 @@ class JobQueue(Protocol):
         """
         ...
 
+    def reschedule_waiting(
+        self, submission_ids: Sequence[SubmissionId], starts_at: datetime | None, now: datetime
+    ) -> int:
+        """採点開始時刻まで寝かせてあるジョブを、新しい開始時刻に合わせる。
+
+        開始時刻が過去か `None` なら、いま取れる状態にする。**再試行の待ちは
+        動かさない**（`attempts` が 1 以上）── 時刻を変えると間隔の制御が崩れる。
+        変えた件数を返す。
+        """
+        ...
+
     def waiting_count(self, submission_ids: Sequence[SubmissionId], now: datetime) -> int:
         """まだ寝かせてあるジョブの件数。押す前に「何件動くか」を出すため。"""
         ...

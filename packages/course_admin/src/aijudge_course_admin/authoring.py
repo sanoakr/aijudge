@@ -28,6 +28,7 @@ from aijudge_core import (
 )
 from aijudge_core.ids import CourseId, UserId
 from aijudge_course_admin.errors import AdminError
+from aijudge_course_admin.grading_start import follow_grading_start
 from aijudge_course_admin.kc import assert_registered
 from aijudge_course_admin.rubric import from_stored
 from aijudge_unit_of_work import Store
@@ -268,6 +269,7 @@ def save_task(
             or (existing.similarity_references if existing else ()),
         )
         uow.tasks.save_task(task)
+        follow_grading_start(uow, existing, task)
         try:
             uow.tasks.save_version(version)
         except TaskStoreError as exc:

@@ -42,7 +42,7 @@ from aijudge_core.ids import (
     UserId,
 )
 
-from .jobs import GradingJob, JobLane, JobState
+from .jobs import GradingJob, JobLane, JobReason, JobState
 from .protocols import (
     ImmutabilityViolation,
     RunDecision,
@@ -494,6 +494,27 @@ class InMemoryJobQueue:
                 )
                 released += 1
         return released
+
+    def reschedule_waiting(
+        self, submission_ids: Sequence[SubmissionId], starts_at: datetime | None, now: datetime
+    ) -> int:
+        """SQL 実装と同じ規則。**提出の採点待ちだけを動かす。**"""
+        targets = {str(i) for i in submission_ids}
+        available_at = max(now, starts_at) if starts_at else now
+        moved = 0
+        for job_id, job in list(self._items.items()):
+            if (
+                str(job.submission_id) in targets
+                and job.state is JobState.QUEUED
+                and job.reason is JobReason.SUBMISSION
+                and job.attempts == 0
+                and job.available_at > now
+            ):
+                self._items[job_id] = job.model_copy(
+                    update={"available_at": available_at, "updated_at": now}
+                )
+                moved += 1
+        return moved
 
     def waiting_count(self, submission_ids: Sequence[SubmissionId], now: datetime) -> int:
         targets = {str(i) for i in submission_ids}
