@@ -180,6 +180,52 @@ def test_each_criterion_gets_its_own_evaluator_result() -> None:
     assert [case.name for case in results[STYLE].cases] == ["case2"]
 
 
+def test_a_criterion_the_gate_skipped_still_shows_its_test_results() -> None:
+    """**AND ゲートで打ち切っても、走ったテストの結果は見せる**（2026-11-05）。
+
+    AI が先の観点に 0% を付けると、テストの観点に点が付かない。隠すと、採点が
+    走っていないように見えた。
+    """
+    run = _run(
+        (RESULT, {"cases": [_mismatch("case1", ["1"], ["2"])]}),
+        (OTHER_RESULT, {"cases": [_mismatch("case2", ["3"], ["4"])]}),
+        scores=(_score(CORRECT, RESULT),),
+    ).model_copy(update={"skipped_criteria": (STYLE,)})
+
+    assert [case.name for case in io_results(_task(), run)[STYLE].cases] == ["case2"]
+
+
+def test_a_compile_error_is_shown_for_a_criterion_the_gate_skipped() -> None:
+    run = _run(
+        (RESULT, {"cases": []}),
+        (OTHER_RESULT, {"compile_error": "main.c:13: error: 'z' undeclared"}),
+        scores=(_score(CORRECT, RESULT),),
+    ).model_copy(update={"skipped_criteria": (STYLE,)})
+
+    assert "undeclared" in io_results(_task(), run)[STYLE].compile_error
+
+
+def test_a_skipped_criterion_shows_nothing_when_the_result_is_ambiguous() -> None:
+    """**1 つに決まらないなら出さない。** 別の観点の結果を見せるよりよい。"""
+    run = _run(
+        (RESULT, {"cases": [_mismatch("case1", ["1"], ["2"])]}),
+        (OTHER_RESULT, {"cases": [_mismatch("case2", ["3"], ["4"])]}),
+        scores=(),
+    )
+    run = run.model_copy(update={"criterion_scores": (), "skipped_criteria": (STYLE,)})
+
+    assert STYLE not in io_results(_task(), run)
+
+
+def test_a_result_already_bound_to_a_score_is_not_reused_for_a_skipped_criterion() -> None:
+    run = _run(
+        (RESULT, {"cases": [_mismatch("case1", ["1"], ["2"])]}),
+        scores=(_score(CORRECT, RESULT),),
+    ).model_copy(update={"skipped_criteria": (STYLE,)})
+
+    assert STYLE not in io_results(_task(), run)
+
+
 def test_a_criterion_not_judged_by_io_cases_is_left_out() -> None:
     run = _run((RESULT, {"verdict": {"level": 1}}))
 

@@ -21,7 +21,7 @@ import difflib
 import itertools
 from dataclasses import dataclass
 
-from aijudge_core import GradingRun, TaskVersion, TestCase
+from aijudge_core import EvaluatorResult, GradingRun, TaskVersion, TestCase
 from aijudge_core.ids import CriterionId
 from aijudge_eval_network_test_runner import COMPANION_HOST
 from aijudge_eval_network_test_runner import EVALUATOR_ID as NETWORK_EVALUATOR_ID
@@ -152,32 +152,66 @@ def io_results(task: TaskVersion, run: GradingRun) -> dict[CriterionId, IoResult
         result = by_result.get(score.evaluator_result_id)
         if result is None:
             continue
-        raw = result.raw_output
-        cases = raw.get("cases")
-        compile_error = raw.get("compile_error")
-        if not isinstance(cases, list) and not isinstance(compile_error, str):
-            continue
-        if result.evaluator_id == NETWORK_TEST_RUNNER:
-            if isinstance(cases, list):
-                out[score.criterion_id] = _network_result(task, result.evaluator_id, cases)
-            continue
-        inputs = {
-            case.name: case.payload.get("input")
-            for case in task.test_cases
-            if case.evaluator_id == result.evaluator_id
-        }
-        out[score.criterion_id] = IoResult(
-            evaluator_id=result.evaluator_id,
-            cases=tuple(
-                _case(entry, inputs)
-                for entry in (cases if isinstance(cases, list) else [])
-                if isinstance(entry, dict)
-            ),
-            compile_error=compile_error[:MAX_STDERR_CHARS]
-            if isinstance(compile_error, str)
-            else None,
-        )
+        shown = _io_result(task, result)
+        if shown is not None:
+            out[score.criterion_id] = shown
+    out |= _gated_results(task, run)
     return out
+
+
+def _gated_results(task: TaskVersion, run: GradingRun) -> dict[CriterionId, IoResult]:
+    """AND ゲートで打ち切った観点の突き合わせ（2026-11-05）。
+
+    打ち切った観点に `CriterionScore` は無いが、テストは先に走っていて結果は残って
+    いる。出さないと、AI が 0% を付けた提出のテスト結果が見えず、採点が走っていない
+    ように見えた。**打ち切りの点は変えない。表示するだけである。**
+
+    点で結べないので評価器の名前で引く。**1 つに決まるときだけ出す**
+    （`io_results` の注記のとおり、同じ評価器を複数の観点に割り当てた課題がある）。
+    """
+    bound = {score.evaluator_result_id for score in run.criterion_scores}
+    out: dict[CriterionId, IoResult] = {}
+    for criterion in task.criteria:
+        if criterion.id not in run.skipped_criteria or criterion.evaluator_id is None:
+            continue
+        candidates = [
+            result
+            for result in run.evaluator_results
+            if result.evaluator_id == criterion.evaluator_id and result.id not in bound
+        ]
+        if len(candidates) != 1:
+            continue
+        shown = _io_result(task, candidates[0])
+        if shown is not None:
+            out[criterion.id] = shown
+    return out
+
+
+def _io_result(task: TaskVersion, result: EvaluatorResult) -> IoResult | None:
+    """評価器 1 個分の結果を突き合わせにする。入出力で判定していなければ `None`。"""
+    raw = result.raw_output
+    cases = raw.get("cases")
+    compile_error = raw.get("compile_error")
+    if not isinstance(cases, list) and not isinstance(compile_error, str):
+        return None
+    if result.evaluator_id == NETWORK_TEST_RUNNER:
+        if isinstance(cases, list):
+            return _network_result(task, result.evaluator_id, cases)
+        return None
+    inputs = {
+        case.name: case.payload.get("input")
+        for case in task.test_cases
+        if case.evaluator_id == result.evaluator_id
+    }
+    return IoResult(
+        evaluator_id=result.evaluator_id,
+        cases=tuple(
+            _case(entry, inputs)
+            for entry in (cases if isinstance(cases, list) else [])
+            if isinstance(entry, dict)
+        ),
+        compile_error=compile_error[:MAX_STDERR_CHARS] if isinstance(compile_error, str) else None,
+    )
 
 
 def _network_result(task: TaskVersion, evaluator_id: str, cases: list) -> IoResult:
