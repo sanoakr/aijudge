@@ -603,8 +603,12 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
     app.include_router(register_api())
 
     # IDE の作業の記録（ADR 0023）。**教員だけ**が見られ、見たことは監査に残る。
+    # **問題セット・問題の入口を先に載せる。** 後にすると `/activity/units` が
+    # 学習者の画面（`/activity/{learner_id}`）に先に当たって 404 になる。
     from .activity import register as register_activity
+    from .activity_by_problem import register as register_activity_by_problem
 
+    app.include_router(register_activity_by_problem(TEMPLATES))
     app.include_router(register_activity(TEMPLATES))
 
     # 提出どうしの類似（#203・ADR 0029）。**教員だけ**が見られ、見たことは監査に残る。

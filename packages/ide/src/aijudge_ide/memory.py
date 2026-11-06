@@ -192,6 +192,17 @@ class InMemoryActivityIndex:
             batch for (sid, _), batch in sorted(self._batches.items()) if sid == session_id
         )
 
+    def batch_sizes(
+        self, session_ids: Sequence[IdeSessionId]
+    ) -> dict[IdeSessionId, tuple[int, int]]:
+        wanted = set(session_ids)
+        sizes: dict[IdeSessionId, tuple[int, int]] = {}
+        for session_id, seq in self._batches:
+            if session_id in wanted:
+                count, last = sizes.get(session_id, (0, -1))
+                sizes[session_id] = (count + 1, max(last, seq))
+        return sizes
+
     def course_sessions(self, course_id: CourseId) -> tuple[IdeSession, ...]:
         return tuple(
             sorted(

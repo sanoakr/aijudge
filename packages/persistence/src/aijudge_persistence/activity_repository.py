@@ -10,13 +10,26 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from aijudge_core.ids import CourseId, TenantId, UserId
 from aijudge_ide import EventBatch, IdeSession, IdeSessionId, PasteMark, ScreenShare
 
 from .schema import IdeEventBatchRow, IdePasteMarkRow, IdeScreenShareRow, IdeSessionRow
+
+
+def _session_from(row: IdeSessionRow) -> IdeSession:
+    return IdeSession(
+        id=IdeSessionId(row.id),
+        tenant_id=TenantId(row.tenant_id),
+        learner_id=UserId(row.learner_id),
+        course_id=CourseId(row.course_id),
+        unit=row.unit,
+        started_at=row.started_at,
+        user_agent=row.user_agent,
+        consented_at=row.consented_at,
+    )
 
 
 class SqlActivityIndex:
@@ -42,34 +55,21 @@ class SqlActivityIndex:
 
     def get_session(self, session_id: IdeSessionId) -> IdeSession | None:
         row = self._session.get(IdeSessionRow, str(session_id))
-        if row is None:
-            return None
-        return IdeSession(
-            id=IdeSessionId(row.id),
-            tenant_id=TenantId(row.tenant_id),
-            learner_id=UserId(row.learner_id),
-            course_id=CourseId(row.course_id),
-            unit=row.unit,
-            started_at=row.started_at,
-            user_agent=row.user_agent,
-            consented_at=row.consented_at,
-        )
+        return None if row is None else _session_from(row)
 
     def course_sessions(self, course_id: CourseId) -> tuple[IdeSession, ...]:
+        # **1 回で引く。** 教員が問題セットの画面を開くたびに通る（2026-11-06）。
+        # 1 件ずつ引くと、学期の終わりにはコース全体で数千回の問い合わせになる。
         rows = (
             self._session.execute(
-                select(IdeSessionRow.id)
+                select(IdeSessionRow)
                 .where(IdeSessionRow.course_id == str(course_id))
                 .order_by(IdeSessionRow.started_at, IdeSessionRow.id)
             )
             .scalars()
             .all()
         )
-        return tuple(
-            session
-            for session in (self.get_session(IdeSessionId(row)) for row in rows)
-            if session is not None
-        )
+        return tuple(_session_from(row) for row in rows)
 
     def add_paste_marks(self, marks: Sequence[PasteMark]) -> None:
         for mark in marks:
@@ -226,6 +226,23 @@ class SqlActivityIndex:
         )
         self._session.flush()
         return True
+
+    def batch_sizes(
+        self, session_ids: Sequence[IdeSessionId]
+    ) -> dict[IdeSessionId, tuple[int, int]]:
+        wanted = [str(session_id) for session_id in session_ids]
+        if not wanted:
+            return {}
+        rows = self._session.execute(
+            select(
+                IdeEventBatchRow.ide_session_id,
+                func.count(),
+                func.max(IdeEventBatchRow.seq),
+            )
+            .where(IdeEventBatchRow.ide_session_id.in_(wanted))
+            .group_by(IdeEventBatchRow.ide_session_id)
+        ).all()
+        return {IdeSessionId(str(sid)): (int(count), int(last)) for sid, count, last in rows}
 
     def batches(self, session_id: IdeSessionId) -> tuple[EventBatch, ...]:
         rows = (

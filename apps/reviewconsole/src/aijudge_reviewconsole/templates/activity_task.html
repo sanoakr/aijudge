@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% import "_activity_cross.html" as cross %}
+{% block title %}{{ task.title }} の作業の記録 — {{ course.title }} — aiJudge レビュー{% endblock %}
+{% block body %}
+{# 問題ごとの作業の記録（`activity_by_problem.py`）。**事実だけを並べる。判定はしない。**
+   開いたことは監査ログに残る。 #}
+<h1>{{ task.title }} の作業の記録</h1>
+<p class="desc">
+  <a href="{{ root_prefix() }}/courses/{{ course.id }}/activity/units/{{ group.key }}">{{ group.label }} へ</a> ·
+  この問題でのエディタの作業を、学習者ごとに並べています。<strong>記録から自動で減点・判定はしません</strong>。
+  数字は経過を確かめる入口で、それだけでは何も意味しません。
+  <strong>この画面を開いたことは監査ログに残ります。</strong>
+</p>
+
+{# 同じ問題セットの問題へ。戻らずに読み比べられるように。 #}
+{% if siblings | length > 1 %}
+<nav class="tabs activity-siblings" aria-label="{{ group.label }} の問題">
+  {% for sibling in siblings %}
+  <a href="{{ root_prefix() }}/courses/{{ course.id }}/activity/tasks/{{ sibling.id }}{% if sort != 'login' %}?sort={{ sort }}{% endif %}" {% if sibling.id == task.id %}aria-current="page"{% endif %}>{{ sibling.title }}</a>
+  {% endfor %}
+</nav>
+{% endif %}
+
+{% if not configured %}
+{# **読めないのに 0 字と書かない。** 数えられないことと 0 は別のことである。 #}
+<p class="note warn">記録の置き場所（AIJUDGE_ACTIVITY_DIR）が設定されていないため、中身を読めません。
+  この問題セットの記録は {{ session_count }} 回分あります。</p>
+{% else %}
+{% if unknown_learners %}
+<p class="note">どの問題の作業か分からない記録が {{ unknown_learners }} 名分あり、ここの数字には入っていません（最初の記録が欠けたセッションなど）。
+  <a href="{{ root_prefix() }}/courses/{{ course.id }}/activity/units/{{ group.key }}">問題セットの画面</a>の合計には入っています。</p>
+{% endif %}
+
+<div class="activity-head">
+  <h2>学習者ごと</h2>
+  {{ cross.sort_form(sorts, sort) }}
+</div>
+<table class="stack">
+  <thead><tr>
+    <th class="fit">学習者</th><th class="fit">打鍵</th><th class="fit">外からの貼り付け</th>
+    <th class="fit">画面を離れた</th><th class="fit">実行</th><th class="fit">提出</th>
+    <th class="grow">確かめる場所</th><th class="fit">記録の欠け</th><th class="fit">再生</th>
+  </tr></thead>
+  <tbody>
+  {% for row in rows %}
+    {% set s = row.work.summary %}
+    <tr>
+      <td class="fit" data-label="学習者">{{ cross.who(row.learner, root_prefix() ~ "/courses/" ~ course.id ~ "/activity/" ~ row.learner.user_id ~ "#task-" ~ task.id) }}</td>
+      {% if row.work.parts %}
+      <td class="fit" data-label="打鍵">{{ s.typed_chars }} 字</td>
+      <td class="fit" data-label="外からの貼り付け">{{ cross.pasted(s) }}</td>
+      <td class="fit" data-label="画面を離れた">{{ cross.away(s) }}</td>
+      <td class="fit" data-label="実行">{{ s.runs }} 回</td>
+      {% else %}
+      {# 記録が無ければ 0 字とは書かない（ファイルで出した提出は、打鍵が 0 字なのではない）。 #}
+      <td class="fit desc" colspan="4" data-label="作業">エディタの記録なし</td>
+      {% endif %}
+      <td class="fit" data-label="提出">
+        {% if row.submissions %}
+          {% set shown = row.adopted or row.submissions[-1] %}
+          <a href="{{ root_prefix() }}{{ shown.href }}">{{ row.submissions | length }} 回{% if row.adopted and row.adopted.ratio is not none %}・{{ '%.0f' | format(row.adopted.ratio * 100) }}%{% endif %}</a>
+          {% if row.auto_closed %}<br><span class="pill attn">受付終了時の自動提出</span>{% endif %}
+        {% else %}<span class="desc">なし</span>{% endif %}
+      </td>
+      <td class="grow activity-flags" data-label="確かめる場所">{{ cross.flags(row, course.id) }}</td>
+      <td class="fit" data-label="記録の欠け">{{ cross.gaps(row) }}</td>
+      <td class="fit" data-label="再生">
+        {% for part in row.work.parts %}<a href="{{ root_prefix() }}/courses/{{ course.id }}/activity/{{ row.learner.user_id }}/{{ part.session.id }}?tab={{ part.tab }}">{{ part.session.started_at | local('%m-%d %H:%M') }}</a>{% if not loop.last %}<br>{% endif %}{% else %}<span class="desc">—</span>{% endfor %}
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="9" class="desc">この問題で手を動かした学習者も、提出した学習者もいません。</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{{ cross.quiet_list(quiet, "この問題で手を動かしておらず提出もしていない受講者") }}
+{{ cross.footnote() }}
+{% endif %}
+{% endblock %}

@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}作業の記録（問題セット） — {{ course.title }} — aiJudge レビュー{% endblock %}
+{% block body %}
+{# 問題セットの一覧（`activity_by_problem.py`）。**索引だけで作る**（本体を読まない）。
+   問題ごとの数字は本体を読まないと出せないので、中を開いてから出す。 #}
+<h1>作業の記録</h1>
+{% include "_activity_tabs.html" %}
+<p class="desc">
+  問題セットを選ぶと問題ごとの人数と学習者ごとの合計が、問題を選ぶと学習者ごとの作業と再生が見られます。
+  はじめて開くときは全員分の記録を読むので、数十秒かかることがあります。
+  <strong>記録から自動で減点・判定はしません。</strong>
+  <strong>この画面を開いたことは監査ログに残ります。</strong>
+</p>
+
+<table class="stack">
+  <thead><tr>
+    <th class="fit">問題セット</th><th class="grow">問題</th>
+    <th class="fit">記録のある学習者</th><th class="fit">エディタを開いた回数</th><th class="fit">最後に開いた時刻</th>
+  </tr></thead>
+  <tbody>
+  {% for row in rows %}
+    <tr>
+      <td class="fit" data-label="問題セット">
+        <a href="{{ root_prefix() }}/courses/{{ course.id }}/activity/units/{{ row.key }}">{{ row.label }}</a>
+        {% if row.unit and row.unit != row.label %}<br><small class="mono desc">{{ row.unit }}</small>{% endif %}
+      </td>
+      <td class="grow" data-label="問題">
+        {% for task_id, title in row.tasks %}{% if not loop.first %} · {% endif %}<a href="{{ root_prefix() }}/courses/{{ course.id }}/activity/tasks/{{ task_id }}">{{ title }}</a>{% else %}<span class="desc">いまは問題がありません（記録だけが残っています）</span>{% endfor %}
+      </td>
+      <td class="fit" data-label="記録のある学習者">{% if row.learners %}{{ row.learners }} / {{ learner_count }} 名{% else %}<span class="desc">なし</span>{% endif %}</td>
+      <td class="fit" data-label="開いた回数">{% if row.sessions %}{{ row.sessions }} 回{% else %}<span class="desc">なし</span>{% endif %}</td>
+      <td class="fit" data-label="最後に開いた時刻">{{ row.last | local('%m-%d %H:%M') if row.last else '—' }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="5" class="desc">エディタで解く問題セットがありません。</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
