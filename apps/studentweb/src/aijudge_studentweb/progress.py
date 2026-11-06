@@ -100,6 +100,9 @@ class AttemptSummary:
         view = self.view
         if view is None:
             return "採点中"
+        if view.held_for_review:
+            # 採点中と書かない。機械は終わっていて、待っている相手は教員である。
+            return "教員の確認待ち"
         if view.confirmed:
             if view.finalized_by is FinalizationSource.INSTRUCTOR_REVIEW:
                 return "確定（教員が確認）"
@@ -276,6 +279,7 @@ def load_progress(
                     task.auto_finalize_after_minutes, course.auto_finalize_after_minutes
                 ),
                 now=moment,
+                results_after_review=task.results_after_review,
             )
         )
         by_version.setdefault(shown.id, []).append(

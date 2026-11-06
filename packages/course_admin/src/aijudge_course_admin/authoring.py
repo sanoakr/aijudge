@@ -254,6 +254,9 @@ def save_task(
             # 落ちたケースの入力を見せるか（2026-10-18）。引き継がないと、「締切後」に
             # した試験の課題を 1 つ直した瞬間に、その課題だけ試験中に入力が見える。
             failed_inputs=existing.failed_inputs if existing else FailedInputs.IMMEDIATELY,
+            # 確認後に返す設定（ADR 0033）。引き継がないと、課題を 1 つ直した瞬間に、
+            # その課題だけ教員が読む前の判定が学習者に見える。
+            results_after_review=existing.results_after_review if existing else False,
             # 実行時間の上限も（#491）。引き継がないと、時間のかかる問題の文面を
             # 1 つ直した瞬間に上限が既定（2 秒など）へ戻り、正しい提出が時間切れになる。
             # 提出形式と同じく、**明示された場合だけ上書きする**。定義を流し直しても、

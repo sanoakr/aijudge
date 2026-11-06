@@ -1306,7 +1306,7 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
         # 同じ段階を選び直して根拠を打つのは手間でしかない。教員はこの 1 件を
         # 実際に読んでいるので、`HumanReview` として記録してよい（ADR 0010 の
         # 区別は保たれる ── 一致度の標本は blind の側で、ここでは増えも減りもしない）。
-        agreed = _blind_agrees(fresh, parsed)
+        agreed = _blind_agrees(fresh, parsed) and _may_return_result(console, me, fresh)
         if agreed:
             _save_review(
                 console,
@@ -1423,7 +1423,9 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
         fresh = _load(console, me, SubmissionId(submission_id), request)
         # 訂正して AI と一致し、ほかに決めることが無ければ、blind の保存と同じく
         # その場で確認まで済ませる（ADR 0030）。
-        if _blind_agrees(fresh, fresh.mark.levels if fresh.mark else {}):
+        if _blind_agrees(fresh, fresh.mark.levels if fresh.mark else {}) and _may_return_result(
+            console, me, fresh
+        ):
             _save_review(
                 console,
                 request,
@@ -1549,6 +1551,8 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 # **教員なら直せる**（#275）。TA も 1 件ずつなら確定できるので、
                 # そこでの判断ちがいを直せる人が要る。1 件目は誰でもよい。
                 "can_correct": _is_course_instructor(console, me, context.course.id),
+                # 確認後に返す回の確定は教員だけ（ADR 0033 §6）。経路の側でも断る。
+                "can_return_result": _may_return_result(console, me, context),
                 # エディタからの提出なら、その学習者の作業の記録へのリンク（ADR 0023）。
                 # **教員だけ**に出す（作業の記録は TA には開けない）。
                 "activity_href": _activity_href(console, me, context),
@@ -1649,6 +1653,16 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
         # すること自体は妨げない。
         if context.review is not None:
             _require_course_instructor(console, me, context.course.id)
+        # **確認後に返す回は 1 件目から教員だけ**（ADR 0033 §6）。保存がそのまま
+        # 学習者への返却になるので、TA に分担させない。
+        if not _may_return_result(console, me, context):
+            access.require_instructor(
+                console,
+                me,
+                context.course.id,
+                not_found="提出が見つかりません",
+                forbidden="この問題セットの結果を学習者に返せるのは担当教員だけです。",
+            )
 
         mode = _work_mode(from_)
         # **次の 1 件は保存の前に決める。** 確定した 1 件は待ち行列から抜けるので、
@@ -2307,13 +2321,16 @@ def _needs_manual_finalization(course: Course, task: Task | None, run: GradingRu
     """この未確定の提出は、人が確定しないと閉じないか（2026-09-25）。
 
     自動確定（`aijudge-finalize`）が閉じないのは、猶予（課題かコースの
-    `auto_finalize_after_minutes`）が無い課題と、レビュー方針が人の目を求めた採点
-    （`Routing.REVIEW_REQUIRED`）。左の帯（`rail_context._split_unfinalized`）と同じ規則。
+    `auto_finalize_after_minutes`）が無い課題、確認後に返す回（ADR 0033）と、レビュー方針が
+    人の目を求めた採点（`Routing.REVIEW_REQUIRED`）。左の帯
+    （`rail_context._split_unfinalized`）と同じ規則。
     """
     grace = grace_minutes(
         task.auto_finalize_after_minutes if task is not None else None,
         course.auto_finalize_after_minutes,
     )
+    if task is not None and task.results_after_review:
+        return True
     return grace is None or run.routing is Routing.REVIEW_REQUIRED
 
 
@@ -2452,6 +2469,17 @@ def _grader_role(console, me: Principal, course_id: CourseId) -> Role:
 def _is_course_instructor(console, me: Principal, course_id: CourseId) -> bool:
     """そのコースの教員か（#275）。**拒むのではなく、出し分けに使う。**"""
     return access.is_instructor(console, me, course_id)
+
+
+def _may_return_result(console, me: Principal, context: _Context) -> bool:
+    """この人の確認で、この提出の結果を学習者に返してよいか（ADR 0033 §6）。
+
+    確認後に返す回だけ教員に限る。ほかの回は 1 件目なら TA も確定できる（#275）。
+    """
+    task = context.task
+    if task is None or not task.results_after_review:
+        return True
+    return _is_course_instructor(console, me, context.course.id)
 
 
 def _review_history(console, run) -> tuple:

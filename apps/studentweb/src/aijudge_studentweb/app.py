@@ -1376,6 +1376,10 @@ def create_app(app_state: StudentApp) -> FastAPI:
                 # 途中で採点を流せるし、試験は延長されうるので、時刻を
                 # 約束すると両方向に食い違う。
                 "grading_held": loaded.grading_held,
+                # 教員の確認を待っているか（ADR 0033）。**採点の前から同じことを言う** ──
+                # 「数秒で届きます」と書くと、届かない結果を待たせる。
+                "awaiting_release": loaded.task.results_after_review
+                and (loaded.view is None or loaded.view.held_for_review),
                 "grading_in_progress": loaded.grading_in_progress,
                 "min_reason": MIN_JUSTIFICATION_LENGTH,
                 # この提出が関わる知識要素（#327）。**課題の宣言をそのまま
@@ -2266,6 +2270,7 @@ def _submission_view(
             # 開けると、遅れて出す人が入力を見てから出せる。
             failed_inputs=task.failed_inputs,
             deadline=task.accepts_until or task.due_at,
+            results_after_review=task.results_after_review,
         )
     )
     return LoadedSubmission(

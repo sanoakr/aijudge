@@ -574,6 +574,14 @@ class Task(BaseModel):
     # （どの入力で間違えたかが分からないと、学習者は直しようがない）。
     # `tasks.document` に入るので列は増えない。
     failed_inputs: FailedInputs = FailedInputs.IMMEDIATELY
+    # 教員が確認するまで、採点の結果を学習者に見せないか（ADR 0033）。**学内限定と
+    # 同じ性質の値である** ── 課題が持つが、値を決めるのは問題セット単位。
+    #
+    # **既定は偽（採点直後に見せる）。** 速く返すことが AI 採点の価値の中心で
+    # （`aijudge_studentweb.visibility`）、全部を教員の作業速度に縛らない。真にするのは、
+    # レポートのように AI の判定を教員が読んでから返したい回だけ。
+    # `tasks.document` に入るので列は増えない。
+    results_after_review: bool = False
     # テストケース 1 件の実行時間の上限（秒・#491）。**この課題だけ**科目・コースの
     # 既定（`evaluator_options.<評価器>.case_timeout_seconds`）を上書きする。数値計算の
     # ように、正しい解でも時間のかかる問題のため。None は既定のまま。

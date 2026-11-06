@@ -18,7 +18,7 @@ from aijudge_core import Role
 from aijudge_course_admin.operations import ensure_course
 
 
-def _image_course(world: World):
+def _image_course(world: World, subject_profile: str = "cs_network_python"):
     """画像を書き起こす科目（`cs_network_python` の `input.transcription`）。"""
     course, _ = ensure_course(
         world.database,
@@ -26,7 +26,7 @@ def _image_course(world: World):
         code="network",
         title="ネットワーク及び演習",
         term="2025-後期",
-        subject_profile="cs_network_python",
+        subject_profile=subject_profile,
         profiles_dir=PROFILES,
     )
     return course
@@ -123,8 +123,11 @@ def test_the_note_names_the_suffixes_that_will_not_be_read(world: World) -> None
     `image_text` は PDF を扱わない（PyMuPDF が AGPL で同梱できない）。PDF も
     受け付ける課題では、PDF は原本のまま評価器へ渡り「読めない」と判定されて
     人に回る ── **採点が止まらないので、設定の誤りが結果に出ない。**
+
+    `image_text` だけを指名している科目で確かめる（network は 2026-11-06 にレポートの
+    ために `document_text` も指名した・ADR 0033）。
     """
-    course = _image_course(world)
+    course = _image_course(world, subject_profile="cs_lang_c_intro")
     world.register("teacher", Role.INSTRUCTOR, course.id)
     with world.database.unit_of_work() as uow:
         stored = uow.identity.get_course(course.id)

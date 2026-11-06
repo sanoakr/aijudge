@@ -64,6 +64,10 @@ def _events(database: Database, tenant_id: TenantId) -> tuple[int, int, list[Gra
                     continue
                 task_id = task_of.get(item.task_version_id)
                 task = None if task_id is None else tasks.get(task_id)
+                if task is not None and task.results_after_review:
+                    # 確認後に返す回は習熟度に数えない（ADR 0033）。作り直しで混ざると、
+                    # 採点のときに避けた漏れが、ここから起きる。
+                    continue
                 events.append(
                     grading_completed_event(
                         run,

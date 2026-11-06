@@ -369,11 +369,12 @@
        断る操作を見せない方がよい。経路の側でも拒む（`app.py`）ので、
        これは見た目の都合ではなく、二重の守りの手前側である。 #}
     <span class="spacer">
-      {% if review and not can_correct %}確定済みです（直せるのは担当教員だけです）
+      {% if not can_return_result %}この問題セットの結果を学習者に返せるのは担当教員だけです
+      {% elif review and not can_correct %}確定済みです（直せるのは担当教員だけです）
       {% elif review %}確定済みです。直すと、修正したことが学習者に示されます
       {% else %}確定すると学習者に根拠が表示されます{% endif %}
     </span>
-    <button type="submit" {{ 'disabled' if review and not can_correct }}>
+    <button type="submit" {{ 'disabled' if (review and not can_correct) or not can_return_result }}>
       {{ '確定し直す' if review else '成績を確定' }}</button>
   </div>
 </form>

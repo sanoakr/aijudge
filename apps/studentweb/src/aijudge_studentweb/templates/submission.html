@@ -39,6 +39,14 @@
   提出は受け付けられています。この画面はこのまま閉じて構いません。
   何度でも提出し直せます（すべての提出が採点されます）。
 </div>
+{% elif awaiting_release %}
+{# 教員の確認後に返す回（ADR 0033）。**自動更新を付けない** ── 数秒や数十秒で変わる
+   ものではない。いつ返るかも約束しない（教員の作業次第）。 #}
+<div class="note">
+  <strong>提出を受け付けました。</strong>
+  この問題セットは、<strong>担当教員が確認してから</strong>結果をお返しします。
+  この画面はこのまま閉じて構いません。
+</div>
 {% elif not run %}
 <div class="note" data-poll="{{ url_for('submission_state', submission_id=submission.id) }}">
   <strong>採点を待っています。</strong>
@@ -61,9 +69,9 @@
 
 {# 結果がまだ無いあいだ（採点待ち・試験の保留）も出し直せる。結果があれば、
    結果を読んだあと（下）に出す。 #}
-{% if not run %}{{ resubmit_block() }}{% endif %}
+{% if not run or awaiting_release %}{{ resubmit_block() }}{% endif %}
 
-{% if run %}
+{% if run and not awaiting_release %}
 
 <div class="card">
 {% if view.score_withheld %}

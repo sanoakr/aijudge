@@ -474,6 +474,22 @@ def test_a_unit_carries_its_failed_inputs(database: Database, tmp_path) -> None:
     assert in_set and all(task.failed_inputs is FailedInputs.AFTER_DEADLINE for task in in_set)
 
 
+def test_a_unit_carries_results_after_review(database: Database, tmp_path) -> None:
+    """確認後に返す設定は問題セットの値で、回の全課題に入る（ADR 0033）。"""
+    text = _with_unit_setting("results_after_review: true")
+    result = _apply(database, _write_definition(tmp_path, text))
+    tasks, _versions = _tasks(database, result.course.id)
+    in_set = [task for task in tasks.values() if task.unit == "ex1"]
+    assert in_set and all(task.results_after_review for task in in_set)
+
+
+def test_results_after_review_must_be_a_boolean(tmp_path: Path) -> None:
+    with pytest.raises(AdminError, match="results_after_review"):
+        load_course_definition(
+            _write_definition(tmp_path, _with_unit_setting("results_after_review: maybe"))
+        )
+
+
 def test_a_misspelt_failed_inputs_is_refused(tmp_path: Path) -> None:
     with pytest.raises(AdminError, match="failed_inputs"):
         load_course_definition(

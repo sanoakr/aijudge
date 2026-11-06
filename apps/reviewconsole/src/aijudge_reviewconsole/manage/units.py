@@ -79,6 +79,7 @@ class _Merged:
     contested: int
     awaiting_human: int = 0
     ai_pending: int = 0
+    needs_review: int = 0
 
 
 def _answer_mode_update(course, group, *, by_file: bool, by_editor: bool) -> dict:
@@ -358,6 +359,8 @@ def _merged(outcomes) -> _Merged:
         contested=sum(outcome.contested for outcome in outcomes),
         awaiting_human=sum(outcome.awaiting_human for outcome in outcomes),
         ai_pending=sum(outcome.ai_pending for outcome in outcomes),
+        # 確認後に返す回は一括では閉じない（ADR 0033）。
+        needs_review=sum(outcome.needs_review for outcome in outcomes),
     )
 
 
@@ -1090,6 +1093,7 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
             ("confidential_until_open", "confidential", group.confidential),
             ("exam", "exam", group.exam),
             ("screen_capture", "screen_capture", group.screen_capture),
+            ("results_after_review", "results_after_review", group.results_after_review),
         ):
             if flag(name) != current:
                 update[field] = flag(name)
