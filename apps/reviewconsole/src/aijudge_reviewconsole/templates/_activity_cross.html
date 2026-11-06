@@ -1,0 +1,55 @@
+{# 問題セットの画面と問題の画面で共通の部品（`activity_by_problem.py`）。 #}
+
+{# 並べ替え。URL に載せる（成績の一覧と同じ）。読む順番を変えるだけで、順位に意味は無い。 #}
+{% macro sort_form(sorts, sort) %}
+<form method="get" class="activity-sort" onchange="this.requestSubmit()">
+  <label for="activity-sort">並び</label>
+  <select id="activity-sort" name="sort">
+    {% for key, label in sorts.items() %}
+    <option value="{{ key }}" {{ 'selected' if sort == key }}>{{ label }}</option>
+    {% endfor %}
+  </select>
+  <noscript><button type="submit">並べ替える</button></noscript>
+</form>
+{% endmacro %}
+
+{# 学習者の欄。ログイン名の下に氏名。**列を 1 つ増やさず、名前からその人の画面へ飛ぶ** ──
+   「開く」の列を足すと、1280px の画面で表が右にはみ出した。 #}
+{% macro who(learner, href) %}<a class="mono" href="{{ href }}">{{ learner.login }}</a><br><small>{{ learner.name }}</small>{% endmacro %}
+
+{# 外からの貼り付けの欄。 #}
+{% macro pasted(s) %}{% if s.pastes_external %}<strong>{{ s.pastes_external }}</strong> 回・{{ s.pasted_external_chars }} 字<br><small class="desc">最大 {{ s.largest_external_paste }} 字</small>{% else %}<span class="desc">なし</span>{% endif %}{% endmacro %}
+
+{# 画面を離れた欄。 #}
+{% macro away(s) %}{% if s.away_count %}{{ s.away_count }} 回・{{ s.away_seconds | round | int }} 秒{% else %}<span class="desc">なし</span>{% endif %}{% endmacro %}
+
+{# 記録の欠けの欄。**読めない分は数字に入っていない**ので、数字の隣で言う。 #}
+{% macro gaps(row) %}
+  {% if row.missing %}<span class="pill attn">欠けた送信 {{ row.missing }}</span>{% endif %}
+  {% if row.unreadable %}<span class="pill attn">読めない記録 {{ row.unreadable }}</span>{% endif %}
+  {% if not row.missing and not row.unreadable %}<span class="desc">なし</span>{% endif %}
+{% endmacro %}
+
+{# 記録も提出も無い受講者は表に混ぜず、畳んでおく（誰がそうかは分かるように）。 #}
+{% macro quiet_list(quiet, label) %}
+{% if quiet %}
+<details class="activity-quiet">
+  <summary>{{ label }} {{ quiet | length }} 名</summary>
+  <p class="desc">{% for learner in quiet %}{% if not loop.first %}・{% endif %}<span class="mono">{{ learner.login }}</span> {{ learner.name }}{% endfor %}</p>
+</details>
+{% endif %}
+{% endmacro %}
+
+{# 画面の下の断り書き。学習者の画面の文面と同じ趣旨。 #}
+{% macro footnote() %}
+<p class="desc">
+  記録の欠けは通信の不調や PC のスリープでも起きます。<strong>確かめる場所</strong>の印は、再生で経過を読むための目印で、
+  <strong>印が付いたことは不正を意味しません</strong>（教科書の例や自分のファイルから貼る、速く打てる、など）。
+  並べ替えは読む順番を変えるだけです。自動で減点することもありません。
+</p>
+{% endmacro %}
+
+{# 確かめる場所の欄。同じ種類はまとめ、リンクは最初の 1 つの再生へ。 #}
+{% macro flags(row, course_id) %}
+{% for g in row.flags %}<a class="pill attn" href="{{ root_prefix() }}/courses/{{ course_id }}/activity/{{ row.learner.user_id }}/{{ g.session.id }}?tab={{ g.flag.tab }}" title="{{ g.flag.detail }}">{{ g.label }}{% if g.count > 1 %} × {{ g.count }}{% endif %}</a> {% else %}<span class="desc">なし</span>{% endfor %}
+{% endmacro %}

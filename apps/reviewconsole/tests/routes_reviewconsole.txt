@@ -11,6 +11,9 @@ GET /auth/local aijudge_reviewconsole.app:local_login_form
 GET /auth/login aijudge_reviewconsole.app:auth_login
 GET /courses/{course_id} aijudge_reviewconsole.app:course_menu
 GET /courses/{course_id}/activity aijudge_reviewconsole.activity:course_activity
+GET /courses/{course_id}/activity/tasks/{task_id} aijudge_reviewconsole.activity_by_problem:task_page
+GET /courses/{course_id}/activity/units aijudge_reviewconsole.activity_by_problem:units_page
+GET /courses/{course_id}/activity/units/{unit:path} aijudge_reviewconsole.activity_by_problem:unit_page
 GET /courses/{course_id}/activity/{learner_id} aijudge_reviewconsole.activity:learner_activity
 GET /courses/{course_id}/activity/{learner_id}/{session_id} aijudge_reviewconsole.activity:session_replay
 GET /courses/{course_id}/blind aijudge_reviewconsole.app:blind_queue

@@ -501,6 +501,16 @@ table.io-diff td.missing{color:var(--muted);font-style:italic}
 .activity-problem{margin:0 0 18px}
 .activity-problem h2{margin-top:0}
 .activity-numbers{display:flex;flex-wrap:wrap;gap:4px 18px}
+/* 問題セットと問題の画面（`activity_by_problem.py`）。見出しの右に並べ替えを置く。
+   同じセットの問題のタブは、問題が多いと 1 行に収まらないので折り返す。 */
+.activity-head{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:4px 14px}
+.activity-sort{display:flex;align-items:baseline;gap:6px;font-size:.85rem}
+.activity-sort select{width:auto}
+nav.tabs.activity-siblings{flex-wrap:wrap}
+/* 印の語は長い（「画面に戻った直後の大きな貼り付け」）。折り返せないと表が右にはみ出す。 */
+.activity-flags .pill{white-space:normal;border-radius:10px;margin:0 0 3px}
+.activity-quiet{margin:12px 0}
+.activity-quiet > summary{cursor:pointer;font-size:.85rem;color:var(--ink-2)}
 .replay-controls{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;margin:10px 0}
 .replay-controls input[type=range]{flex:1;min-width:220px}
 .replay-body{display:grid;grid-template-columns:3fr 2fr;gap:14px}

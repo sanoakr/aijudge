@@ -90,6 +90,21 @@ def test_a_session_reads_back_whole(database: Database) -> None:
         assert index.get_session(IdeSessionId("ide_" + "6" * 32)) is None
 
 
+def test_batch_sizes_count_without_carrying_the_batches(database: Database) -> None:
+    """束の数と最後の seq。送信の欠けは (最後の seq + 1) - 束の数 で分かる。"""
+    empty = IdeSessionId("ide_" + "7" * 32)
+    for index in _both(database):
+        index.start_session(a_session())
+        index.start_session(a_session(id=empty))
+        for seq in (0, 1, 4):
+            index.add_batch(a_batch(seq))
+        index.add_batch(a_batch(1))  # 再送は数えない
+
+        assert index.batch_sizes([SESSION, empty]) == {SESSION: (3, 4)}
+        assert index.batch_sizes([empty]) == {}
+        assert index.batch_sizes([]) == {}
+
+
 def test_consent_is_remembered_per_course(database: Database) -> None:
     for index in _both(database):
         assert not index.has_consented(LEARNER, COURSE)

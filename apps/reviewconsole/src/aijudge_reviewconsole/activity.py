@@ -8,7 +8,8 @@
 する。**判定はしない**（設計書 §7）── 誤検知の不利益が大きすぎる。成績にも
 つながない（`grading-does-not-know-ide`）。
 
-画面は 3 つある。
+ここにある画面は 3 つで、学習者から入る道である。問題セットと問題から入る道は
+`activity_by_problem.py` にある（2026-11-06）。
 
 - コース全体の一覧（`/courses/{id}/activity`）: **索引だけで作る**（本体を読まない）。
   受講者全員について、エディタを開いた回数・最後に開いた時刻・送信の欠け。
@@ -23,6 +24,8 @@ from __future__ import annotations
 
 import json
 import os
+import zlib
+from collections.abc import Sequence
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any
@@ -33,7 +36,7 @@ from fastapi.templating import Jinja2Templates
 
 from aijudge_audit import AuditAction
 from aijudge_core import Role, attempt_ordinals
-from aijudge_core.ids import CourseId, SubmissionId, TaskVersionId, UserId
+from aijudge_core.ids import CourseId, SubmissionId, TaskId, TaskVersionId, UserId
 from aijudge_ide import (
     ActivityFiles,
     ActivitySummary,
@@ -70,17 +73,19 @@ def _read(
     for batch in batches:
         try:
             loaded.append((batch, files.read_batch(batch.path)))
-        except (OSError, ValueError):
+        # 壊れた gzip は OSError だけでなく、途中で切れていれば EOFError、中身が
+        # 壊れていれば zlib.error を投げる。
+        except (OSError, ValueError, EOFError, zlib.error):
             unreadable += 1
     return loaded, unreadable
 
 
-def _missing(batches: tuple[EventBatch, ...]) -> int:
-    """索引だけで数える送信の欠け（seq の飛び）。本体を読まずに済む。"""
-    seqs = sorted(batch.seq for batch in batches)
-    if not seqs:
+def _missing(size: tuple[int, int] | None) -> int:
+    """索引だけで数える送信の欠け（seq の飛び）。`size` は `batch_sizes` の 1 件。"""
+    if size is None:
         return 0
-    return (seqs[-1] + 1) - len(set(seqs))
+    count, last_seq = size
+    return (last_seq + 1) - count
 
 
 def _flags(console, events: list[dict[str, Any]], session: IdeSession) -> list[Flag]:
@@ -175,14 +180,25 @@ class ProblemView:
     submissions: list[dict[str, Any]] = field(default_factory=list)
 
 
-def _submissions(console, course, learner_id: UserId) -> dict[str, dict[str, Any]]:
-    """この学習者の提出。提出 ID → 回数・得点・採用・出どころ・確認画面の場所。
+def _submissions(
+    console,
+    course,
+    learner_id: UserId | None = None,
+    *,
+    task_ids: Sequence[TaskId] | None = None,
+) -> dict[str, dict[str, Any]]:
+    """提出。提出 ID → 学習者・回数・得点・採用・出どころ・確認画面の場所。
+
+    この学習者の分（学習者の画面）か、これらの課題の全員の分（問題の画面）を返す。
 
     採用は提出一覧と**同じ規則**（`adopted_ids`）で決める ── 画面によって
     採用が違えば、教員は問い合わせに答えられない。
     """
+    learner_ids = None if learner_id is None else [learner_id]
     with console.database.unit_of_work() as uow:
-        rows = uow.submissions.scored_for_course(course.id, learner_ids=[learner_id])
+        rows = uow.submissions.scored_for_course(
+            course.id, learner_ids=learner_ids, task_ids=task_ids
+        )
         adopted = adopted_ids(rows, version_max_scores(uow, rows))
         numbers = attempt_ordinals(
             (row.submission_id, row.learner_id, row.task_id, row.submitted_at, row.attempt)
@@ -196,6 +212,7 @@ def _submissions(console, course, learner_id: UserId) -> dict[str, dict[str, Any
     return {
         str(row.submission_id): {
             "id": str(row.submission_id),
+            "learner_id": str(row.learner_id),
             "task_id": str(row.task_id),
             # 課題の中での回数（版をまたぐ）。`row.attempt` は版ごとの番号。
             "attempt": numbers.get(row.submission_id, row.attempt),
@@ -209,29 +226,31 @@ def _submissions(console, course, learner_id: UserId) -> dict[str, dict[str, Any
     }
 
 
+def _instructor(request: Request, course_id: str):
+    # 管理画面と同じ「教員だけ」の判定を使う（TA には開けない）。
+    from .app import require_principal
+    from .manage.common import _require_instructor
+
+    me = require_principal(request)
+    course = _require_instructor(request, me, CourseId(course_id))
+    return me, course
+
+
+def _audit(request: Request, me, course_id: str, target: str, what: str, detail: dict) -> None:
+    console = request.app.state.aijudge
+    with console.database.unit_of_work() as uow:
+        recorder_for(uow, request, me, role="instructor").record(
+            AuditAction.ACTIVITY_VIEWED,
+            target_type="learner" if ":" in target else "course",
+            target_id=target,
+            summary=f"エディタの作業記録を見た（{what}）",
+            detail={"course_id": course_id, **detail},
+        )
+        uow.commit()
+
+
 def register(templates: Jinja2Templates) -> APIRouter:
     router = APIRouter()
-
-    def _instructor(request: Request, course_id: str):
-        # 管理画面と同じ「教員だけ」の判定を使う（TA には開けない）。
-        from .app import require_principal
-        from .manage.common import _require_instructor
-
-        me = require_principal(request)
-        course = _require_instructor(request, me, CourseId(course_id))
-        return me, course
-
-    def _audit(request: Request, me, course_id: str, target: str, what: str, detail: dict):
-        console = request.app.state.aijudge
-        with console.database.unit_of_work() as uow:
-            recorder_for(uow, request, me, role="instructor").record(
-                AuditAction.ACTIVITY_VIEWED,
-                target_type="learner" if ":" in target else "course",
-                target_id=target,
-                summary=f"エディタの作業記録を見た（{what}）",
-                detail={"course_id": course_id, **detail},
-            )
-            uow.commit()
 
     @router.get("/courses/{course_id}/activity", response_class=HTMLResponse)
     def course_activity(request: Request, course_id: str) -> HTMLResponse:
@@ -249,7 +268,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
             for enrolment in enrolments:
                 user = uow.identity.get_user(enrolment.user_id)
                 sessions = uow.ide_activity.sessions_for(enrolment.user_id, course.id)
-                batches = [uow.ide_activity.batches(s.id) for s in sessions]
+                sizes = uow.ide_activity.batch_sizes([s.id for s in sessions])
                 rows.append(
                     {
                         "user_id": str(enrolment.user_id),
@@ -257,7 +276,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
                         "name": user.display_name if user else "",
                         "sessions": len(sessions),
                         "last": max((s.started_at for s in sessions), default=None),
-                        "missing": sum(_missing(b) for b in batches),
+                        "missing": sum(_missing(size) for size in sizes.values()),
                     }
                 )
         rows.sort(key=lambda r: (r["sessions"] == 0, r["login"]))
