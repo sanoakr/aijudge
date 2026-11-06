@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}記録を読んでいます — {{ title }} — aiJudge レビュー{% endblock %}
+{# スクリプトなしでも読み直せるように meta で更新する。読み終われば同じ URL が本来の画面になる。 #}
+{% block head %}<meta http-equiv="refresh" content="{{ refresh_seconds }}">{% endblock %}
+{% block body %}
+{# 読み込み中の画面（`activity_by_problem.py`）。**学習者の情報を出さない。** #}
+<h1>{{ title }} の作業の記録</h1>
+<p class="note" role="status">全員分の記録を読んでいます: <strong>{{ progress.done }} / {{ progress.total }}</strong> 束。
+  読み終わると、この画面が自動で切り替わります。</p>
+<progress max="{{ progress.total }}" value="{{ progress.done }}"></progress>
+<p class="desc">記録の量によっては数分かかります。別の画面へ移っても読み込みは続き、同じ問題セットのほかの問題もまとめて見られるようになります。</p>
+<p class="desc"><a href="{{ root_prefix() }}/courses/{{ course.id }}/activity/units">問題セットの一覧へ</a></p>
+{% endblock %}
