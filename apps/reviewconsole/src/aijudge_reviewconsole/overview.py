@@ -117,6 +117,9 @@ class UnitGroup:
     # 先頭の課題の値。ばらついていれば混ざりも持つ。
     failed_inputs: FailedInputs = FailedInputs.IMMEDIATELY
     failed_inputs_mixed: bool = False
+    # 教員が確認するまで結果を見せないか（`Task.results_after_review`・ADR 0033）。
+    results_after_review: bool = False
+    results_after_review_mixed: bool = False
     # **いま誰に見えているか**（2026-09-25）。`learners`（学生に公開中）・`staff`
     # （未公開・TA まで）・`instructors`（教員のみ・TA にも未公開）。一覧を分けて出す ──
     # 誤って公開した、公開し忘れた、に気づけるように。判定は `may_see` と同じ事実で、
@@ -319,6 +322,10 @@ def load_units(
                 and not all(task.screen_capture for task in tasks),
                 failed_inputs=tasks[0].failed_inputs if tasks else FailedInputs.IMMEDIATELY,
                 failed_inputs_mixed=len({task.failed_inputs for task in tasks}) > 1,
+                results_after_review=bool(tasks)
+                and all(task.results_after_review for task in tasks),
+                results_after_review_mixed=any(task.results_after_review for task in tasks)
+                and not all(task.results_after_review for task in tasks),
                 audience=_common_audience(tasks),
                 audience_mixed=len({task.audience_group_ids for task in tasks}) > 1,
                 editor=bool(tasks) and all(task.answer_mode is AnswerMode.EDITOR for task in tasks),

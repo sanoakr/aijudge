@@ -308,19 +308,24 @@ class PendingBreakdown:
 
 
 def _stalls(
-    run: GradingRun, request: ReviewRequest | None, *, grace: int | None, jobs: JobQueue
+    task: Task,
+    run: GradingRun,
+    request: ReviewRequest | None,
+    *,
+    grace: int | None,
+    jobs: JobQueue,
 ) -> bool:
     """この未確定は、人が手を入れないと閉じないか。
 
     `_apply`（自動確定）が見送るものと同じ事実で判定する ── 未対応の異議申立、
-    猶予が未設定、レビュー方針が人の目を求めた採点、未採点の観点。**AI 段階が
+    猶予が未設定、確認後に返す回、レビュー方針が人の目を求めた採点、未採点の観点。**AI 段階が
     まだ届いていない暫定の採点は待ち**に数える（届けば閉じる・#400）。
     猶予がまだ明けていないものも待ちである。
 
     AI のジョブを引くのは暫定の採点だけにする ── 画面を開くたびに全提出ぶん
     キューを引かないため。
     """
-    if blocks_finalization(request) or grace is None:
+    if blocks_finalization(request) or grace is None or task.results_after_review:
         return True
     if auto_finalizable(run, request):
         return False
@@ -339,7 +344,9 @@ def pending_breakdown(database: Store, course_id: CourseId) -> PendingBreakdown:
             rows = _gradable_rows(uow.reviews.unfinalized_for_task(task.id))
             total[task.id] = len(rows)
             stalled[task.id] = sum(
-                1 for _s, run, request in rows if _stalls(run, request, grace=grace, jobs=uow.jobs)
+                1
+                for _s, run, request in rows
+                if _stalls(task, run, request, grace=grace, jobs=uow.jobs)
             )
     return PendingBreakdown(total=total, stalled=stalled)
 
@@ -385,6 +392,12 @@ def _apply(
             # できなかった」観点を教員の署名で通す（`bulk_finalizable`）が、
             # **まだ判定していない**ものはそれと違う ── 待てば届く。
             ai_pending += 1
+            continue
+        if task.results_after_review:
+            # **教員が読むまで返さない回は、自動でも一括でも閉じない**（ADR 0033）。
+            # どちらも「読まずに閉じる」操作で、この設定はそれを断るためにある。
+            # 確定だけが進むと、誰も読んでいない成績が学習者に返る。
+            needs_review += 1
             continue
         if automatic and at < (settles_at(run.created_at, grace) or at):
             # **猶予がまだ明けていない。** 提出ごとに数えるので、同じ課題の

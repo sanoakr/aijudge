@@ -20,6 +20,9 @@
   {% if last_finalize.ai_pending %}
     AI 評価がまだ届いていない {{ last_finalize.ai_pending }} 件は確定していません（届いてからもう一度確定してください）。
   {% endif %}
+  {% if last_finalize.needs_review %}
+    教員の確認後に結果を返す問題セットの {{ last_finalize.needs_review }} 件は確定していません（1 件ずつ開いて確認してください。確認すると学習者に結果が返ります）。
+  {% endif %}
   {% if last_finalize.awaiting_human %}
     人が採点する観点が空の {{ last_finalize.awaiting_human }} 件は確定していません（1 件ずつ開いて入力してください）。
   {% endif %}
@@ -365,6 +368,20 @@
   </div>
 
   <h3 class="settings-group">成績</h3>
+  {# 確認後に返す（ADR 0033）。採点は提出後に走るが、結果は教員が読むまで出さない。 #}
+  <div class="setting" id="results-after-review">
+    <div class="setting-name">教員の確認後に結果を返す{% call help() %}
+      この設定は、この問題セットの<strong>すべての課題</strong>に適用されます。
+      採点は提出のあとに走りますが、学習者には<strong>教員が 1 件ずつ確認して保存するまで</strong>、得点も観点ごとの判定もコメントも見せません。
+      自動確定と一括確定はこの問題セットを閉じません。この間の AI の判定は習熟度にも入りません。
+    {% endcall %}</div>
+    <div class="setting-value">
+      <label class="check"><input type="checkbox" name="results_after_review" value="1" {{ 'checked' if unit.results_after_review }}>
+        教員が確認するまで学習者に見せない</label>
+      {% if unit.results_after_review_mixed %}<p class="note warn tight">このセットの中で値がばらついています。変えて保存すると、全課題に同じ値が入ります。</p>{% endif %}
+    </div>
+  </div>
+
   {# 問題セットのクリア点（2026-09-25）。学習者のコース一覧で、合計点（割合 × 配点）が
      この値以上のセットに「クリア」が付く。配点は各課題の版の max_score（課題の定義で書く）。 #}
   <div class="setting" id="clear-points">

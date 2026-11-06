@@ -35,6 +35,7 @@ from aijudge_core import (
     EvaluatorKind,
     GradingPhase,
     GradingRun,
+    Routing,
     Submission,
     Task,
     TaskVersion,
@@ -342,6 +343,11 @@ class GradingWorker:
             course=course,
             task_version=task_version,
         )
+        if task is not None and task.results_after_review:
+            # **教員が読むまで返さない回は、必ず人のレビューへ回す**（ADR 0033）。
+            # 確信度の高い判定まで `AUTO` のままだと、教員の仕事の一覧から「自動確定を
+            # 待っている」ものとして消える。
+            run = run.model_copy(update={"routing": Routing.REVIEW_REQUIRED})
 
         if job.phase is GradingPhase.DETERMINISTIC and pipeline.has_ai_work(
             task_version, run, aggregation=aggregation
@@ -587,15 +593,19 @@ class GradingWorker:
                 # 習熟度を課題ごとの最終提出で数え、試験を重く見るための事実（ADR 0032）。
                 version = uow.tasks.get_version(submission.task_version_id)
                 task = None if version is None else uow.tasks.get_task(version.task_id)
-                uow.outbox.append(
-                    grading_completed_event(
-                        run,
-                        submission,
-                        tenant_id=job.tenant_id,
-                        task_id=None if version is None else version.task_id,
-                        exam=task is not None and task.exam,
-                    )
+                event = grading_completed_event(
+                    run,
+                    submission,
+                    tenant_id=job.tenant_id,
+                    task_id=None if version is None else version.task_id,
+                    exam=task is not None and task.exam,
                 )
+                if task is not None and task.results_after_review:
+                    # **教員が読む前の判定で習熟度を動かさない**（ADR 0033）。動くと、
+                    # 伏せた結果が習熟度の画面から透ける。教員が直しても習熟度を
+                    # 畳み直す経路が無いので、この回は習熟度に数えない。
+                    event = event.model_copy(update={"kc_outcomes": ()})
+                uow.outbox.append(event)
             done = job.completed(now, run.id)
             uow.jobs.update(done)
 

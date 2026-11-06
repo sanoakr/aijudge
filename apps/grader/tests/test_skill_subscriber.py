@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 from aijudge_authoring.importers import sharif_judge
-from aijudge_core import ArtifactKind, Course, Role, Task
+from aijudge_core import ArtifactKind, Course, Role, Routing, Task
 from aijudge_core.ids import CourseId, KcId, TenantId, UserId
 from aijudge_core.knowledge import KnowledgeComponent
 from aijudge_eval_rubric_ai_judge import EvidenceSpan, RubricAiJudge, Verdict
@@ -238,3 +238,22 @@ def test_a_learner_submission_still_moves_it(world: World) -> None:
     world.relay.drain()
 
     assert world.states(), "学習者の提出まで落ちている"
+
+
+def test_a_unit_returned_after_review_does_not_move_mastery(world: World) -> None:
+    """教員が読む前の判定で習熟度を動かさない（ADR 0033）。動けば伏せた結果が透ける。"""
+    with world.database.unit_of_work() as uow:
+        task = uow.tasks.get_task(world.task_version.task_id)
+        uow.tasks.save_task(task.model_copy(update={"results_after_review": True}))
+        uow.commit()
+
+    subscribe_skills(world.relay, world.database)
+    accepted = world.submit()
+    world.worker.run_until_empty()
+    world.relay.drain()
+
+    assert not world.states()
+    with world.database.unit_of_work() as uow:
+        run = uow.runs.latest_for(accepted.submission.id)
+    assert run is not None, "採点そのものは走っている"
+    assert run.routing is Routing.REVIEW_REQUIRED, "教員の一覧から消えないように"

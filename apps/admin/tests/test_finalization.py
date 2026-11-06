@@ -915,3 +915,54 @@ def test_the_rail_counts_a_trial_contest_because_a_person_asked(database: Databa
 
     assert counts.contested == 1, "人が送った問いを数えていない"
     assert counts.unfinalized == 0, "デモの提出を確定待ちとして数えている"
+
+
+# -- 教員の確認後に結果を返す問題セット（ADR 0033） -----------------------------
+
+
+def _hold(database: Database) -> None:
+    with database.unit_of_work() as uow:
+        task = uow.tasks.get_task(TASK_ID)
+        uow.tasks.save_task(task.model_copy(update={"results_after_review": True}))
+        uow.commit()
+
+
+def test_bulk_finalization_does_not_close_a_unit_returned_after_review(
+    database: Database, course
+) -> None:
+    """一括確定は「読まずに閉じる」操作で、この設定はそれを断るためにある。"""
+    ids = _world(database, course.id, routings=(Routing.AUTO,) * 2)
+    _hold(database)
+
+    outcome = finalize_task(
+        database,
+        task_id=TASK_ID,
+        actor_id=INSTRUCTOR,
+        justification="まとめて確定しようとしても、この問題セットは閉じません。",
+    )
+
+    assert outcome.finalized == 0
+    assert outcome.needs_review == 2
+    assert _finalizations(database, ids) == [None, None]
+
+
+def test_the_sweep_does_not_close_a_unit_returned_after_review(database: Database, course) -> None:
+    ids = _world(database, course.id, routings=(Routing.AUTO,) * 2)
+    _with_grace(database, course, 24)
+    _hold(database)
+
+    report = sweep_deadlines(database, now=AFTER)
+
+    assert report.finalized == 0
+    assert _finalizations(database, ids) == [None, None]
+
+
+def test_a_unit_returned_after_review_counts_as_stalled(database: Database, course) -> None:
+    """放っておいても閉じないので、「待ち」と言わない。"""
+    _world(database, course.id, routings=(Routing.AUTO,) * 2)
+    _with_grace(database, course, 24)
+    _hold(database)
+
+    breakdown = pending_breakdown(database, course.id)
+
+    assert breakdown.stalled[TASK_ID] == 2

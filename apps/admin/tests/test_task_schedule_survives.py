@@ -230,6 +230,7 @@ KEPT = {
     "screen_capture",
     "late_penalty_steps",
     "failed_inputs",
+    "results_after_review",
 }
 # 版を保存する側が決める（`save_task` は触らない）。
 DECIDED_ELSEWHERE = {"current_version_id"}

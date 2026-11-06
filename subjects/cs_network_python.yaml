@@ -24,7 +24,9 @@ input:
   # `[image_text, document_text]` と並べる ── `image_text` は PDF を扱わない
   # ので、1 つだけだと PDF は原本のまま評価器へ渡り、「読めない」と判定
   # されて人に回る（採点は止まらないので、設定の誤りが結果に出ない）。
-  transcription: image_text
+  #
+  # **`document_text` を足したのはレポートの PDF のため**（ADR 0033）。
+  transcription: [image_text, document_text]
 
 
 deterministic:

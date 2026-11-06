@@ -291,8 +291,8 @@ def test_unfinalized_is_split_into_manual_and_waiting() -> None:
 
     course = SimpleNamespace(auto_finalize_after_minutes=None)
     tasks = {
-        "graced": SimpleNamespace(auto_finalize_after_minutes=60),
-        "no-grace": SimpleNamespace(auto_finalize_after_minutes=None),
+        "graced": SimpleNamespace(auto_finalize_after_minutes=60, results_after_review=False),
+        "no-grace": SimpleNamespace(auto_finalize_after_minutes=None, results_after_review=False),
     }
     counts = SimpleNamespace(
         unfinalized=9,
@@ -307,3 +307,16 @@ def test_unfinalized_is_split_into_manual_and_waiting() -> None:
     assert _split_unfinalized(
         course, tasks, SimpleNamespace(unfinalized=2, unfinalized_by_task=())
     ) == (2, 0)
+
+
+def test_a_unit_returned_after_review_counts_as_manual() -> None:
+    """確認後に返す回は自動確定されないので、猶予があっても手動に数える（ADR 0033）。"""
+    from types import SimpleNamespace
+
+    from aijudge_reviewconsole.rail_context import _split_unfinalized
+
+    course = SimpleNamespace(auto_finalize_after_minutes=60)
+    tasks = {"report": SimpleNamespace(auto_finalize_after_minutes=60, results_after_review=True)}
+    counts = SimpleNamespace(unfinalized=3, unfinalized_by_task=(("report", "auto", 3),))
+
+    assert _split_unfinalized(course, tasks, counts) == (3, 0)

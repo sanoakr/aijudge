@@ -80,6 +80,7 @@ _UNIT_SETTINGS = (
     "clear_points",
     "late_penalty_steps",
     "failed_inputs",
+    "results_after_review",
 )
 _COURSE_FIELDS = ("description", "upload_suffixes", "knowledge_components")
 

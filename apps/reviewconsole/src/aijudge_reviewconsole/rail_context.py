@@ -221,7 +221,8 @@ def _split_unfinalized(course, tasks: dict, counts) -> tuple[int, int]:
     """未確定を「手動の確定が必要」と「自動確定を待っている」に分ける（2026-09-25）。
 
     自動確定されないのは、猶予（課題かコースの `auto_finalize_after_minutes`）が
-    無い課題と、レビュー方針が人の目を求めた採点（`Routing.REVIEW_REQUIRED`）。
+    無い課題、確認後に返す回（ADR 0033）と、レビュー方針が人の目を求めた採点
+    （`Routing.REVIEW_REQUIRED`）。
     規則は自動確定（`aijudge_course_admin.finalization`）と同じ事実から取る。内訳が
     無い（古い実装）ときは全部を手動として数える ── 待ちを手動と言う方が、
     手動を待ちと言うより安全である。
@@ -236,7 +237,8 @@ def _split_unfinalized(course, tasks: dict, counts) -> tuple[int, int]:
             task.auto_finalize_after_minutes if task is not None else None,
             course.auto_finalize_after_minutes,
         )
-        if grace is None or routing == Routing.REVIEW_REQUIRED.value:
+        held = task is not None and task.results_after_review
+        if held or grace is None or routing == Routing.REVIEW_REQUIRED.value:
             manual += number
         else:
             waiting += number

@@ -56,6 +56,11 @@ S6 が止まっていれば AI 評価器は飛ばされ、その観点は `unsco
 分からず、直しようがない。期待出力まで見せると答えそのものになる。いつ
 見せるかは問題セットの設定（`Task.failed_inputs`）で、既定はすぐ。
 
+**例外: 問題セットが「教員の確認後に返す」なら、確認まで何も見せない**（ADR 0033・
+`Task.results_after_review`）。上の判断を覆すのではなく、レポートのように教員が読んで
+から返したい回に限って選べるようにしたものである。隠すのではなく**結果を持たせない**
+（`ResultView.criteria` が空）── テンプレートの分岐を 1 つ忘れても、出す値が無い。
+
 **この判断は UI ではなくここに置く。** テンプレートの `{% if %}` に散らすと、
 画面を 1 つ足したときに漏れる。
 """
@@ -176,6 +181,8 @@ class ResultView:
     can_request_review: bool = False
     request_reason: str | None = None
     requested: bool = False
+    # 教員の確認を待っていて、結果を何も持っていないか（ADR 0033）。
+    held_for_review: bool = False
 
     @property
     def has_pending(self) -> bool:
@@ -245,6 +252,8 @@ def build_result_view(
     #: **渡されなければ見せない** ── 呼ぶ側が課題を知らない経路で漏らさない。
     failed_inputs: FailedInputs | None = None,
     deadline: datetime | None = None,
+    #: 教員が確認するまで結果を見せない回か（`Task.results_after_review`・ADR 0033）。
+    results_after_review: bool = False,
 ) -> ResultView:
     """採点結果を学習者向けの表示に畳む。
 
@@ -270,6 +279,18 @@ def build_result_view(
     学習者に見せる顔は教員が読んだ方を採る ── 後から人が読んだのなら、
     それがその成績について言える一番強いことだから。
     """
+    # **確定済みの成績は伏せ直さない。** 確認後に返す回は自動でも一括でも閉じないので、
+    # 確定だけがあるのは、この設定を入れる前に閉じたものである。一度返した成績を
+    # 設定の変更で消さない。
+    if results_after_review and review is None and finalization is None:
+        return ResultView(
+            criteria=(),
+            score_ratio=None,
+            confirmed=False,
+            request_reason="担当教員が確認してから結果をお返しします。",
+            held_for_review=True,
+        )
+
     by_criterion: dict[str, CriterionScore] = {
         str(score.criterion_id): score for score in run.criterion_scores
     }

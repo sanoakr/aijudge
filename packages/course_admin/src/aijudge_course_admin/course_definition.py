@@ -30,6 +30,7 @@
       ex4: {clear_points: 60}                               # 合計 60 点でクリア
       ex6: {late_penalty: [{after_hours: 0, percent: 50}]}  # 締切後は総合点から 50% を引く
       ex7: {failed_inputs: after_deadline}  # 落ちたケースの入力は締切後に見せる
+      report: {results_after_review: true}  # 教員が確認してから結果を返す（ADR 0033）
     tasks:
       - key: ex1/cert                       # TaskSpec のフィールドをそのまま書く
         unit: ex1
@@ -43,8 +44,9 @@
         readability_weight: 0.3             # （YAML からの相対パス）
 
 `answer_mode`・`editor_completion`・`file_upload`・`confidential_until_open`・`campus_only`・`exam`・
-`clear_points`・`late_penalty`・`failed_inputs` は**問題セットの値**で、`/manage` の切り替えと
-同じく回の全課題に入れる（課題ごとには書けない）。書いた回だけを変え、書かない回は画面で切り替えた値を残す。
+`clear_points`・`late_penalty`・`failed_inputs`・`results_after_review` は**問題セットの値**で、
+`/manage` の切り替えと同じく回の全課題に入れる（課題ごとには書けない）。書いた回だけを変え、
+書かない回は画面で切り替えた値を残す。
 `editor` にできない課題（提出形式に `.c`・`.py`・`.md` が無い）があれば投入を止める。
 
 `problem_dir` を書いた課題は、`desc.md` を問題文、`in/` `out/` をテスト
@@ -140,6 +142,8 @@ _UNIT_SETTING_KEYS = (
     # 落ちたテストケースの入力を学習者に見せるか（2026-10-18）。
     # `immediately`（既定）・`after_deadline`・`never`。
     "failed_inputs",
+    # 教員が確認するまで結果を見せないか（ADR 0033）。
+    "results_after_review",
 )
 # 定義側だけの語彙。`TaskSpec` に渡す前に解決して消す。
 _PROBLEM_DIR = "problem_dir"
@@ -234,6 +238,7 @@ def _unit_settings(unit: str, raw: dict[str, Any], path: Path) -> dict[str, Any]
         "confidential_until_open",
         "campus_only",
         "exam",
+        "results_after_review",
     ):
         if flag not in raw:
             continue

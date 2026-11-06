@@ -2303,13 +2303,16 @@ def _needs_manual_finalization(course: Course, task: Task | None, run: GradingRu
     """この未確定の提出は、人が確定しないと閉じないか（2026-09-25）。
 
     自動確定（`aijudge-finalize`）が閉じないのは、猶予（課題かコースの
-    `auto_finalize_after_minutes`）が無い課題と、レビュー方針が人の目を求めた採点
-    （`Routing.REVIEW_REQUIRED`）。左の帯（`rail_context._split_unfinalized`）と同じ規則。
+    `auto_finalize_after_minutes`）が無い課題、確認後に返す回（ADR 0033）と、レビュー方針が
+    人の目を求めた採点（`Routing.REVIEW_REQUIRED`）。左の帯
+    （`rail_context._split_unfinalized`）と同じ規則。
     """
     grace = grace_minutes(
         task.auto_finalize_after_minutes if task is not None else None,
         course.auto_finalize_after_minutes,
     )
+    if task is not None and task.results_after_review:
+        return True
     return grace is None or run.routing is Routing.REVIEW_REQUIRED
 
 
