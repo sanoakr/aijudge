@@ -19,6 +19,12 @@
 無い（タブの切り替えは本体の中にしかない）。そこで**読み取った結果を覚えておく**
 （`_digests`）。閉じたセッションの本体は変わらないので、2 度目からは読まなくて済む。
 
+**読む量が多いときは裏で読み、すぐに進み具合を返す。** 本番の prog2 ex07（450 回・
+28,926 束）は 1 回の表示に 111〜167 秒かかり、その間ブラウザには何も出なかった
+（2026-11-06）。教員は壊れたと思って別の問題を押し、同じ読み込みが何本も並んだ。
+手元の見本の測定（約 15 秒）では出なかった問題で、ファイルを 1 つずつ読む時間が
+ディスクのシークに支配される。少ないときは今までどおりその場で読む（`INLINE_BATCHES`）。
+
 **1 人の記録の形が悪くても、画面全体を落とさない。** 記録はクライアントが送って
 くるもので、受け口は形の一部しか確かめない（ADR 0023「やらないこと」）。学習者の
 画面なら落ちるのはその 1 人の分だが、ここが落ちると、受講者 1 人の細工で全員分が
@@ -32,6 +38,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 from collections import OrderedDict
 from collections.abc import Iterable
@@ -81,9 +88,18 @@ SORT_LABELS: dict[str, str] = {
     "flags": "確かめる場所が多い順",
 }
 
+logger = logging.getLogger(__name__)
+
 #: 読み取った結果を覚えておく数。1 件は数百バイトから数 KB で、150 名 × 3 回 ×
 #: 15 回分を十分に覆う。教員コンソールは 1 プロセスで動く（`aijudge-review.service`）。
 MAX_DIGESTS = 8192
+
+#: その場で読んでよい束の数。これを超えると裏で読む。本番の実測が 1 束あたり約 5 ms
+#: （冷えたディスク）なので、ここまでなら数秒で返る。
+INLINE_BATCHES = 1000
+
+#: 読み込み中の画面が読み直す間隔（秒）。
+READING_REFRESH_SECONDS = 3
 
 
 @dataclass(frozen=True)
@@ -179,6 +195,102 @@ class _DigestCache:
 
 
 _digests = _DigestCache()
+
+
+@dataclass
+class _ReadingJob:
+    """裏で進む 1 つの問題セットの読み込み。"""
+
+    total: int
+    done: int = 0
+    running: bool = True
+    #: 読み込み自体が途中で倒れたか（DB の不調など）。
+    crashed: bool = False
+    #: 読めない束があったセッション。覚えていないので、次の要求でも「未読」に見える。
+    failed: set[DigestKey] = field(default_factory=set)
+
+
+@dataclass(frozen=True)
+class ReadingProgress:
+    """読み込みの進み具合。**学習者の情報を含まない**ので、見せても監査ログに残さない。"""
+
+    done: int
+    total: int
+
+
+class _ReadingJobs:
+    """問題セットごとに読み込みを 1 本だけ走らせる。
+
+    **何度押しても、同じセットを読むのは 1 本。** 別のセットも 1 本ずつ順に読む ──
+    同じディスクを奪い合うと、全体がかえって遅くなる。
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._turn = threading.Semaphore(1)
+        self._jobs: dict[tuple[str, str | None], _ReadingJob] = {}
+
+    def request(
+        self,
+        console: Any,
+        root: Any,
+        key: tuple[str, str | None],
+        unread: list[tuple[IdeSession, DigestKey]],
+    ) -> ReadingProgress | None:
+        """裏で読んでいる間は進み具合を返す。None ならその場で読んでよい。"""
+        with self._lock:
+            job = self._jobs.get(key)
+            if job is not None and job.running:
+                return ReadingProgress(job.done, job.total)
+            if job is not None and job.crashed:
+                # その場で読ませる。原因が続いていれば、500 とログで見える。次は読み直す。
+                del self._jobs[key]
+                return None
+            # 読めなかった分を裏で読み直し続けない（読めるようになるまで終わらない）。
+            # その場で読むので、画面には「読めない記録」として数えて出る。
+            failed = job.failed if job is not None else set()
+            remaining = [item for item in unread if item[1] not in failed]
+            total = sum(digest_key[1] for _session, digest_key in remaining)
+            if total <= INLINE_BATCHES:
+                return None
+            job = _ReadingJob(total=total)
+            self._jobs[key] = job
+        # daemon: 再起動を読み込みの完了まで待たせない（覚えた分は次にまた読める）。
+        threading.Thread(
+            target=self._read, args=(console, root, job, remaining), daemon=True
+        ).start()
+        return ReadingProgress(job.done, job.total)
+
+    def _read(
+        self,
+        console: Any,
+        root: Any,
+        job: _ReadingJob,
+        unread: list[tuple[IdeSession, DigestKey]],
+    ) -> None:
+        files = ActivityFiles(root)
+        with self._turn:
+            try:
+                for session, key in unread:
+                    if _digests.get(key) is None:
+                        # **セッションごとに接続を返す。** 読む間、接続を握り続けない。
+                        with console.database.unit_of_work() as uow:
+                            batches = uow.ide_activity.batches(session.id)
+                        digest = _read_digest(files, session, batches)
+                        if digest.unreadable:
+                            job.failed.add(key)
+                        else:
+                            _digests.put(key, digest)
+                    job.done += key[1]
+            except Exception:
+                # 裏のスレッドの例外は誰にも届かない。ログに残し、次の要求に引き継ぐ。
+                logger.exception("作業の記録の読み込みに失敗しました")
+                job.crashed = True
+            finally:
+                job.running = False
+
+
+_reading = _ReadingJobs()
 
 
 @dataclass
@@ -313,17 +425,41 @@ def _session_flags(
     return sorted(flags, key=lambda flag: flag.t)
 
 
+def _unit_sessions(
+    uow: Any, course: Course, group: UnitGroup
+) -> tuple[tuple[Learner, ...], list[IdeSession]]:
+    """受講者と、その問題セットのセッション。
+
+    受講していない人（教員の動作確認・履修を取り消した人）の記録は出さない。
+    """
+    learners = tuple(load_learners(uow, course))
+    enrolled = {learner.user_id for learner in learners}
+    sessions = [
+        session
+        for session in uow.ide_activity.course_sessions(course.id)
+        if session.unit == group.unit and session.learner_id in enrolled
+    ]
+    return learners, sessions
+
+
+def reading_progress(
+    console: Any, course: Course, group: UnitGroup, root: Any
+) -> ReadingProgress | None:
+    """読む量が多ければ裏で読み始めて進み具合を返す。None なら、もう表示してよい。"""
+    if root is None:
+        return None
+    with console.database.unit_of_work() as uow:
+        _learners, sessions = _unit_sessions(uow, course, group)
+        sizes = uow.ide_activity.batch_sizes([session.id for session in sessions])
+    keys = ((session, _digest_key(session, sizes.get(session.id))) for session in sessions)
+    unread = [(session, key) for session, key in keys if _digests.get(key) is None]
+    return _reading.request(console, root, (str(course.id), group.unit), unread)
+
+
 def _load_record(console: Any, course: Course, group: UnitGroup, root: Any) -> UnitRecord:
     """問題セットの全員の記録を読み、問題 × 学習者に振り分ける。"""
     with console.database.unit_of_work() as uow:
-        learners = load_learners(uow, course)
-        enrolled = {learner.user_id for learner in learners}
-        # 受講していない人（教員の動作確認・履修を取り消した人）の記録は出さない。
-        sessions = [
-            session
-            for session in uow.ide_activity.course_sessions(course.id)
-            if session.unit == group.unit and session.learner_id in enrolled
-        ]
+        learners, sessions = _unit_sessions(uow, course, group)
         sizes = uow.ide_activity.batch_sizes([session.id for session in sessions])
         keys = {session.id: _digest_key(session, sizes.get(session.id)) for session in sessions}
         remembered = {session.id: _digests.get(keys[session.id]) for session in sessions}
@@ -594,6 +730,31 @@ def register(templates: Jinja2Templates) -> APIRouter:
     def _section(course: Course) -> dict[str, str]:
         return {"label": "作業の記録", "href": f"/courses/{course.id}/activity"}
 
+    def _reading_page(
+        request: Request,
+        me: Any,
+        course: Course,
+        group: UnitGroup,
+        title: str,
+        progress: ReadingProgress,
+        trail: tuple[dict[str, str], ...],
+    ) -> HTMLResponse:
+        """読み込み中の画面。自分で読み直し、終われば本来の画面になる。"""
+        return templates.TemplateResponse(
+            request,
+            "activity_reading.html",
+            {
+                "me": me,
+                "course": course,
+                "section": _section(course),
+                "trail": trail,
+                "group": group,
+                "title": title,
+                "progress": progress,
+                "refresh_seconds": READING_REFRESH_SECONDS,
+            },
+        )
+
     @router.get("/courses/{course_id}/activity/units", response_class=HTMLResponse)
     def units_page(request: Request, course_id: str) -> HTMLResponse:
         """問題セットの一覧。**索引だけで作る。**"""
@@ -627,6 +788,11 @@ def register(templates: Jinja2Templates) -> APIRouter:
         with console.database.unit_of_work() as uow:
             group = _unit_of(key, course, load_units(uow, course))
         root = activity_root()
+        progress = reading_progress(console, course, group, root)
+        if progress is not None:
+            return _reading_page(
+                request, me, course, group, group.label, progress, ({"label": group.label},)
+            )
         data = unit_page_data(console, course, group, root, chosen)
         # 課題も記録も無い鍵は、存在しない問題セットである。
         if not group.tasks and not data["session_count"]:
@@ -680,6 +846,16 @@ def register(templates: Jinja2Templates) -> APIRouter:
             raise HTTPException(status_code=404, detail="問題が見つかりません")
         group, task = found
         root = activity_root()
+        progress = reading_progress(console, course, group, root)
+        if progress is not None:
+            trail = (
+                {
+                    "label": group.label,
+                    "href": f"/courses/{course.id}/activity/units/{group.key}",
+                },
+                {"label": task.title},
+            )
+            return _reading_page(request, me, course, group, task.title, progress, trail)
         data = task_page_data(console, course, group, task.id, root, chosen)
         _audit(
             request,
