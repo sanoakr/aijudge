@@ -73,6 +73,10 @@ The console is for reading what arrived and deciding — it never grades.
   outstanding, and export as CSV. Tasks without points count their ratio as one
   point. Assistants can view it; only instructors can export, and every export
   is audited.
+- **Editor activity by learner, problem set, or problem.** Instructors can open
+  the record of how code was written from any of the three, compare the class on
+  one problem, and jump to the replay. It shows facts only: nothing is judged or
+  deducted, and viewing it is written to the audit log.
 - **Blind marking for measurement**, sampled by the system — never by choice —
   so agreement between a person and the machine can be measured honestly.
 - **Built from the same parts as the learner's side.** The rail of

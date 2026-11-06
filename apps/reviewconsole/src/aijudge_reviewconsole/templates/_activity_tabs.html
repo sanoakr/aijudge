@@ -1,0 +1,5 @@
+{# 作業の記録の入口の切り替え。学習者から入るか、問題セットと問題から入るか（2026-11-06）。 #}
+<nav class="tabs" aria-label="見方">
+  <a href="{{ root_prefix() }}/courses/{{ course.id }}/activity" {% if view == 'learners' %}aria-current="page"{% endif %}>学習者ごと</a>
+  <a href="{{ root_prefix() }}/courses/{{ course.id }}/activity/units" {% if view == 'units' %}aria-current="page"{% endif %}>問題セット・問題ごと</a>
+</nav>

@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% import "_activity_cross.html" as cross %}
+{% block title %}{{ group.label }} の作業の記録 — {{ course.title }} — aiJudge レビュー{% endblock %}
+{% block body %}
+{# 問題セットごとの作業の記録（`activity_by_problem.py`）。**事実だけを並べる。判定はしない。**
+   開いたことは監査ログに残る。 #}
+<h1>{{ group.label }} の作業の記録{% if group.unit and group.unit != group.label %} <span class="mono desc">{{ group.unit }}</span>{% endif %}</h1>
+<p class="desc">
+  <a href="{{ root_prefix() }}/courses/{{ course.id }}/activity/units">問題セットの一覧へ</a> ·
+  エディタでの作業を、問題ごとと学習者ごとに集計しています。<strong>記録から自動で減点・判定はしません</strong>。
+  数字は経過を確かめる入口で、それだけでは何も意味しません。
+  <strong>この画面を開いたことは監査ログに残ります。</strong>
+</p>
+
+{% if not configured %}
+{# **読めないのに 0 字と書かない。** 数えられないことと 0 は別のことである。 #}
+<p class="note warn">記録の置き場所（AIJUDGE_ACTIVITY_DIR）が設定されていないため、中身を読めません。
+  記録は {{ session_count }} 回分あります。</p>
+{% else %}
+<h2>問題ごと</h2>
+<table class="stack">
+  <thead><tr>
+    <th class="grow">問題</th><th class="fit">手を動かした人</th><th class="fit">外から貼り付けた人</th>
+    <th class="fit">確かめる場所のある人</th><th class="fit">提出した人</th>
+  </tr></thead>
+  <tbody>
+  {% for p in problems %}
+    <tr>
+      <td class="grow" data-label="問題">
+        {% if p.openable %}<a href="{{ root_prefix() }}/courses/{{ course.id }}/activity/tasks/{{ p.task_id }}">{{ p.title }}</a>
+        {% elif p.task_id == unknown_task %}{{ p.title }} <small class="desc">（下の合計には入っています）</small>
+        {% else %}{{ p.title }} <small class="desc">（いまはこの問題セットにありません。下の合計と学習者の画面には入っています）</small>{% endif %}
+      </td>
+      <td class="fit" data-label="手を動かした人">{{ p.worked }} 名</td>
+      <td class="fit" data-label="外から貼り付けた人">{{ p.pasted }} 名</td>
+      <td class="fit" data-label="確かめる場所のある人">{% if p.flagged %}<span class="pill attn">{{ p.flagged }} 名</span>{% else %}<span class="desc">なし</span>{% endif %}</td>
+      <td class="fit" data-label="提出した人">{% if p.openable %}{{ p.submitted }} 名{% else %}<span class="desc">—</span>{% endif %}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="5" class="desc">問題も記録もありません。</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<div class="activity-head">
+  <h2>学習者ごと（この問題セットの合計）</h2>
+  {{ cross.sort_form(sorts, sort) }}
+</div>
+<table class="stack">
+  <thead><tr>
+    <th class="fit">学習者</th><th class="fit">打鍵</th><th class="fit">外からの貼り付け</th>
+    <th class="fit">画面を離れた</th><th class="fit">実行</th><th class="fit">提出</th>
+    <th class="grow">確かめる場所</th><th class="fit">記録の欠け</th>
+  </tr></thead>
+  <tbody>
+  {% for row in rows %}
+    {% set s = row.work.summary %}
+    <tr>
+      <td class="fit" data-label="学習者">{{ cross.who(row.learner, root_prefix() ~ "/courses/" ~ course.id ~ "/activity/" ~ row.learner.user_id) }}</td>
+      <td class="fit" data-label="打鍵">{{ s.typed_chars }} 字</td>
+      <td class="fit" data-label="外からの貼り付け">{{ cross.pasted(s) }}</td>
+      <td class="fit" data-label="画面を離れた">{{ cross.away(s) }}</td>
+      <td class="fit" data-label="実行">{{ s.runs }} 回</td>
+      <td class="fit" data-label="提出した問題">{{ row.submitted_tasks }} / {{ task_count }} 問</td>
+      <td class="grow activity-flags" data-label="確かめる場所">{{ cross.flags(row, course.id) }}</td>
+      <td class="fit" data-label="記録の欠け">{{ cross.gaps(row) }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="8" class="desc">この問題セットを開いた学習者も、提出した学習者もいません。</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{{ cross.quiet_list(quiet, "エディタを開かず提出もしていない受講者") }}
+{{ cross.footnote() }}
+{% endif %}
+{% endblock %}

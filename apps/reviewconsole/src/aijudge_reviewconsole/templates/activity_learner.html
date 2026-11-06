@@ -19,7 +19,8 @@
 {% endif %}
 
 {% for p in problems %}
-<section class="card activity-problem">
+{# `id` は問題の画面（`activity_task.html`）からこの節へ飛ぶため。 #}
+<section class="card activity-problem" id="task-{{ p.task_id }}">
   <h2>{{ p.title }}</h2>
 
   {% set s = p.summary %}

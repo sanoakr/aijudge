@@ -230,8 +230,18 @@ class ActivityIndex(Protocol):
         """seq の順。欠落（seq の飛び）は呼び出し側が数える。"""
         ...
 
+    def batch_sizes(
+        self, session_ids: Sequence[IdeSessionId]
+    ) -> dict[IdeSessionId, tuple[int, int]]:
+        """セッション → (束の数, 最後の seq)。束の無いセッションは含めない。
+
+        送信の欠けを数えるのと、本体を読み直すかを決めるのに使う（2026-11-06）。
+        `batches` で数えると、学期の終わりには一覧を開くたびに数十万行を運ぶ。
+        """
+        ...
+
     def course_sessions(self, course_id: CourseId) -> tuple[IdeSession, ...]:
-        """このコースの全セッション。保存期間の purge が期限を調べる。"""
+        """このコースの全セッション。保存期間の purge と、問題セットの画面が使う。"""
         ...
 
     def add_paste_marks(self, marks: Sequence[PasteMark]) -> None:
