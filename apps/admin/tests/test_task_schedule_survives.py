@@ -210,6 +210,7 @@ FROM_THE_SPEC_OR_KEPT = {
     "due_at",
     "accepted_suffixes",
     "case_timeout_seconds",
+    "editor_template",
     "similarity_references",
 }
 KEPT = {
@@ -373,6 +374,19 @@ def test_revising_a_task_keeps_its_case_timeout(world) -> None:
     with database.unit_of_work() as uow:
         after = uow.tasks.get_task(saved.task.id)
     assert after.case_timeout_seconds == 30.0, "直したら実行時間の上限が戻っている"
+
+
+def test_revising_a_task_keeps_its_editor_template(world) -> None:
+    """初期内容を書かない定義で課題を直しても、エディタの初期内容が消えない。"""
+    database, course = world
+    saved = _save(database, course, "本文")
+    _schedule_the_unit(database, saved.task.id, editor_template="## 1. よかった点\n")
+
+    _save(database, course, "本文（誤字を直した）")
+
+    with database.unit_of_work() as uow:
+        after = uow.tasks.get_task(saved.task.id)
+    assert after.editor_template == "## 1. よかった点\n", "直したら初期内容が消えている"
 
 
 def test_revising_a_task_keeps_its_late_penalty(world) -> None:

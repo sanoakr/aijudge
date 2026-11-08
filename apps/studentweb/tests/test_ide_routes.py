@@ -449,6 +449,25 @@ def test_the_completion_setting_reaches_the_editor(world: World) -> None:
     ]
 
 
+def test_the_template_fills_an_editor_only_until_something_is_saved(world: World) -> None:
+    """初期内容は**自動保存が無いときだけ**入る。書き始めた内容を初期内容で消さない。"""
+    template = "## 1. よかった点\n\n\n## 2. 困った点\n"
+    _editor(world)
+    _learner(world)
+    assert _config(world.client.get(f"/courses/{_course_id(world)}/ide").text)["sources"] == [""]
+
+    _task(world, editor_template=template)
+    page = world.client.get(f"/courses/{_course_id(world)}/ide").text
+    assert _config(page)["sources"] == [template]
+
+    saved = world.client.put(
+        f"/ide/tasks/{world.task_version.id}/buffer", json={"suffix": ".c", "source": SOURCE}
+    )
+    assert saved.status_code in (200, 204)
+    page = world.client.get(f"/courses/{_course_id(world)}/ide").text
+    assert _config(page)["sources"] == [SOURCE]
+
+
 def test_the_header_and_countdown_are_outside_noscript(world: World) -> None:
     """**見出し（残り時間）は JavaScript のある画面に出る。**
 

@@ -148,6 +148,9 @@ _UNIT_SETTING_KEYS = (
 # 定義側だけの語彙。`TaskSpec` に渡す前に解決して消す。
 _PROBLEM_DIR = "problem_dir"
 _STATEMENT_FILE = "statement_file"
+# エディタの初期内容（`Task.editor_template`）を別ファイルに置くとき。問題文と同じく
+# 定義ファイルからの相対パスで、定義ファイルの外は指せない。
+_EDITOR_TEMPLATE_FILE = "editor_template_file"
 
 
 @dataclass(frozen=True)
@@ -285,10 +288,21 @@ def _late_penalty_steps(unit: str, value: Any, path: Path) -> tuple[LatePenaltyS
 def _task_spec(raw: dict[str, Any], *, base: Path, units: dict[Any, Any]) -> TaskSpec:
     problem_dir = raw.pop(_PROBLEM_DIR, None)
     statement_file = raw.pop(_STATEMENT_FILE, None)
+    template_file = raw.pop(_EDITOR_TEMPLATE_FILE, None)
     if problem_dir is not None:
         raw = _from_problem_dir(raw, _under(base, problem_dir))
     if statement_file is not None:
         raw.setdefault("statement", _under(base, statement_file).read_text(encoding="utf-8"))
+    if template_file is not None:
+        if "editor_template" in raw:
+            raise AdminError(
+                f"課題 {raw.get('key', '?')}: editor_template と editor_template_file は"
+                "どちらか一方だけ書いてください"
+            )
+        template = _under(base, template_file)
+        if not template.is_file():
+            raise AdminError(f"エディタの初期内容のファイルがありません: {template}")
+        raw["editor_template"] = template.read_text(encoding="utf-8")
 
     # 回ごとの日程の既定。**課題側の指定が勝つ。**
     schedule = units.get(raw.get("unit")) or {}

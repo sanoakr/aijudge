@@ -131,6 +131,41 @@ def test_a_task_can_declare_its_own_time_limit(database: Database, tmp_path: Pat
     assert {t.case_timeout_seconds for t in tasks.values()} == {None, 30.0}
 
 
+def test_a_task_can_name_its_editor_template_file(database: Database, tmp_path: Path) -> None:
+    """`editor_template_file` のファイルが課題の初期内容に入り、改行は `\\n` に揃う。"""
+    root = tmp_path / "template"
+    root.mkdir()
+    with_template = DEFINITION.replace(
+        "  - problem_dir: ex1/p3\n",
+        "  - problem_dir: ex1/p3\n    editor_template_file: survey.md\n",
+        1,
+    )
+    assert with_template != DEFINITION
+    path = _write_definition(root, with_template)
+    (root / "survey.md").write_bytes("## 1. よかった点\r\n\r\n".encode())
+
+    by_key = {task.key: task for task in load_course_definition(path).tasks}
+    assert by_key["ex1/p3"].editor_template == "## 1. よかった点\n\n"
+    assert by_key["ex1/p2"].editor_template is None
+
+    first = _apply(database, path)
+    tasks, _ = _tasks(database, first.course.id)
+    assert sorted(t.editor_template or "" for t in tasks.values())[-1] == "## 1. よかった点\n\n"
+
+
+def test_a_task_cannot_give_its_editor_template_twice(tmp_path: Path) -> None:
+    both = DEFINITION.replace(
+        "  - problem_dir: ex1/p3\n",
+        "  - problem_dir: ex1/p3\n    editor_template: x\n    editor_template_file: survey.md\n",
+        1,
+    )
+    path = _write_definition(tmp_path, both)
+    (tmp_path / "survey.md").write_text("y", encoding="utf-8")
+
+    with pytest.raises(AdminError, match="どちらか一方"):
+        load_course_definition(path)
+
+
 def test_unit_schedule_is_the_default_and_the_task_wins(tmp_path: Path) -> None:
     """`units:` の日程は回の既定で、課題が自分の値を書けばそちらが勝つ。"""
     definition = load_course_definition(_write_definition(tmp_path))
