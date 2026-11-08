@@ -119,6 +119,11 @@ HUMAN_SCORED = "__human__"
 #: 頭打ちにする。
 MAX_TASK_CASE_TIMEOUT_SECONDS = 60.0
 
+#: エディタの初期内容（`Task.editor_template`）の長さの上限（字）。自動保存の上限
+#: （`aijudge_ide.run.MAX_SOURCE_BYTES`・64 KiB）に、全部を 3 バイトの文字で書いても
+#: 収まる長さにする ── 収まらないと、開いた直後から保存できない画面になる。
+MAX_EDITOR_TEMPLATE_CHARS = 16 * 1024
+
 
 class RubricCriterion(BaseModel):
     """ルーブリックの 1 観点。AI 評価器はこの単位で 1 回呼ばれる（§04）。"""
@@ -592,6 +597,13 @@ class Task(BaseModel):
     case_timeout_seconds: float | None = Field(
         default=None, gt=0.0, le=MAX_TASK_CASE_TIMEOUT_SECONDS
     )
+    # エディタの初期内容（2026-11-08）。**その学習者の自動保存がまだ無いときだけ**
+    # エディタに入れる ── 一度書き始めた内容を上書きしない。アンケートの質問の枠や、
+    # 穴埋めの骨組みを最初から見せるため。None は空のエディタ（従来どおり）。
+    #
+    # 版ではなく課題に持つ（実行時間の上限と同じ運用値）── 採点の基準ではないので、
+    # 直しても過去の採点が指す版を変えない（P8）。`tasks.document` に入るので列は増えない。
+    editor_template: str | None = Field(default=None, max_length=MAX_EDITOR_TEMPLATE_CHARS)
     # 出題先（追試など）。**空は受講者全員**（従来どおり）。複数を持てば、
     # いずれかの名簿に入っている学習者に出す（和集合）。
     #

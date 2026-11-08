@@ -363,7 +363,11 @@ def register_ide_routes(app: FastAPI, deps: IdeDeps, me_dependency: Any) -> None
                     "runnable": None if runnable is None else runnable.suffix,
                     # サンプルは実行できるときだけ出す（押しても動かないボタンを出さない）。
                     "samples": _public_samples(version) if runnable is not None else [],
-                    "source": buffer.source if buffer is not None else "",
+                    # 自動保存が無ければ、課題の初期内容（アンケートの枠など）から始める。
+                    # **保存があれば必ずそちらを出す** ── 書き始めた内容を初期内容で消さない。
+                    "source": (
+                        buffer.source if buffer is not None else (task.editor_template or "")
+                    ),
                     # 補完の切／入（設計書 §5.3）。答え方とは独立した課題の値。
                     "completion": task.editor_completion,
                     # タブの中身（2026-09-25）。`editor` は Monaco、`attach` はファイルを選ぶ欄

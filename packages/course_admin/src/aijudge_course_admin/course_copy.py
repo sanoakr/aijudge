@@ -205,6 +205,8 @@ def _copy_tasks(
                     # 実行時間の上限は**写す**（#491）。問題そのものの性質で、
                     # 日程と違って学期が変わっても同じ。
                     case_timeout_seconds=task.case_timeout_seconds,
+                    # エディタの初期内容も写す（問題の一部で、学期が変わっても同じ）。
+                    editor_template=task.editor_template,
                     # 類似で比べる相手も写す。**このコースの課題を指していたもの
                     # （`course` の無いもの）は元のコースを指すように直す** ── 写した先の
                     # 同じ課題を指すと、自分の課題と比べることになる。

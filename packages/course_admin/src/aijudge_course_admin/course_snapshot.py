@@ -66,6 +66,7 @@ _TASK_IF_WRITTEN = (
     "position",
     "accepted_suffixes",
     "case_timeout_seconds",
+    "editor_template",
     "similarity_references",
     *UNIT_SCHEDULE_KEYS,
 )
@@ -132,6 +133,7 @@ def _file_task_values(
         "position": spec.position,
         "accepted_suffixes": normalize_suffixes(spec.accepted_suffixes),
         "case_timeout_seconds": spec.case_timeout_seconds,
+        "editor_template": spec.editor_template,
         "similarity_references": spec.similarity_references,
     } | {name: getattr(spec, name) for name in UNIT_SCHEDULE_KEYS}
     for name, value in written.items():

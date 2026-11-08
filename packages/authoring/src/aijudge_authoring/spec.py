@@ -20,6 +20,7 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validato
 
 from aijudge_core import (
     HUMAN_SCORED,
+    MAX_EDITOR_TEMPLATE_CHARS,
     MAX_TASK_CASE_TIMEOUT_SECONDS,
     Aggregation,
     Provenance,
@@ -190,6 +191,9 @@ class TaskSpec(BaseModel):
     case_timeout_seconds: float | None = Field(
         default=None, gt=0.0, le=MAX_TASK_CASE_TIMEOUT_SECONDS
     )
+    # エディタの初期内容（意味は `Task.editor_template`）。実行時間の上限と同じく、
+    # **書いたときだけ**上書きする。改行は課題文と同じく `\n` に揃える。
+    editor_template: str | None = Field(default=None, max_length=MAX_EDITOR_TEMPLATE_CHARS)
     # 提出の類似で比べる相手（#653）。他の課題（過年度・他コース）か、取り込んだ過年度の束。
     # 提出形式と同じく、**書いたときだけ**上書きする。
     similarity_references: tuple[SimilarityReference, ...] = ()
@@ -224,7 +228,7 @@ class TaskSpec(BaseModel):
     # 分かってから `QMatrixEntry.weight` を開ける。
     knowledge_components: tuple[str, ...] = ()
 
-    @field_validator("statement", mode="before")
+    @field_validator("statement", "editor_template", mode="before")
     @classmethod
     def _normalize_line_endings(cls, value: object) -> object:
         """`\\r\\n` / 孤立した `\\r` を `\\n` に揃える。

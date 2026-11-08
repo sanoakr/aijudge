@@ -263,6 +263,9 @@ def save_task(
             # 画面で延ばした上限を既定へ戻さない。
             case_timeout_seconds=spec.case_timeout_seconds
             or (existing.case_timeout_seconds if existing else None),
+            # エディタの初期内容も、**明示された場合だけ上書きする**。
+            editor_template=spec.editor_template
+            or (existing.editor_template if existing else None),
             # 締切と同じ理由で、**明示された場合だけ上書きする**（#234）。
             # 教員が画面で広げた拡張子を、定義の流し込みが黙って狭めない。
             accepted_suffixes=normalize_suffixes(spec.accepted_suffixes)
