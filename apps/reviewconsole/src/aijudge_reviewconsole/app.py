@@ -55,6 +55,7 @@ from aijudge_core import (
     HUMAN_SCORED,
     MIN_JUSTIFICATION_LENGTH,
     PURGED_MESSAGE,
+    Aggregation,
     ArtifactKind,
     BlindMark,
     BlindMarkCorrection,
@@ -79,6 +80,7 @@ from aijudge_core import (
     may_see,
     new_id,
     offered_years,
+    reviewed_gate,
 )
 from aijudge_core.ids import (
     BlindMarkCorrectionId,
@@ -1672,7 +1674,13 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
             if mode == WORK_FINALIZE
             else None
         )
-        final = _parse_levels(context.task_version.criteria, form)
+        final, gated = _parse_final_levels(
+            context.task_version.criteria,
+            form,
+            effective_aggregation(
+                context.task_version.aggregation, context.course.rubric_aggregation
+            ),
+        )
         comment = str(form.get("comment", ""))
         # 遅延の減点の免除。**評価の修正とは別物**（ADR 0013）。減点の無い
         # 採点で送られてきても害は無いが、意味を持つのは減点があるときだけ。
@@ -1708,6 +1716,7 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
             machine=machine,
             waived=waived,
             text=text,
+            gated=gated,
         )
 
         fresh = _load(console, me, SubmissionId(submission_id), request)
@@ -1827,6 +1836,7 @@ def _save_review(
     waived: bool,
     text: str,
     via: str | None = None,
+    gated: tuple[CriterionId, ...] = (),
 ) -> None:
     """教員の確認（`HumanReview`）と確定（`Finalization`）を書く。監査も同じ単位で。
 
@@ -1860,6 +1870,7 @@ def _save_review(
                     grader_id=me.user_id,
                     adjusted_levels=adjusted,
                     penalty_waived=waived,
+                    gated_criteria=gated,
                     comment=text,
                     request_id=None if review_request is None else review_request.id,
                     reviewed_at=now,
@@ -1926,6 +1937,9 @@ def _save_review(
                         for criterion_id, level in adjusted.items()
                     },
                     "penalty_waived": waived,
+                    # 教員の段階で打ち切った観点（#675）。0% で確定した観点で、
+                    # 段階の変更ではないので上の `adjusted_levels` には入らない。
+                    **({"gated_criteria": [str(c) for c in gated]} if gated else {}),
                     **({"via": via} if via else {}),
                 },
             )
@@ -2564,6 +2578,43 @@ def _parse_levels(
     観点の取りこぼしは拒否する。欠けたまま確定すると、誰も見ていない観点が
     成績に入る。
     """
+    parsed, missing = _read_levels(criteria, form)
+    if missing:
+        raise HTTPException(status_code=400, detail=f"missing marks for: {sorted(missing)}")
+    return parsed
+
+
+def _parse_final_levels(
+    criteria: tuple[RubricCriterion, ...],
+    form: Mapping[str, object],
+    aggregation: Aggregation,
+) -> tuple[dict[CriterionId, int], tuple[CriterionId, ...]]:
+    """確定のフォームから段階を読み、**教員の段階で** AND の打ち切りを決める（#675）。
+
+    以前は `_parse_levels` で全観点を必須にしていた。打ち切った観点にも段階を
+    求め、入れた段階はそのまま点になった ── 上位が 0% のままでも下位に点が
+    付き、AND の意味が崩れていた。
+
+    - 上位の観点が 0% なら、以降は打ち切り。**入力を求めず、送られても採らない。**
+    - 上位を 0% から引き上げたら打ち切りは消え、以降は段階が要る（欠ければ断る）。
+
+    画面も同じ判定で入力欄を出し分けるが、境界はこちらである（#146 と同じ ──
+    画面の出し分けだけでは守りにならない）。
+    """
+    parsed, missing = _read_levels(criteria, form)
+    gated = reviewed_gate(criteria, parsed, aggregation)
+    cut = set(gated)
+    codes = {criterion.id: criterion.code for criterion in criteria}
+    unanswered = [code for code in missing if code not in {codes[c] for c in cut}]
+    if unanswered:
+        raise HTTPException(status_code=400, detail=f"missing marks for: {sorted(unanswered)}")
+    return {cid: level for cid, level in parsed.items() if cid not in cut}, gated
+
+
+def _read_levels(
+    criteria: tuple[RubricCriterion, ...], form: Mapping[str, object]
+) -> tuple[dict[CriterionId, int], list[str]]:
+    """フォームの段階と、段階の無い観点のコード。段階の形と範囲はここで断る。"""
     parsed: dict[CriterionId, int] = {}
     missing: list[str] = []
     for criterion in criteria:
@@ -2584,10 +2635,7 @@ def _parse_levels(
                 detail=f"{criterion.code}: level {level} is not in {sorted(allowed)}",
             )
         parsed[criterion.id] = level
-
-    if missing:
-        raise HTTPException(status_code=400, detail=f"missing marks for: {sorted(missing)}")
-    return parsed
+    return parsed, missing
 
 
 def _comparison_rows(

@@ -11,7 +11,7 @@ P8  GradingRun は不変。人間の修正も上書きではなく HumanReview �
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from enum import StrEnum
 from typing import Self
@@ -386,7 +386,21 @@ class HumanReview(BaseModel):
     # 遅延の減点を免除したか。**教員が覆せない減点を作らない**（P5）。
     # 病欠や事前の延長の合意はシステムの外で起きるので、規則の側では拾えない。
     penalty_waived: bool = False
+    # 教員の段階で AND のゲートを判定し直した結果、打ち切った観点（#675）。
+    # **確定した 0% で、段階は持たない。** 機械の打ち切り（`skipped_criteria`）を
+    # そのまま引き継ぐこともあれば、教員が上位の観点を 0% に下げて新しく
+    # 打ち切ることもある。空なら打ち切りは無い（OR の課題、これ以前の記録）。
+    gated_criteria: tuple[CriterionId, ...] = ()
     reviewed_at: datetime
+
+    @model_validator(mode="after")
+    def _check_gated(self) -> Self:
+        # 打ち切った観点に段階を付けない。両方あると、0% と段階のどちらを
+        # 成績にするかが読む側次第になる（#675 はそれで点が上がった）。
+        both = set(self.gated_criteria) & set(self.adjusted_levels)
+        if both:
+            raise ValueError(f"criteria {sorted(both)} are gated but also carry a level")
+        return self
 
     @property
     def agreed(self) -> bool:
@@ -621,15 +635,47 @@ def gate_skipped(
 
     OR では常に空。**宣言するまで何も変わらない。**
     """
+    by_criterion = {score.criterion_id: score.score_ratio for score in scores}
+    return _gate_after(criteria, by_criterion, aggregation)
+
+
+def reviewed_gate(
+    criteria: tuple[RubricCriterion, ...],
+    levels: Mapping[CriterionId, int],
+    aggregation: Aggregation,
+) -> tuple[CriterionId, ...]:
+    """**教員の段階で**判定し直した AND の打ち切り（#675）。
+
+    規則は `gate_skipped` と同じで、見るのが機械の点か教員の段階かだけが違う。
+    確定のときに機械の打ち切りをそのまま使うと、教員が上位の観点を 0% から
+    引き上げても下位が打ち切られたまま（実際は評価すべき）になり、逆に
+    0% へ下げても下位の点が残る（AND の意味が崩れる）。
+
+    段階の無い観点に行き当たったらそこで止め、何も打ち切らない ── 入力が
+    欠けているのは打ち切りではなく、確定の側が欠けとして断るべきもの。
+    """
+    ratios = {
+        criterion.id: criterion.level_for(levels[criterion.id]).score_ratio
+        for criterion in criteria
+        if criterion.id in levels
+    }
+    return _gate_after(criteria, ratios, aggregation)
+
+
+def _gate_after(
+    criteria: tuple[RubricCriterion, ...],
+    ratios: Mapping[CriterionId, float],
+    aggregation: Aggregation,
+) -> tuple[CriterionId, ...]:
+    """評価順の上から見て、最初の 0% より後ろの観点。値の無い観点で止める。"""
     if aggregation is not Aggregation.AND:
         return ()
 
-    by_criterion = {score.criterion_id: score for score in scores}
     for index, criterion in enumerate(criteria):
-        score = by_criterion.get(criterion.id)
-        if score is None:
+        ratio = ratios.get(criterion.id)
+        if ratio is None:
             return ()
-        if score.score_ratio <= GATE_ZERO:
+        if ratio <= GATE_ZERO:
             return tuple(later.id for later in criteria[index + 1 :])
     return ()
 
@@ -770,16 +816,24 @@ def _reviewed_evaluation(run: GradingRun, task_version: TaskVersion, review: Hum
     その総合点は保留されている（`is_provisional`）。
     """
     by_criterion = {score.criterion_id: score for score in run.criterion_scores}
+    # 教員の段階で打ち切った観点（#675）。**段階を数えず、重みどおり 0% にする。**
+    # 機械の点が残っていても採らない ── 教員が上位を 0% に下げたのなら、
+    # 下位はもう評価しない観点である。
+    gated = set(review.gated_criteria)
 
     levels: dict[CriterionId, int] = {}
     for criterion in task_version.criteria:
+        if criterion.id in gated:
+            continue
         score = by_criterion.get(criterion.id)
         if score is not None:
             levels[criterion.id] = review.level_for(criterion.id, score.level)
         elif criterion.id in review.adjusted_levels:
             levels[criterion.id] = review.adjusted_levels[criterion.id]
 
-    complete = len(levels) == len(task_version.criteria)
+    # 打ち切りは「そろっている」側に数える。0% として確定しているので、
+    # ルーブリックの重みで数えてよい（足すものが無いだけ）。
+    complete = len(levels) + len(gated) == len(task_version.criteria)
 
     total = 0.0
     for criterion in task_version.criteria:

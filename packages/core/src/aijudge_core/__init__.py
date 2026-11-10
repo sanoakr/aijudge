@@ -68,6 +68,7 @@ from .grading import (
     late_penalty_for,
     renormalize,
     resolve_conflicts,
+    reviewed_gate,
     score_withheld,
 )
 from .ids import derived_id, new_id, prefix_of
@@ -297,6 +298,7 @@ __all__ = [
     "prefix_of",
     "renormalize",
     "resolve_conflicts",
+    "reviewed_gate",
     "score_withheld",
     "set_window_at",
     "settles_at",
