@@ -44,10 +44,12 @@
              **数えられなかったときは出さない** ── 0 と書けば「見たが
              無かった」の意味になり、それは嘘である。 #}
           {# **0 件は出さない**（2026-09-25）── 「0」の丸は用があるように見える。 #}
+          {# 補足は件数の手前、同じ行に（2026-11-13）。補足があって件数が無い項目は、
+             空の件数の枠を置かない ── 置くと補足が右へ押されて名前と離れる。 #}
+          {% if item.note %}<span class="n desc">{{ item.note }}</span>{% endif %}
           {% if item.count %}
           <span class="c{{ ' attn' if item.attention }}">{{ item.count }}</span>
-          {% else %}<span class="c"></span>{% endif %}
-          {% if item.note %}<span class="n desc">{{ item.note }}</span>{% endif %}
+          {% elif not item.note %}<span class="c"></span>{% endif %}
         </a>
         {% endfor %}
       </div>

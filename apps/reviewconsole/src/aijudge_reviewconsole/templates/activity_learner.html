@@ -18,10 +18,18 @@
   記録は {{ session_count }} 回分あります。</p>
 {% endif %}
 
-{% for p in problems %}
+{# **問題セットごとにまとめ、新しいセットから並べる**（2026-11-13）。セットの中は
+   問題番号の順。セットは畳める。初めは**いちばん新しいセットだけ開く** ── 学期の
+   終わりには 10 を超えるセットが並び、全部開くと目当ての問題まで遠い。
+   問題の画面から `#task-…` で飛んできたときは、その節を含むセットを開く（下の script）。 #}
+{% for g in unit_groups %}
+<details class="fin-task activity-unit" id="unit-{{ g.key }}" {% if loop.first %}open{% endif %}>
+<summary><h2>{% if g.unit and g.unit != g.label %}<span class="mono desc">{{ g.unit }}</span> {% endif %}{{ g.label }}</h2>
+  <span class="desc">{{ g.problems | length }} 問</span></summary>
+{% for p in g.problems %}
 {# `id` は問題の画面（`activity_task.html`）からこの節へ飛ぶため。 #}
 <section class="card activity-problem" id="task-{{ p.task_id }}">
-  <h2>{{ p.title }}</h2>
+  <h3>{{ p.title }}</h3>
 
   {% set s = p.summary %}
   {% if p.parts %}
@@ -47,12 +55,12 @@
   {% endif %}
 
   {% if p.submissions %}
-  <h3>提出</h3>
+  <h4>提出</h4>
   <table class="stack">
     <thead><tr><th class="fit">回</th><th class="fit">提出日時</th><th class="fit">得点</th><th class="grow">出どころ</th><th class="fit"></th></tr></thead>
     <tbody>
     {% for sub in p.submissions %}
-      <tr>
+      <tr class="row-link" data-href="{{ root_prefix() }}{{ sub.href }}">
         <td class="fit" data-label="回">{{ sub.attempt }}</td>
         <td class="fit" data-label="提出日時">{{ sub.submitted_at | local('%m-%d %H:%M') }}</td>
         <td class="fit" data-label="得点">
@@ -71,7 +79,7 @@
   {% endif %}
 
   {% if p.parts %}
-  <h3>エディタを開いた回</h3>
+  <h4>エディタを開いた回</h4>
   <table class="stack">
     <thead><tr>
       <th class="fit">開いた時刻</th><th class="fit">打鍵</th><th class="fit">外からの貼り付け</th>
@@ -80,7 +88,7 @@
     <tbody>
     {% for part in p.parts %}
       {% set v = part.summary %}{% set i = part.integrity %}
-      <tr>
+      <tr class="row-link" data-href="{{ root_prefix() }}/courses/{{ course.id }}/activity/{{ learner.id }}/{{ part.session.id }}?tab={{ part.tab }}">
         <td class="fit" data-label="開いた時刻">{{ part.session.started_at | local('%m-%d %H:%M') }}</td>
         <td class="fit" data-label="打鍵">{{ v.typed_chars }} 字</td>
         <td class="fit" data-label="外からの貼り付け">{% if v.pastes_external %}{{ v.pastes_external }} 回・{{ v.pasted_external_chars }} 字{% else %}<span class="desc">なし</span>{% endif %}</td>
@@ -103,9 +111,19 @@
   <p class="desc">この問題にはエディタでの作業の記録がありません（ファイルで提出したものです）。</p>
   {% endif %}
 </section>
+{% endfor %}
+</details>
 {% else %}
 <p class="desc">このコースでエディタを使った記録も提出もありません。</p>
 {% endfor %}
+<script>
+  // 問題の画面から `#task-…` で来たら、その節を含むセットを開いて見せる。
+  (function () {
+    var target = location.hash && document.getElementById(location.hash.slice(1));
+    var box = target && target.closest("details");
+    if (box && !box.open) { box.open = true; target.scrollIntoView(); }
+  })();
+</script>
 
 <p class="desc">
   記録の欠け・途切れは通信の不調や PC のスリープでも起きます。それだけでは不正の証拠になりません。

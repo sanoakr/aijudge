@@ -21,7 +21,8 @@
   </tr></thead>
   <tbody>
   {% for row in rows %}
-    <tr>
+    {# 行のどこを押しても開く（2026-11-13・`tr.row-link`）。記録の無い人は開く先が無い。 #}
+    <tr{% if row.sessions %} class="row-link" data-href="{{ root_prefix() }}/courses/{{ course.id }}/activity/{{ row.user_id }}"{% endif %}>
       <td class="fit mono" data-label="学習者">{{ row.login }}</td>
       <td class="grow" data-label="氏名">{{ row.name }}</td>
       <td class="fit" data-label="開いた回数">{% if row.sessions %}{{ row.sessions }} 回{% else %}<span class="desc">なし</span>{% endif %}</td>

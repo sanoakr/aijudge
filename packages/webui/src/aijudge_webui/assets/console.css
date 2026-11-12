@@ -190,7 +190,7 @@ details.fin-task > summary{cursor:pointer;display:flex;flex-wrap:wrap;align-item
 details.fin-task > summary::-webkit-details-marker{display:none}
 details.fin-task > summary::before{content:"▸";color:var(--muted);margin-right:2px}
 details.fin-task[open] > summary::before{content:"▾"}
-details.fin-task > summary h3{margin:0}
+details.fin-task > summary h3,details.fin-task > summary h2{margin:0}
 details.passages{margin:8px 0}
 details.passages > summary{cursor:pointer;font-size:.85rem;color:var(--ink-2)}
 .passage-pair{border-left:3px solid var(--line);padding:4px 0 4px 10px;margin:8px 0}
@@ -273,7 +273,11 @@ h2[id]{scroll-margin-top:16px}
 .hist .bar{flex:1;display:flex;flex-direction:column;justify-content:flex-end;
   align-items:center;height:100%;gap:3px;font-size:.72rem;color:var(--muted)}
 .hist .fill{width:100%;background:var(--verd);border-radius:2px 2px 0 0;min-height:2px}
-.hist .n{line-height:1}
+/* 件数と目盛りは**空でも 1 行ぶんの高さを持つ**（2026-11-13）。目盛りは間引くので
+   （`COUNT_LABELS`）空の棒ができ、0 件の棒は件数が空になる。高さが 0 になると、
+   その棒だけ底が下がって並びが崩れた（成績を exam08 に絞った提出数の分布・9 本で
+   1 本おきに目盛りが空）。縮めるのは棒（`.fill`）の側にする。 */
+.hist .n,.hist .x{line-height:1;min-height:1em;flex:none}
 .hist .x{color:var(--muted)}
 /* 提出の時刻（2026-10-22）。推移は棒が 100 本を超えうるので**隙間を詰める**
    ── 6px のままだと携帯の幅で棒そのものが消える。目盛りは間引いてあるので、

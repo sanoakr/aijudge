@@ -79,6 +79,7 @@ from aijudge_core import (
     may_see,
     new_id,
     offered_years,
+    settles_at,
 )
 from aijudge_core.ids import (
     BlindMarkCorrectionId,
@@ -2335,6 +2336,15 @@ def _open_rows(console: Console, course: Course) -> tuple[dict, ...]:
                     "contested": blocks_finalization(request_row),
                     # 手動の確定が要るか（2026-09-25）。偽なら猶予が明ければ自動で閉じる。
                     "manual": _needs_manual_finalization(course, task, run),
+                    # 自動確定される時刻（2026-11-13）。起点は採点の完了で、自動確定の
+                    # 巡回（`aijudge-finalize`）が時刻を過ぎた最初の回に閉じる。
+                    "settles_at": settles_at(
+                        run.created_at,
+                        grace_minutes(
+                            task.auto_finalize_after_minutes if task is not None else None,
+                            course.auto_finalize_after_minutes,
+                        ),
+                    ),
                 }
             )
         _number_rows(uow, course.id, rows)
