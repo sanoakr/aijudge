@@ -463,6 +463,9 @@ footer.app-footer .inner{max-width:none;display:flex;align-items:center;gap:12px
    **行を改めない**（2026-11-13）── 改めると、その項目だけ 2 行になって帯の並びが崩れる。
    名前の右に同じ行で並べ、件数の丸の手前に置く。 */
 .rail a.nav .n{flex:none;font-size:.72rem;white-space:nowrap}
+/* 補足のある行は**下揃え**（2026-11-13）。中央揃えのままだと、小さい補足だけ
+   名前より上に浮いて見える。文字の下端（ベースライン）で揃える。 */
+.rail a.nav:has(.n){align-items:baseline}
 .rail a.nav .c{font-family:var(--font-mono);font-size:.75rem;color:var(--muted);
   min-width:2.6em;text-align:right;flex:none}
 /* 人が押さないと進まない件数だけ琥珀。数え上げは薄いまま。 */
