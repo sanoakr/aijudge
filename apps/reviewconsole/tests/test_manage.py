@@ -4318,7 +4318,8 @@ def test_the_finalization_page_lists_the_open_submissions(world: World) -> None:
     _import_example(world)
     body = world.client("teacher").get(f"/courses/{world.course.id}/finalize").text
     assert "確定処理" in body
-    assert "提出ごとに確定する" in body
+    # 提出ごとの一覧は自動確定待ちだけ。手動の分は「手動確定」の画面（2026-11-13）。
+    assert "自動確定待ち（" in body
     assert "問題セットごとにまとめて確定する" in body
 
 

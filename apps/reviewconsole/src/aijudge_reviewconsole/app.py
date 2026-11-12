@@ -1137,6 +1137,26 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 return group.due_at
         return None
 
+    @app.get("/courses/{course_id}/manual", response_class=HTMLResponse)
+    def manual_queue(request: Request, course_id: str, me: Me) -> HTMLResponse:
+        """手動確定。**人が確定しないと閉じない提出を 1 件ずつ読む画面**（2026-11-13）。
+
+        確定処理から分けた。blind 採点・再確認の依頼と同じく、1 件ずつ読む仕事には
+        画面を 1 つ持たせる。並べるものは 1 件の画面の帯と同じ（`_finalize_rows`）。
+        """
+        course, rows, _marked = _finalize_rows(console, me, CourseId(course_id))
+        return TEMPLATES.TemplateResponse(
+            request,
+            "manual_queue.html",
+            {
+                "me": me,
+                "course": course,
+                "section": {"label": "手動確定", "href": f"/courses/{course.id}/manual"},
+                "rows": rows,
+                "groups": _task_groups(rows),
+            },
+        )
+
     @app.get("/courses/{course_id}/finalize", response_class=HTMLResponse)
     def finalize_queue(request: Request, course_id: str, me: Me) -> HTMLResponse:
         """確定処理。**依頼が出なかった提出を閉じる導線**（ADR 0010）。
@@ -1167,7 +1187,10 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 "course": course,
                 "section": {"label": "確定処理", "href": f"/courses/{course.id}/finalize"},
                 "rows": open_rows,
-                "groups": _task_groups(open_rows),
+                # 下の一覧は自動確定待ちだけ（手動の分は「手動確定」の画面に並ぶ）。
+                "waiting_groups": _task_groups(
+                    tuple(row for row in open_rows if not row["manual"])
+                ),
                 "units": [unit for unit in units if unit.unfinalized],
                 "pending": pending,
                 "split": split,
@@ -1733,11 +1756,12 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
         # **確定処理で順に進めているときは、確定済みの画面を挟まず次の 1 件へ進む**
         # （2026-10-02）。同じ画面に戻すと、確定のたびに「確定済み」を読んでから
         # 帯の「次へ」を押すことになり、数十件を順に確定する作業では 1 件ごとに
-        # 1 手余計だった。次が無ければ確定処理の一覧へ戻す（残りが無いことがそこで分かる）。
+        # 1 手余計だった。次が無ければ手動確定の一覧へ戻す（残りが無いことがそこで分かる。
+        # 2026-11-13 に確定処理から分けた画面）。
         if mode == WORK_FINALIZE:
             if next_after:
                 return RedirectResponse(work_href(WORK_FINALIZE, next_after), status_code=303)
-            return RedirectResponse(f"/courses/{context.course.id}/finalize", status_code=303)
+            return RedirectResponse(f"/courses/{context.course.id}/manual", status_code=303)
         return RedirectResponse(
             _with_mode(f"/review/{submission_id}/reveal", mode), status_code=303
         )
@@ -2346,7 +2370,9 @@ WORK_BLIND = "blind"
 # 確定処理（2026-09-25）。手動の確定が必要な提出を 1 件ずつ閉じる。
 WORK_FINALIZE = "finalize"
 WORK_MODES = frozenset({WORK_QUEUE, WORK_BLIND, WORK_FINALIZE})
-WORK_LABELS = {WORK_QUEUE: "再確認の依頼", WORK_BLIND: "blind 採点", WORK_FINALIZE: "確定処理"}
+WORK_LABELS = {WORK_QUEUE: "再確認の依頼", WORK_BLIND: "blind 採点", WORK_FINALIZE: "手動確定"}
+# 帯の「一覧へ」の行き先。確定処理の 1 件ずつの仕事は「手動確定」の画面に並ぶ（2026-11-13）。
+WORK_LIST_PAGES = {WORK_QUEUE: "queue", WORK_BLIND: "blind", WORK_FINALIZE: "manual"}
 # 帯に並べる件数。全部並べると作業の画面が下へ押し出される（一部だけを出す）。
 WORK_STRIP_ROWS = 8
 
@@ -2386,7 +2412,7 @@ def _work_strip(console: Console, me: Principal, course_id: CourseId, mode: str,
             if mode == WORK_BLIND
             else None
         ),
-        "list_href": f"/courses/{course.id}/{mode}",
+        "list_href": f"/courses/{course.id}/{WORK_LIST_PAGES[mode]}",
         "pending": len(ids),
         "current_pending": position >= 0,
         "next_href": work_href(mode, following[0]) if following else None,
