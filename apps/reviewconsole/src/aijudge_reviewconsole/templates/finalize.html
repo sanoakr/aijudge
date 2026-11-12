@@ -149,7 +149,10 @@
   <span class="desc">{{ group.rows | length }} 件</span>
   {% if n_manual %}<span class="pill attn">手動 {{ n_manual }}</span>{% endif %}
   {% if group.rows | length - n_manual %}<span class="pill">自動確定待ち {{ group.rows | length - n_manual }}</span>{% endif %}
-  {% if firsts %}<a class="desc" href="{{ root_prefix() }}/review/{{ firsts[0].submission.id }}/reveal?from=finalize">この課題を順に確定する →</a>{% endif %}
+  {# **手動の確定が必要なものだけを順に開く**（2026-11-13・blind 採点と同じ作り）。
+     1 件の画面の帯と「次へ」は `_finalize_rows`（手動・依頼なし）の順に進み、
+     課題の中を終えると次の課題の先頭へ移る。自動確定待ちは並べない。 #}
+  {% if firsts %}<a class="desc" href="{{ root_prefix() }}/review/{{ firsts[0].submission.id }}/reveal?from=finalize">この課題を順に手動採点する（{{ firsts | length }} 件）→</a>{% endif %}
 </summary>
 {# 携帯では行を積む（`table.stack`）。課題は見出しに出したので列に持たない。 #}
 <table class="stack">
