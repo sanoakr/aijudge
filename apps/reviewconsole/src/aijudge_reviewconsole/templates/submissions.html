@@ -4,6 +4,20 @@
 <h1>提出</h1>
 <p class="subtitle">{{ course.title }}・{{ page.first }}〜{{ page.last }} 件目を表示（該当 {{ page.total }} 件／全 {{ total }} 件）</p>
 
+{# **いまの採点の待ち**（2026-11-13）。提出が採点されないとき、混んでいるのか、
+   採点開始の時刻を待っているのか、止まっているのかを、ここで見分ける。
+   ワーカーは全コースで共有なので**全コースの件数**である（どのコースかは出さない）。
+   「待ち」はいま取られるのを待っている件数、「採点開始待ち」は時刻まで寝かせて
+   あるジョブ（試験の採点開始など）で、混雑ではない。自動更新で変わる。 #}
+<div class="work-summary" data-live="sub-queue">
+  <span class="desc">採点の待ち（全コース）</span>
+  {% for label, row in queue_load %}
+  <span class="pill{{ ' attn' if row.ready }}">{{ label }}: 処理中 {{ row.running }}・待ち {{ row.ready }}{% if row.held %}・採点開始待ち {{ row.held }}{% endif %}</span>
+  {% else %}
+  <span class="pill ok">待っている採点はありません</span>
+  {% endfor %}
+</div>
+
 {# **絞り込みは URL に載せる。** 状態をサーバに持たない ── 絞った結果を
    そのまま TA や学生に渡せないと、画面の説明から始めることになる
    （submissions.py）。 #}
