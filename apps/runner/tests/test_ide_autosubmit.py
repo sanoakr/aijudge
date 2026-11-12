@@ -4,7 +4,7 @@
 
 出す      一度も提出していない課題と、最後の提出のあとに書き換えた課題。
 出さない  受付中の課題・空の保存・学習者ではない人の保存・受け付けない形式。
-冪等      何度走らせても同じ。本人が出した内容はもう一度出さない。
+冪等      何度走らせても同じ。本人が出した内容はもう一度出さない。課題の版が上がっても（#711）。
 時刻      提出時刻は自動保存の時刻（走った時刻にすると遅延として減点される）。
 印        自動の提出は `auto_close` として残り、本人の提出と区別できる。
 """
@@ -18,7 +18,7 @@ import pytest
 
 from aijudge_authoring.importers import sharif_judge
 from aijudge_core import AnswerMode, ArtifactKind, Course, Enrollment, Role, Task
-from aijudge_core.ids import CourseId, TenantId, UserId
+from aijudge_core.ids import CourseId, TaskVersionId, TenantId, UserId
 from aijudge_ide import SubmissionOrigin, make_buffer
 from aijudge_persistence import Database
 from aijudge_runner.autosubmit import close_editor_tasks
@@ -156,6 +156,62 @@ def test_what_the_learner_already_submitted_is_not_submitted_again(world: World)
     (submission,) = world.submissions()
     with world.database.unit_of_work() as uow:
         assert uow.ide_links.for_submission(submission.id) is None
+
+
+def _revise(world: World):
+    """課題を訂正した新しい版（`course apply --revise` がこれを作る）。"""
+    revised = world.version.model_copy(
+        update={
+            "id": TaskVersionId("tsv_" + "9" * 32),
+            "version": world.version.version + 1,
+            "statement": world.version.statement + "\n（訂正）",
+        }
+    )
+    with world.database.unit_of_work() as uow:
+        uow.tasks.save_version(revised)
+        uow.commit()
+    return revised
+
+
+def test_a_revision_after_the_close_does_not_resubmit_the_autosave(world: World) -> None:
+    """**受付終了のあとに版が上がっても、出した自動保存を出し直さない**（#711）。
+
+    2026-11-13、exam08 p1 の観点を差し替えて版 2 ができた直後の回が、111 人分の
+    自動保存を版 2 へもう一度出した。冪等キーが版を含むため。
+    """
+    world.autosave(at=CLOSES - timedelta(minutes=3))
+    first = world.close()
+    assert first.submitted == 1
+
+    _revise(world)
+    again = world.close(AFTER + timedelta(hours=8))
+
+    assert again.submitted == 0 and again.unchanged == 1
+    assert len(world.submissions()) == 1
+
+
+def test_a_hand_submission_to_the_old_version_counts_after_a_revision(world: World) -> None:
+    """本人が古い版に出した内容と同じ自動保存も、新しい版へ出さない（#711）。"""
+    world.submit_by_hand(SOURCE, at=CLOSES - timedelta(minutes=10))
+    world.autosave(at=CLOSES - timedelta(minutes=10))
+    _revise(world)
+
+    report = world.close()
+
+    assert report.submitted == 0 and report.unchanged == 1
+    assert len(world.submissions()) == 1
+
+
+def test_a_changed_autosave_is_still_submitted_after_a_revision(world: World) -> None:
+    """中身が違えば、版が上がっていても出す（取りこぼさない側は変えない）。"""
+    world.submit_by_hand(SOURCE, at=CLOSES - timedelta(minutes=20))
+    world.autosave("int main(void){return 1;}\n", at=CLOSES - timedelta(minutes=2))
+    _revise(world)
+
+    report = world.close()
+
+    assert report.submitted == 1
+    assert len(world.submissions()) == 2
 
 
 def test_changes_after_the_last_submission_are_submitted(world: World) -> None:

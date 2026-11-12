@@ -11,7 +11,8 @@
 
 **何度走らせても同じ結果になる。** 提出は内容で重複を畳む（`accept` の冪等
 キー）ので、同じ自動保存を 2 度出しても 2 件目はできない。すでに同じ内容を
-本人が出していれば、それも新しい提出にならない。
+本人が出していれば、それも新しい提出にならない。**課題の版が上がっても同じ**
+（#711）── 冪等キーは版を含むので、ここで版をまたいで中身を比べる。
 
 **提出時刻は自動保存の時刻にする。** 走った時刻にすると、受付終了の数分後の
 提出として扱われる。内容がその時刻に存在したことは自動保存が示している。
@@ -106,6 +107,23 @@ def close_editor_tasks(
     return report
 
 
+def _already_submitted(database: Database, *, task: Task, buffer: IdeBuffer) -> bool:
+    """この学習者が、この課題（**どの版でも**）に同じ中身の提出をしているか。
+
+    中身は提出物のハッシュで比べる。自動保存のハッシュ（`aijudge_ide.content_hash`）と
+    提出物のハッシュ（`intake` が付ける）は、どちらも同じ本文の SHA-256 である。
+    """
+    wanted = f"sha256:{buffer.content_hash}"
+    with database.unit_of_work() as uow:
+        versions = {version.id for version in uow.tasks.list_versions(task.id)}
+        submissions = uow.submissions.list_for_learner(buffer.tenant_id, buffer.learner_id)
+    return any(
+        submission.task_version_id in versions
+        and any(artifact.content_hash == wanted for artifact in submission.artifacts)
+        for submission in submissions
+    )
+
+
 def _closing(task: Task, *, since: datetime, now: datetime) -> bool:
     """いま自動提出すべき課題か。"""
     return (
@@ -150,6 +168,15 @@ def _close_one(
     # すると採点一覧に試行が並ぶ。受講をやめた人の分も出さない。
     if enrollment is None or enrollment.role is not Role.LEARNER:
         report.skip("学習者ではない")
+        return
+    # **同じ中身をこの課題に出していれば、版が違っても出さない**（#711・2026-11-13）。
+    # `accept` の重複の判定は課題の版を鍵に含むので、受付終了から見直しの 24 時間
+    # （`DEFAULT_LOOKBACK_HOURS`）のうちに課題を訂正して版が上がると、受付終了の
+    # 回に出した自動保存が新しい版あてにもう一度出ていた（exam08 p1 で 111 件）。
+    # 受付はもう閉じているので、新しい版へ出し直す理由は無い ── 中身が同じなら
+    # 提出済みとして数える。
+    if _already_submitted(database, task=task, buffer=buffer):
+        report.unchanged += 1
         return
     if dry_run:
         report.submitted += 1
