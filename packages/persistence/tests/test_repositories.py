@@ -1693,3 +1693,98 @@ def test_history_is_read_per_scope(skill_repo) -> None:
         exam = uow.skills.history(tenant, (learner,), scope=MasteryScope.EXAM)
         assert [(p.mastery, p.scope) for p in exam] == [(0.7, MasteryScope.EXAM)]
         assert uow.skills.history(tenant, (learner,), scope=MasteryScope.PRACTICE) == ()
+
+
+# --------------------------------------------------------------------------
+# 待ちの様子（教員コンソールの「提出」に出す・2026-11-13）
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture(params=["memory", "sql"])
+def job_queue(request, database: Database):
+    """インメモリと SQL に同じテストを当てる（`task_repo` と同じ形）。"""
+    from aijudge_submission import InMemoryJobQueue
+
+    if request.param == "memory":
+        queue = InMemoryJobQueue()
+        yield lambda: queue
+        return
+    with database.unit_of_work() as uow:
+        yield lambda: uow.jobs
+        uow.commit()
+
+
+def _job(n: int, **fields):
+    from aijudge_core import GradingPhase
+    from aijudge_core.ids import GradingJobId
+    from aijudge_submission import GradingJob
+
+    defaults = {
+        "id": GradingJobId(f"gjb_{n:032d}"),
+        "tenant_id": TENANT,
+        "submission_id": SubmissionId(f"sub_{n:032d}"),
+        "task_version_id": TASK_VERSION,
+        "subject_profile": "cs_lang_c_intro",
+        "phase": GradingPhase.DETERMINISTIC,
+        "idempotency_key": f"key-{n}",
+        "available_at": NOW,
+        "created_at": NOW,
+        "updated_at": NOW,
+    }
+    return GradingJob(**(defaults | fields))
+
+
+def test_the_queue_load_tells_running_ready_and_held_apart(job_queue) -> None:
+    """**処理中・待ち・寝かせを分けて数える。** 終わったジョブは数えない。"""
+    from aijudge_core import GradingPhase
+    from aijudge_submission import JobLane, QueueLoad
+
+    later = NOW + timedelta(hours=2)
+    base = GradingRunId("grn_" + "b" * 32)
+    jobs = [
+        _job(1),  # 決定的・待ち
+        _job(2),  # 決定的・待ち
+        _job(3, available_at=later),  # 決定的・寝かせ（採点開始待ち）
+        _job(
+            4,
+            state=JobState.RUNNING,
+            attempts=1,
+            worker="w1",
+            lease_expires_at=NOW + timedelta(minutes=1),
+        ),  # 決定的・処理中
+        _job(5, lane=JobLane.TRANSCRIPTION),  # 書き起こし・待ち
+        _job(6, phase=GradingPhase.AI, base_run_id=base),  # AI・待ち
+        _job(
+            7,
+            state=JobState.DONE,
+            grading_run_id=GradingRunId("grn_" + "c" * 32),
+        ),  # 終わった（数えない）
+    ]
+    queue = job_queue()
+    for job in jobs:
+        queue.enqueue(job)
+
+    load = {(row.phase, row.lane): row for row in queue.load(NOW)}
+
+    assert load == {
+        (GradingPhase.AI, JobLane.DEFAULT): QueueLoad(
+            phase=GradingPhase.AI, lane=JobLane.DEFAULT, ready=1
+        ),
+        (GradingPhase.DETERMINISTIC, JobLane.DEFAULT): QueueLoad(
+            phase=GradingPhase.DETERMINISTIC, lane=JobLane.DEFAULT, running=1, ready=2, held=1
+        ),
+        (GradingPhase.DETERMINISTIC, JobLane.TRANSCRIPTION): QueueLoad(
+            phase=GradingPhase.DETERMINISTIC, lane=JobLane.TRANSCRIPTION, ready=1
+        ),
+    }
+    # 寝かせは時刻が来れば待ちに変わる。
+    (det,) = [
+        r
+        for r in queue.load(later)
+        if r.lane is JobLane.DEFAULT and r.phase is GradingPhase.DETERMINISTIC
+    ]
+    assert (det.ready, det.held) == (3, 0)
+
+
+def test_an_empty_queue_has_no_load(job_queue) -> None:
+    assert job_queue().load(NOW) == ()

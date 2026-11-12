@@ -31,6 +31,7 @@ from .jobs import (
     JobLane,
     JobReason,
     JobState,
+    QueueLoad,
     follow_up_idempotency_key,
     job_idempotency_key,
 )
@@ -102,6 +103,7 @@ __all__ = [
     "JobState",
     "OffsetMismatch",
     "Outbox",
+    "QueueLoad",
     "ReviewRepository",
     "ReviewStore",
     "RunDecision",
