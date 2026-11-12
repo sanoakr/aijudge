@@ -29,6 +29,9 @@ deterministic:
   # 指定の関数が定義されているか（2026-10-11・prog2 第 9 回以降）。提出のソースに検査用の
   # main() をつないで関数を直接呼ぶ。検証データは課題の `check/`（`c_function_check` あて）。
   # これも観点が名指ししたときだけ動く。関数 → 正しさ → インデントの AND で組むのは課題の側。
+  # 配列の変数を宣言しているか（2026-11-13・prog2 exam08 p6 から）。`[ ]` を使った宣言を
+  # 数える ── LLM は呼ばない。AI 判定では票が割れていた。観点が名指ししたときだけ動く。
+  - c_array_check
   - c_function_check
   - c_indent_check
   - code_test_runner

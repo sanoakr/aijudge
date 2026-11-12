@@ -15,6 +15,7 @@ members = [
     "aijudge-authoring",
     "aijudge-core",
     "aijudge-course-admin",
+    "aijudge-eval-c-array-check",
     "aijudge-eval-c-indent-check",
     "aijudge-eval-checklist-ai-judge",
     "aijudge-eval-code-test-runner",
@@ -50,7 +51,7 @@ members = [
 
 [[package]]
 name = "aijudge"
-version = "1.70.1"
+version = "1.70.2"
 source = { virtual = "." }
 dependencies = [
     { name = "aijudge-admin" },
@@ -59,6 +60,7 @@ dependencies = [
     { name = "aijudge-authoring" },
     { name = "aijudge-core" },
     { name = "aijudge-course-admin" },
+    { name = "aijudge-eval-c-array-check" },
     { name = "aijudge-eval-c-indent-check" },
     { name = "aijudge-eval-checklist-ai-judge" },
     { name = "aijudge-eval-code-test-runner" },
@@ -122,6 +124,7 @@ requires-dist = [
     { name = "aijudge-authoring", editable = "packages/authoring" },
     { name = "aijudge-core", editable = "packages/core" },
     { name = "aijudge-course-admin", editable = "packages/course_admin" },
+    { name = "aijudge-eval-c-array-check", editable = "evaluators/c_array_check" },
     { name = "aijudge-eval-c-indent-check", editable = "evaluators/c_indent_check" },
     { name = "aijudge-eval-checklist-ai-judge", editable = "evaluators/checklist_ai_judge" },
     { name = "aijudge-eval-code-test-runner", editable = "evaluators/code_test_runner" },
@@ -290,6 +293,21 @@ requires-dist = [
     { name = "aijudge-submission", editable = "packages/submission" },
     { name = "aijudge-unit-of-work", editable = "packages/unit_of_work" },
     { name = "numpy", specifier = ">=2.5.4" },
+]
+
+[[package]]
+name = "aijudge-eval-c-array-check"
+version = "0.0.1"
+source = { editable = "evaluators/c_array_check" }
+dependencies = [
+    { name = "aijudge-core" },
+    { name = "aijudge-grading" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aijudge-core", editable = "packages/core" },
+    { name = "aijudge-grading", editable = "packages/grading" },
 ]
 
 [[package]]
