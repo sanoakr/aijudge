@@ -544,6 +544,14 @@ def _page_href(base: str, filters: Filters) -> Callable[[int], str]:
     return href
 
 
+#: 採点の待ちの見出し（段階・列 → 画面の呼び名）。知らない組は段階の名前のまま出す。
+_QUEUE_LABELS: dict[tuple[str, str], str] = {
+    ("deterministic", "default"): "テスト実行",
+    ("deterministic", "transcription"): "書き起こし",
+    ("ai", "default"): "AI 評価",
+}
+
+
 def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
     # **API の説明ページを出さない**（2026-09-27）。FastAPI の既定では `/docs`・`/redoc`・
     # `/openapi.json` がログインなしで開き、全ルートと各経路の入力の形が誰にでも読めた
@@ -1076,10 +1084,18 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 for row in shown
                 if (link := uow.ide_links.for_submission(row.submission.id)) is not None
             }
+            # **いまの採点の待ち（全コース・2026-11-13）。** ワーカーはコースを
+            # またいで共有しているので、混んでいるかはキュー全体で見るしかない。
+            # 件数だけを出し、どのコースのジョブかは出さない。
+            queue_load = [
+                (_QUEUE_LABELS.get((row.phase.value, row.lane.value), row.phase.value), row)
+                for row in uow.jobs.load(datetime.now(UTC))
+            ]
         return TEMPLATES.TemplateResponse(
             request,
             "submissions.html",
             {
+                "queue_load": queue_load,
                 "me": me,
                 "course": course,
                 "section": {"label": "提出", "href": f"/courses/{course.id}/submissions"},

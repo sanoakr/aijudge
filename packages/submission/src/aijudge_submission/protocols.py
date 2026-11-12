@@ -38,7 +38,7 @@ from aijudge_core.ids import (
     UserId,
 )
 
-from .jobs import GradingJob, JobLane
+from .jobs import GradingJob, JobLane, QueueLoad
 
 
 class SubmissionStoreError(Exception):
@@ -615,6 +615,15 @@ class JobQueue(Protocol):
         lane: JobLane | None = None,
     ) -> int:
         """待ち行列の長さ。締切前の滞留を見るのに使う。"""
+        ...
+
+    def load(self, now: datetime) -> tuple[QueueLoad, ...]:
+        """段階と列ごとの、処理中・待ち・寝かせの件数（全コース）。
+
+        **ワーカーはコースをまたいで共有している**ので、混雑はキュー全体で
+        見るしかない。件数だけを返し、どのコースのジョブかは返さない。
+        1 件も無い組は返さない。並びは段階・列の名前順。
+        """
         ...
 
     def position_in_queue(

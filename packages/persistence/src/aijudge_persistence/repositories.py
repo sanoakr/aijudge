@@ -59,7 +59,14 @@ from aijudge_core.ids import (
     TenantId,
     UserId,
 )
-from aijudge_submission import GradingJob, GradingPhase, JobLane, JobState, SubmissionCounts
+from aijudge_submission import (
+    GradingJob,
+    GradingPhase,
+    JobLane,
+    JobState,
+    QueueLoad,
+    SubmissionCounts,
+)
 from aijudge_submission.jobs import JobReason
 from aijudge_submission.protocols import (
     AttentionCounts,
@@ -1329,6 +1336,34 @@ class SqlJobQueue:
         if lane is not None:
             statement = statement.where(GradingJobRow.lane == lane.value)
         return len(self._session.execute(statement).scalars().all())
+
+    def load(self, now: datetime) -> tuple[QueueLoad, ...]:
+        # **集計は DB でする。** 締切前は数千件が積まれるので、行を読んで数えない。
+        # 区分の式は副問い合わせで 1 度だけ作り、外側で名前で束ねる。同じ `case` を
+        # SELECT と GROUP BY に 2 度書くと、PostgreSQL は束縛変数（`now`）が別々の
+        # 式として扱い「GROUP BY に無い列」で断る（SQLite は通すので見逃す）。
+        slot = case(
+            (GradingJobRow.state == JobState.RUNNING.value, "running"),
+            (GradingJobRow.available_at <= now, "ready"),
+            else_="held",
+        ).label("slot")
+        live = (
+            select(GradingJobRow.phase, GradingJobRow.lane, slot)
+            .where(GradingJobRow.state.in_((JobState.QUEUED.value, JobState.RUNNING.value)))
+            .subquery()
+        )
+        rows = self._session.execute(
+            select(live.c.phase, live.c.lane, live.c.slot, func.count()).group_by(
+                live.c.phase, live.c.lane, live.c.slot
+            )
+        ).all()
+        counts: dict[tuple[str, str], dict[str, int]] = {}
+        for phase, lane, which, count in rows:
+            counts.setdefault((phase, lane), {})[which] = int(count)
+        return tuple(
+            QueueLoad(phase=GradingPhase(phase), lane=JobLane(lane), **values)
+            for (phase, lane), values in sorted(counts.items())
+        )
 
     def position_in_queue(
         self, submission_id: SubmissionId, phase: GradingPhase, now: datetime
