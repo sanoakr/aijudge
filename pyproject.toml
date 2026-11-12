@@ -35,6 +35,7 @@ dependencies = [
     "aijudge-eval-text-pattern-check",
     "aijudge-eval-c-indent-check",
     "aijudge-eval-template-diff-check",
+    "aijudge-eval-c-array-check",
     "aijudge-ext-image-text",
     "aijudge-eval-submission-compliance",
     "aijudge-skill",
@@ -90,6 +91,7 @@ aijudge-eval-checklist-ai-judge = { workspace = true }
 aijudge-eval-text-pattern-check = { workspace = true }
 aijudge-eval-c-indent-check = { workspace = true }
 aijudge-eval-template-diff-check = { workspace = true }
+aijudge-eval-c-array-check = { workspace = true }
 aijudge-ext-image-text = { workspace = true }
 aijudge-eval-submission-compliance = { workspace = true }
 aijudge-skill = { workspace = true }
