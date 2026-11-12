@@ -21,6 +21,7 @@ members = [
     "aijudge-eval-network-test-runner",
     "aijudge-eval-rubric-ai-judge",
     "aijudge-eval-submission-compliance",
+    "aijudge-eval-template-diff-check",
     "aijudge-eval-text-pattern-check",
     "aijudge-evalrunner",
     "aijudge-ext-document-text",
@@ -63,6 +64,7 @@ dependencies = [
     { name = "aijudge-eval-network-test-runner" },
     { name = "aijudge-eval-rubric-ai-judge" },
     { name = "aijudge-eval-submission-compliance" },
+    { name = "aijudge-eval-template-diff-check" },
     { name = "aijudge-eval-text-pattern-check" },
     { name = "aijudge-evalrunner" },
     { name = "aijudge-ext-document-text" },
@@ -124,6 +126,7 @@ requires-dist = [
     { name = "aijudge-eval-network-test-runner", editable = "evaluators/network_test_runner" },
     { name = "aijudge-eval-rubric-ai-judge", editable = "evaluators/rubric_ai_judge" },
     { name = "aijudge-eval-submission-compliance", editable = "evaluators/submission_compliance" },
+    { name = "aijudge-eval-template-diff-check", editable = "evaluators/template_diff_check" },
     { name = "aijudge-eval-text-pattern-check", editable = "evaluators/text_pattern_check" },
     { name = "aijudge-evalrunner", editable = "apps/evalrunner" },
     { name = "aijudge-ext-document-text", editable = "extractors/document_text" },
@@ -377,6 +380,21 @@ requires-dist = [
 name = "aijudge-eval-submission-compliance"
 version = "0.0.1"
 source = { editable = "evaluators/submission_compliance" }
+dependencies = [
+    { name = "aijudge-core" },
+    { name = "aijudge-grading" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aijudge-core", editable = "packages/core" },
+    { name = "aijudge-grading", editable = "packages/grading" },
+]
+
+[[package]]
+name = "aijudge-eval-template-diff-check"
+version = "0.0.1"
+source = { editable = "evaluators/template_diff_check" }
 dependencies = [
     { name = "aijudge-core" },
     { name = "aijudge-grading" },
