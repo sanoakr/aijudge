@@ -51,7 +51,7 @@ members = [
 
 [[package]]
 name = "aijudge"
-version = "1.70.2"
+version = "1.71.0"
 source = { virtual = "." }
 dependencies = [
     { name = "aijudge-admin" },
