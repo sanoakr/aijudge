@@ -119,13 +119,20 @@ def course_rail(
                 attention=bool(contested),
             ),
             # **手動の確定が要るものだけを数字にする**（2026-09-25）。自動確定を待って
-            # いるものは放っておけば閉じるので、数字に混ぜると用があるように見える。
-            # 待っている件数は補足に書く（`unfinalized` は呼ぶ側で手動の分だけにしてある）。
+            # いるものは放っておけば閉じるので、数字に混ぜると用があるように見える
+            # （`unfinalized` は呼ぶ側で手動の分だけにしてある）。
+            #
+            # 1 件ずつ読んで閉じる仕事は「手動確定」の画面に分けた（2026-11-13）。数字は
+            # そちらに付け、確定処理（まとめて閉じる画面）には待っている件数だけを補足に書く。
+            RailItem(
+                "手動確定",
+                f"{base}/manual",
+                count=unfinalized,
+                attention=bool(unfinalized),
+            ),
             RailItem(
                 "確定処理",
                 f"{base}/finalize",
-                count=unfinalized,
-                attention=bool(unfinalized),
                 note=f"自動確定待ち {finalize_waiting}" if finalize_waiting else "",
             ),
             # **残りの件数を注意の色で出す**（2026-10-01）。blind 採点は採点の必須の

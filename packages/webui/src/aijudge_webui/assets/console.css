@@ -183,6 +183,14 @@ details.sim-unit > summary h2{margin:0}
 .sim-mode-note{margin:-8px 0 18px;font-size:.92rem;color:var(--ink-2)}
 .sim-mode-note strong{color:var(--ink)}
 /* 内容としての根拠の段落。2 人の段落を上下に並べて読み比べる。 */
+/* 確定処理の自動確定待ちの一覧（2026-11-13）。**課題ごとに畳む** ── 1 問に 100 件を
+   超える未確定が並ぶと、目当ての問題まで遠い。見出しに件数を出す。 */
+details.fin-task > summary{cursor:pointer;display:flex;flex-wrap:wrap;align-items:baseline;
+  gap:4px 12px;margin:14px 0 8px}
+details.fin-task > summary::-webkit-details-marker{display:none}
+details.fin-task > summary::before{content:"▸";color:var(--muted);margin-right:2px}
+details.fin-task[open] > summary::before{content:"▾"}
+details.fin-task > summary h3{margin:0}
 details.passages{margin:8px 0}
 details.passages > summary{cursor:pointer;font-size:.85rem;color:var(--ink-2)}
 .passage-pair{border-left:3px solid var(--line);padding:4px 0 4px 10px;margin:8px 0}

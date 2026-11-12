@@ -1739,18 +1739,27 @@ def test_a_graced_task_waits_for_automatic_finalisation(world: World) -> None:
 
 
 def test_manual_finalisation_is_worked_through_with_the_strip(world: World) -> None:
-    """**確定処理も帯付きで順に処理する**（2026-09-25）。手動の確定が要る提出から始め、
-    確定すると帯を付けたまま戻り、待ちが無くなったことが出る。"""
+    """**手動確定も帯付きで順に処理する**（2026-09-25）。手動の確定が要る提出から始め、
+    確定すると帯を付けたまま次へ進み、待ちが無くなったことが出る。
+
+    1 件ずつ読む仕事は「手動確定」の画面に分けた（2026-11-13）。確定処理には件数と
+    行き先だけが出て、一覧と「順に」の入口は手動確定の画面にある。"""
     _, accepted = _instructor_and_submission(world)
     world.worker.run_until_empty()
     sid = accepted.submission.id
 
-    listing = world.client.get(f"/courses/{COURSE}/finalize").text
+    summary = world.client.get(f"/courses/{COURSE}/finalize").text
+    assert f"/courses/{COURSE}/manual" in summary
+    assert f"/review/{sid}/reveal?from=finalize" not in summary, "手動の分が確定処理に並んでいる"
+
+    listing = world.client.get(f"/courses/{COURSE}/manual").text
     assert f"/review/{sid}/reveal?from=finalize" in listing
-    assert "先頭から順に確定する" in listing
+    assert "先頭から順に手動採点する" in listing
+    assert "この課題を順に手動採点する" in listing
 
     page = world.client.get(f"/review/{sid}/reveal?from=finalize").text
-    assert 'class="work-strip"' in page and "確定処理" in page and "待ち 1 件" in page
+    assert 'class="work-strip"' in page and "手動確定" in page and "待ち 1 件" in page
+    assert f"/courses/{COURSE}/manual" in page, "帯の「一覧へ」が手動確定の画面を指していない"
 
     with world.database.unit_of_work() as uow:
         run = uow.runs.latest_for(sid)
@@ -1760,10 +1769,13 @@ def test_manual_finalisation_is_worked_through_with_the_strip(world: World) -> N
         data=_agree_form(world, machine),
         follow_redirects=False,
     )
-    # 確定済みの画面を挟まない（2026-10-02）。次が無ければ確定処理の一覧へ。
-    assert response.headers["location"].endswith(f"/courses/{COURSE}/finalize")
-    after = world.client.get(f"/courses/{COURSE}/finalize").text
-    assert "手動の確定が必要なものはありません" in after
+    # 確定済みの画面を挟まない（2026-10-02）。次が無ければ手動確定の一覧へ。
+    assert response.headers["location"].endswith(f"/courses/{COURSE}/manual")
+    after = world.client.get(f"/courses/{COURSE}/manual").text
+    assert "手動の確定が必要な提出はありません" in after
+    assert (
+        "手動の確定が必要なものはありません" in world.client.get(f"/courses/{COURSE}/finalize").text
+    )
 
 
 # --------------------------------------------------------------------------

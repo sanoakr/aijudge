@@ -18,10 +18,11 @@
 {# **手動が要るものと、待てば閉じるものを分けて言う**（2026-09-25）。件数だけだと、
    自動確定を待っているのか、教員が閉じないと成績にならないのかが分からない。 #}
 <div class="work-summary" data-live="fin-summary">
+  {# **1 件ずつ読んで閉じる仕事は「手動確定」の画面へ分けた**（2026-11-13）。
+     blind 採点・再確認の依頼と同じく、仕事ごとに画面を 1 つ持つ。ここは
+     「残りをまとめて閉じる」画面で、手動の分は件数と行き先だけを出す。 #}
   {% if manual_total %}<span class="pill attn">手動の確定が必要 {{ manual_total }} 件</span>
-    {# 順に処理する（2026-09-25）。**依頼の出ていないもの**から 1 件ずつ、帯付きで開く。 #}
-    {% set first = rows | selectattr('manual') | rejectattr('contested') | first %}
-    {% if first %}<a class="button-link" href="{{ root_prefix() }}/review/{{ first.submission.id }}/reveal?from=finalize">先頭から順に確定する →</a>{% endif %}
+    <a class="button-link" href="{{ root_prefix() }}/courses/{{ course.id }}/manual">手動確定へ →</a>
   {% else %}<span class="pill ok">手動の確定が必要なものはありません</span>{% endif %}
   {% if waiting_total %}<span class="pill">自動確定待ち {{ waiting_total }} 件</span>
     <span class="desc">猶予が明けると自動で確定されます（操作は要りません）。</span>{% endif %}
@@ -111,20 +112,22 @@
 {% endfor %}
 {% endif %}
 
-<h2>提出ごとに確定する（未確定 <span data-live="fin-total">{{ rows | length }}</span> 件）</h2>
-{# **課題ごとにまとめて並べる**（2026-10-01）。blind の一覧と同じ理由 ── 同じ問題を
-   続けて読むと基準を持ち替えずに済む。並びは `_in_task_order` が決め、1 件の画面の
-   「次へ」も同じ順に進む。 #}
+<h2>自動確定待ち（<span data-live="fin-total">{{ waiting_total }}</span> 件）</h2>
+{# **自動確定を待っている提出だけを、課題ごとに畳んで並べる**（2026-11-13）。手動の
+   確定が必要なものは「手動確定」の画面に並ぶ。初めは全部畳む ── 見出しの件数で
+   足り、待てば閉じるものを開いて読む用は少ない。開き閉じは自動更新をまたいで残る
+   （`live.js` の `carryOpen` は id で突き合わせる）。1 件を開いて先に確定してもよい。 #}
 <div data-live="fin-groups" data-live-rows>
-{% for group in groups %}
+{% for group in waiting_groups %}
 <div data-live-key="g-{{ group.task.id if group.task else 'none' }}">
-{% set firsts = group.rows | selectattr('manual') | rejectattr('contested') | list %}
-<h3 class="task-group">
-  {% if group.task %}<span class="mono desc">{{ group.task.unit or group.task.unit_label }}</span>
-    {{ group.task.title }}{% else %}課題の分からない提出{% endif %}
+<details class="fin-task" id="fin-task-{{ group.task.id if group.task else 'none' }}">
+<summary>
+  <h3 class="task-group">
+    {% if group.task %}<span class="mono desc">{{ group.task.unit or group.task.unit_label }}</span>
+      {{ group.task.title }}{% else %}課題の分からない提出{% endif %}
+  </h3>
   <span class="desc">{{ group.rows | length }} 件</span>
-  {% if firsts %}<a class="desc" href="{{ root_prefix() }}/review/{{ firsts[0].submission.id }}/reveal?from=finalize">この課題を順に確定する →</a>{% endif %}
-</h3>
+</summary>
 {# 携帯では行を積む（`table.stack`）。課題は見出しに出したので列に持たない。 #}
 <table class="stack">
   <thead><tr>
@@ -133,24 +136,23 @@
   </tr></thead>
   <tbody>
   {% for row in group.rows %}
-    {% set work = '?from=finalize' if row.manual and not row.contested else '' %}
-    <tr class="row-link" data-href="{{ root_prefix() }}/review/{{ row.submission.id }}/reveal{{ work }}">
+    <tr class="row-link" data-href="{{ root_prefix() }}/review/{{ row.submission.id }}/reveal">
       <td class="fit" data-label="提出">{{ row.submission.submitted_at | local('%m-%d %H:%M') if row.submission.submitted_at else '—' }}</td>
       <td class="grow mono" data-label="学習者">{{ row.learner.login if row.learner else '—' }}</td>
       <td class="fit" data-label="回">{{ row.attempt_no or row.submission.attempt }} 回目</td>
       <td class="fit" data-label="AI の総合">{{ '%.0f' | format(row.run.score_ratio * 100) }}%</td>
       <td class="fit">
-        <a href="{{ root_prefix() }}/review/{{ row.submission.id }}/reveal{{ work }}">確認して確定する</a>
+        <a href="{{ root_prefix() }}/review/{{ row.submission.id }}/reveal">確認して確定する</a>
         {% if row.contested %}<br><span class="desc">再確認の依頼あり</span>{% endif %}
-        <br>{% if row.manual %}<span class="pill attn">手動の確定が必要</span>{% else %}<span class="pill">自動確定待ち</span>{% endif %}
       </td>
     </tr>
   {% endfor %}
   </tbody>
 </table>
+</details>
 </div>
 {% else %}
-<p class="desc" data-live-key="empty">未確定の提出はありません。</p>
+<p class="desc" data-live-key="empty">自動確定を待っている提出はありません。</p>
 {% endfor %}
 </div>
 {% endblock %}
