@@ -36,6 +36,7 @@ dependencies = [
     "aijudge-eval-c-indent-check",
     "aijudge-eval-template-diff-check",
     "aijudge-eval-c-array-check",
+    "aijudge-eval-line-diff-check",
     "aijudge-ext-image-text",
     "aijudge-eval-submission-compliance",
     "aijudge-skill",
@@ -92,6 +93,7 @@ aijudge-eval-text-pattern-check = { workspace = true }
 aijudge-eval-c-indent-check = { workspace = true }
 aijudge-eval-template-diff-check = { workspace = true }
 aijudge-eval-c-array-check = { workspace = true }
+aijudge-eval-line-diff-check = { workspace = true }
 aijudge-ext-image-text = { workspace = true }
 aijudge-eval-submission-compliance = { workspace = true }
 aijudge-skill = { workspace = true }

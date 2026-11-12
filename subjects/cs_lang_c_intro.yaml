@@ -35,6 +35,10 @@ deterministic:
   - c_function_check
   - c_indent_check
   - code_test_runner
+  # 問題文のプログラムから変えた行の数が上限以内か（2026-11-13・prog2 exam08 p5 から）。
+  # 「誤りを直す」問題で、直した範囲を空白・改行を除いて数える ── LLM は呼ばない。
+  # 上限は課題の宣言（`extra_test_cases` の `max_changed_lines`）。観点が名指ししたときだけ動く。
+  - line_diff_check
   # 問題文のテンプレートの `// ここから`〜`// ここまで` の外を変えていないか（2026-11-13・
   # prog2 exam08 p1 から）。問題文のコードブロックと提出を、空白を除いて突き合わせる
   # ── LLM は呼ばない。AI 判定（rubric_ai_judge）では票が割れてレビューに回っていた。

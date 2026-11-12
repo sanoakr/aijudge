@@ -151,6 +151,10 @@ _STATEMENT_FILE = "statement_file"
 # エディタの初期内容（`Task.editor_template`）を別ファイルに置くとき。問題文と同じく
 # 定義ファイルからの相対パスで、定義ファイルの外は指せない。
 _EDITOR_TEMPLATE_FILE = "editor_template_file"
+# **評価器あての宣言を、問題ディレクトリのテストに足す**（2026-11-13）。`test_cases` を
+# 書くと `in/` `out/` を読まなくなる（書いたものがすべて）ので、入出力のテストを残した
+# まま決定的評価器の設定（`line_diff_check` の上限など）だけを足す口が要る。
+_EXTRA_TEST_CASES = "extra_test_cases"
 
 
 @dataclass(frozen=True)
@@ -289,8 +293,15 @@ def _task_spec(raw: dict[str, Any], *, base: Path, units: dict[Any, Any]) -> Tas
     problem_dir = raw.pop(_PROBLEM_DIR, None)
     statement_file = raw.pop(_STATEMENT_FILE, None)
     template_file = raw.pop(_EDITOR_TEMPLATE_FILE, None)
+    extra_cases = raw.pop(_EXTRA_TEST_CASES, None) or []
     if problem_dir is not None:
         raw = _from_problem_dir(raw, _under(base, problem_dir))
+    if extra_cases:
+        if not isinstance(extra_cases, list):
+            raise AdminError(
+                f"課題 {raw.get('key', '?')}: {_EXTRA_TEST_CASES} は並びで書いてください"
+            )
+        raw["test_cases"] = [*(raw.get("test_cases") or []), *extra_cases]
     if statement_file is not None:
         raw.setdefault("statement", _under(base, statement_file).read_text(encoding="utf-8"))
     if template_file is not None:
