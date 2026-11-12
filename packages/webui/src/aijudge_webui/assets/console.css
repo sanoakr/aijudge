@@ -183,6 +183,31 @@ details.sim-unit > summary h2{margin:0}
 .sim-mode-note{margin:-8px 0 18px;font-size:.92rem;color:var(--ink-2)}
 .sim-mode-note strong{color:var(--ink)}
 /* 内容としての根拠の段落。2 人の段落を上下に並べて読み比べる。 */
+/* 確定処理の提出の一覧（2026-11-13）。**課題ごとに畳む** ── 1 問に 100 件を超える
+   未確定が並ぶと、目当ての問題まで遠い。見出しに件数の内訳を出す。 */
+details.fin-task > summary{cursor:pointer;display:flex;flex-wrap:wrap;align-items:baseline;
+  gap:4px 12px;margin:14px 0 8px}
+details.fin-task > summary::-webkit-details-marker{display:none}
+details.fin-task > summary::before{content:"▸";color:var(--muted);margin-right:2px}
+details.fin-task[open] > summary::before{content:"▾"}
+details.fin-task > summary h3{margin:0}
+/* 表示の切り替え（すべて・手動・自動確定待ち）。ラジオを押し釦の並びに見せる。
+   **切り替えは CSS だけ**（`:has`）── 自動更新が行を差し替えても選んだ表示が効く。 */
+.fin-filter{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 4px}
+.fin-filter input{position:absolute;opacity:0;width:1px;height:1px}
+.fin-filter label{cursor:pointer;font-size:.85rem;padding:4px 12px;border:1px solid var(--line);
+  border-radius:99px;color:var(--ink-2);background:var(--surface)}
+.fin-filter label span{font-variant-numeric:tabular-nums;color:var(--muted);margin-left:2px}
+.fin-filter input:checked + label{border-color:var(--ai);background:var(--ai-soft);color:var(--ai)}
+.fin-filter input:checked + label span{color:var(--ai)}
+.fin-filter input:focus-visible + label{outline:2px solid var(--ai-2);outline-offset:2px}
+.fin-view:has(#fin-show-manual:checked) tr[data-kind="auto"],
+.fin-view:has(#fin-show-auto:checked) tr[data-kind="manual"],
+.fin-view:has(#fin-show-manual:checked) [data-manual="0"],
+.fin-view:has(#fin-show-auto:checked) [data-auto="0"]{display:none}
+.fin-none-manual,.fin-none-auto{display:none}
+.fin-view:has(#fin-show-manual:checked):not(:has([data-manual]:not([data-manual="0"]))) .fin-none-manual,
+.fin-view:has(#fin-show-auto:checked):not(:has([data-auto]:not([data-auto="0"]))) .fin-none-auto{display:block}
 details.passages{margin:8px 0}
 details.passages > summary{cursor:pointer;font-size:.85rem;color:var(--ink-2)}
 .passage-pair{border-left:3px solid var(--line);padding:4px 0 4px 10px;margin:8px 0}
