@@ -19,7 +19,7 @@
   </tr></thead>
   <tbody>
   {% for row in rows %}
-    <tr>
+    <tr class="row-link" data-href="{{ root_prefix() }}/courses/{{ course.id }}/activity/units/{{ row.key }}">
       <td class="fit" data-label="問題セット">
         <a href="{{ root_prefix() }}/courses/{{ course.id }}/activity/units/{{ row.key }}">{{ row.label }}</a>
         {% if row.unit and row.unit != row.label %}<br><small class="mono desc">{{ row.unit }}</small>{% endif %}

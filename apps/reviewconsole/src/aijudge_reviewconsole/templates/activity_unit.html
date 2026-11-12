@@ -25,7 +25,7 @@
   </tr></thead>
   <tbody>
   {% for p in problems %}
-    <tr>
+    <tr{% if p.openable %} class="row-link" data-href="{{ root_prefix() }}/courses/{{ course.id }}/activity/tasks/{{ p.task_id }}"{% endif %}>
       <td class="grow" data-label="問題">
         {% if p.openable %}<a href="{{ root_prefix() }}/courses/{{ course.id }}/activity/tasks/{{ p.task_id }}">{{ p.title }}</a>
         {% elif p.task_id == unknown_task %}{{ p.title }} <small class="desc">（下の合計には入っています）</small>
@@ -55,7 +55,7 @@
   <tbody>
   {% for row in rows %}
     {% set s = row.work.summary %}
-    <tr>
+    <tr class="row-link" data-href="{{ root_prefix() }}/courses/{{ course.id }}/activity/{{ row.learner.user_id }}">
       <td class="fit" data-label="学習者">{{ cross.who(row.learner, root_prefix() ~ "/courses/" ~ course.id ~ "/activity/" ~ row.learner.user_id) }}</td>
       <td class="fit" data-label="打鍵">{{ s.typed_chars }} 字</td>
       <td class="fit" data-label="外からの貼り付け">{{ cross.pasted(s) }}</td>

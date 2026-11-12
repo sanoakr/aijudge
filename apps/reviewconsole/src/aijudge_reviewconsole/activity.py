@@ -180,6 +180,54 @@ class ProblemView:
     submissions: list[dict[str, Any]] = field(default_factory=list)
 
 
+def _unit_groups(problems, tasks: dict) -> list[dict[str, Any]]:
+    """学習者の画面の並び（2026-11-13）。**問題セットごとにまとめ、新しいセットから。**
+
+    セットの中は問題番号（`Task.position`）の順。新しさは、そのセットの問題の公開
+    （無ければ締切）の遅いほうで決める。問題が分からない記録・いまはコースに無い
+    問題は最後の「その他」にまとめる。
+    """
+    groups: dict[str, dict[str, Any]] = {}
+    for view in problems:
+        task = tasks.get(view.task_id)
+        key = (task.unit or task.unit_label) if task is not None else ""
+        group = groups.setdefault(
+            key,
+            {
+                "key": key or "other",
+                "label": (task.unit_label if task is not None else "その他"),
+                "unit": task.unit if task is not None else None,
+                "problems": [],
+                "newest": None,
+            },
+        )
+        group["problems"].append(view)
+        when = None if task is None else (task.opens_at or task.due_at)
+        if when is not None and (group["newest"] is None or when > group["newest"]):
+            group["newest"] = when
+
+    def problem_order(view) -> tuple:
+        task = tasks.get(view.task_id)
+        return (task.sort_key if task is not None else (_LAST, "", _LAST, ""), view.title)
+
+    for group in groups.values():
+        group["problems"].sort(key=problem_order)
+    # 新しいセットから。時刻の分からないセット（その他・日程の無いセット）は最後。
+    return sorted(
+        groups.values(),
+        key=lambda g: (
+            g["key"] == "other",
+            g["newest"] is None,
+            -(g["newest"].timestamp()) if g["newest"] is not None else 0.0,
+            g["label"],
+        ),
+    )
+
+
+#: 位置の分からない問題を最後に回すための大きな数（`Task.sort_key` と同じ考え）。
+_LAST = 10**9
+
+
 def _submissions(
     console,
     course,
@@ -279,7 +327,9 @@ def register(templates: Jinja2Templates) -> APIRouter:
                         "missing": sum(_missing(size) for size in sizes.values()),
                     }
                 )
-        rows.sort(key=lambda r: (r["sessions"] == 0, r["login"]))
+        # **学籍番号（ログイン名）の順**（2026-11-13）。記録の有無で前後に分けると、
+        # 名簿と突き合わせて目当ての学生を探すときに 2 か所を見ることになる。
+        rows.sort(key=lambda r: r["login"])
         _audit(request, me, str(course.id), str(course.id), "コースの一覧", {})
         return templates.TemplateResponse(
             request,
@@ -304,7 +354,8 @@ def register(templates: Jinja2Templates) -> APIRouter:
             enrolled = uow.identity.find_enrollment(course.id, UserId(learner_id))
             sessions = uow.ide_activity.sessions_for(UserId(learner_id), course.id)
             indexed = {s.id: uow.ide_activity.batches(s.id) for s in sessions}
-            titles = {str(t.id): t.title for t in uow.tasks.list_for_course(course.id)}
+            course_tasks = {str(t.id): t for t in uow.tasks.list_for_course(course.id)}
+            titles = {task_id: t.title for task_id, t in course_tasks.items()}
         # 受講していない人の記録は、このコースの画面からは見せない。
         if learner is None or enrolled is None:
             raise HTTPException(status_code=404, detail="学習者が見つかりません")
@@ -366,7 +417,7 @@ def register(templates: Jinja2Templates) -> APIRouter:
                 "course": course,
                 "section": {"label": "作業の記録", "href": f"/courses/{course.id}/activity"},
                 "learner": learner,
-                "problems": sorted(problems.values(), key=lambda p: p.title),
+                "unit_groups": _unit_groups(problems.values(), course_tasks),
                 "configured": root is not None,
                 "session_count": len(sessions),
             },

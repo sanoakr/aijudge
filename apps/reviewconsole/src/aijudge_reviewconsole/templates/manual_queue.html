@@ -33,12 +33,17 @@
 <div data-live="man-groups" data-live-rows>
 {% for group in groups %}
 <div data-live-key="g-{{ group.task.id if group.task else 'none' }}">
+{# **問題ごとに畳む**（2026-11-13）。初めは閉じ、見出しの件数と「順に」の入口だけを
+   出す。開き閉じは自動更新をまたいで残る（`live.js` の `carryOpen`・id で突き合わせる）。 #}
+<details class="fin-task" id="man-task-{{ group.task.id if group.task else 'none' }}">
+<summary>
 <h3 class="task-group">
   {% if group.task %}<span class="mono desc">{{ group.task.unit or group.task.unit_label }}</span>
     {{ group.task.title }}{% else %}課題の分からない提出{% endif %}
+</h3>
   <span class="desc">{{ group.rows | length }} 件</span>
   <a class="desc" href="{{ root_prefix() }}/review/{{ group.rows[0].submission.id }}/reveal?from=finalize">この課題を順に手動採点する →</a>
-</h3>
+</summary>
 {# 携帯では行を積む（`table.stack`）。課題は見出しに出したので列に持たない。
    **AI の総合点は出さない** ── blind 採点待ちの提出が混ざると、blind の画面に入る前に
    判定が読める（#695）。点は 1 件の画面で読む。 #}
@@ -58,6 +63,7 @@
   {% endfor %}
   </tbody>
 </table>
+</details>
 </div>
 {% else %}
 <p class="desc" data-live-key="empty">手動の確定が必要な提出はありません。</p>

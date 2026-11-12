@@ -44,7 +44,7 @@
   <tbody>
   {% for row in rows %}
     {% set s = row.work.summary %}
-    <tr>
+    <tr class="row-link" data-href="{{ root_prefix() }}/courses/{{ course.id }}/activity/{{ row.learner.user_id }}#task-{{ task.id }}">
       <td class="fit" data-label="学習者">{{ cross.who(row.learner, root_prefix() ~ "/courses/" ~ course.id ~ "/activity/" ~ row.learner.user_id ~ "#task-" ~ task.id) }}</td>
       {% if row.work.parts %}
       <td class="fit" data-label="打鍵">{{ s.typed_chars }} 字</td>

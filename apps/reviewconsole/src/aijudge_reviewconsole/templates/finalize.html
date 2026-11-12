@@ -132,7 +132,7 @@
 <table class="stack">
   <thead><tr>
     <th class="fit">提出</th><th class="grow">学習者</th>
-    <th class="fit">回</th><th class="fit">AI の総合</th><th class="fit"></th>
+    <th class="fit">回</th><th class="fit">AI の総合</th><th class="fit">確定予定</th><th class="fit"></th>
   </tr></thead>
   <tbody>
   {% for row in group.rows %}
@@ -141,6 +141,8 @@
       <td class="grow mono" data-label="学習者">{{ row.learner.login if row.learner else '—' }}</td>
       <td class="fit" data-label="回">{{ row.attempt_no or row.submission.attempt }} 回目</td>
       <td class="fit" data-label="AI の総合">{{ '%.0f' | format(row.run.score_ratio * 100) }}%</td>
+      {# 自動確定される時刻（採点の完了＋猶予）。巡回が時刻を過ぎた最初の回に閉じる。 #}
+      <td class="fit" data-label="確定予定">{{ row.settles_at | local('%m-%d %H:%M') if row.settles_at else '—' }}</td>
       <td class="fit">
         <a href="{{ root_prefix() }}/review/{{ row.submission.id }}/reveal">確認して確定する</a>
         {% if row.contested %}<br><span class="desc">再確認の依頼あり</span>{% endif %}

@@ -67,7 +67,11 @@
    確かめる手段が無かった。 #}
 <div data-live="queue-resolved">
 {% if resolved %}
-<h2>対応済みの依頼（{{ resolved | length }} 件）</h2>
+{# **畳んでおく**（2026-11-13）。手を動かす待ち行列の下に長い表が開いていると、
+   画面の大半が処理済みで埋まる。見出しの件数で足り、確かめたいときだけ開く。
+   開き閉じは自動更新をまたいで残る（`live.js` の `carryOpen`・id で突き合わせる）。 #}
+<details class="fin-task" id="queue-resolved-list">
+<summary><h2>対応済みの依頼（{{ resolved | length }} 件）</h2></summary>
 <p class="desc"><strong>処理済みです。</strong>開くと記録を読めます（確定し直す欄は畳んであります）。</p>
 <table class="resolved-table">
   <thead><tr>
@@ -94,6 +98,7 @@
   {% endfor %}
   </tbody>
 </table>
+</details>
 {% endif %}
 </div>
 {% endblock %}

@@ -338,6 +338,9 @@ header.top .inner{max-width:1100px;margin:0 auto;padding:10px 24px;display:flex;
   align-items:baseline;gap:16px;font-size:.85rem}
 header.top .brand{font-weight:700;font-size:1rem;color:var(--head-ink);
   text-decoration:none;letter-spacing:.03em}
+/* 名前の横の版（教員コンソール）。小さく、帯の地に沈む色で。名前との間は詰める。 */
+header.top .brand-version{font-size:.7rem;color:var(--head-muted);margin-left:-10px;
+  font-variant-numeric:tabular-nums}
 header.top .spacer{flex:1}
 header.top form{margin:0}
 header.top button{background:rgba(255,255,255,.08);color:var(--head-ink);
@@ -456,9 +459,10 @@ footer.app-footer .inner{max-width:none;display:flex;align-items:center;gap:12px
   color:var(--ink-2);text-decoration:none;font-size:.86rem}
 .rail a.nav:hover{background:var(--surface-2);color:var(--ink)}
 .rail a.nav .t{flex:1;min-width:0}
-/* 数字の補足（例: 確定処理の「自動確定待ち 12」・2026-09-25）。行を改めて小さく出す。 */
-.rail a.nav{flex-wrap:wrap}
-.rail a.nav .n{flex-basis:100%;font-size:.72rem;margin-top:-2px}
+/* 数字の補足（例: 確定処理の「自動確定待ち 12」・2026-09-25）。小さく出す。
+   **行を改めない**（2026-11-13）── 改めると、その項目だけ 2 行になって帯の並びが崩れる。
+   名前の右に同じ行で並べ、件数の丸の手前に置く。 */
+.rail a.nav .n{flex:none;font-size:.72rem;white-space:nowrap}
 .rail a.nav .c{font-family:var(--font-mono);font-size:.75rem;color:var(--muted);
   min-width:2.6em;text-align:right;flex:none}
 /* 人が押さないと進まない件数だけ琥珀。数え上げは薄いまま。 */
