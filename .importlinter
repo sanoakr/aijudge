@@ -31,6 +31,7 @@ root_packages =
     aijudge_eval_text_pattern_check
     aijudge_eval_c_indent_check
     aijudge_eval_template_diff_check
+    aijudge_eval_line_diff_check
     aijudge_ext_document_text
     aijudge_ext_image_text
     aijudge_telemetry
@@ -74,6 +75,7 @@ forbidden_modules =
     aijudge_eval_text_pattern_check
     aijudge_eval_c_indent_check
     aijudge_eval_template_diff_check
+    aijudge_eval_line_diff_check
     aijudge_eval_checklist_ai_judge
     aijudge_eval_submission_compliance
     aijudge_ext_document_text
@@ -202,6 +204,7 @@ source_modules =
     aijudge_eval_text_pattern_check
     aijudge_eval_c_indent_check
     aijudge_eval_template_diff_check
+    aijudge_eval_line_diff_check
     aijudge_ext_document_text
     aijudge_ext_image_text
     aijudge_reviewconsole
@@ -254,6 +257,7 @@ source_modules =
     aijudge_eval_text_pattern_check
     aijudge_eval_c_indent_check
     aijudge_eval_template_diff_check
+    aijudge_eval_line_diff_check
     aijudge_ext_document_text
     aijudge_ext_image_text
     aijudge_ide
@@ -291,6 +295,7 @@ source_modules =
     aijudge_eval_text_pattern_check
     aijudge_eval_c_indent_check
     aijudge_eval_template_diff_check
+    aijudge_eval_line_diff_check
     aijudge_ext_document_text
     aijudge_ext_image_text
     aijudge_telemetry
@@ -361,6 +366,7 @@ forbidden_modules =
     aijudge_eval_text_pattern_check
     aijudge_eval_c_indent_check
     aijudge_eval_template_diff_check
+    aijudge_eval_line_diff_check
     aijudge_ext_document_text
     aijudge_ext_image_text
     aijudge_sandbox
@@ -380,6 +386,7 @@ source_modules =
     aijudge_eval_text_pattern_check
     aijudge_eval_c_indent_check
     aijudge_eval_template_diff_check
+    aijudge_eval_line_diff_check
     aijudge_ext_document_text
     aijudge_ext_image_text
     aijudge_eval_checklist_ai_judge
@@ -445,6 +452,7 @@ source_modules =
     aijudge_eval_text_pattern_check
     aijudge_eval_c_indent_check
     aijudge_eval_template_diff_check
+    aijudge_eval_line_diff_check
     aijudge_ext_document_text
     aijudge_ext_image_text
     aijudge_ide
@@ -544,6 +552,7 @@ source_modules =
     aijudge_eval_text_pattern_check
     aijudge_eval_c_indent_check
     aijudge_eval_template_diff_check
+    aijudge_eval_line_diff_check
     aijudge_ext_document_text
     aijudge_ext_image_text
     aijudge_eval_checklist_ai_judge
@@ -600,6 +609,7 @@ modules =
     aijudge_eval_text_pattern_check
     aijudge_eval_c_indent_check
     aijudge_eval_template_diff_check
+    aijudge_eval_line_diff_check
     aijudge_eval_checklist_ai_judge
     aijudge_eval_submission_compliance
     aijudge_ext_document_text
@@ -667,6 +677,7 @@ source_modules =
     aijudge_eval_text_pattern_check
     aijudge_eval_c_indent_check
     aijudge_eval_template_diff_check
+    aijudge_eval_line_diff_check
     aijudge_ext_document_text
     aijudge_ext_image_text
     aijudge_telemetry
@@ -711,6 +722,7 @@ source_modules =
     aijudge_eval_text_pattern_check
     aijudge_eval_c_indent_check
     aijudge_eval_template_diff_check
+    aijudge_eval_line_diff_check
     aijudge_ext_document_text
     aijudge_ext_image_text
     aijudge_telemetry

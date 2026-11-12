@@ -111,6 +111,30 @@ def test_problem_dir_fills_what_the_yaml_does_not_say(tmp_path: Path) -> None:
     assert imported.readability_weight == 0.3
 
 
+def test_extra_test_cases_are_added_to_the_problem_directory_tests(tmp_path: Path) -> None:
+    """`extra_test_cases` は `in/` `out/` のテストを残したまま足す（2026-11-13）。
+
+    `test_cases` を書くとディレクトリのテストを読まなくなるので、決定的評価器の
+    設定（`line_diff_check` の上限など）だけを足す口として要る。
+    """
+    with_extra = DEFINITION.replace(
+        "    readability_weight: 0.3\n",
+        "    readability_weight: 0.3\n"
+        "    extra_test_cases:\n"
+        "      - {name: 直した行の数, evaluator: line_diff_check,"
+        " payload: {max_changed_lines: 4}, hidden: false}\n",
+        1,
+    )
+    assert with_extra != DEFINITION
+    definition = load_course_definition(_write_definition(tmp_path, with_extra))
+    imported = {task.key: task for task in definition.tasks}["ex1/p2"]
+
+    io_cases = [c for c in imported.test_cases if c.evaluator != "line_diff_check"]
+    extra = [c for c in imported.test_cases if c.evaluator == "line_diff_check"]
+    assert [(c.input, c.expected) for c in io_cases] == [("", "Hello\n")], "入出力が消えた"
+    assert [(c.name, c.payload) for c in extra] == [("直した行の数", {"max_changed_lines": 4})]
+
+
 def test_a_task_can_declare_its_own_time_limit(database: Database, tmp_path: Path) -> None:
     """定義に書いた実行時間の上限が課題に入り、書かずに流し直しても消えない（#491）。"""
     root = tmp_path / "limit"
