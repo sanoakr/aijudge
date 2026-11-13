@@ -355,11 +355,16 @@ class ChecklistAiJudge:
 
         items, items_from = items_of(request)
         samples = int(request.options.get("samples", self._samples))
+        # 観点ごとのモデル（2026-11-13、レポートの項目を gemma4:e4b に読ませるのは
+        # 重すぎた）。名指しが無ければ既定のモデル。
+        model, fallback_model, num_ctx = request.model_choice(self._model)
         try:
             results = self._gateway.sample_all(
                 PROMPT,
                 ChecklistVerdict,
-                model=self._model,
+                model=model,
+                fallback_model=fallback_model,
+                num_ctx=num_ctx,
                 # 提出物は個人に紐づく。ローカルプロバイダ以外へは流れない（P7）。
                 data_class=DataClass.PERSONAL,
                 samples=samples,

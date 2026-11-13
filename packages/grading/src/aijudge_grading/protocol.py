@@ -26,6 +26,35 @@ from aijudge_core import (
 from aijudge_core.ids import ArtifactId
 
 
+class JudgeModel(BaseModel):
+    """観点が名指す「重さ」1 つ分の実モデル（`RubricCriterion.judge_model`）。
+
+    2026-11-13、既定の `gemma4:e4b` ではレポートやコメントの説明を読む観点が
+    重すぎた。観点ごとに重いモデルを選べるようにし、**名前からモデルへの対応は
+    ここに置く** ── 課題の定義にモデル名を書くと、モデルを入れ替えるたびに全課題の
+    版が上がり、どのモデルが学内のどこにあるかの知識が課題の側に散る。
+
+    主系（`AIJUDGE_LLM_BASE_URL`・PAIR）は `model` で呼ぶ。従系
+    （`AIJUDGE_LLM_FALLBACK_BASE_URL`・slab-llm）に落ちたときは `fallback_model`
+    で呼ぶ ── 重いモデルは主系と従系で置けるものが違う（PAIR の 16 GB 機に載る
+    MoE と、slab-llm にだけある 27B）。書かなければ従系でも同じ名前で呼ぶ。
+    どちらの経路も学内に限る判定（P7）はゲートウェイがそのまま行う。
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    model: str = Field(min_length=1)
+    fallback_model: str | None = Field(default=None, min_length=1)
+    # 1 回の呼び出しの上限（秒）。**書かなければ科目の `timeout_seconds`。** 重い
+    # モデルは GPU に載りきらず CPU で回る分があり、既定の 120 秒では足りないことがある。
+    timeout_seconds: float | None = Field(default=None, gt=0.0)
+    # 文脈長（ollama の `num_ctx`）。**書かなければ送らない**（サーバの既定のまま）。
+    # 運用の各ノードは `OLLAMA_CONTEXT_LENGTH=32768` で動いている（2026-11-13 確認・
+    # 10 月以降の切り詰めは 0 件）。違う値を送ると ollama はモデルを読み直すので、
+    # 既定と違う長さが本当に要るときだけ書く。
+    num_ctx: int | None = Field(default=None, gt=0)
+
+
 class EvaluationRequest(BaseModel):
     """Evaluator への入力。
 
@@ -57,9 +86,25 @@ class EvaluationRequest(BaseModel):
     test_cases: tuple[TestCase, ...] = ()
     prior_results: tuple[CriterionScore, ...] = ()
     timeout_seconds: float = Field(default=10.0, gt=0.0)
+    # この観点で使うモデル（観点の `judge_model` を科目プロファイルで解決したもの）。
+    # None は科目の既定のモデル。**解決するのはパイプラインである** ── 評価器は
+    # プロファイルを読まない（`options` と同じ形）。
+    judge_model: JudgeModel | None = None
     # 科目プロファイルの evaluator_options から渡す評価器固有の設定。
     # コアの語彙を汚さずに「この科目ではサンプル数を 5 にする」を表現するため。
     options: dict[str, object] = Field(default_factory=dict)
+
+    def model_choice(self, default: str) -> tuple[str, str | None, int | None]:
+        """この観点で呼ぶ `(モデル, 従系に落ちたときのモデル, 文脈長)`。
+
+        観点が重さを名指していなければ評価器の既定（`default`・`AIJUDGE_LLM_MODEL`）
+        だけ。名指していれば科目プロファイルが決めたもの（`judge_model`）。AI 評価器が
+        みな同じ規則で選ぶよう、ここに 1 つだけ置く（2026-11-13）。
+        """
+        chosen = self.judge_model
+        if chosen is None:
+            return default, None, None
+        return chosen.model, chosen.fallback_model, chosen.num_ctx
 
 
 class EvaluationOutcome(BaseModel):

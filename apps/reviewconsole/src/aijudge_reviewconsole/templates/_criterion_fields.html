@@ -26,6 +26,22 @@
     <span class="visibility">AI 評価器にだけ渡します</span></label>
   <textarea name="criterion_judging_notes" rows="3"
     placeholder="回答例や、どこを見て段階を決めるかの詳しい基準。説明と違い、学生の結果画面には出ません。">{{ row.judging_notes | default('', true) }}</textarea>
+  {# **AI に使わせるモデルの重さ**（2026-11-13）。モデル名ではなく、科目プロファイルの
+     `judge_models` にある名前を選ぶ。欄を必ず出して送り返させる ── 欄が無いと、
+     観点を保存するたびに名指しが黙って消え、次の版から既定のモデルで採点される。
+     科目に無い名前が付いていれば、そのまま出して警告する（保存は断られる）。 #}
+  {% set jm_names = judge_model_names if judge_model_names is defined and judge_model_names else [] %}
+  {% set jm_current = row.judge_model | default('', true) %}
+  <label>AI に使わせるモデル（AI が判定する観点だけ）</label>
+  <select name="criterion_judge_model">
+    <option value="" {{ 'selected' if not jm_current }}>科目の既定のモデル</option>
+    {% for name in jm_names %}
+    <option value="{{ name }}" {{ 'selected' if jm_current == name }}>{{ name }}</option>
+    {% endfor %}
+    {% if jm_current and jm_current not in jm_names %}
+    <option value="{{ jm_current }}" selected>{{ jm_current }} — 科目プロファイルにありません（このままでは保存できません）</option>
+    {% endif %}
+  </select>
   <label>判定する評価器</label>
   {# **種類でまとめ、AI を上に置く**（#318）。観点に割り当てるものを選ぶとき、
      まず決めるのは「AI に読ませるか・機械で確定させるか・人が付けるか」で、

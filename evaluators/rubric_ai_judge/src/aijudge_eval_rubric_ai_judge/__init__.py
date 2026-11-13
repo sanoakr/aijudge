@@ -287,11 +287,14 @@ class RubricAiJudge:
             )
 
         samples = int(request.options.get("samples", self._samples))
+        model, fallback_model, num_ctx = request.model_choice(self._model)
         try:
             result = self._gateway.sample_structured(
                 PROMPT,
                 Verdict,
-                model=self._model,
+                model=model,
+                fallback_model=fallback_model,
+                num_ctx=num_ctx,
                 # 学習者の解答は個人に紐づく。ローカルプロバイダ以外へは流れない（P7）。
                 data_class=DataClass.PERSONAL,
                 samples=samples,

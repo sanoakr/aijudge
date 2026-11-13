@@ -30,6 +30,7 @@ from .protocol import (
     EvaluationOutcome,
     EvaluationRequest,
     Evaluator,
+    JudgeModel,
     reads_test_cases,
     test_case_shape,
 )
@@ -57,6 +58,7 @@ __all__ = [
     "ExtractorRegistry",
     "GradingPipeline",
     "InputPolicy",
+    "JudgeModel",
     "MeasurementPolicy",
     "OverrideError",
     "SubjectProfile",

@@ -102,6 +102,26 @@ def _effective_profile_of(console, course, version):
         return base
 
 
+def _undeclared_judge_models(profile, criteria) -> list[tuple[str, str]]:
+    """観点が名指したモデルの重さのうち、科目プロファイルに無いもの（2026-11-13）。
+
+    `criteria` は `CriterionSpec` でも画面の行（dict）でもよい。プロファイルが
+    読めなければ判断しない（`_undeclared_evaluators` と同じ）。
+    """
+    if profile is None:
+        return []
+    declared = set(profile.judge_models)
+    missing: list[tuple[str, str]] = []
+    for criterion in criteria:
+        if isinstance(criterion, dict):
+            code, name = criterion.get("code", ""), criterion.get("judge_model") or None
+        else:
+            code, name = criterion.code, getattr(criterion, "judge_model", None)
+        if name and name not in declared:
+            missing.append((str(code), str(name)))
+    return missing
+
+
 def _refuse_undeclared(profile, criteria, *, course_id: str) -> None:
     """科目が宣言していない評価器を観点に付けようとしたら**保存しない**。
 
@@ -110,6 +130,19 @@ def _refuse_undeclared(profile, criteria, *, course_id: str) -> None:
     （課題の訂正で観点欄を送ったとき・共通ルーブリック）だけで、観点を引き
     継ぐだけの経路は止めない（`revise_task` の注記）。
     """
+    unknown_models = _undeclared_judge_models(profile, criteria)
+    if unknown_models:
+        named = "、".join(f"観点「{code}」の {name}" for code, name in unknown_models)
+        declared = "・".join(sorted(profile.judge_models)) or "なし"
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"{named} は科目プロファイル {profile.name} の judge_models に無い名前です"
+                f"（宣言されている名前: {declared}）。このまま保存すると、その観点は"
+                "採点のたびに失敗して人に回ります。名前を選び直すか、運用機の科目"
+                "プロファイルに judge_models を足してください。"
+            ),
+        )
     missing = _undeclared_evaluators(profile, criteria)
     if not missing:
         return
@@ -155,6 +188,7 @@ def _rubric_from_form(form) -> list[dict[str, str]]:
                 "evaluator": at("criterion_evaluator"),
                 "levels": at("criterion_levels"),
                 "judging_notes": at("criterion_judging_notes"),
+                "judge_model": at("criterion_judge_model"),
             }
         )
     return rows

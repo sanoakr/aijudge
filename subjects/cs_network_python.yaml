@@ -81,6 +81,20 @@ review_policy:
 # テストケースの実行上限とは別（上の case_timeout_seconds）。
 timeout_seconds: 120
 
+# 観点が名指せるモデルの「重さ」（観点の judge_model・2026-11-13）。既定のモデル
+# （AIJUDGE_LLM_MODEL）ではレポートやコメントの説明を読む観点が重すぎたため、観点ごとに
+# 重いモデルを選べるようにした。キーは観点に書く名前で、値は実モデル。
+#   model           主系（AIJUDGE_LLM_BASE_URL・PAIR）で呼ぶモデル
+#   fallback_model  従系（AIJUDGE_LLM_FALLBACK_BASE_URL）に落ちたときのモデル。省略で model と同じ
+#   timeout_seconds 1 回の呼び出しの上限。省略で上の timeout_seconds（重いモデルは長めに）
+#   num_ctx         文脈長。省略でサーバの既定（運用の各ノードは 32768）
+# 見本では使っていない。運用機のプロファイルで、モデルを載せたノードに合わせて書く。
+# judge_models:
+#   large:
+#     model: qwen3.6:35b-a3b
+#     fallback_model: qwen3.8:27b-mlx
+#     timeout_seconds: 600
+
 # 採点性能の測定（ADR 0007）。採点エンジンはこの値を読まない。
 #
 # 受講 91 名 × 自動採点できる課題 24 件 ≒ 2000 提出。1 観点あたり 30 件の

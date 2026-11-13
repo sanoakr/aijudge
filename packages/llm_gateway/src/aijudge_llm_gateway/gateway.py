@@ -214,6 +214,8 @@ class LlmGateway:
         timeout_seconds: float = 120.0,
         images: tuple[str, ...] = (),
         repeat_penalty: float | None = None,
+        fallback_model: str | None = None,
+        num_ctx: int | None = None,
         **values: object,
     ) -> StructuredResult[TModel]:
         """スキーマに合う応答を得るまで、上限回数まで再試行する。
@@ -221,6 +223,10 @@ class LlmGateway:
         `images` は base64 の PNG / JPEG。**利用者の発言に付く**（プロンプト
         テンプレートは文面だけを持ち、画像を知らない）。再試行で会話が伸びても
         画像は最初の発言に付いたままなので、送り直しにはならない。
+
+        `fallback_model` は従系に落ちたときに呼ぶモデル（`FallbackProvider`）。
+        重いモデルは主系と従系で置けるものが違う（2026-11-13・観点ごとの重さ）。
+        `num_ctx` は文脈長。None なら送らない（サーバの既定のまま）。
         """
         self._check_policy(data_class)
         self._check_vision(images)
@@ -243,6 +249,8 @@ class LlmGateway:
                     json_schema=json_schema,
                     timeout_seconds=timeout_seconds,
                     repeat_penalty=repeat_penalty,
+                    fallback_model=fallback_model,
+                    num_ctx=num_ctx,
                 )
             )
             prompt_tokens += response.usage.prompt_tokens

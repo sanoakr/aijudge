@@ -101,6 +101,14 @@ class LlmRequest(BaseModel):
     # 同じ語の繰り返しへの罰。**None なら送らない**（プロバイダの既定のまま）。
     # 縮退ループから抜けさせるために、打ち切られた後のやり直しにだけ使う。
     repeat_penalty: float | None = Field(default=None, gt=0.0, le=2.0)
+    # **従系に落ちたときに呼ぶモデル。** None なら従系でも `model` で呼ぶ（従来どおり）。
+    # 重いモデルは主系（PAIR）と従系（slab-llm）で置けるものが違う ── 主系の 16 GB 機に
+    # 載る MoE が従系に無く、従系にしか無い 27B がある（2026-11-13）。読むのは
+    # `FallbackProvider` だけで、単体のプロバイダは無視する。
+    fallback_model: str | None = Field(default=None, min_length=1)
+    # 文脈長（ollama の `num_ctx`）。**None なら送らない**（サーバの既定のまま）。
+    # 違う値を送ると ollama はモデルを読み直すので、要るときだけ渡す。
+    num_ctx: int | None = Field(default=None, gt=0)
 
 
 class LlmResponse(BaseModel):
