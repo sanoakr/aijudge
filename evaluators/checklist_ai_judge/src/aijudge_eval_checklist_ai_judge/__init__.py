@@ -61,6 +61,7 @@ AI の仕事になる。
 from __future__ import annotations
 
 import os
+from collections import Counter
 from dataclasses import dataclass
 from itertools import product
 from math import floor
@@ -527,16 +528,71 @@ def tally_items(
     """
     found: dict[str, ItemFinding | None] = {}
     votes: dict[str, tuple[int, int]] = {}
+    matched = [match_findings(items, verdict) for verdict in verdicts]
     for item in items:
         grounded: list[ItemFinding] = []
-        for verdict in verdicts:
-            answered = {f.item: f for f in verdict.findings}
+        for answered in matched:
             hit = answered.get(item.name)
             if hit is not None and hit.present and 1 <= hit.line <= line_count:
                 grounded.append(hit)
         votes[item.name] = (len(grounded), len(verdicts))
         found[item.name] = grounded[0] if len(grounded) * 2 > len(verdicts) else None
     return Tally(found=found, votes=votes)
+
+
+def match_findings(
+    items: tuple[ChecklistItem, ...], verdict: ChecklistVerdict
+) -> dict[str, ItemFinding]:
+    """モデルの答えを、課題の項目に対応させる（2026-11-13）。
+
+    **名前の完全一致だけに頼らない。** モデルは項目名を書き換えて返すことがある
+    （exam08 p2 の測定で、3 回のうち 2 回が 5 項目とも `② int min = i; のコメント` を
+    別の書き方で返し、その回の「ある」がすべて「無い」に数えられた）。
+
+    次の順で対応させ、対応の付かなかった答えは捨てる（項目を増やさない）。
+
+    1. 名前が完全に一致する
+    2. 空白を除いた名前が一致する
+    3. 先頭の語（最初の空白まで・`②` など）が、項目の中でただ 1 つ一致する
+    4. 答えの数が項目の数と同じなら、残りを並び順で対応させる
+    """
+
+    def squash(text: str) -> str:
+        return "".join(text.split())
+
+    def head(text: str) -> str:
+        parts = text.split()
+        return parts[0] if parts else ""
+
+    result: dict[str, ItemFinding] = {}
+    left = list(verdict.findings)
+    for rule in (lambda f, i: f.item == i.name, lambda f, i: squash(f.item) == squash(i.name)):
+        for item in items:
+            if item.name in result:
+                continue
+            hit = next((f for f in left if rule(f, item)), None)
+            if hit is not None:
+                result[item.name] = hit
+                left.remove(hit)
+    heads = Counter(head(item.name) for item in items)
+    for item in items:
+        key = head(item.name)
+        if item.name in result or not key or heads[key] != 1:
+            continue
+        hit = next((f for f in left if head(f.item) == key), None)
+        if hit is not None:
+            result[item.name] = hit
+            left.remove(hit)
+    if len(verdict.findings) == len(items):
+        order = {id(f): n for n, f in enumerate(verdict.findings)}
+        for n, item in enumerate(items):
+            if item.name in result:
+                continue
+            hit = next((f for f in left if order[id(f)] == n), None)
+            if hit is not None:
+                result[item.name] = hit
+                left.remove(hit)
+    return result
 
 
 def confidence_of(
@@ -607,5 +663,6 @@ __all__ = [
     "confidence_of",
     "items_of",
     "level_for",
+    "match_findings",
     "tally_items",
 ]

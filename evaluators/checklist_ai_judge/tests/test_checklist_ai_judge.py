@@ -505,3 +505,43 @@ def test_the_level_is_reached_only_when_the_share_is_reached() -> None:
     assert [level_for(n, 5, criterion) for n in range(6)] == [0, 0, 1, 1, 2, 3]
     assert level_for(7, 8, criterion) == 2
     assert level_for(8, 8, criterion) == 3
+
+
+def test_an_item_the_model_renamed_is_still_counted() -> None:
+    """**項目名を書き換えた答えも拾う**（2026-11-13）。
+
+    exam08 p2 の測定で、3 回のうち 2 回が項目名を書き換えて返し、その回の「ある」が
+    すべて「無い」に数えられた。先頭の印（`②` など）か、並び順で対応させる。
+    """
+    long_names = tuple(_item_case(f"{mark} のコメント") for mark in FIVE)
+    by_mark = {
+        "findings": [
+            {"item": f"{mark}（書き換えた名前）", "present": True, "line": i + 1, "quote": mark}
+            for i, mark in enumerate(FIVE)
+        ]
+    }
+    by_order = {
+        "findings": [
+            {"item": f"項目 {i + 1}", "present": True, "line": i + 1, "quote": mark}
+            for i, mark in enumerate(FIVE)
+        ]
+    }
+    for answer in (by_mark, by_order):
+        outcome = _judge(answer, answer, answer).evaluate(_request(cases=long_names))
+        assert outcome.scores[0].level == 3, answer["findings"][0]["item"]
+        assert outcome.raw_output["missing"] == []
+
+
+def test_an_extra_answer_does_not_take_an_item_by_order() -> None:
+    """答えの数が項目の数と違えば、並び順では対応させない（取り違えない）。"""
+    cases = (_item_case("目的"), _item_case("方法"))
+    outcome = _judge(
+        {
+            "findings": [
+                {"item": "謝辞", "present": True, "line": 1, "quote": "謝辞"},
+                {"item": "付録", "present": True, "line": 2, "quote": "付録"},
+                {"item": "目的", "present": False, "line": 0, "quote": ""},
+            ]
+        }
+    ).evaluate(_request(cases=cases))
+    assert outcome.raw_output["missing"] == ["目的", "方法"]
