@@ -200,8 +200,16 @@ class GradingPipeline:
         cut = set(base.skipped_criteria) | set(
             gate_skipped(task_version.criteria, base.criterion_scores, aggregation)
         )
+        # **決定的評価器に割り当てた観点も積まない。** その観点は AI 段階で
+        # 呼ばれない（`run` の evaluator_id の照合）ので、確定していなくても
+        # 積んで変わることは無い。text_pattern_check の「決まらない」観点
+        # （確定させずにレビューへ回す・2026-11-13）がこれに当たる。
+        ai = set(self._profile.ai_evaluators)
         return any(
-            c.id not in settled and c.id not in cut and not c.scored_by_human
+            c.id not in settled
+            and c.id not in cut
+            and not c.scored_by_human
+            and (c.evaluator_id is None or c.evaluator_id in ai)
             for c in task_version.criteria
         )
 
