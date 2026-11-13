@@ -41,6 +41,41 @@
   同じ認定証を複数枚出しても増えないようにする。**鍵が取れなかった提出物は
   そのまま数える** ── 書き起こしが読めなかっただけの提出を重複扱いすると、
   抽出器の失敗が学習者の減点として出る。
+- `section` — 探す範囲を、この正規表現に一致する**見出し行の次の行から、
+  次の Markdown 見出し（`#` 〜 `######`）の手前まで**に絞る。範囲の中の
+  HTML コメント（`<!-- ... -->`）は読まない。
+- `ignore_lines` — この正規表現に一致する行を読まない。テンプレートに
+  最初から入っている質問文を、回答として数えないため。
+- `min_chars` — `pattern` も `expect` も無い項目で、「何か書いてある」と
+  認める文字数の下限。数えるのは文字（かな・漢字・英字）と数字だけで、
+  空白と記号は数えない。同じ 1 文字の繰り返しは 0 字と同じに扱う。
+
+## 「書いてあるか」を AI に訊かない（2026-11-13）
+
+network の survey（aiJudge のアンケート）は 4 つの質問の下に回答があるかを
+`rubric_ai_judge` で採点していた。提出 1 件につき 4 観点 × 自己一貫性の
+標本数だけ LLM を呼び、問うていたのは「見出しの下に、テンプレートの質問文
+以外の文字があるか」── 比べれば分かることを多数決にかけていた
+（exam08 の `template_diff_check` と同じ構図）。
+
+ただし「意味のない入力（1 文字だけ・記号や同じ文字の繰り返し）は未回答」と
+いう線引きには、規則で決まらない境目がある。そこを規則で切ると誤りが確定
+点として残るので、**決まらない提出は決めずにレビューへ回す**（P5）。
+
+    何も書いていない                → 満たさない（確定）
+    数えた文字が min_chars 以上     → 満たす（確定）
+    文字はあるが min_chars 未満、
+    記号だけ・同じ文字の繰り返し、
+    見出しが見つからない            → 決まらない（確定させず、レビューへ）
+
+決まらない観点は段階を低い側に置き、`conclusive` を立てず、確信度を
+`UNDECIDED_CONFIDENCE` にする。科目の `review_policy.confidence_below`
+（既定 0.75）を下回るので人が見る。AI 評価器には回らない ── 観点に
+割り当てた評価器はこれなので、パイプラインが AI に渡さない。
+
+テンプレートの本文とは突き合わせない。テンプレートは `Task.editor_template`
+（版を持たない運用値）にしかなく、それで採点が変わると、同じ版の同じ提出の
+再採点が別の結果になる（P8）。質問文の行は `ignore_lines` で課題が宣言する。
 
 ## 段階はこちらが決める
 
@@ -49,12 +84,15 @@
 
 `conclusive` は立てる ── **決定的評価の判定は確定である**（P3）。ここで
 確定した観点は AI 評価器に回らない。誤りの余地は照合ではなく書き起こしの側に
-あり、そちらは抽出器の記録（`TranscriptionMeta`）に残っている。
+あり、そちらは抽出器の記録（`TranscriptionMeta`）に残っている。例外は上の
+「決まらない」だけで、照合ではなく線引きの側に迷いがあるときに限る。
 """
 
 from __future__ import annotations
 
 import re
+import unicodedata
+from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -75,6 +113,25 @@ EVALUATOR_ID = "text_pattern_check"
 #: `expect` に書ける唯一の名前。提出者の学籍番号と照合する。
 EXPECT_LEARNER_REFERENCE = "learner_reference"
 
+#: 「決まらない」観点の確信度。科目の `review_policy.confidence_below` の既定
+#: （0.75）を下回る値にして、人のレビューへ回す。0 にしないのは、確信度の
+#: 最小値が総合の確信度になるので、他の観点の不確かさと区別が付かなくなるため。
+UNDECIDED_CONFIDENCE = 0.5
+
+#: 見出し行。`section` の範囲はここで終わる。
+_HEADING = re.compile(r"^\s{0,3}#{1,6}\s")
+#: HTML コメント。複数行にまたがってもよい。
+_HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
+
+
+class Presence(Enum):
+    """提出物 1 本について、項目が満たされたか。"""
+
+    MET = "met"
+    UNMET = "unmet"
+    #: 規則では決まらない。確定させずにレビューへ回す。
+    UNDECIDED = "undecided"
+
 
 class PatternSpec(BaseModel):
     """照合する項目 1 つ。**課題が決める。**"""
@@ -93,6 +150,12 @@ class PatternSpec(BaseModel):
     expected_count: int = Field(default=0, ge=0)
     #: 同じものを二重に数えないための鍵（捕捉群を 1 つ持つ正規表現）。
     distinct_by: str = ""
+    #: 探す範囲を、この正規表現に一致する見出しの下（次の見出しの手前まで）に絞る。
+    section: str = ""
+    #: 読まない行（テンプレートの質問文など）。
+    ignore_lines: str = ""
+    #: 「何か書いてある」と認める文字数の下限。0 は今までどおり「空でない行があれば満たす」。
+    min_chars: int = Field(default=0, ge=0)
 
 
 def normalise(text: str) -> str:
@@ -126,30 +189,87 @@ def lines_to_search(body: str, spec: PatternSpec) -> list[str]:
     URL の文字列も本文に入る（実データ 47 件のうち 3 件）。「受講者欄に
     学籍番号があるか」を本文全体で見ると、写り込んだ番号でも当たる。
     """
-    lines = body.splitlines()
+    lines = section_lines(body, spec.section) if spec.section else body.splitlines()
+    if lines is None:
+        return []
+    if spec.ignore_lines:
+        ignored = re.compile(spec.ignore_lines, re.IGNORECASE)
+        lines = [line for line in lines if not ignored.search(line)]
     if not spec.line_matches:
         return lines
     anchor = re.compile(spec.line_matches, re.IGNORECASE)
     return [line for line in lines if anchor.search(line)]
 
 
-def satisfies(spec: PatternSpec, body: str, learner_reference: str | None) -> bool:
-    """この項目は満たされたか。**ここに LLM は関与しない。**"""
+def section_lines(body: str, heading: str) -> list[str] | None:
+    """`heading` に一致する見出しの下の行。**見出しが無ければ None**（空とは別）。
+
+    範囲は見出しの次の行から、次の Markdown 見出しの手前まで。HTML コメントは
+    読まない ── テンプレートが書き方の案内をコメントで置けるようにするため。
+    見出しが無いことを空と同じにしないのは、学習者が見出しを消して回答を
+    書いた提出を「何も書いていない」と確定させないため（`Presence.UNDECIDED`）。
+    """
+    expression = re.compile(heading, re.IGNORECASE)
+    lines = _HTML_COMMENT.sub("", body).splitlines()
+    for index, line in enumerate(lines):
+        if _HEADING.match(line) and expression.search(line):
+            rest = lines[index + 1 :]
+            end = next((i for i, text in enumerate(rest) if _HEADING.match(text)), len(rest))
+            return rest[:end]
+    return None
+
+
+def counted_chars(text: str) -> int:
+    """回答として数える文字数。文字（かな・漢字・英字）と数字だけを数える。
+
+    **同じ 1 文字の繰り返しは 0 字。** 「ああああ」や「aaaa」で字数の下限を
+    越えさせないため。2 種類以上の文字があれば繰り返しを含めて数える
+    （「なし」「特になし」は回答である）。
+    """
+    chars = [c for c in text if unicodedata.category(c)[0] in ("L", "N")]
+    if len(set(chars)) <= 1:
+        return 0
+    return len(chars)
+
+
+def presence(spec: PatternSpec, body: str, learner_reference: str | None) -> Presence:
+    """提出物 1 本について、この項目は満たされたか。**ここに LLM は関与しない。**
+
+    `Presence.UNDECIDED` を返すのは `section` か `min_chars` を宣言した項目
+    だけで、それ以外は今までどおり満たすか満たさないかで決まる。
+    """
+    if spec.section and section_lines(body, spec.section) is None:
+        return Presence.UNDECIDED
     haystack = lines_to_search(body, spec)
 
     if spec.expect == EXPECT_LEARNER_REFERENCE:
         # 学籍番号が分からなければ**満たしたことにしない。** 分からないまま
         # 通すと、誰の認定証でも通る。
         if not learner_reference:
-            return False
+            return Presence.UNMET
         flat = normalise("\n".join(haystack))
-        return any(form and form in flat for form in reference_forms(learner_reference))
+        found = any(form and form in flat for form in reference_forms(learner_reference))
+        return Presence.MET if found else Presence.UNMET
 
-    if not spec.pattern:
-        return any(line.strip() for line in haystack)
+    if spec.pattern:
+        expression = re.compile(spec.pattern, re.IGNORECASE)
+        found = any(expression.search(line) for line in haystack)
+        return Presence.MET if found else Presence.UNMET
 
-    expression = re.compile(spec.pattern, re.IGNORECASE)
-    return any(expression.search(line) for line in haystack)
+    written = "".join(line.strip() for line in haystack)
+    if not written:
+        return Presence.UNMET
+    if spec.min_chars <= 0:
+        return Presence.MET
+    if counted_chars(written) >= spec.min_chars:
+        return Presence.MET
+    # 何かは書いてあるが、回答と言える字数に届かない・記号や繰り返しだけ。
+    return Presence.UNDECIDED
+
+
+def satisfies(spec: PatternSpec, body: str, learner_reference: str | None) -> bool:
+    """この項目は満たされたか（決まらないものは満たさない側に数える）。"""
+    return presence(spec, body, learner_reference) is Presence.MET
 
 
 def distinct_key(spec: PatternSpec, body: str) -> str:
@@ -249,6 +369,9 @@ def _spec_of(case: object) -> PatternSpec:
         weight=float(getattr(case, "weight", 1.0)),
         expected_count=int(payload.get("expected_count") or 0),
         distinct_by=str(payload.get("distinct_by") or ""),
+        section=str(payload.get("section") or ""),
+        ignore_lines=str(payload.get("ignore_lines") or ""),
+        min_chars=int(payload.get("min_chars") or 0),
     )
 
 
@@ -275,6 +398,7 @@ class TextPatternCheck:
 
         scores: list[CriterionScore] = []
         matched: dict[str, dict[str, bool]] = {}
+        undecided_by_criterion: dict[str, list[str]] = {}
         counts: dict[str, dict[str, int]] = {}
         for criterion in request.task_version.criteria:
             if criterion.evaluator_id != EVALUATOR_ID:
@@ -288,6 +412,19 @@ class TextPatternCheck:
                 for spec in specs
             }
             met = {spec.name: _is_met(spec, hits[spec.name]) for spec in specs}
+            # 満たしていない項目のうち、規則で決まらなかったもの。1 つでもあれば
+            # 観点を確定させずにレビューへ回す（モジュールの説明）。
+            undecided = [
+                spec.name
+                for spec in specs
+                if not met[spec.name]
+                and any(
+                    presence(spec, body, request.learner_reference) is Presence.UNDECIDED
+                    for _, body in bodies
+                )
+            ]
+            if undecided:
+                undecided_by_criterion[criterion.code] = undecided
             matched[criterion.code] = met
             counts[criterion.code] = {name: len(ids) for name, ids in hits.items()}
             unmet_required = [spec.name for spec in specs if spec.required and not met[spec.name]]
@@ -308,11 +445,12 @@ class TextPatternCheck:
                     level=level,
                     score_ratio=criterion.level_for(level).score_ratio,
                     weight=criterion.weight,
-                    confidence=1.0,
-                    # **確定させる。** 決定的な照合に迷いは無い（P3）。
-                    conclusive=True,
+                    # **確定させる。** 決定的な照合に迷いは無い（P3）。例外は
+                    # 線引きの側で決まらなかったときだけで、人のレビューへ回す。
+                    confidence=UNDECIDED_CONFIDENCE if undecided else 1.0,
+                    conclusive=not undecided,
                     evidence=self._evidence(request, bodies, specs, hits),
-                    rationale=self._rationale(specs, hits, met, unmet_required),
+                    rationale=self._rationale(specs, hits, met, unmet_required, undecided),
                 )
             )
 
@@ -327,6 +465,7 @@ class TextPatternCheck:
             raw_output={
                 "matched": matched,
                 "counts": counts,
+                "undecided": undecided_by_criterion,
                 # **何本の提出物が読めたか**。「いくつ提出されたか」に、
                 # パターンの一致不一致に関係なく答えられる値（#356 相当の質問）。
                 "submitted_images": len(bodies),
@@ -398,10 +537,17 @@ class TextPatternCheck:
         hits: dict[str, tuple[ArtifactId, ...]],
         met: dict[str, bool],
         unmet_required: list[str],
+        undecided: list[str] | None = None,
     ) -> str:
         parts = []
         for spec in specs:
-            if spec.expected_count > 0:
+            if undecided and spec.name in undecided:
+                parts.append(
+                    f"{spec.name}は規則では判断できません（見出しが見つからない、"
+                    "または短すぎる・記号や同じ文字の繰り返しだけの記入）。"
+                    "人の確認に回します"
+                )
+            elif spec.expected_count > 0:
                 parts.append(
                     f"{spec.name}は{len(hits[spec.name])}/{spec.expected_count}件見つかりました"
                 )
@@ -422,13 +568,18 @@ def build() -> TextPatternCheck:
 __all__ = [
     "EVALUATOR_ID",
     "EXPECT_LEARNER_REFERENCE",
+    "UNDECIDED_CONFIDENCE",
     "PatternSpec",
+    "Presence",
     "TextPatternCheck",
     "build",
+    "counted_chars",
     "level_for",
     "lines_to_search",
     "normalise",
+    "presence",
     "reference_forms",
     "satisfies",
+    "section_lines",
     "specs_of",
 ]
