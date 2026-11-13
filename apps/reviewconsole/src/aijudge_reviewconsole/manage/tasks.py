@@ -62,6 +62,8 @@ from .grading_views import (
 from .task_data import io_edit_from_form, item_cases_from_form
 from .task_page import (
     KEEP,
+    KIND_AI,
+    KIND_HUMAN,
     _cases_by_shape,
     _chosen_suffixes,
     _data_driven_criteria,
@@ -242,6 +244,7 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
         formats: Annotated[str, Form()] = "",
         no_auto_tests: Annotated[str, Form()] = "",
         test_case_count: Annotated[str, Form()] = "5",
+        kind: Annotated[str, Form()] = "",
     ) -> Response:
         """課題を 1 件足す。
 
@@ -264,6 +267,11 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
         「自動テストを使わない」を選べば従来どおり ── C の科目にも設計を問う
         記述課題はあり、そこに自動テストを強いる理由が無い。
 
+        **採点のしかた（`kind`）が AI か人なら、画面の観点で作り、テストは作らない**
+        （2026-11-13）。以前は観点の欄を出しながら読まず、テストで確定できる科目では
+        欠席届のような問題にも参照解答とテストを作らせようとした。`kind` を送らない
+        呼び出し（古い画面・API）は今までどおり。
+
         **日程は指定させない。** 問題セットの値をそのまま引き継ぐ ── 課題
         ごとに違う締切を持てると、同じセットの中で締切がずれる。変えたい
         ときはセットの日程を変える（`set_unit_schedule`）。
@@ -281,6 +289,30 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
         full_key = key.strip() or compose_key(unit.strip(), key_suffix.strip())
         if not full_key:
             raise HTTPException(status_code=400, detail="課題キーを入力してください")
+        # **キーと問題文の形は、テストの生成より前に確かめる**（2026-11-13）。
+        # 以前は生成（数秒〜数十秒）が終わってから `TaskSpec` で断っていたので、
+        # 使えない文字（日本語など）のキーでも待たされた末に 400 になった。
+        try:
+            TaskSpec(key=full_key, statement=statement)
+        except (ValidationError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=f"課題の指定が不正です: {exc}") from None
+
+        form = await request.form()
+        # 採点のしかたが AI・人なら、**画面の観点で作る**。テストは作らない。
+        declared_criteria = None
+        if kind in (KIND_AI, KIND_HUMAN):
+            try:
+                declared_criteria = rubric.parse(_rubric_from_form(form))
+            except AdminError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from None
+            if not declared_criteria:
+                raise HTTPException(status_code=400, detail="観点を 1 つ以上書いてください")
+            # 科目が宣言していない評価器・モデルの重さは保存しない（訂正と同じ関門・#146）。
+            _refuse_undeclared(
+                _effective_profile_of(console, course, None),
+                declared_criteria,
+                course_id=course_id,
+            )
 
         # 日程と回番号は問題セットから引き継ぐ。空のセット（最初の 1 問）は
         # まだ日程を持たないので、そのまま空で入る。
@@ -294,7 +326,11 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
 
         # **テストで確定できる科目なら、テストケースを用意する。**
         profile = load_profile(console.profiles_dir / f"{course.subject_profile}.yaml")
-        wants_tests = CODE_TEST_RUNNER in profile.deterministic and not no_auto_tests.strip()
+        wants_tests = (
+            CODE_TEST_RUNNER in profile.deterministic
+            and not no_auto_tests.strip()
+            and declared_criteria is None
+        )
         generated = None
         generation_failed = False
         if wants_tests:
@@ -313,7 +349,6 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
                 generation_failed = True
 
         # 知識要素（#292）。付けるものはコースの範囲にも入れる。
-        form = await request.form()
         components = _kcs_from_form(console, course, form)
 
         try:
@@ -322,7 +357,14 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
                 statement=statement,
                 unit=unit.strip() or None,
                 position=int(position) if position.strip() else None,
-                readability_weight=float(readability_weight or 0.0),
+                # **観点を宣言するときは読みやすさの重みを渡さない** ── 両方あると
+                # `TaskSpec` が「criteria を宣言する課題では readability_weight を
+                # 使えません」で断る（読みやすさは観点として書く）。
+                **(
+                    {"criteria": declared_criteria}
+                    if declared_criteria is not None
+                    else {"readability_weight": float(readability_weight or 0.0)}
+                ),
                 knowledge_components=components,
                 reference_solution=None if generated is None else generated.reference_solution,
                 reference_answer=_reference_answer_from(form, default=None),
@@ -386,7 +428,12 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
 
         console.notices.put(me.user_id, course.id, notices.TASK_SAVED, saved)
         # テストで確定できる科目なのにテストケースが無いなら、そう言う。
-        if saved.version.test_cases or CODE_TEST_RUNNER not in profile.deterministic:
+        # **AI・人の採点として作ったなら言わない** ── テストが無いのが正常である。
+        if (
+            saved.version.test_cases
+            or CODE_TEST_RUNNER not in profile.deterministic
+            or declared_criteria is not None
+        ):
             landed = "task"
         elif generation_failed:
             landed = "task_generation_failed"
@@ -475,13 +522,20 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
         )
 
     @router.get("/courses/{course_id}/units/{unit}/tasks/new", response_class=HTMLResponse)
-    def new_task(request: Request, course_id: str, unit: str) -> Response:
-        """課題を追加する画面。訂正と同じ形。"""
+    def new_task(request: Request, course_id: str, unit: str, kind: str = "") -> Response:
+        """課題を追加する画面。訂正と同じ形。
+
+        `kind` は採点のしかた（`?kind=program|ai|human`・2026-11-13）。選び直すと
+        画面を描き直し、その採点に要る欄だけを出す ── 選ぶのは書き始めのひな形で、
+        観点ごとの採点者は作ったあとも選び直せる（`task_page.NEW_TASK_KINDS`）。
+        """
         from ..app import require_principal
 
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
-        return _task_page(templates, request, me, course, unit_key_value=_normalized_unit(unit))
+        return _task_page(
+            templates, request, me, course, unit_key_value=_normalized_unit(unit), kind=kind
+        )
 
     @router.post("/courses/{course_id}/tasks/{task_id}/kc-candidates", response_class=HTMLResponse)
     async def task_kc_candidates(request: Request, course_id: str, task_id: str) -> Response:

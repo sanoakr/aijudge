@@ -363,8 +363,29 @@ document.querySelectorAll(".checkrow .nojs").forEach(function (el) { el.remove()
     event.preventDefault();
     ask(button, function () {
       target.replaceChildren(source.content.cloneNode(true));
+      showFieldsForEvaluators(target);
     });
   });
+
+  // 観点の欄を、選んだ採点者に要るものだけにする（2026-11-13）。AI にだけ渡す欄
+  // （評価基準・モデルの重さ）は、機械や人が採点する観点では意味が無い。
+  // **隠すだけで送らないことはしない** ── 値は送り返す（隠した欄の名指しが保存の
+  // たびに消えると、採点者を AI に戻したときに黙って既定に戻る）。
+  function showFieldsForEvaluators(root) {
+    (root || document).querySelectorAll("select[name=criterion_evaluator]").forEach(function (select) {
+      var fields = select.closest(".criterion-fields");
+      if (!fields) return;
+      var option = select.options[select.selectedIndex];
+      var kind = option ? option.getAttribute("data-kind") : "";
+      fields.querySelectorAll("[data-ai-only]").forEach(function (el) { el.hidden = kind !== "ai"; });
+    });
+  }
+  document.addEventListener("change", function (event) {
+    if (event.target.matches && event.target.matches("select[name=criterion_evaluator]")) {
+      showFieldsForEvaluators(event.target.closest(".criterion-fields"));
+    }
+  });
+  showFieldsForEvaluators(document);
 })();
 
 {# 問題文に貼る画像（#64）。**上げたらその場でカーソル位置に差し込む。**

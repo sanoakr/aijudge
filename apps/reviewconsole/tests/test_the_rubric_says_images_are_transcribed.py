@@ -77,7 +77,14 @@ def test_the_task_editor_says_it_too(world: World) -> None:
     world.register("teacher", Role.INSTRUCTOR, course.id)
     unit = "ex1"
 
-    page = world.client("teacher").get(f"/manage/courses/{course.id}/units/{unit}/tasks/new").text
+    # **観点の評価器を選ぶ作り方で開く**（2026-11-13）。テストで確定できる科目の既定は
+    # 「プログラム」で、観点はコースの既定から作るので観点の欄（とこの注記）を出さない。
+    # 画像の認定証のような問題は「AI が採点」か「人が採点」から作る。
+    page = (
+        world.client("teacher")
+        .get(f"/manage/courses/{course.id}/units/{unit}/tasks/new?kind=ai")
+        .text
+    )
 
     assert "採点のときに本文へ自動で書き起こされます" in page
     assert "image_text" in _note_of(page)

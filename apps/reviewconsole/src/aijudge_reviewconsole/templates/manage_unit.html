@@ -47,6 +47,18 @@
    **説明は ⓘ に畳む**（`_help.html`）。1 項目に 2〜5 行の説明が付いて、1 画面に
    入る設定が 2〜3 個しかなかった。ばらつき・未設定の警告は畳まない ──
    説明ではなく、いまの状態である。 #}
+{# **問題が 1 つも無いセットには設定の欄を出さない**（2026-11-13）。設定は問題ごとに
+   入る値で（`save_unit_settings` は全課題に書く）、空のセットには書き込む先が無い。
+   欄を出していたので、作ったばかりのセットで公開日や出題先を入れて保存すると
+   「この問題セットには課題がありません」（404）で断られ、何が悪いのか読めなかった。 #}
+{% if not unit.count %}
+<div class="note" id="unit-settings">
+  <strong>この問題セットにはまだ問題がありません。</strong>
+  日程・提出・見せる相手などの設定は、<strong>最初の問題を追加したあと</strong>に保存できます
+  （設定は問題ごとに入るため、問題の無いセットには入れる先がありません）。
+  <a href="{{ root_prefix() }}/manage/courses/{{ course.id }}/units/{{ unit.key }}/tasks/new">最初の問題を追加する →</a>
+</div>
+{% else %}
 <form method="post" id="unit-settings" class="card settings" data-save-all
       action="{{ root_prefix() }}/manage/courses/{{ course.id }}/units/{{ unit.key }}/settings">
 
@@ -451,6 +463,7 @@
     <button type="submit">設定を保存</button>
   </div>
 </form>
+{% endif %}
 
 {# 試験の一括採点（#67）。**試験モードを解除しない** ── 押したあとに出された
    提出はまた採点開始時刻まで待つ。試験中に「ここまでの提出が採点を通るか」を

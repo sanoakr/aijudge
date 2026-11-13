@@ -41,6 +41,15 @@
   color:var(--muted);background:var(--surface-2);
   border:1px solid var(--line);border-right:0;border-radius:3px 0 0 3px}
 .keyline input{border-radius:0 3px 3px 0}
+/* 新しい問題の「採点のしかた」（2026-11-13）。選んだものを藍で囲う（主操作の色）。
+   リンクなので JavaScript が無くても選び直せる。 */
+.kind-choice{display:grid;grid-template-columns:repeat(auto-fit,minmax(13rem,1fr));gap:8px}
+.kind-option{display:flex;flex-direction:column;gap:2px;padding:8px 12px;
+  border:1px solid var(--line);border-radius:3px;background:var(--surface);
+  color:var(--ink);text-decoration:none}
+.kind-option:hover{border-color:var(--ai-2)}
+.kind-option.chosen{border:2px solid var(--ai);background:var(--ai-soft);padding:7px 11px}
+.kind-option .desc{font-size:.82rem}
 /* 拡張子の選択。1 行に流して折り返す。 */
 .checks{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:.9rem}
 /* チェックと拡張子の間で折り返させない。`.jpg / .jpeg` のように空白を
