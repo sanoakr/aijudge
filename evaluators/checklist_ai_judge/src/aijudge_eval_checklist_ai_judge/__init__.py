@@ -38,8 +38,9 @@ AI の仕事になる。
 点は**こちらが重みで積み上げて決める**（`level_for`）。採点の目盛りをモデルに
 預けない ── 任せるのは読解だけである。
 
-出力は必ず根拠つき（P4）。あると答えた項目は提出物の行を引かせ、実在しない
-行を指す根拠は捨てる。確信度は自己一貫性から作り、割れたら人に回る（P5）。
+出力は必ず根拠つき（P4）。あると答えた項目は提出物の行を引かせ、**実在する行を
+引けなかった「ある」は「無い」として数える**。票は項目ごとに数え（多数決）、
+割れた項目しだいで段階が変わるときだけ確信度を下げて人に回す（P5・2026-11-13）。
 `conclusive` は立てない ── AI の判定は提案であって確定ではない。
 
 ## 項目はどこから来るか
@@ -60,6 +61,9 @@ AI の仕事になる。
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
+from itertools import product
+from math import floor
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -334,14 +338,13 @@ class ChecklistAiJudge:
         items, items_from = items_of(request)
         samples = int(request.options.get("samples", self._samples))
         try:
-            result = self._gateway.sample_structured(
+            results = self._gateway.sample_all(
                 PROMPT,
                 ChecklistVerdict,
                 model=self._model,
                 # 提出物は個人に紐づく。ローカルプロバイダ以外へは流れない（P7）。
                 data_class=DataClass.PERSONAL,
                 samples=samples,
-                key="present_items",
                 timeout_seconds=request.timeout_seconds,
                 max_tokens=1200,
                 statement=request.task_version.statement,
@@ -356,27 +359,20 @@ class ChecklistAiJudge:
                 error=f"{type(exc).__name__}: {exc}",
             )
 
-        verdict = result.value
         line_count = len(source.replace("\r\n", "\n").split("\n"))
-        # **課題が求めた項目だけを見る。** モデルが増やした項目は捨て、答え
-        # なかった項目は「無い」とする ── 求めた数で数えなければ、段階が
-        # モデルの出力の長さで変わる。
-        answered = {f.item: f for f in verdict.findings}
-        found = {
-            item.name: (
-                answered[item.name]
-                if item.name in answered and answered[item.name].present
-                else None
-            )
-            for item in items
-        }
+        tally = tally_items(items, [r.value for r in results], line_count)
+        found = tally.found
         missing = [name for name, hit in found.items() if hit is None]
 
         evidence = self._to_evidence(found, request, source_id, line_count)
         satisfied = sum(item.weight for item in items if found[item.name] is not None)
         total = sum(item.weight for item in items)
         level = level_for(satisfied, total, criterion)
-
+        # **確信度は「割れた項目が段階を動かすか」で決める**（2026-11-13）。項目ごとの
+        # 多数決で数えたうえで、票が割れた項目の判定を入れ替えても段階が変わらなければ
+        # 1.0、変わるなら割れた項目の一致度の最小。答え全体の一致度にすると、段階に
+        # 効かない 1 項目の揺れでも人に回る（exam08 p2 で 134 件中 75 件）。
+        confidence = confidence_of(tally, items, criterion, level)
         reasons = [
             "求めた項目はすべてあります"
             if not missing
@@ -386,7 +382,6 @@ class ChecklistAiJudge:
             if hit is not None:
                 reasons.append(f"「{name}」{hit.line} 行目")
         # 採点への指示と読める記述があれば人に回す（#411・`rubric_ai_judge` と同じ）。
-        confidence = result.agreement
         suspected = instruction_lines(source)
         if suspected:
             confidence = 0.0
@@ -411,8 +406,8 @@ class ChecklistAiJudge:
                     rationale="。".join(reasons) + "。",
                 ),
             ),
-            model_id=result.model_id,
-            prompt_id=result.prompt_id,
+            model_id=results[0].model_id,
+            prompt_id=results[0].prompt_id,
             raw_output={
                 "items_from": items_from,
                 "items": {name: hit is not None for name, hit in found.items()},
@@ -420,13 +415,14 @@ class ChecklistAiJudge:
                 "missing": missing,
                 "satisfied_weight": satisfied,
                 "total_weight": total,
-                "agreement": result.agreement,
+                "votes": {name: tally.votes[name] for name in found},
+                "agreement": tally.agreement,
                 "suspected_instruction_lines": list(suspected),
-                "samples": result.samples,
-                "attempts": result.attempts,
-                "provider": result.provider,
-                "duration_ms": result.usage.duration_ms,
-                "completion_tokens": result.usage.completion_tokens,
+                "samples": len(results),
+                "attempts": sum(r.attempts for r in results),
+                "provider": results[0].provider,
+                "duration_ms": sum(r.usage.duration_ms for r in results),
+                "completion_tokens": sum(r.usage.completion_tokens for r in results),
             },
         )
 
@@ -497,18 +493,90 @@ class ChecklistAiJudge:
         )
 
 
+@dataclass(frozen=True)
+class Tally:
+    """項目ごとの票。`found` は多数決で「ある」になった項目の根拠（無ければ None）。"""
+
+    found: dict[str, ItemFinding | None]
+    # 項目ごとに「ある」と答えた票の数と、票の総数。
+    votes: dict[str, tuple[int, int]]
+
+    @property
+    def split(self) -> list[str]:
+        """票が割れた項目。"""
+        return [name for name, (yes, total) in self.votes.items() if 0 < yes < total]
+
+    @property
+    def agreement(self) -> float:
+        """項目ごとの多数派の割合の最小（全項目でそろえば 1.0）。"""
+        shares = [max(yes, total - yes) / total for yes, total in self.votes.values() if total]
+        return min(shares, default=1.0)
+
+
+def tally_items(
+    items: tuple[ChecklistItem, ...], verdicts: list[ChecklistVerdict], line_count: int
+) -> Tally:
+    """**項目ごとに多数決を取る**（2026-11-13）。
+
+    答え全体（あると答えた項目の組）で多数決を取ると、1 項目の揺れで全体が割れる。
+    exam08 p2 の測定（20 件・各 3 票）では、項目ごとの判定は 13 件中 0〜3 件しか
+    割れていなかったのに、答え全体では 20 件中 13〜14 件が割れていた。
+
+    **実在する行を引けなかった「ある」は「無い」の票に数える**（P4）。根拠の無い
+    「ある」を満たしたことにすると、行 0（スキーマの既定）を返すだけで満点になる。
+    """
+    found: dict[str, ItemFinding | None] = {}
+    votes: dict[str, tuple[int, int]] = {}
+    for item in items:
+        grounded: list[ItemFinding] = []
+        for verdict in verdicts:
+            answered = {f.item: f for f in verdict.findings}
+            hit = answered.get(item.name)
+            if hit is not None and hit.present and 1 <= hit.line <= line_count:
+                grounded.append(hit)
+        votes[item.name] = (len(grounded), len(verdicts))
+        found[item.name] = grounded[0] if len(grounded) * 2 > len(verdicts) else None
+    return Tally(found=found, votes=votes)
+
+
+def confidence_of(
+    tally: Tally, items: tuple[ChecklistItem, ...], criterion: RubricCriterion, level: int
+) -> float:
+    """割れた項目の判定を入れ替えても段階が変わらなければ 1.0。変わるなら一致度の最小。"""
+    split = tally.split
+    if not split:
+        return 1.0
+    weights = {item.name: item.weight for item in items}
+    base = {name: hit is not None for name, hit in tally.found.items()}
+    total = sum(weights.values())
+    for flips in product((False, True), repeat=len(split)):
+        trial = dict(base)
+        for name, flip in zip(split, flips, strict=True):
+            if flip:
+                trial[name] = not trial[name]
+        satisfied = sum(weights[name] for name, present in trial.items() if present)
+        if level_for(satisfied, total, criterion) != level:
+            return tally.agreement
+    return 1.0
+
+
 def level_for(satisfied: float, total: float, criterion: RubricCriterion) -> int:
     """満たした項目の重みを、その観点が持つ段階に割り当てる。
 
     段階数は課題が決める（2 段でも 4 段でもよい）ので比率で対応させる。
     **数えるのはこちらの仕事である** ── モデルに段階を選ばせない。
+
+    **割合が届いた段階まで（切り捨て）**（2026-11-13・#682）。四捨五入だと、
+    8 項目中 7 項目で最上段（「すべて揃う」）になり、丸めの向きも偶数丸めで
+    場所ごとに逆になった。切り捨てなら最上段は全部そろったときだけで、
+    5 項目・4 段では 0〜1 → 0、2〜3 → 1、4 → 2、5 → 3 になる。
     """
     levels = sorted(level.level for level in criterion.levels)
     if total <= 0 or satisfied >= total:
         return levels[-1]
     if satisfied <= 0:
         return levels[0]
-    index = round(satisfied / total * (len(levels) - 1))
+    index = floor(satisfied / total * (len(levels) - 1) + 1e-9)
     return levels[max(0, min(index, len(levels) - 1))]
 
 
@@ -534,7 +602,10 @@ __all__ = [
     "ChecklistItem",
     "ChecklistVerdict",
     "ItemFinding",
+    "Tally",
     "build",
+    "confidence_of",
     "items_of",
     "level_for",
+    "tally_items",
 ]
