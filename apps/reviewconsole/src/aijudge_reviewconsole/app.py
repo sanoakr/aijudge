@@ -2106,6 +2106,16 @@ def _load(
                     "`uv run aijudge-worker --once` で採点してください。"
                 ),
             )
+        # **観点は、確認している採点記録の版から取る**（2026-11-13）。課題を直したあとの
+        # 再採点は今の版で走る（`task_ops.regrade_task`）ので、提出が指す版と採点の版が
+        # 違うことがある。提出の版で段階を出すと、画面では選べる段階（例: 版 1 の
+        # fix_scope の 2）が、確定の計算（`_final_ratio` は記録の版を引く）には無く、
+        # exam08 p5 の確定が KeyError で 500 になった。点・根拠・確定の計算がすべて
+        # 記録の版を見ているので、画面と受け取る段階もそれに揃える。
+        if run.context.task_version_id != task_version.id:
+            graded_on = uow.tasks.get_version(run.context.task_version_id)
+            if graded_on is not None:
+                task_version = graded_on
         mark = uow.reviews.find_blind_mark(submission_id)
         # **訂正を当てた blind 採点を使う**（ADR 0031）。画面・一致の判定・観測が
         # 同じ値を見るよう、読み出しの 1 か所で当てる。元の値は訂正の記録が持つ。
