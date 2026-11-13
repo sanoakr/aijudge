@@ -7,14 +7,16 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from aijudge_core import EvaluatorKind, ReviewPolicy
+from aijudge_core import JUDGE_MODEL_PATTERN, EvaluatorKind, ReviewPolicy
 
+from .protocol import JudgeModel
 from .registry import EvaluatorRegistry
 
 
@@ -139,6 +141,39 @@ class SubjectProfile(BaseModel):
     timeout_seconds: float = Field(default=10.0, gt=0.0)
     # 評価器ごとの追加設定。キーは evaluator_id。
     evaluator_options: dict[str, dict[str, object]] = Field(default_factory=dict)
+    # 観点が名指せるモデルの「重さ」（`JudgeModel`）。キーは観点の `judge_model`。
+    judge_models: dict[str, JudgeModel] = Field(default_factory=dict)
+
+    @field_validator("judge_models")
+    @classmethod
+    def _judge_model_names_have_the_criterion_shape(
+        cls, value: dict[str, JudgeModel]
+    ) -> dict[str, JudgeModel]:
+        """名前は観点に書ける形でなければならない（書けない名前は誰も使えない）。"""
+        pattern = re.compile(JUDGE_MODEL_PATTERN)
+        bad = sorted(name for name in value if not pattern.fullmatch(name))
+        if bad:
+            raise ValueError(
+                f"judge_models names must match {JUDGE_MODEL_PATTERN} "
+                f"(they are names, not model ids): {bad}"
+            )
+        return value
+
+    def judge_model_for(self, name: str | None) -> JudgeModel | None:
+        """観点の `judge_model` を実モデルにする。None は科目の既定（None を返す）。
+
+        **無い名前は例外にする。** 黙って既定のモデルに落とすと、重いモデルを
+        求めた観点が軽いモデルで採点され、それが記録にしか現れない。
+        """
+        if name is None:
+            return None
+        try:
+            return self.judge_models[name]
+        except KeyError:
+            raise KeyError(
+                f"profile {self.name!r} declares no judge model named {name!r} "
+                f"(declared: {sorted(self.judge_models) or 'none'})"
+            ) from None
 
     def validate_against(self, registry: EvaluatorRegistry) -> None:
         """宣言された Evaluator が実在し、種別が宣言と一致することを確かめる。"""

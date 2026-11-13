@@ -181,6 +181,8 @@ class OllamaProvider:
         }
         if request.repeat_penalty is not None:
             body["options"]["repeat_penalty"] = request.repeat_penalty  # type: ignore[index]
+        if request.num_ctx is not None:
+            body["options"]["num_ctx"] = request.num_ctx  # type: ignore[index]
         if request.json_schema is not None and self.capabilities.constrained_decoding:
             body["format"] = simplify_schema(request.json_schema)
 
@@ -330,6 +332,11 @@ class FallbackProvider:
             return response
         except LlmError:
             pass
+        # **従系では従系のモデル名で呼ぶ**（`LlmRequest.fallback_model`）。主系と同じ
+        # 名前のまま回すと、従系に無いモデルを指して「モデルが無い」で落ち、主系が
+        # 落ちている間は重さを名指しした観点がすべて未採点になる（2026-11-13）。
+        if request.fallback_model is not None:
+            request = request.model_copy(update={"model": request.fallback_model})
         response = self._secondary.complete(request)
         self.name = self._secondary.name
         return response

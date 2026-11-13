@@ -538,9 +538,15 @@ def _refuse_unrun_evaluators(course: Course, tasks: Sequence[TaskSpec], profiles
     （`_refuse_undeclared`・prog2 ex01-2）が、定義から入れる経路は素通りしていた。
 
     課題を 1 件も保存する前に断る。直し方はコースの採点設定で評価器を足すこと。
+
+    **観点が名指すモデルの重さ（`judge_model`）も同じ扱い**（2026-11-13）。科目
+    プロファイルの `judge_models` に無い名前を入れると、その観点は採点のたびに
+    失敗して人に回る。採点の時点で初めて分かる形にしない。
     """
     missing: list[str] = []
+    unknown_models: list[str] = []
     profiles: dict[str, set[str]] = {}
+    judge_models: dict[str, set[str]] = {}
     for task in tasks:
         name = task.subject_profile or course.subject_profile
         if name not in profiles:
@@ -552,6 +558,7 @@ def _refuse_unrun_evaluators(course: Course, tasks: Sequence[TaskSpec], profiles
                 profiles[name] = set()
                 continue
             profiles[name] = set(applied.deterministic) | set(applied.ai_evaluators)
+            judge_models[name] = set(applied.judge_models)
         run = profiles[name]
         if not run:
             continue
@@ -559,6 +566,20 @@ def _refuse_unrun_evaluators(course: Course, tasks: Sequence[TaskSpec], profiles
             evaluator = criterion.evaluator or ""
             if evaluator and evaluator != HUMAN_SCORED and evaluator not in run:
                 missing.append(f"{task.key or '?'} の観点「{criterion.code}」（{evaluator}）")
+            if criterion.judge_model and criterion.judge_model not in judge_models[name]:
+                unknown_models.append(
+                    f"{task.key or '?'} の観点「{criterion.code}」"
+                    f"（judge_model: {criterion.judge_model}）"
+                )
+    if unknown_models:
+        shown = "、".join(unknown_models[:5]) + (
+            f" ほか {len(unknown_models) - 5} 件" if len(unknown_models) > 5 else ""
+        )
+        raise AdminError(
+            f"科目プロファイルの judge_models に無いモデルの重さを指す観点があります: {shown}。"
+            "このまま入れると、その観点は採点のたびに失敗して人に回ります。"
+            "運用機の科目プロファイルに judge_models を足してから入れてください"
+        )
     if missing:
         shown = "、".join(missing[:5]) + (
             f" ほか {len(missing) - 5} 件" if len(missing) > 5 else ""

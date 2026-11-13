@@ -639,6 +639,9 @@ def _task_page(
             # **選択肢から消すだけでは、保存した瞬間に黙って別のものに
             # 変わる**ので、選択中のまま出して警告する。
             "undeclared": dict(_undeclared_evaluators(effective, rows)),
+            # 観点が選べるモデルの重さ（科目プロファイルの `judge_models`・2026-11-13）。
+            # 科目に無い名前が付いた観点は、選択中のまま警告する（`_criterion_fields`）。
+            "judge_model_names": sorted(effective.judge_models) if effective is not None else [],
             "suffix_groups": SUFFIX_GROUPS,
             "course_suffixes": (
                 (task.accepted_suffixes if task is not None else ())

@@ -124,6 +124,12 @@ MAX_TASK_CASE_TIMEOUT_SECONDS = 60.0
 #: 収まる長さにする ── 収まらないと、開いた直後から保存できない画面になる。
 MAX_EDITOR_TEMPLATE_CHARS = 16 * 1024
 
+#: 観点が名指すモデルの「重さ」の名前（`RubricCriterion.judge_model`）の形。
+#: 名前であって値ではないので、英小文字・数字・`_`・`-` だけに絞る ── モデル名
+#: （`qwen3.6:35b-a3b`）を書き込まれたときに、ここで断れるようにする。
+JUDGE_MODEL_PATTERN = r"^[a-z][a-z0-9_-]*$"
+MAX_JUDGE_MODEL_NAME = 32
+
 
 class RubricCriterion(BaseModel):
     """ルーブリックの 1 観点。AI 評価器はこの単位で 1 回呼ばれる（§04）。"""
@@ -145,6 +151,15 @@ class RubricCriterion(BaseModel):
     # 写して出し直せば満点になる・2026-09-28）。None なら AI は `description` と
     # 段階だけで判定する（従来どおり）。
     judging_notes: str | None = None
+    # **AI 評価器に使わせるモデルの「重さ」の名前**（例: `large`）。モデル名そのもの
+    # ではない ── 名前から実モデルへの対応は科目プロファイル（`judge_models`）が持つ。
+    # 課題の定義にモデル名を書かせると、モデルを入れ替えるたびに全課題の版が上がり、
+    # どのモデルが学内にあるか（P7）の判断が課題の側に散る。None は科目の既定の
+    # モデル（`AIJUDGE_LLM_MODEL`）。2026-11-13、gemma4:e4b ではレポートと
+    # コメントの説明を読む観点が重すぎたため、観点ごとに重いモデルを選べるようにした。
+    judge_model: str | None = Field(
+        default=None, min_length=1, max_length=MAX_JUDGE_MODEL_NAME, pattern=JUDGE_MODEL_PATTERN
+    )
 
     @model_validator(mode="after")
     def _check_levels(self) -> Self:
