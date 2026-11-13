@@ -181,6 +181,9 @@ class ResultView:
     can_request_review: bool = False
     request_reason: str | None = None
     requested: bool = False
+    #: 前の採点に出した依頼が、再採点で置き換わって終了したか（2026-11-13）。
+    #: 欄は新しい採点に対して開いている ── 終わったことと、改めて出せることを伝える。
+    request_closed_by_regrade: bool = False
     # 教員の確認を待っていて、結果を何も持っていないか（ADR 0033）。
     held_for_review: bool = False
 
@@ -241,6 +244,7 @@ def build_result_view(
     review: HumanReview | None,
     *,
     request: object | None = None,
+    closed_request: object | None = None,
     finalization: Finalization | None = None,
     auto_finalize_after_minutes: int | None = None,
     #: この採点に付いた確認の件数（#275）。2 件以上なら訂正されている。
@@ -411,6 +415,9 @@ def build_result_view(
         can_request_review=can_request,
         request_reason=reason,
         requested=request is not None,
+        # この採点にまだ依頼が無いときだけ出す。新しい採点に改めて出したら、
+        # そちらの状態（依頼済み・回答済み）を見せる。
+        request_closed_by_regrade=closed_request is not None and request is None,
     )
 
 

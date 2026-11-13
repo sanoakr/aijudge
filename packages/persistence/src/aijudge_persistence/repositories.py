@@ -779,6 +779,46 @@ class SqlReviewRepository:
         row.document = document
         self._session.flush()
 
+    def close_request_for_superseded_run(
+        self, old_run_id: GradingRunId, new_run_id: GradingRunId, at: datetime
+    ) -> ReviewRequest | None:
+        # **列を足さず document に追記する**（`resolve_request` と同じ形）。待ち行列は
+        # 「依頼の採点が置き換わっていない」（`grading_runs.superseded_by`）で絞るので、
+        # 閉じたかどうかを SQL で引く必要が無い。`resolved_by` は空のまま ── 教員は
+        # 読んでいない（ADR 0010）。
+        row = (
+            self._session.execute(
+                select(ReviewRequestRow).where(ReviewRequestRow.grading_run_id == str(old_run_id))
+            )
+            .scalars()
+            .first()
+        )
+        if row is None:
+            return None
+        request = ReviewRequest.model_validate(row.document)
+        if not request.pending:
+            return None
+        closed = request.model_copy(update={"closed_by_run": new_run_id, "closed_at": at})
+        row.document = _dump(closed)
+        self._session.flush()
+        return closed
+
+    def request_closed_by(self, run_id: GradingRunId) -> ReviewRequest | None:
+        # 置き換えた採点は `grading_runs.superseded_by` で辿れる（列なので JSON を検索しない）。
+        row = (
+            self._session.execute(
+                select(ReviewRequestRow)
+                .join(GradingRunRow, GradingRunRow.id == ReviewRequestRow.grading_run_id)
+                .where(GradingRunRow.superseded_by == str(run_id))
+            )
+            .scalars()
+            .first()
+        )
+        if row is None:
+            return None
+        request = ReviewRequest.model_validate(row.document)
+        return request if request.closed_by_run == run_id else None
+
     # -- レビュー待ち行列（教員 UI 用の読み取り）--------------------------
 
     def requested_for_course(
@@ -806,7 +846,13 @@ class SqlReviewRepository:
             .limit(limit)
         )
         if not include_resolved:
-            statement = statement.where(ReviewRequestRow.resolved_by.is_(None))
+            # 教員が答えたものと、**再採点で対象の採点が置き換わったもの**は出さない
+            # （2026-11-13）。後者は「再採点により終了」として閉じてある
+            # （`close_request_for_superseded_run`）。依頼はその採点への申し立てで、
+            # 新しい採点を読んだ確認では答えない。学習者は新しい採点に改めて依頼する。
+            statement = statement.where(
+                ReviewRequestRow.resolved_by.is_(None), GradingRunRow.superseded_by.is_(None)
+            )
 
         return tuple(
             (
@@ -941,6 +987,8 @@ class SqlReviewRepository:
             .join(TaskRow, TaskRow.id == TaskVersionRow.task_id)
             .where(TaskRow.course_id == str(course_id))
             .where(ReviewRequestRow.resolved_by.is_(None))
+            # 再採点で終了した依頼は数えない（待ち行列と同じ範囲・`requested_for_course`）。
+            .where(GradingRunRow.superseded_by.is_(None))
         )
 
         # 最新の採点 1 件につき 1 行。**再採点された提出で古い採点まで

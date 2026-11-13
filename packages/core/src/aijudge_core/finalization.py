@@ -173,8 +173,11 @@ def blocks_finalization(request: ReviewRequest | None) -> bool:
     **依頼が出ているものを自動でも一括でも確定させない。** 学習者は
     「人に見てほしい」と言っている。そこへ機械が確定を書き込むと、
     異議申立の導線そのものが無意味になる（ADR 0009）。
+
+    再採点で終了した依頼（`ReviewRequest.closed`）は止めない。対象の採点はもう
+    成績ではなく、学習者は新しい採点に改めて依頼できる。
     """
-    return request is not None and not request.resolved
+    return request is not None and request.pending
 
 
 def auto_finalizable(run: GradingRun, request: ReviewRequest | None) -> bool:

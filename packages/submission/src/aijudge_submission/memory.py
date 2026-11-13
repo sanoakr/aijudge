@@ -334,6 +334,22 @@ class InMemoryReviewRepository:
         if request is not None:
             self._requests[request_id] = request.model_copy(update={"resolved_by": review_id})
 
+    def close_request_for_superseded_run(
+        self, old_run_id: GradingRunId, new_run_id: GradingRunId, at: datetime
+    ) -> ReviewRequest | None:
+        request = self.find_request_for_run(old_run_id)
+        if request is None or not request.pending:
+            return None
+        closed = request.model_copy(update={"closed_by_run": new_run_id, "closed_at": at})
+        self._requests[request.id] = closed
+        return closed
+
+    def request_closed_by(self, run_id: GradingRunId) -> ReviewRequest | None:
+        return next(
+            (request for request in self._requests.values() if request.closed_by_run == run_id),
+            None,
+        )
+
     # -- 成績の確定 --
 
     def save_finalization(self, finalization: Finalization) -> None:

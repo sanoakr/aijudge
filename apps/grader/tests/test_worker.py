@@ -302,6 +302,60 @@ def test_regrading_adds_a_run_and_supersedes_the_old_one(world: World) -> None:
     assert runs[1].superseded_by is None
 
 
+@needs_c_compiler
+def test_a_regrade_closes_the_review_request_on_the_replaced_run(world: World) -> None:
+    """**置き換わった採点への依頼は「再採点により終了」**（2026-11-13）。
+
+    依頼はその採点への申し立てで、新しい採点を読んだ教員の確認では答えない。
+    閉じ忘れると待ち行列に残り続け、確定しても対応済みにならない（確定は最新の
+    採点の依頼しか見ない）。教員が答えたことにはしない（`resolved_by` は空）。
+    """
+    from aijudge_core import ReviewRequest
+    from aijudge_core.ids import ReviewRequestId
+
+    accepted = world.submit()
+    world.worker.run_once()
+    with world.database.unit_of_work() as uow:
+        first = uow.runs.latest_for(accepted.submission.id)
+        assert first is not None
+        uow.reviews.save_request(
+            ReviewRequest(
+                id=ReviewRequestId("rrq_" + "1" * 32),
+                submission_id=accepted.submission.id,
+                grading_run_id=first.id,
+                learner_id=accepted.submission.learner_id,
+                reason="読みやすさが「一部」ですが、変数名は役割どおりのはずです。",
+                requested_at=world.clock(),
+            )
+        )
+        uow.commit()
+
+    world.provider._responses.extend([AI_SAYS_1] * PROFILE_SAMPLES)
+    world.service.request_regrade(
+        tenant_id=TENANT,
+        submission_id=accepted.submission.id,
+        subject_profile=PROFILE,
+        discriminator="model-v2",
+    )
+    world.clock.advance(60)
+    second = world.worker.run_once()
+    assert second is not None and second.graded, second.error if second else None
+
+    with world.database.unit_of_work() as uow:
+        latest = uow.runs.latest_for(accepted.submission.id)
+        old = uow.reviews.find_request_for_run(first.id)
+        closed = None if latest is None else uow.reviews.request_closed_by(latest.id)
+        fresh = None if latest is None else uow.reviews.find_request_for_run(latest.id)
+    assert latest is not None and latest.id != first.id
+    assert old is not None
+    assert old.closed_by_run == latest.id
+    assert old.resolved_by is None, "教員は何も読んでいない"
+    assert not old.pending
+    assert closed == old
+    # 新しい採点にはまだ依頼が無い ── 学習者は改めて出せる。
+    assert fresh is None
+
+
 # --------------------------------------------------------------------------
 # 失敗の扱い
 # --------------------------------------------------------------------------

@@ -1212,6 +1212,76 @@ def test_the_attention_count_excludes_the_instructors_own_trial(database: Databa
     assert sum(number for _task, _routing, number in counts.unfinalized_by_task) == 2
 
 
+def test_a_request_closed_by_a_regrade_leaves_the_queue_and_a_new_one_can_be_made(
+    database: Database,
+) -> None:
+    """再採点で終了した依頼は待ち行列にも「異議あり」の件数にも出ない（2026-11-13）。
+
+    新しい採点には改めて依頼できる（依頼は採点 1 件に 1 件）。**方言差が出うる**
+    （置き換えを `grading_runs.superseded_by` の列で辿る）ので、両方で回す。
+    """
+    from datetime import timedelta
+
+    from aijudge_core import ReviewRequest
+    from aijudge_core.ids import ReviewRequestId
+
+    version = a_task_version()
+    with database.unit_of_work() as uow:
+        uow.tasks.save_task(Task(id=TASK_ID, course_id=COURSE, title="exam08 p2", session=8))
+        uow.tasks.save_version(version)
+        uow.commit()
+    accepted = a_service(database).accept(
+        tenant_id=TENANT,
+        task_version_id=version.id,
+        learner_id=LEARNER,
+        subject_profile="cs_lang_c_intro",
+        files=code(),
+    )
+    submission_id = accepted.submission.id
+    old_id, new_id = GradingRunId("grn_" + "a" * 32), GradingRunId("grn_" + "c" * 32)
+
+    def request(run_id: GradingRunId, key: str) -> ReviewRequest:
+        return ReviewRequest(
+            id=ReviewRequestId("rrq_" + key * 32),
+            submission_id=submission_id,
+            grading_run_id=run_id,
+            learner_id=LEARNER,
+            reason="説明が「一部」ですが、5 か所とも手順を書いたつもりです。",
+            requested_at=NOW,
+        )
+
+    with database.unit_of_work() as uow:
+        uow.runs.save(a_run(old_id, submission_id))
+        uow.reviews.save_request(request(old_id, "1"))
+        uow.commit()
+    with database.unit_of_work() as uow:
+        assert len(uow.reviews.requested_for_course(COURSE)) == 1
+        assert uow.reviews.attention_counts_for_course(COURSE).contested == 1
+
+    with database.unit_of_work() as uow:
+        uow.runs.save(
+            a_run(new_id, submission_id).model_copy(update={"created_at": NOW + timedelta(hours=1)})
+        )
+        uow.runs.supersede(old_id, new_id)
+        uow.reviews.close_request_for_superseded_run(old_id, new_id, NOW + timedelta(hours=1))
+        uow.commit()
+    with database.unit_of_work() as uow:
+        assert uow.reviews.requested_for_course(COURSE) == ()
+        assert uow.reviews.attention_counts_for_course(COURSE).contested == 0
+        closed = uow.reviews.request_closed_by(new_id)
+        assert closed is not None and closed.id == request(old_id, "1").id
+        assert uow.reviews.request_closed_by(old_id) is None
+
+    # 新しい採点への依頼は出せて、待ち行列に出る。
+    with database.unit_of_work() as uow:
+        uow.reviews.save_request(request(new_id, "2"))
+        uow.commit()
+    with database.unit_of_work() as uow:
+        queued = uow.reviews.requested_for_course(COURSE)
+        assert [str(r.id) for _s, _r, r in queued] == [str(request(new_id, "2").id)]
+        assert uow.reviews.attention_counts_for_course(COURSE).contested == 1
+
+
 def test_iterating_a_course_is_not_capped_by_the_listing_limit(database: Database) -> None:
     """**判断に使う経路は打ち切らない**（#219）。
 
@@ -1616,6 +1686,57 @@ def test_a_blind_correction_cannot_be_rewritten(review_repo) -> None:
         uow.commit()
     with review_repo() as uow, pytest.raises(ImmutabilityViolation):
         uow.reviews.save_blind_correction(correction.model_copy(update={"levels": {}}))
+
+
+def _a_request(run: str, key: str = "1"):
+    from aijudge_core import ReviewRequest
+    from aijudge_core.ids import GradingRunId, ReviewRequestId, SubmissionId
+
+    return ReviewRequest(
+        id=ReviewRequestId("rrq_" + key * 32),
+        submission_id=SubmissionId("sub_" + "5" * 32),
+        grading_run_id=GradingRunId(run),
+        learner_id=LEARNER,
+        reason="出力の正しさが「一部」ですが、入力例 3 は仕様どおりのはずです。",
+        requested_at=NOW,
+    )
+
+
+def test_a_regrade_closes_only_an_open_request(review_repo) -> None:
+    """**再採点で終わるのは未対応の依頼だけ**（2026-11-13）。答えた依頼には触れない。"""
+    from datetime import timedelta
+
+    from aijudge_core.ids import GradingRunId, HumanReviewId
+
+    old, new = GradingRunId("grn_" + "a" * 32), GradingRunId("grn_" + "c" * 32)
+    answered_run, later = GradingRunId("grn_" + "b" * 32), NOW + timedelta(hours=1)
+    with review_repo() as uow:
+        uow.reviews.save_request(_a_request(old, "1"))
+        uow.reviews.save_request(_a_request(answered_run, "2"))
+        uow.reviews.resolve_request(
+            _a_request(answered_run, "2").id, HumanReviewId("hrv_" + "9" * 32)
+        )
+        uow.commit()
+
+    with review_repo() as uow:
+        closed = uow.reviews.close_request_for_superseded_run(old, new, later)
+        untouched = uow.reviews.close_request_for_superseded_run(
+            answered_run, GradingRunId("grn_" + "d" * 32), later
+        )
+        uow.commit()
+    assert closed is not None
+    assert (closed.closed_by_run, closed.closed_at, closed.resolved_by) == (new, later, None)
+    assert untouched is None
+
+    with review_repo() as uow:
+        stored = uow.reviews.find_request_for_run(old)
+        answered = uow.reviews.find_request_for_run(answered_run)
+        # 2 度目は何もしない（追記のみ・P8）。
+        again = uow.reviews.close_request_for_superseded_run(old, new, later)
+    assert stored == closed
+    assert not stored.pending and stored.closed and not stored.resolved
+    assert answered is not None and answered.resolved and not answered.closed
+    assert again is None
 
 
 def test_an_observation_is_kept_once_per_task(skill_repo) -> None:
