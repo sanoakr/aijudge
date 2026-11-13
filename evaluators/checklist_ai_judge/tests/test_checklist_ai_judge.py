@@ -545,3 +545,26 @@ def test_an_extra_answer_does_not_take_an_item_by_order() -> None:
         }
     ).evaluate(_request(cases=cases))
     assert outcome.raw_output["missing"] == ["目的", "方法"]
+
+
+def test_a_long_item_name_is_cut_rather_than_failing() -> None:
+    """**説明文まで写した長い項目名でも、答え全体を落とさない**（2026-11-13）。
+
+    「②: int min = i; の直前の…」のように 100 字を超えて返すと、以前は検査に落ちて
+    3 回やり直したあと評価器ごと失敗した。切り詰め、先頭の印で項目に対応させる。
+    """
+    short = tuple(_item_case(mark) for mark in FIVE)
+    long_answer = {
+        "findings": [
+            {
+                "item": f"{mark}: " + "直前のコメントが手順を説明している。" * 10,
+                "present": True,
+                "line": i + 1,
+                "quote": mark,
+            }
+            for i, mark in enumerate(FIVE)
+        ]
+    }
+    outcome = _judge(long_answer, long_answer, long_answer).evaluate(_request(cases=short))
+    assert outcome.status is EvaluatorStatus.OK
+    assert outcome.scores[0].level == 3

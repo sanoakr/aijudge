@@ -66,7 +66,7 @@ from dataclasses import dataclass
 from itertools import product
 from math import floor
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from aijudge_core import (
     CriterionScore,
@@ -93,6 +93,9 @@ from aijudge_llm_gateway import (
 )
 
 EVALUATOR_ID = "checklist_ai_judge"
+
+#: 答えの項目名の長さの上限。超えたら切り詰める（`ItemFinding._shorten`）。
+ITEM_NAME_LIMIT = 100
 
 ENV_SAMPLES = "AIJUDGE_JUDGE_SAMPLES"
 DEFAULT_SAMPLES = 3
@@ -129,8 +132,22 @@ class ItemFinding(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    item: str = Field(min_length=1, max_length=100)
+    item: str = Field(min_length=1, max_length=ITEM_NAME_LIMIT)
     present: bool
+
+    @field_validator("item", mode="before")
+    @classmethod
+    def _shorten(cls, value: object) -> object:
+        """**長すぎる項目名は切り詰めて受け取る**（2026-11-13）。
+
+        モデルは項目名の欄に説明文まで写すことがある（「②: int min = i; の直前の…」）。
+        上限で断ると答え全体が検査に落ち、3 回やり直して評価器ごと失敗した
+        （exam08 p2 の測定）。照合は先頭の印や並び順でできるので、名前の後ろは要らない。
+        """
+        if isinstance(value, str) and len(value) > ITEM_NAME_LIMIT:
+            return value[:ITEM_NAME_LIMIT]
+        return value
+
     # 見つけた場所の行。**`present` のときだけ意味を持つ。** 0 を許すのは、
     # 無いと答えるときに何を書かせるかでモデルを迷わせないため。
     line: int = Field(default=0, ge=0)
@@ -561,8 +578,10 @@ def match_findings(
         return "".join(text.split())
 
     def head(text: str) -> str:
-        parts = text.split()
-        return parts[0] if parts else ""
+        # 先頭の語。区切りの記号（`②:`・`②。`）は落とす ── 名前を「②」にしても、
+        # モデルは「②: 説明…」と書いて返す。
+        parts = text.replace("：", " ").replace(":", " ").split()
+        return parts[0].strip("。、.,）)") if parts else ""
 
     result: dict[str, ItemFinding] = {}
     left = list(verdict.findings)
