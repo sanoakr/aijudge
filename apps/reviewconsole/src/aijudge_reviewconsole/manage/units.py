@@ -1052,7 +1052,22 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
         course = _require_instructor(request, me, CourseId(course_id))
         console = _console(request)
         key = _normalized_unit(unit)
-        group = _unit_group(console, course, unit)
+        try:
+            group = _unit_group(console, course, unit)
+        except HTTPException as exc:
+            # **問題の無いセットは「見つからない」ではなく「まだ入れる先が無い」**
+            # （2026-11-13）。問題セットは課題の `unit` の集まりで、作ったばかりの
+            # セットは記録を持たない。404 の「見つかりません」では、画面に出ている
+            # セットについて何が悪いのか読めなかった（画面はもう欄を出さない）。
+            if exc.status_code != 404:
+                raise
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "この問題セットにはまだ問題がありません。設定は問題ごとに入るので、"
+                    "最初の問題を追加してから保存してください"
+                ),
+            ) from None
         form = await request.form()
 
         def text(name: str) -> str:
