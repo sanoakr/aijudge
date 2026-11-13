@@ -32,6 +32,7 @@ dependencies = [
     "aijudge-eval-network-test-runner",
     "aijudge-ext-document-text",
     "aijudge-eval-checklist-ai-judge",
+    "aijudge-eval-comment-slot-judge",
     "aijudge-eval-text-pattern-check",
     "aijudge-eval-c-indent-check",
     "aijudge-eval-template-diff-check",
@@ -89,6 +90,7 @@ aijudge-toolchain = { workspace = true }
 aijudge-eval-network-test-runner = { workspace = true }
 aijudge-ext-document-text = { workspace = true }
 aijudge-eval-checklist-ai-judge = { workspace = true }
+aijudge-eval-comment-slot-judge = { workspace = true }
 aijudge-eval-text-pattern-check = { workspace = true }
 aijudge-eval-c-indent-check = { workspace = true }
 aijudge-eval-template-diff-check = { workspace = true }

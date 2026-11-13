@@ -19,6 +19,7 @@ members = [
     "aijudge-eval-c-indent-check",
     "aijudge-eval-checklist-ai-judge",
     "aijudge-eval-code-test-runner",
+    "aijudge-eval-comment-slot-judge",
     "aijudge-eval-line-diff-check",
     "aijudge-eval-network-test-runner",
     "aijudge-eval-rubric-ai-judge",
@@ -64,6 +65,7 @@ dependencies = [
     { name = "aijudge-eval-c-indent-check" },
     { name = "aijudge-eval-checklist-ai-judge" },
     { name = "aijudge-eval-code-test-runner" },
+    { name = "aijudge-eval-comment-slot-judge" },
     { name = "aijudge-eval-line-diff-check" },
     { name = "aijudge-eval-network-test-runner" },
     { name = "aijudge-eval-rubric-ai-judge" },
@@ -128,6 +130,7 @@ requires-dist = [
     { name = "aijudge-eval-c-indent-check", editable = "evaluators/c_indent_check" },
     { name = "aijudge-eval-checklist-ai-judge", editable = "evaluators/checklist_ai_judge" },
     { name = "aijudge-eval-code-test-runner", editable = "evaluators/code_test_runner" },
+    { name = "aijudge-eval-comment-slot-judge", editable = "evaluators/comment_slot_judge" },
     { name = "aijudge-eval-line-diff-check", editable = "evaluators/line_diff_check" },
     { name = "aijudge-eval-network-test-runner", editable = "evaluators/network_test_runner" },
     { name = "aijudge-eval-rubric-ai-judge", editable = "evaluators/rubric_ai_judge" },
@@ -359,6 +362,23 @@ requires-dist = [
     { name = "aijudge-grading", editable = "packages/grading" },
     { name = "aijudge-sandbox", editable = "packages/sandbox" },
     { name = "aijudge-toolchain", editable = "packages/toolchain" },
+]
+
+[[package]]
+name = "aijudge-eval-comment-slot-judge"
+version = "0.0.1"
+source = { editable = "evaluators/comment_slot_judge" }
+dependencies = [
+    { name = "aijudge-core" },
+    { name = "aijudge-grading" },
+    { name = "aijudge-llm-gateway" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aijudge-core", editable = "packages/core" },
+    { name = "aijudge-grading", editable = "packages/grading" },
+    { name = "aijudge-llm-gateway", editable = "packages/llm_gateway" },
 ]
 
 [[package]]

@@ -30,6 +30,21 @@
 
 範囲が複数あるテンプレートにも使える（固定部分と範囲が交互に並ぶ）。
 
+## 全体比較（`whole_program`・2026-11-14）
+
+「コメントだけを書き換え、コードは一切変えない」課題（prog2 exam08 p2: 選択ソートの
+各段にコメントを書く）には目印が無い ── プログラム全体が「変えてはいけない部分」で、
+書いてよいのはコメントだけである。そこで**コメントと空白を除いた提出全体**を、問題文の
+コードブロック（言語名の付いた最初のもの。無ければ最初のもの）と比べるモードを足した。
+
+- 課題ごとに宣言する: この評価器あての検証データ（`evaluator: template_diff_check`）の
+  payload に `whole_program: true`。科目プロファイルの `evaluator_options` でも立てられるが、
+  科目の全課題に効くので、目印を使う課題と同じ科目では課題の側に書く。
+- コメント（`//` と `/* */`）は中身ごと除く。文字列・文字の定数の中は残す（`"%d "` の
+  空白も出力を変える）。空白の扱いは目印のモードと同じ（問わない）。
+- 以前は exam08 p2 のこの判定を AI に任せていた（判定の注意書きの「コードの行を変えて
+  いれば 1 段下げる」）。比べれば決まることなので、ここに移す（P3）。
+
 ## 段階
 
 満たせば最上段、満たさなければ最下段。`conclusive` を立てる ── 比べた結果に
@@ -137,6 +152,78 @@ def normalized_lines(source: str) -> tuple[Line, ...]:
         if text:
             lines.append(Line(text=text, number=number, raw=raw.rstrip()))
     return tuple(lines)
+
+
+def strip_comment_line(line: str, in_block_comment: bool) -> tuple[str, bool]:
+    """1 行から、コメントを中身ごと除き、文字列・文字の定数の外にある空白を取り除く。
+
+    `normalize_line` との違いはコメントを残さないことだけ（全体比較のモードで使う）。
+    """
+    out: list[str] = []
+    i = 0
+    n = len(line)
+    while i < n:
+        ch = line[i]
+        if in_block_comment:
+            if line.startswith("*/", i):
+                i += 2
+                in_block_comment = False
+                continue
+            i += 1
+            continue
+        if line.startswith("//", i):
+            break
+        if line.startswith("/*", i):
+            i += 2
+            in_block_comment = True
+            continue
+        if ch in "\"'":
+            j = i + 1
+            while j < n and line[j] != ch:
+                j += 2 if line[j] == "\\" else 1
+            out.append(line[i : j + 1])
+            i = j + 1
+            continue
+        if not ch.isspace():
+            out.append(ch)
+        i += 1
+    return "".join(out), in_block_comment
+
+
+def code_lines(source: str) -> tuple[Line, ...]:
+    """コメントと空白を除いて空にならない行の並び（全体比較のモード）。"""
+    lines: list[Line] = []
+    in_block = False
+    for number, raw in enumerate(source.replace("\r\n", "\n").replace("\r", "\n").split("\n"), 1):
+        text, in_block = strip_comment_line(raw, in_block)
+        if text:
+            lines.append(Line(text=text, number=number, raw=raw.rstrip()))
+    return tuple(lines)
+
+
+#: 言語名の付いたコードブロック（入出力の例のブロックを取らないため）。
+_NAMED_FENCE = re.compile(r"^```[ \t]*[A-Za-z][^\n]*\n(.*?)^```", re.MULTILINE | re.DOTALL)
+
+
+def find_program(statement: str) -> str | None:
+    """問題文のプログラム。言語名の付いた最初のコードブロック（無ければ最初のもの）。"""
+    named = _NAMED_FENCE.search(statement)
+    if named is not None:
+        return named.group(1)
+    any_block = _FENCE.search(statement)
+    return None if any_block is None else any_block.group(1)
+
+
+def check_whole_program(source: str, program: str) -> Verdict:
+    """コメントと空白を除いた提出全体が、問題文のプログラムと同じか。"""
+    submitted = code_lines(source)
+    expected = code_lines(program)
+    for k in range(max(len(submitted), len(expected))):
+        got = submitted[k] if k < len(submitted) else None
+        want = expected[k] if k < len(expected) else None
+        if got is None or want is None or got.text != want.text:
+            return Verdict(kept=False, submitted=got, expected=want)
+    return Verdict(kept=True)
 
 
 def find_template(statement: str, start_marker: str) -> str | None:
@@ -284,6 +371,17 @@ def _first_difference(lines: tuple[Line, ...], template: Template) -> Verdict:
 # --------------------------------------------------------------------------
 
 
+def whole_program_requested(request: EvaluationRequest) -> bool:
+    """全体比較のモードか。課題の検証データ（自分あて）か、評価器のオプションで立てる。"""
+    if bool(request.options.get("whole_program")):
+        return True
+    return any(
+        bool(case.payload.get("whole_program"))
+        for case in request.test_cases
+        if case.evaluator_id in (None, EVALUATOR_ID)
+    )
+
+
 def judge_level(verdict: Verdict, criterion: RubricCriterion) -> int:
     levels = sorted(level.level for level in criterion.levels)
     return levels[-1] if verdict.kept else levels[0]
@@ -294,6 +392,10 @@ class TemplateDiffCheck:
 
     evaluator_id = EVALUATOR_ID
     kind = EvaluatorKind.DETERMINISTIC
+    # 全体比較の宣言（`whole_program`）を課題の検証データから読む（2026-11-14）。
+    # 画面には編集欄の無い形として出る（course.yaml で書く）。
+    uses_test_cases = True
+    test_case_shape = "template_mode"
 
     def evaluate(self, request: EvaluationRequest) -> EvaluationOutcome:
         targets = [c for c in request.task_version.criteria if c.evaluator_id == EVALUATOR_ID]
@@ -302,6 +404,8 @@ class TemplateDiffCheck:
                 status=EvaluatorStatus.SKIPPED,
                 raw_output={"reason": "no criterion names template_diff_check"},
             )
+        if whole_program_requested(request):
+            return self._evaluate_whole(request, targets)
         start_marker = str(request.options.get("start_marker", DEFAULT_START_MARKER))
         end_marker = str(request.options.get("end_marker", DEFAULT_END_MARKER))
         text = find_template(request.task_version.statement, start_marker)
@@ -357,6 +461,75 @@ class TemplateDiffCheck:
             },
         )
 
+    def _evaluate_whole(
+        self, request: EvaluationRequest, targets: list[RubricCriterion]
+    ) -> EvaluationOutcome:
+        """全体比較のモード（`whole_program`）。"""
+        program = find_program(request.task_version.statement)
+        if program is None or not code_lines(program):
+            return EvaluationOutcome(
+                status=EvaluatorStatus.FAILED,
+                error="問題文にプログラムのコードブロックがありません（全体比較）",
+            )
+        found = self._source(request)
+        if found is None:
+            return EvaluationOutcome(
+                status=EvaluatorStatus.SKIPPED, raw_output={"reason": "no source to compare"}
+            )
+        artifact_id, content_hash, source = found
+        verdict = check_whole_program(source, program)
+        evidence = self._evidence(artifact_id, content_hash, verdict, whole=True)
+        rationale = self._whole_rationale(verdict)
+        scores = []
+        for criterion in targets:
+            level = judge_level(verdict, criterion)
+            scores.append(
+                CriterionScore(
+                    id=CriterionScoreId(new_id("cs")),
+                    criterion_id=criterion.id,
+                    evaluator_result_id=EvaluatorResultId(new_id("evr")),
+                    kind=EvaluatorKind.DETERMINISTIC,
+                    level=level,
+                    score_ratio=criterion.level_for(level).score_ratio,
+                    weight=criterion.weight,
+                    confidence=1.0,
+                    conclusive=True,
+                    evidence=evidence,
+                    rationale=rationale,
+                )
+            )
+        return EvaluationOutcome(
+            status=EvaluatorStatus.OK,
+            scores=tuple(scores),
+            raw_output={
+                "kept": verdict.kept,
+                "mode": "whole_program",
+                "submitted_line": verdict.submitted.number if verdict.submitted else None,
+                "expected_line": verdict.expected.number if verdict.expected else None,
+            },
+        )
+
+    @staticmethod
+    def _whole_rationale(verdict: Verdict) -> str:
+        if verdict.kept:
+            return "コメントと空白を除くと、問題文のプログラムと同じです。"
+        submitted, expected = verdict.submitted, verdict.expected
+        if submitted is not None and expected is not None:
+            return (
+                f"コメント以外を変えています。提出の {submitted.number} 行目"
+                f"「{submitted.raw.strip()}」は、問題文では「{expected.raw.strip()}」です。"
+            )
+        if expected is not None:
+            return (
+                f"コメント以外を変えています。問題文の「{expected.raw.strip()}」が見つかりません。"
+            )
+        if submitted is not None:
+            return (
+                f"コメント以外を変えています。提出の {submitted.number} 行目"
+                f"「{submitted.raw.strip()}」は、問題文に無い行です。"
+            )
+        return "コメント以外を変えています。"
+
     # -- internals ---------------------------------------------------------
 
     def _source(self, request: EvaluationRequest) -> tuple[ArtifactId, str, str] | None:
@@ -374,7 +547,7 @@ class TemplateDiffCheck:
         return None
 
     def _evidence(
-        self, artifact_id: ArtifactId, content_hash: str, verdict: Verdict
+        self, artifact_id: ArtifactId, content_hash: str, verdict: Verdict, *, whole: bool = False
     ) -> tuple[Evidence, ...]:
         if verdict.kept:
             return (
@@ -382,7 +555,11 @@ class TemplateDiffCheck:
                     artifact_id=artifact_id,
                     artifact_content_hash=content_hash,
                     span=WholeSpan(),
-                    note="範囲の外の行はすべてテンプレートと一致",
+                    note=(
+                        "コメントと空白を除くと問題文のプログラムと一致"
+                        if whole
+                        else "範囲の外の行はすべてテンプレートと一致"
+                    ),
                 ),
             )
         line = verdict.submitted
@@ -399,7 +576,11 @@ class TemplateDiffCheck:
                 if line is not None
                 else WholeSpan(),
                 quote="\n".join(quote)[:MAX_QUOTE_CHARS] or None,
-                note="範囲の外でテンプレートと食い違った最初の行",
+                note=(
+                    "コメント以外で問題文のプログラムと食い違った最初の行"
+                    if whole
+                    else "範囲の外でテンプレートと食い違った最初の行"
+                ),
             ),
         )
 
@@ -442,8 +623,13 @@ __all__ = [
     "Verdict",
     "build",
     "check_template",
+    "check_whole_program",
+    "code_lines",
+    "find_program",
     "find_template",
     "normalize_line",
     "normalized_lines",
     "split_template",
+    "strip_comment_line",
+    "whole_program_requested",
 ]
