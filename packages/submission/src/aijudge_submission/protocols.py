@@ -458,6 +458,22 @@ class ReviewRepository(Protocol):
         """依頼に対応した教員レビューを結びつける。"""
         ...
 
+    def close_request_for_superseded_run(
+        self, old_run_id: GradingRunId, new_run_id: GradingRunId, at: datetime
+    ) -> ReviewRequest | None:
+        """置き換わった採点に付いた**未対応の**依頼を「再採点により終了」として閉じる。
+
+        閉じた依頼を返す（閉じるものが無ければ None）。教員が答えた依頼と、既に
+        閉じた依頼には触れない（追記のみ・P8）。採点を置き換えるのと**同じ
+        UnitOfWork** で呼ぶ ── 別にすると、置き換えだけが入って依頼が待ち行列に
+        残り、確定しても対応済みにならない状態ができる（2026-11-13）。
+        """
+        ...
+
+    def request_closed_by(self, run_id: GradingRunId) -> ReviewRequest | None:
+        """この採点が置き換えたことで終了した依頼。学習者に案内を出すために引く。"""
+        ...
+
     # -- 成績の確定 --
 
     def save_finalization(self, finalization: Finalization) -> None:
