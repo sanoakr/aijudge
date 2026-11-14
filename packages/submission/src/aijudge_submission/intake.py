@@ -110,6 +110,19 @@ class AcceptResult(BaseModel):
     deduplicated: bool = False
 
 
+def streamed_content_key(sha256: str, task_version_id: TaskVersionId, learner_id: UserId) -> str:
+    """ヘッダ無しの動画提出が使う、内容から決まる冪等キー（#766）。
+
+    以前は `sha256:<64 桁>:<課題版 ID>:<学習者 ID>` をそのまま使い、145 文字になって
+    `submission_keys.idempotency_key`（VARCHAR(128)）に収まらなかった。SQLite は長さを
+    強制しないので手元では見えず、PostgreSQL で `Idempotency-Key` 無しの動画提出が
+    DataError になった。全体をもう一度 SHA-256 に通して固定長（71 文字）にする。
+    同じ内容・同じ課題版・同じ学習者なら同じキーになる性質は変わらない。
+    """
+    digest = hashlib.sha256(f"{sha256}:{task_version_id}:{learner_id}".encode()).hexdigest()
+    return f"sha256:{digest}"
+
+
 def content_idempotency_key(
     task_version_id: TaskVersionId, learner_id: UserId, files: Sequence[IncomingFile]
 ) -> str:
@@ -429,7 +442,7 @@ class SubmissionService:
         if byte_size == 0:
             raise SubmissionRejected("ファイルが空です")
         now = self._clock()
-        content_key = idempotency_key or f"sha256:{sha256}:{task_version_id}:{learner_id}"
+        content_key = idempotency_key or streamed_content_key(sha256, task_version_id, learner_id)
 
         try:
             with self._uow_factory() as uow:

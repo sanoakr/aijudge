@@ -182,15 +182,6 @@ def test_an_explicit_key_does_not_reach_across_tenants(
         )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "record_streamed の内容ベースのキー（intake.py:381、"
-        "sha256:<64>:<課題版>:<学習者> で 145 文字）が "
-        "submission_keys.idempotency_key の VARCHAR(128)（schema.py:138）を超える。"
-        "PostgreSQL では Idempotency-Key 無しの POST /submit-video が DataError で落ちる"
-    ),
-)
 def test_a_video_sent_without_a_key_fits_the_key_column(
     database: Database, service: SubmissionService
 ) -> None:
