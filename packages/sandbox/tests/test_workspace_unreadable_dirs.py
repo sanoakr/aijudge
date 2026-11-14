@@ -15,12 +15,13 @@ import logging
 import os
 import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
 
 from aijudge_sandbox import ExecRequest, Limits
-from aijudge_sandbox.base import LocalSandboxBase, grant_owner_access
+from aijudge_sandbox.base import LocalSandboxBase, _discard, grant_owner_access
 
 MIB = 1024 * 1024
 
@@ -98,5 +99,27 @@ def test_a_workspace_that_cannot_be_measured_counts_as_exceeded(caplog) -> None:
         assert any("could not remove workspace" in r.getMessage() for r in caplog.records)
     finally:
         if path is not None and path.exists():
+            grant_owner_access(path)
+            shutil.rmtree(path)
+
+
+def test_discarding_a_workspace_reclaims_permissions_before_removing_it() -> None:
+    """作業域を丸ごと消す処理が、権限を取り返してからもう一度消すこと。
+
+    計測の側（`run`）も取り返すので、通常の流れでは消す側の取り返しは使われない。
+    だが消す処理は単独でも呼ばれうる（実行の外で作業域が残ったとき）。そこで
+    権限が閉じたまま消せずに残ると、残骸（`aijudge-ws-*`）を誰も掃除しないので、
+    置き場所のファイルシステムが静かに埋まる。取り返す段を外すと、この件が落ちる。
+    """
+    path = Path(tempfile.mkdtemp(prefix="aijudge-ws-"))
+    (path / "d" / "e").mkdir(parents=True)
+    (path / "d" / "e" / "small").write_text("x", encoding="utf-8")
+    os.chmod(path / "d" / "e", 0)
+    os.chmod(path / "d", 0)
+    try:
+        _discard(path, grant_owner_access)
+        assert not path.exists(), "権限を取り返さずに消そうとして、作業域が残った"
+    finally:
+        if path.exists():
             grant_owner_access(path)
             shutil.rmtree(path)
