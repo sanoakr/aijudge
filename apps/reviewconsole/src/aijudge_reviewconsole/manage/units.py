@@ -296,6 +296,21 @@ def _clear_plan(console, course, group) -> dict[str, int]:
     }
 
 
+def _unit_submissions(uow, group) -> tuple:
+    """問題セットの課題の**全版**への提出（#694）。
+
+    提出は受付時の課題版を指す。最新版だけで引くと、試験中に問題文を直して
+    版が上がったとき、それまでの提出が「いま採点する」「流し直す」と待機件数
+    から外れ、画面は「0 件」と矛盾なく表示した（#230 と同じ形の取りこぼし）。
+    `units.py` のほかの箇所（`versions_for_tasks`）と同じく全版で引く。
+    """
+    versions = uow.tasks.versions_for_tasks([task.id for task, _version in group.tasks])
+    version_ids = sorted({str(version.id) for version in versions})
+    if not version_ids:
+        return ()
+    return uow.submissions.list_for_versions(version_ids)
+
+
 def _exam_state(console, course, group, now: datetime, *, user_id) -> dict[str, object]:
     """試験の問題セットの状態（#67）。
 
@@ -303,14 +318,13 @@ def _exam_state(console, course, group, now: datetime, *, user_id) -> dict[str, 
     落ちると、いまはログにしか出ない ── 気づかなければ、その提出だけ成績が
     欠けたまま確定する。
     """
-    version_ids = {str(version.id) for _task, version in group.tasks}
-    if not version_ids:
+    if not group.tasks:
         return {"waiting_jobs": 0, "failed_jobs": (), "last_release": None}
     with console.database.unit_of_work() as uow:
         # **課題版で絞ってから引く**（#230）。コース全件を引いて Python で
         # 絞ると、絞り込みが `list_for_course` の上限の後ろに来て、押す前に
         # 出すこの件数から新しい提出が抜ける。
-        ids = [s.id for s in uow.submissions.list_for_versions(sorted(version_ids))]
+        ids = [s.id for s in _unit_submissions(uow, group)]
         failed = uow.jobs.failed_for(ids)
         # 待たせている件数は「流したら何件動くか」。押す前に出す。
         waiting = uow.jobs.waiting_count(ids, now)
@@ -660,11 +674,10 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
         console = _console(request)
         group = _unit_group(console, course, unit)
 
-        version_ids = {str(version.id) for _task, version in group.tasks}
         now = datetime.now(UTC)
         with console.database.unit_of_work() as uow:
             # **上限の内側だけを再試行しない**（#230）。
-            submissions = uow.submissions.list_for_versions(sorted(version_ids))
+            submissions = _unit_submissions(uow, group)
             failed = uow.jobs.failed_for([s.id for s in submissions])
             for job in failed:
                 uow.jobs.update(job.retried(now))
@@ -695,14 +708,13 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
         console = _console(request)
         group = _unit_group(console, course, unit)
 
-        version_ids = {str(version.id) for _task, version in group.tasks}
         now = datetime.now(UTC)
         with console.database.unit_of_work() as uow:
             # **一括採点の対象を打ち切られた一覧から決めない**（#230）。
             # 古い順に切るので、落ちるのは試験直後の提出だった ── しかも
             # 押す前の件数も同じ一覧から出ていたので、画面の中では
             # 矛盾せず、取りこぼしはどこにも現れなかった。
-            submissions = uow.submissions.list_for_versions(sorted(version_ids))
+            submissions = _unit_submissions(uow, group)
             released = uow.jobs.release_waiting([s.id for s in submissions], now)
             uow.commit()
 
