@@ -223,6 +223,29 @@ int main(void) {{
 
 
 @on_macos
+def test_a_link_left_in_the_workspace_does_not_redirect_the_next_run(sandbox, tmp_path) -> None:
+    """提出物が置いたリンクを、次の実行がホスト権限でたどって書いてはいけない。
+
+    以前はプロファイルを作業域の `.aijudge-profile.sb` へ毎回書いていたので、
+    1 回目でそこを外へのリンクに差し替えると、2 回目がリンク先を上書きした。
+    採点は 1 つの作業域でコンパイル→ケース 1→ケース 2…と実行を繰り返すので、
+    ケース 1 でリンクを置けば成立する。
+    """
+    victim = tmp_path / "victim.txt"
+    victim.write_text("original", encoding="utf-8")
+
+    with sandbox.workspace() as workspace:
+        planted = workspace.run(
+            ExecRequest(argv=("/bin/ln", "-sf", str(victim), ".aijudge-profile.sb"), limits=FAST)
+        )
+        assert planted.exit_code == 0, planted.stderr
+        second = workspace.run(ExecRequest(argv=("/bin/echo", "hi"), limits=FAST))
+
+    assert second.exit_code == 0, second.stderr
+    assert victim.read_text(encoding="utf-8") == "original", "外のファイルが書き換えられた"
+
+
+@on_macos
 @needs_cc
 def test_the_submission_cannot_reach_the_network(sandbox) -> None:
     source = """
