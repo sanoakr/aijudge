@@ -12,9 +12,16 @@
 - **索引は DB**（`ide_sessions`・`ide_event_batches`）。バッチに
   `(ide_session_id, seq)` の一意制約を掛け、再送を重複させない
 
-**書く順はファイル → DB。** 一時ファイルに書いて `rename` するので、途中で
-落ちても残るのは孤立したファイルだけで、半端な索引は残らない。再送された同じ
-seq は同じ場所に同じ中身で上書きされる。
+**書く順はファイル → DB。** 一時ファイルに書いてから置くので、途中で
+落ちても残るのは孤立したファイルだけで、半端な索引は残らない。
+
+**同じ seq の本体は最初に届いたものだけを残す**（2026-11-14）。以前は再送の
+たびに同じ場所へ無条件に置き換えていて、学習者が同じ seq に別の中身（たとえば
+ハートビートだけ）を送り直すと、索引は重複として弾くのに本体は差し替わり、
+貼り付けが時系列から跡形なく消えた（seq の飛びにもならない）。いまは既に
+ファイルがあれば書かず、**そのファイルの中身で**指紋と大きさを返す。ファイルは
+あるが索引が無い（ファイルを書いた直後に落ちた）ときも、再送でそのファイルが
+索引に入る。読む側は索引の `sha256` と本体を照合する（`read_batch`）。
 
 **受け口では解析しない**（ADR 0023「やらないこと」）。形を確かめて書くだけ。
 """
@@ -199,6 +206,10 @@ class ScreenShare(BaseModel):
     updated_at: datetime
 
 
+class ActivityTampered(ValueError):
+    """本体が索引の `sha256` と一致しない。書いた後に置き換えられた印。"""
+
+
 class ActivityRejected(ValueError):
     """形が合わない。**受け取らない**（400）。記録の欠けとは別である。"""
 
@@ -348,13 +359,21 @@ class ActivityFiles:
         events: Sequence[dict[str, Any]],
         snapshots: dict[str, str],
     ) -> tuple[str, str, int]:
-        """イベント列とスナップショットを書く。(相対パス, SHA-256, バイト数) を返す。"""
+        """イベント列とスナップショットを書く。(相対パス, SHA-256, バイト数) を返す。
+
+        **その seq の本体が既にあれば置き換えない**。返すのは保存されている方の
+        指紋と大きさで、今回届いた中身ではない。同じ seq に別の中身を送り直しても
+        記録は変わらない（再送で貼り付けを消させない・2026-11-14）。
+        """
         directory = self.session_dir(session)
         body = "".join(
             json.dumps(event, ensure_ascii=False, separators=(",", ":")) + "\n" for event in events
         ).encode("utf-8")
         target = directory / "events" / f"{seq:08d}.ndjson.gz"
-        _atomic_write(target, gzip.compress(body, mtime=0))
+        if not _exclusive_write(target, gzip.compress(body, mtime=0)):
+            # 先に置かれた本体を正とする。同じ再送が 2 つ同時に来ても、`link` で
+            # 置けるのは片方だけで、もう片方はここで既存の中身を読む。
+            body = gzip.decompress(target.read_bytes())
         for name, text in snapshots.items():
             snapshot = directory / "snapshots" / f"{name}.txt"
             # 中身の指紋で名付けているので、同じ名前なら同じ中身。書き直さない。
@@ -366,12 +385,19 @@ class ActivityFiles:
             len(body),
         )
 
-    def read_batch(self, path: str) -> list[dict[str, Any]]:
-        """索引の `path` からイベント列を読む。**根の外は読まない。**"""
+    def read_batch(self, path: str, sha256: str | None = None) -> list[dict[str, Any]]:
+        """索引の `path` からイベント列を読む。**根の外は読まない。**
+
+        `sha256`（索引の指紋）を渡すと本体と照合し、違えば `ActivityTampered`。
+        置き換えられた本体を本物として時系列に並べないため。
+        """
         target = (self.root / path).resolve()
         if not target.is_relative_to(self.root.resolve()):
             raise ValueError(f"{path!r} is outside the activity root")
-        body = gzip.decompress(target.read_bytes()).decode("utf-8")
+        raw = gzip.decompress(target.read_bytes())
+        if sha256 is not None and hashlib.sha256(raw).hexdigest() != sha256:
+            raise ActivityTampered(f"{path!r} does not match its indexed SHA-256")
+        body = raw.decode("utf-8")
         return [json.loads(line) for line in body.splitlines() if line]
 
     def read_snapshot(self, session: IdeSession, name: str) -> str | None:
@@ -449,6 +475,27 @@ class Still(BaseModel):
         ):
             return None
         return cls(name=name, received_ms=int(parts[0]), kind=parts[1], t=int(parts[2]))
+
+
+def _exclusive_write(target: Path, payload: bytes) -> bool:
+    """`target` が無いときだけ置く。置けたら True、既にあれば False（中身は触らない）。
+
+    一時ファイルに書いてから `link` する。`link` は置き先があれば失敗するので、
+    存在の確認と配置の間に別の書き手が割り込めない（`exists()` を見てから
+    `replace` すると、同時の 2 つがどちらも置き換えうる）。途中で落ちても半端な
+    ファイルは置き先に現れない。
+    """
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(dir=target.parent, prefix=".tmp-")
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(payload)
+        os.link(temporary, target)
+    except FileExistsError:
+        return False
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+    return True
 
 
 def _atomic_write(target: Path, payload: bytes) -> None:

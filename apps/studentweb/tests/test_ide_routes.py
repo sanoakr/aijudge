@@ -396,6 +396,31 @@ def test_a_resent_batch_is_accepted_but_not_duplicated(world: World, tmp_path) -
     assert again.status_code == 200 and again.json() == {"stored": False}
 
 
+def test_a_resend_with_different_events_does_not_replace_the_record(world: World, tmp_path) -> None:
+    """同じ seq に別の中身を送り直しても、**最初に届いた本体が残る**（2026-11-14）。
+
+    以前は本体を無条件に置き換えてから索引で重複を弾いていたので、貼り付けを
+    ハートビートだけに差し替えて時系列から消せた。
+    """
+    import gzip
+
+    _editor(world)
+    _learner(world)
+    _with_activity(world, tmp_path)
+    session_id = _start(world).json()["session_id"]
+    paste = [{"type": "paste", "t": 2, "len": 120, "origin": "external"}]
+    _batch(world, session_id, 0, events=paste)
+    with world.database.unit_of_work() as uow:
+        (batch,) = uow.ide_activity.batches(session_id)
+    stored = (tmp_path / "activity" / batch.path).read_bytes()
+
+    again = _batch(world, session_id, 0, events=[{"type": "heartbeat", "t": 3}])
+
+    assert again.status_code == 200 and again.json() == {"stored": False}
+    assert (tmp_path / "activity" / batch.path).read_bytes() == stored
+    assert '"type":"paste"' in gzip.decompress(stored).decode()
+
+
 def test_an_unknown_event_type_is_refused(world: World, tmp_path) -> None:
     _editor(world)
     _learner(world)

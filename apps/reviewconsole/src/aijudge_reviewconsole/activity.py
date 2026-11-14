@@ -23,6 +23,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import zlib
 from collections.abc import Sequence
@@ -40,6 +41,7 @@ from aijudge_core.ids import CourseId, SubmissionId, TaskId, TaskVersionId, User
 from aijudge_ide import (
     ActivityFiles,
     ActivitySummary,
+    ActivityTampered,
     EventBatch,
     IdeSession,
     IdeSessionId,
@@ -52,6 +54,8 @@ from aijudge_ide.flags import Flag, flag_events, shared_paste_flags, submission_
 from .audit_context import recorder_for
 from .submissions import adopted_ids, version_max_scores
 from .urls import root_prefix
+
+logger = logging.getLogger(__name__)
 
 # 行動記録の本体の置き場所（web と同じ変数・`aijudge_studentweb.cli`）。
 ENV_ACTIVITY_DIR = "AIJUDGE_ACTIVITY_DIR"
@@ -72,7 +76,17 @@ def _read(
     unreadable = 0
     for batch in batches:
         try:
-            loaded.append((batch, files.read_batch(batch.path)))
+            # 索引の指紋と照合する（2026-11-14）。受け取った後に置き換えられた本体は
+            # `ActivityTampered`（ValueError）になり、本物として時系列に並べず
+            # 「読めない記録」に数える。受け口は既存の本体を置き換えないので、
+            # 食い違うのは置き場所を直接書き換えられたときだけである。
+            loaded.append((batch, files.read_batch(batch.path, batch.sha256)))
+        except ActivityTampered:
+            logger.warning(
+                "an activity batch does not match its index",
+                extra={"ide_session_id": session.id, "seq": batch.seq},
+            )
+            unreadable += 1
         # 壊れた gzip は OSError だけでなく、途中で切れていれば EOFError、中身が
         # 壊れていれば zlib.error を投げる。
         except (OSError, ValueError, EOFError, zlib.error):
