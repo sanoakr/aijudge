@@ -111,12 +111,16 @@
 {% set tab_index = loop.index0 %}
 <section class="ide-panel" role="tabpanel" id="ide-panel-{{ loop.index0 }}"
          aria-labelledby="ide-tab-{{ loop.index0 }}" {{ 'hidden' if not loop.first }}>
-  {# **上に問題文、その下に左がエディタ・右が試す道具**（2026-09-24 決定）。
-     公開サンプル・標準入力・出力・実行と提出は、書きながら目を移す先なので
-     エディタの隣に置く。狭い画面では縦に積む。 #}
+  {# **問題文と、エディタ＋その真下の試す道具**（2026-11-15 に改めた。2026-09-24 は道具が右だった）。
+     公開サンプル・標準入力・出力・実行と提出はエディタの下に置く ── 視線の移動が上下だけで
+     済む。問題文との境界とエディタの高さは、ドラッグで変えられる。狭い画面では問題文を上に積む。 #}
   <div class="ide-statement">
     <div class="statement">{{ tab.statement_html | safe }}</div>
   </div>
+  {# 問題文とエディタの境界（2026-11-15）。広い画面で左右に並べているときは幅を、上下に積んで
+     いるときは高さを、つかんで動かす。JavaScript が動くときだけ出す（`hidden` を外す）。 #}
+  <div class="ide-split ide-split-statement" data-split="statement" role="separator" tabindex="0" hidden
+       aria-label="問題文とエディタの境界" title="ドラッグで問題文の大きさを変えます（ダブルクリックで元に戻す）"></div>
 
   {# 動画を受ける課題（2026-09-25）。**動画はエディタの画面から出せない** ── 分割送信の
      経路は課題の画面にしか無い。黙って欄を出さないと、学習者は出し方が分からない。 #}
@@ -182,48 +186,51 @@
         <span class="desc ide-saved" data-saved="{{ loop.index0 }}"></span>
       </div>
       <div class="ide-editor" data-editor="{{ loop.index0 }}"></div>
-    </div>
+      {# エディタの高さの境界（2026-11-15）。下の入出力との間をつかんで動かす。 #}
+      <div class="ide-split ide-split-editor" data-split="editor" role="separator" aria-orientation="horizontal"
+           tabindex="0" hidden aria-label="エディタの高さ" title="ドラッグでエディタの高さを変えます（ダブルクリックで元に戻す）"></div>
+      <aside class="ide-side" aria-label="試す・提出する">
+        <div class="ide-runbox" data-runbox="{{ loop.index0 }}">
+          <div class="ide-stdin">
+            <label for="ide-stdin-{{ loop.index0 }}" class="desc">標準入力</label>
+            <textarea id="ide-stdin-{{ loop.index0 }}" class="mono" data-stdin="{{ loop.index0 }}"
+                      rows="4" spellcheck="false"></textarea>
+          </div>
+          <div class="ide-output">
+            <span class="desc">出力</span>
+            <pre class="ide-io" data-output="{{ loop.index0 }}" aria-live="polite"></pre>
+          </div>
+        </div>
 
-    <aside class="ide-side" aria-label="試す・提出する">
-      {% if tab.samples %}
-      <div class="ide-samples">
-        <h3>公開サンプル</h3>
-        {% for sample in tab.samples %}
-        <details class="ide-sample" {{ 'open' if loop.first }}>
-          <summary><span class="mono">{{ sample.name }}</span></summary>
-          <pre class="ide-io"><span class="desc">入力</span>
+        <p class="desc ide-run-note" data-run-note="{{ loop.index0 }}"></p>
+        {# **実行と提出は同じ大きさ**（2026-09-24 決定）。色で区別し、大きさで優劣を
+           付けない ── 試験中に押し間違えないよう、並びと色を固定する。 #}
+        <div class="ide-actions">
+          <button type="button" class="ide-run" data-tab="{{ loop.index0 }}">実行</button>
+          <button type="button" class="ide-submit" data-tab="{{ loop.index0 }}">提出</button>
+        </div>
+        <p class="desc ide-submitted" data-submitted="{{ loop.index0 }}"></p>
+        {# 公開サンプルは実行・提出ボタンの下（2026-11-15）。**ボタンをエディタの真下に保つ** ──
+           サンプルを上に置くと、ボタンが画面の下へ押し出される。 #}
+        {% if tab.samples %}
+        <div class="ide-samples">
+          <h3>公開サンプル</h3>
+          {% for sample in tab.samples %}
+          <details class="ide-sample" {{ 'open' if loop.first }}>
+            <summary><span class="mono">{{ sample.name }}</span></summary>
+            <pre class="ide-io"><span class="desc">入力</span>
 {{ sample.input }}</pre>
-          <pre class="ide-io"><span class="desc">期待される出力</span>
+            <pre class="ide-io"><span class="desc">期待される出力</span>
 {{ sample.expected }}</pre>
-          <button type="button" class="ide-run-sample"
-                  data-tab="{{ tab_index }}" data-sample="{{ sample.name }}">このサンプルで実行</button>
-        </details>
-        {% endfor %}
-      </div>
-      {% endif %}
-
-      <div class="ide-runbox" data-runbox="{{ loop.index0 }}">
-        <div class="ide-stdin">
-          <label for="ide-stdin-{{ loop.index0 }}" class="desc">標準入力</label>
-          <textarea id="ide-stdin-{{ loop.index0 }}" class="mono" data-stdin="{{ loop.index0 }}"
-                    rows="4" spellcheck="false"></textarea>
+            <button type="button" class="ide-run-sample"
+                    data-tab="{{ tab_index }}" data-sample="{{ sample.name }}">このサンプルで実行</button>
+          </details>
+          {% endfor %}
         </div>
-        <div class="ide-output">
-          <span class="desc">出力</span>
-          <pre class="ide-io" data-output="{{ loop.index0 }}" aria-live="polite"></pre>
-        </div>
-      </div>
-
-      <p class="desc ide-run-note" data-run-note="{{ loop.index0 }}"></p>
-      {# **実行と提出は同じ大きさ**（2026-09-24 決定）。色で区別し、大きさで優劣を
-         付けない ── 試験中に押し間違えないよう、並びと色を固定する。 #}
-      <div class="ide-actions">
-        <button type="button" class="ide-run" data-tab="{{ loop.index0 }}">実行</button>
-        <button type="button" class="ide-submit" data-tab="{{ loop.index0 }}">提出</button>
-      </div>
-      <p class="desc ide-submitted" data-submitted="{{ loop.index0 }}"></p>
-      {% if tab.attach %}{{ attach_box(tab, tab_index) }}{% endif %}
-    </aside>
+        {% endif %}
+        {% if tab.attach %}{{ attach_box(tab, tab_index) }}{% endif %}
+      </aside>
+    </div>
   </div>
   {% endif %}
 </section>

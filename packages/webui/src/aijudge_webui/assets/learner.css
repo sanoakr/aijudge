@@ -44,8 +44,10 @@ details.unit > summary h3{display:inline-flex;vertical-align:middle}
    - **見出し（問題セット名・残り時間）とタブは上に固定する。** 試験の間ずっと
      残り時間が見え、どの課題を書いているかを見失わない
    - その下に問題文（高さを抑えて中で送る）
-   - 問題文の下は**左がエディタ、右が試す道具**（公開サンプル・入力・出力・実行と
-     提出）。書きながら目を移す先なので隣に置く。狭い画面では縦に積む
+   - 問題文の下は**エディタ、その真下に試す道具**（公開サンプル・入力・出力・実行と
+     提出。2026-11-15 に右から下へ移した）。視線の移動が上下だけで済む
+   - 問題文との境界（`.ide-split-statement`）とエディタの高さ（`.ide-split-editor`）は
+     ドラッグで変えられる（`ide.js`。大きさは CSS の変数に入れ、ブラウザに覚える）
    **エディタの画面だけ本文の幅の上限を外す** ── 読み物の幅（`main` の上限）では
    コードの 1 行が収まらない。 */
 main:has(.ide-head){max-width:none}
@@ -70,19 +72,39 @@ main:has(.ide-head){max-width:none}
 .ide-panel{display:flex;flex-direction:column;gap:14px;padding:14px 0}
 .ide-panel[hidden]{display:none}
 /* 問題文は高さを抑え、長ければ中で送る（エディタを画面の外へ押し出さない）。 */
-.ide-statement{overflow:auto;max-height:34vh;padding:4px 12px;
+.ide-statement{overflow:auto;max-height:var(--ide-statement-h,34vh);height:var(--ide-statement-h,auto);padding:4px 12px;
   border:1px solid var(--line-soft);border-radius:3px;background:var(--surface)}
 /* 左がエディタ、右が試す道具（公開サンプル・入力・出力・実行と提出）。 */
-.ide-work{display:grid;grid-template-columns:minmax(0,1fr) minmax(280px,360px);gap:14px;
-  align-items:start}
+.ide-work{min-width:0}
 .ide-main{display:flex;flex-direction:column;gap:8px;min-width:0}
 .ide-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px}
 .ide-toolbar select{font:inherit;padding:4px 8px;border:1px solid var(--line);border-radius:3px;
   background:var(--surface);color:var(--ink)}
 .ide-toolbar .button-like{cursor:pointer;border:1px solid var(--line);border-radius:3px;
   background:var(--surface);font-size:.85rem;padding:6px 12px}
-.ide-editor{height:min(66vh,780px);border:1px solid var(--line);border-radius:3px}
+/* 既定の高さは「エディタの下の入出力と実行・提出まで一画面に収まる」ぐらい（上の見出し・
+   タブ・お知らせの帯ぶんを引く）。つかんで変えた値は
+   `--ide-editor-h`（`ide.js`）。 */
+.ide-editor{height:var(--ide-editor-h,clamp(240px,calc(100vh - 560px),780px));
+  border:1px solid var(--line);border-radius:3px}
 .ide-side{display:flex;flex-direction:column;gap:10px;min-width:0}
+/* 境界のつかみ手。JavaScript が動くときだけ出す（`hidden` を外す）。細い帯だが、
+   見た目より広い範囲でつかめるよう、上下（左右）に透明の余白を持つ。 */
+.ide-split{flex:none;position:relative;background:var(--line-soft);border-radius:3px;
+  touch-action:none;user-select:none}
+.ide-split[hidden]{display:none}
+.ide-split::before{content:"";position:absolute;inset:-5px 0}
+.ide-split::after{content:"";position:absolute;left:50%;top:50%;width:28px;height:2px;
+  margin:-1px 0 0 -14px;border-radius:1px;background:var(--muted);opacity:.7}
+.ide-split-editor{height:8px;cursor:row-resize}
+.ide-split:hover,.ide-split:focus-visible,.ide-split[data-dragging]{background:var(--ai)}
+.ide-split:hover::after,.ide-split:focus-visible::after,.ide-split[data-dragging]::after{
+  background:#fff;opacity:1}
+.ide-split:focus-visible{outline:2px solid var(--ai);outline-offset:1px}
+/* つかんでいる間は、文字の選択と他の部品の反応を止める。 */
+body.ide-resizing{user-select:none;cursor:grabbing}
+/* 問題文との境界。上下に積んでいるときは横の帯、左右に並べているときは縦の帯（下の @media）。 */
+.ide-split-statement{height:8px;cursor:row-resize}
 /* 画像・PDF を選んで出す欄（2026-09-25）。エディタの無い課題では、これが作業の場所になる。 */
 .ide-work-attach{grid-template-columns:minmax(0,640px)}
 .ide-attach{display:flex;flex-direction:column;gap:8px;border:1px solid var(--line-soft);
@@ -101,14 +123,18 @@ main:has(.ide-head){max-width:none}
 .ide-sample summary{cursor:pointer}
 .ide-sample .ide-io{margin:4px 0}
 .ide-sample button{font-size:.8rem;padding:5px 10px}
-.ide-runbox{display:flex;flex-direction:column;gap:8px}
+/* 入力（左）と出力（右）を並べる。エディタの真下なので、幅があるぶん横に置く。 */
+.ide-runbox{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;
+  align-items:stretch}
+.ide-stdin,.ide-output{display:flex;flex-direction:column;gap:4px;min-width:0}
+.ide-stdin textarea{flex:1;min-height:6.5em;resize:vertical}
 .ide-runbox[hidden]{display:none}
 .ide-stdin textarea{width:100%;box-sizing:border-box;font-size:.85rem;padding:6px;
   border:1px solid var(--line);border-radius:3px;background:var(--surface);color:var(--ink)}
 .ide-io{margin:0;padding:8px;background:var(--surface-2);border:1px solid var(--line-soft);
   border-radius:3px;font-family:var(--font-mono);font-size:.82rem;white-space:pre-wrap;
   overflow:auto;max-height:260px}
-.ide-output .ide-io{min-height:4.5em}
+.ide-output .ide-io{min-height:6.5em;flex:1}
 .ide-io[data-kind="error"]{border-color:var(--shu);color:var(--shu)}
 .ide-run-note{margin:0}
 /* 実行と提出は同じ大きさ。並び（左が実行・右が提出）と色で区別する。 */
@@ -119,8 +145,10 @@ main:has(.ide-head){max-width:none}
 .ide-run,.ide-run-sample{background:var(--go-bg);color:var(--go-ink)}
 .ide-submitted{margin:0}
 @media (max-width:900px){
-  .ide-work{grid-template-columns:1fr}
-  .ide-statement{max-height:45vh}
+  .ide-statement{max-height:var(--ide-statement-h,45vh)}
+}
+@media (max-width:700px){
+  .ide-runbox{grid-template-columns:1fr}
 }
 
 /* 画面の並べ方（2026-11-15）。問題文を左・エディタを右に並べると、スクロールで行き来せずに
@@ -131,20 +159,28 @@ main:has(.ide-head){max-width:none}
 .ide-view button{font-size:.8rem;font-weight:400;padding:4px 10px;background:var(--surface-2);
   color:var(--ink);border:1px solid var(--line)}
 .ide-view button[aria-pressed="true"]{font-weight:700;box-shadow:inset 0 -3px 0 var(--ai)}
-.ide-panel[data-statement="hidden"] > .ide-statement{display:none}
+.ide-panel[data-statement="hidden"] > .ide-statement,
+.ide-panel[data-statement="hidden"] > .ide-split-statement{display:none}
 @media (min-width:1100px){
-  .ide-panel[data-layout="side"]{display:grid;grid-template-columns:minmax(260px,30%) minmax(0,1fr);
-    gap:14px;align-items:start}
-  .ide-panel[data-layout="side"] > :not(.ide-statement){grid-column:2}
+  /* 3 列: 問題文・境界・作業の場所。問題文の幅は `--ide-statement-w`（つかんで変えた値。
+     無ければ 30%）で、狭すぎ・広すぎにならないよう挟む。 */
+  .ide-panel[data-layout="side"]{display:grid;
+    grid-template-columns:clamp(200px,var(--ide-statement-w,30%),70%) 8px minmax(0,1fr);
+    column-gap:6px;row-gap:14px;align-items:start}
+  .ide-panel[data-layout="side"] > :not(.ide-statement):not(.ide-split-statement){grid-column:3}
   .ide-panel[data-layout="side"] > .ide-statement{grid-column:1;grid-row:1 / span 8;
-    position:sticky;top:calc(var(--ide-statement-top,0px) + 8px);
+    position:sticky;top:calc(var(--ide-statement-top,0px) + 8px);height:auto;
     max-height:calc(100vh - var(--ide-statement-top,0px) - 24px)}
+  .ide-panel[data-layout="side"] > .ide-split-statement{grid-column:2;grid-row:1 / span 8;
+    position:sticky;top:calc(var(--ide-statement-top,0px) + 8px);width:8px;height:
+    calc(100vh - var(--ide-statement-top,0px) - 24px);cursor:col-resize}
+  .ide-panel[data-layout="side"] > .ide-split-statement::before{inset:0 -5px}
+  .ide-panel[data-layout="side"] > .ide-split-statement::after{width:2px;height:28px;
+    margin:-14px 0 0 -1px}
   .ide-panel[data-layout="side"][data-statement="hidden"]{grid-template-columns:minmax(0,1fr)}
-  .ide-panel[data-layout="side"][data-statement="hidden"] > :not(.ide-statement){grid-column:1}
-  /* 右の列は狭いので、試す道具の列を細くする。 */
-  .ide-panel[data-layout="side"] .ide-work{grid-template-columns:minmax(0,1fr) minmax(240px,300px)}
+  .ide-panel[data-layout="side"][data-statement="hidden"] > :not(.ide-statement):not(.ide-split-statement){
+    grid-column:1}
 }
-
 /* 落ちたテストケースの入力（結果画面・2026-10-18）。期待出力は出さない。 */
 .failed-inputs{margin-top:8px}
 .failed-inputs pre{margin:4px 0 8px;padding:6px 8px;background:var(--surface-2);border:1px solid var(--line-soft);
