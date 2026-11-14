@@ -24,6 +24,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 from dataclasses import dataclass
@@ -141,6 +142,7 @@ def duplicate_profile(
     text = _replace_scalar(source_path.read_text(encoding="utf-8"), "name", new_name)
     if description is not None:
         text = _replace_scalar(text, "description", description)
+    _assert_reads_back(text, new_name, description)
     _write_atomic(target, text)
     return target
 
@@ -166,7 +168,9 @@ def rename_profile(
     if target.exists():
         raise AdminError(f"プロファイル {new_name!r} は既にあります")
 
-    _write_atomic(target, _replace_scalar(source.read_text(encoding="utf-8"), "name", new_name))
+    renamed = _replace_scalar(source.read_text(encoding="utf-8"), "name", new_name)
+    _assert_reads_back(renamed, new_name, None)
+    _write_atomic(target, renamed)
     source.unlink()
     return target
 
@@ -206,12 +210,67 @@ def _replace_scalar(text: str, key: str, value: str) -> str:
     """`key: 値` の行だけを差し替える（無ければ先頭に足す）。
 
     **行単位で触る。** 模型に読み込んで書き戻すとコメントが消える。
+
+    **値は YAML のスカラーとして出す**（#698）。`: ` `#` `[` を含む説明をそのまま埋めると
+    読めない YAML ができる。二重引用符つきの JSON 文字列は YAML の二重引用符スカラーとして
+    読めるので、改行もエスケープされ、最上位に別のキーを混ぜられない。
+    **複数行の値（`description: >` の折り畳み）は続きの行まで取り除く** ── 残すと
+    新しい値の後ろに元の説明の続きが連結される。
     """
-    pattern = re.compile(rf"^{re.escape(key)}:.*$", re.MULTILINE)
-    replacement = f"{key}: {value}"
-    if pattern.search(text):
-        return pattern.sub(replacement, text, count=1)
+    replacement = f"{key}: {_yaml_scalar(value, key)}"
+    lines = text.splitlines(keepends=True)
+    prefix = f"{key}:"
+    for index, line in enumerate(lines):
+        if not line.startswith(prefix):
+            continue
+        end = index + 1
+        while end < len(lines):
+            following = lines[end]
+            if following.startswith((" ", "\t")) or (
+                following.strip() == "" and _indented_follows(lines, end)
+            ):
+                end += 1
+            else:
+                break
+        return "".join(lines[:index]) + replacement + "\n" + "".join(lines[end:])
     return f"{replacement}\n{text}"
+
+
+def _yaml_scalar(value: str, key: str) -> str:
+    """値を YAML のスカラーとして出す。素のままで同じ値に読み戻せるなら素のまま（#698）。
+
+    素の書き方を残すのは、見本の `name: cs_lang_c_intro` のような読みやすい形を保つため。
+    読み戻して値が変わる（`: ` `#` `[` を含む・数や真偽に読まれる・改行がある）ものだけを
+    二重引用符つきの JSON 文字列にする（YAML の二重引用符スカラーとして読める）。
+    """
+    if "\n" not in value and "\r" not in value:
+        try:
+            if yaml.safe_load(f"{key}: {value}") == {key: value}:
+                return value
+        except yaml.YAMLError:
+            pass
+    return json.dumps(value, ensure_ascii=False)
+
+
+def _indented_follows(lines: list[str], start: int) -> bool:
+    """空行のあと、インデントされた続きの行があるか（折り畳みの途中の空行）。"""
+    for line in lines[start:]:
+        if line.strip() == "":
+            continue
+        return line.startswith((" ", "\t"))
+    return False
+
+
+def _assert_reads_back(text: str, name: str, description: str | None) -> None:
+    """書く前に、できた全文が YAML として読め、名前（と説明）が意図どおりか確かめる（#698）。"""
+    try:
+        data = yaml.safe_load(text)
+    except yaml.YAMLError as exc:
+        raise AdminError(f"複製した設定が YAML として読めません: {exc}") from None
+    if not isinstance(data, dict) or data.get("name") != name:
+        raise AdminError("複製した設定の `name` が新しい名前になりません")
+    if description is not None and data.get("description") != description:
+        raise AdminError("複製した設定の `description` が入力と一致しません")
 
 
 def _write_atomic(path: Path, text: str) -> None:
