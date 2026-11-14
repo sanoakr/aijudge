@@ -14,6 +14,7 @@
 - Dolos の画面（`/courses/{id}/similarity/{課題}/{回}/`）: Dolos の web（静的ファイル）を
   そのまま配り、その回の CSV を `data/` の下に置く。Dolos の画面はデータの場所を
   **ページの URL からの相対**で決める（`location.pathname + "data"`）ので、この形で動く
+  （`files.csv` だけは配る途中で名前を学籍番号に差し替える・`named_files_csv`）
 
 Dolos の画面には **CSP で外への通信を塞ぐ**。配布物は Google Fonts を読みに行く
 （止めても表示は崩れない）。その他の外部 URL は押したときだけ開くリンクである。
@@ -23,6 +24,7 @@ Dolos の画面には **CSP で外への通信を塞ぐ**。配布物は Google 
 from __future__ import annotations
 
 import csv
+import io
 import json
 import mimetypes
 import os
@@ -110,6 +112,59 @@ REASON_LABELS = {
     "tool_failed": "検査が失敗した（次の周回で回し直します）",
     "embedding_unavailable": "埋め込みのモデルが使えなかった（次の周回で回し直します）",
 }
+
+
+#: Dolos の `files.csv` で、画面に出る名前を持つ列（JSON）と鍵。
+FILES_CSV = "files.csv"
+_EXTRA_COLUMN = "extra"
+_FULL_NAME_KEY = "fullName"
+
+
+def student_number(login: str) -> str:
+    """ログイン名から学籍番号の部分。学内ログインは `学籍番号@mail.ryukoku.ac.jp`。"""
+    return login.split("@", 1)[0]
+
+
+def named_files_csv(raw: bytes, names: dict[str, str]) -> bytes:
+    """`files.csv` の名前（`extra` の `fullName`）を、仮の名前から学籍番号に差し替える。
+
+    **保存してある報告は書き換えない**（2026-11-14）。報告は全員のコードの写しなので、
+    ファイルだけで誰のものか分からないよう仮の名前で残す（ADR 0029）。担当教員が
+    Dolos の画面を開いたときにだけ、配る途中で差し替える ── 入口の画面には仮の名前と
+    学籍番号の対応がもともと出ており、見える人も見える中身も変わらない。仮の名前は
+    括弧で残す（入口の画面と突き合わせるため）。
+
+    `names` に無い名前（相手の文書など）と、読めない行はそのまま通す。
+    """
+    csv.field_size_limit(max(csv.field_size_limit(), len(raw) + 1))
+    source = io.StringIO(raw.decode("utf-8"), newline="")
+    reader = csv.reader(source)
+    out = io.StringIO()
+    writer = csv.writer(out, lineterminator="\n")
+    header = next(reader, None)
+    if header is None or _EXTRA_COLUMN not in header:
+        return raw
+    column = header.index(_EXTRA_COLUMN)
+    writer.writerow(header)
+    for row in reader:
+        if column < len(row):
+            row[column] = _renamed_extra(row[column], names)
+        writer.writerow(row)
+    return out.getvalue().encode("utf-8")
+
+
+def _renamed_extra(extra: str, names: dict[str, str]) -> str:
+    try:
+        data = json.loads(extra)
+    except ValueError:
+        return extra
+    if not isinstance(data, dict):
+        return extra
+    pseudonym = data.get(_FULL_NAME_KEY)
+    if not isinstance(pseudonym, str) or pseudonym not in names:
+        return extra
+    data[_FULL_NAME_KEY] = f"{names[pseudonym]}（{pseudonym}）"
+    return json.dumps(data, ensure_ascii=False)
 
 
 def viewer_root() -> Path | None:
@@ -239,6 +294,17 @@ def register(templates: Jinja2Templates) -> APIRouter:
         me = require_principal(request)
         course = _require_instructor(request, me, CourseId(course_id))
         return me, course
+
+    def _student_numbers(request: Request, run: SimilarityRun) -> dict[str, str]:
+        """仮の名前 → 学籍番号。引けない提出は `?`（入口の画面と同じ）。"""
+        console = request.app.state.aijudge
+        names: dict[str, str] = {}
+        with console.database.unit_of_work() as uow:
+            for item in run.submissions:
+                submission = uow.submissions.get(item.submission_id)
+                user = uow.identity.get_user(submission.learner_id) if submission else None
+                names[item.pseudonym] = student_number(user.login) if user else "?"
+        return names
 
     def _audit(request: Request, me, course_id: str, target: str, what: str, detail: dict):
         console = request.app.state.aijudge
@@ -416,6 +482,13 @@ def register(templates: Jinja2Templates) -> APIRouter:
                 raise HTTPException(status_code=404, detail="見つかりません")
             target = run_dir(root, run) / DATA_DIR / name
             media_type = "text/csv"
+            if name == FILES_CSV and target.is_file():
+                # Dolos の画面に学籍番号で出す（保存してある報告は仮の名前のまま）。
+                return Response(
+                    content=named_files_csv(target.read_bytes(), _student_numbers(request, run)),
+                    media_type=media_type,
+                    headers=_VIEWER_HEADERS,
+                )
         else:
             web = viewer_root()
             if web is None:
