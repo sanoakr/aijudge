@@ -2408,6 +2408,10 @@ def _open_rows(console: Console, course: Course) -> tuple[dict, ...]:
                     # 未対応の異議申立があるものは一括では閉じない。
                     # **1 件ずつ読むもの**として印を付ける。
                     "contested": blocks_finalization(request_row),
+                    # blind 採点がまだ無い抽出済みの提出か（#695）。一覧に総合点を出さない
+                    # 目印。抽出は ID のハッシュで決まるので、先にそれで絞ってから記録を引く。
+                    "needs_blind": console.needs_blind_mark(submission, course.subject_profile)
+                    and uow.reviews.find_blind_mark(submission.id) is None,
                     # 手動確定の画面に並べるか（2026-09-25）。レビュー方針が人の確認を
                     # 求めた採点は**推奨**で、猶予が明ければ自動で閉じる（ADR 0034）。
                     "manual": _needs_manual_finalization(course, task, run),
