@@ -31,6 +31,7 @@ from .extraction import (
 )
 from .finalization import (
     AUTOMATIC_JUSTIFICATION,
+    DEFAULT_AUTO_FINALIZE_MINUTES,
     Finalization,
     FinalizationSource,
     GradeWindow,
@@ -173,6 +174,7 @@ __all__ = [
     "ALL_UPLOAD_SUFFIXES",
     "AUTOMATIC_JUSTIFICATION",
     "AUTOSAVE_RETENTION_MONTHS_AFTER_CLOSE",
+    "DEFAULT_AUTO_FINALIZE_MINUTES",
     "DEFAULT_UPLOAD_SUFFIXES",
     "DIVISIONS",
     "EVENT_TYPES",

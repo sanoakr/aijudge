@@ -28,7 +28,7 @@ from dataclasses import dataclass
 from fastapi import Request
 
 import aijudge_webapp as webapp
-from aijudge_core import Role, Routing, grace_minutes
+from aijudge_core import Role, Routing
 from aijudge_core.ids import CourseId
 from aijudge_identity import INSTRUCTOR_ROLES
 
@@ -218,27 +218,24 @@ def course_attention(uow, course, *, blind_rate: float) -> CourseAttention:
 
 
 def _split_unfinalized(course, tasks: dict, counts) -> tuple[int, int]:
-    """未確定を「手動の確定が必要」と「自動確定を待っている」に分ける（2026-09-25）。
+    """未確定を「手動確定を推奨」と「自動確定を待っている」に分ける（2026-09-25）。
 
-    自動確定されないのは、猶予（課題かコースの `auto_finalize_after_minutes`）が
-    無い課題、確認後に返す回（ADR 0033）と、レビュー方針が人の目を求めた採点
-    （`Routing.REVIEW_REQUIRED`）。
-    規則は自動確定（`aijudge_course_admin.finalization`）と同じ事実から取る。内訳が
+    手動確定の画面に並ぶのは、レビュー方針が人の目を求めた採点
+    （`Routing.REVIEW_REQUIRED`）と確認後に返す回（ADR 0033）。前者は猶予が
+    明ければ自動で閉じる（ADR 0034）が、人が読むことを勧めるものとして数える。
+    規則は手動確定の画面（`app._needs_manual_finalization`）と同じ。内訳が
     無い（古い実装）ときは全部を手動として数える ── 待ちを手動と言う方が、
     手動を待ちと言うより安全である。
     """
+    del course  # 猶予は必ずある（既定 24 時間）ので、コースの設定では分かれない。
     if not counts.unfinalized_by_task:
         return counts.unfinalized, 0
     manual = 0
     waiting = 0
     for task_id, routing, number in counts.unfinalized_by_task:
         task = tasks.get(task_id)
-        grace = grace_minutes(
-            task.auto_finalize_after_minutes if task is not None else None,
-            course.auto_finalize_after_minutes,
-        )
         held = task is not None and task.results_after_review
-        if held or grace is None or routing == Routing.REVIEW_REQUIRED.value:
+        if held or routing == Routing.REVIEW_REQUIRED.value:
             manual += number
         else:
             waiting += number

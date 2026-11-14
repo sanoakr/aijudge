@@ -293,7 +293,8 @@ def test_each_attempt_carries_its_time_score_and_state(course, task, version) ->
     (attempt,) = progress.attempts
     assert attempt.submission.submitted_at == NOW - timedelta(hours=2)
     assert attempt.score_ratio == pytest.approx(0.8)
-    assert attempt.status_label == "確定前（AI の判定）"
+    # 猶予は既定で必ずある（ADR 0034）ので「確定前」ではなく「仮確定」。
+    assert attempt.status_label == "仮確定"
 
 
 def test_a_withheld_score_is_not_adopted(course, task, version) -> None:

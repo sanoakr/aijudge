@@ -283,8 +283,9 @@ def test_the_fold_out_button_says_move_and_sits_at_the_right_edge(world: World) 
 
 
 def test_unfinalized_is_split_into_manual_and_waiting() -> None:
-    """**手動の確定が要るものだけを数字にする**（2026-09-25）。猶予のある課題の自動の
-    振り分けは「自動確定待ち」。猶予が無い課題と、人の目を求めた採点は手動。"""
+    """**手動確定を推奨するものだけを数字にする**（2026-09-25）。自動の振り分けは
+    猶予を入れていない課題でも「自動確定待ち」（既定 24 時間・ADR 0034）。人の目を
+    求めた採点は手動確定を推奨する側に数える。"""
     from types import SimpleNamespace
 
     from aijudge_reviewconsole.rail_context import _split_unfinalized
@@ -302,7 +303,7 @@ def test_unfinalized_is_split_into_manual_and_waiting() -> None:
             ("no-grace", "auto", 3),
         ),
     )
-    assert _split_unfinalized(course, tasks, counts) == (4, 5)
+    assert _split_unfinalized(course, tasks, counts) == (1, 8)
     # 内訳が無ければ、全部を手動として数える（待ちを手動と言う方が安全）。
     assert _split_unfinalized(
         course, tasks, SimpleNamespace(unfinalized=2, unfinalized_by_task=())
