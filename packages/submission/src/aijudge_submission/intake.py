@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from datetime import UTC, datetime
 
@@ -50,10 +51,13 @@ from .jobs import (
 )
 from .protocols import (
     ArtifactStore,
+    ImmutabilityViolation,
     StreamingArtifactStore,
     UnitOfWork,
     artifact_storage_key,
 )
+
+logger = logging.getLogger(__name__)
 
 Clock = Callable[[], datetime]
 
@@ -197,78 +201,125 @@ class SubmissionService:
 
         key = idempotency_key or content_idempotency_key(task_version_id, learner_id, files)
         now = self._clock()
+        # 自分が先に置いた成果物。同時に来た同じ内容の提出に負けたときに片付ける（#679）。
+        artifacts: tuple[Artifact, ...] = ()
 
-        with self._uow_factory() as uow:
-            existing = uow.submissions.find_by_idempotency_key(tenant_id, key)
-            if existing is not None:
-                # 二重投入。既存の提出とそのジョブを返す。**新しく作らない。**
-                job = uow.jobs.find_by_idempotency_key(
-                    job_idempotency_key(existing.id, JobReason.SUBMISSION)
-                )
-                if job is None:
-                    # 提出は残ったがジョブが入らなかった（前回の投入が
-                    # 途中で落ちた）。ここで補う。取りこぼした提出を
-                    # 永久に未採点で放置しないため。
-                    job = self._enqueue(
-                        uow,
-                        existing,
-                        tenant_id,
-                        subject_profile,
-                        now,
-                        starts_at=grading_starts_at,
+        try:
+            with self._uow_factory() as uow:
+                existing = uow.submissions.find_by_idempotency_key(tenant_id, key)
+                if existing is not None:
+                    # 二重投入。既存の提出とそのジョブを返す。**新しく作らない。**
+                    job = uow.jobs.find_by_idempotency_key(
+                        job_idempotency_key(existing.id, JobReason.SUBMISSION)
                     )
-                    uow.commit()
-                return AcceptResult(submission=existing, job=job, deduplicated=True)
+                    if job is None:
+                        # 提出は残ったがジョブが入らなかった（前回の投入が
+                        # 途中で落ちた）。ここで補う。取りこぼした提出を
+                        # 永久に未採点で放置しないため。
+                        job = self._enqueue(
+                            uow,
+                            existing,
+                            tenant_id,
+                            subject_profile,
+                            now,
+                            starts_at=grading_starts_at,
+                        )
+                        uow.commit()
+                    return AcceptResult(submission=existing, job=job, deduplicated=True)
 
-            submission_id = SubmissionId(new_id("sub"))
-            attempt = uow.submissions.next_attempt(tenant_id, learner_id, task_version_id)
-            artifacts = self._store_files(tenant_id, submission_id, files, now)
+                submission_id = SubmissionId(new_id("sub"))
+                attempt = uow.submissions.next_attempt(tenant_id, learner_id, task_version_id)
+                artifacts = self._store_files(tenant_id, submission_id, files, now)
 
-            submission = Submission(
-                id=submission_id,
-                task_version_id=task_version_id,
-                learner_id=learner_id,
-                submitted_as=submitted_as,
-                is_demo=is_demo,
-                source_ip=source_ip,
-                auto_closed=auto_closed,
-                state=SubmissionState.DRAFT,
-                attempt=attempt,
-                artifacts=artifacts,
-                created_at=now,
-            )
-            assert_transition(submission.state, SubmissionState.SUBMITTED)
-            submission = submission.model_copy(
-                update={"state": SubmissionState.SUBMITTED, "submitted_at": now}
-            )
-            # 検証を通す（提出後の不変条件はここで初めて効く）。
-            submission = Submission.model_validate(submission.model_dump())
-
-            uow.submissions.save(submission)
-            uow.submissions.remember_idempotency_key(tenant_id, key, submission.id)
-            job = self._enqueue(
-                uow,
-                submission,
-                tenant_id,
-                subject_profile,
-                now,
-                starts_at=grading_starts_at,
-            )
-            uow.outbox.append(
-                SubmissionCreated(
-                    event_id=EventId(new_id("evt")),
-                    tenant_id=tenant_id,
-                    occurred_at=now,
-                    submission_id=submission.id,
+                submission = Submission(
+                    id=submission_id,
                     task_version_id=task_version_id,
                     learner_id=learner_id,
-                    attempt=submission.attempt,
-                    subject_profile=subject_profile,
+                    submitted_as=submitted_as,
+                    is_demo=is_demo,
+                    source_ip=source_ip,
+                    auto_closed=auto_closed,
+                    state=SubmissionState.DRAFT,
+                    attempt=attempt,
+                    artifacts=artifacts,
+                    created_at=now,
                 )
-            )
-            uow.commit()
+                assert_transition(submission.state, SubmissionState.SUBMITTED)
+                submission = submission.model_copy(
+                    update={"state": SubmissionState.SUBMITTED, "submitted_at": now}
+                )
+                # 検証を通す（提出後の不変条件はここで初めて効く）。
+                submission = Submission.model_validate(submission.model_dump())
+
+                uow.submissions.save(submission)
+                uow.submissions.remember_idempotency_key(tenant_id, key, submission.id)
+                job = self._enqueue(
+                    uow,
+                    submission,
+                    tenant_id,
+                    subject_profile,
+                    now,
+                    starts_at=grading_starts_at,
+                )
+                uow.outbox.append(
+                    SubmissionCreated(
+                        event_id=EventId(new_id("evt")),
+                        tenant_id=tenant_id,
+                        occurred_at=now,
+                        submission_id=submission.id,
+                        task_version_id=task_version_id,
+                        learner_id=learner_id,
+                        attempt=submission.attempt,
+                        subject_profile=subject_profile,
+                    )
+                )
+                uow.commit()
+        except ImmutabilityViolation:
+            # **同時に来た同じ内容の提出に負けた**（#679）。ボタンの二度押し・POST の再送・
+            # 自動提出と本人の提出の重なりで、2 本とも「まだ無い」を見たあと、一意制約が
+            # 後から来た側を止める。以前は例外がそのまま上がって 500 になり、提出は成立して
+            # いるのに学習者にエラー画面が出て、先に置いた成果物は孤児で残った。
+            # 負けた側は、自分の成果物を消して、勝った側の提出を返す。
+            self._discard(artifacts)
+            return self._the_winner(tenant_id, key, subject_profile, grading_starts_at)
 
         return AcceptResult(submission=submission, job=job, deduplicated=False)
+
+    # -- 同時投入に負けたとき（#679）------------------------------------------
+
+    def _discard(self, artifacts: Sequence[Artifact]) -> None:
+        """自分が置いた成果物を消す（負けた側の後始末）。消せないストアでは残す。
+
+        ストアが消す操作を持たない配備では孤児が残る（既に起きうる後始末と同じ程度）。
+        消しそこねを理由に、勝った提出を返せなくしない。
+        """
+        for artifact in artifacts:
+            for store in (self._stream_store, self._store):
+                delete = getattr(store, "delete", None)
+                if delete is None:
+                    continue
+                try:
+                    delete(artifact.storage_key)
+                except Exception:
+                    logger.warning("could not discard %s", artifact.storage_key, exc_info=True)
+                break
+
+    def _the_winner(
+        self,
+        tenant_id: TenantId,
+        key: str,
+        subject_profile: str,
+        grading_starts_at: datetime | None,
+    ) -> AcceptResult:
+        """一意制約に勝った側の提出とジョブを、新しい作業単位で読み直して返す。"""
+        with self._uow_factory() as uow:
+            hit = self._existing_for_key(
+                uow, tenant_id, key, subject_profile, self._clock(), grading_starts_at
+            )
+        if hit is None:
+            # 違反したのに勝った側が見えない（別の制約・別の理由）。隠さずに上げ直す。
+            raise ImmutabilityViolation(f"idempotency key {key!r} was claimed but not found")
+        return hit
 
     # -- ストリーム受付（動画）------------------------------------------------
 
@@ -380,62 +431,69 @@ class SubmissionService:
         now = self._clock()
         content_key = idempotency_key or f"sha256:{sha256}:{task_version_id}:{learner_id}"
 
-        with self._uow_factory() as uow:
-            hit = self._existing_for_key(
-                uow, tenant_id, content_key, subject_profile, now, grading_starts_at
-            )
-            if hit is not None:
-                self._stream_store.delete(storage_key)
-                return hit
+        try:
+            with self._uow_factory() as uow:
+                hit = self._existing_for_key(
+                    uow, tenant_id, content_key, subject_profile, now, grading_starts_at
+                )
+                if hit is not None:
+                    self._stream_store.delete(storage_key)
+                    return hit
 
-            attempt = uow.submissions.next_attempt(tenant_id, learner_id, task_version_id)
-            artifact = Artifact(
-                id=artifact_id,
-                submission_id=submission_id,
-                role=ArtifactRole.ORIGINAL,
-                kind=kind,
-                filename=filename,
-                storage_key=storage_key,
-                content_hash=f"sha256:{sha256}",
-                byte_size=byte_size,
-                created_at=now,
-            )
-            submission = Submission(
-                id=submission_id,
-                task_version_id=task_version_id,
-                learner_id=learner_id,
-                submitted_as=submitted_as,
-                is_demo=is_demo,
-                source_ip=source_ip,
-                state=SubmissionState.DRAFT,
-                attempt=attempt,
-                artifacts=(artifact,),
-                created_at=now,
-            )
-            assert_transition(submission.state, SubmissionState.SUBMITTED)
-            submission = submission.model_copy(
-                update={"state": SubmissionState.SUBMITTED, "submitted_at": now}
-            )
-            submission = Submission.model_validate(submission.model_dump())
-
-            uow.submissions.save(submission)
-            uow.submissions.remember_idempotency_key(tenant_id, content_key, submission.id)
-            job = self._enqueue(
-                uow, submission, tenant_id, subject_profile, now, starts_at=grading_starts_at
-            )
-            uow.outbox.append(
-                SubmissionCreated(
-                    event_id=EventId(new_id("evt")),
-                    tenant_id=tenant_id,
-                    occurred_at=now,
-                    submission_id=submission.id,
+                attempt = uow.submissions.next_attempt(tenant_id, learner_id, task_version_id)
+                artifact = Artifact(
+                    id=artifact_id,
+                    submission_id=submission_id,
+                    role=ArtifactRole.ORIGINAL,
+                    kind=kind,
+                    filename=filename,
+                    storage_key=storage_key,
+                    content_hash=f"sha256:{sha256}",
+                    byte_size=byte_size,
+                    created_at=now,
+                )
+                submission = Submission(
+                    id=submission_id,
                     task_version_id=task_version_id,
                     learner_id=learner_id,
-                    attempt=submission.attempt,
-                    subject_profile=subject_profile,
+                    submitted_as=submitted_as,
+                    is_demo=is_demo,
+                    source_ip=source_ip,
+                    state=SubmissionState.DRAFT,
+                    attempt=attempt,
+                    artifacts=(artifact,),
+                    created_at=now,
                 )
-            )
-            uow.commit()
+                assert_transition(submission.state, SubmissionState.SUBMITTED)
+                submission = submission.model_copy(
+                    update={"state": SubmissionState.SUBMITTED, "submitted_at": now}
+                )
+                submission = Submission.model_validate(submission.model_dump())
+
+                uow.submissions.save(submission)
+                uow.submissions.remember_idempotency_key(tenant_id, content_key, submission.id)
+                job = self._enqueue(
+                    uow, submission, tenant_id, subject_profile, now, starts_at=grading_starts_at
+                )
+                uow.outbox.append(
+                    SubmissionCreated(
+                        event_id=EventId(new_id("evt")),
+                        tenant_id=tenant_id,
+                        occurred_at=now,
+                        submission_id=submission.id,
+                        task_version_id=task_version_id,
+                        learner_id=learner_id,
+                        attempt=submission.attempt,
+                        subject_profile=subject_profile,
+                    )
+                )
+                uow.commit()
+        except ImmutabilityViolation:
+            # 同時に来た同じ内容の提出に負けた（#679）。書いた blob は呼び出し側が消す前に、
+            # ここで消して勝った側を返す（どの経路も孤児を残さない）。
+            if self._stream_store is not None:
+                self._stream_store.delete(storage_key)
+            return self._the_winner(tenant_id, content_key, subject_profile, grading_starts_at)
 
         return AcceptResult(submission=submission, job=job, deduplicated=False)
 

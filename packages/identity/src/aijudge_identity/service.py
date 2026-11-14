@@ -74,6 +74,28 @@ logger = logging.getLogger(__name__)
 INSTRUCTOR_ROLES: frozenset[Role] = frozenset({Role.INSTRUCTOR, Role.ADMIN})
 
 
+#: 失敗の監査に載せる login の上限（`users.login` の列幅）。実在の口座はこれを超えない。
+MAX_LOGIN_AUDIT_CHARS = 128
+
+
+def _failure_detail(login: str, reason: str) -> dict[str, object]:
+    """ログイン失敗の監査の詳細。**入力をそのまま入れない**（#681）。
+
+    未ログインの誰でも送れる値なので、長さの上限が要る。以前はそのまま入れ、4000 字を超えると
+    監査行を作れずに例外になった（401 ではなく 500・失敗の記録が残らず、送信元ごとの失敗数にも
+    数えられない）。「失敗は必ず記録する」（ADR 0016）を、どんな入力でも守る。
+    切ったことが分かる印を付ける。
+    """
+    if len(login) <= MAX_LOGIN_AUDIT_CHARS:
+        return {"login": login, "reason": reason}
+    return {
+        "login": login[:MAX_LOGIN_AUDIT_CHARS] + "…",
+        "login_truncated": True,
+        "login_length": len(login),
+        "reason": reason,
+    }
+
+
 class AuthService:
     """認証・利用者・受講。
 
@@ -127,7 +149,7 @@ class AuthService:
             target_type="user",
             target_id=str(user_id) if user_id is not None else "unknown",
             summary=f"ログインに失敗した（{reason}）",
-            detail={"login": login, "reason": reason},
+            detail=_failure_detail(login, reason),
         )
 
     def _record_login_success(self, user: User, *, method: str) -> None:

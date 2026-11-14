@@ -256,8 +256,8 @@
       <td class="fit" data-label="回">{{ row.shown_attempt }}
         {%- if row.outdated %}<br><span class="pill" title="この提出は訂正前の版に対するものです">v{{ row.version.version }}（いまは v{{ row.current_version }}）</span>{% endif %}</td>
       <td class="fit" data-label="得点">
-        {# **blind 採点が済むまで総合点は出さない**（#695）。 #}
-        {% if row.submission.id|string in blind_pending %}<span class="desc">blind 採点後に表示</span>
+        {# **blind 採点が済むまで総合点は出さない**（#695）。総合点が無い（保留）行は隠すものが無いので、そのまま「保留」と出す。 #}
+        {% if row.submission.id|string in blind_pending and not row.withheld %}<span class="desc">blind 採点後に表示</span>
         {% elif row.score is not none %}<strong>{{ '%.0f' | format(row.score * 100) }}%</strong>
           {% if row.adopted %}<span class="pill ok">採用</span>{% endif %}
         {# **保留を「—」だけで出さない**（#235）。点が無い理由は「まだ採点が

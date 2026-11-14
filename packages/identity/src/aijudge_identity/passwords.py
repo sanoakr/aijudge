@@ -75,10 +75,14 @@ def verify_password(password: str, encoded: str) -> bool:
             p=int(values["p"]),
             dklen=KEY_BYTES,
         )
+        # **保存側のハッシュの復号も `try` の中に置く**（#681）。base64 が壊れている（長さが
+        # 4k+1 など）と `binascii.Error`（`ValueError` の下位）が上がる ── 外にあると、
+        # その人だけ 401 ではなく 500 になり、壊れていることが外から観測できた。
+        expected = _unb64(hash_text)
     except (ValueError, KeyError, TypeError):
         return False
     # 一致・不一致で処理時間が変わらない比較。
-    return hmac.compare_digest(derived, _unb64(hash_text))
+    return hmac.compare_digest(derived, expected)
 
 
 def needs_rehash(encoded: str, *, n: int = DEFAULT_N) -> bool:

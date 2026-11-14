@@ -438,3 +438,37 @@ def test_the_in_memory_queue_follows_a_new_grading_start_the_same_way() -> None:
 
     assert queue.reschedule_waiting([template.submission_id], NOW + timedelta(hours=1), NOW) == 1
     assert queue.get(template.id).available_at == NOW + timedelta(hours=1)
+
+
+def test_the_in_memory_queue_releases_a_waiting_job_and_leaves_the_rest() -> None:
+    """「いままでの提出を採点」（#680）。寝かせたジョブだけが取れるようになり、数が合う。"""
+    queue = InMemoryJobQueue()
+    waiting_sub = SubmissionId("sub_" + "a" * 32)
+    ready_sub = SubmissionId("sub_" + "b" * 32)
+    queue.enqueue(
+        make(
+            id=GradingJobId("job_" + "a" * 32),
+            submission_id=waiting_sub,
+            idempotency_key="waiting",
+            available_at=NOW + timedelta(hours=2),
+        )
+    )
+    queue.enqueue(
+        make(
+            id=GradingJobId("job_" + "b" * 32),
+            submission_id=ready_sub,
+            idempotency_key="ready",
+            available_at=NOW,
+        )
+    )
+    later = NOW + timedelta(minutes=5)
+    both = [waiting_sub, ready_sub]
+
+    assert queue.waiting_count(both, later) == 1
+    assert queue.release_waiting(both, later) == 1, "取れるジョブは数えない"
+    assert queue.waiting_count(both, later) == 0
+    assert queue.get(GradingJobId("job_" + "a" * 32)).available_at == later
+    assert queue.get(GradingJobId("job_" + "b" * 32)).available_at == NOW, (
+        "取れるジョブは動かさない"
+    )
+    assert queue.release_waiting([], later) == 0
