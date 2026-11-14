@@ -488,6 +488,22 @@ def test_without_a_grace_the_window_stays_open() -> None:
     assert grade_window(None, None, far) is GradeWindow.OPEN
 
 
+def test_without_a_setting_the_grace_is_a_day() -> None:
+    """問題セットにも科目にも猶予が無ければ 24 時間（ADR 0034）。
+
+    以前は「自動確定しない」で、入れ忘れた科目の成績がいつまでも閉じず、
+    学習者には確定の時刻も依頼の期限も示せなかった。問題セットの指定が
+    科目に勝つ順序は変わらない（exam08 の 72 時間はこれで残る）。
+    """
+    from aijudge_core import DEFAULT_AUTO_FINALIZE_MINUTES, grace_minutes
+
+    assert DEFAULT_AUTO_FINALIZE_MINUTES == 24 * 60
+    assert grace_minutes(None, None) == 24 * 60
+    assert grace_minutes(None, 60) == 60
+    assert grace_minutes(72 * 60, 60) == 72 * 60
+    assert grace_minutes(72 * 60, None) == 72 * 60
+
+
 # --------------------------------------------------------------------------
 # 問題セットの番号
 # --------------------------------------------------------------------------

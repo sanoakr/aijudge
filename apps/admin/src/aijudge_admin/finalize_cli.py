@@ -6,8 +6,7 @@
     uv run aijudge-finalize --once --course crs_… # 1 コースに絞る
 
 猶予は**問題セットごと**の設定（無ければコースの既定・`auto_finalize_after_minutes`）。教員が
-`/manage` で入れる。入っていないコースは何もしない ── 既定は「自動確定
-しない」であり、設定漏れではなく設定内容である。
+`/manage` で入れる。どちらにも無ければ 24 時間（ADR 0034。以前は「自動確定しない」だった）。
 
 **採点ワーカーには相乗りさせない。** 確定はレビュー側の判断で、採点側が
 それを知る必要はない（`.importlinter` の「採点とレビュー」の分離）。混ぜると、
@@ -66,7 +65,7 @@ def _report(report: FinalizeReport, *, dry_run: bool) -> None:
         if outcome.contested:
             parts.append(f"異議申立あり（教員が確認）: {outcome.contested} 件")
         if outcome.needs_review:
-            parts.append(f"要レビュー（自動確定しない）: {outcome.needs_review} 件")
+            parts.append(f"確認後に返す回（自動確定しない）: {outcome.needs_review} 件")
         if outcome.provisional:
             parts.append(f"未採点の観点あり: {outcome.provisional} 件")
         if outcome.awaiting_human:

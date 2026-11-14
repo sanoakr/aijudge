@@ -126,6 +126,17 @@ def test_a_criterion_awaiting_a_human_holds_the_grade_open() -> None:
     assert not auto_finalizable(run, None)
 
 
+def test_a_run_routed_to_review_is_finalized_automatically() -> None:
+    """レビュー方針が人の目を求めただけの採点は、猶予が明ければ閉じる（ADR 0034）。
+
+    点は欠けていないので AI の判定のまま確定できる。人の確認は推奨で、
+    学習者の依頼があれば止まる。
+    """
+    run = _run((_score(C1, 1.0, 1.0),), routing=Routing.REVIEW_REQUIRED)
+    assert not run.is_provisional
+    assert auto_finalizable(run, None)
+
+
 def test_a_criterion_awaiting_a_human_must_be_routed_to_review() -> None:
     with pytest.raises(ValidationError, match="must be routed to review"):
         _run((_score(C1, 1.0, 0.7),), awaiting_human=(C2,))

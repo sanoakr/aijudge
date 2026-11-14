@@ -186,8 +186,8 @@ def sweep_deadlines(
     妨げられない ── `Task.accepts_submissions_at` は確定を見ない）。
 
     猶予は**問題セットの指定がコースの既定を上書きする**（`grace_minutes`）。
-    どちらも None なら飛ばす（自動確定しないという設定であって、設定漏れでは
-    ない ── 既定は None で、教員が明示的に入れて初めて自動確定が始まる）。
+    どちらにも無ければ既定の 24 時間（ADR 0034）。以前は「無ければ飛ばす」で、
+    猶予を入れていない科目は自動確定しなかった。
 
     **課題ごとではなく提出ごとに判定するので、締切の無い課題も対象になる。**
     以前は締切が無いと確定しようがなかったが、採点完了は必ずあるため。
@@ -221,8 +221,6 @@ def _sweep_course(
             grace = grace_minutes(
                 task.auto_finalize_after_minutes, course.auto_finalize_after_minutes
             )
-            if grace is None:
-                continue
             outcomes.append(
                 _apply(
                     uow.reviews,
@@ -312,20 +310,22 @@ def _stalls(
     run: GradingRun,
     request: ReviewRequest | None,
     *,
-    grace: int | None,
+    grace: int,
     jobs: JobQueue,
 ) -> bool:
     """この未確定は、人が手を入れないと閉じないか。
 
     `_apply`（自動確定）が見送るものと同じ事実で判定する ── 未対応の異議申立、
-    猶予が未設定、確認後に返す回、レビュー方針が人の目を求めた採点、未採点の観点。**AI 段階が
+    確認後に返す回、未採点の観点・人が採点する観点。レビュー方針が人の目を求めた
+    採点は**止まらない**（猶予が明ければ閉じる・ADR 0034）。**AI 段階が
     まだ届いていない暫定の採点は待ち**に数える（届けば閉じる・#400）。
     猶予がまだ明けていないものも待ちである。
 
     AI のジョブを引くのは暫定の採点だけにする ── 画面を開くたびに全提出ぶん
     キューを引かないため。
     """
-    if blocks_finalization(request) or grace is None or task.results_after_review:
+    del grace  # 猶予は必ずある（ADR 0034）。明けていないものは待ちである。
+    if blocks_finalization(request) or task.results_after_review:
         return True
     if auto_finalizable(run, request):
         return False

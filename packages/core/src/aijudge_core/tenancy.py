@@ -37,7 +37,7 @@ class Course(BaseModel):
     """開講科目。
 
     `auto_finalize_after_minutes` は成績の自動確定までの猶予（分）。
-    None なら自動確定しない。
+    None なら既定の 24 時間（`DEFAULT_AUTO_FINALIZE_MINUTES`・ADR 0034）。
 
     **これは科目プロファイル（`subjects/*.yaml`）に置かない。** あちらは
     評価器の指名とタイムアウトを持つ採点の設定で、ブラウザから編集させない
@@ -102,7 +102,7 @@ class Course(BaseModel):
     #
     # 中身の形は `aijudge_grading.overrides` が決める。core は器だけを持つ。
     grading_overrides: dict[str, object] = Field(default_factory=dict)
-    # 締切から何分で自動確定するか。None なら自動確定しない。
+    # 採点完了から何分で自動確定するか。None なら既定の 24 時間（ADR 0034）。
     # **分で持つ。** 「締切の 10 分後」を設定できないと、演習中に出して
     # その場で返す使い方ができない。時間単位では表せない粒度である。
     auto_finalize_after_minutes: int | None = Field(default=None, gt=0)

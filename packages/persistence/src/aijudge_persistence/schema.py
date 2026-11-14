@@ -485,7 +485,7 @@ class CourseRow(Base):
     knowledge_components: Mapped[list[Any] | None] = mapped_column(JsonType, nullable=True)
     # このコースだけの採点設定の上書き。NULL・空なら雛形のまま。
     grading_overrides: Mapped[dict[str, Any] | None] = mapped_column(JsonType, nullable=True)
-    # 締切から何分で成績を自動確定するか。NULL なら自動確定しない。
+    # 採点完了から何分で成績を自動確定するか。NULL なら既定の 24 時間（ADR 0034）。
     auto_finalize_after_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # この科目の既定の提出ファイル形式（`[".c", ".pdf"]`）。NULL・空なら
     # 組み込みの既定。**課題ごとの指定が上書きする**（uploads.py）。

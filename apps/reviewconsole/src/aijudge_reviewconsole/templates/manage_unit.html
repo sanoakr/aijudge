@@ -447,9 +447,9 @@
     <div class="setting-value">
       採点完了から <input id="after_minutes" name="after_minutes" type="number" min="1" step="1"
              style="max-width:8rem"
-             placeholder="{{ course_grace if course_grace else '設定なし' }}"
+             placeholder="{{ course_grace if course_grace else default_grace }}"
              value="{{ unit.grace if unit.grace is not none and not unit.grace_from_course else '' }}"> 分
-      <span class="desc">（空欄ならコースの設定: {% if course_grace %}{{ course_grace }} 分{% else %}自動確定なし{% endif %}）</span>
+      <span class="desc">（空欄ならコースの設定: {% if course_grace %}{{ course_grace }} 分{% else %}既定の {{ default_grace }} 分（24 時間）{% endif %}）</span>
     </div>
   </div>
 

@@ -51,6 +51,7 @@ import aijudge_webui as webui
 from aijudge_audit import AuditAction, AuditRecorder
 from aijudge_authoring import images, render_statement
 from aijudge_core import (
+    DEFAULT_AUTO_FINALIZE_MINUTES,
     DIVISIONS,
     HUMAN_SCORED,
     MIN_JUSTIFICATION_LENGTH,
@@ -185,6 +186,8 @@ TEMPLATES.env.globals["root_prefix"] = root_prefix
 # 「人が採点する」を表す評価器の名前。**画面に値を書き写さない** ── 書き写すと、
 # 模型の側で変えたときに画面だけが古い値を送り続ける。
 TEMPLATES.env.globals["HUMAN_SCORED"] = HUMAN_SCORED
+# 猶予の既定（ADR 0034）。設定画面の「空欄なら」の説明に出す。同じく書き写さない。
+TEMPLATES.env.globals["default_grace"] = DEFAULT_AUTO_FINALIZE_MINUTES
 # デモコースの帯を出すのに使う（#194）。環境変数を読むだけの純関数で、
 # DB は引かない ── ADR 0017 で引いた線の内側である。
 TEMPLATES.env.globals["is_demo_course"] = _is_demo_course
@@ -2358,8 +2361,12 @@ def _open_rows(console: Console, course: Course) -> tuple[dict, ...]:
                     # 未対応の異議申立があるものは一括では閉じない。
                     # **1 件ずつ読むもの**として印を付ける。
                     "contested": blocks_finalization(request_row),
-                    # 手動の確定が要るか（2026-09-25）。偽なら猶予が明ければ自動で閉じる。
+                    # 手動確定の画面に並べるか（2026-09-25）。レビュー方針が人の確認を
+                    # 求めた採点は**推奨**で、猶予が明ければ自動で閉じる（ADR 0034）。
                     "manual": _needs_manual_finalization(course, task, run),
+                    # 放っておいても閉じないか（確認後に返す回・点の欠けた採点）。
+                    # 手動確定の画面で「自動確定されません」と言い分ける。
+                    "never_auto": _never_auto_finalized(task, run),
                     # 自動確定される時刻（2026-11-13）。起点は採点の完了で、自動確定の
                     # 巡回（`aijudge-finalize`）が時刻を過ぎた最初の回に閉じる。
                     "settles_at": settles_at(
@@ -2392,20 +2399,30 @@ def _finalize_rows(
 
 
 def _needs_manual_finalization(course: Course, task: Task | None, run: GradingRun) -> bool:
-    """この未確定の提出は、人が確定しないと閉じないか（2026-09-25）。
+    """この未確定の提出を、手動確定の画面に並べるか（2026-09-25・2026-11-14）。
 
-    自動確定（`aijudge-finalize`）が閉じないのは、猶予（課題かコースの
-    `auto_finalize_after_minutes`）が無い課題、確認後に返す回（ADR 0033）と、レビュー方針が
-    人の目を求めた採点（`Routing.REVIEW_REQUIRED`）。左の帯
+    並べるのは、レビュー方針が人の目を求めた採点（`Routing.REVIEW_REQUIRED`）と
+    確認後に返す回（ADR 0033）。**前者は推奨であって必須ではない** ── 猶予の
+    あいだに確定しなければ AI の判定のまま自動確定される（ADR 0034）。放って
+    おいても閉じないものは `_never_auto_finalized` で言い分ける。左の帯
     （`rail_context._split_unfinalized`）と同じ規則。
     """
-    grace = grace_minutes(
-        task.auto_finalize_after_minutes if task is not None else None,
-        course.auto_finalize_after_minutes,
-    )
+    del course  # 猶予は必ずある（既定 24 時間）ので、コースの設定では分かれない。
     if task is not None and task.results_after_review:
         return True
-    return grace is None or run.routing is Routing.REVIEW_REQUIRED
+    return run.routing is Routing.REVIEW_REQUIRED
+
+
+def _never_auto_finalized(task: Task | None, run: GradingRun) -> bool:
+    """放っておいても自動確定されないか。
+
+    自動確定（`aijudge_core.auto_finalizable` と `aijudge_course_admin.finalization`）が
+    見送るもの ── 確認後に返す回と、点が定まっていない採点（採点できなかった観点・
+    人が採点する観点）。異議申立は再確認の依頼の画面で扱うのでここでは見ない。
+    """
+    if task is not None and task.results_after_review:
+        return True
+    return run.is_provisional
 
 
 # -- 順に処理する帯（2026-09-25） --------------------------------------------

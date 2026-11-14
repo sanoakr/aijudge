@@ -59,14 +59,14 @@
       <strong>数えるのは提出ごとの採点完了からです</strong>（課題の締切からではありません）。
       採点は提出の直後に終わるので、<strong>締切前に確定することもあり、確定後も締切までは出し直せます</strong>。出し直した提出も採点され、点の高い方が採用されます。
       <br>
-      猶予を過ぎた提出は、AI の判定のまま確定します。<strong>再確認の依頼が出ている提出と、
-    レビューが必要と判定された提出（コンパイルエラー・合否境界の近傍など）は自動確定しません</strong>。これらの提出は、問題セットのページの一括確定か、「再確認の依頼」から個別に確定してください。
+      猶予を過ぎた提出は、AI の判定のまま確定します。レビューが必要と判定された提出（コンパイルエラー・合否境界の近傍など）も、猶予のあいだに確定しなければ自動確定します。これらは「手動確定」の画面に<strong>手動確定を推奨</strong>として並びます。
+      <strong>再確認の依頼が出ている提出・採点できなかった観点や人が採点する観点のある提出・確認後に結果を返す問題セットは自動確定しません</strong>。
     {% endcall %}</div>
     <div class="setting-value">
       採点完了から <input id="after_minutes" name="after_minutes" type="number" step="1" min="1"
              style="max-width:8rem"
              value="{{ course.auto_finalize_after_minutes if course.auto_finalize_after_minutes else '' }}"> 分
-      <span class="desc">（空欄なら自動確定しない）</span>
+      <span class="desc">（空欄なら {{ default_grace }} 分＝24 時間）</span>
     </div>
   </div>
 

@@ -21,15 +21,15 @@
   {# **1 件ずつ読んで閉じる仕事は「手動確定」の画面へ分けた**（2026-11-13）。
      blind 採点・再確認の依頼と同じく、仕事ごとに画面を 1 つ持つ。ここは
      「残りをまとめて閉じる」画面で、手動の分は件数と行き先だけを出す。 #}
-  {% if manual_total %}<span class="pill attn">手動の確定が必要 {{ manual_total }} 件</span>
+  {% if manual_total %}<span class="pill attn">手動確定を推奨 {{ manual_total }} 件</span>
     <a class="button-link" href="{{ root_prefix() }}/courses/{{ course.id }}/manual">手動確定へ →</a>
-  {% else %}<span class="pill ok">手動の確定が必要なものはありません</span>{% endif %}
+  {% else %}<span class="pill ok">手動確定を推奨するものはありません</span>{% endif %}
   {% if waiting_total %}<span class="pill">自動確定待ち {{ waiting_total }} 件</span>
     <span class="desc">猶予が明けると自動で確定されます（操作は要りません）。</span>{% endif %}
 </div>
 <p class="desc">
-  <strong>手動の確定が必要</strong>なのは、自動確定の猶予が設定されていない課題と、
-  レビュー方針が人の確認を求めた採点（コンパイルエラー・合否の境界の近く など）です。
+  <strong>手動確定を推奨</strong>するのは、レビュー方針が人の確認を求めた採点（コンパイルエラー・合否の境界の近く など）と、
+  確認後に結果を返す問題セットです。前者は猶予のあいだに確定しなければ AI の判定のまま自動確定されます。
 </p>
 
 {% if last_finalize %}

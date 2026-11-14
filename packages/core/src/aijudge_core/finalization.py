@@ -22,7 +22,7 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .grading import MIN_JUSTIFICATION_LENGTH, GradingRun, ReviewRequest, Routing
+from .grading import MIN_JUSTIFICATION_LENGTH, GradingRun, ReviewRequest
 from .ids import FinalizationId, GradingRunId, HumanReviewId, UserId
 
 
@@ -132,8 +132,8 @@ class GradeWindow(StrEnum):
 def settles_at(graded_at: datetime | None, after_minutes: int | None) -> datetime | None:
     """自動確定の時刻。**起点は採点が終わった時刻。**
 
-    設定が無ければ自動確定しない（既定はそれで、教員が明示的に入れて
-    初めて始まる）。
+    猶予は `grace_minutes` で決める（設定が無ければ既定の 24 時間）。
+    `None` を渡されたら確定の予定は無いものとして扱う。
 
     猶予は**分**。時間単位だと「採点の 10 分後に確定」が表せず、演習中に
     出してその場で返す使い方ができない。
@@ -143,13 +143,26 @@ def settles_at(graded_at: datetime | None, after_minutes: int | None) -> datetim
     return graded_at + timedelta(minutes=after_minutes)
 
 
-def grace_minutes(task_value: int | None, course_value: int | None) -> int | None:
+# 問題セットにも科目にも猶予が無いときの猶予（分）。24 時間（2026-11-14）。
+#
+# 以前は「無ければ自動確定しない」で、教員が明示的に入れて初めて始まった。
+# 実際には猶予を入れ忘れた科目の成績がいつまでも閉じず、学習者には「いつ
+# 確定するか」も示せなかった。猶予は再確認の依頼を受け付ける窓でもあるので、
+# どの科目にも窓がある方が学習者に公平である（ADR 0034）。
+DEFAULT_AUTO_FINALIZE_MINUTES = 24 * 60
+
+
+def grace_minutes(task_value: int | None, course_value: int | None) -> int:
     """実際に効く猶予。**問題セットの指定が科目の既定を上書きする。**
 
-    問題セットに何も入れていなければ科目の値。科目にも無ければ自動確定
-    しない（既定はそれで、教員が明示的に入れて初めて始まる）。
+    問題セットに何も入れていなければ科目の値。科目にも無ければ既定の
+    24 時間（`DEFAULT_AUTO_FINALIZE_MINUTES`・ADR 0034）。
     """
-    return course_value if task_value is None else task_value
+    if task_value is not None:
+        return task_value
+    if course_value is not None:
+        return course_value
+    return DEFAULT_AUTO_FINALIZE_MINUTES
 
 
 def grade_window(
@@ -181,15 +194,22 @@ def blocks_finalization(request: ReviewRequest | None) -> bool:
 
 
 def auto_finalizable(run: GradingRun, request: ReviewRequest | None) -> bool:
-    """締切経過による自動確定の対象か。
+    """猶予の経過による自動確定の対象か。
 
     人が関与しないので、条件は個別確定より厳しい。
 
-    - `review_required` は対象外。レビュー方針が「人が見るべき」と判定した
-      ものを、人を通さずに成績にしない（設計原則 P5）
-    - 点が定まっていないもの（`is_provisional`）も対象外。評価器が落ちた
-      観点や、人の採点を待っている観点が成績に入る
+    - 点が定まっていないもの（`is_provisional`）は対象外。評価器が落ちた
+      観点や、人の採点を待っている観点が成績に入る ── 機械の点そのものが
+      欠けているので、AI の判定のままという確定の文面が嘘になる
     - 未対応の異議申立があるものも対象外
+
+    **レビュー方針が人の確認を求めた採点（`review_required`）も閉じる**
+    （2026-11-14・ADR 0034）。以前はここで止めていた（P5）が、教員が読み
+    切れない分が学期末まで未確定のまま残り、学習者には「確定します」と
+    示した時刻が来ても確定しなかった。いまは教員に**手動確定を推奨**として
+    並べ、猶予のあいだに読まれなければ AI の判定のまま閉じる。学習者は
+    猶予のあいだ再確認を依頼でき、依頼があれば確定は止まる
+    （`blocks_finalization`）── 人の目が入る経路は残っている。
 
     **集約のゲートで打ち切った観点は止めない。** 0% は確定した結果なので、
     人が見るべきものは何も残っていない（Issue #10）。`is_provisional` が
@@ -197,9 +217,7 @@ def auto_finalizable(run: GradingRun, request: ReviewRequest | None) -> bool:
     """
     if blocks_finalization(request):
         return False
-    if run.is_provisional:
-        return False
-    return run.routing is Routing.AUTO
+    return not run.is_provisional
 
 
 def bulk_finalizable(run: GradingRun, request: ReviewRequest | None) -> bool:

@@ -1709,15 +1709,41 @@ def test_an_unknown_from_value_shows_no_strip(world: World) -> None:
     assert 'class="work-strip"' not in page
 
 
+def _hold_results(world: World) -> None:
+    """課題を「確認後に返す回」にする（ADR 0033）。自動でも一括でも閉じない。"""
+    with world.database.unit_of_work() as uow:
+        for task in uow.tasks.list_for_course(COURSE):
+            uow.tasks.save_task(task.model_copy(update={"results_after_review": True}))
+        uow.commit()
+
+
 def test_the_finalize_page_says_what_needs_a_person(world: World) -> None:
-    """**手動の確定が要るものと、待てば閉じるものを分けて言う**（2026-09-25）。
-    猶予の無いコースの未確定は、すべて手動。"""
+    """**手動確定を推奨するものと、待てば閉じるものを分けて言う**（2026-09-25）。
+    確認後に返す回の未確定は、手動確定の側に数える。"""
     _instructor_and_submission(world)
     world.worker.run_until_empty()
+    _hold_results(world)
 
     page = world.client.get(f"/courses/{COURSE}/finalize").text
-    assert "手動の確定が必要 1 件" in page
-    assert "自動確定待ち" not in page.split("手動の確定が必要")[0]
+    assert "手動確定を推奨 1 件" in page
+    assert "自動確定待ち" not in page.split("手動確定を推奨")[0]
+    listing = world.client.get(f"/courses/{COURSE}/manual").text
+    assert "自動確定されません" in listing
+
+
+def test_a_course_without_a_grace_still_finalizes_automatically(world: World) -> None:
+    """猶予を入れていないコースも既定の 24 時間で閉じる（ADR 0034）。"""
+    _, accepted = _instructor_and_submission(world)
+    world.worker.run_until_empty()
+    with world.database.unit_of_work() as uow:
+        run = uow.runs.latest_for(accepted.submission.id)
+
+    page = world.client.get(f"/courses/{COURSE}/finalize").text
+    if run.routing.value == "auto" and not run.is_provisional:
+        assert "自動確定待ち 1 件" in page
+        assert "手動確定を推奨するものはありません" in page
+    else:
+        assert "手動確定を推奨 1 件" in page
 
 
 def test_a_graced_task_waits_for_automatic_finalisation(world: World) -> None:
@@ -1732,10 +1758,10 @@ def test_a_graced_task_waits_for_automatic_finalisation(world: World) -> None:
     page = world.client.get(f"/courses/{COURSE}/finalize").text
     if run.routing.value == "auto":
         assert "自動確定待ち 1 件" in page
-        assert "手動の確定が必要なものはありません" in page
+        assert "手動確定を推奨するものはありません" in page
     else:
-        # 人の目を求めた採点は、猶予があっても手動。
-        assert "手動の確定が必要 1 件" in page
+        # 人の目を求めた採点は手動確定を推奨する（猶予が明ければ閉じる・ADR 0034）。
+        assert "手動確定を推奨 1 件" in page
 
 
 def test_manual_finalisation_is_worked_through_with_the_strip(world: World) -> None:
@@ -1746,6 +1772,8 @@ def test_manual_finalisation_is_worked_through_with_the_strip(world: World) -> N
     行き先だけが出て、一覧と「順に」の入口は手動確定の画面にある。"""
     _, accepted = _instructor_and_submission(world)
     world.worker.run_until_empty()
+    # 手動確定の画面に確実に並べる（猶予は既定で必ずあるので、AUTO の採点は並ばない）。
+    _hold_results(world)
     sid = accepted.submission.id
 
     summary = world.client.get(f"/courses/{COURSE}/finalize").text
@@ -1772,9 +1800,9 @@ def test_manual_finalisation_is_worked_through_with_the_strip(world: World) -> N
     # 確定済みの画面を挟まない（2026-10-02）。次が無ければ手動確定の一覧へ。
     assert response.headers["location"].endswith(f"/courses/{COURSE}/manual")
     after = world.client.get(f"/courses/{COURSE}/manual").text
-    assert "手動の確定が必要な提出はありません" in after
+    assert "手動確定を推奨する提出はありません" in after
     assert (
-        "手動の確定が必要なものはありません" in world.client.get(f"/courses/{COURSE}/finalize").text
+        "手動確定を推奨するものはありません" in world.client.get(f"/courses/{COURSE}/finalize").text
     )
 
 

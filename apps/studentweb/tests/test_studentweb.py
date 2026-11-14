@@ -664,7 +664,8 @@ def test_the_ai_verdict_is_shown_immediately(world: World) -> None:
     assert AI_RATIONALE in body, "AI の判定が出ていない"
     assert "確認中" not in body
     assert 'class="score"' in body, "総合点が出ていない"
-    assert "担当教員の確認を経て確定します" in body
+    # 猶予は既定で 24 時間あるので、いつ確定するかを示す（ADR 0034）。
+    assert "仮確定です" in body
 
 
 @needs_c_compiler
@@ -676,7 +677,7 @@ def test_a_confirmed_grade_is_distinguished_from_a_provisional_one(world: World)
     location = world.submit().headers["location"]
     world.worker.run_until_empty()
 
-    assert "担当教員の確認を経て確定します" in world.client.get(location).text
+    assert "仮確定です" in world.client.get(location).text
 
     submission_id = location.split("/")[-1].split("?")[0]
     world.finalize(submission_id, grader=instructor)
@@ -1108,10 +1109,12 @@ def test_the_grade_becomes_provisional_as_soon_as_it_is_graded(
 
 
 @needs_c_compiler
-def test_without_a_grace_the_grade_never_announces_a_settling_time(
+def test_without_a_grace_the_grade_settles_after_the_default(
     world: World,
 ) -> None:
-    """自動確定を設定していなければ、確定の予定は無い。"""
+    """自動確定を設定していなくても、既定の 24 時間で確定すると示す（ADR 0034）。
+
+    以前は「確定の予定は無い」で、学習者に依頼の期限も示せなかった。"""
     world.register("s2400001")
     world.login("s2400001")
     location = world.submit().headers["location"]
@@ -1119,8 +1122,8 @@ def test_without_a_grace_the_grade_never_announces_a_settling_time(
     _schedule(world, due_offset_hours=24, grace=None)
 
     body = world.client.get(location).text
-    assert "仮確定です" not in body
-    assert "担当教員の確認を経て確定します" in body
+    assert "仮確定です" in body
+    assert "担当教員の確認を経て確定します" not in body
 
 
 @needs_c_compiler
@@ -1183,8 +1186,10 @@ def test_the_window_closes_on_time_even_before_the_sweep_runs(world: World) -> N
 
 
 @needs_c_compiler
-def test_without_a_grace_the_window_never_closes(world: World) -> None:
-    """自動確定を設定していないコースでは期限を示していない。締め切れない。"""
+def test_without_a_grace_the_window_still_closes(world: World) -> None:
+    """自動確定を設定していないコースも既定の 24 時間で締め切る（ADR 0034）。
+
+    締め切りは採点完了から数える。ここでは採点の直後なので、まだ依頼できる。"""
     world.register("s2400001")
     world.login("s2400001")
     location = world.submit().headers["location"]
@@ -1198,7 +1203,6 @@ def test_without_a_grace_the_window_never_closes(world: World) -> None:
         follow_redirects=False,
     )
     assert response.status_code == 303
-    assert "仮確定です" not in world.client.get(location).text
 
 
 @needs_c_compiler
@@ -1298,7 +1302,8 @@ def test_the_task_page_shows_each_attempts_time_score_and_state(world: World) ->
     world.worker.run_until_empty()
 
     body = world.client.get(f"/tasks/{world.task_version.id}").text
-    assert "確定前（AI の判定）" in body
+    # 猶予は既定で必ずある（ADR 0034）ので、確定前の提出は「仮確定」と出る。
+    assert "仮確定" in body
     assert "採用" in body, "どの提出が採用されるか示していない"
 
 

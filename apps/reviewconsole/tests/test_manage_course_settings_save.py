@@ -187,3 +187,15 @@ def test_saving_the_unit_page_as_shown_changes_nothing(world: World) -> None:
     )
 
     assert "saved=unchanged" in response.headers["location"]
+
+
+def test_an_empty_grace_is_explained_as_the_default(world: World) -> None:
+    """空欄の意味は「自動確定しない」ではなく既定の 24 時間（ADR 0034）。
+
+    値はコードの定数から出す ── 画面に書き写すと、定数を変えたときに説明だけが残る。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    page = world.client("teacher").get(f"/manage/courses/{world.course.id}").text
+
+    assert "空欄なら 1440 分＝24 時間" in page
+    assert "空欄なら自動確定しない" not in page

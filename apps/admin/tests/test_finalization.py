@@ -469,12 +469,16 @@ def _with_grace(database: Database, course, hours: float | None):
         uow.commit()
 
 
-def test_nothing_happens_when_the_course_declares_no_grace(database: Database, course) -> None:
-    """既定は「自動確定しない」。設定漏れではなく設定内容である。"""
+def test_a_course_without_a_grace_finalizes_after_the_default(database: Database, course) -> None:
+    """猶予を入れていないコースは既定の 24 時間で閉じる（ADR 0034）。
+
+    以前は「自動確定しない」で、入れ忘れたコースの成績がいつまでも閉じなかった。
+    """
     ids = _world(database, course.id)
+    assert sweep_deadlines(database, now=BEFORE).finalized == 0
     report = sweep_deadlines(database, now=AFTER)
-    assert report.finalized == 0
-    assert _finalizations(database, ids) == [None]
+    assert report.finalized == 1
+    assert _finalizations(database, ids)[0] is not None
 
 
 def test_nothing_happens_before_the_grace_has_elapsed(database: Database, course) -> None:
@@ -509,8 +513,14 @@ def test_automatic_finalization_writes_no_human_review(database: Database, cours
         assert uow.reviews.find_review_for_run(run.id) is None
 
 
-def test_automatic_finalization_skips_what_needs_a_human(database: Database, course) -> None:
-    """レビュー方針が人の目を求めたものを、人を通さずに成績にしない（P5）。"""
+def test_automatic_finalization_closes_what_review_was_recommended_for(
+    database: Database, course
+) -> None:
+    """レビュー方針が人の目を求めた採点も、猶予が明ければ閉じる（ADR 0034）。
+
+    人の確認は推奨であって必須ではない。猶予のあいだに読まれなければ AI の
+    判定のまま確定する。以前は P5 を理由に止め、学期末まで未確定で残った。
+    """
     ids = _world(
         database,
         course.id,
@@ -518,12 +528,14 @@ def test_automatic_finalization_skips_what_needs_a_human(database: Database, cou
     )
     _with_grace(database, course, 24.0)
 
+    assert sweep_deadlines(database, now=BEFORE).finalized == 0
     report = sweep_deadlines(database, now=AFTER)
 
-    assert report.finalized == 2
-    outcome = report.touched[0]
-    assert outcome.needs_review == 1
-    assert _finalizations(database, ids)[1] is None
+    assert report.finalized == 3
+    assert report.touched[0].needs_review == 0
+    finalization = _finalizations(database, ids)[1]
+    assert finalization is not None
+    assert finalization.source is FinalizationSource.AUTOMATIC
 
 
 def test_automatic_finalization_skips_an_unscored_criterion(database: Database, course) -> None:
@@ -629,7 +641,7 @@ def test_waiting_for_the_grace_is_not_counted_as_stalled(database: Database, cou
 
 
 def test_what_the_sweep_skips_is_counted_as_stalled(database: Database, course) -> None:
-    """異議申立・要レビュー・採点失敗は、放っておいても閉じない。"""
+    """異議申立と採点失敗は、放っておいても閉じない。要レビューは閉じる（ADR 0034）。"""
     _world(
         database,
         course.id,
@@ -641,7 +653,7 @@ def test_what_the_sweep_skips_is_counted_as_stalled(database: Database, course) 
 
     breakdown = pending_breakdown(database, course.id)
 
-    assert (breakdown.total[TASK_ID], breakdown.stalled[TASK_ID]) == (4, 3)
+    assert (breakdown.total[TASK_ID], breakdown.stalled[TASK_ID]) == (4, 2)
 
 
 def test_awaiting_the_ai_phase_is_not_counted_as_stalled(database: Database, course) -> None:
@@ -652,16 +664,18 @@ def test_awaiting_the_ai_phase_is_not_counted_as_stalled(database: Database, cou
 
     breakdown = pending_breakdown(database, course.id)
 
-    assert (breakdown.total[TASK_ID], breakdown.stalled[TASK_ID]) == (2, 1)
+    # 1 件目は未採点の観点があるが AI 段階を待っているので待ち。2 件目は要レビュー
+    # だけで、猶予が明ければ閉じる（ADR 0034）ので、これも待ち。
+    assert (breakdown.total[TASK_ID], breakdown.stalled[TASK_ID]) == (2, 0)
 
 
-def test_without_a_grace_everything_is_stalled(database: Database, course) -> None:
-    """猶予が無ければ自動確定は何もしない。教員が閉じるまで残る。"""
+def test_without_a_grace_nothing_is_stalled(database: Database, course) -> None:
+    """猶予を入れていなくても既定の 24 時間で閉じるので、止まってはいない（ADR 0034）。"""
     _world(database, course.id, routings=(Routing.AUTO,) * 2)
 
     breakdown = pending_breakdown(database, course.id)
 
-    assert breakdown.stalled[TASK_ID] == 2
+    assert breakdown.stalled[TASK_ID] == 0
 
 
 def test_the_sweep_reports_what_is_waiting(database: Database, course) -> None:
