@@ -1,4 +1,8 @@
-"""左の帯の「blind 採点」に残りの件数を出す（2026-10-01）。
+"""左の帯に blind 採点の残りの件数を出す（2026-10-01）。
+
+2026-11-14 から blind 採点は手動確定の推奨と 1 つの項目「人が読む」にまとめた。
+数字は 2 つの待ちの合計で、ここの提出は手動確定の推奨に当たらない（自動の振り分け）
+ので、blind の残りがそのまま出る。
 
 件数が無いと、どれだけ残っているかを開いて数えることになる。固定したいのは 3 つ。
 
@@ -18,9 +22,9 @@ from aijudge_core import Role
 
 
 def _rail_blind(body: str) -> str | None:
-    """帯の「blind 採点」の行に付いた数字の要素（無ければ None）。"""
-    item = re.search(r'href="[^"]*/courses/[^"]+/blind"[^>]*>(.*?)</a>', body, re.S)
-    assert item is not None, "帯に blind 採点の行が無い"
+    """帯の「人が読む」の行に付いた数字の要素（無ければ None）。"""
+    item = re.search(r'href="[^"]*/courses/[^"]+/read"[^>]*>(.*?)</a>', body, re.S)
+    assert item is not None, "帯に「人が読む」の行が無い"
     count = re.search(r'<span class="c[^"]*">\d+</span>', item.group(1))
     return None if count is None else count.group(0)
 
@@ -33,7 +37,7 @@ def test_the_rail_counts_the_blind_marks_left(blind_world: World) -> None:
     blind_world.login("instructor")
     blind_world.worker.run_until_empty()
 
-    body = blind_world.client.get(f"/courses/{COURSE}/blind").text
+    body = blind_world.client.get(f"/courses/{COURSE}/read").text
     assert _rail_blind(body) == '<span class="c attn">2</span>', "一覧と同じ 2 件・注意の色"
 
     with blind_world.database.unit_of_work() as uow:
@@ -42,7 +46,7 @@ def test_the_rail_counts_the_blind_marks_left(blind_world: World) -> None:
     form.pop("comment")
     blind_world.client.post(f"/review/{first.submission.id}/blind", data=form)
 
-    body = blind_world.client.get(f"/courses/{COURSE}/blind").text
+    body = blind_world.client.get(f"/courses/{COURSE}/read").text
     assert _rail_blind(body) == '<span class="c attn">1</span>'
 
 
@@ -61,7 +65,7 @@ def test_an_instructors_trial_is_not_counted(blind_world: World) -> None:
     blind_world.login("instructor")
     blind_world.worker.run_until_empty()
 
-    body = blind_world.client.get(f"/courses/{COURSE}/blind").text
+    body = blind_world.client.get(f"/courses/{COURSE}/read").text
     assert _rail_blind(body) is None
 
 

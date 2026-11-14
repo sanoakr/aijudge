@@ -1808,17 +1808,17 @@ def test_manual_finalisation_is_worked_through_with_the_strip(world: World) -> N
     sid = accepted.submission.id
 
     summary = world.client.get(f"/courses/{COURSE}/finalize").text
-    assert f"/courses/{COURSE}/manual" in summary
+    assert f"/courses/{COURSE}/read" in summary
     assert f"/review/{sid}/reveal?from=finalize" not in summary, "手動の分が確定処理に並んでいる"
 
-    listing = world.client.get(f"/courses/{COURSE}/manual").text
+    listing = world.client.get(f"/courses/{COURSE}/read").text
     assert f"/review/{sid}/reveal?from=finalize" in listing
-    assert "先頭から順に手動採点する" in listing
-    assert "この課題を順に手動採点する" in listing
+    assert "手動確定を先頭から順に" in listing
+    assert "この課題の手動確定を順に" in listing
 
     page = world.client.get(f"/review/{sid}/reveal?from=finalize").text
     assert 'class="work-strip"' in page and "手動確定" in page and "待ち 1 件" in page
-    assert f"/courses/{COURSE}/manual" in page, "帯の「一覧へ」が手動確定の画面を指していない"
+    assert f"/courses/{COURSE}/read" in page, "帯の「一覧へ」が「人が読む」の画面を指していない"
 
     with world.database.unit_of_work() as uow:
         run = uow.runs.latest_for(sid)
@@ -1828,9 +1828,9 @@ def test_manual_finalisation_is_worked_through_with_the_strip(world: World) -> N
         data=_agree_form(world, machine),
         follow_redirects=False,
     )
-    # 確定済みの画面を挟まない（2026-10-02）。次が無ければ手動確定の一覧へ。
-    assert response.headers["location"].endswith(f"/courses/{COURSE}/manual")
-    after = world.client.get(f"/courses/{COURSE}/manual").text
+    # 確定済みの画面を挟まない（2026-10-02）。次が無ければ「人が読む」の一覧へ。
+    assert response.headers["location"].endswith(f"/courses/{COURSE}/read")
+    after = world.client.get(f"/courses/{COURSE}/read").text
     assert "手動確定を推奨する提出はありません" in after
     assert (
         "手動確定を推奨するものはありません" in world.client.get(f"/courses/{COURSE}/finalize").text

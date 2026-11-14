@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}人が読む — {{ course.title }} — aiJudge{% endblock %}
+{% block body %}
+<h1>人が読む</h1>
+<p class="subtitle">{{ course.title }}・blind 採点と、手動確定を推奨する提出を 1 件ずつ読みます。</p>
+
+{# **blind 採点と手動確定を 1 つの画面にまとめた**（2026-11-14）。手動確定が必須でなくなり
+   （ADR 0034）、どちらも「教員が任意で読む提出の列」になったため。**まとめたのは画面だけ**で、
+   行ごとの開き先・記録・測定は分けたまま ── blind は AI を見ずに付ける画面へ、推奨は
+   確定の画面へ開く。一致度に数えるのはハッシュで抽出した blind 採点だけ（ADR 0005）。
+
+   **AI の総合点は出さない**（#695）。blind 採点待ちの提出が同じ一覧に並ぶので、
+   blind の画面に入る前に判定が読めてしまう。点は 1 件の画面で読む。 #}
+<div class="note">
+  <strong>どちらも必須の作業ではありません。</strong>
+  <ul>
+    <li><strong>blind 採点</strong> ── 一致度を測るために抽出された提出です。AI の判定を見る前に、
+      自分で段階を付けます。AI を見たあとの段階は正解データにならないので、同じ課題では先に済ませてください。
+      貯まらなくても運用は続き、一致度が測れないだけです（ADR 0007）。</li>
+    <li><strong>手動確定を推奨</strong> ── レビュー方針が人の確認を求めた採点（コンパイルエラー・合否の境界の近く・
+      AI の判定が割れた など）と、確認後に結果を返す問題セットの提出です。前者は、猶予のあいだに確定しなければ
+      <strong>AI の判定のまま自動確定</strong>されます（学習者はそれまで再確認を依頼できます）。
+      「自動確定されません」と出ている提出は、確定するまで閉じません。</li>
+  </ul>
+  まとめて閉じるときは <a href="{{ root_prefix() }}/courses/{{ course.id }}/finalize">確定処理</a> から。
+</div>
+
+{% if agreed %}{% include "_blind_agreed.html" %}{% endif %}
+<div class="work-summary" data-live="read-summary">
+  {% if blind_rows %}
+    <span class="pill attn">blind 採点 {{ blind_rows | length }} 件</span>
+    <a class="button-link go" href="{{ root_prefix() }}/review/{{ blind_rows[0].submission.id }}/blind?from=blind">blind 採点を先頭から順に →</a>
+  {% else %}
+    <span class="pill ok">blind 採点を待っている提出はありません</span>
+  {% endif %}
+  {% if manual_rows %}
+    <span class="pill attn">手動確定を推奨 {{ manual_rows | length }} 件</span>
+    {% set never = manual_rows | selectattr('never_auto') | list %}
+    {% if never %}<span class="pill attn">うち自動確定されない {{ never | length }} 件</span>{% endif %}
+    <a class="button-link go" href="{{ root_prefix() }}/review/{{ manual_rows[0].submission.id }}/reveal?from=finalize">手動確定を先頭から順に →</a>
+  {% else %}
+    <span class="pill ok">手動確定を推奨する提出はありません</span>
+  {% endif %}
+</div>
+
+<div class="card">
+  <strong>blind 採点の蓄積: {{ marked_count }} / {{ min_sample_size }} 件</strong>
+  <div class="progress">
+    <div style="width: {{ (100 * marked_count / min_sample_size) | round(1) if marked_count < min_sample_size else 100 }}%"></div>
+  </div>
+  <p class="desc" style="margin:0">
+    この件数に届くまで一致度は報告されません（足りない標本で出した数字は、
+    測れていないことを隠します）。
+  </p>
+</div>
+
+{# **課題ごとにまとめて並べる**。同じ問題を続けて読むと基準を持ち替えずに済む。並びは
+   `_in_task_order` が決め、同じ課題の中では blind が先に来る。1 件の画面の「次へ」は
+   仕事ごとの帯（blind / 手動確定）で進む。 #}
+<div data-live="read-groups" data-live-rows>
+{% for group in groups %}
+{% set group_blind = group.rows | selectattr('kind', 'equalto', 'blind') | list %}
+{% set group_manual = group.rows | selectattr('kind', 'equalto', 'manual') | list %}
+<div data-live-key="g-{{ group.task.id if group.task else 'none' }}">
+{# 問題ごとに畳む。開き閉じは自動更新をまたいで残る（`live.js` の `carryOpen`・id で突き合わせる）。 #}
+<details class="fin-task" id="read-task-{{ group.task.id if group.task else 'none' }}">
+<summary>
+<h3 class="task-group">
+  {% if group.task %}<span class="mono desc">{{ group.task.unit or group.task.unit_label }}</span>
+    {{ group.task.title }}{% else %}課題の分からない提出{% endif %}
+</h3>
+  {% if group_blind %}<span class="desc">blind {{ group_blind | length }} 件</span>
+    <a class="desc" href="{{ root_prefix() }}/review/{{ group_blind[0].submission.id }}/blind?from=blind">この課題の blind 採点を順に →</a>{% endif %}
+  {% if group_manual %}<span class="desc">推奨 {{ group_manual | length }} 件</span>
+    <a class="desc" href="{{ root_prefix() }}/review/{{ group_manual[0].submission.id }}/reveal?from=finalize">この課題の手動確定を順に →</a>{% endif %}
+</summary>
+{# 携帯では行を積む（`table.stack`）。課題は見出しに出したので列に持たない。 #}
+<table class="stack">
+  <thead><tr>
+    <th class="fit">種類</th><th class="fit">提出</th><th class="grow">学習者</th>
+    <th class="fit">回</th><th class="fit">自動確定</th><th class="fit"></th>
+  </tr></thead>
+  <tbody>
+  {% for row in group.rows %}
+    <tr class="row-link" data-href="{{ root_prefix() }}{{ row.href }}">
+      <td class="fit" data-label="種類">
+        {% if row.kind == 'blind' %}<span class="pill">blind 採点</span>
+        {% elif row.blind_first %}<span class="pill">手動確定を推奨</span> <span class="desc">先に blind 採点</span>
+        {% else %}<span class="pill">手動確定を推奨</span>{% endif %}
+      </td>
+      <td class="fit" data-label="提出">{{ row.submission.submitted_at | local('%m-%d %H:%M') if row.submission.submitted_at else '—' }}</td>
+      <td class="grow mono" data-label="学習者">{{ row.learner.login if row.learner else '—' }}</td>
+      <td class="fit" data-label="回">{{ row.attempt_no or row.submission.attempt }} 回目</td>
+      <td class="fit" data-label="自動確定">
+        {% if row.kind == 'blind' %}—
+        {% elif row.never_auto %}<span class="pill attn">自動確定されません</span>
+        {% elif row.settles_at %}{{ row.settles_at | local('%m-%d %H:%M') }}{% else %}—{% endif %}
+      </td>
+      <td class="fit"><a href="{{ root_prefix() }}{{ row.href }}">{% if row.kind == 'blind' or row.blind_first %}自分で採点する{% else %}確認して確定する{% endif %}</a></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</details>
+</div>
+{% else %}
+<p class="desc" data-live-key="empty">いま人が読む提出はありません。</p>
+{% endfor %}
+</div>
+{% endblock %}
