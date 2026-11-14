@@ -17,12 +17,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 from aijudge_core import ArtifactKind
 from aijudge_core.ids import SubmissionId, TaskVersionId, TenantId, UserId
 from aijudge_persistence import Database
-from aijudge_persistence.schema import GradingJobRow
+from aijudge_persistence.schema import GradingJobRow, SubmissionKeyRow
 from aijudge_submission import (
     FilesystemArtifactStore,
     IncomingFile,
@@ -82,7 +82,7 @@ def accept(service: SubmissionService, **overrides):
     return service.accept(**kwargs)
 
 
-def stream(service: SubmissionService):
+def stream(service: SubmissionService, idempotency_key: str | None = None):
     return service.accept_stream(
         tenant_id=TENANT,
         task_version_id=TASK,
@@ -92,6 +92,7 @@ def stream(service: SubmissionService):
         kind=ArtifactKind.VIDEO,
         chunks=iter([b"same", b"bytes"]),
         max_bytes=1_000_000,
+        idempotency_key=idempotency_key,
     )
 
 
@@ -133,11 +134,15 @@ def test_a_job_repaired_on_resubmission_is_still_there_afterwards(
 def test_a_video_job_repaired_on_resubmission_is_still_there_afterwards(
     database: Database, service: SubmissionService
 ) -> None:
-    """動画経路の補い（`_existing_for_key`）も同じ。"""
-    first = stream(service)
+    """動画経路の補い（`_existing_for_key`）も同じ。
+
+    明示キー（分割アップロードの upload_id と同じ役目）で送る。キーを送らない
+    経路は、下の xfail のとおり PostgreSQL では提出そのものが通らない。
+    """
+    first = stream(service, idempotency_key="upl_resend")
     lose_every_job(database)
 
-    again = stream(service)
+    again = stream(service, idempotency_key="upl_resend")
 
     assert again.deduplicated
     repaired = stored_job(database, first.submission.id)
@@ -175,3 +180,29 @@ def test_an_explicit_key_does_not_reach_across_tenants(
             uow.submissions.find_by_idempotency_key(OTHER_TENANT, "req-1").id
             == theirs.submission.id
         )
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "record_streamed の内容ベースのキー（intake.py:381、"
+        "sha256:<64>:<課題版>:<学習者> で 145 文字）が "
+        "submission_keys.idempotency_key の VARCHAR(128)（schema.py:138）を超える。"
+        "PostgreSQL では Idempotency-Key 無しの POST /submit-video が DataError で落ちる"
+    ),
+)
+def test_a_video_sent_without_a_key_fits_the_key_column(
+    database: Database, service: SubmissionService
+) -> None:
+    """Idempotency-Key を送らない動画提出も、鍵の列に収まる。
+
+    SQLite は VARCHAR の長さを強制しないので、保存できても長さを別に確かめる
+    （`audit_events.target_id` と同じ見逃し方をしないため）。
+    """
+    stream(service)
+
+    limit = SubmissionKeyRow.__table__.c.idempotency_key.type.length
+    with database.session() as session:
+        keys = session.execute(select(SubmissionKeyRow.idempotency_key)).scalars().all()
+    assert keys
+    assert all(len(key) <= limit for key in keys)
