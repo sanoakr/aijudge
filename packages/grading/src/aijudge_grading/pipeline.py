@@ -469,7 +469,10 @@ class GradingPipeline:
             if unscored and scores
             else tuple(scores)
         )
-        if not final and not zero_weight:
+        # **全観点が「0% として数える」側に入っているか。**（全観点が人採点の課題・Issue #7）
+        # このときだけ、点が無くても重みの合計が 1.0 になり、`aggregate` が通る。
+        every_criterion_is_zero = all(c.id in zero for c in task_version.criteria)
+        if not final and not every_criterion_is_zero:
             # **1 つも点が付いていない。** この段階で採点する観点が無かった
             # 場合がこれで（AI 観点だけの課題の決定的段階・#80）、異常では
             # ないので run は作る。**総合点は 0 ではなく「無い」** ── 観点が
@@ -478,6 +481,11 @@ class GradingPipeline:
             # `aggregate` は空集合を拒む。それは正しい（重みの合計が 1.0 に
             # ならないのは、ふつうどこかの観点が計算から抜けた印である）ので、
             # 呼ばずにここで畳む。
+            #
+            # **人採点の観点（や打ち切った観点）が同居していても同じ**（#677）。以前は
+            # `not zero_weight` のときだけここに来たので、AI 観点 0.6 が未採点のまま
+            # 人採点 0.4 が同居すると `aggregate((), zero_weight=0.4)` が重みの合計 1.0 に
+            # 満たず ValueError になり、提出は再試行の上限まで落ち続けた。
             score_ratio, confidence = 0.0, 0.0
         else:
             score_ratio, confidence = aggregate(final, zero_weight=zero_weight)
