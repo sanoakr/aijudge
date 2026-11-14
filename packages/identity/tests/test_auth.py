@@ -536,3 +536,49 @@ def test_roles_do_not_leak_across_tenants(auth) -> None:
     )
 
     assert repository.roles_by_user(TenantId("ten_" + "9" * 32)) == {}
+
+
+def test_a_hash_whose_digest_part_is_corrupt_verifies_as_false() -> None:
+    """パラメータと塩は正しく、ハッシュ部だけが壊れた形（base64 の長さが 4k+1）。
+
+    以前は比較が `try` の外にあり、`binascii.Error` が上がった ── その人だけ 401 ではなく
+    500 になり、壊れていることが外から観測できた（`verify_password` の約束に反する）。
+    """
+    good = hash_password(PASSWORD, n=1024)
+    scheme, parameters, salt, _digest = good.split("$")
+    for broken_digest in ("abcde", "a", "*" * 7):
+        assert verify_password(PASSWORD, f"{scheme}${parameters}${salt}${broken_digest}") is False
+
+
+def test_a_very_long_login_is_a_failed_login_and_is_still_recorded() -> None:
+    """長いログイン ID でも、失敗の記録は残り、応答は他の失敗と同じ。
+
+    以前は入力をそのまま監査の詳細に入れ、4000 字を超えると監査行を作れずに例外になった
+    （401 ではなく 500・失敗の記録も残らない・送信元ごとの失敗数にも数えられない）。
+    """
+    from aijudge_audit import AuditAction
+
+    audit = InMemoryAuditLog()
+    service = AuthService(InMemoryIdentityRepository(), audit=audit, clock=Clock())
+
+    with pytest.raises(AuthenticationFailed):
+        service.login(tenant_id=TENANT, login="x" * 5000, password=PASSWORD)
+
+    (row,) = audit.list_recent(TENANT, action=AuditAction.LOGIN_FAILED)
+    # 切って載せる。切ったことが分かる印を付ける（全文は残さない）。
+    assert len(row.detail["login"]) <= 130
+    assert row.detail["login_truncated"] is True
+
+
+def test_a_normal_login_is_recorded_as_it_was_typed() -> None:
+    from aijudge_audit import AuditAction
+
+    audit = InMemoryAuditLog()
+    service = AuthService(InMemoryIdentityRepository(), audit=audit, clock=Clock())
+
+    with pytest.raises(AuthenticationFailed):
+        service.login(tenant_id=TENANT, login="s2400001", password=PASSWORD)
+
+    (row,) = audit.list_recent(TENANT, action=AuditAction.LOGIN_FAILED)
+    assert row.detail["login"] == "s2400001"
+    assert "login_truncated" not in row.detail

@@ -149,20 +149,22 @@ class SqlSubmissionRepository:
     def remember_idempotency_key(
         self, tenant_id: TenantId, key: str, submission_id: SubmissionId
     ) -> None:
-        self._session.add(
-            SubmissionKeyRow(
-                tenant_id=str(tenant_id),
-                idempotency_key=key,
-                submission_id=str(submission_id),
-            )
-        )
-        # テナントは提出行にも持たせる（テナント単位の走査に索引を使うため）。
-        self._session.execute(
-            update(SubmissionRow)
-            .where(SubmissionRow.id == str(submission_id))
-            .values(tenant_id=str(tenant_id))
-        )
         try:
+            self._session.add(
+                SubmissionKeyRow(
+                    tenant_id=str(tenant_id),
+                    idempotency_key=key,
+                    submission_id=str(submission_id),
+                )
+            )
+            # テナントは提出行にも持たせる（テナント単位の走査に索引を使うため）。
+            # **`execute` は書き出し待ちの行を先に flush する**ので、一意制約の違反はここで
+            # 出る（#679）。以前は `try` の外にあり、生の `IntegrityError` が呼び出し側へ抜けた。
+            self._session.execute(
+                update(SubmissionRow)
+                .where(SubmissionRow.id == str(submission_id))
+                .values(tenant_id=str(tenant_id))
+            )
             self._session.flush()
         except IntegrityError as exc:
             # 同時に来た 2 つのリクエストが両方「無い」を見た場合。
@@ -1297,8 +1299,11 @@ class SqlJobQueue:
             .all()
         )
         for row in rows:
-            row.available_at = now
-            row.updated_at = now
+            # **列と文書を一緒に書く**（`reschedule_waiting` と同じ・#680）。列だけだと、
+            # 文書は古い時刻のままで、次の `reserve` が文書由来の値を列へ書き戻して解放が
+            # 黙って巻き戻る。インメモリ実装はモデルを更新するので、2 つの実装も食い違っていた。
+            job = GradingJob.model_validate(row.document)
+            _apply(row, job.model_copy(update={"available_at": now, "updated_at": now}))
         return len(rows)
 
     def reschedule_waiting(

@@ -67,6 +67,10 @@ class InMemoryArtifactStore:
     def exists(self, key: str) -> bool:
         return key in self._blobs
 
+    def delete(self, key: str) -> None:
+        """中身を消す。無いキーは成功とみなす（`FilesystemArtifactStore.delete` と同じ）。"""
+        self._blobs.pop(key, None)
+
 
 class InMemorySubmissionRepository:
     def __init__(self) -> None:
@@ -91,6 +95,12 @@ class InMemorySubmissionRepository:
     def remember_idempotency_key(
         self, tenant_id: TenantId, key: str, submission_id: SubmissionId
     ) -> None:
+        claimed = self._keys.get((tenant_id, key))
+        if claimed is not None and claimed != submission_id:
+            # 保存層（一意制約）と同じ約束にする（#679）。先に来た提出が鍵を持っている。
+            # 作業単位が巻き戻る代わりに、いま保存した提出をここで取り下げる。
+            self._items.pop(submission_id, None)
+            raise ImmutabilityViolation(f"idempotency key {key!r} was claimed concurrently")
         self._keys[(tenant_id, key)] = submission_id
         self._tenants[submission_id] = tenant_id
 
