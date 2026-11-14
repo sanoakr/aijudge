@@ -28,6 +28,8 @@ def test_the_assets_are_shipped_with_the_package() -> None:
         "console.css",
         # ブラウザ IDE の画面（`docs/design/online-coding-test.md` §5）。
         "ide.js",
+        # 複数ファイルの選択（課題の画面とエディタの画面が同じものを読む・2026-11-15）。
+        "file_pick.js",
         # 教員画面の残数・一覧の自動更新（`data-live` の区画だけ取り直す）。
         "live.js",
         # 締切までの残り。学生の一覧と教員の問題セット一覧が同じものを読む（2026-10-10）。

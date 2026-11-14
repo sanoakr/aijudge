@@ -2308,13 +2308,16 @@ def test_several_images_go_into_one_submission(world: World) -> None:
     assert body.count("<img src=") == 3
 
 
-def test_the_image_task_form_offers_one_at_a_time_adding(world: World) -> None:
+def test_the_image_task_form_offers_picking_several_at_once(world: World) -> None:
     world.register("s2400001")
     world.login("s2400001")
     _set_task(world, accepted_suffixes=(".png", ".pdf"))
     page = world.client.get(f"/tasks/{world.task_version.id}").text
     assert 'name="upload" type="file" required multiple' in page
-    assert "この 1 枚を追加" in page
+    # まとめて選べる欄と、1 つずつ外す操作（2026-11-15）。1 枚ずつ追加する作りではない。
+    assert 'id="upload-picker" type="file" multiple' in page
+    assert 'id="upload-clear"' in page
+    assert "この 1 枚を追加" not in page
     # コードの課題は 1 ファイルのまま。
     _set_task(world, accepted_suffixes=(".c",))
     page = world.client.get(f"/tasks/{world.task_version.id}").text
