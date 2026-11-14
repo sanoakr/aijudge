@@ -281,3 +281,48 @@ def test_a_human_scored_criterion_says_who_is_waiting_before_it_is_scored() -> N
 
     assert row.pending
     assert row.label == "担当教員が採点します"
+
+
+def test_a_criterion_the_instructor_gated_shows_as_cut_not_as_the_machine_level() -> None:
+    """教員が上位を 0% に下げて打ち切った観点は「打ち切り 0%」と出す（#675）。
+
+    機械が下位に付けた段階を出すと、成績に入っていない判定が学習者に見える。
+    """
+    run = _run_missing_the_ai_criterion().model_copy(
+        update={
+            "unscored_criteria": (),
+            "routing": Routing.AUTO,
+            "criterion_scores": (
+                *_run_missing_the_ai_criterion().criterion_scores,
+                CriterionScore(
+                    id=CriterionScoreId(new_id("cs")),
+                    criterion_id=READABILITY,
+                    evaluator_result_id=EvaluatorResultId(new_id("evr")),
+                    kind=EvaluatorKind.DETERMINISTIC,
+                    level=3,
+                    score_ratio=1.0,
+                    weight=0.3,
+                    confidence=1.0,
+                    conclusive=True,
+                    rationale="読みやすい。",
+                ),
+            ),
+        }
+    )
+    review = HumanReview(
+        id=HumanReviewId(new_id("hrv")),
+        grading_run_id=run.id,
+        grader_id=UserId("usr_" + "6" * 32),
+        adjusted_levels={CORRECTNESS: 0},
+        gated_criteria=(READABILITY,),
+        comment="出力が一致しないので、読みやすさは評価しません。",
+        reviewed_at=NOW,
+    )
+
+    view = build_result_view(run, _task_version(), review)
+    row = {view_.criterion.code: view_ for view_ in view.criteria}["readability"]
+
+    assert row.gated
+    assert row.level is None
+    assert not row.pending
+    assert view.score_ratio == 0.0

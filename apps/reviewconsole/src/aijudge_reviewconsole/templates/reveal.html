@@ -267,7 +267,8 @@
     見落としていた）。
   #}
   {% for row in rows %}
-  <fieldset>
+  {# `criterion` は AND の打ち切りを画面で判定し直すための目印（#675）。 #}
+  <fieldset class="criterion">
     {# **採点の基準をこの場に出す。** 段階を選ぶ画面に、重みと段階の得点が
        無かった ── 段階を動かすと点がどう動くのかが分からないまま確定して
        いた。基準を別の画面に見に行かせると、確定の判断が記憶に頼る。 #}
@@ -275,13 +276,22 @@
       <span class="desc">（配点の {{ '%.0f' | format(row.criterion.weight * 100) }}%）</span>
     </legend>
     <p class="desc">{{ row.criterion.description }}</p>
-    <div class="levels">
+    {# **打ち切った観点には段階を求めない**（#675）。上位が 0% のままなら 0% で確定し、
+       送っても採らない（サーバの `_parse_final_levels`）。上位を 0% より上に直すと、
+       下の script が入力欄を出す。 #}
+    <p class="desc gate-note" {{ '' if row.gated else 'hidden' }}>
+      <span class="pill no">打ち切り 0%</span>
+      上位の観点が 0% のため、この観点は評価しません（0% で確定します）。
+      上位の段階を 0% より上にすると、段階を選べるようになります。
+    </p>
+    <div class="levels" {{ 'hidden' if row.gated }}>
       {% for level in row.criterion.levels %}
       <label>
-        <input type="radio" name="level_{{ row.criterion.code }}" required
+        <input type="radio" name="level_{{ row.criterion.code }}" {{ '' if row.gated else 'required' }}
                value="{{ level.level }}"
                {% if (row.human_level if row.human_level is not none else row.ai_level) == level.level %}checked{% endif %}
                {% if row.ai_level == level.level %}data-ai-level="1"{% endif %}
+               data-ratio="{{ level.score_ratio }}"
                data-rubric-line="{{ row.criterion.title }}: {{ level.label }}（{{ '%.0f' | format(level.score_ratio * 100) }}%）{% if level.descriptor | trim %} ── {{ level.descriptor | trim }}{% endif %}">
         <span class="lv">{{ level.level }}: {{ level.label }}</span>
         {# **説明文には名前を付ける**（`.lv-text`）。無名の span だと、狭い幅で
@@ -303,7 +313,7 @@
     {% if row.unscored %}
     <p class="desc">この観点は自動採点できませんでした。段階はあなたが決めます。</p>
     {% elif row.ai_level is none %}
-    <p class="desc">システムの判定はありません。</p>
+    <p class="desc no-ai" {{ 'hidden' if row.gated }}>システムの判定はありません。</p>
     {% endif %}
   </fieldset>
   {% endfor %}
@@ -427,6 +437,45 @@
   }
 })();
 </script>
+{% if aggregation.value == 'and' %}
+{# **AND の打ち切りを、選んでいる段階で判定し直す**（#675）。規則はサーバの
+   `reviewed_gate` と同じ ── 評価順に見て最初の 0% より後ろを打ち切り、段階の
+   選ばれていない観点に行き当たったらそこで止める。打ち切った観点は選択を外す
+   （送っても採らないが、根拠の欄に段階の行が残ると読み手を誤らせる）。 #}
+<script>
+(function () {
+  var sets = Array.prototype.slice.call(document.querySelectorAll("fieldset.criterion"));
+  if (!sets.length) { return; }
+  var form = sets[0].form;
+  function apply() {
+    var cut = false;
+    var known = true;
+    sets.forEach(function (set) {
+      var radios = set.querySelectorAll("input[type=radio][data-ratio]");
+      var gated = cut;
+      set.querySelector(".gate-note").hidden = !gated;
+      set.querySelector(".levels").hidden = gated;
+      var note = set.querySelector(".no-ai");
+      if (note) { note.hidden = gated; }
+      radios.forEach(function (radio) {
+        radio.required = !gated;
+        if (gated) { radio.checked = false; }
+      });
+      if (gated || !known) { return; }
+      var picked = set.querySelector("input[type=radio][data-ratio]:checked");
+      if (!picked) { known = false; return; }
+      if (parseFloat(picked.dataset.ratio) <= 1e-9) { cut = true; }
+    });
+  }
+  // **捕捉段階で先に走らせる。** 根拠の欄を組み直す上の script より前に選択を
+  // 外しておかないと、打ち切った観点の段階の行が根拠に残る。
+  form.addEventListener("change", function (event) {
+    if (event.target.matches("input[type=radio][data-ratio]")) { apply(); }
+  }, true);
+  apply();
+})();
+</script>
+{% endif %}
 {% if review %}</details>{% endif %}
 {% endif %}
 </div>{# .right #}

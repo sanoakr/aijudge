@@ -305,7 +305,22 @@ def build_result_view(
     show_inputs = _shows_failed_inputs(failed_inputs, deadline, now or datetime.now(UTC))
 
     views: list[CriterionView] = []
+    # 教員の段階で打ち切った観点（#675）。**機械の判定より先に見る** ── 教員が
+    # 上位を 0% に下げたのなら、機械が付けた下位の段階はもう成績ではない。
+    reviewed_gated = set() if review is None else set(review.gated_criteria)
     for criterion in task_version.criteria:
+        if criterion.id in reviewed_gated:
+            views.append(
+                CriterionView(
+                    criterion=criterion,
+                    level=None,
+                    rationale=None,
+                    evidence_lines=(),
+                    pending=False,
+                    gated=True,
+                )
+            )
+            continue
         score = by_criterion.get(str(criterion.id))
         reviewed_level = None if review is None else review.adjusted_levels.get(criterion.id)
         if score is None and reviewed_level is not None:
