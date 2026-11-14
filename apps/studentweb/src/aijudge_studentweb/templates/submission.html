@@ -147,43 +147,7 @@
   <thead><tr><th>観点</th><th class="fit">評価</th><th class="fit">判定</th><th class="grow">説明</th></tr></thead>
   <tbody>
   {% for row in view.criteria %}
-    <tr>
-      <td><strong>{{ row.criterion.title }}</strong><br>
-          <span class="desc">{{ row.criterion.description }}</span></td>
-      <td class="fit" data-label="評価">
-        {% if row.pending %}<span class="pill">{{ row.label }}</span>
-        {% else %}<span class="pill ok">{{ row.label }}</span>
-          {% if row.adjusted %}<br><span class="desc">教員が調整</span>{% endif %}
-        {% endif %}
-      </td>
-      <td class="fit" data-label="判定">
-        {% if row.pending %}<span class="desc">—</span>
-        {% elif row.by_ai %}<span class="pill ai">AI</span>
-        {# **人が採点した観点を「テスト実行」と出さない**（#236）。機械の
-           判定が無い観点なので、判定の出どころは教員である。 #}
-        {% elif row.by_human %}<span class="pill">担当教員</span>
-        {% else %}<span class="pill det">テスト実行</span>{% endif %}
-      </td>
-      <td class="grow" data-label="説明">
-        {% if row.rationale %}{{ row.rationale }}
-          {% if row.evidence_lines %}
-            <br><span class="desc">該当行: {{ row.evidence_lines | join(', ') }}</span>
-          {% endif %}
-        {% else %}<span class="desc">—</span>{% endif %}
-        {# 落ちたケースの入力（2026-10-18）。**期待出力は出さない**（答えになる）。
-           出すかどうかの判断は `visibility.py` にある。 #}
-        {% if row.failed_inputs %}
-          <div class="failed-inputs">
-            <span class="desc">正しく動かなかった入力{% if row.more_failed %}（最初の {{ row.failed_inputs | length }} 件）{% endif %}:</span>
-            {% for case in row.failed_inputs %}
-              <div class="desc mono">{{ case.name }}</div>
-              <pre>{% if case.input %}{{ case.input }}{% else %}（入力なし）{% endif %}{% if case.truncated %}
-…（以下省略）{% endif %}</pre>
-            {% endfor %}
-          </div>
-        {% endif %}
-      </td>
-    </tr>
+    {% include "_criterion_row.html" %}
   {% endfor %}
   </tbody>
 </table>
