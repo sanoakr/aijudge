@@ -91,6 +91,21 @@ def test_pages_with_counts_or_lists_carry_live_regions(world: World) -> None:
         assert "live.js" in html, f"{name} が自動更新の script を読んでいない"
 
 
+def test_the_submissions_page_refreshes_every_five_seconds(world: World) -> None:
+    """提出の一覧だけ 5 秒ごと（2026-11-14）。ほかの画面は既定の 30 秒のまま。
+
+    試験・演習の最中に、教員が提出の届き方と採点の進み具合を見張る画面である。
+    """
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    pages = _pages(world)
+
+    submissions = client.get(pages["submissions"]).text
+    assert re.search(r'live\.js[^"]*" data-interval="5000"', submissions)
+    for name in ("index", "finalize", "queue"):
+        assert "data-interval=" not in client.get(pages[name]).text, f"{name} の間隔が変わった"
+
+
 def test_region_names_and_row_keys_are_unique_on_each_page(world: World) -> None:
     world.register("teacher", Role.INSTRUCTOR)
     client = world.client("teacher")

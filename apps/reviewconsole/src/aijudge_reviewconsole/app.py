@@ -234,6 +234,9 @@ def _online_users(request: Request) -> ActiveUsers | None:
 
 TEMPLATES.env.globals["online_users"] = _online_users
 
+# 提出の一覧の自動更新の間隔（ミリ秒）。`live.js` の既定（30 秒）より短くする画面。
+SUBMISSIONS_LIVE_INTERVAL_MS = 5000
+
 # 画面に埋め込んでよい種別。それ以外はダウンロードさせる（#75）。
 INLINE_KINDS = (ArtifactKind.IMAGE, ArtifactKind.PDF, ArtifactKind.VIDEO)
 
@@ -1106,6 +1109,10 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
             "submissions.html",
             {
                 "queue_load": queue_load,
+                # 提出の一覧は 5 秒ごとに取り直す（2026-11-14）。試験・演習の最中に
+                # 教員が提出の届き方と採点の進み具合を見張る画面で、既定の 30 秒では
+                # 出したはずの提出が一覧に出るまで待たされる。ほかの画面は既定のまま。
+                "live_interval_ms": SUBMISSIONS_LIVE_INTERVAL_MS,
                 "me": me,
                 "course": course,
                 "section": {"label": "提出", "href": f"/courses/{course.id}/submissions"},
