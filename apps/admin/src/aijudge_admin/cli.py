@@ -775,6 +775,26 @@ def cmd_enrol(args: argparse.Namespace) -> int:
 
     database = _database(args)
     try:
+        if args.credentials is None and not args.dry_run:
+            # **保存する前に、出力先の有無を確かめる**（#696）。以前は利用者を作って commit
+            # してから断ったので、生成したパスワードは捨てられ、案内どおり再実行しても全員が
+            # 既存利用者で資格情報は書き出されなかった。新規が出るかは事前に分からないので、
+            # 何も保存しない下見（dry_run）で数え、新規が出るなら 1 人も作らずに断る。
+            preview = enrol_roster(
+                database,
+                tenant_id=_tenant(args),
+                course_id=CourseId(args.course),
+                entries=entries,
+                dry_run=True,
+            )
+            if preview.created:
+                print(
+                    f"\n新規利用者が {len(preview.created)} 名いますが、パスワードを書き出す先が"
+                    "指定されていません。何も保存していません。"
+                    "--credentials <path> を付けて再実行してください。",
+                    file=sys.stderr,
+                )
+                return 1
         report = enrol_roster(
             database,
             tenant_id=_tenant(args),
@@ -932,7 +952,21 @@ def cmd_token_revoke(args: argparse.Namespace) -> int:
     database = _database(args)
     try:
         with database.unit_of_work() as uow:
-            AuthService(uow.identity, audit=uow.audit).revoke_token(ApiTokenId(args.id))
+            auth = AuthService(uow.identity, audit=uow.audit)
+            # **このテナントのトークンだけを対象にする**（#697）。以前は結果を見ずに記録して
+            # 「失効させました」と出したので、ID を写し間違えても成功と表示され、漏れた
+            # トークンが有効なまま残った。別テナントのトークンも失効できた。
+            found = next((t for t in auth.list_tokens(_tenant(args)) if str(t.id) == args.id), None)
+            if found is None:
+                print(
+                    f"トークンがありません: {args.id}（--tenant の中で探しました）", file=sys.stderr
+                )
+                return 2
+            if found.revoked_at is not None:
+                print(f"既に失効しています: {args.id}")
+                return 0
+            auth.revoke_token(ApiTokenId(args.id))
+            # 監査は、実際に失効させたときだけ書く。
             _cli_audit(uow, _tenant(args)).record(
                 AuditAction.TOKEN_REVOKED,
                 target_type="api_token",

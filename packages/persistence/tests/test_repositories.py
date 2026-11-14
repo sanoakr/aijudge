@@ -1921,6 +1921,36 @@ def test_an_empty_queue_has_no_load(job_queue) -> None:
     assert job_queue().load(NOW) == ()
 
 
+def test_course_ids_using_a_profile_follow_task_versions(task_repo) -> None:
+    """課題版が指すプロファイルを持つコースを返す（#691）。メモリ実装と永続化実装の両方で。
+
+    コースの既定ではなく**課題版**を見る。テナントでは絞らない（プロファイルのファイルは
+    テナントの外にあるので、別テナントのコースの課題が指すものも「使われている」）。
+    """
+    other_course = CourseId("crs_" + "9" * 32)
+    mine, theirs = TASK_ID, TaskId("tsk_" + "9" * 32)
+    with task_repo() as uow:
+        uow.tasks.save_task(Task(id=mine, course_id=COURSE, title="t"))
+        uow.tasks.save_task(Task(id=theirs, course_id=other_course, title="t"))
+        base = a_task_version()
+        uow.tasks.save_version(base)  # cs_lang_c_intro（TASK_ID）
+        uow.tasks.save_version(
+            base.model_copy(
+                update={
+                    "id": TaskVersionId("tsv_" + "9" * 32),
+                    "task_id": theirs,
+                    "subject_profile": "report_ja",
+                }
+            )
+        )
+        uow.commit()
+
+    with task_repo() as uow:
+        assert uow.tasks.course_ids_using_profile("report_ja") == (other_course,)
+        assert uow.tasks.course_ids_using_profile("cs_lang_c_intro") == (COURSE,)
+        assert uow.tasks.course_ids_using_profile("nothing") == ()
+
+
 # --------------------------------------------------------------------------
 # 採点待ちを解放する（`release_waiting`・2026-11-14・#680）
 # --------------------------------------------------------------------------

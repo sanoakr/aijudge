@@ -351,3 +351,30 @@ def test_a_free_text_term_is_refused_here_too(world) -> None:
 
     with pytest.raises(AdminError, match="学期"):
         _duplicate(database, course, term="2026後期")
+
+
+def test_a_tasks_own_subject_profile_survives_the_copy(world) -> None:
+    """課題ごとの科目プロファイル（#195）が複製先の版に残る（#692）。
+
+    以前は `TaskSpec` に渡さなかったので、複製先ではすべての課題がコースの既定で採点され、
+    プログラムとレポートが同居するコースを次学期へ複製すると、レポート課題が cs 系の
+    プロファイルで走った（例外も `skipped` への記録も出ない）。
+    """
+    database, course = world
+    for key, extra in (("rep1", {"subject_profile": "report_ja"}), ("code1", {})):
+        save_task(
+            database,
+            course_id=course.id,
+            spec=_spec(key, **extra),
+            subject_profile=course.subject_profile,
+            authored_by=TEACHER,
+        )
+
+    copied = _duplicate(database, course)
+
+    with database.unit_of_work() as uow:
+        profiles = {
+            task.title: uow.tasks.latest_version(task.id).subject_profile
+            for task in uow.tasks.list_for_course(copied.course.id)
+        }
+    assert profiles == {"課題 rep1": "report_ja", "課題 code1": "cs_lang_c_intro"}

@@ -110,6 +110,15 @@ class TaskRepository(Protocol):
         """教員のレビュー待ちの課題版。**生成物が溜まる場所。**"""
         ...
 
+    def course_ids_using_profile(self, subject_profile: str) -> tuple[CourseId, ...]:
+        """この科目プロファイルを指す課題版を持つコースの ID（#691）。**テナントで絞らない。**
+
+        課題は自分のプロファイルを持てる（#195）ので、コースの既定（`Course.subject_profile`）
+        だけを見ると、課題だけから参照されているプロファイルが「未参照」に見える。過去の版も数える
+        ── その版への提出は、プロファイルが消えると再採点できなくなる。
+        """
+        ...
+
     def save_checks(self, version_id: TaskVersionId, checks: TaskChecks) -> None:
         """課題版に対して走らせた検査の結果を残す。
 
@@ -409,6 +418,16 @@ class InMemoryTaskRepository:
             self._versions[vid]
             for vid in self._order
             if self._versions[vid].provenance.review_state is ReviewState.IN_REVIEW
+        )
+
+    def course_ids_using_profile(self, subject_profile: str) -> tuple[CourseId, ...]:
+        task_ids = {
+            version.task_id
+            for version in self._versions.values()
+            if version.subject_profile == subject_profile
+        }
+        return tuple(
+            sorted({task.course_id for task in self._tasks.values() if task.id in task_ids})
         )
 
     def list_for_course(self, course_id: CourseId) -> tuple[Task, ...]:

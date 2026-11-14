@@ -10,6 +10,7 @@ ADR 0013 は減点ルールを「猶予と同じ性質の運用値で、教員�
 
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 
 from aijudge_core import LatePenaltyStep
@@ -41,11 +42,20 @@ def parse_steps(rows: Sequence[tuple[str, str]]) -> tuple[LatePenaltyStep, ...]:
             raise AdminError(
                 f"減点ルールの値が数ではありません: {hours_text!r} / {percent_text!r}"
             ) from None
+        # **`nan` と `inf` を断る**（#702）。`float()` は通すので、`nan` は pydantic の検査で
+        # `AdminError` でなく `ValidationError` になり（画面は 400 でなく 500）、`inf` は
+        # 「どれだけ遅れても当たらない段」として保存され、JSON に `Infinity` で書かれる。
+        if not (math.isfinite(hours) and math.isfinite(percent)):
+            raise AdminError(f"減点ルールの値が数ではありません: {hours_text!r} / {percent_text!r}")
         if hours < 0:
             raise AdminError("減点ルールの超過時間は 0 以上にしてください")
         if not 0 < percent <= PERCENT:
             raise AdminError("減点は 0 より大きく 100 以下の % で入れてください")
-        steps.append(LatePenaltyStep(after_hours=hours, ratio=round(percent / PERCENT, 6)))
+        ratio = round(percent / PERCENT, 6)
+        if ratio <= 0:
+            # 丸めて 0 になる小さな値（0.0000001 %）は、「0 より大きく」の検査をすり抜ける。
+            raise AdminError("減点は 0 より大きく 100 以下の % で入れてください")
+        steps.append(LatePenaltyStep(after_hours=hours, ratio=ratio))
 
     hours_seen = [step.after_hours for step in steps]
     if len(set(hours_seen)) != len(hours_seen):

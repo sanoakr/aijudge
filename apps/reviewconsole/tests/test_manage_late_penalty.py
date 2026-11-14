@@ -97,6 +97,10 @@ def test_a_form_without_the_rows_does_not_clear_the_rule(world: World) -> None:
         [("0", "150")],
         [("-1", "10")],
         [("約1日", "10")],
+        [("nan", "10")],
+        [("inf", "10")],
+        [("1", "nan")],
+        [("1", "0.0000001")],
     ],
 )
 def test_a_malformed_rule_is_refused_and_nothing_is_written(world: World, rows) -> None:

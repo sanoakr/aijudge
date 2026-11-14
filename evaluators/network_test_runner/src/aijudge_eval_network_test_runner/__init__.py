@@ -117,6 +117,17 @@ def _common_error(failed: list[dict[str, object]]) -> str | None:
     return f"プログラムがエラーで止まったケースがあります: {message}"
 
 
+def fill_placeholders(text: str, *, host: str, port: int) -> str:
+    """入力の `{host}` と `{port}` だけを埋める（#701）。
+
+    **`str.format` を使わない。** JSON（`{"cmd": "GET"}`）や辞書・f 文字列の例のように、
+    ほかの波括弧を含む入力は `KeyError` / `IndexError` / `ValueError` になり、そのケースを
+    持つ課題は全提出が「評価器の失敗」で採点されなかった。2 つの目印だけを置換し、
+    ほかの波括弧はそのまま渡す。
+    """
+    return text.replace("{host}", host).replace("{port}", str(port))
+
+
 def _unbuffered(argv: tuple[str, ...]) -> tuple[str, ...]:
     """Python なら出力をため込ませない（`-u`）。
 
@@ -322,9 +333,12 @@ class NetworkTestRunner:
         companion_argv = ("python3", "-u", "-I", companion_name)
         # `{host}` と `{port}` を埋める。課題の入力には本番のホスト・ポートが
         # 書かれているので、伴走プロセスの値に差し替える必要がある。
-        fill = {"host": launcher.COMPANION_HOST, "port": str(port)}
-        submission_stdin = _text(payload, "input").format(**fill)
-        companion_stdin = _text(payload, "companion_input").format(**fill)
+        submission_stdin = fill_placeholders(
+            _text(payload, "input"), host=launcher.COMPANION_HOST, port=port
+        )
+        companion_stdin = fill_placeholders(
+            _text(payload, "companion_input"), host=launcher.COMPANION_HOST, port=port
+        )
 
         if role == ROLE_CLIENT:
             # 伴走サーバを先に立て、待ち受けを確認してから提出を走らせる。
