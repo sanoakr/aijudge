@@ -1913,3 +1913,59 @@ def test_the_queue_load_tells_running_ready_and_held_apart(job_queue) -> None:
 
 def test_an_empty_queue_has_no_load(job_queue) -> None:
     assert job_queue().load(NOW) == ()
+
+
+# --------------------------------------------------------------------------
+# 採点待ちを解放する（`release_waiting`・2026-11-14・#680）
+# --------------------------------------------------------------------------
+
+
+def test_releasing_a_waiting_job_makes_it_takeable_and_keeps_the_document(
+    database: Database,
+) -> None:
+    """試験の一括採点（「いままでの提出を採点」）。**列だけでなく文書も更新する。**
+
+    以前の SQL 実装は列（`available_at` / `updated_at`）だけを書き換え、文書は古い時刻の
+    まま ── 次の `reserve` が文書由来の値を列へ書き戻して、解放が黙って巻き戻る
+    （インメモリ実装はモデルを更新するので、2 つの実装が食い違っていた）。
+    """
+    result = _a_waiting_job(database, NOW + timedelta(hours=2))
+    later = NOW + timedelta(minutes=5)
+
+    with database.unit_of_work() as uow:
+        assert uow.jobs.waiting_count([result.submission.id], later) == 1
+        released = uow.jobs.release_waiting([result.submission.id], later)
+        uow.commit()
+    assert released == 1
+
+    with database.unit_of_work() as uow:
+        assert uow.jobs.waiting_count([result.submission.id], later) == 0
+        job = uow.jobs.get(result.job.id)
+        assert job.available_at == later, "文書の available_at が古いまま"
+        assert job.updated_at == later
+        taken = uow.jobs.reserve(later, worker="w1", lease_seconds=60.0)
+        uow.commit()
+    assert taken is not None and taken.id == result.job.id
+
+
+def test_releasing_leaves_running_and_already_takeable_jobs_alone(database: Database) -> None:
+    """走っているジョブのリースと、すでに取れるジョブは数えず動かさない。"""
+    ready = _a_waiting_job(database, None)
+
+    with database.unit_of_work() as uow:
+        assert uow.jobs.release_waiting([ready.submission.id], NOW) == 0
+        taken = uow.jobs.reserve(NOW, worker="w1", lease_seconds=60.0)
+        uow.commit()
+    assert taken is not None
+
+    with database.unit_of_work() as uow:
+        assert uow.jobs.release_waiting([ready.submission.id], NOW + timedelta(seconds=1)) == 0
+        uow.commit()
+    with database.unit_of_work() as uow:
+        job = uow.jobs.get(ready.job.id)
+    assert job.available_at == NOW
+
+
+def test_releasing_nothing_returns_zero(database: Database) -> None:
+    with database.unit_of_work() as uow:
+        assert uow.jobs.release_waiting([], NOW) == 0
