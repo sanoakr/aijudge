@@ -11,20 +11,44 @@
 
 Playwright とブラウザが無い環境（`uv run --group guide-shots playwright install chromium`
 をしていない）では skip する。skip は「未確認」で、「安全」ではない。
+
+**CI は `AIJUDGE_REQUIRE_BROWSER=1` で流し、skip ではなく失敗にする**（#689）。
+以前は CI に playwright が無く、5 本とも常に skip されて一度も走っていなかった
+── ログイン切れで止まらない・入力中の区画を差し替える、といった退行を入れても
+CI は緑だった。コンテナの試験の `AIJUDGE_SANDBOX` と同じ扱い。
+
+    uv sync --extra dev --group guide-shots
+    uv run --group guide-shots playwright install chromium
+    AIJUDGE_REQUIRE_BROWSER=1 uv run pytest packages/webui/tests/test_live_refresh_in_a_browser.py
 """
 
 from __future__ import annotations
 
 import http.server
 import json
+import os
 import threading
 from collections.abc import Iterator
+from typing import NoReturn
 
 import pytest
 
 from aijudge_webui import ASSETS_DIR
 
-playwright_sync = pytest.importorskip("playwright.sync_api")
+# 立っていれば、playwright やブラウザが無いことを skip ではなく失敗にする（#689）。
+REQUIRED = os.environ.get("AIJUDGE_REQUIRE_BROWSER") == "1"
+
+
+def _unavailable(reason: str) -> NoReturn:
+    if REQUIRED:
+        pytest.fail(f"AIJUDGE_REQUIRE_BROWSER=1 but {reason}", pytrace=False)
+    pytest.skip(reason, allow_module_level=True)
+
+
+try:
+    import playwright.sync_api as playwright_sync
+except ImportError as error:
+    _unavailable(f"could not import playwright.sync_api: {error}")
 
 
 def _rail(n: int) -> str:
@@ -126,7 +150,7 @@ def page(site: _Site):
         try:
             browser = p.chromium.launch()
         except Exception as error:  # ブラウザが入っていない
-            pytest.skip(f"chromium を起動できない: {error}")
+            _unavailable(f"chromium を起動できない: {error}")
         page = browser.new_page()
         page.errors = []  # type: ignore[attr-defined]
         page.on("pageerror", lambda e: page.errors.append(str(e)))  # type: ignore[attr-defined]

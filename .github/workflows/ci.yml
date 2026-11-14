@@ -121,6 +121,41 @@ jobs:
           AIJUDGE_SANDBOX: gvisor
         run: uv run pytest apps/admin/tests/test_code_similarity.py -k live -v
 
+  # **live.js を実ブラウザで**（#689）。playwright は dev の依存に無く
+  # （利用ガイドの撮影用の `guide-shots` グループにだけある）、以前は CI で 5 本とも
+  # 常に skip されていた ── ログイン切れで止まらない退行を入れても緑だった。
+  # `AIJUDGE_REQUIRE_BROWSER=1` で skip を失敗にする（コンテナの試験と同じ扱い）。
+  #
+  # 別のジョブにするのは、`check` と並んで走り、全体の待ち時間を延ばさないため。
+  # ブラウザは headless shell だけ（`--only-shell`）を入れ、uv.lock（playwright の版）
+  # を鍵にキャッシュする。
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.0.1
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync --locked --extra dev --group guide-shots
+
+      - name: Cache the Playwright browser
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('uv.lock') }}
+
+      - name: Install Chromium
+        run: uv run --group guide-shots playwright install --with-deps --only-shell chromium
+
+      - name: Test live.js in a browser
+        env:
+          AIJUDGE_REQUIRE_BROWSER: "1"
+        run: uv run --group guide-shots pytest packages/webui/tests/test_live_refresh_in_a_browser.py -v -rs
+
   # 採点精度の測定。教員採点データはリポジトリに置けない（個人情報）ので、
   # ランナーに用意がある場合だけ実測する。
   #
