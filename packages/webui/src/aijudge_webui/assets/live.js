@@ -22,11 +22,13 @@
 (function () {
   "use strict";
 
-  // 読み込んだ <script> の `data-interval`（ミリ秒）で間隔を変えられる（試験用。既定は 30 秒）。
+  // 読み込んだ <script> の `data-interval`（ミリ秒）で間隔を変えられる（既定は 30 秒）。
+  // 画面ごとに変える（提出の一覧は 5 秒・2026-11-14）。テストも同じ属性で縮める。
   var self = document.currentScript;
   var BASE_INTERVAL_MS = (self && Number(self.getAttribute("data-interval"))) || 30000;
   var MAX_INTERVAL_MS = 240000;
-  var JITTER_MS = 3000;
+  // 揺らぎは間隔の 1/5 まで（上限 3 秒）。5 秒の画面に 3 秒足すと、5〜8 秒ごとになる。
+  var JITTER_MS = Math.min(3000, BASE_INTERVAL_MS / 5);
   var STALE_AFTER_MS = 15000;
   var MAX_BACKOFF_STEPS = 3;
 

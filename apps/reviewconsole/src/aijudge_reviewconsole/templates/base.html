@@ -886,8 +886,9 @@ document.addEventListener("submit", function (event) {
   badge.hidden = false;
 });
 </script>
-{# 残数・一覧の自動更新（2026-10-08）。`data-live` を付けた区画だけを取り直す。 #}
-<script src="{{ static_url('live.js') }}" defer></script>
+{# 残数・一覧の自動更新（2026-10-08）。`data-live` を付けた区画だけを取り直す。
+   間隔は画面ごとに `live_interval_ms` で変えられる（無ければ `live.js` の既定の 30 秒）。 #}
+<script src="{{ static_url('live.js') }}"{% if live_interval_ms %} data-interval="{{ live_interval_ms }}"{% endif %} defer></script>
 {# 締切までの残り（問題セットの一覧）。学生の画面と同じ script を読む（2026-10-10）。 #}
 <script src="{{ static_url('countdown.js') }}" defer></script>
 </body>
