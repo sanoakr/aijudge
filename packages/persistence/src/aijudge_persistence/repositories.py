@@ -149,20 +149,22 @@ class SqlSubmissionRepository:
     def remember_idempotency_key(
         self, tenant_id: TenantId, key: str, submission_id: SubmissionId
     ) -> None:
-        self._session.add(
-            SubmissionKeyRow(
-                tenant_id=str(tenant_id),
-                idempotency_key=key,
-                submission_id=str(submission_id),
-            )
-        )
-        # テナントは提出行にも持たせる（テナント単位の走査に索引を使うため）。
-        self._session.execute(
-            update(SubmissionRow)
-            .where(SubmissionRow.id == str(submission_id))
-            .values(tenant_id=str(tenant_id))
-        )
         try:
+            self._session.add(
+                SubmissionKeyRow(
+                    tenant_id=str(tenant_id),
+                    idempotency_key=key,
+                    submission_id=str(submission_id),
+                )
+            )
+            # テナントは提出行にも持たせる（テナント単位の走査に索引を使うため）。
+            # **`execute` は書き出し待ちの行を先に flush する**ので、一意制約の違反はここで
+            # 出る（#679）。以前は `try` の外にあり、生の `IntegrityError` が呼び出し側へ抜けた。
+            self._session.execute(
+                update(SubmissionRow)
+                .where(SubmissionRow.id == str(submission_id))
+                .values(tenant_id=str(tenant_id))
+            )
             self._session.flush()
         except IntegrityError as exc:
             # 同時に来た 2 つのリクエストが両方「無い」を見た場合。
