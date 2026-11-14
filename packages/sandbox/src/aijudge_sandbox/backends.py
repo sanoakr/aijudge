@@ -249,8 +249,13 @@ STARTUP_ALLOWANCE_SECONDS = 15.0
 # 作業域の権限を取り返すコンテナ（`DockerSandbox.reclaim`）の持ち時間と、
 # 使えるプロセス数。`find -exec chmod {} ;` はディレクトリ 1 つごとに chmod を
 # 1 回起動するが、同時に動くのは find と chmod の 2 つだけである。
+# それでもプロセス数は提出と同じ 64 にする。**gVisor では `--pids-limit` が
+# Sentry のスレッドにも掛かる**（#502）ので、中の 2 つから見積もった 16 では
+# サンドボックスが立ち上がらず、取り返しが黙って失敗した（CI の runsc で実測）。
 RECLAIM_WALL_SECONDS = 60
-RECLAIM_PROCESSES = 16
+RECLAIM_PROCESSES = 64
+# 取り返しが失敗したときにログに載せる stderr の長さ。
+_RECLAIM_STDERR_CHARS = 500
 # 取り返したあとのディレクトリの権限。0777 にするのは、ワーカー（ホストの
 # aijudge）が中のエントリを unlink できるようにするため ── 消すには親
 # ディレクトリへの書き込み権が要り、持ち主は 65534 のままだから。8 進で
@@ -554,13 +559,26 @@ class DockerSandbox(LocalSandboxBase):
             ]
         )
         try:
-            subprocess.run(
+            completed = subprocess.run(
                 command,
                 capture_output=True,
+                text=True,
+                errors="replace",
                 timeout=RECLAIM_WALL_SECONDS + STARTUP_ALLOWANCE_SECONDS,
                 env=self._client_env(),
                 check=False,
             )
+            if completed.returncode != 0:
+                # 起動できなかったのか、一部を直せなかったのかを残す。ホストが
+                # 書いたディレクトリの chmod は失敗する（持ち主が違う）ので、
+                # 0 以外でもただちに取り返しの失敗とは限らない。結果は呼ぶ側の
+                # 数え直し・消し直しが決める。
+                logger.warning(
+                    "reclaiming workspace %s exited with %d: %s",
+                    directory,
+                    completed.returncode,
+                    completed.stderr.strip()[:_RECLAIM_STDERR_CHARS],
+                )
         except subprocess.TimeoutExpired:
             logger.warning("reclaiming workspace %s timed out", directory)
             self.release([f"--name={name}"])
