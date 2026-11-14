@@ -98,15 +98,10 @@ def test_a_token_missing_a_required_claim_is_rejected(claim: str) -> None:
 # state を見るので、空文字どうしは一致する。いまは呼び出し側（両アプリの
 # `/auth/callback`）が state の Cookie の無い要求を先に断っているので届かないが、
 # アダプタ自身は空の期待値を断らない。呼び出し側の番が外れたときの最後の砦が
-# 無い状態なので、直るまで xfail(strict) で記録しておく。
+# 無い状態なので、exchange_code が空の期待値を断る（下の 2 本）。
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="#688: exchange_code accepts an empty expected_state (compare_digest('', '') "
-    "is True); only the callers' cookie check stops it today",
-)
 def test_an_empty_expected_state_is_rejected() -> None:
     """nonce は正しいまま、state の期待値と実際の値を両方空にする。"""
     provider = a_provider(id_token=_a_token())
@@ -114,11 +109,6 @@ def test_an_empty_expected_state_is_rejected() -> None:
         exchange(provider, state="", actual_state="", nonce="n")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="#688: exchange_code accepts an empty expected_nonce when the token's "
-    "nonce is also empty",
-)
 def test_an_empty_expected_nonce_is_rejected() -> None:
     """state は正しいまま、nonce の期待値とトークンの nonce を両方空にする。"""
     provider = a_provider(id_token=_a_token(nonce=""))

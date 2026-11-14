@@ -134,6 +134,10 @@ class GoogleOidcProvider:
         `AuthenticationFailed`（「存在しない ID」と「違うパスワード」を
         分けない）と同じ理屈で、失敗の内訳を外に漏らさない。
         """
+        # 期待値が空なら、空どうしが一致して検査が素通りになる（#688）。呼び出し側は
+        # state の Cookie が無い要求を先に断るが、アダプタ自身も最後の砦として断る。
+        if not expected_state or not expected_nonce:
+            raise AuthenticationFailed("ログインの状態を確認できませんでした")
         if not secrets.compare_digest(expected_state, actual_state):
             raise AuthenticationFailed("ログインの状態を確認できませんでした")
 
