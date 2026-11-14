@@ -82,9 +82,10 @@ main:has(.ide-head){max-width:none}
   background:var(--surface);color:var(--ink)}
 .ide-toolbar .button-like{cursor:pointer;border:1px solid var(--line);border-radius:3px;
   background:var(--surface);font-size:.85rem;padding:6px 12px}
-/* 既定の高さは「エディタの下の道具まで一画面に収まる」ぐらい。つかんで変えた値は
+/* 既定の高さは「エディタの下の入出力と実行・提出まで一画面に収まる」ぐらい（上の見出し・
+   タブ・お知らせの帯ぶんを引く）。つかんで変えた値は
    `--ide-editor-h`（`ide.js`）。 */
-.ide-editor{height:var(--ide-editor-h,clamp(220px,calc(100vh - 460px),780px));
+.ide-editor{height:var(--ide-editor-h,clamp(240px,calc(100vh - 560px),780px));
   border:1px solid var(--line);border-radius:3px}
 .ide-side{display:flex;flex-direction:column;gap:10px;min-width:0}
 /* 境界のつかみ手。JavaScript が動くときだけ出す（`hidden` を外す）。細い帯だが、
@@ -139,8 +140,6 @@ body.ide-resizing{user-select:none;cursor:grabbing}
 /* 実行と提出は同じ大きさ。並び（左が実行・右が提出）と色で区別する。 */
 .ide-actions{display:flex;gap:8px}
 .ide-actions button{flex:1;padding:12px 0;font-size:1rem}
-/* エディタの下では、実行と提出が横いっぱいに伸びすぎないようにする（同じ大きさは保つ）。 */
-.ide-side > .ide-actions{max-width:420px}
 .ide-actions button[hidden]{display:none}
 /* 実行は押しボタン用の地（`--go-bg`・夜でも文字が読める組）。提出はサイト既定の朱。 */
 .ide-run,.ide-run-sample{background:var(--go-bg);color:var(--go-ink)}

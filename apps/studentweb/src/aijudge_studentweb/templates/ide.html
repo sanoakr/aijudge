@@ -182,23 +182,6 @@
       <div class="ide-split ide-split-editor" data-split="editor" role="separator" aria-orientation="horizontal"
            tabindex="0" hidden aria-label="エディタの高さ" title="ドラッグでエディタの高さを変えます（ダブルクリックで元に戻す）"></div>
       <aside class="ide-side" aria-label="試す・提出する">
-        {% if tab.samples %}
-        <div class="ide-samples">
-          <h3>公開サンプル</h3>
-          {% for sample in tab.samples %}
-          <details class="ide-sample" {{ 'open' if loop.first }}>
-            <summary><span class="mono">{{ sample.name }}</span></summary>
-            <pre class="ide-io"><span class="desc">入力</span>
-{{ sample.input }}</pre>
-            <pre class="ide-io"><span class="desc">期待される出力</span>
-{{ sample.expected }}</pre>
-            <button type="button" class="ide-run-sample"
-                    data-tab="{{ tab_index }}" data-sample="{{ sample.name }}">このサンプルで実行</button>
-          </details>
-          {% endfor %}
-        </div>
-        {% endif %}
-
         <div class="ide-runbox" data-runbox="{{ loop.index0 }}">
           <div class="ide-stdin">
             <label for="ide-stdin-{{ loop.index0 }}" class="desc">標準入力</label>
@@ -219,6 +202,24 @@
           <button type="button" class="ide-submit" data-tab="{{ loop.index0 }}">提出</button>
         </div>
         <p class="desc ide-submitted" data-submitted="{{ loop.index0 }}"></p>
+        {# 公開サンプルは実行・提出ボタンの下（2026-11-15）。**ボタンをエディタの真下に保つ** ──
+           サンプルを上に置くと、ボタンが画面の下へ押し出される。 #}
+        {% if tab.samples %}
+        <div class="ide-samples">
+          <h3>公開サンプル</h3>
+          {% for sample in tab.samples %}
+          <details class="ide-sample" {{ 'open' if loop.first }}>
+            <summary><span class="mono">{{ sample.name }}</span></summary>
+            <pre class="ide-io"><span class="desc">入力</span>
+{{ sample.input }}</pre>
+            <pre class="ide-io"><span class="desc">期待される出力</span>
+{{ sample.expected }}</pre>
+            <button type="button" class="ide-run-sample"
+                    data-tab="{{ tab_index }}" data-sample="{{ sample.name }}">このサンプルで実行</button>
+          </details>
+          {% endfor %}
+        </div>
+        {% endif %}
         {% if tab.attach %}{{ attach_box(tab, tab_index) }}{% endif %}
       </aside>
     </div>

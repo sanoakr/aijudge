@@ -134,6 +134,8 @@ def test_the_run_tools_sit_below_the_editor(browser) -> None:
         assert boxes["runbox"]["y"] + boxes["runbox"]["h"] <= boxes["actions"]["y"] + 1
         # 同じ幅の列に載っている（エディタの右に回り込んでいない）。
         assert abs(boxes["runbox"]["x"] - boxes["editor"]["x"]) < 1
+        # 実行・提出ボタンは、エディタ・入出力と同じ幅いっぱいに広がる。
+        assert abs(boxes["actions"]["w"] - boxes["editor"]["w"]) < 1
 
 
 def test_the_editor_height_follows_the_variable(browser) -> None:
