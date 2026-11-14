@@ -39,6 +39,7 @@ from aijudge_core import (
     Submission,
     Task,
     TaskVersion,
+    corrected_mark,
     effective_aggregation,
     effective_late_penalty_steps,
     late_penalty_for,
@@ -671,6 +672,14 @@ class GradingWorker:
             with self._database.unit_of_work() as uow:
                 submission = uow.submissions.get(job.submission_id)
                 task_version = uow.tasks.get_version(job.task_version_id)
+                # **記録済みの blind 採点（訂正込み）を読む**（#693）。観測は 1 提出 1 ファイルで
+                # 書き直されるので、人の採点を渡さずに書くと、再採点や後から終わる AI 段階の
+                # たびに、blind 採点の標本が黙って「人の採点なし」に戻り、一致度の標本数が
+                # 理由の表示もなく減る（ADR 0005）。`BlindMark` は提出単位なので再採点のあとも
+                # 残っている。人の確認（`HumanReview`）は採点記録に付くので、新しい採点には
+                # 効かない（旧採点に付いたまま）── 渡すのは blind 採点だけでよい。
+                mark = uow.reviews.find_blind_mark(job.submission_id)
+                corrections = uow.reviews.blind_corrections(job.submission_id) if mark else ()
             if submission is None or task_version is None:  # pragma: no cover - 直前に読めている
                 return
             if submission.is_trial:
@@ -681,6 +690,10 @@ class GradingWorker:
                 # ここは提出を手元に持っているので、イベントを介さず直接
                 # 訊いてよい（S7 との違いはそこ）。
                 return
+            codes = {criterion.id: criterion.code for criterion in task_version.criteria}
+            marked, blind_corrected = (
+                (None, False) if mark is None else corrected_mark(mark, corrections)
+            )
             self._observations.save(
                 project_observations(
                     run,
@@ -689,6 +702,18 @@ class GradingWorker:
                     task_name=str(task_version.task_id),
                     submission=str(submission.id),
                     observed_at=self._clock(),
+                    human_levels=(
+                        None
+                        if marked is None
+                        else {
+                            codes[criterion_id]: level
+                            for criterion_id, level in marked.levels.items()
+                            if criterion_id in codes
+                        }
+                    ),
+                    blind=marked is not None,
+                    marker=None if marked is None else str(marked.grader_id),
+                    blind_corrected=blind_corrected,
                 )
             )
         except Exception:

@@ -128,6 +128,7 @@ from .task import (
     MAX_EDITOR_TEMPLATE_CHARS,
     MAX_JUDGE_MODEL_NAME,
     MAX_TASK_CASE_TIMEOUT_SECONDS,
+    UNIT_WIDE_FIELDS,
     Aggregation,
     AnswerMode,
     FailedInputs,
@@ -145,6 +146,7 @@ from .task import (
     max_scores_by_version,
     position_for,
     set_window_at,
+    unit_wide_values,
 )
 from .tenancy import MAX_GROUP_NAME_LENGTH, Course, CourseGroup, Enrollment, Role, Tenant
 from .terms import (
@@ -191,6 +193,7 @@ __all__ = [
     "STREAMED_SUFFIXES",
     "SUFFIX_GROUPS",
     "SUFFIX_KINDS",
+    "UNIT_WIDE_FIELDS",
     "VIDEO_RETENTION_MONTHS",
     "VIDEO_RETENTION_MONTHS_WITHOUT_DEADLINE",
     "YEARS_OFFERED",
@@ -309,6 +312,7 @@ __all__ = [
     "set_window_at",
     "settles_at",
     "term_sort_key",
+    "unit_wide_values",
     "video_retention_expires_at",
     "video_retention_has_expired",
 ]

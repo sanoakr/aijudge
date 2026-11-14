@@ -28,6 +28,7 @@ from typing import Any
 from aijudge_authoring import rekeyed_version
 from aijudge_core import Task, TaskVersion
 from aijudge_core.ids import CourseId, SubmissionId, TaskId, derived_id
+from aijudge_course_admin.answer_mode import unit_values_for
 from aijudge_course_admin.courses import _remove_artifacts
 from aijudge_course_admin.errors import AdminError
 from aijudge_unit_of_work import Store
@@ -234,22 +235,14 @@ def _rebuild(
         # いつまでか」が言えなくなる（`set_unit_schedule` と同じ理由）。空の
         # セットへ移すなら、揃える相手が居ないのでいまの日程のまま入る。
         head = min(siblings, key=lambda item: item.sort_key) if siblings else None
-        if head is not None:
-            update |= {
-                "session": head.session,
-                "opens_at": head.opens_at,
-                "submissions_open_at": head.submissions_open_at,
-                "due_at": head.due_at,
-                # **受付終了と採点開始も日程の一部である。** 揃え漏らすと、移した課題だけ
-                # 旧セットの受付終了が残り、新セットの締切より前になる（Task の検証が
-                # 落ち、コース一覧が 500 になった。2026-10-04、network の test5）。
-                "accepts_until": head.accepts_until,
-                "grading_starts_at": head.grading_starts_at,
-                # 遅延の減点も回の性質（移した課題だけコースの段に戻ると、同じ回の中で
-                # 減点がばらつく）。
-                "late_penalty_steps": head.late_penalty_steps,
-                "auto_finalize_after_minutes": head.auto_finalize_after_minutes,
-            }
+        course = uow.identity.get_course(course_id)
+        if head is not None and course is not None:
+            # **セットの値は、経路ごとに欄を書かずに 1 か所から取る**（`unit_values_for`・#709）。
+            # 以前は日程と受付終了・減点だけを揃え、学内限定・秘匿・試験・出題先・答え方は
+            # 元の値のまま運んでいた（演習の課題を試験のセットへ移すと、その 1 問だけ設定が
+            # 食い違った）。受付終了を揃え漏らして Task の検証が落ち、コース一覧が 500 に
+            # なった前例（2026-10-04、network の test5）も、この一覧に含まれる。
+            update |= unit_values_for(head, task.model_copy(update=update), course)
         # 並びは移動先の末尾。**番号を持たない課題も数に入れる**（#484 の守り）。
         positions = [other.position for other in siblings if other.position is not None]
         update["position"] = max(len(siblings), max(positions, default=0)) + 1

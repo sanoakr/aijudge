@@ -513,17 +513,25 @@ def apply_course_definition(
             uow.commit()
 
     _refuse_unrun_evaluators(course, definition.tasks, profiles_dir)
-    for task in definition.tasks:
-        save_task(
-            database,
-            course_id=course.id,
-            spec=task,
-            # 課題が自分のプロファイルを持つ（#195）。ここで渡すのは既定で、
-            # 定義が `subject_profile` を書いていればそちらが勝つ。
-            subject_profile=course.subject_profile,
-            authored_by=authored_by,
-            revise=revise,
-        )
+    try:
+        for task in definition.tasks:
+            save_task(
+                database,
+                course_id=course.id,
+                spec=task,
+                # 課題が自分のプロファイルを持つ（#195）。ここで渡すのは既定で、
+                # 定義が `subject_profile` を書いていればそちらが勝つ。
+                subject_profile=course.subject_profile,
+                authored_by=authored_by,
+                revise=revise,
+            )
+    except AdminError:
+        # **途中で断られても、ここまでに保存した課題の見せ方の制限は入れておく**（#709）。
+        # 課題は 1 件ずつ別の作業単位で保存するので、後ろの課題（内容が違うのに `--revise`
+        # なし、未登録の KC など）で断られると、先に保存した新しい試験の課題が「秘匿なし・
+        # 学内限定なし・試験でない」のまま残り、TA に見えた。断る理由は変えない（そのまま投げる）。
+        _apply_protective_unit_settings(database, course, definition.unit_settings)
+        raise
     _apply_unit_settings(database, course, definition.unit_settings)
     return AppliedCourse(course=course, tasks=len(definition.tasks), created=created)
 
@@ -591,6 +599,31 @@ def _refuse_unrun_evaluators(course: Course, tasks: Sequence[TaskSpec], profiles
         )
 
 
+# 検査を要さず、**入れ忘れると課題が見えてしまう・制限が外れる**回の値。課題の保存と同じ実行の
+# 中で、ほかの値より先に・単独で入れる（`_apply_protective_unit_settings`）。
+_PROTECTIVE_UNIT_KEYS = ("confidential_until_open", "campus_only", "exam")
+
+
+def _apply_protective_unit_settings(
+    database: Store, course: Course, unit_settings: dict[str, dict[str, Any]]
+) -> None:
+    """公開まで秘匿・学内限定・試験の印を、その回の全課題に入れる（検査なしの値だけ）。"""
+    protective = {
+        unit: {key: settings[key] for key in _PROTECTIVE_UNIT_KEYS if key in settings}
+        for unit, settings in unit_settings.items()
+    }
+    protective = {unit: values for unit, values in protective.items() if values}
+    if not protective:
+        return
+    with database.unit_of_work() as uow:
+        tasks = uow.tasks.list_for_course(course.id)
+        for unit, values in protective.items():
+            for task in tasks:
+                if task.unit == unit:
+                    uow.tasks.save_task(Task.model_validate(task.model_dump() | values))
+        uow.commit()
+
+
 def _apply_unit_settings(
     database: Store, course: Course, unit_settings: dict[str, dict[str, Any]]
 ) -> None:
@@ -608,19 +641,7 @@ def _apply_unit_settings(
     # **秘匿は先に、単独で入れる。** 下の `editor` の検査で断ると同じ作業単位が
     # 丸ごと巻き戻る ── 課題は保存済みなので、秘匿だけが入らないまま TA に
     # 見える課題が残る。秘匿は検査を要しない値なので、断られうる値と束ねない。
-    confidential = {
-        unit: {"confidential_until_open": settings["confidential_until_open"]}
-        for unit, settings in unit_settings.items()
-        if "confidential_until_open" in settings
-    }
-    if confidential:
-        with database.unit_of_work() as uow:
-            tasks = uow.tasks.list_for_course(course.id)
-            for unit, settings in confidential.items():
-                for task in tasks:
-                    if task.unit == unit:
-                        uow.tasks.save_task(Task.model_validate(task.model_dump() | settings))
-            uow.commit()
+    _apply_protective_unit_settings(database, course, unit_settings)
     with database.unit_of_work() as uow:
         tasks = uow.tasks.list_for_course(course.id)
         for unit, settings in unit_settings.items():

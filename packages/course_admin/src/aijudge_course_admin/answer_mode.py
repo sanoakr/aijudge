@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from aijudge_core import Course, Task, TaskVersion, allowed_suffixes
+from aijudge_core import Course, Task, TaskVersion, allowed_suffixes, unit_wide_values
 from aijudge_ide import EDITOR_FORMATS, editor_formats, video_suffixes
 
 
@@ -62,3 +62,21 @@ def file_upload_required(
                 "ファイル選択での提出が要ります"
             )
     return tuple(reasons)
+
+
+def unit_values_for(head: Task, task: Task, course: Course) -> dict[str, object]:
+    """この課題がそのセットから引き継ぐ値（`aijudge_core.UNIT_WIDE_FIELDS`・#709）。
+
+    課題を足す・下書きを採用する・別のセットへ移す、のどの経路も**この関数だけ**を通す。
+    欄の一覧を経路ごとに持つと、経路によって一部の欄が既定に戻った。
+
+    ただし**動画を受ける課題には、ファイル選択での提出を止めない**。セットが
+    `file_upload=False` でも、そこへ動画を出す課題が入るとその課題だけ提出できなくなる
+    （セットの答え方を変えるときの検査 `file_upload_required` と同じ理由）。
+    """
+    values = unit_wide_values(head)
+    if not values["file_upload"] and video_suffixes(
+        allowed_suffixes(task.accepted_suffixes, course.upload_suffixes)
+    ):
+        values["file_upload"] = True
+    return values

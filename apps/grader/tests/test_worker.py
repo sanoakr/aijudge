@@ -1228,3 +1228,47 @@ def test_a_worker_without_a_lane_transcribes_by_itself(
     assert result is not None
     assert not result.handed_off
     assert transcriber.calls == 1
+
+
+@needs_c_compiler
+def test_a_regrade_keeps_the_blind_mark_in_the_observation(world: World) -> None:
+    """再採点しても、記録済みの blind 採点が観測に残る（#693）。
+
+    観測は 1 提出 1 ファイルで書き直される。ワーカーが人の採点を渡さずに書くと、
+    再採点のたびに blind 採点の標本が黙って「人の採点なし」へ戻り、一致度の標本数が
+    理由の表示もなく減る（ADR 0005）。`BlindMark` は提出単位なので、再採点のあとも
+    DB に残っている。ワーカーはそれを読んで投影に渡す。
+    """
+    from aijudge_core import BlindMark
+
+    accepted = world.submit()
+    world.worker.run_until_empty()
+    with world.database.unit_of_work() as uow:
+        first = uow.runs.latest_for(accepted.submission.id)
+        levels = {score.criterion_id: 2 for score in first.criterion_scores}
+        uow.reviews.save_blind_mark(
+            BlindMark(
+                submission_id=accepted.submission.id,
+                grader_id=AUTHOR,
+                levels=levels,
+                marked_at=datetime.now(UTC),
+            )
+        )
+        uow.commit()
+
+    world.provider._responses.extend([AI_SAYS_1] * PROFILE_SAMPLES)
+    world.service.request_regrade(
+        tenant_id=TENANT,
+        submission_id=accepted.submission.id,
+        subject_profile=PROFILE,
+        discriminator="v2",
+    )
+    world.clock.advance(60)
+    world.worker.run_until_empty()
+
+    stored = world.observations.load(
+        PROFILE, str(world.task_version.task_id), str(accepted.submission.id)
+    )
+    readability = next(item for item in stored if item.criterion_code == "readability")
+    assert readability.human_level == 2, "再採点で blind 採点が観測から消えた"
+    assert readability.usable_for_agreement
