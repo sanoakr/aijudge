@@ -140,8 +140,10 @@ def test_deterministic_results_are_given_to_the_model_as_context(task_version) -
 
     prompt = provider.calls[0].messages[-1].content
     assert "すでに確定していること" in prompt
-    assert "[確定] 出力の正しさ: 100%" in prompt
-    assert "5 件すべて" in prompt
+    assert "[確定] 出力の正しさ: 100% — " in prompt
+    # 評価器の根拠文は渡さない（学習者のプログラムの出力が混ざりうる）。代わりに
+    # 教員が書いた段階の名前と記述が入る（プロンプト版 5・`describe_prior`）。
+    assert "5 件すべて" not in prompt
 
 
 def test_the_code_is_numbered_so_the_model_can_cite_lines() -> None:
@@ -282,7 +284,7 @@ def test_the_run_records_which_model_and_prompt_produced_it(task_version) -> Non
     run = _pipeline(judge).run(task_version, *_wire(task_version.reference_solution))
 
     assert run.context.model_ids == {"rubric_ai_judge": "stub"}
-    assert run.context.prompt_versions == {"rubric_ai_judge": "rubric_criterion_judge_ja@4"}
+    assert run.context.prompt_versions == {"rubric_ai_judge": "rubric_criterion_judge_ja@5"}
 
 
 def test_grading_survives_the_llm_being_unavailable(task_version) -> None:

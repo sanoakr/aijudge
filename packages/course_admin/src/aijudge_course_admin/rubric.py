@@ -25,11 +25,17 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable, Mapping
 from typing import Any
 
 from aijudge_authoring import CriterionSpec, LevelSpec
-from aijudge_core import RubricCriterion, RubricLevel
+from aijudge_core import (
+    JUDGE_MODEL_PATTERN,
+    MAX_JUDGE_MODEL_NAME,
+    RubricCriterion,
+    RubricLevel,
+)
 from aijudge_course_admin.errors import AdminError
 
 # 段階を書かなかった観点に与える既定。4 段にしてあるのは部分点を表すため
@@ -96,6 +102,22 @@ def format_levels(levels: Iterable[LevelSpec | RubricLevel]) -> str:
     )
 
 
+def _judge_model(code: str, raw: str) -> str | None:
+    """画面に書かれた重さの名前。空欄は None（科目の既定のモデル）。
+
+    **モデル名を書かれたら言葉で断る**（`qwen3.6:35b-a3b` など）。ここに書くのは
+    科目プロファイルの `judge_models` にある名前で、モデルそのものではない。
+    """
+    if not raw:
+        return None
+    if len(raw) > MAX_JUDGE_MODEL_NAME or not re.fullmatch(JUDGE_MODEL_PATTERN, raw):
+        raise AdminError(
+            f"{code}: モデルの重さは科目プロファイルの judge_models にある名前"
+            f"（英小文字・数字・_・- だけ。例: large）で書いてください: {raw!r}"
+        )
+    return raw
+
+
 def parse(rows: list[dict[str, str]]) -> tuple[CriterionSpec, ...]:
     """画面から来た行を観点にする。空行は捨てる。"""
     criteria: list[CriterionSpec] = []
@@ -143,6 +165,8 @@ def parse(rows: list[dict[str, str]]) -> tuple[CriterionSpec, ...]:
                 levels=parse_levels(text("levels")),
                 # AI にだけ渡す評価基準（学習者には見えない）。空欄は「無し」
                 judging_notes=text("judging_notes") or None,
+                # AI に使わせるモデルの重さ。空欄は科目の既定のモデル
+                judge_model=_judge_model(code, text("judge_model")),
             )
         )
     if not criteria:
@@ -183,6 +207,10 @@ def to_rows(criteria: Iterable[CriterionSpec | RubricCriterion]) -> list[dict[st
                 "evaluator": evaluator or "",
                 "levels": format_levels(criterion.levels),
                 "judging_notes": getattr(criterion, "judging_notes", None) or "",
+                # **画面に出して送り返させる。** 欄が無いと、観点を保存するたびに
+                # 重さの名指しが黙って消え、次の版から既定の軽いモデルで採点される
+                # （コンソールの保存が宣言を壊した ex01-2 と同じ形・2026-11-13）。
+                "judge_model": getattr(criterion, "judge_model", None) or "",
             }
         )
     return rows
@@ -205,6 +233,9 @@ def from_criteria(criteria: Iterable[RubricCriterion]) -> tuple[CriterionSpec, .
             # **評価基準も引き継ぐ。** 落とすと、問題文だけ直した訂正で AI にだけ
             # 渡していた基準が黙って消え、次の版から採点の基準が変わる。
             judging_notes=criterion.judging_notes,
+            # **重さの名指しも引き継ぐ。** 落とすと、問題文だけ直した訂正で
+            # 重いモデルの指定が消え、次の版から既定のモデルで採点される。
+            judge_model=criterion.judge_model,
             levels=tuple(
                 LevelSpec(
                     level=level.level,

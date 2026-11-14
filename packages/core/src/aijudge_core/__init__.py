@@ -123,7 +123,9 @@ from .submission import (
 )
 from .task import (
     HUMAN_SCORED,
+    JUDGE_MODEL_PATTERN,
     MAX_EDITOR_TEMPLATE_CHARS,
+    MAX_JUDGE_MODEL_NAME,
     MAX_TASK_CASE_TIMEOUT_SECONDS,
     Aggregation,
     AnswerMode,
@@ -176,8 +178,10 @@ __all__ = [
     "EVENT_TYPES",
     "GATE_ZERO",
     "HUMAN_SCORED",
+    "JUDGE_MODEL_PATTERN",
     "MAX_EDITOR_TEMPLATE_CHARS",
     "MAX_GROUP_NAME_LENGTH",
+    "MAX_JUDGE_MODEL_NAME",
     "MAX_TASK_CASE_TIMEOUT_SECONDS",
     "MIN_JUSTIFICATION_LENGTH",
     "PURGED_MESSAGE",

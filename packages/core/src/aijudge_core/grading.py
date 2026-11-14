@@ -279,10 +279,37 @@ class ReviewRequest(BaseModel):
     requested_at: datetime
     # 対応した教員レビュー。未対応なら None。
     resolved_by: HumanReviewId | None = None
+    # **再採点で対象の採点が置き換わって終了した**ときの、置き換えた採点と時刻
+    # （2026-11-13）。依頼は「その採点」への申し立てなので、別の採点を読んだ
+    # 教員の確認では答えない（`resolved_by` に入れない）── 何に答えたのかが記録の
+    # 上で食い違う。教員は何も読んでいないので、一致度（κ）の証拠にもならない
+    # （ADR 0010）。学習者は新しい採点に改めて依頼できる（依頼は採点 1 件に 1 件）。
+    # 起こりは exam08 p2 を採点方法の調整後に再採点する件。
+    closed_by_run: GradingRunId | None = None
+    closed_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def _check_closure(self) -> Self:
+        if (self.closed_by_run is None) != (self.closed_at is None):
+            raise ValueError("closed_by_run and closed_at go together")
+        if self.closed_by_run is not None and self.resolved_by is not None:
+            raise ValueError("a review request is either answered or closed by a regrade")
+        return self
 
     @property
     def resolved(self) -> bool:
+        """教員の確認で答えたか。**再採点での終了は含まない。**"""
         return self.resolved_by is not None
+
+    @property
+    def closed(self) -> bool:
+        """再採点で対象の採点が置き換わり、終了したか。"""
+        return self.closed_by_run is not None
+
+    @property
+    def pending(self) -> bool:
+        """教員の対応を待っているか（答えておらず、再採点でも終了していない）。"""
+        return not self.resolved and not self.closed
 
 
 class LatePenalty(BaseModel):

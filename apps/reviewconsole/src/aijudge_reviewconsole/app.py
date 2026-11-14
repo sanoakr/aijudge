@@ -81,6 +81,7 @@ from aijudge_core import (
     new_id,
     offered_years,
     reviewed_gate,
+    settles_at,
 )
 from aijudge_core.ids import (
     BlindMarkCorrectionId,
@@ -544,6 +545,14 @@ def _page_href(base: str, filters: Filters) -> Callable[[int], str]:
         return f"{base}?{urlencode(query)}"
 
     return href
+
+
+#: 採点の待ちの見出し（段階・列 → 画面の呼び名）。知らない組は段階の名前のまま出す。
+_QUEUE_LABELS: dict[tuple[str, str], str] = {
+    ("deterministic", "default"): "テスト実行",
+    ("deterministic", "transcription"): "書き起こし",
+    ("ai", "default"): "AI 評価",
+}
 
 
 def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
@@ -1078,10 +1087,18 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 for row in shown
                 if (link := uow.ide_links.for_submission(row.submission.id)) is not None
             }
+            # **いまの採点の待ち（全コース・2026-11-13）。** ワーカーはコースを
+            # またいで共有しているので、混んでいるかはキュー全体で見るしかない。
+            # 件数だけを出し、どのコースのジョブかは出さない。
+            queue_load = [
+                (_QUEUE_LABELS.get((row.phase.value, row.lane.value), row.phase.value), row)
+                for row in uow.jobs.load(datetime.now(UTC))
+            ]
         return TEMPLATES.TemplateResponse(
             request,
             "submissions.html",
             {
+                "queue_load": queue_load,
                 "me": me,
                 "course": course,
                 "section": {"label": "提出", "href": f"/courses/{course.id}/submissions"},
@@ -1139,6 +1156,26 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 return group.due_at
         return None
 
+    @app.get("/courses/{course_id}/manual", response_class=HTMLResponse)
+    def manual_queue(request: Request, course_id: str, me: Me) -> HTMLResponse:
+        """手動確定。**人が確定しないと閉じない提出を 1 件ずつ読む画面**（2026-11-13）。
+
+        確定処理から分けた。blind 採点・再確認の依頼と同じく、1 件ずつ読む仕事には
+        画面を 1 つ持たせる。並べるものは 1 件の画面の帯と同じ（`_finalize_rows`）。
+        """
+        course, rows, _marked = _finalize_rows(console, me, CourseId(course_id))
+        return TEMPLATES.TemplateResponse(
+            request,
+            "manual_queue.html",
+            {
+                "me": me,
+                "course": course,
+                "section": {"label": "手動確定", "href": f"/courses/{course.id}/manual"},
+                "rows": rows,
+                "groups": _task_groups(rows),
+            },
+        )
+
     @app.get("/courses/{course_id}/finalize", response_class=HTMLResponse)
     def finalize_queue(request: Request, course_id: str, me: Me) -> HTMLResponse:
         """確定処理。**依頼が出なかった提出を閉じる導線**（ADR 0010）。
@@ -1169,7 +1206,10 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 "course": course,
                 "section": {"label": "確定処理", "href": f"/courses/{course.id}/finalize"},
                 "rows": open_rows,
-                "groups": _task_groups(open_rows),
+                # 下の一覧は自動確定待ちだけ（手動の分は「手動確定」の画面に並ぶ）。
+                "waiting_groups": _task_groups(
+                    tuple(row for row in open_rows if not row["manual"])
+                ),
                 "units": [unit for unit in units if unit.unfinalized],
                 "pending": pending,
                 "split": split,
@@ -1742,11 +1782,12 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
         # **確定処理で順に進めているときは、確定済みの画面を挟まず次の 1 件へ進む**
         # （2026-10-02）。同じ画面に戻すと、確定のたびに「確定済み」を読んでから
         # 帯の「次へ」を押すことになり、数十件を順に確定する作業では 1 件ごとに
-        # 1 手余計だった。次が無ければ確定処理の一覧へ戻す（残りが無いことがそこで分かる）。
+        # 1 手余計だった。次が無ければ手動確定の一覧へ戻す（残りが無いことがそこで分かる。
+        # 2026-11-13 に確定処理から分けた画面）。
         if mode == WORK_FINALIZE:
             if next_after:
                 return RedirectResponse(work_href(WORK_FINALIZE, next_after), status_code=303)
-            return RedirectResponse(f"/courses/{context.course.id}/finalize", status_code=303)
+            return RedirectResponse(f"/courses/{context.course.id}/manual", status_code=303)
         return RedirectResponse(
             _with_mode(f"/review/{submission_id}/reveal", mode), status_code=303
         )
@@ -2079,6 +2120,16 @@ def _load(
                     "`uv run aijudge-worker --once` で採点してください。"
                 ),
             )
+        # **観点は、確認している採点記録の版から取る**（2026-11-13）。課題を直したあとの
+        # 再採点は今の版で走る（`task_ops.regrade_task`）ので、提出が指す版と採点の版が
+        # 違うことがある。提出の版で段階を出すと、画面では選べる段階（例: 版 1 の
+        # fix_scope の 2）が、確定の計算（`_final_ratio` は記録の版を引く）には無く、
+        # exam08 p5 の確定が KeyError で 500 になった。点・根拠・確定の計算がすべて
+        # 記録の版を見ているので、画面と受け取る段階もそれに揃える。
+        if run.context.task_version_id != task_version.id:
+            graded_on = uow.tasks.get_version(run.context.task_version_id)
+            if graded_on is not None:
+                task_version = graded_on
         mark = uow.reviews.find_blind_mark(submission_id)
         # **訂正を当てた blind 採点を使う**（ADR 0031）。画面・一致の判定・観測が
         # 同じ値を見るよう、読み出しの 1 か所で当てる。元の値は訂正の記録が持つ。
@@ -2309,6 +2360,15 @@ def _open_rows(console: Console, course: Course) -> tuple[dict, ...]:
                     "contested": blocks_finalization(request_row),
                     # 手動の確定が要るか（2026-09-25）。偽なら猶予が明ければ自動で閉じる。
                     "manual": _needs_manual_finalization(course, task, run),
+                    # 自動確定される時刻（2026-11-13）。起点は採点の完了で、自動確定の
+                    # 巡回（`aijudge-finalize`）が時刻を過ぎた最初の回に閉じる。
+                    "settles_at": settles_at(
+                        run.created_at,
+                        grace_minutes(
+                            task.auto_finalize_after_minutes if task is not None else None,
+                            course.auto_finalize_after_minutes,
+                        ),
+                    ),
                 }
             )
         _number_rows(uow, course.id, rows)
@@ -2360,7 +2420,9 @@ WORK_BLIND = "blind"
 # 確定処理（2026-09-25）。手動の確定が必要な提出を 1 件ずつ閉じる。
 WORK_FINALIZE = "finalize"
 WORK_MODES = frozenset({WORK_QUEUE, WORK_BLIND, WORK_FINALIZE})
-WORK_LABELS = {WORK_QUEUE: "再確認の依頼", WORK_BLIND: "blind 採点", WORK_FINALIZE: "確定処理"}
+WORK_LABELS = {WORK_QUEUE: "再確認の依頼", WORK_BLIND: "blind 採点", WORK_FINALIZE: "手動確定"}
+# 帯の「一覧へ」の行き先。確定処理の 1 件ずつの仕事は「手動確定」の画面に並ぶ（2026-11-13）。
+WORK_LIST_PAGES = {WORK_QUEUE: "queue", WORK_BLIND: "blind", WORK_FINALIZE: "manual"}
 # 帯に並べる件数。全部並べると作業の画面が下へ押し出される（一部だけを出す）。
 WORK_STRIP_ROWS = 8
 
@@ -2400,7 +2462,7 @@ def _work_strip(console: Console, me: Principal, course_id: CourseId, mode: str,
             if mode == WORK_BLIND
             else None
         ),
-        "list_href": f"/courses/{course.id}/{mode}",
+        "list_href": f"/courses/{course.id}/{WORK_LIST_PAGES[mode]}",
         "pending": len(ids),
         "current_pending": position >= 0,
         "next_href": work_href(mode, following[0]) if following else None,

@@ -348,6 +348,9 @@ def _candidate_specs(
                 if criterion.judging_notes is None
                 else {"judging_notes": criterion.judging_notes}
             ),
+            # 書いた観点だけ持ち出す。書き出さないと、コンソールの値を定義ファイルに
+            # 書き戻したときに重さの名指しが消える（course-sync の書き戻し）。
+            **({} if criterion.judge_model is None else {"judge_model": criterion.judge_model}),
             "levels": [
                 {
                     "level": level.level,

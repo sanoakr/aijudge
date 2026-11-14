@@ -22,10 +22,30 @@
     <span class="visibility">AI 評価器にも渡します</span></label>
   <textarea name="criterion_description" rows="2"
     placeholder="変数名が役割を表しているか、処理の流れが追えるか。出力の正しさはこの観点では評価しない。">{{ row.description }}</textarea>
+  {# **AI にだけ渡す欄**（評価基準・モデルの重さ）。採点者が機械か人なら隠す
+     （`base.html` の `showFieldsForEvaluators`・2026-11-13）。値は送り返す。 #}
+  <div data-ai-only>
   <label>評価基準（任意） <span class="visibility hidden">学生には見えません</span>
     <span class="visibility">AI 評価器にだけ渡します</span></label>
   <textarea name="criterion_judging_notes" rows="3"
     placeholder="回答例や、どこを見て段階を決めるかの詳しい基準。説明と違い、学生の結果画面には出ません。">{{ row.judging_notes | default('', true) }}</textarea>
+  {# **AI に使わせるモデルの重さ**（2026-11-13）。モデル名ではなく、科目プロファイルの
+     `judge_models` にある名前を選ぶ。欄を必ず出して送り返させる ── 欄が無いと、
+     観点を保存するたびに名指しが黙って消え、次の版から既定のモデルで採点される。
+     科目に無い名前が付いていれば、そのまま出して警告する（保存は断られる）。 #}
+  {% set jm_names = judge_model_names if judge_model_names is defined and judge_model_names else [] %}
+  {% set jm_current = row.judge_model | default('', true) %}
+  <label>AI に使わせるモデル（AI が判定する観点だけ）</label>
+  <select name="criterion_judge_model">
+    <option value="" {{ 'selected' if not jm_current }}>科目の既定のモデル</option>
+    {% for name in jm_names %}
+    <option value="{{ name }}" {{ 'selected' if jm_current == name }}>{{ name }}</option>
+    {% endfor %}
+    {% if jm_current and jm_current not in jm_names %}
+    <option value="{{ jm_current }}" selected>{{ jm_current }} — 科目プロファイルにありません（このままでは保存できません）</option>
+    {% endif %}
+  </select>
+  </div>
   <label>判定する評価器</label>
   {# **種類でまとめ、AI を上に置く**（#318）。観点に割り当てるものを選ぶとき、
      まず決めるのは「AI に読ませるか・機械で確定させるか・人が付けるか」で、
@@ -39,17 +59,17 @@
      出さない。 #}
   <select name="criterion_evaluator">
     <optgroup label="AI が判定する">
-      <option value="">{{ ai_default_about or 'AI が段階を判定する' }}（rubric_ai_judge）</option>
+      <option data-kind="ai" value="">{{ ai_default_about or 'AI が段階を判定する' }}（rubric_ai_judge）</option>
       {% for ev in ai_evaluators if ai_evaluators is defined %}
       {% if ev.name != 'rubric_ai_judge' %}
-      <option value="{{ ev.name }}" {{ 'selected' if row.evaluator == ev.name }}>
+      <option data-kind="ai" value="{{ ev.name }}" {{ 'selected' if row.evaluator == ev.name }}>
         {{ ev.about }}（{{ ev.name }}）</option>
       {% endif %}
       {% endfor %}
     </optgroup>
     <optgroup label="機械が確定させる（決定的）">
       {% for ev in deterministic %}
-      <option value="{{ ev.name }}" {{ 'selected' if row.evaluator == ev.name }}>
+      <option data-kind="deterministic" value="{{ ev.name }}" {{ 'selected' if row.evaluator == ev.name }}>
         {{ ev.about }}（{{ ev.name }}）</option>
       {% endfor %}
     </optgroup>
@@ -58,14 +78,14 @@
        保存は `_refuse_undeclared` が断るので、教員は先に宣言を直すことになる。 #}
     {% if undeclared is defined and row.code in undeclared %}
     <optgroup label="科目プロファイルが宣言していない（このままでは保存できません）">
-      <option value="{{ undeclared[row.code] }}" selected>{{ undeclared[row.code] }} — 科目が宣言していないため採点されません</option>
+      <option data-kind="undeclared" value="{{ undeclared[row.code] }}" selected>{{ undeclared[row.code] }} — 科目が宣言していないため採点されません</option>
     </optgroup>
     {% endif %}
     <optgroup label="人が採点する">
       {# **空とは別の選択肢である。** 空は「どの AI 評価器からも対象」で、
          画像のようにまだ機械が判定できない観点をそこへ入れると、AI が
          見当違いの判定を返す（ADR 0015）。 #}
-      <option value="{{ HUMAN_SCORED }}" {{ 'selected' if row.evaluator == HUMAN_SCORED }}>
+      <option data-kind="human" value="{{ HUMAN_SCORED }}" {{ 'selected' if row.evaluator == HUMAN_SCORED }}>
         評価器を割り当てない（人が採点する）</option>
     </optgroup>
   </select>

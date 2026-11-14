@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}手動確定 — {{ course.title }} — aiJudge{% endblock %}
+{% block body %}
+<h1>手動確定</h1>
+<p class="subtitle">{{ course.title }}・人が確定しないと閉じない提出を、1 件ずつ読んで確定します。</p>
+
+{# **確定処理から分けた**（2026-11-13）。blind 採点・再確認の依頼と同じく、1 件ずつ
+   読んで閉じる仕事には画面を 1 つ持たせる。確定処理は「残りをまとめて閉じる」画面
+   で、一括確定（読まずに責任を取る操作）はそちらに置いたまま、ここには置かない。
+
+   並べるのは**手動の確定が必要で、再確認の依頼が出ていない**提出（`_finalize_rows`）。
+   1 件の画面の帯と「次へ」も同じ集合を同じ順に進む。依頼の出ている提出は
+   再確認の依頼の画面で読む（二重に並べると、どちらで処理したのか分からなくなる）。 #}
+<div class="note">
+  <strong>自動確定されない提出です。</strong>
+  自動確定の猶予が無い課題、確認後に結果を返す問題セット、レビュー方針が人の確認を
+  求めた採点（コンパイルエラー・合否の境界の近く・AI の判定が割れた など）がここに並びます。
+  まとめて閉じるときは <a href="{{ root_prefix() }}/courses/{{ course.id }}/finalize">確定処理</a> から。
+</div>
+
+<div class="work-summary" data-live="man-summary">
+  {% if rows %}
+    <span class="pill attn">手動の確定が必要 {{ rows | length }} 件</span>
+    <a class="button-link go" href="{{ root_prefix() }}/review/{{ rows[0].submission.id }}/reveal?from=finalize">先頭から順に手動採点する →</a>
+  {% else %}
+    <span class="pill ok">手動の確定が必要な提出はありません</span>
+  {% endif %}
+</div>
+
+{# **課題ごとにまとめて並べる**（blind 採点と同じ）。同じ問題を続けて読むと基準を
+   持ち替えずに済む。並びは `_in_task_order` が決め、1 件の画面の「次へ」も同じ順に
+   進む ── 課題の中を終えると次の課題の先頭へ移る。 #}
+<div data-live="man-groups" data-live-rows>
+{% for group in groups %}
+<div data-live-key="g-{{ group.task.id if group.task else 'none' }}">
+{# **問題ごとに畳む**（2026-11-13）。初めは閉じ、見出しの件数と「順に」の入口だけを
+   出す。開き閉じは自動更新をまたいで残る（`live.js` の `carryOpen`・id で突き合わせる）。 #}
+<details class="fin-task" id="man-task-{{ group.task.id if group.task else 'none' }}">
+<summary>
+<h3 class="task-group">
+  {% if group.task %}<span class="mono desc">{{ group.task.unit or group.task.unit_label }}</span>
+    {{ group.task.title }}{% else %}課題の分からない提出{% endif %}
+</h3>
+  <span class="desc">{{ group.rows | length }} 件</span>
+  <a class="desc" href="{{ root_prefix() }}/review/{{ group.rows[0].submission.id }}/reveal?from=finalize">この課題を順に手動採点する →</a>
+</summary>
+{# 携帯では行を積む（`table.stack`）。課題は見出しに出したので列に持たない。
+   **AI の総合点は出さない** ── blind 採点待ちの提出が混ざると、blind の画面に入る前に
+   判定が読める（#695）。点は 1 件の画面で読む。 #}
+<table class="stack">
+  <thead><tr>
+    <th class="fit">提出</th><th class="grow">学習者</th>
+    <th class="fit">回</th><th class="fit"></th>
+  </tr></thead>
+  <tbody>
+  {% for row in group.rows %}
+    <tr class="row-link" data-href="{{ root_prefix() }}/review/{{ row.submission.id }}/reveal?from=finalize">
+      <td class="fit" data-label="提出">{{ row.submission.submitted_at | local('%m-%d %H:%M') if row.submission.submitted_at else '—' }}</td>
+      <td class="grow mono" data-label="学習者">{{ row.learner.login if row.learner else '—' }}</td>
+      <td class="fit" data-label="回">{{ row.attempt_no or row.submission.attempt }} 回目</td>
+      <td class="fit"><a href="{{ root_prefix() }}/review/{{ row.submission.id }}/reveal?from=finalize">確認して確定する</a></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</details>
+</div>
+{% else %}
+<p class="desc" data-live-key="empty">手動の確定が必要な提出はありません。</p>
+{% endfor %}
+</div>
+{% endblock %}

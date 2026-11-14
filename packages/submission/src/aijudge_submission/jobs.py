@@ -89,6 +89,27 @@ class JobLane(StrEnum):
     """書き起こし（画像・文書 → 本文）の要る決定的段階。遅い。"""
 
 
+class QueueLoad(BaseModel):
+    """ある段階・列の、いまの待ちの様子（教員コンソールの「提出」に出す・2026-11-13）。
+
+    **3 つを分けて数える。** `pending_count` は「処理中」と「時刻まで寝かせて
+    あるジョブ」（試験の採点開始待ちなど）も待ちに混ぜるので、混雑しているのか、
+    採点開始を待っているだけなのかが見分けられない。
+
+    - `running` — ワーカーが取って処理している
+    - `ready` — いま取られるのを待っている（`available_at` を過ぎた QUEUED）
+    - `held` — 時刻まで寝かせてある（`available_at` が先の QUEUED）
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    phase: GradingPhase
+    lane: JobLane
+    running: int = Field(default=0, ge=0)
+    ready: int = Field(default=0, ge=0)
+    held: int = Field(default=0, ge=0)
+
+
 class GradingJob(BaseModel):
     """採点 1 回分のジョブ。
 

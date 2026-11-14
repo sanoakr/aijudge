@@ -1,6 +1,6 @@
 [project]
 name = "aijudge"
-version = "1.67.1"
+version = "1.76.3"
 description = "AI-assisted assessment platform for STEM coursework"
 readme = "README.md"
 license = "Apache-2.0"
@@ -32,8 +32,12 @@ dependencies = [
     "aijudge-eval-network-test-runner",
     "aijudge-ext-document-text",
     "aijudge-eval-checklist-ai-judge",
+    "aijudge-eval-comment-slot-judge",
     "aijudge-eval-text-pattern-check",
     "aijudge-eval-c-indent-check",
+    "aijudge-eval-template-diff-check",
+    "aijudge-eval-c-array-check",
+    "aijudge-eval-line-diff-check",
     "aijudge-ext-image-text",
     "aijudge-eval-submission-compliance",
     "aijudge-skill",
@@ -86,8 +90,12 @@ aijudge-toolchain = { workspace = true }
 aijudge-eval-network-test-runner = { workspace = true }
 aijudge-ext-document-text = { workspace = true }
 aijudge-eval-checklist-ai-judge = { workspace = true }
+aijudge-eval-comment-slot-judge = { workspace = true }
 aijudge-eval-text-pattern-check = { workspace = true }
 aijudge-eval-c-indent-check = { workspace = true }
+aijudge-eval-template-diff-check = { workspace = true }
+aijudge-eval-c-array-check = { workspace = true }
+aijudge-eval-line-diff-check = { workspace = true }
 aijudge-ext-image-text = { workspace = true }
 aijudge-eval-submission-compliance = { workspace = true }
 aijudge-skill = { workspace = true }

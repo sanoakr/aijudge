@@ -175,6 +175,11 @@ sudo -u aijudge sh -c 'set -a; . /srv/aijudge/config/aijudge.env; set +a; \
 sudo -u aijudge rm /var/lib/aijudge/deploy-pin
 ```
 
+固定で戻るのは**コード**である。unit とそのスクリプト（root が配るもの）は、最後に配った版より
+古いタグでは配られない（「unit の配布と署名」）。コードだけ戻せば足りることが多く、そのときは
+unit の配布の失敗が知らせとして届くだけで、デプロイ自体は進む。unit も戻す必要があるときだけ、
+root が切り戻しを指定する（同じ節の手順）。
+
 **migration は戻さない。** 移行は進める方向にしか書いていない（`downgrade` は
 あっても試していない）。そのため、スキーマを変えた版から戻すときは、次のどちらかを選ぶ。コードだけを
 戻し、古いコードが新しいスキーマで動くかを確かめる。または、デプロイ直前の
@@ -196,6 +201,20 @@ unit と、unit が呼ぶ `/usr/local/sbin` のスクリプトは、**root が�
 - タグの署名を `/etc/aijudge/allowed_signers` で確かめる。**無ければ何も配らずに失敗**
   し、`OnFailure` でメールが届く
 - そのタグから `git archive` で取り出した `deploy/` を配る
+- **配ってよいタグには下限がある**（2026-11-14）。この仕組み（#417）の修正を含まない版は、
+  署名済みでも配らない。下限は配る側のスクリプト（root 所有の写し）に書いてある
+- **最後に配った版より古いタグは配らない**。配り終えたタグとコミットを
+  `/var/lib/aijudge-release/installed-units`（root 所有）に記録し、次からはそれを祖先に持つ
+  タグだけを配る。記録がまだ無い機械では、下限だけで判断する
+
+unit も古い版へ戻すときは、まず「切り戻し」の固定でコードをその版に戻す（配布はチェックアウトの
+版を配る）。そのうえで root が戻す先のタグを書いてから配布を走らせ、終わったら消す。
+
+```sh
+echo v1.75.0 | sudo install -m 644 /dev/stdin /etc/aijudge/units-rollback-to
+sudo systemctl start aijudge-units.service
+sudo rm /etc/aijudge/units-rollback-to
+```
 
 **リリースのタグは署名する**（`git tag -s`。このリポジトリでは `tag.gpgSign=true`
 にしてあるので `git tag -a` でも署名される。**`git tag v1.2.3` のような軽量タグは

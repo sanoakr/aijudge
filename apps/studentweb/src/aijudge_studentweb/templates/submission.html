@@ -210,6 +210,11 @@
 {{ resubmit_block() }}
 
 <h2>採点の再確認を依頼する{% if view.provisional_pending %}（{{ view.settles_at | local('%m/%d %H:%M') }} まで）{% endif %}</h2>
+{# 前の採点に出した依頼は、再採点で置き換わったので終了した（2026-11-13）。
+   依頼はその採点への申し立てで、新しい採点を読んだ確認では答えない。 #}
+{% if view.request_closed_by_regrade %}
+<div class="note">再採点されたため、この依頼は終了しました。新しい採点に疑問があれば、改めて依頼してください。</div>
+{% endif %}
 {% if view.can_request_review %}
 <form method="post" action="/submissions/{{ submission.id }}/request-review" class="card">
   <div class="field">

@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 
-from aijudge_eval_checklist_ai_judge import DEFAULT_ITEMS, ChecklistAiJudge, items_of
+from aijudge_eval_checklist_ai_judge import DEFAULT_ITEMS, ChecklistAiJudge, items_of, level_for
 
 from aijudge_core import (
     Artifact,
@@ -403,3 +403,168 @@ def test_an_unreadable_submission_is_skipped_rather_than_scored_zero() -> None:
 
     assert outcome.status is EvaluatorStatus.SKIPPED
     assert outcome.scores == ()
+
+
+# --------------------------------------------------------------------------
+# 項目ごとの多数決・根拠のない「ある」・段階の対応（2026-11-13）
+# --------------------------------------------------------------------------
+
+FIVE = ("②", "③", "④", "⑤", "⑥")
+
+
+def _answer(present: set[str], *, line: int | None = None) -> dict:
+    """5 項目への答え。`present` の項目を「ある」と答え、行は 1〜10 のどれかを引く。"""
+    return {
+        "findings": [
+            {
+                "item": name,
+                "present": name in present,
+                "line": (line if line is not None else i + 1) if name in present else 0,
+                "quote": name,
+            }
+            for i, name in enumerate(FIVE)
+        ]
+    }
+
+
+def _five_cases() -> tuple[TestCase, ...]:
+    return tuple(_item_case(name) for name in FIVE)
+
+
+def test_the_majority_is_taken_per_item_not_per_answer() -> None:
+    """**3 票が 1 項目ずつ違っても、項目ごとには 2 対 1 で決まる。**
+
+    答え全体で多数決を取ると、3 票すべてが違う組になって「割れた」扱いになる
+    （exam08 p2 の揺れの形）。項目ごとに数えれば、5 項目とも多数派がある。
+    """
+    everything = set(FIVE)
+    outcome = _judge(
+        _answer(everything - {"②"}),
+        _answer(everything - {"③"}),
+        _answer(everything - {"④"}),
+    ).evaluate(_request(cases=_five_cases()))
+
+    assert outcome.raw_output["items"] == dict.fromkeys(FIVE, True)
+    assert outcome.scores[0].level == 3
+    assert outcome.raw_output["votes"]["②"] == (2, 3)
+
+
+def test_a_split_that_cannot_move_the_level_keeps_full_confidence() -> None:
+    """割れた項目を入れ替えても段階が同じなら、人に回さない。
+
+    多数決で 3 項目（段階 1）。割れた ④ が「無い」に倒れても 2 項目でやはり段階 1。
+    """
+    base = {"②", "③"}
+    outcome = _judge(
+        _answer(base | {"④"}),
+        _answer(base | {"④"}),
+        _answer(base),
+    ).evaluate(_request(cases=_five_cases()))
+
+    score = outcome.scores[0]
+    assert score.level == 1
+    assert score.confidence == 1.0
+
+
+def test_a_split_that_can_move_the_level_lowers_the_confidence() -> None:
+    """割れた項目しだいで段階が変わるなら、一致度を確信度にする（P5）。"""
+    base = {"②", "③", "④"}
+    outcome = _judge(
+        _answer(base | {"⑤"}),
+        _answer(base | {"⑤"}),
+        _answer(base),
+    ).evaluate(_request(cases=_five_cases()))
+
+    score = outcome.scores[0]
+    assert score.level == 2  # 4 項目
+    assert score.confidence < 0.75  # ⑤ が倒れれば 3 項目・段階 1
+
+
+def test_a_present_without_a_real_line_does_not_count() -> None:
+    """**根拠の行を引けない「ある」は満たしたことにしない**（P4）。
+
+    行 0（スキーマの既定）や範囲外の行で「ある」と答えるだけで満点になっていた。
+    """
+    outcome = _judge(
+        _answer(set(FIVE), line=0),
+        _answer(set(FIVE), line=0),
+        _answer(set(FIVE), line=9999),
+    ).evaluate(_request(cases=_five_cases()))
+
+    assert outcome.scores[0].level == 0
+    assert outcome.raw_output["missing"] == list(FIVE)
+
+
+def test_the_level_is_reached_only_when_the_share_is_reached() -> None:
+    """**切り捨てで対応させる**（#682）。最上段は全部そろったときだけ。
+
+    5 項目・4 段は 0〜1 → 0、2〜3 → 1、4 → 2、5 → 3（exam08 p2 の段階の定義どおり）。
+    8 項目中 7 項目は最上段にならない。
+    """
+    criterion = _criterion()
+    assert [level_for(n, 5, criterion) for n in range(6)] == [0, 0, 1, 1, 2, 3]
+    assert level_for(7, 8, criterion) == 2
+    assert level_for(8, 8, criterion) == 3
+
+
+def test_an_item_the_model_renamed_is_still_counted() -> None:
+    """**項目名を書き換えた答えも拾う**（2026-11-13）。
+
+    exam08 p2 の測定で、3 回のうち 2 回が項目名を書き換えて返し、その回の「ある」が
+    すべて「無い」に数えられた。先頭の印（`②` など）か、並び順で対応させる。
+    """
+    long_names = tuple(_item_case(f"{mark} のコメント") for mark in FIVE)
+    by_mark = {
+        "findings": [
+            {"item": f"{mark}（書き換えた名前）", "present": True, "line": i + 1, "quote": mark}
+            for i, mark in enumerate(FIVE)
+        ]
+    }
+    by_order = {
+        "findings": [
+            {"item": f"項目 {i + 1}", "present": True, "line": i + 1, "quote": mark}
+            for i, mark in enumerate(FIVE)
+        ]
+    }
+    for answer in (by_mark, by_order):
+        outcome = _judge(answer, answer, answer).evaluate(_request(cases=long_names))
+        assert outcome.scores[0].level == 3, answer["findings"][0]["item"]
+        assert outcome.raw_output["missing"] == []
+
+
+def test_an_extra_answer_does_not_take_an_item_by_order() -> None:
+    """答えの数が項目の数と違えば、並び順では対応させない（取り違えない）。"""
+    cases = (_item_case("目的"), _item_case("方法"))
+    outcome = _judge(
+        {
+            "findings": [
+                {"item": "謝辞", "present": True, "line": 1, "quote": "謝辞"},
+                {"item": "付録", "present": True, "line": 2, "quote": "付録"},
+                {"item": "目的", "present": False, "line": 0, "quote": ""},
+            ]
+        }
+    ).evaluate(_request(cases=cases))
+    assert outcome.raw_output["missing"] == ["目的", "方法"]
+
+
+def test_a_long_item_name_is_cut_rather_than_failing() -> None:
+    """**説明文まで写した長い項目名でも、答え全体を落とさない**（2026-11-13）。
+
+    「②: int min = i; の直前の…」のように 100 字を超えて返すと、以前は検査に落ちて
+    3 回やり直したあと評価器ごと失敗した。切り詰め、先頭の印で項目に対応させる。
+    """
+    short = tuple(_item_case(mark) for mark in FIVE)
+    long_answer = {
+        "findings": [
+            {
+                "item": f"{mark}: " + "直前のコメントが手順を説明している。" * 10,
+                "present": True,
+                "line": i + 1,
+                "quote": mark,
+            }
+            for i, mark in enumerate(FIVE)
+        ]
+    }
+    outcome = _judge(long_answer, long_answer, long_answer).evaluate(_request(cases=short))
+    assert outcome.status is EvaluatorStatus.OK
+    assert outcome.scores[0].level == 3

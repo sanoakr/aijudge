@@ -42,7 +42,7 @@ from aijudge_core.ids import (
     UserId,
 )
 
-from .jobs import GradingJob, JobLane, JobReason, JobState
+from .jobs import GradingJob, JobLane, JobReason, JobState, QueueLoad
 from .protocols import (
     ImmutabilityViolation,
     RunDecision,
@@ -334,6 +334,22 @@ class InMemoryReviewRepository:
         if request is not None:
             self._requests[request_id] = request.model_copy(update={"resolved_by": review_id})
 
+    def close_request_for_superseded_run(
+        self, old_run_id: GradingRunId, new_run_id: GradingRunId, at: datetime
+    ) -> ReviewRequest | None:
+        request = self.find_request_for_run(old_run_id)
+        if request is None or not request.pending:
+            return None
+        closed = request.model_copy(update={"closed_by_run": new_run_id, "closed_at": at})
+        self._requests[request.id] = closed
+        return closed
+
+    def request_closed_by(self, run_id: GradingRunId) -> ReviewRequest | None:
+        return next(
+            (request for request in self._requests.values() if request.closed_by_run == run_id),
+            None,
+        )
+
     # -- 成績の確定 --
 
     def save_finalization(self, finalization: Finalization) -> None:
@@ -442,6 +458,21 @@ class InMemoryJobQueue:
             and (subject_profile is None or job.subject_profile == subject_profile)
             and (phase is None or job.phase is phase)
             and (lane is None or job.lane is lane)
+        )
+
+    def load(self, now: datetime) -> tuple[QueueLoad, ...]:
+        counts: dict[tuple[GradingPhase, JobLane], list[int]] = {}
+        for job in self._items.values():
+            if job.state is JobState.RUNNING:
+                slot = 0
+            elif job.state is JobState.QUEUED:
+                slot = 1 if job.available_at <= now else 2
+            else:
+                continue
+            counts.setdefault((job.phase, job.lane), [0, 0, 0])[slot] += 1
+        return tuple(
+            QueueLoad(phase=phase, lane=lane, running=c[0], ready=c[1], held=c[2])
+            for (phase, lane), c in sorted(counts.items(), key=lambda kv: (kv[0][0], kv[0][1]))
         )
 
     def position_in_queue(

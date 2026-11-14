@@ -707,7 +707,7 @@ def load_rows(
                 withheld=run is not None and score_withheld(run, review),
                 finalized_by=_finalized_by(finalization, review),
                 finalized_by_login=_actor_login(finalization, review, uow, actors),
-                contested=request is not None and not request.resolved,
+                contested=request is not None and request.pending,
                 attempt_no=numbers.get(submission.id, 0),
                 grading_failed=run is None and submission.id in failed,
                 current_version=current.get(str(task.id)),

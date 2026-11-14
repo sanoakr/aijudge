@@ -20,7 +20,9 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validato
 
 from aijudge_core import (
     HUMAN_SCORED,
+    JUDGE_MODEL_PATTERN,
     MAX_EDITOR_TEMPLATE_CHARS,
+    MAX_JUDGE_MODEL_NAME,
     MAX_TASK_CASE_TIMEOUT_SECONDS,
     Aggregation,
     Provenance,
@@ -139,6 +141,11 @@ class CriterionSpec(BaseModel):
     levels: tuple[LevelSpec, ...] = Field(min_length=2)
     # AI 評価器にだけ渡す評価基準（学習者には見えない・`RubricCriterion.judging_notes`）
     judging_notes: str | None = None
+    # AI 評価器に使わせるモデルの「重さ」の名前（`RubricCriterion.judge_model`）。
+    # モデル名ではない ── 実モデルは科目プロファイルの `judge_models` が決める。
+    judge_model: str | None = Field(
+        default=None, min_length=1, max_length=MAX_JUDGE_MODEL_NAME, pattern=JUDGE_MODEL_PATTERN
+    )
 
     @property
     def scored_by_human(self) -> bool:
@@ -360,6 +367,7 @@ def _declared_version(
             ),
             evaluator_id=declared.evaluator,
             judging_notes=declared.judging_notes,
+            judge_model=declared.judge_model,
         )
         for declared in spec.criteria
     )

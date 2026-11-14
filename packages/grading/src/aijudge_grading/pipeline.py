@@ -200,8 +200,16 @@ class GradingPipeline:
         cut = set(base.skipped_criteria) | set(
             gate_skipped(task_version.criteria, base.criterion_scores, aggregation)
         )
+        # **決定的評価器に割り当てた観点も積まない。** その観点は AI 段階で
+        # 呼ばれない（`run` の evaluator_id の照合）ので、確定していなくても
+        # 積んで変わることは無い。text_pattern_check の「決まらない」観点
+        # （確定させずにレビューへ回す・2026-11-13）がこれに当たる。
+        ai = set(self._profile.ai_evaluators)
         return any(
-            c.id not in settled and c.id not in cut and not c.scored_by_human
+            c.id not in settled
+            and c.id not in cut
+            and not c.scored_by_human
+            and (c.evaluator_id is None or c.evaluator_id in ai)
             for c in task_version.criteria
         )
 
@@ -268,19 +276,30 @@ class GradingPipeline:
         prompt_versions: dict[str, str] = {}
         model_params: dict[str, object] = {}
 
-        def record_provenance(evaluator_id: str, outcome: EvaluationOutcome) -> None:
+        def record_provenance(
+            evaluator_id: str, outcome: EvaluationOutcome, judge_model: str | None = None
+        ) -> None:
+            # **重さを名指しした観点は別の鍵で残す**（`rubric_ai_judge@large`）。
+            # 鍵を評価器 ID だけにすると、同じ run の中で既定のモデルと重いモデルが
+            # 答えたとき、後に呼んだ方で上書きされ、どの観点をどのモデルが採点したか
+            # が記録から消える（P8・2026-11-13）。
+            key = evaluator_id if judge_model is None else f"{evaluator_id}@{judge_model}"
             if outcome.model_id:
-                model_ids[evaluator_id] = outcome.model_id
+                model_ids[key] = outcome.model_id
             if outcome.prompt_id:
                 prompt_versions[evaluator_id] = outcome.prompt_id
             # **実際に効いた設定を残す**（#407）。プロファイルの設定と、評価器が
             # 報告した実行時の値（自己一貫性の標本数・応答したプロバイダ）。
             params: dict[str, object] = dict(self._profile.evaluator_options.get(evaluator_id, {}))
-            for key in REPORTED_PARAMS:
-                if key in outcome.raw_output:
-                    params[key] = outcome.raw_output[key]
+            for name in REPORTED_PARAMS:
+                if name in outcome.raw_output:
+                    params[name] = outcome.raw_output[name]
+            if judge_model is not None:
+                params["judge_model"] = self._profile.judge_models[judge_model].model_dump(
+                    exclude_none=True
+                )
             if params:
-                model_params[evaluator_id] = params
+                model_params[key] = params
 
         if base is not None:
             # 土台の結果を引き継ぐ。**重みはルーブリックから取り直す。**
@@ -347,6 +366,23 @@ class GradingPipeline:
                     continue
                 if criterion.evaluator_id not in (None, evaluator_id):
                     continue
+                # **観点が名指した重さを、ここで実モデルにする。** 科目に無い名前は
+                # 評価器を呼ばずに失敗として記録する ── 既定のモデルに黙って落とすと、
+                # 重いモデルを求めた観点が軽いモデルで採点され、それが記録にしか
+                # 現れない。失敗なら観点は未採点のまま人に回る（P2・P5）。投入の時点
+                # でも断っている（`course_definition`）ので、ここに来るのはプロファイル
+                # から重さを消したあとに古い版を採点する場合だけである。
+                try:
+                    judge_model = self._profile.judge_model_for(criterion.judge_model)
+                except KeyError as exc:
+                    outcome = EvaluationOutcome(
+                        status=EvaluatorStatus.FAILED, error=f"KeyError: {exc.args[0]}"
+                    )
+                    results.append(self._to_result(evaluator_id, EvaluatorKind.AI, outcome))
+                    continue
+                timeout = self._profile.timeout_seconds
+                if judge_model is not None and judge_model.timeout_seconds is not None:
+                    timeout = judge_model.timeout_seconds
                 outcome = self._invoke(
                     evaluator_id,
                     EvaluationRequest(
@@ -356,11 +392,12 @@ class GradingPipeline:
                         criterion=criterion,
                         prior_results=tuple(scores),
                         learner_reference=learner_reference,
-                        timeout_seconds=self._profile.timeout_seconds,
+                        timeout_seconds=timeout,
+                        judge_model=judge_model,
                         options=self._profile.evaluator_options.get(evaluator_id, {}),
                     ),
                 )
-                record_provenance(evaluator_id, outcome)
+                record_provenance(evaluator_id, outcome, criterion.judge_model)
                 results.append(self._to_result(evaluator_id, EvaluatorKind.AI, outcome))
                 scores.extend(self._attach(outcome, results[-1].id))
 

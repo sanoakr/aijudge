@@ -1212,6 +1212,76 @@ def test_the_attention_count_excludes_the_instructors_own_trial(database: Databa
     assert sum(number for _task, _routing, number in counts.unfinalized_by_task) == 2
 
 
+def test_a_request_closed_by_a_regrade_leaves_the_queue_and_a_new_one_can_be_made(
+    database: Database,
+) -> None:
+    """再採点で終了した依頼は待ち行列にも「異議あり」の件数にも出ない（2026-11-13）。
+
+    新しい採点には改めて依頼できる（依頼は採点 1 件に 1 件）。**方言差が出うる**
+    （置き換えを `grading_runs.superseded_by` の列で辿る）ので、両方で回す。
+    """
+    from datetime import timedelta
+
+    from aijudge_core import ReviewRequest
+    from aijudge_core.ids import ReviewRequestId
+
+    version = a_task_version()
+    with database.unit_of_work() as uow:
+        uow.tasks.save_task(Task(id=TASK_ID, course_id=COURSE, title="exam08 p2", session=8))
+        uow.tasks.save_version(version)
+        uow.commit()
+    accepted = a_service(database).accept(
+        tenant_id=TENANT,
+        task_version_id=version.id,
+        learner_id=LEARNER,
+        subject_profile="cs_lang_c_intro",
+        files=code(),
+    )
+    submission_id = accepted.submission.id
+    old_id, new_id = GradingRunId("grn_" + "a" * 32), GradingRunId("grn_" + "c" * 32)
+
+    def request(run_id: GradingRunId, key: str) -> ReviewRequest:
+        return ReviewRequest(
+            id=ReviewRequestId("rrq_" + key * 32),
+            submission_id=submission_id,
+            grading_run_id=run_id,
+            learner_id=LEARNER,
+            reason="説明が「一部」ですが、5 か所とも手順を書いたつもりです。",
+            requested_at=NOW,
+        )
+
+    with database.unit_of_work() as uow:
+        uow.runs.save(a_run(old_id, submission_id))
+        uow.reviews.save_request(request(old_id, "1"))
+        uow.commit()
+    with database.unit_of_work() as uow:
+        assert len(uow.reviews.requested_for_course(COURSE)) == 1
+        assert uow.reviews.attention_counts_for_course(COURSE).contested == 1
+
+    with database.unit_of_work() as uow:
+        uow.runs.save(
+            a_run(new_id, submission_id).model_copy(update={"created_at": NOW + timedelta(hours=1)})
+        )
+        uow.runs.supersede(old_id, new_id)
+        uow.reviews.close_request_for_superseded_run(old_id, new_id, NOW + timedelta(hours=1))
+        uow.commit()
+    with database.unit_of_work() as uow:
+        assert uow.reviews.requested_for_course(COURSE) == ()
+        assert uow.reviews.attention_counts_for_course(COURSE).contested == 0
+        closed = uow.reviews.request_closed_by(new_id)
+        assert closed is not None and closed.id == request(old_id, "1").id
+        assert uow.reviews.request_closed_by(old_id) is None
+
+    # 新しい採点への依頼は出せて、待ち行列に出る。
+    with database.unit_of_work() as uow:
+        uow.reviews.save_request(request(new_id, "2"))
+        uow.commit()
+    with database.unit_of_work() as uow:
+        queued = uow.reviews.requested_for_course(COURSE)
+        assert [str(r.id) for _s, _r, r in queued] == [str(request(new_id, "2").id)]
+        assert uow.reviews.attention_counts_for_course(COURSE).contested == 1
+
+
 def test_iterating_a_course_is_not_capped_by_the_listing_limit(database: Database) -> None:
     """**判断に使う経路は打ち切らない**（#219）。
 
@@ -1618,6 +1688,57 @@ def test_a_blind_correction_cannot_be_rewritten(review_repo) -> None:
         uow.reviews.save_blind_correction(correction.model_copy(update={"levels": {}}))
 
 
+def _a_request(run: str, key: str = "1"):
+    from aijudge_core import ReviewRequest
+    from aijudge_core.ids import GradingRunId, ReviewRequestId, SubmissionId
+
+    return ReviewRequest(
+        id=ReviewRequestId("rrq_" + key * 32),
+        submission_id=SubmissionId("sub_" + "5" * 32),
+        grading_run_id=GradingRunId(run),
+        learner_id=LEARNER,
+        reason="出力の正しさが「一部」ですが、入力例 3 は仕様どおりのはずです。",
+        requested_at=NOW,
+    )
+
+
+def test_a_regrade_closes_only_an_open_request(review_repo) -> None:
+    """**再採点で終わるのは未対応の依頼だけ**（2026-11-13）。答えた依頼には触れない。"""
+    from datetime import timedelta
+
+    from aijudge_core.ids import GradingRunId, HumanReviewId
+
+    old, new = GradingRunId("grn_" + "a" * 32), GradingRunId("grn_" + "c" * 32)
+    answered_run, later = GradingRunId("grn_" + "b" * 32), NOW + timedelta(hours=1)
+    with review_repo() as uow:
+        uow.reviews.save_request(_a_request(old, "1"))
+        uow.reviews.save_request(_a_request(answered_run, "2"))
+        uow.reviews.resolve_request(
+            _a_request(answered_run, "2").id, HumanReviewId("hrv_" + "9" * 32)
+        )
+        uow.commit()
+
+    with review_repo() as uow:
+        closed = uow.reviews.close_request_for_superseded_run(old, new, later)
+        untouched = uow.reviews.close_request_for_superseded_run(
+            answered_run, GradingRunId("grn_" + "d" * 32), later
+        )
+        uow.commit()
+    assert closed is not None
+    assert (closed.closed_by_run, closed.closed_at, closed.resolved_by) == (new, later, None)
+    assert untouched is None
+
+    with review_repo() as uow:
+        stored = uow.reviews.find_request_for_run(old)
+        answered = uow.reviews.find_request_for_run(answered_run)
+        # 2 度目は何もしない（追記のみ・P8）。
+        again = uow.reviews.close_request_for_superseded_run(old, new, later)
+    assert stored == closed
+    assert not stored.pending and stored.closed and not stored.resolved
+    assert answered is not None and answered.resolved and not answered.closed
+    assert again is None
+
+
 def test_an_observation_is_kept_once_per_task(skill_repo) -> None:
     """観測は学習者 × KC × 課題で 1 件。**同じ課題は置き換える**（ADR 0032）。"""
     from datetime import UTC, datetime
@@ -1693,3 +1814,98 @@ def test_history_is_read_per_scope(skill_repo) -> None:
         exam = uow.skills.history(tenant, (learner,), scope=MasteryScope.EXAM)
         assert [(p.mastery, p.scope) for p in exam] == [(0.7, MasteryScope.EXAM)]
         assert uow.skills.history(tenant, (learner,), scope=MasteryScope.PRACTICE) == ()
+
+
+# --------------------------------------------------------------------------
+# 待ちの様子（教員コンソールの「提出」に出す・2026-11-13）
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture(params=["memory", "sql"])
+def job_queue(request, database: Database):
+    """インメモリと SQL に同じテストを当てる（`task_repo` と同じ形）。"""
+    from aijudge_submission import InMemoryJobQueue
+
+    if request.param == "memory":
+        queue = InMemoryJobQueue()
+        yield lambda: queue
+        return
+    with database.unit_of_work() as uow:
+        yield lambda: uow.jobs
+        uow.commit()
+
+
+def _job(n: int, **fields):
+    from aijudge_core import GradingPhase
+    from aijudge_core.ids import GradingJobId
+    from aijudge_submission import GradingJob
+
+    defaults = {
+        "id": GradingJobId(f"gjb_{n:032d}"),
+        "tenant_id": TENANT,
+        "submission_id": SubmissionId(f"sub_{n:032d}"),
+        "task_version_id": TASK_VERSION,
+        "subject_profile": "cs_lang_c_intro",
+        "phase": GradingPhase.DETERMINISTIC,
+        "idempotency_key": f"key-{n}",
+        "available_at": NOW,
+        "created_at": NOW,
+        "updated_at": NOW,
+    }
+    return GradingJob(**(defaults | fields))
+
+
+def test_the_queue_load_tells_running_ready_and_held_apart(job_queue) -> None:
+    """**処理中・待ち・寝かせを分けて数える。** 終わったジョブは数えない。"""
+    from aijudge_core import GradingPhase
+    from aijudge_submission import JobLane, QueueLoad
+
+    later = NOW + timedelta(hours=2)
+    base = GradingRunId("grn_" + "b" * 32)
+    jobs = [
+        _job(1),  # 決定的・待ち
+        _job(2),  # 決定的・待ち
+        _job(3, available_at=later),  # 決定的・寝かせ（採点開始待ち）
+        _job(
+            4,
+            state=JobState.RUNNING,
+            attempts=1,
+            worker="w1",
+            lease_expires_at=NOW + timedelta(minutes=1),
+        ),  # 決定的・処理中
+        _job(5, lane=JobLane.TRANSCRIPTION),  # 書き起こし・待ち
+        _job(6, phase=GradingPhase.AI, base_run_id=base),  # AI・待ち
+        _job(
+            7,
+            state=JobState.DONE,
+            grading_run_id=GradingRunId("grn_" + "c" * 32),
+        ),  # 終わった（数えない）
+    ]
+    queue = job_queue()
+    for job in jobs:
+        queue.enqueue(job)
+
+    load = {(row.phase, row.lane): row for row in queue.load(NOW)}
+
+    assert load == {
+        (GradingPhase.AI, JobLane.DEFAULT): QueueLoad(
+            phase=GradingPhase.AI, lane=JobLane.DEFAULT, ready=1
+        ),
+        (GradingPhase.DETERMINISTIC, JobLane.DEFAULT): QueueLoad(
+            phase=GradingPhase.DETERMINISTIC, lane=JobLane.DEFAULT, running=1, ready=2, held=1
+        ),
+        (GradingPhase.DETERMINISTIC, JobLane.TRANSCRIPTION): QueueLoad(
+            phase=GradingPhase.DETERMINISTIC, lane=JobLane.TRANSCRIPTION, ready=1
+        ),
+    }
+    # 寝かせは時刻が来れば待ちに変わる。
+    (det,) = [
+        r
+        for r in queue.load(later)
+        if r.lane is JobLane.DEFAULT and r.phase is GradingPhase.DETERMINISTIC
+    ]
+    assert (det.ready, det.held) == (3, 0)
+
+
+def test_an_empty_queue_has_no_load(job_queue) -> None:
+    assert job_queue().load(NOW) == ()

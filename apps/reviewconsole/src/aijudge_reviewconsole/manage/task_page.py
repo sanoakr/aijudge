@@ -16,6 +16,7 @@ from aijudge_authoring import TaskChecks, TaskSpec, images, render_statement
 from aijudge_authoring.spec import DEFAULT_EVALUATOR, TestCaseSpec
 from aijudge_core import (
     DEFAULT_UPLOAD_SUFFIXES,
+    HUMAN_SCORED,
     MAX_TASK_CASE_TIMEOUT_SECONDS,
     SUFFIX_GROUPS,
     Course,
@@ -53,6 +54,70 @@ KEEP: object = object()
 
 #: 入出力を実際に走らせる評価器。課題ごとの実行上限（#491）はこれらにだけ意味がある。
 _RUNS_CODE = (CODE_TEST_RUNNER, "network_test_runner")
+
+# 新しい問題を作るときの「採点のしかた」（2026-11-13）。
+#
+# **問題の種類ではなく、作り始めのひな形である。** 観点ごとに採点者が違う問題
+# （テスト＋AI の読みやすさ＋人）がこのシステムの前提なので、問題に 1 つの種類を
+# 持たせると混在が作れない。最初に選ぶのは「どの欄から書き始めるか」で、要らない欄
+# （人が採点する問題のテスト生成など）を出さないためにある。観点は作ったあとも、
+# 観点ごとに採点者を選び直せる。
+#
+# 以前は種類を選ばせず、科目が `code_test_runner` を宣言していれば必ずテストを生成し、
+# 観点の欄を出しながら保存では読まなかった ── 欠席届のような「教員が読むだけ」の
+# 問題を作ろうとすると、問題文から参照解答とテストを作らせようとして失敗し、画面で
+# 選んだ「人が採点する」は黙って捨てられた（本番 2026-11-13・prog2 exam08-abs）。
+KIND_PROGRAM = "program"
+KIND_AI = "ai"
+KIND_HUMAN = "human"
+NEW_TASK_KINDS = (KIND_PROGRAM, KIND_AI, KIND_HUMAN)
+
+# 2 段（未達・達成）の段階。人が確かめるだけの観点の既定。
+_TWO_LEVELS = "未達 | 満たしていない | 0\n達成 | 満たしている | 1.0"
+
+
+def _kind_rows(kind: str) -> list[dict[str, object]] | None:
+    """採点のしかたごとの、書き始めの観点（1 つ）。プログラムは None（コースの既定）。
+
+    プログラムの観点は**今までどおりコースの共通ルーブリック（無ければ組み込みの
+    既定）から作る**。テストの有無で正しさの評価器が決まる作り（`TaskSpec.auto_graded`）
+    なので、画面の行から作り直すと既存の問題の作られ方が変わる。
+    """
+    common = {"order": 1, "weight": 1.0, "judging_notes": "", "judge_model": ""}
+    if kind == KIND_AI:
+        return [
+            common
+            | {
+                "code": "content",
+                "title": "内容",
+                "description": "課題の求めに沿って書かれているか。",
+                # 空は既定の AI（`rubric_ai_judge`）
+                "evaluator": "",
+                # 空は 4 段の既定
+                "levels": "",
+            }
+        ]
+    if kind == KIND_HUMAN:
+        return [
+            common
+            | {
+                "code": "review",
+                "title": "教員が確認する",
+                "description": "提出の内容を教員が読んで確かめる。",
+                "evaluator": HUMAN_SCORED,
+                "levels": _TWO_LEVELS,
+            }
+        ]
+    return None
+
+
+def _default_kind(wants_tests: bool) -> str:
+    """選ばれていないときの採点のしかた。**今までの既定と同じにする。**
+
+    テストで確定できる科目ではプログラム、それ以外は AI ── 種類を選ぶ前から
+    あった画面（とブックマーク）の挙動を変えない。
+    """
+    return KIND_PROGRAM if wants_tests else KIND_AI
 
 
 def _case_timeout_view(effective, task) -> dict[str, object] | None:
@@ -528,15 +593,30 @@ def _task_page(
     reference_draft=None,
     proposed=None,
     io_draft=None,
+    kind=None,
 ):
     """課題の編集／追加の画面。**追加と訂正で同じ形を使う。**
 
     別々に作ると、片方にだけ項目が足りない状態が生まれる（実際に
     `readability_weight` でそうなった）。
+
+    `kind` は追加のときの採点のしかた（`NEW_TASK_KINDS`）。知らない値と None は
+    今までの既定（`_default_kind`）。訂正では使わない（観点ごとに選び直す）。
     """
     registry = EvaluatorRegistry().load_installed()
     course_rows = _course_rubric_rows(course)
-    rows = rubric.to_rows(version.criteria) if version is not None else course_rows
+    wants_tests = _wants_tests(request, course, version)
+    new_kind = None
+    if task is None:
+        new_kind = kind if kind in NEW_TASK_KINDS else _default_kind(wants_tests)
+        # **テストで確定できない科目にプログラムを選ばせない。** 選べても生成する
+        # 相手（`code_test_runner`）がおらず、AI の問題として作られるだけになる。
+        if new_kind == KIND_PROGRAM and not wants_tests:
+            new_kind = KIND_AI
+    if version is not None:
+        rows = rubric.to_rows(version.criteria)
+    else:
+        rows = _kind_rows(new_kind or KIND_PROGRAM) or course_rows
     # この課題に効いている科目（上書き込み）。選択肢と警告の基準。
     effective = _effective_profile_of(_console(request), course, version)
     # **学習者に出ている版。** 教員が見ているのは最新版（承認待ちを含む）
@@ -639,6 +719,9 @@ def _task_page(
             # **選択肢から消すだけでは、保存した瞬間に黙って別のものに
             # 変わる**ので、選択中のまま出して警告する。
             "undeclared": dict(_undeclared_evaluators(effective, rows)),
+            # 観点が選べるモデルの重さ（科目プロファイルの `judge_models`・2026-11-13）。
+            # 科目に無い名前が付いた観点は、選択中のまま警告する（`_criterion_fields`）。
+            "judge_model_names": sorted(effective.judge_models) if effective is not None else [],
             "suffix_groups": SUFFIX_GROUPS,
             "course_suffixes": (
                 (task.accepted_suffixes if task is not None else ())
@@ -670,7 +753,9 @@ def _task_page(
             "unit_schedule_mixed": bool(own_unit and own_unit.mixed),
             # テストで確定できる科目か。宣言していない科目（レポートなど）
             # には出さない ── 選べない選択肢を見せない。
-            "wants_tests": _wants_tests(request, course, version),
+            "wants_tests": wants_tests,
+            # 追加のときの採点のしかた（2026-11-13）。訂正では None。
+            "new_kind": new_kind,
             # この課題が検証データで採点する観点を、データの形ごとに
             # （#300・#302）。**科目が宣言していなくても、観点に割り当てた
             # なら欄を出す。** 形は評価器が名乗る（`test_case_shape`）。
@@ -698,11 +783,15 @@ def _task_page(
             # **既にある課題にも出す。** #15 より前に画面から作った課題は
             # テストケースを持てず、正しさが AI 判定のまま残っている。
             # 課題を開いたときに分からなければ、直す機会が無い。
+            # **正しさの観点がある問題だけ**（2026-11-13）。人が確かめるだけの問題や
+            # 文章を AI が読む問題にもこの警告が出ると、テストが無いのが正常な問題で
+            # 「テストを付けろ」と言うことになる。
             "falls_back_to_ai": (
                 task is not None
                 and version is not None
                 and not version.test_cases
-                and _wants_tests(request, course, version)
+                and wants_tests
+                and any(c.code == "correctness" for c in version.criteria)
             ),
             # 訂正した版で採点し直せる件数（確定済みは数えない）。
             "regradable": _regradable(_console(request), task, published),

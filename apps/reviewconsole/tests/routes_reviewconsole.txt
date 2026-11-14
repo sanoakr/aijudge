@@ -20,6 +20,7 @@ GET /courses/{course_id}/blind aijudge_reviewconsole.app:blind_queue
 GET /courses/{course_id}/finalize aijudge_reviewconsole.app:finalize_queue
 GET /courses/{course_id}/grades aijudge_reviewconsole.grades:grades_page
 GET /courses/{course_id}/grades.csv aijudge_reviewconsole.grades:grades_csv
+GET /courses/{course_id}/manual aijudge_reviewconsole.app:manual_queue
 GET /courses/{course_id}/queue aijudge_reviewconsole.app:queue
 GET /courses/{course_id}/similarity aijudge_reviewconsole.similarity:course_similarity
 GET /courses/{course_id}/similarity/{task_id}/{run_id} aijudge_reviewconsole.similarity:viewer_without_slash

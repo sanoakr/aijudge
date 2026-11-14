@@ -587,6 +587,13 @@ class GradingWorker:
             if previous is not None and previous.superseded_by is None:
                 # 再採点。過去の採点は消さず、置き換わったことだけ記す（P8）。
                 uow.runs.supersede(previous.id, run.id)
+                # **置き換わった採点への再確認の依頼は「再採点により終了」として閉じる**
+                # （2026-11-13）。依頼はその採点への申し立てで、新しい採点を読んだ
+                # 教員の確認で答えるのは筋が違う。閉じずに残すと、待ち行列に残り
+                # 続け、確定しても対応済みにならない（確定は最新の採点の依頼しか
+                # 見ない）。学習者は新しい採点に改めて依頼できる。同じ UnitOfWork に
+                # 置くので、置き換えだけが入って依頼が開いたままになることはない。
+                uow.reviews.close_request_for_superseded_run(previous.id, run.id, now)
 
             submission = uow.submissions.get(job.submission_id)
             if submission is not None:

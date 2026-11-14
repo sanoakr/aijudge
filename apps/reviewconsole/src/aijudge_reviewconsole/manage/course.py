@@ -314,6 +314,8 @@ def _course_page(
                 _evaluator_rows(registry, EvaluatorKind.AI), applied
             ),
             "undeclared": dict(_undeclared_evaluators(applied, _course_rubric_rows(course))),
+            # 観点が選べるモデルの重さ（科目プロファイルの `judge_models`・2026-11-13）。
+            "judge_model_names": sorted(applied.judge_models) if applied is not None else [],
             # 提出の遵守が見る値（#316）。選択肢は拡張子の表から作る。
             "artifact_kinds": _artifact_kind_rows(),
             "languages": sorted(LANGUAGES),

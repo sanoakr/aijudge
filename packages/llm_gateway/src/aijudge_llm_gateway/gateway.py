@@ -214,6 +214,8 @@ class LlmGateway:
         timeout_seconds: float = 120.0,
         images: tuple[str, ...] = (),
         repeat_penalty: float | None = None,
+        fallback_model: str | None = None,
+        num_ctx: int | None = None,
         **values: object,
     ) -> StructuredResult[TModel]:
         """スキーマに合う応答を得るまで、上限回数まで再試行する。
@@ -221,6 +223,10 @@ class LlmGateway:
         `images` は base64 の PNG / JPEG。**利用者の発言に付く**（プロンプト
         テンプレートは文面だけを持ち、画像を知らない）。再試行で会話が伸びても
         画像は最初の発言に付いたままなので、送り直しにはならない。
+
+        `fallback_model` は従系に落ちたときに呼ぶモデル（`FallbackProvider`）。
+        重いモデルは主系と従系で置けるものが違う（2026-11-13・観点ごとの重さ）。
+        `num_ctx` は文脈長。None なら送らない（サーバの既定のまま）。
         """
         self._check_policy(data_class)
         self._check_vision(images)
@@ -243,6 +249,8 @@ class LlmGateway:
                     json_schema=json_schema,
                     timeout_seconds=timeout_seconds,
                     repeat_penalty=repeat_penalty,
+                    fallback_model=fallback_model,
+                    num_ctx=num_ctx,
                 )
             )
             prompt_tokens += response.usage.prompt_tokens
@@ -298,6 +306,39 @@ class LlmGateway:
             f"{schema.__name__} in {self._max_attempts} attempts: {last_error[:500]}"
         )
 
+    def sample_all[TModel: BaseModel](
+        self,
+        prompt: PromptTemplate,
+        schema: type[TModel],
+        *,
+        model: str,
+        data_class: DataClass,
+        samples: int = 1,
+        temperature: float = 0.0,
+        **kwargs: object,
+    ) -> list[StructuredResult[TModel]]:
+        """同じ問いを複数回サンプリングし、**すべての応答**を返す。
+
+        多数決を答え全体ではなく部分ごとに取りたい評価器のためにある
+        （`checklist_ai_judge` は項目ごとに票を数える・2026-11-13）。
+        引き方は `sample_structured` と同じ（1 回目は温度そのまま、2 回目以降は
+        ばらつきを見るために上げる）。
+        """
+        if samples < 1:
+            raise ValueError("samples must be at least 1")
+        return [
+            self.complete_structured(
+                prompt,
+                schema,
+                model=model,
+                data_class=data_class,
+                # 1 回目は決定的に、2 回目以降はばらつきを見るために温度を上げる。
+                temperature=temperature if index == 0 else max(temperature, 0.7),
+                **kwargs,  # type: ignore[arg-type]
+            )
+            for index in range(samples)
+        ]
+
     def sample_structured[TModel: BaseModel](
         self,
         prompt: PromptTemplate,
@@ -317,22 +358,15 @@ class LlmGateway:
         温度 0 で 1 回だけ引いても「自信があるか」は分からないので、
         複数回引いてばらつきを見る。
         """
-        if samples < 1:
-            raise ValueError("samples must be at least 1")
-
-        results: list[StructuredResult[TModel]] = []
-        for index in range(samples):
-            results.append(
-                self.complete_structured(
-                    prompt,
-                    schema,
-                    model=model,
-                    data_class=data_class,
-                    # 1 回目は決定的に、2 回目以降はばらつきを見るために温度を上げる。
-                    temperature=temperature if index == 0 else max(temperature, 0.7),
-                    **kwargs,  # type: ignore[arg-type]
-                )
-            )
+        results = self.sample_all(
+            prompt,
+            schema,
+            model=model,
+            data_class=data_class,
+            samples=samples,
+            temperature=temperature,
+            **kwargs,
+        )
 
         votes = Counter(getattr(result.value, key) for result in results)
         winner, count = votes.most_common(1)[0]

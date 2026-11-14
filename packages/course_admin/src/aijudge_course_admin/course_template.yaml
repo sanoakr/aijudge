@@ -98,6 +98,11 @@ tasks:
     #   reference_answer     … 任意。AI 評価器にだけ渡す参照回答例。学生には見えない
     # 回答例は description ではなく judging_notes か reference_answer に書く
     # （description に書くと、一度提出すれば答えが見える）。
+    #
+    # judge_model（観点）… 任意。AI に使わせるモデルの「重さ」の名前（例: large）。
+    #   モデル名ではなく、科目プロファイルの judge_models にある名前を書く。書かなければ
+    #   科目の既定のモデル。レポートやコメントの説明を読む観点のように、既定のモデルでは
+    #   重い観点にだけ付ける。プロファイルに無い名前は course apply が断る。
 
   # --------------------------------------------------------------------------
   # 2. プログラムの課題を、問題ディレクトリから読む（Sharif Judge 形式）
@@ -117,6 +122,8 @@ tasks:
   - problem_dir: ex1/p3
     readability_weight: 0.3   # 正しさ 0.7 ／ 読みやすさ 0.3
     # case_timeout_seconds: 30   # 1 ケースの実行時間の上限（秒・60 まで）。数値計算など時間のかかる問題だけ
+    # extra_test_cases:                          # 評価器あての宣言を、問題ディレクトリのテストに足す
+    #   - {name: 直した行の数, evaluator: line_diff_check, payload: {max_changed_lines: 4}}
     # editor_template_file: ex1/p3/template.py   # エディタの初期内容（まだ書き始めていない学習者だけに入る）。
     #                                            # 短ければ editor_template: | で直接書いてもよい
     # knowledge_components: [cs.io.formatted.input]   # この課題が問う知識要素（任意）

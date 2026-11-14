@@ -151,6 +151,10 @@ _STATEMENT_FILE = "statement_file"
 # エディタの初期内容（`Task.editor_template`）を別ファイルに置くとき。問題文と同じく
 # 定義ファイルからの相対パスで、定義ファイルの外は指せない。
 _EDITOR_TEMPLATE_FILE = "editor_template_file"
+# **評価器あての宣言を、問題ディレクトリのテストに足す**（2026-11-13）。`test_cases` を
+# 書くと `in/` `out/` を読まなくなる（書いたものがすべて）ので、入出力のテストを残した
+# まま決定的評価器の設定（`line_diff_check` の上限など）だけを足す口が要る。
+_EXTRA_TEST_CASES = "extra_test_cases"
 
 
 @dataclass(frozen=True)
@@ -289,8 +293,15 @@ def _task_spec(raw: dict[str, Any], *, base: Path, units: dict[Any, Any]) -> Tas
     problem_dir = raw.pop(_PROBLEM_DIR, None)
     statement_file = raw.pop(_STATEMENT_FILE, None)
     template_file = raw.pop(_EDITOR_TEMPLATE_FILE, None)
+    extra_cases = raw.pop(_EXTRA_TEST_CASES, None) or []
     if problem_dir is not None:
         raw = _from_problem_dir(raw, _under(base, problem_dir))
+    if extra_cases:
+        if not isinstance(extra_cases, list):
+            raise AdminError(
+                f"課題 {raw.get('key', '?')}: {_EXTRA_TEST_CASES} は並びで書いてください"
+            )
+        raw["test_cases"] = [*(raw.get("test_cases") or []), *extra_cases]
     if statement_file is not None:
         raw.setdefault("statement", _under(base, statement_file).read_text(encoding="utf-8"))
     if template_file is not None:
@@ -527,9 +538,15 @@ def _refuse_unrun_evaluators(course: Course, tasks: Sequence[TaskSpec], profiles
     （`_refuse_undeclared`・prog2 ex01-2）が、定義から入れる経路は素通りしていた。
 
     課題を 1 件も保存する前に断る。直し方はコースの採点設定で評価器を足すこと。
+
+    **観点が名指すモデルの重さ（`judge_model`）も同じ扱い**（2026-11-13）。科目
+    プロファイルの `judge_models` に無い名前を入れると、その観点は採点のたびに
+    失敗して人に回る。採点の時点で初めて分かる形にしない。
     """
     missing: list[str] = []
+    unknown_models: list[str] = []
     profiles: dict[str, set[str]] = {}
+    judge_models: dict[str, set[str]] = {}
     for task in tasks:
         name = task.subject_profile or course.subject_profile
         if name not in profiles:
@@ -541,6 +558,7 @@ def _refuse_unrun_evaluators(course: Course, tasks: Sequence[TaskSpec], profiles
                 profiles[name] = set()
                 continue
             profiles[name] = set(applied.deterministic) | set(applied.ai_evaluators)
+            judge_models[name] = set(applied.judge_models)
         run = profiles[name]
         if not run:
             continue
@@ -548,6 +566,20 @@ def _refuse_unrun_evaluators(course: Course, tasks: Sequence[TaskSpec], profiles
             evaluator = criterion.evaluator or ""
             if evaluator and evaluator != HUMAN_SCORED and evaluator not in run:
                 missing.append(f"{task.key or '?'} の観点「{criterion.code}」（{evaluator}）")
+            if criterion.judge_model and criterion.judge_model not in judge_models[name]:
+                unknown_models.append(
+                    f"{task.key or '?'} の観点「{criterion.code}」"
+                    f"（judge_model: {criterion.judge_model}）"
+                )
+    if unknown_models:
+        shown = "、".join(unknown_models[:5]) + (
+            f" ほか {len(unknown_models) - 5} 件" if len(unknown_models) > 5 else ""
+        )
+        raise AdminError(
+            f"科目プロファイルの judge_models に無いモデルの重さを指す観点があります: {shown}。"
+            "このまま入れると、その観点は採点のたびに失敗して人に回ります。"
+            "運用機の科目プロファイルに judge_models を足してから入れてください"
+        )
     if missing:
         shown = "、".join(missing[:5]) + (
             f" ほか {len(missing) - 5} 件" if len(missing) > 5 else ""

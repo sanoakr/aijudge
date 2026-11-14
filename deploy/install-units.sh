@@ -29,6 +29,19 @@
 #
 # aijudge に選べるのは「どの署名済みタグか」だけで、中身は選べない。
 #
+# ## 配ってよいタグには下限と順序がある（2026-11-14）
+#
+# 「署名済みならどれでも配る」だと、署名済みのタグのうち**この仕組みより前の版**
+# も配れてしまう。古い版の unit やスクリプトは、上の 1〜4 を満たしていない。
+# そこで 2 つを足した。
+#
+# 5. **下限**: `FLOOR_COMMIT`（#417 の修正）を祖先に持つタグだけを配る。値は
+#    このスクリプト（root 所有の写し）に書いてあり、aijudge が書ける場所から読まない
+# 6. **最後に配った版より古いタグは断る**: 配り終えたタグとコミットを root 所有の
+#    `STATE` に記録し、次からはそのコミットを祖先に持つタグだけを配る。切り戻しは、
+#    root が `ROLLBACK` にそのタグ名を書いたときだけ通す（手順は `deploy/README.md`
+#    の「unit の配布と署名」）。記録がまだ無い機械は、下限だけで判断する
+#
 # **このスクリプト自身は `/usr/local/sbin/aijudge-install-units` の写しが走る**
 # （配るものに自分も含める）。最初の 1 回だけは、人が中身を確かめて入れる ──
 # 手順は `deploy/README.md` の「unit の配布と署名」。
@@ -38,7 +51,13 @@ umask 022
 REPO_DIR="${AIJUDGE_REPO_DIR:-/opt/aijudge}"
 MIRROR="${AIJUDGE_RELEASE_MIRROR:-/var/lib/aijudge-release/repo.git}"
 SIGNERS="${AIJUDGE_RELEASE_SIGNERS:-/etc/aijudge/allowed_signers}"
-DST=/etc/systemd/system
+# 配ってよいタグの下限（#417 の修正のコミット）。これを祖先に持たないタグは配らない。
+FLOOR_COMMIT="${AIJUDGE_RELEASE_FLOOR:-41c300d760b6b876b55993e040c21cf308bd43c2}"
+# 最後に配った版の記録（「タグ コミット」の 1 行）と、root が書く切り戻しの指定。
+STATE="${AIJUDGE_UNITS_STATE:-/var/lib/aijudge-release/installed-units}"
+ROLLBACK="${AIJUDGE_UNITS_ROLLBACK:-/etc/aijudge/units-rollback-to}"
+# 配る先。環境変数で変えられるのはテストのため（`aijudge-units.service` は渡さない）。
+DST="${AIJUDGE_UNITS_DST:-/etc/systemd/system}"
 
 # root の git が、aijudge の書ける設定を読まないようにする。
 export GIT_CONFIG_NOSYSTEM=1
@@ -48,18 +67,22 @@ mirror() {
         -c gpg.format=ssh -c gpg.ssh.allowedSignersFile="${SIGNERS}" "$@"
 }
 
-# root 以外が書ける場所に置かれたミラーや許可リストは信じない。
-for path in "${MIRROR}" "${SIGNERS}"; do
-    [ -e "${path}" ] || {
-        echo "${path} がありません（初回の設定: deploy/README.md「unit の配布と署名」）" >&2
-        exit 1
-    }
+# root 以外が書ける場所に置かれたファイルは信じない。
+require_root_owned() {
+    local path="$1" owner mode
     owner=$(stat -c '%U' "${path}")
     mode=$(stat -c '%a' "${path}")
     if [ "${owner}" != "root" ] || [ $(( 0${mode} & 022 )) -ne 0 ]; then
         echo "${path} は root 所有かつ他者が書けない状態でなければならない（${owner} ${mode}）" >&2
         exit 1
     fi
+}
+for path in "${MIRROR}" "${SIGNERS}"; do
+    [ -e "${path}" ] || {
+        echo "${path} がありません（初回の設定: deploy/README.md「unit の配布と署名」）" >&2
+        exit 1
+    }
+    require_root_owned "${path}"
 done
 
 # 1. チェックアウトのコミット（**ファイルの中身を読むだけ**）
@@ -88,6 +111,35 @@ if ! mirror verify-tag "${tag}" >/dev/null 2>&1; then
     exit 1
 fi
 echo "verified ${tag} (${commit})"
+
+# 5. 下限。署名済みでも、下限のコミットを含まない版は配らない。
+if ! mirror merge-base --is-ancestor "${FLOOR_COMMIT}" "${commit}" 2>/dev/null; then
+    echo "タグ ${tag} は配ってよい版の下限（${FLOOR_COMMIT:0:12}）より古いので配りません" >&2
+    exit 1
+fi
+
+# 6. 最後に配った版より古いタグは断る。切り戻しは root の明示（ROLLBACK）があるときだけ。
+if [ -e "${STATE}" ]; then
+    require_root_owned "${STATE}"
+    read -r installed_tag installed_commit < "${STATE}" || true
+    if ! printf '%s' "${installed_commit:-}" | grep -Eq '^[0-9a-f]{40}$'; then
+        echo "${STATE} の記録が読めません（「タグ コミット」の 1 行のはず）" >&2
+        exit 1
+    fi
+    if [ "${installed_commit}" != "${commit}" ] \
+            && ! mirror merge-base --is-ancestor "${installed_commit}" "${commit}" 2>/dev/null; then
+        rollback_to=""
+        if [ -e "${ROLLBACK}" ]; then
+            require_root_owned "${ROLLBACK}"
+            rollback_to=$(head -n 1 "${ROLLBACK}" | tr -d '[:space:]')
+        fi
+        if [ "${rollback_to}" != "${tag}" ]; then
+            echo "タグ ${tag} は最後に配った ${installed_tag} より古いので配りません（戻すなら root が ${ROLLBACK} に ${tag} と書く）" >&2
+            exit 1
+        fi
+        echo "rollback to ${tag} as written in ${ROLLBACK} (installed was ${installed_tag})"
+    fi
+fi
 
 # 4. タグの中身を取り出す
 work=$(mktemp -d)
@@ -119,8 +171,8 @@ SBIN_SCRIPTS=(
     aijudge-notify
     aijudge-failure-guide
 )
-SBIN=/usr/local/sbin
-LIBDST=/usr/local/lib/aijudge
+SBIN="${AIJUDGE_UNITS_SBIN:-/usr/local/sbin}"
+LIBDST="${AIJUDGE_UNITS_LIB:-/usr/local/lib/aijudge}"
 
 [ -d "${SRC}" ] || { echo "タグ ${tag} に deploy/systemd がありません" >&2; exit 1; }
 
@@ -175,3 +227,9 @@ if [ "${changed}" = "1" ]; then
 else
     echo "unit に変更なし"
 fi
+
+# 配り終えたときだけ記録する。途中で落ちれば記録は前の版のまま残る。
+printf '%s %s\n' "${tag}" "${commit}" > "${STATE}.tmp"
+chmod 0644 "${STATE}.tmp"
+mv "${STATE}.tmp" "${STATE}"
+echo "recorded ${tag} in ${STATE}"

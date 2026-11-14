@@ -15,12 +15,16 @@ members = [
     "aijudge-authoring",
     "aijudge-core",
     "aijudge-course-admin",
+    "aijudge-eval-c-array-check",
     "aijudge-eval-c-indent-check",
     "aijudge-eval-checklist-ai-judge",
     "aijudge-eval-code-test-runner",
+    "aijudge-eval-comment-slot-judge",
+    "aijudge-eval-line-diff-check",
     "aijudge-eval-network-test-runner",
     "aijudge-eval-rubric-ai-judge",
     "aijudge-eval-submission-compliance",
+    "aijudge-eval-template-diff-check",
     "aijudge-eval-text-pattern-check",
     "aijudge-evalrunner",
     "aijudge-ext-document-text",
@@ -48,7 +52,7 @@ members = [
 
 [[package]]
 name = "aijudge"
-version = "1.67.1"
+version = "1.76.3"
 source = { virtual = "." }
 dependencies = [
     { name = "aijudge-admin" },
@@ -57,12 +61,16 @@ dependencies = [
     { name = "aijudge-authoring" },
     { name = "aijudge-core" },
     { name = "aijudge-course-admin" },
+    { name = "aijudge-eval-c-array-check" },
     { name = "aijudge-eval-c-indent-check" },
     { name = "aijudge-eval-checklist-ai-judge" },
     { name = "aijudge-eval-code-test-runner" },
+    { name = "aijudge-eval-comment-slot-judge" },
+    { name = "aijudge-eval-line-diff-check" },
     { name = "aijudge-eval-network-test-runner" },
     { name = "aijudge-eval-rubric-ai-judge" },
     { name = "aijudge-eval-submission-compliance" },
+    { name = "aijudge-eval-template-diff-check" },
     { name = "aijudge-eval-text-pattern-check" },
     { name = "aijudge-evalrunner" },
     { name = "aijudge-ext-document-text" },
@@ -118,12 +126,16 @@ requires-dist = [
     { name = "aijudge-authoring", editable = "packages/authoring" },
     { name = "aijudge-core", editable = "packages/core" },
     { name = "aijudge-course-admin", editable = "packages/course_admin" },
+    { name = "aijudge-eval-c-array-check", editable = "evaluators/c_array_check" },
     { name = "aijudge-eval-c-indent-check", editable = "evaluators/c_indent_check" },
     { name = "aijudge-eval-checklist-ai-judge", editable = "evaluators/checklist_ai_judge" },
     { name = "aijudge-eval-code-test-runner", editable = "evaluators/code_test_runner" },
+    { name = "aijudge-eval-comment-slot-judge", editable = "evaluators/comment_slot_judge" },
+    { name = "aijudge-eval-line-diff-check", editable = "evaluators/line_diff_check" },
     { name = "aijudge-eval-network-test-runner", editable = "evaluators/network_test_runner" },
     { name = "aijudge-eval-rubric-ai-judge", editable = "evaluators/rubric_ai_judge" },
     { name = "aijudge-eval-submission-compliance", editable = "evaluators/submission_compliance" },
+    { name = "aijudge-eval-template-diff-check", editable = "evaluators/template_diff_check" },
     { name = "aijudge-eval-text-pattern-check", editable = "evaluators/text_pattern_check" },
     { name = "aijudge-evalrunner", editable = "apps/evalrunner" },
     { name = "aijudge-ext-document-text", editable = "extractors/document_text" },
@@ -287,6 +299,21 @@ requires-dist = [
 ]
 
 [[package]]
+name = "aijudge-eval-c-array-check"
+version = "0.0.1"
+source = { editable = "evaluators/c_array_check" }
+dependencies = [
+    { name = "aijudge-core" },
+    { name = "aijudge-grading" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aijudge-core", editable = "packages/core" },
+    { name = "aijudge-grading", editable = "packages/grading" },
+]
+
+[[package]]
 name = "aijudge-eval-c-indent-check"
 version = "0.0.1"
 source = { editable = "evaluators/c_indent_check" }
@@ -338,6 +365,38 @@ requires-dist = [
 ]
 
 [[package]]
+name = "aijudge-eval-comment-slot-judge"
+version = "0.0.1"
+source = { editable = "evaluators/comment_slot_judge" }
+dependencies = [
+    { name = "aijudge-core" },
+    { name = "aijudge-grading" },
+    { name = "aijudge-llm-gateway" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aijudge-core", editable = "packages/core" },
+    { name = "aijudge-grading", editable = "packages/grading" },
+    { name = "aijudge-llm-gateway", editable = "packages/llm_gateway" },
+]
+
+[[package]]
+name = "aijudge-eval-line-diff-check"
+version = "0.0.1"
+source = { editable = "evaluators/line_diff_check" }
+dependencies = [
+    { name = "aijudge-core" },
+    { name = "aijudge-grading" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aijudge-core", editable = "packages/core" },
+    { name = "aijudge-grading", editable = "packages/grading" },
+]
+
+[[package]]
 name = "aijudge-eval-network-test-runner"
 version = "0.0.1"
 source = { editable = "evaluators/network_test_runner" }
@@ -377,6 +436,21 @@ requires-dist = [
 name = "aijudge-eval-submission-compliance"
 version = "0.0.1"
 source = { editable = "evaluators/submission_compliance" }
+dependencies = [
+    { name = "aijudge-core" },
+    { name = "aijudge-grading" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aijudge-core", editable = "packages/core" },
+    { name = "aijudge-grading", editable = "packages/grading" },
+]
+
+[[package]]
+name = "aijudge-eval-template-diff-check"
+version = "0.0.1"
+source = { editable = "evaluators/template_diff_check" }
 dependencies = [
     { name = "aijudge-core" },
     { name = "aijudge-grading" },

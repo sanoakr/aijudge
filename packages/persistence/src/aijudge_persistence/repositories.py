@@ -59,7 +59,14 @@ from aijudge_core.ids import (
     TenantId,
     UserId,
 )
-from aijudge_submission import GradingJob, GradingPhase, JobLane, JobState, SubmissionCounts
+from aijudge_submission import (
+    GradingJob,
+    GradingPhase,
+    JobLane,
+    JobState,
+    QueueLoad,
+    SubmissionCounts,
+)
 from aijudge_submission.jobs import JobReason
 from aijudge_submission.protocols import (
     AttentionCounts,
@@ -772,6 +779,46 @@ class SqlReviewRepository:
         row.document = document
         self._session.flush()
 
+    def close_request_for_superseded_run(
+        self, old_run_id: GradingRunId, new_run_id: GradingRunId, at: datetime
+    ) -> ReviewRequest | None:
+        # **列を足さず document に追記する**（`resolve_request` と同じ形）。待ち行列は
+        # 「依頼の採点が置き換わっていない」（`grading_runs.superseded_by`）で絞るので、
+        # 閉じたかどうかを SQL で引く必要が無い。`resolved_by` は空のまま ── 教員は
+        # 読んでいない（ADR 0010）。
+        row = (
+            self._session.execute(
+                select(ReviewRequestRow).where(ReviewRequestRow.grading_run_id == str(old_run_id))
+            )
+            .scalars()
+            .first()
+        )
+        if row is None:
+            return None
+        request = ReviewRequest.model_validate(row.document)
+        if not request.pending:
+            return None
+        closed = request.model_copy(update={"closed_by_run": new_run_id, "closed_at": at})
+        row.document = _dump(closed)
+        self._session.flush()
+        return closed
+
+    def request_closed_by(self, run_id: GradingRunId) -> ReviewRequest | None:
+        # 置き換えた採点は `grading_runs.superseded_by` で辿れる（列なので JSON を検索しない）。
+        row = (
+            self._session.execute(
+                select(ReviewRequestRow)
+                .join(GradingRunRow, GradingRunRow.id == ReviewRequestRow.grading_run_id)
+                .where(GradingRunRow.superseded_by == str(run_id))
+            )
+            .scalars()
+            .first()
+        )
+        if row is None:
+            return None
+        request = ReviewRequest.model_validate(row.document)
+        return request if request.closed_by_run == run_id else None
+
     # -- レビュー待ち行列（教員 UI 用の読み取り）--------------------------
 
     def requested_for_course(
@@ -799,7 +846,13 @@ class SqlReviewRepository:
             .limit(limit)
         )
         if not include_resolved:
-            statement = statement.where(ReviewRequestRow.resolved_by.is_(None))
+            # 教員が答えたものと、**再採点で対象の採点が置き換わったもの**は出さない
+            # （2026-11-13）。後者は「再採点により終了」として閉じてある
+            # （`close_request_for_superseded_run`）。依頼はその採点への申し立てで、
+            # 新しい採点を読んだ確認では答えない。学習者は新しい採点に改めて依頼する。
+            statement = statement.where(
+                ReviewRequestRow.resolved_by.is_(None), GradingRunRow.superseded_by.is_(None)
+            )
 
         return tuple(
             (
@@ -934,6 +987,8 @@ class SqlReviewRepository:
             .join(TaskRow, TaskRow.id == TaskVersionRow.task_id)
             .where(TaskRow.course_id == str(course_id))
             .where(ReviewRequestRow.resolved_by.is_(None))
+            # 再採点で終了した依頼は数えない（待ち行列と同じ範囲・`requested_for_course`）。
+            .where(GradingRunRow.superseded_by.is_(None))
         )
 
         # 最新の採点 1 件につき 1 行。**再採点された提出で古い採点まで
@@ -1329,6 +1384,34 @@ class SqlJobQueue:
         if lane is not None:
             statement = statement.where(GradingJobRow.lane == lane.value)
         return len(self._session.execute(statement).scalars().all())
+
+    def load(self, now: datetime) -> tuple[QueueLoad, ...]:
+        # **集計は DB でする。** 締切前は数千件が積まれるので、行を読んで数えない。
+        # 区分の式は副問い合わせで 1 度だけ作り、外側で名前で束ねる。同じ `case` を
+        # SELECT と GROUP BY に 2 度書くと、PostgreSQL は束縛変数（`now`）が別々の
+        # 式として扱い「GROUP BY に無い列」で断る（SQLite は通すので見逃す）。
+        slot = case(
+            (GradingJobRow.state == JobState.RUNNING.value, "running"),
+            (GradingJobRow.available_at <= now, "ready"),
+            else_="held",
+        ).label("slot")
+        live = (
+            select(GradingJobRow.phase, GradingJobRow.lane, slot)
+            .where(GradingJobRow.state.in_((JobState.QUEUED.value, JobState.RUNNING.value)))
+            .subquery()
+        )
+        rows = self._session.execute(
+            select(live.c.phase, live.c.lane, live.c.slot, func.count()).group_by(
+                live.c.phase, live.c.lane, live.c.slot
+            )
+        ).all()
+        counts: dict[tuple[str, str], dict[str, int]] = {}
+        for phase, lane, which, count in rows:
+            counts.setdefault((phase, lane), {})[which] = int(count)
+        return tuple(
+            QueueLoad(phase=GradingPhase(phase), lane=JobLane(lane), **values)
+            for (phase, lane), values in sorted(counts.items())
+        )
 
     def position_in_queue(
         self, submission_id: SubmissionId, phase: GradingPhase, now: datetime

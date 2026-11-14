@@ -2241,6 +2241,8 @@ def _submission_view(
         # 学習者に要るのは「直された」という事実で、誰が何を書いたかではない。
         review_count = 0 if run is None else len(uow.reviews.reviews_for_run(run.id))
         request = None if run is None else uow.reviews.find_request_for_run(run.id)
+        # 前の採点に出した依頼が、この採点に置き換わって終了していないか（2026-11-13）。
+        closed_request = None if run is None else uow.reviews.request_closed_by(run.id)
         # 確定は Finalization が表す。HumanReview は「教員が読んだ」記録で
         # あって確定ではない（ADR 0010）。
         finalization = None if run is None else uow.reviews.find_finalization_for_run(run.id)
@@ -2258,6 +2260,7 @@ def _submission_view(
             version,
             review,
             request=request,
+            closed_request=closed_request,
             finalization=finalization,
             # 仮確定の窓を出すのに要る。**起点は採点完了時刻**（run が持つ）で、
             # 猶予は問題セットかコースが持つ。
