@@ -123,6 +123,28 @@ main:has(.ide-head){max-width:none}
   .ide-statement{max-height:45vh}
 }
 
+/* 画面の並べ方（2026-11-15）。問題文を左・エディタを右に並べると、スクロールで行き来せずに
+   両方を見ながら書ける。広い画面（1100px 以上）だけ。狭い画面は従来どおり上下に積む。
+   選んだ並べ方と「問題文を隠す」は、JavaScript が panel の data 属性に書く。 */
+.ide-view{display:inline-flex;flex-wrap:wrap;gap:6px;align-items:center}
+.ide-view[hidden]{display:none}
+.ide-view button{font-size:.8rem;font-weight:400;padding:4px 10px;background:var(--surface-2);
+  color:var(--ink);border:1px solid var(--line)}
+.ide-view button[aria-pressed="true"]{font-weight:700;box-shadow:inset 0 -3px 0 var(--ai)}
+.ide-panel[data-statement="hidden"] > .ide-statement{display:none}
+@media (min-width:1100px){
+  .ide-panel[data-layout="side"]{display:grid;grid-template-columns:minmax(260px,30%) minmax(0,1fr);
+    gap:14px;align-items:start}
+  .ide-panel[data-layout="side"] > :not(.ide-statement){grid-column:2}
+  .ide-panel[data-layout="side"] > .ide-statement{grid-column:1;grid-row:1 / span 8;
+    position:sticky;top:calc(var(--ide-statement-top,0px) + 8px);
+    max-height:calc(100vh - var(--ide-statement-top,0px) - 24px)}
+  .ide-panel[data-layout="side"][data-statement="hidden"]{grid-template-columns:minmax(0,1fr)}
+  .ide-panel[data-layout="side"][data-statement="hidden"] > :not(.ide-statement){grid-column:1}
+  /* 右の列は狭いので、試す道具の列を細くする。 */
+  .ide-panel[data-layout="side"] .ide-work{grid-template-columns:minmax(0,1fr) minmax(240px,300px)}
+}
+
 /* 落ちたテストケースの入力（結果画面・2026-10-18）。期待出力は出さない。 */
 .failed-inputs{margin-top:8px}
 .failed-inputs pre{margin:4px 0 8px;padding:6px 8px;background:var(--surface-2);border:1px solid var(--line-soft);

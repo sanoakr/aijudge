@@ -28,6 +28,16 @@
     <span class="countdown ide-remaining" data-ide-remaining="{{ remaining_seconds }}"></span>
   </span>
   {% endif %}
+  {# 画面の並べ方（2026-11-15）。アンケートで「問題文とエディタの行き来にスクロールが要る」
+     という声が多かった。JavaScript が動くときだけ出す（`hidden` を外す）。 #}
+  <span class="ide-view" hidden role="group" aria-label="画面の並べ方">
+    <button type="button" data-view-layout="side" aria-pressed="false"
+            title="問題文を左、エディタを右に並べます（広い画面向け）">問題文を左に</button>
+    <button type="button" data-view-layout="stack" aria-pressed="false"
+            title="問題文を上、エディタを下に並べます">問題文を上に</button>
+    <button type="button" data-view-statement aria-pressed="false"
+            title="問題文を隠して、エディタを広く使います">問題文を隠す</button>
+  </span>
 </div>
 <nav class="ide-tabs" role="tablist" aria-label="課題">
   {% for tab in tabs %}
