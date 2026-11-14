@@ -1126,25 +1126,60 @@
     var list = $('[data-attach-list="' + index + '"]');
     var pending = $('[data-attach-pending="' + index + '"]');
     var button = $('.ide-attach-submit[data-tab="' + index + '"]');
+    var clear = $('.ide-attach-clear[data-tab="' + index + '"]');
     if (!list) return;
-    list.textContent = "";
-    state[index].pending.forEach(function (file) {
-      var item = document.createElement("li");
-      if (file.type && file.type.indexOf("image/") === 0) {
-        // 見本を出す（選び間違いに気づけるように）。**サーバには送らない**表示だけ。
-        var img = document.createElement("img");
-        img.src = URL.createObjectURL(file);
-        img.alt = "";
-        img.className = "ide-attach-thumb";
-        img.onload = function () { URL.revokeObjectURL(img.src); };
-        item.appendChild(img);
-      }
-      item.appendChild(document.createTextNode(file.name + "（" + Math.ceil(file.size / 1024) + " KiB）"));
-      list.appendChild(item);
+    // 一覧（見本・名前・大きさ・「外す」）。1 つずつ外せる（2026-11-15）。
+    window.AijudgeFilePick.render(list, state[index].pending, function (position) {
+      removeAttached(index, position);
     });
     if (pending) pending.hidden = state[index].pending.length === 0;
     if (button) button.disabled = state[index].pending.length === 0;
+    if (clear) clear.hidden = state[index].pending.length === 0;
     paintTabState(index);
+  }
+
+  function attachNotice(index, text) {
+    var el = $('[data-attach-notice="' + index + '"]');
+    if (!el) return;
+    el.textContent = text || "";
+    el.hidden = !text;
+  }
+
+  // 選んだものから外す。**提出していないものを手元で外すだけ**で、サーバには何も送らない。
+  // 何を外したかは記録に残す（選んだ記録と対になる）。
+  function removeAttached(index, position) {
+    var removed = state[index].pending.splice(position, 1);
+    attachNotice(index, "");
+    paintAttach(index);
+    describeFiles(removed).then(function (described) {
+      record("attach", { tab: index, stage: "remove", files: described }, true);
+    });
+  }
+
+  function addAttached(index, incoming, multiple) {
+    var files = Array.prototype.slice.call(incoming || []);
+    if (!files.length) return;
+    if (!multiple) {
+      state[index].pending = files.slice(0, 1);
+      attachNotice(index, files.length > 1 ? "この課題は 1 つだけ提出できます。最初の 1 つを選びました。" : "");
+      paintAttach(index);
+      describeFiles(state[index].pending).then(function (described) {
+        record("attach", { tab: index, stage: "select", files: described }, true);
+      });
+      return;
+    }
+    var pick = window.AijudgeFilePick;
+    var before = state[index].pending;
+    var result = pick.merge(before, files, config.maxFiles);
+    state[index].pending = result.files;
+    attachNotice(index, pick.message(result, config.maxFiles));
+    paintAttach(index);
+    var added = result.files.slice(before.length);
+    if (added.length) {
+      describeFiles(added).then(function (described) {
+        record("attach", { tab: index, stage: "select", files: described }, true);
+      });
+    }
   }
 
   $all(".ide-attach-input").forEach(function (input) {
@@ -1152,12 +1187,29 @@
       var index = parseInt(input.getAttribute("data-tab"), 10);
       var files = Array.prototype.slice.call(input.files || []);
       input.value = "";
-      if (!files.length) return;
-      state[index].pending = input.multiple ? state[index].pending.concat(files) : files.slice(0, 1);
+      addAttached(index, files, input.multiple);
+    });
+  });
+
+  $all("[data-attach-drop]").forEach(function (zone) {
+    var index = parseInt(zone.getAttribute("data-attach-drop"), 10);
+    var input = $('.ide-attach-input[data-tab="' + index + '"]');
+    window.AijudgeFilePick.bindDrop(zone, function (files) {
+      addAttached(index, files, !!(input && input.multiple));
+    });
+  });
+
+  $all(".ide-attach-clear").forEach(function (button) {
+    button.addEventListener("click", function () {
+      var index = parseInt(button.getAttribute("data-tab"), 10);
+      var removed = state[index].pending.splice(0);
+      attachNotice(index, "");
       paintAttach(index);
-      describeFiles(files).then(function (described) {
-        record("attach", { tab: index, stage: "select", files: described }, true);
-      });
+      if (removed.length) {
+        describeFiles(removed).then(function (described) {
+          record("attach", { tab: index, stage: "remove", files: described }, true);
+        });
+      }
     });
   });
 

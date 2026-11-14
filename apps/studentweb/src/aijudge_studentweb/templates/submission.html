@@ -290,6 +290,28 @@
          alt="{{ file.filename }}"
          class="embed">
   </a>
+  {# **採点が見たものを見せる**（2026-11-15）。画像は文字に読み取られ、採点はその文字を
+     見る（ADR 0021）。読み違いで点が付かなかったとき、何が読まれたかが分からないと
+     直しようがない。違っていれば再確認を依頼できる。 #}
+  {% set reading = (transcripts or {}).get(file.id) %}
+  {% if reading %}
+  <details class="transcript" {{ 'open' if (reading.failed_reason or reading.empty) }}>
+    <summary class="desc">システムが画像から読み取った文字</summary>
+    {% if reading.failed_reason or reading.empty %}
+    <p class="note warn">
+      この画像から文字を読み取れませんでした。担当教員が確認します。
+      文字がはっきり写るように撮り直して、もう一度提出することもできます。
+    </p>
+    {% else %}
+    <pre class="ide-io transcript-text">{{ reading.text }}{% if reading.truncated %}
+…（以下省略）{% endif %}</pre>
+    <p class="desc">
+      採点は、この読み取り結果をもとに行っています。実際の画像と違っているときは、
+      下の「採点の再確認を依頼する」から、どこが違うかを書いて知らせてください。
+    </p>
+    {% endif %}
+  </details>
+  {% endif %}
   {% elif file.is_pdf %}
   <p class="desc" style="margin:0 0 6px">{{ file.filename }}</p>
   <object class="pdf-embed" data="/submissions/{{ submission.id }}/artifacts/{{ file.id }}"

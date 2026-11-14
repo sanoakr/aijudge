@@ -104,25 +104,27 @@
 <form method="post" action="/tasks/{{ task.id }}/submit" enctype="multipart/form-data" class="card"
       {% if multi_file %}data-multi-upload{% endif %}>
   {% if multi_file %}
-  {# **1 枚ずつ足して、まとめて出す**（#283）。認定証を何枚も出す課題で、
-     1 枚ごとに別の提出になると 1 回しか採用されない。選んだファイルは
-     JavaScript が `#upload` の FileList に積む（順番はそのまま・1 つずつ
-     消せる）。JavaScript が無ければ `multiple` の素の欄で一度に選ぶ。 #}
+  {# **まとめて選んで、まとめて出す**（#283・2026-11-15）。認定証を何枚も出す課題で、
+     1 枚ごとに別の提出になると 1 回しか採用されない。選んだファイルは JavaScript が
+     `#upload` の FileList に積む（順番はそのまま）。一度に複数を選べ、ドラッグでも足せ、
+     選んだものは 1 つずつ外せる。JavaScript が無ければ `multiple` の素の欄で一度に選ぶ。 #}
   <div class="field">
     <label for="upload">ファイル（{{ plain_accepts | join(', ') }}・{{ max_files }} 枚まで）</label>
     <input id="upload" name="upload" type="file" required multiple accept="{{ plain_accepts | join(',') }}">
     <div class="js-only" hidden>
-      <div class="inline-field" style="margin-top:8px">
-        <span class="body">
-          <input id="upload-picker" type="file" accept="{{ plain_accepts | join(',') }}" aria-label="追加するファイル">
-        </span>
-        <button type="button" class="minor" id="upload-add">この 1 枚を追加</button>
+      <div class="file-drop" id="upload-drop">
+        <label class="button-like">ファイルを選ぶ（まとめて選べます）
+          <input id="upload-picker" type="file" multiple hidden accept="{{ plain_accepts | join(',') }}">
+        </label>
+        <span class="desc">ここにドラッグしてもかまいません。選び直して足すこともできます。</span>
       </div>
+      <p class="note warn file-notice" id="upload-notice" role="status" hidden></p>
       <ol id="upload-list" class="upload-list" aria-live="polite"></ol>
-      <p class="desc" id="upload-empty">まだ何も追加していません。1 枚ずつ追加してから「提出」を押してください。</p>
+      <p class="file-list-actions"><button type="button" class="minor" id="upload-clear" hidden>すべて外す</button></p>
+      <p class="desc" id="upload-empty">まだ何も選んでいません。選んだものは 1 つずつ外せます。</p>
     </div>
   </div>
-  <div class="actions"><button type="submit">提出（追加した全部をまとめて）</button></div>
+  <div class="actions"><button type="submit">提出（選んだ全部をまとめて）</button></div>
   {% else %}
   {# 入力が 1 つなので、ボタンは同じ行の右端に置く。 #}
   <div class="inline-field">
@@ -149,18 +151,22 @@
   </p>
 </form>
 {% if multi_file %}
+<script src="{{ static_url('file_pick.js') }}"></script>
 <script>
 (function () {
   var form = document.querySelector("form[data-multi-upload]");
-  if (!form || !window.DataTransfer) return;
+  if (!form || !window.DataTransfer || !window.AijudgeFilePick) return;
+  var pick = window.AijudgeFilePick;
   var real = form.querySelector("#upload");
   var picker = form.querySelector("#upload-picker");
-  var add = form.querySelector("#upload-add");
+  var drop = form.querySelector("#upload-drop");
   var list = form.querySelector("#upload-list");
   var empty = form.querySelector("#upload-empty");
+  var notice = form.querySelector("#upload-notice");
+  var clear = form.querySelector("#upload-clear");
   var limit = {{ max_files }};
   var files = [];
-  // 素の欄は隠し、1 枚ずつ積む欄を出す。
+  // 素の欄は隠し、溜める欄を出す。
   real.hidden = true;
   real.required = false;
   form.querySelector(".js-only").hidden = false;
@@ -168,30 +174,34 @@
     var dt = new DataTransfer();
     files.forEach(function (f) { dt.items.add(f); });
     real.files = dt.files;
-    list.innerHTML = "";
-    files.forEach(function (f, i) {
-      var li = document.createElement("li");
-      var name = document.createElement("span");
-      name.className = "mono";
-      name.textContent = f.name + "（" + Math.round(f.size / 1024) + " KB）";
-      var rm = document.createElement("button");
-      rm.type = "button"; rm.className = "minor"; rm.textContent = "外す";
-      rm.addEventListener("click", function () { files.splice(i, 1); sync(); });
-      li.appendChild(name); li.appendChild(rm); list.appendChild(li);
+    pick.render(list, files, function (index) {
+      files.splice(index, 1);
+      notice.hidden = true;
+      sync();
     });
     empty.hidden = files.length > 0;
+    clear.hidden = files.length === 0;
   }
-  add.addEventListener("click", function () {
-    var f = picker.files && picker.files[0];
-    if (!f) return;
-    if (files.length >= limit) { alert(limit + " 枚までです"); return; }
-    if (files.some(function (g) { return g.name === f.name && g.size === f.size; })) {
-      alert("同じファイルは既に追加してあります"); picker.value = ""; return;
-    }
-    files.push(f); picker.value = ""; sync();
+  function add(incoming) {
+    var result = pick.merge(files, incoming, limit);
+    files = result.files;
+    var text = pick.message(result, limit);
+    notice.textContent = text;
+    notice.hidden = !text;
+    sync();
+  }
+  picker.addEventListener("change", function () {
+    add(picker.files);
+    picker.value = "";
+  });
+  pick.bindDrop(drop, add);
+  clear.addEventListener("click", function () {
+    files = [];
+    notice.hidden = true;
+    sync();
   });
   form.addEventListener("submit", function (e) {
-    if (files.length === 0) { e.preventDefault(); alert("ファイルを 1 枚以上追加してください"); }
+    if (files.length === 0) { e.preventDefault(); alert("ファイルを 1 つ以上選んでください"); }
   });
 })();
 </script>
