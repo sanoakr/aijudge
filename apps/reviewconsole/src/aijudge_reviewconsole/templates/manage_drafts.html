@@ -203,6 +203,9 @@
     <label for="statement-{{ row.draft.id }}">問題文（直してから採用できます）</label>
     <textarea id="statement-{{ row.draft.id }}" name="statement" rows="12">{{ row.draft.spec.statement }}</textarea>
 
+    {# **改訂では出題先を出さない**（#699）。改訂は同じ課題の書き直しで、置き場所と日程は
+       変わらない。出すと、別のセットを選べて日程が黙って揃えられるように見える。 #}
+    {% if not revision %}
     {# **出題先はここで決める**（#84）。作問の時点では決めない ── 使えるか
        どうかは作ってみないと分からない。捨てた下書きはどのセットにも入らない
        （そもそも課題にならない）。 #}
@@ -222,6 +225,7 @@
         </select>
       </span>
     </div>
+    {% endif %}
     <div class="actions">
       {# **捨てるのは取り消せない**（ADR 0019）。却下の理由は聞かない ──
          記録しないのだから、書かせる意味が無い。 #}

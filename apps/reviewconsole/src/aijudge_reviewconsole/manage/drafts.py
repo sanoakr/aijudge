@@ -480,7 +480,13 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
                 uow.commit()
 
         # 日程と提出形式は問題セットから引き継ぐ（手で足した課題と同じ）。
-        if unit:
+        #
+        # **改訂では置き直さない**（#699）。改訂は同じ課題の書き直しで、置き場所は
+        # 決まっている。`_place_in_unit` は課題をセットの末尾へ移し、日程を先頭の
+        # 課題に揃えるので、個別に延ばした締切や並びが、AI の改訂を採用しただけで
+        # 黙って元に戻った（監査にも残らない）。承認が「どこに出すか」を決めるのは
+        # 新規の下書きだけである。
+        if unit and draft.kind is not DraftKind.REVISION:
             _place_in_unit(console, course, saved.task, unit)
 
         with console.database.unit_of_work() as uow:

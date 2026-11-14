@@ -27,6 +27,7 @@ from aijudge_core import (
 from aijudge_core.ids import TaskId, derived_id
 from aijudge_course_admin import rubric
 from aijudge_course_admin.authoring import save_task
+from aijudge_course_admin.course_export import _derived_title
 from aijudge_course_admin.errors import AdminError
 from aijudge_course_admin.task_relocation import key_name, learner_submission_count
 from aijudge_course_admin.task_verifier import TaskVerifier
@@ -425,8 +426,14 @@ def _save_revision(
     generation_prompt_version=None,
     knowledge_components=None,
     review_state=None,
+    title=None,
 ):
     """課題を直して新しい版を作る。訂正と「共通に戻す」で共有する。
+
+    **題名は保つ**（#699）。`title` を渡さなければ、課題の題名のままにする ── 渡さずに
+    保存すると、定義ファイルで付けた題名が問題文の見出し（無ければキー）に置き換わった。
+    ただし題名が「問題文の見出しから取った値」のままなら、直した問題文の見出しに
+    従わせる（`course export` が題名を書き出すかどうかを決めるのと同じ規則）。
 
     課題キーは変えられない ── 同一性の鍵で、変えれば別の課題になる。
     保存済みの版から取り出す（`TaskVersion.source_key`）。
@@ -445,9 +452,12 @@ def _save_revision(
     if reference_answer is KEEP:
         reference_answer = version.reference_answer
     test_cases, reference_solution, pruned = _prune_unused(criteria, test_cases, reference_solution)
+    key = _key_of(task, version)
+    explicit_title = None if task.title == _derived_title(version.statement, key) else task.title
     try:
         spec = TaskSpec(
-            key=_key_of(task, version),
+            key=key,
+            title=title or explicit_title,
             # **配点を引き継ぐ**（`TaskVersion.points_declared`）。渡さないと既定の
             # 100 で版が作られ、教員が入れた配点が消える。
             **({"max_score": version.max_score} if version.points_declared else {}),
