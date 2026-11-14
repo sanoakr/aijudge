@@ -1,6 +1,6 @@
 [project]
 name = "aijudge"
-version = "1.78.4"
+version = "1.79.0"
 description = "AI-assisted assessment platform for STEM coursework"
 readme = "README.md"
 license = "Apache-2.0"
@@ -190,7 +190,8 @@ dev = [
 docs = [
     "mkdocs-material>=9.5",
 ]
-# 利用ガイドのスクリーンショット撮影（tools/guide_shots/）。ブラウザは
+# 利用ガイドのスクリーンショット撮影（tools/guide_shots/）と、live.js のブラウザテスト
+# （CI の `browser` ジョブ・#689）。ブラウザは
 # `uv run --group guide-shots playwright install chromium` で別途入れる。
 guide-shots = [
     "playwright>=1.50",

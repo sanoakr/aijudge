@@ -6,7 +6,7 @@
  * 知らない（呼び出し側が onFrame / onState で受け取る）。
  *
  * 撮り方（ADR 0027 §2）:
- *   - 定期: 5〜15 秒の一様ランダム（固定間隔だと「撮った直後に切り替える」が成り立つ）
+ *   - 定期: 2〜6 秒の一様ランダム（固定間隔だと「撮った直後に切り替える」が成り立つ）
  *   - 手元の保持: 3 秒ごとに撮って直近 30 秒ぶんを持つ（送らない）。大きな貼り付けの
  *     とき、呼び出し側が flushRing() で直前の数枚を取り出す
  *   - 出来事の後: captureSoon(kind, 遅れ) で数秒後に 1 枚
@@ -22,8 +22,8 @@
   "use strict";
 
   var DEFAULTS = {
-    randomMinMs: 5000,
-    randomMaxMs: 15000,
+    randomMinMs: 2000,
+    randomMaxMs: 6000,
     ringIntervalMs: 3000,
     ringKeepMs: 30000,
     tickMs: 500,

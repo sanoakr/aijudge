@@ -1625,11 +1625,16 @@ def test_the_listing_keeps_the_newest_when_it_has_to_choose(database: Database) 
 
 @pytest.fixture(params=["memory", "sql"])
 def review_repo(request, database: Database):
-    """インメモリと SQL に同じテストを当てる。"""
-    from aijudge_submission import InMemoryReviewRepository
+    """インメモリと SQL に同じテストを当てる。
+
+    `runs` も持たせる。SQL の `save_review` / `save_finalization` は採点の行が
+    無いと拒むので、確認のテストは先に採点を保存する（#687）。
+    """
+    from aijudge_submission import InMemoryGradingRunRepository, InMemoryReviewRepository
 
     if request.param == "memory":
         repo = InMemoryReviewRepository()
+        run_repo = InMemoryGradingRunRepository()
 
         class Holder:
             def __enter__(self):
@@ -1639,6 +1644,7 @@ def review_repo(request, database: Database):
                 return None
 
             reviews = repo
+            runs = run_repo
 
             def commit(self):
                 return None
@@ -1943,3 +1949,508 @@ def test_course_ids_using_a_profile_follow_task_versions(task_repo) -> None:
         assert uow.tasks.course_ids_using_profile("report_ja") == (other_course,)
         assert uow.tasks.course_ids_using_profile("cs_lang_c_intro") == (COURSE,)
         assert uow.tasks.course_ids_using_profile("nothing") == ()
+
+
+# --------------------------------------------------------------------------
+# 両実装の食い違い（#687）を xfail で示す
+# --------------------------------------------------------------------------
+
+
+def _xfail_on_memory(request, fixture: str, reason: str) -> None:
+    """インメモリ側だけが規則を外れているテストに、その側だけ xfail を付ける。
+
+    **strict にする。** インメモリ実装が直った時点で XPASS になって落ち、
+    印を外し忘れて規則のテストが「失敗して当然」のまま残ることを防ぐ。
+    """
+    if request.node.callspec.params.get(fixture) == "memory":
+        request.applymarker(pytest.mark.xfail(strict=True, reason=reason))
+
+
+# --------------------------------------------------------------------------
+# 一意制約の受け口（#687）— アプリ側の「あれば返す」をすり抜けた場合
+# --------------------------------------------------------------------------
+
+
+def _two_submissions_and_a_claimed_key(database: Database):
+    """提出を 2 つ作り、1 つ目に冪等キー `raced-key` を別のトランザクションで登録する。
+
+    同時に来た 2 本の提出は、どちらも `find_by_idempotency_key` で「無い」を
+    見る。先に commit した側がキーを持ち、後の側は検査を経ずに登録しに来る。
+    """
+    service = a_service(database)
+    first, second = (
+        service.accept(
+            tenant_id=TENANT,
+            task_version_id=TASK_VERSION,
+            learner_id=LEARNER,
+            subject_profile="cs_lang_c_intro",
+            files=code(text),
+        ).submission
+        for text in ("one", "two")
+    )
+    with database.unit_of_work() as uow:
+        uow.submissions.remember_idempotency_key(TENANT, "raced-key", first.id)
+        uow.commit()
+    return first, second
+
+
+def test_the_database_refuses_a_submission_key_claimed_twice(database: Database) -> None:
+    """冪等キーの二重登録を最後に止めるのは `submission_keys` の主キーである。
+
+    主キーが無いと、同じ内容の提出が同時に 2 本届いたとき両方が登録され、
+    同じ提出が二重に採点される。例外の型は次のテストで見る。
+    """
+    from sqlalchemy.exc import IntegrityError
+
+    first, second = _two_submissions_and_a_claimed_key(database)
+    with (
+        database.unit_of_work() as uow,
+        pytest.raises((ImmutabilityViolation, IntegrityError)),
+    ):
+        uow.submissions.remember_idempotency_key(TENANT, "raced-key", second.id)
+
+    with database.unit_of_work() as uow:
+        found = uow.submissions.find_by_idempotency_key(TENANT, "raced-key")
+    assert found is not None and found.id == first.id
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "#687: remember_idempotency_key は add の後の update(SubmissionRow) の autoflush で"
+        " IntegrityError が出るので、try の中の flush に届かず ImmutabilityViolation に"
+        "ならない（呼び出し側の受け口は #679）"
+    ),
+)
+def test_a_submission_key_claimed_concurrently_is_reported_as_such(database: Database) -> None:
+    """制約違反は `ImmutabilityViolation` として呼び出し側へ渡す約束である。
+
+    保存層のコメントは「呼び出し側は再読み込みして既存を使う」と書く。
+    SQLAlchemy の `IntegrityError` がそのまま出ると、呼び出し側は保存層の
+    実装（SQLAlchemy）を知らないと受けられない。
+    """
+    _, second = _two_submissions_and_a_claimed_key(database)
+    with (
+        database.unit_of_work() as uow,
+        pytest.raises(ImmutabilityViolation, match="claimed concurrently"),
+    ):
+        uow.submissions.remember_idempotency_key(TENANT, "raced-key", second.id)
+
+
+def _blind_to_the_first_lookup(monkeypatch) -> None:
+    """`SqlJobQueue.find_by_idempotency_key` の最初の 1 回だけ「無い」と答えさせる。
+
+    2 つのワーカーが同時に同じ仕事を積むと、どちらも先の検査で「無い」を見る。
+    その状態を 1 スレッドで作るための細工で、2 回目（制約違反の後の読み直し）は
+    本物を通す。
+    """
+    from aijudge_persistence.repositories import SqlJobQueue
+
+    real = SqlJobQueue.find_by_idempotency_key
+    calls: list[str] = []
+
+    def blind_once(self, key: str):
+        if not calls:
+            calls.append(key)
+            return None
+        return real(self, key)
+
+    monkeypatch.setattr(SqlJobQueue, "find_by_idempotency_key", blind_once)
+
+
+def test_a_job_enqueued_concurrently_returns_the_one_already_there(
+    database: Database, monkeypatch
+) -> None:
+    """同じ冪等キーのジョブは `uq_jobs_idempotency_key` が止め、既存が返る。
+
+    制約が無い、または受け口が無いと、同じ提出を二度採点するジョブが
+    2 行できる（GPU を二度回し、GradingRun が 2 つできる）。
+    """
+    first = _job(1)
+    with database.unit_of_work() as uow:
+        uow.jobs.enqueue(first)
+        uow.commit()
+
+    rival = _job(2, idempotency_key=first.idempotency_key)
+    _blind_to_the_first_lookup(monkeypatch)
+    with database.unit_of_work() as uow:
+        returned = uow.jobs.enqueue(rival)
+        uow.commit()
+
+    assert returned.id == first.id
+    with database.unit_of_work() as uow:
+        assert uow.jobs.get(rival.id) is None
+        assert uow.jobs.find_by_idempotency_key(first.idempotency_key) == first
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "#687: SqlJobQueue.enqueue は制約違反でセッションごと rollback するので、"
+        "同じトランザクションで先に書いたもの（worker._record_success なら採点結果・"
+        "outbox・DONE）が黙って消える"
+    ),
+)
+def test_an_enqueue_collision_keeps_what_the_transaction_wrote_before(
+    database: Database, monkeypatch
+) -> None:
+    """積む前に同じトランザクションで書いたものは、衝突しても残るべきである。
+
+    ワーカーは採点結果の保存・DONE・AI 段階の投入を 1 つのトランザクションで
+    行う（`_record_success`）。投入が衝突して rollback すると、そのあとの
+    commit は空のまま成功し、採点したのに結果が残らない。
+    """
+    first = _job(1)
+    with database.unit_of_work() as uow:
+        uow.jobs.enqueue(first)
+        uow.commit()
+
+    run_id = GradingRunId("grn_" + "a" * 32)
+    _blind_to_the_first_lookup(monkeypatch)
+    with database.unit_of_work() as uow:
+        uow.runs.save(a_run(run_id, SubmissionId("sub_" + "b" * 32)))
+        uow.jobs.enqueue(_job(2, idempotency_key=first.idempotency_key))
+        uow.commit()
+
+    with database.unit_of_work() as uow:
+        assert uow.runs.get(run_id) is not None
+
+
+def test_a_second_version_with_the_same_number_is_refused(task_repo, request) -> None:
+    """同じ課題の同じ版番号は 1 つだけ（`uq_task_version`）。
+
+    ID だけを見る検査では、ID の違う「版 1」をもう一つ保存できてしまう。
+    そうなると `latest_version` やどの版で採点したかが行の並び次第になる。
+    """
+    _xfail_on_memory(
+        request,
+        "task_repo",
+        "#687: InMemoryTaskRepository.save_version は ID しか見ず、同じ task_id・version で"
+        " ID の違う版を受け入れる（SQL は uq_task_version で TaskStoreError）",
+    )
+    from aijudge_authoring import TaskStoreError
+
+    with task_repo() as uow:
+        uow.tasks.save_version(a_task_version(1))
+        uow.commit()
+    rival = a_task_version(1, statement="別の問題文").model_copy(
+        update={"id": TaskVersionId("tsv_" + "f" * 32)}
+    )
+    with task_repo() as uow, pytest.raises(TaskStoreError, match="already has a version 1"):
+        uow.tasks.save_version(rival)
+
+
+# --------------------------------------------------------------------------
+# lock() は同じセッションで先に読んでいても今の値を読む（#399・#687）
+# --------------------------------------------------------------------------
+
+
+def test_lock_rereads_a_job_already_read_in_the_same_session(database: Database) -> None:
+    """先に読んだジョブを `lock` し直すと、別のワーカーが取り直した後の値になる。
+
+    `populate_existing` が無いと、セッションの identity map に残った古い行が
+    返り、リースを失ったワーカーが「まだ持っている」と判定して結果と DONE を
+    書く（#399 の二重採点）。既存の `test_lock_reads_the_current_holder` は
+    毎回新しいセッションで読むので、この経路を通らない。
+
+    **行を握っておく。** SQLAlchemy の identity map は弱参照で、`jobs.get` は
+    行ではなく `GradingJob` を返すので、読んだ行はすぐ捨てられ、次の `get` は
+    読み直しになる。いまの公開の経路では古い行が残らず、`populate_existing` を
+    外してもこのままでは落ちない。行を参照し続ける変更（関連や先読み）が
+    入った時点で効き始める守りなので、その状態をセッションで直接作る。
+    """
+    from aijudge_persistence.schema import GradingJobRow
+
+    first = _job(1)
+    with database.unit_of_work() as uow:
+        uow.jobs.enqueue(first)
+        uow.commit()
+    with database.unit_of_work() as uow:
+        mine = uow.jobs.reserve(NOW, worker="w1", lease_seconds=60.0)
+        uow.commit()
+    assert mine is not None
+
+    with database.unit_of_work() as uow:
+        assert uow.jobs.get(first.id).worker == "w1"
+        held = uow._session.get(GradingJobRow, str(first.id))
+        assert held is not None
+        # 別のセッションで、リースの切れた後に w2 が取り直す。
+        with database.unit_of_work() as other:
+            assert (
+                other.jobs.reserve(NOW + timedelta(seconds=120), worker="w2", lease_seconds=60.0)
+                is not None
+            )
+            other.commit()
+        current = uow.jobs.lock(first.id)
+        assert current is not None
+        assert current.worker == "w2"
+        assert not current.held_by(mine)
+        assert held.document["worker"] == "w2"
+
+
+# --------------------------------------------------------------------------
+# 確認・確定・blind 採点の規則を両実装に当てる（#687）
+# --------------------------------------------------------------------------
+
+
+_REVIEWED_RUN = GradingRunId("grn_" + "a" * 32)
+
+
+def _a_review(key: str, at: datetime, level: int):
+    from aijudge_core import HumanReview
+    from aijudge_core.ids import HumanReviewId
+
+    return HumanReview(
+        id=HumanReviewId("hrv_" + key * 32),
+        grading_run_id=_REVIEWED_RUN,
+        grader_id=LEARNER,
+        adjusted_levels={CriterionId("crt_" + "6" * 32): level},
+        comment="入力例 3 の出力が仕様と違います。",
+        reviewed_at=at,
+    )
+
+
+def _with_a_run(review_repo) -> None:
+    with review_repo() as uow:
+        uow.runs.save(a_run(_REVIEWED_RUN, SubmissionId("sub_" + "b" * 32)))
+        uow.commit()
+
+
+def test_a_review_cannot_be_rewritten(review_repo, request) -> None:
+    """同じ ID の確認を保存し直せない。**訂正は別の確認を追記する**（#275・P8）。"""
+    _xfail_on_memory(
+        request,
+        "review_repo",
+        "#687: InMemoryReviewRepository.save_review は同じ ID を無条件に上書きする",
+    )
+    _with_a_run(review_repo)
+    review = _a_review("1", NOW, 1)
+    with review_repo() as uow:
+        uow.reviews.save_review(review)
+        uow.commit()
+    with review_repo() as uow, pytest.raises(ImmutabilityViolation, match="already exists"):
+        uow.reviews.save_review(review.model_copy(update={"adjusted_levels": {}}))
+
+
+def test_a_review_of_a_missing_run_is_refused(review_repo, request) -> None:
+    """無い採点への確認は保存しない。成績のどこにも結びつかない記録になる。"""
+    _xfail_on_memory(
+        request,
+        "review_repo",
+        "#687: InMemoryReviewRepository.save_review は採点の有無を確かめない",
+    )
+    from aijudge_submission import SubmissionStoreError
+
+    with review_repo() as uow, pytest.raises(SubmissionStoreError):
+        uow.reviews.save_review(_a_review("1", NOW, 1))
+
+
+def test_a_later_review_decides_the_grade(review_repo) -> None:
+    """訂正の確認を後から保存すると、成績にはそれが使われる（#275）。"""
+    _with_a_run(review_repo)
+    first, correction = _a_review("1", NOW, 1), _a_review("2", NOW + timedelta(hours=1), 2)
+    with review_repo() as uow:
+        uow.reviews.save_review(first)
+        uow.reviews.save_review(correction)
+        uow.commit()
+    with review_repo() as uow:
+        assert uow.reviews.find_review_for_run(_REVIEWED_RUN) == correction
+        assert uow.reviews.decisions_for_runs([_REVIEWED_RUN])[_REVIEWED_RUN].review == correction
+        assert uow.reviews.reviews_for_run(_REVIEWED_RUN) == (first, correction)
+
+
+def test_the_latest_review_wins_by_time_not_by_save_order(review_repo, request) -> None:
+    """「最新」は確認した時刻で決める。保存した順ではない（#275）。
+
+    SQL は `reviewed_at desc, id desc` で選ぶ。インメモリが最後に保存したものを
+    返すと、古い時刻の確認を後から保存したとき、成績に使う確認が実装で違う。
+    """
+    _xfail_on_memory(
+        request,
+        "review_repo",
+        "#687: InMemoryReviewRepository.find_review_for_run は最後に保存したものを返し、"
+        "reviewed_at を見ない（decisions_for_runs も同じ）",
+    )
+    _with_a_run(review_repo)
+    newer, older = _a_review("2", NOW + timedelta(hours=1), 2), _a_review("1", NOW, 1)
+    with review_repo() as uow:
+        uow.reviews.save_review(newer)
+        uow.reviews.save_review(older)
+        uow.commit()
+    with review_repo() as uow:
+        assert uow.reviews.find_review_for_run(_REVIEWED_RUN) == newer
+        assert uow.reviews.decisions_for_runs([_REVIEWED_RUN])[_REVIEWED_RUN].review == newer
+
+
+def test_a_run_is_finalised_only_once(review_repo) -> None:
+    """二度確定できると成績が二つ存在する。やり直しは再採点から（P8）。"""
+    from aijudge_core import Finalization, FinalizationSource
+    from aijudge_core.ids import FinalizationId
+
+    _with_a_run(review_repo)
+
+    def finalization(key: str) -> Finalization:
+        return Finalization(
+            id=FinalizationId("fin_" + key * 32),
+            grading_run_id=_REVIEWED_RUN,
+            source=FinalizationSource.AUTOMATIC,
+            justification="採点から所定の時間が経過しました。",
+            finalized_at=NOW,
+        )
+
+    with review_repo() as uow:
+        uow.reviews.save_finalization(finalization("1"))
+        uow.commit()
+    with review_repo() as uow, pytest.raises(ImmutabilityViolation, match="already finalised"):
+        uow.reviews.save_finalization(finalization("2"))
+    with review_repo() as uow:
+        assert uow.reviews.find_finalization_for_run(_REVIEWED_RUN) == finalization("1")
+
+
+def test_a_blind_mark_cannot_be_overwritten(review_repo) -> None:
+    """blind 採点は 1 提出に 1 つ。AI を見た後の段階で上書きさせない（ADR 0005）。"""
+    from aijudge_core import BlindMark
+
+    submission_id = SubmissionId("sub_" + "5" * 32)
+    mark = BlindMark(
+        submission_id=submission_id,
+        grader_id=LEARNER,
+        levels={CriterionId("crt_" + "6" * 32): 2},
+        marked_at=NOW,
+    )
+    with review_repo() as uow:
+        uow.reviews.save_blind_mark(mark)
+        uow.commit()
+    with review_repo() as uow, pytest.raises(ImmutabilityViolation, match="blind mark"):
+        uow.reviews.save_blind_mark(
+            mark.model_copy(update={"levels": {CriterionId("crt_" + "6" * 32): 3}})
+        )
+    with review_repo() as uow:
+        assert uow.reviews.find_blind_mark(submission_id) == mark
+
+
+# --------------------------------------------------------------------------
+# ジョブの取り方・寝かせ・順位を両実装に当てる（#687）
+#
+# `release_waiting` はここに入れない。document を更新しない食い違いごと
+# #680 が扱っている。
+# --------------------------------------------------------------------------
+
+
+def test_jobs_are_reserved_oldest_first(job_queue) -> None:
+    """`available_at` → `created_at` → `id` の順に取る。先に出した学習者が先に返る。"""
+    queue = job_queue()
+    queue.enqueue(_job(3, available_at=NOW - timedelta(minutes=1)))
+    queue.enqueue(_job(1, created_at=NOW + timedelta(seconds=1)))
+    queue.enqueue(_job(2))
+    queue.enqueue(_job(4, available_at=NOW + timedelta(hours=1)))  # まだ取れない
+
+    order = []
+    while (job := queue.reserve(NOW, worker="w1", lease_seconds=60.0)) is not None:
+        order.append(job.id)
+    assert order == [_job(n).id for n in (3, 2, 1)]
+
+
+def test_waiting_jobs_are_taken_before_lost_leases(job_queue, request) -> None:
+    """**待っているジョブを先に、リース切れは後に取る。**
+
+    SQL は QUEUED を全部見てからリース切れを見る。インメモリは両方を混ぜて
+    古い順に取る。どちらが正しいにせよ、同じサービス層のテストが実装で
+    別の結果になる。
+    """
+    _xfail_on_memory(
+        request,
+        "job_queue",
+        "#687: InMemoryJobQueue.reserve は QUEUED とリース切れを混ぜて古い順に取る"
+        "（SQL は QUEUED を先に取る）",
+    )
+    queue = job_queue()
+    queue.enqueue(
+        _job(
+            1,
+            available_at=NOW - timedelta(hours=1),
+            state=JobState.RUNNING,
+            attempts=1,
+            worker="lost",
+            lease_expires_at=NOW - timedelta(minutes=30),
+        )
+    )
+    queue.enqueue(_job(2))
+
+    first = queue.reserve(NOW, worker="w1", lease_seconds=60.0)
+    second = queue.reserve(NOW, worker="w1", lease_seconds=60.0)
+    assert (first.id, second.id) == (_job(2).id, _job(1).id)
+
+
+def test_only_a_submission_waiting_for_its_start_is_rescheduled(job_queue) -> None:
+    """採点開始の変更で動くのは、提出の採点待ちで寝かせてあるものだけ。
+
+    再試行の待ち（`attempts` が 1 以上）・いま取れるもの・処理中は動かさない。
+    """
+    later = NOW + timedelta(hours=2)
+    queue = job_queue()
+    jobs = {
+        "waiting": _job(1, available_at=later),
+        "retry": _job(2, available_at=later, attempts=1),
+        "ready": _job(3),
+        "running": _job(
+            4,
+            state=JobState.RUNNING,
+            attempts=1,
+            worker="w1",
+            lease_expires_at=NOW + timedelta(minutes=1),
+        ),
+    }
+    for job in jobs.values():
+        queue.enqueue(job)
+
+    new_start = NOW + timedelta(hours=1)
+    ids = [job.submission_id for job in jobs.values()]
+    assert queue.waiting_count(ids, NOW) == 2
+    assert queue.reschedule_waiting(ids, new_start, NOW) == 1
+
+    assert queue.get(jobs["waiting"].id).available_at == new_start
+    for name in ("retry", "ready", "running"):
+        assert queue.get(jobs[name].id).available_at == jobs[name].available_at, name
+
+
+def test_the_position_counts_running_and_earlier_jobs_in_the_same_lane(job_queue) -> None:
+    """順位は「処理中 + 自分より前に取られる待ち」。別の段階・別の列は数えない。"""
+    from aijudge_core import GradingPhase
+    from aijudge_submission import JobLane
+
+    queue = job_queue()
+    for job in (
+        _job(
+            1,
+            state=JobState.RUNNING,
+            attempts=1,
+            worker="w1",
+            lease_expires_at=NOW + timedelta(minutes=1),
+        ),
+        _job(2, available_at=NOW - timedelta(minutes=2)),
+        _job(3, available_at=NOW - timedelta(minutes=1)),
+        _job(4),  # 自分
+        _job(5, created_at=NOW + timedelta(seconds=1)),  # 後ろ
+        _job(6, lane=JobLane.TRANSCRIPTION, available_at=NOW - timedelta(hours=1)),
+        _job(
+            7,
+            phase=GradingPhase.AI,
+            base_run_id=GradingRunId("grn_" + "b" * 32),
+            available_at=NOW - timedelta(hours=1),
+        ),
+        _job(8, available_at=NOW + timedelta(hours=1)),  # 寝かせ
+    ):
+        queue.enqueue(job)
+
+    def position(n: int):
+        return queue.position_in_queue(
+            SubmissionId(f"sub_{n:032d}"), GradingPhase.DETERMINISTIC, NOW
+        )
+
+    assert position(1) == 0
+    assert position(4) == 3
+    assert position(5) == 4
+    assert position(6) == 0
+    assert position(8) is None
+    assert position(99) is None

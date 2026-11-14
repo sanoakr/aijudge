@@ -71,7 +71,9 @@ def render(report: EvalReport) -> str:
     if report.agreement:
         lines.append("## 観点別の一致度")
         lines.append("")
-        lines.append("| 観点 | 標本 | 完全一致 | Cohen's κ | QWK | 偏り |")
+        # 偏りは「教員 − AI」の平均。向きを見出しと注記で示す ── 向きが読めないと、
+        # 甘い・辛いを逆に取ってプロンプトを逆方向に直してしまう（#683）。
+        lines.append("| 観点 | 標本 | 完全一致 | Cohen's κ | QWK | 偏り（教員 − AI） |")
         lines.append("|------|-----:|--------:|----------:|----:|-----:|")
         for code, item in sorted(report.agreement.items()):
             lines.append(
@@ -79,6 +81,10 @@ def render(report: EvalReport) -> str:
                 f"| {_fmt(item.cohen_kappa)} | {_fmt(item.quadratic_weighted_kappa)} "
                 f"| {_fmt(item.mean_bias)} |"
             )
+        lines.append("")
+        lines.append(
+            "偏りは教員の段階から AI の段階を引いた平均。負なら AI が甘く、正なら AI が辛い。"
+        )
         lines.append("")
 
         for code, item in sorted(report.agreement.items()):

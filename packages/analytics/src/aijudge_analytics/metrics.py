@@ -124,7 +124,8 @@ class AgreementReport(BaseModel):
     cohen_kappa: float | None = None
     quadratic_weighted_kappa: float | None = None
     confusion: tuple[tuple[int, ...], ...] = ()
-    # 人間が付けた段階から機械の段階を引いた平均。正なら機械が甘い。
+    # 人間が付けた段階から機械の段階を引いた平均（人間 − 機械）。**負なら機械が甘い**
+    # （機械が高い段階を付けている）、正なら機械が辛い（#683）。
     mean_bias: float | None = None
 
     @property
