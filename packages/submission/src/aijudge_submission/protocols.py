@@ -538,11 +538,13 @@ class CourseReviewQueries(Protocol):
         """
         ...
 
-    def blind_candidates_for_course(self, course_id: CourseId) -> tuple[str, ...]:
+    def blind_candidates_for_course(self, course_id: CourseId) -> tuple[tuple[str, str], ...]:
         """blind 採点の候補になる提出の ID（2026-10-01）。
 
         採点が届いていて、まだ blind 採点が無い、**学習者の**提出（試行は除く・#108）。
-        **ID だけを返す。** 抽出は提出 ID のハッシュで決まり（ADR 0005）SQL では
+        **（提出 ID, 最新の採点の課題版 ID）だけを返す。** 版 ID は「AI が判定する課題か」を
+        採点した版で決めるため（AI の判定が無い課題は抽出しない）。
+        抽出は提出 ID のハッシュで決まり（ADR 0005）SQL では
         絞れないので、呼ぶ側がハッシュで絞る ── 左の帯が全ページで数えるため、
         提出の文書は運ばない。blind 採点の一覧（`_blind_rows`）と同じ数になること。
         """

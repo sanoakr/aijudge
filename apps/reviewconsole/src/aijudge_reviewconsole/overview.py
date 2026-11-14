@@ -21,6 +21,7 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Any
 from urllib.parse import quote, unquote
 
 from aijudge_core import (
@@ -422,7 +423,12 @@ def empty_unit(key: str, course: Course, *, now: datetime | None = None) -> Unit
 
 
 def course_digest(
-    database: object, course: Course, *, now: datetime | None = None, blind_rate: float = 0.0
+    database: object,
+    course: Course,
+    *,
+    now: datetime | None = None,
+    blind_rate: float = 0.0,
+    judged_by_ai: Callable[[Any, Any, Any], bool] | None = None,
 ) -> CourseDigest:
     """1 コースぶんのダイジェスト。
 
@@ -436,7 +442,7 @@ def course_digest(
     with database.unit_of_work() as uow:  # type: ignore[attr-defined]
         tasks = uow.tasks.list_for_course(course.id)
         enrollments = uow.identity.list_enrollments(course.id)
-        attention = course_attention(uow, course, blind_rate=blind_rate)
+        attention = course_attention(uow, course, blind_rate=blind_rate, judged_by_ai=judged_by_ai)
         task_ids = {task.id for task in tasks}
         drafts = sum(
             1 for version in uow.tasks.list_versions_in_review() if version.task_id in task_ids
@@ -462,17 +468,29 @@ def digests_for(
     *,
     now: datetime | None = None,
     blind_rate: Callable[[str], float] | None = None,
+    judged_by_ai: Callable[[Any, Any, Any], bool] | None = None,
 ) -> tuple[CourseDigest, ...]:
     """`blind_rate` は科目プロファイル名から抽出率を返す（`Console.blind_sample_rate`）。"""
     rate = blind_rate or (lambda _profile: 0.0)
     return tuple(
-        _digest_or_error(database, course, now=now, blind_rate=rate(course.subject_profile))
+        _digest_or_error(
+            database,
+            course,
+            now=now,
+            blind_rate=rate(course.subject_profile),
+            judged_by_ai=judged_by_ai,
+        )
         for course in courses
     )
 
 
 def _digest_or_error(
-    database: object, course: Course, *, now: datetime | None, blind_rate: float
+    database: object,
+    course: Course,
+    *,
+    now: datetime | None,
+    blind_rate: float,
+    judged_by_ai: Callable[[Any, Any, Any], bool] | None = None,
 ) -> CourseDigest:
     """1 コースが読めなくても、他のコースの一覧は出す。
 
@@ -481,7 +499,9 @@ def _digest_or_error(
     理由を載せる。
     """
     try:
-        return course_digest(database, course, now=now, blind_rate=blind_rate)
+        return course_digest(
+            database, course, now=now, blind_rate=blind_rate, judged_by_ai=judged_by_ai
+        )
     except ValueError as error:  # pydantic.ValidationError は ValueError の子
         logger.exception("コース %s のダイジェストを作れませんでした", course.id)
         reason = str(error).splitlines()[-2:] or ["原因不明"]
