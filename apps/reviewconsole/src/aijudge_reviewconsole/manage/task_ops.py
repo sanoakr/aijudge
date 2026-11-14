@@ -249,10 +249,15 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
         console = _console(request)
 
         with console.database.unit_of_work() as uow:
+            # **課題が無ければ先に 404 にする**（#702）。一覧を開いたまま別のタブで課題を消して
+            # 並べ替えると、`get_task` が None を返して `unit_key` が落ち、500 になった。
+            target = uow.tasks.get_task(TaskId(task_id))
+            if target is None or target.course_id != CourseId(course_id):
+                raise HTTPException(status_code=404, detail="課題が見つかりません")
             tasks = [
                 task
                 for task in uow.tasks.list_for_course(CourseId(course_id))
-                if unit_key(task) == unit_key(uow.tasks.get_task(TaskId(task_id)))
+                if unit_key(task) == unit_key(target)
             ]
             ordered = sorted(tasks, key=lambda item: item.sort_key)
             index = next((i for i, task in enumerate(ordered) if str(task.id) == task_id), None)

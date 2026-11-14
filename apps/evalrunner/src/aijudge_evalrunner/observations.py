@@ -26,13 +26,20 @@ from pathlib import Path
 from aijudge_observation import Observation
 
 ENV_GOLDEN_DIR = "AIJUDGE_GOLDEN_DIR"
-DEFAULT_GOLDEN_DIR = Path.home() / ".aijudge" / "golden"
+# **書く側（ワーカー・コンソール）と同じ変数・同じ既定を読む**（#702）。以前は読む側だけが
+# `~/.aijudge/golden` を既定にしていたので、書く側の `AIJUDGE_OBSERVATION_DIR`（運用機が
+# 設定している名前）だけを設定した配備では、測定が別の場所を読んで「観測レコードがありません」
+# （終了コード 2）を返し続けた。
+ENV_OBSERVATION_DIR = "AIJUDGE_OBSERVATION_DIR"
+DEFAULT_GOLDEN_DIR = Path.home() / ".aijudge" / "observations"
 
 OBSERVATIONS_DIR = "observations"
 
 
 def golden_root() -> Path:
-    return Path(os.environ.get(ENV_GOLDEN_DIR, DEFAULT_GOLDEN_DIR)).expanduser()
+    """観測レコードの置き場。明示した `AIJUDGE_GOLDEN_DIR` が先、次に書く側の変数。"""
+    explicit = os.environ.get(ENV_GOLDEN_DIR) or os.environ.get(ENV_OBSERVATION_DIR)
+    return Path(explicit or DEFAULT_GOLDEN_DIR).expanduser()
 
 
 class ObservationSetError(Exception):

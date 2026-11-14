@@ -177,7 +177,7 @@ def main(argv: list[str] | None = None) -> int:
         print(
             f"{root} に {args.subject} の観測レコードがありません。\n"
             f"採点精度は測定できません（合格ではありません）。\n"
-            f"採点は `uv run aijudge-grade` で行い、観測はその副産物として書かれます。",
+            f"採点は `aijudge-worker` が行い、観測はその副産物として書かれます。",
             file=sys.stderr,
         )
         return EXIT_NOT_MEASURED

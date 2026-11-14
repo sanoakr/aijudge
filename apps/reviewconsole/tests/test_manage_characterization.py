@@ -612,3 +612,18 @@ def test_a_bundle_that_is_not_a_zip_or_is_missing_is_refused(world: World) -> No
     empty = world.client("teacher").post(url)
     assert empty.status_code == 400 and "ファイルが空です" in empty.text
     assert world.client("ta").post(url).status_code == 403
+
+
+def test_moving_a_task_that_no_longer_exists_is_a_404_not_a_500(world: World) -> None:
+    """一覧を開いたまま別のタブで課題を消したあとの並べ替え（#702）。以前は 500 だった。"""
+    world.register("teacher", Role.INSTRUCTOR)
+    client = world.client("teacher")
+    _add_task(world, client, unit="ex04", suffix="p1", position="1")
+
+    response = client.post(
+        f"/manage/courses/{world.course.id}/tasks/tsk_{'0' * 32}/move",
+        data={"direction": "down"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 404
