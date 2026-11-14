@@ -453,6 +453,37 @@ def test_a_submission_outside_the_sample_skips_blind_marking(world: World) -> No
 
 
 @needs_c_compiler
+def test_posting_a_blind_mark_outside_the_sample_is_refused(world: World) -> None:
+    """**抽出の門は POST にも要る**（ADR 0005・0007 §5）。
+
+    抽出外の提出は確定画面で AI の判定を読める。そこで見た段階を手で組んだ
+    POST で blind 採点として送ると、AI に引きずられた段階が κ の標本に入り、
+    一致すれば `blind_agreement` で確定まで書かれていた。何も保存しない。
+    """
+    _, accepted = _instructor_and_submission(world)
+    world.worker.run_until_empty()
+    submission_id = accepted.submission.id
+    # 先に AI の判定を読む（抽出外なので読める）。
+    assert AI_RATIONALE in world.client.get(f"/review/{submission_id}/reveal").text
+
+    response = world.client.post(
+        f"/review/{submission_id}/blind",
+        data={"level_correctness": "3", "level_readability": "3"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 409
+
+    with world.database.unit_of_work() as uow:
+        run = uow.runs.latest_for(submission_id)
+        assert run is not None
+        assert uow.reviews.find_blind_mark(submission_id) is None
+        assert uow.reviews.find_review_for_run(run.id) is None
+        assert uow.reviews.find_finalization_for_run(run.id) is None
+    stored = world.observations.load(PROFILE, str(world.task_version.task_id), str(submission_id))
+    assert not any(item.blind for item in stored)
+
+
+@needs_c_compiler
 def test_a_sampled_submission_must_be_marked_first(blind_world: World) -> None:
     _, accepted = _instructor_and_submission(blind_world)
     blind_world.worker.run_until_empty()

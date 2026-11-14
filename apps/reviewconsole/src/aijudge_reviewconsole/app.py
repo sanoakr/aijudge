@@ -234,6 +234,10 @@ TEMPLATES.env.globals["online_users"] = _online_users
 # 画面に埋め込んでよい種別。それ以外はダウンロードさせる（#75）。
 INLINE_KINDS = (ArtifactKind.IMAGE, ArtifactKind.PDF, ArtifactKind.VIDEO)
 
+# blind 採点の二度目を断るときの文面。保存前の門と保存層の拒否（競合で門を
+# すり抜けた場合）の 2 か所から返すので、文面を 1 つにしておく（#272）。
+BLIND_ALREADY_MARKED = "この提出のブラインド採点は既に記録されています（やり直せません）。"
+
 
 # **学習者アプリと同じ名前**（#103）。セッションは前から同じ表を
 # `AuthService` 経由で共有していて、違うのは Cookie の名前だけだった ──
@@ -1316,6 +1320,22 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
         """
         form = await request.form()
         context = _load(console, me, SubmissionId(submission_id), request)
+        # **抽出の門は保存の側にも置く**（ADR 0005・0007 §5）。GET だけが
+        # `needs_blind` を見ていたため、抽出外の提出（確定画面で AI の判定を
+        # 読める）にも手で組んだ POST で blind 採点が記録でき、AI に引きずられた
+        # 段階が `blind=true` の観測として κ の標本に入り、一致すれば
+        # `blind_agreement` で `HumanReview` と確定まで書かれていた。
+        # `needs_blind` は「blind 採点が無く、かつ抽出に当たっている」なので、
+        # 偽なら既に採点済みか抽出外のどちらか。どちらも何も保存せずに断る。
+        # 抽出外を GET のように reveal へ 303 で流さないのは、送った段階が
+        # 黙って捨てられ、保存されたように見えるため。
+        if not context.needs_blind:
+            if context.mark is not None:
+                raise HTTPException(status_code=409, detail=BLIND_ALREADY_MARKED)
+            raise HTTPException(
+                status_code=409,
+                detail="この提出はブラインド採点の対象ではありません（抽出に当たっていません）。",
+            )
         parsed = _parse_levels(context.task_version.criteria, form)
         notes = str(form.get("notes", ""))
         # 一致して確定したときに進む先。**保存の前に決める** ── 保存するとこの 1 件が
@@ -1336,10 +1356,7 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
             except ImmutabilityViolation as exc:
                 # 二度目を受け付けると、AI を見たあとの段階で上書きできる。
                 # **文面は画面の側で書く**（#272）── 例外の文面は開発者向け。
-                raise HTTPException(
-                    status_code=409,
-                    detail="この提出のブラインド採点は既に記録されています（やり直せません）。",
-                ) from exc
+                raise HTTPException(status_code=409, detail=BLIND_ALREADY_MARKED) from exc
             uow.commit()
 
         fresh = _load(console, me, SubmissionId(submission_id), request)
