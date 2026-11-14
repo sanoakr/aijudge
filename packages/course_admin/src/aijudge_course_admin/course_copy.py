@@ -202,6 +202,9 @@ def _copy_tasks(
                     test_cases=_test_cases(version),
                     criteria=rubric.from_criteria(version.criteria),
                     knowledge_components=keys,
+                    # **課題ごとの科目プロファイルを写す**（#692）。落とすと複製先ではすべての
+                    # 課題がコースの既定で採点され、レポート課題が cs 系のプロファイルで走る。
+                    subject_profile=version.subject_profile,
                     # 実行時間の上限は**写す**（#491）。問題そのものの性質で、
                     # 日程と違って学期が変わっても同じ。
                     case_timeout_seconds=task.case_timeout_seconds,
