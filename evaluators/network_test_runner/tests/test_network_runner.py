@@ -491,3 +491,19 @@ def test_the_rationale_names_a_crash_before_the_missing_output() -> None:
     text = runner._rationale(0, 1, failed)
     assert "ValueError: invalid literal" in text
     assert "出力に現れなかったもの" not in text
+
+
+def test_only_host_and_port_are_filled_into_an_input() -> None:
+    """入力に JSON や辞書の波括弧があっても、評価器は落ちない（#701）。
+
+    以前は `str.format` で展開していたので、`{"cmd": "GET"}` は KeyError、`{0}` は IndexError、
+    片方だけの `{` は ValueError になり、そのケースを持つ課題は全提出が採点されなかった。
+    """
+    from aijudge_eval_network_test_runner import fill_placeholders
+
+    filled = fill_placeholders(
+        '{"cmd": "GET"}\n{host}:{port}\n{0} {\n', host="127.0.0.1", port=8080
+    )
+
+    assert filled == '{"cmd": "GET"}\n127.0.0.1:8080\n{0} {\n'
+    assert fill_placeholders("{port}\nserver.html\n", host="h", port=1) == "1\nserver.html\n"
