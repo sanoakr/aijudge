@@ -250,6 +250,23 @@ TIMEOUT_KILL_AFTER_SECONDS = 1
 # だけ（そのときは #410 の後始末でコンテナを名指しで止める）。
 STARTUP_ALLOWANCE_SECONDS = 15.0
 
+# 作業域の権限を取り返すコンテナ（`DockerSandbox.reclaim`）の持ち時間と、
+# 使えるプロセス数。`find -exec chmod {} ;` はディレクトリ 1 つごとに chmod を
+# 1 回起動するが、同時に動くのは find と chmod の 2 つだけである。
+# それでもプロセス数は提出と同じ 64 にする。**gVisor では `--pids-limit` が
+# Sentry のスレッドにも掛かる**（#502）ので、中の 2 つから見積もった 16 では
+# サンドボックスが立ち上がらず、取り返しが黙って失敗した（CI の runsc で実測）。
+RECLAIM_WALL_SECONDS = 60
+RECLAIM_PROCESSES = 64
+# 取り返しが失敗したときにログに載せる stderr の長さ。
+_RECLAIM_STDERR_CHARS = 500
+# 取り返したあとのディレクトリの権限。0777 にするのは、ワーカー（ホストの
+# aijudge）が中のエントリを unlink できるようにするため ── 消すには親
+# ディレクトリへの書き込み権が要り、持ち主は 65534 のままだから。8 進で
+# 指定するので、提出が付けた sticky bit（付いていると持ち主以外は消せない）
+# も外れる。作業域そのものも、もともと 0777 である（`world_writable_workspace`）。
+RECLAIMED_DIRECTORY_MODE = "0777"
+
 # マウント検証に使う目印。中身まで一致を見るのは、
 # 「ディレクトリは見えるが中身が古い」構成（キャッシュされた共有）も落とすため。
 _MOUNT_PROBE = "aijudge-mount-probe"
@@ -473,6 +490,106 @@ class DockerSandbox(LocalSandboxBase):
         return {
             key: os.environ[key] for key in ("PATH", "HOME", "DOCKER_HOST") if key in os.environ
         }
+
+    def reclaim(self, directory: Path) -> None:
+        """提出が作ったディレクトリを、**提出と同じ uid のコンテナの中で** 0777 にする。
+
+        中は uid 65534 で動くので、提出が作ったディレクトリの持ち主は 65534 で、
+        ホストのワーカー（aijudge）からは 0755 でも中を消せず（親への書き込み権が
+        無い）、0700 / 0000 なら列挙もできない。そのため以前は、作業域の合計
+        サイズの上限をすり抜けられ、後始末の `rmtree` も黙って失敗して
+        `aijudge-ws-*` がホストに残った。
+
+        取り返すのは持ち主（65534）だけができる chmod で、ホストには権限が
+        無い。案は 3 つあった:
+
+        - 計測（`du`）と削除（`rm -rf`）をまるごとコンテナの中でやる。
+          ホストが書いたファイル（aijudge の 0755 のディレクトリの下）を
+          65534 は消せないので、結局ホスト側の削除も要る。
+        - 作業域を size 付きの tmpfs / 専用ボリュームにする。上限は確実に
+          なるが、作業域の作り方（bind mount と ADR 0006 の可視性の検査）を
+          変えることになり、変更が大きい。
+        - **権限だけを中で直し、計測と削除はホストのまま**（これを採った）。
+          コンテナの起動は、ホストが数え切れない・消し切れないときだけで、
+          ふつうの提出には 1 回も増えない。
+
+        `find` は既定でディレクトリを**中に入る前に**評価するので、0000 の
+        ディレクトリも chmod してから辿れる（`-exec … +` でまとめると、
+        辿るのが先になって届かない）。持ち主でないもの（ホストが書いた
+        ディレクトリ）の chmod は失敗するが、それはホスト側で直せる。
+
+        **失敗しても例外にしない。** 呼ぶ側が数え直し・消し直しをして、
+        それでも駄目なら上限超え・ERROR ログとして扱う。
+        """
+        name = f"{CONTAINER_NAME_PREFIX}{uuid.uuid4().hex}"
+        command = [
+            self._binary,
+            "run",
+            "--rm",
+            f"--name={name}",
+            f"--label={CONTAINER_LABEL}=1",
+            f"--cpus={CONTAINER_CPUS}",
+            "--network=none",
+            "--read-only",
+            "--cap-drop=ALL",
+            "--security-opt=no-new-privileges",
+            # 提出と同じ uid。chmod は持ち主にしかできない。
+            "--user=65534:65534",
+            f"--pids-limit={RECLAIM_PROCESSES}",
+            f"--volume={directory}:/work",
+            # 入口を外す（Dolos のイメージは `dolos` を入口に持つ・#203）。
+            "--entrypoint=",
+        ]
+        if self._runtime:
+            command.append(f"--runtime={self._runtime}")
+        command.extend(
+            [
+                self._image,
+                IN_CONTAINER_TIMEOUT,
+                "-k",
+                str(TIMEOUT_KILL_AFTER_SECONDS),
+                str(RECLAIM_WALL_SECONDS),
+                "find",
+                "/work",
+                "-mindepth",
+                "1",
+                "-type",
+                "d",
+                "-exec",
+                "chmod",
+                RECLAIMED_DIRECTORY_MODE,
+                "{}",
+                ";",
+            ]
+        )
+        try:
+            completed = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                errors="replace",
+                timeout=RECLAIM_WALL_SECONDS + STARTUP_ALLOWANCE_SECONDS,
+                env=self._client_env(),
+                check=False,
+            )
+            if completed.returncode != 0:
+                # 起動できなかったのか、一部を直せなかったのかを残す。ホストが
+                # 書いたディレクトリの chmod は失敗する（持ち主が違う）ので、
+                # 0 以外でもただちに取り返しの失敗とは限らない。結果は呼ぶ側の
+                # 数え直し・消し直しが決める。
+                logger.warning(
+                    "reclaiming workspace %s exited with %d: %s",
+                    directory,
+                    completed.returncode,
+                    completed.stderr.strip()[:_RECLAIM_STDERR_CHARS],
+                )
+        except subprocess.TimeoutExpired:
+            logger.warning("reclaiming workspace %s timed out", directory)
+            self.release([f"--name={name}"])
+        except OSError:
+            logger.warning("could not reclaim workspace %s", directory, exc_info=True)
+        # ホストが書いたディレクトリ（aijudge の持ち物）はホスト側で直す。
+        super().reclaim(directory)
 
     def release(self, argv: list[str]) -> None:
         """時間切れのあと、コンテナを名指しで止めて消す（#410）。

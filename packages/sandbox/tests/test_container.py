@@ -365,6 +365,49 @@ def test_the_workspace_is_removed_afterwards(container) -> None:
     assert not path.exists()
 
 
+def test_a_directory_the_submission_hides_is_counted_and_removed(container) -> None:
+    """中（uid 65534）が作った 0700 → 0000 のディレクトリ。
+
+    ホストのワーカーはこれを列挙も削除もできない。以前は合計サイズの上限を
+    すり抜け、作業域がホストに残った。数えて上限超えにし、後始末で消えること。
+    """
+    hide = (
+        "mkdir -m 700 d && "
+        "for i in 1 2 3 4; do head -c 1048576 /dev/zero > d/f$i; done && "
+        "chmod 0 d"
+    )
+    with container.workspace() as workspace:
+        path = workspace.path
+        result = workspace.run(
+            ExecRequest(
+                argv=("/bin/sh", "-c", hide),
+                limits=FAST.model_copy(update={"workspace_bytes": 2 * 1024 * 1024}),
+            )
+        )
+        assert result.workspace_exceeded
+        assert list(path.iterdir()) == []
+    assert not path.exists()
+
+
+def test_a_directory_the_submission_creates_is_removed_afterwards(container) -> None:
+    """上限内でも、中が作ったディレクトリ（持ち主 65534）が後始末で残らないこと。
+
+    0755 でもホストは中のファイルを消せない（親への書き込み権が無い）。sticky bit
+    も付けて、持ち主以外の削除を拒む形にしておく。
+    """
+    with container.workspace() as workspace:
+        path = workspace.path
+        result = workspace.run(
+            ExecRequest(
+                argv=("/bin/sh", "-c", "mkdir -p a/b && echo x > a/b/c && chmod 1755 a a/b"),
+                limits=FAST,
+            )
+        )
+        assert result.ok
+        assert not result.workspace_exceeded
+    assert not path.exists()
+
+
 def test_the_environment_does_not_leak_host_secrets(container, monkeypatch) -> None:
     """親の環境をそのまま渡さない。渡すと資格情報が提出コードに見える。"""
     monkeypatch.setenv("AIJUDGE_SECRET_TOKEN", "super-secret-value")
