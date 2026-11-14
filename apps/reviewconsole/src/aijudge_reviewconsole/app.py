@@ -2388,12 +2388,14 @@ def _blind_rows(
         for submission, run in uow.reviews.pending_for_course(
             course_id, include_decided=True, limit=None
         ):
+            # 付いている blind 採点は、AI が判定しない課題の分も「済み」として数える
+            # （消さない・P8）。新しく求めるのは抽出に当たる提出だけ。
+            if uow.reviews.find_blind_mark(submission.id) is not None:
+                marked += 1
+                continue
             if not console.needs_blind_mark(
                 submission, course, task_version_id=run.context.task_version_id, uow=uow
             ):
-                continue
-            if uow.reviews.find_blind_mark(submission.id) is not None:
-                marked += 1
                 continue
             version = uow.tasks.get_version(submission.task_version_id)
             task = None if version is None else uow.tasks.get_task(version.task_id)
