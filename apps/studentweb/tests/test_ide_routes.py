@@ -317,9 +317,24 @@ def test_the_same_content_twice_is_folded(world: World) -> None:
     _learner(world)
     _submit(world)
 
+    first = _submit(world).json()
     again = _submit(world).json()
 
     assert again["deduplicated"] is True
+    # 受け付けた時刻を返す（画面が「何時に受け付けました」と出す）。畳まれたときは最初の時刻。
+    assert again["submitted_at"] == first["submitted_at"]
+
+
+def test_the_submit_response_carries_the_time_it_was_received(world: World) -> None:
+    from datetime import datetime
+
+    _editor(world)
+    _learner(world)
+
+    data = _submit(world).json()
+
+    received = datetime.fromisoformat(data["submitted_at"])
+    assert received.tzinfo is not None, "時刻の帯域が無いと、ブラウザが手元の時刻と取り違える"
 
 
 # -- 行動記録（ADR 0023） -----------------------------------------------------

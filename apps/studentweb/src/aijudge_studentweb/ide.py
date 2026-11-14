@@ -208,6 +208,14 @@ class IdeDeps:
         )
 
 
+def _received_at(submission: Any) -> str | None:
+    """提出を受け付けた時刻（ISO 8601・UTC）。画面がブラウザの時刻に直して出す。"""
+    moment = submission.submitted_at
+    if moment is None:
+        return None
+    return (moment if moment.tzinfo else moment.replace(tzinfo=UTC)).isoformat()
+
+
 def _attempt_no(deps: IdeDeps, submission: Any, task: Task, tenant_id: Any) -> int:
     """画面に出す回数。課題の中で版をまたいで数える（無ければ版ごとの番号）。"""
     if deps.attempt_number is None:
@@ -555,6 +563,9 @@ def register_ide_routes(app: FastAPI, deps: IdeDeps, me_dependency: Any) -> None
                 "attempt": _attempt_no(deps, submission, task_obj, me.tenant_id),
                 "deduplicated": result.deduplicated,
                 "content_hash": content_hash(body.source),
+                # 受付の時刻。画面が「何時に受け付けました」と出すため。同じ内容の再提出で
+                # 既存の提出に畳まれたときは、**最初に受け付けた時刻**になる。
+                "submitted_at": _received_at(submission),
                 "url": f"/submissions/{submission.id}",
             }
         )
@@ -619,6 +630,7 @@ def register_ide_routes(app: FastAPI, deps: IdeDeps, me_dependency: Any) -> None
                 "submission_id": str(submission.id),
                 "attempt": _attempt_no(deps, submission, task_obj, me.tenant_id),
                 "deduplicated": result.deduplicated,
+                "submitted_at": _received_at(submission),
                 "files": [
                     {
                         "name": artifact.filename,

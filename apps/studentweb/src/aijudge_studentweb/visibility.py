@@ -128,6 +128,31 @@ class CriterionView:
     more_failed: bool = False
 
     @property
+    def source(self) -> str:
+        """この観点を誰が採点するか: `test`（テスト実行）・`ai`・`human`（担当教員）・`gated`。
+
+        **点が付くまで分からないものは、機械の判定が無い観点として `ai` とみなす**
+        （人の採点は `by_human` で分かる）。決定的段階の run で未採点の観点は、あとの
+        AI 段階で採点されるものだから ── 評価器が落ちて点の付かなかった観点もここに入る。
+        """
+        if self.gated:
+            return "gated"
+        if self.by_human:
+            return "human"
+        if self.by_ai or self.pending:
+            return "ai"
+        return "test"
+
+    @property
+    def ratio(self) -> float | None:
+        """この観点の段階の得点率（0〜1）。まだ決まっていなければ None。教員の調整後の段階。"""
+        if self.gated:
+            return 0.0
+        if self.level is None:
+            return None
+        return self.criterion.level_for(self.level).score_ratio
+
+    @property
     def label(self) -> str:
         if self.gated:
             # 打ち切りは仕様どおりの結果なので「確認中」ではない。0% である
@@ -144,6 +169,41 @@ class CriterionView:
         if self.level is None:
             return "採点できませんでした"
         return self.criterion.level_for(self.level).label
+
+
+SOURCE_LABELS = {
+    "test": "テスト実行",
+    "ai": "AI",
+    "human": "担当教員",
+    "gated": "評価していません",
+}
+
+
+@dataclass(frozen=True)
+class SourceShare:
+    """総合点のうち、1 つの採点者（テスト実行・AI・担当教員）が決める分。
+
+    **合計を作る場所ではない。** 合計は `aijudge_core.final_score` に 1 つだけある。
+    これは「合計のうち誰がどれだけ決める分か」を見せるための内訳で、満点の割合
+    （0〜1）で持つ。`possible` は観点の重みの和、`earned` は点が決まった観点の
+    重み × 段階の得点率の和。**待っている観点の分は `earned` に入れない**（分母の
+    `possible` には入っている）ので、「70 / 70」と「― / 30」が並び、途中の数字が
+    完成した合計に見えない。
+    """
+
+    source: str
+    possible: float
+    earned: float
+    #: 点がまだ決まっていない観点があるか。
+    pending: bool
+    #: 教員が段階を調整した観点を含むか。
+    adjusted: bool
+    #: 観点の数。
+    count: int
+
+    @property
+    def label(self) -> str:
+        return SOURCE_LABELS[self.source]
 
 
 @dataclass(frozen=True)
@@ -190,6 +250,36 @@ class ResultView:
     @property
     def has_pending(self) -> bool:
         return any(view.pending for view in self.criteria)
+
+    @property
+    def shares(self) -> tuple[SourceShare, ...]:
+        """総合点の内訳（テスト実行・AI・担当教員・打ち切り）。観点が無い採点者は出さない。
+
+        機械の採点と AI の採点は届く時刻が違う（ADR 0011）。合計だけを見せると、
+        AI の分が届いたときに点が「上がった」ように読まれる。**誰の分がいま決まって
+        いて、誰の分を待っているか**を分けて見せる。
+        """
+        groups: dict[str, list[CriterionView]] = {}
+        for view in self.criteria:
+            groups.setdefault(view.source, []).append(view)
+        out: list[SourceShare] = []
+        for source in ("test", "ai", "human", "gated"):
+            rows = groups.get(source)
+            if not rows:
+                continue
+            out.append(
+                SourceShare(
+                    source=source,
+                    possible=sum(row.criterion.weight for row in rows),
+                    earned=sum(
+                        row.criterion.weight * row.ratio for row in rows if row.ratio is not None
+                    ),
+                    pending=any(row.pending for row in rows),
+                    adjusted=any(row.adjusted for row in rows),
+                    count=len(rows),
+                )
+            )
+        return tuple(out)
 
     @property
     def penalized(self) -> bool:
