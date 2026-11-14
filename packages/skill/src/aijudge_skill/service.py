@@ -123,6 +123,18 @@ class SkillService:
             # **古い提出の結果で、新しい提出の観測を上書きしない。** 再送や
             # 遅れて終わった採点は、提出の順では後ろにある。
             return None
+        if (
+            current is not None
+            and current.submitted_at == submitted_at
+            and current.graded_at is not None
+            and event.occurred_at < current.graded_at
+        ):
+            # **同じ提出の、古い採点の結果で、新しい採点の観測を上書きしない**（#678）。
+            # 冪等の判定は「いま残っている観測」の採点の id しか見ないので、再採点で
+            # 置き換えられた古い採点の id はもう残っておらず、そのイベントが遅れて届く
+            # （outbox の再送は失敗したものを後ろに回す）と、習熟度が古い結果に戻った。
+            # 提出の時刻は同じなので、採点の終わった時刻で新しい方を残す。
+            return None
 
         observation = SkillObservation(
             tenant_id=tenant_id,
@@ -138,6 +150,7 @@ class SkillService:
             exam=event.exam,
             submitted_at=submitted_at,
             observed_at=observed_at,
+            graded_at=event.occurred_at,
         )
         self._repository.save_observation(observation)
         kept = tuple(item for item in observations if item.task_id != task_id)

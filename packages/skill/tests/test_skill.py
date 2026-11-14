@@ -60,6 +60,7 @@ def _event(
     task: str | None = None,
     exam: bool = False,
     submitted_at: datetime | None = None,
+    graded_at: datetime | None = None,
 ) -> GradingCompleted:
     """採点完了のイベント。**既定では採点ごとに別の課題**（`task` を省くと `run` から作る）。
 
@@ -68,7 +69,7 @@ def _event(
     return GradingCompleted(
         event_id=EventId("evt_" + run * 32),
         tenant_id=TENANT,
-        occurred_at=NOW,
+        occurred_at=graded_at or NOW,
         grading_run_id=GradingRunId("grn_" + run * 32),
         submission_id=SubmissionId("sub_" + run * 32),
         task_version_id=TaskVersionId("tsv_" + "c" * 32),
@@ -332,6 +333,52 @@ def test_a_regrade_replaces_the_observation_of_the_same_submission() -> None:
 
     state = repository.get_state(TENANT, LEARNER, KC)
     assert state.observation_count == 1
+    assert state.evidence[-1].grading_run_id == GradingRunId("grn_" + "e" * 32)
+
+
+def test_a_late_event_of_a_replaced_grading_does_not_bring_back_the_old_result() -> None:
+    """**置き換えられた古い採点のイベントが遅れて届いても、新しい採点を残す**（#678）。
+
+    outbox は失敗したイベントを後ろに回して再送する。A の配信が失敗している間に再採点 B が
+    先に届くと、観測は B になり、A の採点の id はもう残っていない（冪等の判定をすり抜ける）。
+    同じ提出なので提出の時刻も等しく、採点の終わった時刻だけが新旧を分ける。
+    """
+    service, repository = _service()
+    service.apply(_event(run="a", task="t", ratio=1.0, graded_at=_at(0)))
+    service.apply(_event(run="e", task="t", ratio=0.0, graded_at=_at(5)))
+    before = repository.get_state(TENANT, LEARNER, KC)
+    points = len(repository.history(TENANT, (LEARNER,)))
+
+    assert service.apply(_event(run="a", task="t", ratio=1.0, graded_at=_at(0))) == ()
+
+    after = repository.get_state(TENANT, LEARNER, KC)
+    assert after == before
+    assert after.evidence[-1].grading_run_id == GradingRunId("grn_" + "e" * 32)
+    assert len(repository.history(TENANT, (LEARNER,))) == points, "余分な点が足された"
+
+
+def test_a_later_grading_of_the_same_submission_still_replaces_the_observation() -> None:
+    """守りは古い採点だけ。**新しい再採点は、これまでどおり置き換える。**"""
+    service, repository = _service()
+    service.apply(_event(run="a", task="t", ratio=1.0, graded_at=_at(0)))
+    service.apply(_event(run="e", task="t", ratio=0.0, graded_at=_at(5)))
+    service.apply(_event(run="f", task="t", ratio=1.0, graded_at=_at(9)))
+
+    state = repository.get_state(TENANT, LEARNER, KC)
+    assert state.observation_count == 1
+    assert state.evidence[-1].grading_run_id == GradingRunId("grn_" + "f" * 32)
+
+
+def test_an_observation_saved_before_the_grading_time_was_kept_is_replaced_as_before() -> None:
+    """この欄より前に保存された観測は採点の時刻を持たない。**届いた順の置き換えのまま**動く。"""
+    service, repository = _service()
+    service.apply(_event(run="a", task="t", ratio=1.0, graded_at=_at(5)))
+    (saved,) = repository.list_observations(TENANT, LEARNER, KC)
+    repository.save_observation(saved.model_copy(update={"graded_at": None}))
+
+    service.apply(_event(run="e", task="t", ratio=0.0, graded_at=_at(0)))
+
+    state = repository.get_state(TENANT, LEARNER, KC)
     assert state.evidence[-1].grading_run_id == GradingRunId("grn_" + "e" * 32)
 
 
