@@ -141,13 +141,6 @@ def test_a_review_that_fills_the_gap_uses_the_rubric_weights() -> None:
     assert not score_withheld(run, review)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "#684: score_withheld はレビューがあれば中身を見ずに保留を解く。"
-        "欠けを埋めないレビューでも、比例配分の暫定値が保留なしで成績に入る"
-    ),
-)
 def test_a_review_that_leaves_the_gap_keeps_the_total_withheld() -> None:
     """欠けを埋めないレビューでは、総合点を保留したままにする。
 
