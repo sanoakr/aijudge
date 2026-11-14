@@ -326,3 +326,84 @@ def test_a_criterion_the_instructor_gated_shows_as_cut_not_as_the_machine_level(
     assert row.level is None
     assert not row.pending
     assert view.score_ratio == 0.0
+
+
+# -- 総合点の内訳（テスト実行・AI・担当教員） ----------------------------------------
+
+
+def test_the_breakdown_separates_what_is_decided_from_what_is_awaited() -> None:
+    """**分母を残す。** テスト実行の 70 / 70 と、AI の ― / 30 が並ぶので、途中の数字が
+    完成した合計に見えない（観点が未採点のとき合計は出さない・上のテスト）。"""
+    view = build_result_view(_run_missing_the_ai_criterion(), _task_version(), None)
+
+    shares = {share.source: share for share in view.shares}
+    assert list(shares) == ["test", "ai"]
+    assert (shares["test"].possible, shares["test"].earned, shares["test"].pending) == (
+        0.7,
+        0.7,
+        False,
+    )
+    # 待っている観点は、分母には入るが分子には入らない。
+    assert (shares["ai"].possible, shares["ai"].earned, shares["ai"].pending) == (0.3, 0.0, True)
+    assert view.score_withheld
+
+
+def test_an_unscored_criterion_is_counted_as_the_ais_share() -> None:
+    """決定的段階の run で未採点の観点は、あとの AI 段階で採点されるもの。"""
+    view = build_result_view(_run_missing_the_ai_criterion(), _task_version(), None)
+
+    ai_row = next(row for row in view.criteria if row.criterion.code == "readability")
+    assert ai_row.pending and ai_row.source == "ai"
+    assert ai_row.ratio is None
+
+
+def test_the_shares_add_up_to_the_evaluation_once_everything_is_scored() -> None:
+    """内訳は合計の分け方である。足すと評価点（`final_score`）と一致する。"""
+    task = _task_version()
+    run = _run_missing_the_ai_criterion()
+    ai_score = CriterionScore(
+        id=CriterionScoreId(new_id("cs")),
+        criterion_id=READABILITY,
+        evaluator_result_id=EvaluatorResultId(new_id("evr")),
+        kind=EvaluatorKind.AI,
+        level=0,
+        score_ratio=0.0,
+        weight=0.3,
+        confidence=0.9,
+        conclusive=False,
+        rationale="読みにくい。",
+    )
+    deterministic = run.criterion_scores[0].model_copy(update={"weight": 0.7})
+    complete = run.model_copy(
+        update={
+            "unscored_criteria": (),
+            "routing": Routing.AUTO,
+            "criterion_scores": (deterministic, ai_score),
+            "score_ratio": 0.7,
+        }
+    )
+
+    view = build_result_view(complete, task, None)
+
+    assert view.score_ratio is not None
+    assert sum(share.earned for share in view.shares) == view.evaluation_ratio
+    shares = {share.source: share for share in view.shares}
+    assert shares["ai"].earned == 0.0 and not shares["ai"].pending
+    assert shares["test"].earned == 0.7
+
+
+def test_a_criterion_cut_by_the_gate_is_its_own_share_not_the_ais() -> None:
+    """打ち切りは確定した 0%。AI の分として「待っています」と出さない。"""
+    run = _run_missing_the_ai_criterion().model_copy(
+        update={
+            "unscored_criteria": (),
+            "skipped_criteria": (READABILITY,),
+            "routing": Routing.AUTO,
+        }
+    )
+
+    view = build_result_view(run, _task_version(), None)
+
+    sources = [share.source for share in view.shares]
+    assert sources == ["test", "gated"]
+    assert not any(share.pending for share in view.shares)

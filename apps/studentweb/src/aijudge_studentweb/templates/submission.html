@@ -71,10 +71,25 @@
    結果を読んだあと（下）に出す。 #}
 {% if not run or awaiting_release %}{{ resubmit_block() }}{% endif %}
 
+{# 内訳の数字の出し方。配点のある課題は点、無い課題はポイント（満点＝100）。
+   **分母を必ず付ける**（`SourceShare`）── 分子だけだと途中の数字が合計に見える。 #}
+{% set current = (attempts | selectattr('submission.id', 'equalto', submission.id) | list | first) if attempts else none %}
+{% set scale = current.max_points if (current and current.pointed) else 100 %}
+{% set unit_word = '点' if (current and current.pointed) else 'ポイント' %}
+{% macro amount(ratio) %}{{ '%g' | format((ratio * scale) | round(1)) }}{% endmacro %}
+
 {% if run and not awaiting_release %}
 
 <div class="card">
-{% if view.score_withheld %}
+{% if view.score_withheld and awaiting_ai %}
+  {# **AI の分を待っているだけ**で、採点が壊れたのではない。以前は「採点できなかった
+     観点があるため」と出ており、待てば届くものを失敗と読ませていた。 #}
+  <div class="score">—<span class="unit">AI 待ち</span></div>
+  <p class="desc" style="margin:0">
+    <strong>テスト実行の分は決まっています。</strong>
+    AI が担当する分が届くと、合計を表示します（下の内訳を見てください）。
+  </p>
+{% elif view.score_withheld %}
   {# **総合点は出さない。** 採点できなかった観点があるあいだ、残った観点だけを
      比例配分した合計は「読みやすさが未評価のまま 100%」として読まれる
      （visibility.py 冒頭）。なぜ無いのかを必ず添える ── 黙って空にすると、
@@ -125,6 +140,35 @@
       {% if view.settles_at %}（{{ view.settles_at | local('%m/%d %H:%M') }} に確定予定）{% endif %}
     </p>
   {% endif %}
+{% endif %}
+
+{# 総合点の内訳（テスト実行・AI・担当教員）。**届く時刻が違う**ので、誰の分がいま
+   決まっていて、誰の分を待っているかを分けて見せる。合計は上の数字（保留中は出さない）。 #}
+{% if view.shares | length > 1 or (view.shares | length == 1 and view.score_withheld) %}
+<ul class="shares" style="list-style:none;margin:.7rem 0 0;padding:0">
+  {% for share in view.shares %}
+  <li style="margin:.2rem 0">
+    <span class="pill {{ 'ai' if share.source == 'ai' else ('det' if share.source == 'test' else '') }}">{{ share.label }}</span>
+    {% if share.pending %}
+      <strong>{% if share.earned > 0 %}{{ amount(share.earned) }}{% else %}―{% endif %} / {{ amount(share.possible) }} {{ unit_word }}</strong>
+      <span class="desc">
+        {% if share.source == 'ai' and awaiting_ai %}待っています
+        {%- elif share.source == 'human' %}担当教員が採点します
+        {%- else %}採点できませんでした（担当教員が確認します）{% endif %}
+      </span>
+    {% else %}
+      <strong>{{ amount(share.earned) }} / {{ amount(share.possible) }} {{ unit_word }}</strong>
+      {% if share.adjusted %}<span class="desc">（教員が調整した観点を含む）</span>{% endif %}
+      {% if share.source == 'gated' %}<span class="desc">前の観点が 0% のため</span>{% endif %}
+    {% endif %}
+  </li>
+  {% endfor %}
+</ul>
+<p class="desc" style="margin:.3rem 0 0">
+  テスト実行はプログラムを動かして機械が、AI は答えを読んで AI が判定します。届く時刻が違うので、
+  AI の分が届くと合計が表示されます。
+  {% if not view.confirmed %}確定前の点は、担当教員の確認で変わることがあります。{% endif %}
+</p>
 {% endif %}
 </div>
 

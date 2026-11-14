@@ -804,6 +804,24 @@
 
   // -- 提出 ------------------------------------------------------------------
 
+  // 受付の確認の文。**サーバが受け付けた時刻を添える**（2026-11-14）。「提出したのに
+  // 未提出と表示された」という声があり、押したことと受け付けられたことを、時刻で
+  // 画面から確かめられるようにする。時刻が無い応答（古いサーバ）なら時刻なしの文にする。
+  function receiptMessage(data) {
+    var when = "";
+    if (data.submitted_at) {
+      var moment = new Date(data.submitted_at);
+      if (!isNaN(moment.getTime())) {
+        var pad = function (n) { return (n < 10 ? "0" : "") + n; };
+        when = pad(moment.getHours()) + ":" + pad(moment.getMinutes()) + ":" + pad(moment.getSeconds());
+      }
+    }
+    if (data.deduplicated) {
+      return "同じ内容を" + (when ? " " + when + " に" : "") + "提出済みです（" + data.attempt + " 回目）。";
+    }
+    return (when ? when + " に" : "") + "受け付けました（" + data.attempt + " 回目）。";
+  }
+
   $all(".ide-submit").forEach(function (button) {
     button.addEventListener("click", function () {
       var index = parseInt(button.getAttribute("data-tab"), 10);
@@ -843,7 +861,7 @@
           dirty[index] = false;
           paintTabState(index);
           note.textContent = "";
-          var message = data.deduplicated ? "同じ内容を提出済みです（" + data.attempt + " 回目）。" : "提出しました（" + data.attempt + " 回目）。";
+          var message = receiptMessage(data);
           note.appendChild(document.createTextNode(message + " "));
           var link = document.createElement("a");
           link.href = data.url;
@@ -954,7 +972,7 @@
           state[index].submitted = Math.max(state[index].submitted, data.attempt);
           paintAttach(index);
           note.textContent = "";
-          var message = data.deduplicated ? "同じ内容を提出済みです（" + data.attempt + " 回目）。" : "提出しました（" + data.attempt + " 回目）。";
+          var message = receiptMessage(data);
           note.appendChild(document.createTextNode(message + " "));
           var link = document.createElement("a");
           link.href = data.url;

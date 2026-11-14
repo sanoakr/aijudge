@@ -578,6 +578,11 @@ def test_the_learner_is_told_the_ai_phase_is_still_coming(world: World) -> None:
     body = world.client.get(location).text
     assert "AI 評価を待っています" in body
     assert "テスト実行の結果は下に表示されています" in body
+    # AI の分を待っているだけで、採点できなかったのではない。内訳で分けて見せる。
+    assert "AI 待ち" in body
+    assert "採点できなかった観点があるため" not in body
+    assert "待っています" in body
+    assert "ポイント" in body or "点</strong>" in body
 
     submission_id = location.split("/")[-1].split("?")[0]
     state = world.client.get(f"/submissions/{submission_id}/state").json()
@@ -594,6 +599,9 @@ def test_the_learner_is_told_the_ai_phase_is_still_coming(world: World) -> None:
     done = world.client.get(location).text
     assert "AI 評価を待っています" not in done
     assert "/state" not in done
+    assert "AI 待ち" not in done
+    # 届いたあとも、テスト実行と AI のそれぞれの分を内訳で見せる。
+    assert 'class="shares"' in done
 
 
 @needs_c_compiler
