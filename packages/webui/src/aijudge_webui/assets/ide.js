@@ -561,6 +561,175 @@
     window.addEventListener("resize", paint);
   })();
 
+  // -- 境界をつかんで動かす（2026-11-15） ---------------------------------------------
+  //
+  // 2 つの境界を、ドラッグ（と矢印キー）で動かせる。
+  //
+  //   エディタの高さ        エディタとその下の入出力・実行提出の間（横の帯）
+  //   問題文との境界         問題文を左に並べているときは幅（縦の帯）、上に積んでいるとき
+  //                         は高さ（横の帯）
+  //
+  // 大きさは CSS の変数（`--ide-editor-h`・`--ide-statement-w`・`--ide-statement-h`）に
+  // 入れ、全部の課題のタブで共通にする。ブラウザに覚える（localStorage が使えなければ覚えずに
+  // 動く）。ダブルクリックで既定に戻す。**記録や提出には関わらない**（見た目だけ）。
+  (function () {
+    var KEY_PREFIX = "aijudge.ide.size.";
+    var WIDE = 1100;
+    var KEY_STEP = 24; // 矢印キー 1 回の移動量（px）
+    var MIN_EDITOR = 120;
+    var MIN_STATEMENT = 80;
+    var MIN_STATEMENT_WIDTH = 200;
+    var MAX_STATEMENT_WIDTH_RATIO = 0.7;
+    var MAX_STATEMENT_HEIGHT_RATIO = 0.8;
+    var root = document.documentElement;
+
+    function load(name) {
+      try {
+        var value = parseInt(window.localStorage.getItem(KEY_PREFIX + name), 10);
+        return isFinite(value) && value > 0 ? value : null;
+      } catch (e) { return null; }
+    }
+    function save(name, value) {
+      try {
+        if (value === null) window.localStorage.removeItem(KEY_PREFIX + name);
+        else window.localStorage.setItem(KEY_PREFIX + name, String(Math.round(value)));
+      } catch (e) { /* 覚えられなくてもよい */ }
+    }
+    function clamp(value, low, high) { return Math.max(low, Math.min(high, value)); }
+    function relayout() {
+      editors.forEach(function (editor) { if (editor) editor.layout(); });
+    }
+
+    // 3 つの大きさ。`read` は今の大きさ（px）、`apply` は変数に入れる、`reset` は既定へ戻す。
+    function setVar(name, value) { root.style.setProperty(name, Math.round(value) + "px"); }
+    var sizes = {
+      editor: {
+        orientation: function () { return "h"; },
+        read: function (handle) {
+          var panel = handle.closest(".ide-panel");
+          return $(".ide-editor", panel).getBoundingClientRect().height;
+        },
+        apply: function (px) {
+          var value = clamp(px, MIN_EDITOR, window.innerHeight * 3);
+          setVar("--ide-editor-h", value);
+          save("editorH", value);
+        },
+        reset: function () { root.style.removeProperty("--ide-editor-h"); save("editorH", null); },
+      },
+      statement: {
+        orientation: function (handle) {
+          var panel = handle.closest(".ide-panel");
+          var side = panel.getAttribute("data-layout") === "side" && window.innerWidth >= WIDE;
+          return side ? "v" : "h";
+        },
+        read: function (handle) {
+          var rect = $(".ide-statement", handle.closest(".ide-panel")).getBoundingClientRect();
+          return sizes.statement.orientation(handle) === "v" ? rect.width : rect.height;
+        },
+        apply: function (px, handle) {
+          if (sizes.statement.orientation(handle) === "v") {
+            var wide = clamp(px, MIN_STATEMENT_WIDTH, window.innerWidth * MAX_STATEMENT_WIDTH_RATIO);
+            setVar("--ide-statement-w", wide);
+            save("statementW", wide);
+            return;
+          }
+          var high = clamp(px, MIN_STATEMENT, window.innerHeight * MAX_STATEMENT_HEIGHT_RATIO);
+          setVar("--ide-statement-h", high);
+          save("statementH", high);
+        },
+        reset: function (handle) {
+          // 今の向きの大きさだけ戻す（もう一方の向きの値は残す）。
+          if (sizes.statement.orientation(handle) === "v") {
+            root.style.removeProperty("--ide-statement-w");
+            save("statementW", null);
+          } else {
+            root.style.removeProperty("--ide-statement-h");
+            save("statementH", null);
+          }
+        },
+      },
+    };
+
+    var savedEditor = load("editorH");
+    if (savedEditor) setVar("--ide-editor-h", savedEditor);
+    var savedWidth = load("statementW");
+    if (savedWidth) setVar("--ide-statement-w", savedWidth);
+    var savedHeight = load("statementH");
+    if (savedHeight) setVar("--ide-statement-h", savedHeight);
+
+    function setup(handle) {
+      var size = sizes[handle.getAttribute("data-split")];
+      if (!size) return;
+      function orient() {
+        var orientation = size.orientation(handle);
+        handle.setAttribute("aria-orientation", orientation === "v" ? "vertical" : "horizontal");
+        return orientation;
+      }
+
+      handle.addEventListener("pointerdown", function (event) {
+        if (event.button !== 0) return;
+        event.preventDefault();
+        var orientation = orient();
+        var axis = orientation === "v" ? "clientX" : "clientY";
+        var origin = event[axis];
+        var base = size.read(handle);
+        handle.setPointerCapture(event.pointerId);
+        handle.setAttribute("data-dragging", "");
+        document.body.classList.add("ide-resizing");
+        function move(e) {
+          size.apply(base + (e[axis] - origin), handle);
+          relayout();
+        }
+        function stop(e) {
+          handle.removeEventListener("pointermove", move);
+          handle.removeEventListener("pointerup", stop);
+          handle.removeEventListener("pointercancel", stop);
+          handle.removeAttribute("data-dragging");
+          document.body.classList.remove("ide-resizing");
+          try { handle.releasePointerCapture(e.pointerId); } catch (err) { /* 既に外れている */ }
+          relayout();
+        }
+        handle.addEventListener("pointermove", move);
+        handle.addEventListener("pointerup", stop);
+        handle.addEventListener("pointercancel", stop);
+      });
+
+      // 矢印キー: 帯が横なら上下、縦なら左右。左右の帯は右へ動かすと問題文が広がる。
+      handle.addEventListener("keydown", function (event) {
+        var orientation = orient();
+        var keys = orientation === "v"
+          ? { ArrowLeft: -1, ArrowRight: 1 }
+          : { ArrowUp: -1, ArrowDown: 1 };
+        var direction = keys[event.key];
+        if (!direction) return;
+        event.preventDefault();
+        size.apply(size.read(handle) + direction * KEY_STEP, handle);
+        relayout();
+      });
+
+      handle.addEventListener("dblclick", function () {
+        size.reset(handle);
+        relayout();
+      });
+
+      orient();
+      handle.hidden = false;
+    }
+
+    $all("[data-split]").forEach(setup);
+    // 並べ方や画面の幅が変わると、問題文との境界の向きが変わる。
+    function refresh() {
+      $all("[data-split]").forEach(function (handle) {
+        var size = sizes[handle.getAttribute("data-split")];
+        if (size) handle.setAttribute("aria-orientation", size.orientation(handle) === "v" ? "vertical" : "horizontal");
+      });
+    }
+    window.addEventListener("resize", refresh);
+    $all("[data-view-layout]").forEach(function (button) {
+      button.addEventListener("click", refresh);
+    });
+  })();
+
   // -- タブ ------------------------------------------------------------------
 
   function selectTab(index) {
