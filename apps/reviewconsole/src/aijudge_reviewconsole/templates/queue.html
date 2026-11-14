@@ -40,7 +40,12 @@
         {% else %}—{% endif %}
       </td>
       <td class="fit" data-label="回">{{ row.attempt_no or row.submission.attempt }} 回目</td>
-      <td class="fit" data-label="AI の総合">{{ '%.0f' | format(row.run.score_ratio * 100) }}%</td>
+      {# **blind 採点が済むまで総合点は出さない**（#695）。blind は AI の判定を見る前に
+         自分で段階を付ける作業で、一覧に総合点があると画面に入る前に判定が読める。 #}
+      <td class="fit" data-label="AI の総合">
+        {% if row.needs_blind %}<span class="desc">blind 採点後に表示</span>
+        {% else %}{{ '%.0f' | format(row.run.score_ratio * 100) }}%{% endif %}
+      </td>
       <td class="grow" data-label="依頼の理由">{{ row.request.reason }}</td>
       <td class="fit">
         <a href="{{ root_prefix() }}/review/{{ row.submission.id }}/reveal?from=queue">確認して確定する</a>

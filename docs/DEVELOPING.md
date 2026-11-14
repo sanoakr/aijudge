@@ -40,6 +40,18 @@ databases are **dropped and recreated at the start of every run**, so point the
 URL only at a throwaway server, never at one reached through a tunnel to a real
 deployment.
 
+The browser tests for `live.js` (the console's auto-refresh) need Playwright
+and Chromium, which `--extra dev` does not install, so a plain `uv run pytest`
+skips them. **Skipped means unverified.** CI runs them in the `browser` job with
+`AIJUDGE_REQUIRE_BROWSER=1`, which turns a missing browser into a failure (#689).
+To run them locally:
+
+```fish
+uv sync --extra dev --group guide-shots
+uv run --group guide-shots playwright install chromium   # once
+AIJUDGE_REQUIRE_BROWSER=1 uv run --group guide-shots pytest packages/webui/tests/test_live_refresh_in_a_browser.py -v
+```
+
 ### User guide site
 
 `docs/guide/` is the user guide (learners, TAs, instructors), published to

@@ -140,7 +140,11 @@
       <td class="fit" data-label="提出">{{ row.submission.submitted_at | local('%m-%d %H:%M') if row.submission.submitted_at else '—' }}</td>
       <td class="grow mono" data-label="学習者">{{ row.learner.login if row.learner else '—' }}</td>
       <td class="fit" data-label="回">{{ row.attempt_no or row.submission.attempt }} 回目</td>
-      <td class="fit" data-label="AI の総合">{{ '%.0f' | format(row.run.score_ratio * 100) }}%</td>
+      {# **blind 採点が済むまで総合点は出さない**（#695）。 #}
+      <td class="fit" data-label="AI の総合">
+        {% if row.needs_blind %}<span class="desc">blind 採点後に表示</span>
+        {% else %}{{ '%.0f' | format(row.run.score_ratio * 100) }}%{% endif %}
+      </td>
       {# 自動確定される時刻（採点の完了＋猶予）。巡回が時刻を過ぎた最初の回に閉じる。 #}
       <td class="fit" data-label="確定予定">{{ row.settles_at | local('%m-%d %H:%M') if row.settles_at else '—' }}</td>
       <td class="fit">

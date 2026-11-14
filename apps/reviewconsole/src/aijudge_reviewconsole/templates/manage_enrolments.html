@@ -42,6 +42,12 @@
   <br>うち {{ enrol_result.provisioned }} 件はまだログインしたことのない学内アカウントで、利用者を新たに作りました。
   本人が学内ログインをした時点でそのまま結び付きます（パスワードの配布は要りません）。
   {% endif %}
+  {# 管理者と自分の行は、役割を変えない（#700）。黙って飛ばすと、教員は入ったものと読む。 #}
+  {% if enrol_result.protected %}
+  <br><strong>{{ enrol_result.protected | length }} 件は役割を変更しませんでした</strong> ── 管理者、または自分自身の受講です
+  （自分の役割を変えるとこのコースの管理画面に入れなくなります）:
+  <span class="mono">{{ enrol_result.protected | join(', ') }}</span>
+  {% endif %}
   {% if enrol_result.unknown %}
   <br><strong>{{ enrol_result.unknown | length }} 件は登録できませんでした</strong> ── 学内ログインのドメインではなく、利用者も未登録のアカウントです:
   <span class="mono">{{ enrol_result.unknown | join(', ') }}</span>

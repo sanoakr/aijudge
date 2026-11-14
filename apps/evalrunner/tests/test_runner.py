@@ -188,6 +188,19 @@ def test_excluded_observations_are_reported_not_hidden() -> None:
     assert "一致度の標本から外した観測" in render(report)
 
 
+def test_the_report_says_which_way_the_bias_points() -> None:
+    """AI が甘いと偏りは負になり、報告はその向きを読める形で書く（#683）。"""
+    report = measure(
+        [observation("s001.c", human=1, machine=2), observation("s002.c", human=1, machine=2)],
+        gates=_gates(),
+        subject_profile="cs_lang_c_intro",
+    )
+    assert report.agreement["readability"].mean_bias == -1.0
+    text = render(report)
+    assert "偏り（教員 − AI）" in text
+    assert "負なら AI が甘く" in text
+
+
 # --------------------------------------------------------------------------
 # 運用の指標
 # --------------------------------------------------------------------------

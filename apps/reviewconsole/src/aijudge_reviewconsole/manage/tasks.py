@@ -26,9 +26,10 @@ from aijudge_authoring import (
     render_statement,
 )
 from aijudge_authoring.spec import TestCaseSpec
-from aijudge_core import DEFAULT_UPLOAD_SUFFIXES, may_see, new_id
+from aijudge_core import DEFAULT_UPLOAD_SUFFIXES, Task, may_see, new_id
 from aijudge_core.ids import CourseId, TaskId, TaskVersionId
 from aijudge_course_admin import rubric
+from aijudge_course_admin.answer_mode import unit_values_for
 from aijudge_course_admin.authoring import save_task
 from aijudge_course_admin.errors import AdminError
 from aijudge_course_admin.kc import allowed_namespaces, assert_registered, list_for_namespaces
@@ -411,18 +412,14 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
                 uow.tasks.save_task(saved.task.model_copy(update={"accepted_suffixes": accepted}))
                 uow.commit()
         else:
+            # **セットの値は 1 か所の一覧から引き継ぐ**（`unit_values_for`・#709）。以前は日程の
+            # 5 欄だけを写し、学内限定・公開まで秘匿・試験・出題先・受付終了・採点開始・確認後に
+            # 返す設定は既定のまま入った ── 公開前のセットに 1 問足すと、その 1 問だけ TA に見えた。
             with console.database.unit_of_work() as uow:
+                stored = uow.tasks.get_task(saved.task.id)
+                chosen = (stored or saved.task).model_copy(update={"accepted_suffixes": accepted})
                 uow.tasks.save_task(
-                    saved.task.model_copy(
-                        update={
-                            "session": head.session,
-                            "opens_at": head.opens_at,
-                            "submissions_open_at": head.submissions_open_at,
-                            "due_at": head.due_at,
-                            "auto_finalize_after_minutes": head.auto_finalize_after_minutes,
-                            "accepted_suffixes": accepted,
-                        }
-                    )
+                    Task.model_validate(chosen.model_dump() | unit_values_for(head, chosen, course))
                 )
                 uow.commit()
 

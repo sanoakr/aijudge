@@ -37,6 +37,17 @@ CI はテストを**並列に**実行する（`uv run pytest -n auto --dist load
 共有すると、別の worker のテストを壊すためである。**この DB は毎回削除して作り直す**ので、接続先には
 使い捨てのサーバーだけを指定すること。運用機へのトンネルの先は、決して指定しない。
 
+`live.js`（コンソールの自動更新）のブラウザテストには Playwright と Chromium が要る。
+`--extra dev` では入らないので、`uv run pytest` だけでは skip される。**skip は未確認であって
+安全ではない。** CI は `browser` ジョブで `AIJUDGE_REQUIRE_BROWSER=1` を付けて実行し、
+ブラウザが無ければ失敗にする（#689）。手元で実行するには次のようにする。
+
+```fish
+uv sync --extra dev --group guide-shots
+uv run --group guide-shots playwright install chromium   # 初回だけ
+AIJUDGE_REQUIRE_BROWSER=1 uv run --group guide-shots pytest packages/webui/tests/test_live_refresh_in_a_browser.py -v
+```
+
 ### 利用ガイドのサイト
 
 `docs/guide/` は利用者向けガイド（学生・TA・教員）で、`main` にマージされると
