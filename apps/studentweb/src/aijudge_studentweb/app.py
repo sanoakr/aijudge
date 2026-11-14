@@ -44,6 +44,7 @@ from aijudge_core import (
     CampusAccess,
     Course,
     GradingPhase,
+    GradingRun,
     MasteryScope,
     ReviewRequest,
     Role,
@@ -1381,6 +1382,13 @@ def create_app(app_state: StudentApp) -> FastAPI:
                 # 何でもテキストとして出しており、画像は化けたバイナリに
                 # なっていた。
                 "files": _submitted_files(loaded.submission),
+                # 画像から読み取った文字（採点が見たもの）。教員の確認後に返す回では、
+                # 結果と同じく返すまで出さない。
+                "transcripts": (
+                    {}
+                    if loaded.view is None or loaded.view.held_for_review
+                    else _transcripts(loaded.run, loaded.submission)
+                ),
                 "duplicate": bool(again),
                 "awaiting_deterministic": loaded.awaiting_deterministic,
                 "awaiting_ai": loaded.awaiting_ai,
@@ -1566,6 +1574,7 @@ def create_app(app_state: StudentApp) -> FastAPI:
             gate=partial(_submission_gate, by_file=False),
             # 画像・PDF をエディタの画面から出す経路も、課題の画面と同じ検査を通す。
             accept_uploads=accept_uploads,
+            max_files=MAX_FILES_PER_SUBMISSION,
             attempt_number=lambda submission, task, tenant: attempt_number(
                 app_state, submission, task, tenant
             ),
@@ -2304,6 +2313,39 @@ def _submission_view(
 # 画面に埋め込んでよい種別。**それ以外はダウンロードさせる** ── 学習者が
 # 出したファイルをインラインで返すと、ブラウザが中身を解釈しうる（#75）。
 _INLINE_KINDS = (ArtifactKind.IMAGE, ArtifactKind.PDF, ArtifactKind.VIDEO)
+
+
+# 画面に出す読み取り結果の長さの上限（文字）。長い文書の全文で画面を埋めない。
+MAX_TRANSCRIPT_CHARS = 4000
+
+
+def _transcripts(run: GradingRun | None, submission: Submission) -> dict[str, dict[str, object]]:
+    """画像から**システムが読み取った文字**（提出物の ID → 本文か失敗の理由）。
+
+    採点は画像そのものではなく、この文字列を見る（ADR 0021）。学習者が「どう読まれたか」を
+    知らないと、読み違いで点が付かなかったときに、何が起きたのか分からない。アンケート
+    （network・2026-11-13）の画像の読み取りへの不満は、この見えなさに根がある。**自分が出した
+    画像の読み取り結果だけ**で、評価の基準や他の学習者のものは含まない。
+    """
+    if run is None:
+        return {}
+    images = {
+        str(artifact.id)
+        for artifact in submission.gradable_artifacts
+        if artifact.kind is ArtifactKind.IMAGE
+    }
+    out: dict[str, dict[str, object]] = {}
+    for extraction in run.extractions:
+        if extraction.artifact_id not in images:
+            continue
+        text = extraction.text.decode("utf-8", "replace")
+        out[extraction.artifact_id] = {
+            "text": text[:MAX_TRANSCRIPT_CHARS],
+            "truncated": len(text) > MAX_TRANSCRIPT_CHARS,
+            "failed_reason": extraction.failed_reason,
+            "empty": not text.strip(),
+        }
+    return out
 
 
 def _submitted_files(submission: Submission) -> tuple[dict[str, object], ...]:

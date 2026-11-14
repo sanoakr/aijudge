@@ -157,6 +157,9 @@ class IdeDeps:
     # 提出が課題の何回目か（版をまたぐ・`app.attempt_number`）。画面の「◯回目」に使う。
     attempt_number: Callable[[Any, Task, Any], int] | None = None
     profiles: dict[str, SubjectProfile] = field(default_factory=dict)
+    # 1 回の提出に入れられるファイル数（課題の画面と同じ値・`app.MAX_FILES_PER_SUBMISSION`）。
+    # 画面が選ぶ段階で上限を知らせるために渡す。数えて断るのは受け口（`accept_uploads`）。
+    max_files: int = 10
 
     def formats_for(self, task: Task, course: Course) -> tuple[EditorFormat, ...]:
         """この課題でエディタが選べる形式。**受付と同じ関数**で提出形式を決める。
@@ -410,6 +413,7 @@ def register_ide_routes(app: FastAPI, deps: IdeDeps, me_dependency: Any) -> None
                 "remaining_seconds": (
                     None if accepts_until is None else int((accepts_until - moment).total_seconds())
                 ),
+                "max_files": deps.max_files,
                 "poll_ms": POLL_INTERVAL_MS,
                 "autosave_ms": AUTOSAVE_INTERVAL_MS,
                 "max_source_bytes": MAX_SOURCE_BYTES,
