@@ -73,7 +73,8 @@ def _boxes(browser, *, width: int, layout: str, statement: str = "shown") -> dic
         out[name] = page.eval_on_selector(
             selector,
             "e => { const r = e.getBoundingClientRect();"
-            " return {x: r.x, y: r.y, w: r.width, h: r.height, shown: r.width > 0 && r.height > 0}; }",
+            " return {x: r.x, y: r.y, w: r.width, h: r.height,"
+            " shown: r.width > 0 && r.height > 0}; }",
         )
     page.close()
     return out
