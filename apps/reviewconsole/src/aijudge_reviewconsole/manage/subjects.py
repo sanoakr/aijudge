@@ -66,7 +66,17 @@ def _used_by(request: Request, names: list[str]) -> dict[str, tuple]:
     """名前ごとの参照コース。**テナントを越えて調べる**（profiles.py 参照）。"""
     console = _console(request)
     with console.database.unit_of_work() as uow:
-        return {name: uow.identity.list_courses_using_profile(name) for name in names}
+        used: dict[str, tuple] = {}
+        for name in names:
+            # **コースの既定に加えて、課題版が指すものも参照に数える**（#691）。課題は自分の
+            # プロファイルを持てる（#195）。既定だけを見ると、課題だけから参照されている
+            # プロファイルが「未参照」になり、改名・保存で他のコースの採点が止まる。
+            courses = {c.id: c for c in uow.identity.list_courses_using_profile(name)}
+            for course_id in uow.tasks.course_ids_using_profile(name):
+                if course_id not in courses and (c := uow.identity.get_course(course_id)):
+                    courses[course_id] = c
+            used[name] = tuple(courses.values())
+        return used
 
 
 def register(router: APIRouter, templates: Jinja2Templates) -> None:

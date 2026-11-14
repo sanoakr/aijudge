@@ -1905,6 +1905,17 @@ class SqlTaskRepository:
         ).scalars()
         return tuple(TaskVersion.model_validate(row.document) for row in rows)
 
+    def course_ids_using_profile(self, subject_profile: str) -> tuple[CourseId, ...]:
+        """この科目プロファイルを指す課題版を持つコース（#691）。テナントで絞らない。"""
+        rows = self._session.execute(
+            select(TaskRow.course_id)
+            .join(TaskVersionRow, TaskVersionRow.task_id == TaskRow.id)
+            .where(TaskVersionRow.subject_profile == subject_profile)
+            .distinct()
+            .order_by(TaskRow.course_id)
+        ).scalars()
+        return tuple(CourseId(course_id) for course_id in rows)
+
     def list_for_course(self, course_id: CourseId) -> tuple[Task, ...]:
         rows = self._session.execute(
             select(TaskRow)
