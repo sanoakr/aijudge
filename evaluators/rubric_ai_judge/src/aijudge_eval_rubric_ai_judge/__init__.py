@@ -135,7 +135,14 @@ PROMPT = PromptTemplate(
     # 描画されるプロンプトは版 3 と 1 文字も違わない**（差し込むのは既存の行の
     # 末尾で、空なら空文字）── 既存の課題の採点は動かない。書いた課題での
     # 一致度はまだ測っていない。
-    version="4",
+    #
+    # ## 版 5 は確定済みの観点から根拠文を外した（2026-11-14）
+    #
+    # 「すでに確定していること」の節に、決定的評価器の根拠文をそのまま並べて
+    # いた。根拠文には学習者のプログラムの出力が混ざりうるので、教員が書いた
+    # 段階の名前と記述に置き換えた（`describe_prior`）。テンプレートの文面は
+    # 同じで、描画される節の中身だけが変わる。
+    version="5",
     system=(
         # 「プログラミング演習」と書いていたが、レポート課題にも同じ評価器を
         # 使う（`subjects/report_ja.yaml`）。嘘を書かない。
@@ -240,18 +247,37 @@ def describe_prior(request: EvaluationRequest) -> str:
     """決定的評価の結果を、モデルが読める形にする。
 
     これを渡すのが精度の鍵（設計方針 §04 step 3）。
+
+    **評価器の根拠文（`rationale`）は渡さない**（2026-11-14・版 5）。根拠文には、
+    学習者のプログラムが実行時に出した文字列（標準エラー出力の抜粋など）が
+    入りうる。この節は提出物の境界の外に置かれ、「確定事項」として読まれるので、
+    そこに学習者由来の文字列が混ざると、提出物はデータであって指示ではないという
+    約束の外から採点に影響できてしまう。渡すのは、教員が書いた観点の題名と段階の
+    名前・記述、点の割合だけにする ── どれも課題の定義から来ていて、学習者は
+    書けない。テストが何件一致したかなどの細部は失われるが、段階の記述が
+    その要約になっている。
     """
     if not request.prior_results:
         return "（まだ何も確定していません。）"
     lines: list[str] = []
     for score in request.prior_results:
         try:
-            title = request.task_version.criterion(score.criterion_id).title
+            criterion = request.task_version.criterion(score.criterion_id)
         except KeyError:
-            title = score.criterion_id
+            # 課題に無い観点の結果は、題名も段階も教員の定義から引けない。
+            # 識別子だけを出すのも避け、数えないことにする。
+            continue
         state = "確定" if score.conclusive else "参考"
-        lines.append(f"- [{state}] {title}: {score.score_ratio:.0%} — {score.rationale}")
-    return "\n".join(lines)
+        try:
+            level = criterion.level_for(score.level)
+            described = f"{level.label}（{level.descriptor}）" if level.descriptor else level.label
+        except KeyError:
+            described = ""
+        line = f"- [{state}] {criterion.title}: {score.score_ratio:.0%}"
+        if described:
+            line += f" — {described}"
+        lines.append(line)
+    return "\n".join(lines) if lines else "（まだ何も確定していません。）"
 
 
 class RubricAiJudge:

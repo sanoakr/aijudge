@@ -30,8 +30,8 @@ def _with(request, *, notes: str | None = None, answer: str | None = None):
     return request.model_copy(update={"task_version": version, "criterion": criterion})
 
 
-def test_the_prompt_version_is_4() -> None:
-    assert PROMPT.version == "4"
+def test_the_prompt_version_is_5() -> None:
+    assert PROMPT.version == "5"
 
 
 def test_without_the_new_fields_nothing_is_added() -> None:
