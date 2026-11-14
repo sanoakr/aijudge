@@ -29,6 +29,7 @@ blind 画面のレスポンスには AI の判定を一切含めない。CSS で
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import threading
@@ -37,7 +38,7 @@ from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 from urllib.parse import urlencode
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request, Response
@@ -95,7 +96,12 @@ from aijudge_core.ids import (
 )
 from aijudge_course_admin.finalization import pending_breakdown, pending_counts
 from aijudge_course_admin.rubric_text import rubric_justification
-from aijudge_grading import load_profile, project_observations
+from aijudge_grading import (
+    EvaluatorRegistry,
+    effective_profile,
+    load_profile,
+    project_observations,
+)
 from aijudge_identity import (
     DEFAULT_LOGIN_LABEL,
     INSTRUCTOR_ROLES,
@@ -124,7 +130,7 @@ from .live_poll import LivePollMiddleware
 from .notices import Notices
 from .overview import digests_for, load_units
 from .rail_context import RAIL_COURSE_ID, rail_context, rail_for
-from .sampling import is_blind_sample
+from .sampling import is_blind_sample, judged_by_ai
 from .submissions import (
     STATE_LABELS,
     Filters,
@@ -331,6 +337,8 @@ class Console:
         self.learner_url = learner_url.rstrip("/")
         self.learner_port = learner_port
         self._rates: dict[str, float] = {}
+        self._registry: EvaluatorRegistry | None = None
+        self._ai_judged: dict[tuple[str, str], bool] = {}
         # 保存のあとに一度だけ出す知らせ（`aijudge_reviewconsole.notices`）。
         # 以前は `last_*` の 8 属性でコース単位に持ち、読んでも消さなかったので、
         # 同じコースの別の教員にも出て、開き直すたびに出続けた。
@@ -370,17 +378,66 @@ class Console:
             self._rates[subject_profile] = rate
         return self._rates[subject_profile]
 
-    def needs_blind_mark(self, submission: Submission, subject_profile: str) -> bool:
+    def _evaluator_registry(self) -> EvaluatorRegistry:
+        """上書きの検査に使う評価器の登録簿。初めて要るときに一度だけ読む。"""
+        if self._registry is None:
+            self._registry = EvaluatorRegistry().load_installed()
+        return self._registry
+
+    def judged_by_ai(self, course: Course, task_version_id: object, uow: Any = None) -> bool:
+        """この課題版の採点で、AI が判定する観点があるか（実効設定で見る）。
+
+        **AI が何も判定しない課題は blind 採点の母集団に入れない**（決定的評価器
+        だけのアンケート等）。blind は AI と人の一致度を測るためのもので（ADR 0005）、
+        測る相手が無い提出に求めても手間が増えるだけである。`uow` が無ければ
+        自分で開く。結果は課題版（不変）とコースの上書きごとに覚える ── 一覧の
+        1 頁・帯の数え上げのどちらも、課題版の数だけ引けば済む。
+        読めないとき（課題版・プロファイル）は True ── **今までどおり抽出する**側に倒す。
+        """
+        key = (str(task_version_id), json.dumps(course.grading_overrides or {}, sort_keys=True))
+        cached = self._ai_judged.get(key)
+        if cached is not None:
+            return cached
+        if uow is None:
+            with self.database.unit_of_work() as opened:
+                return self.judged_by_ai(course, task_version_id, opened)
+        version = uow.tasks.get_version(task_version_id)
+        judged = True
+        if version is not None:
+            try:
+                base = load_profile(self.profiles_dir / f"{version.subject_profile}.yaml")
+                profile = (
+                    effective_profile(base, course.grading_overrides, self._evaluator_registry())
+                    if course.grading_overrides
+                    else base
+                )
+                judged = judged_by_ai(version.criteria, profile.ai_evaluators)
+            except Exception:
+                judged = True
+        self._ai_judged[key] = judged
+        return judged
+
+    def needs_blind_mark(
+        self,
+        submission: Submission,
+        course: Course,
+        *,
+        task_version_id: object = None,
+        uow: Any = None,
+    ) -> bool:
         """blind 採点の対象か。**抽出は提出 ID のハッシュで決める**（教員の
         選択ではない・ADR 0005）。
 
         教員・TA 自身の試行は母集団から外す（#108）。一致度は「AI の判定が
         学習者の提出に対してどれだけ人と合うか」であって、教員が動作確認で
-        通した入力は測りたいものではない。
+        通した入力は測りたいものではない。AI が何も判定しない課題も外す
+        （`judged_by_ai`）。`task_version_id` は採点した版（提出の版と違うとき）。
         """
         if submission.is_trial:
             return False
-        return is_blind_sample(str(submission.id), self.blind_sample_rate(subject_profile))
+        if not is_blind_sample(str(submission.id), self.blind_sample_rate(course.subject_profile)):
+            return False
+        return self.judged_by_ai(course, task_version_id or submission.task_version_id, uow)
 
     def source_of(self, submission: Submission) -> str:
         """提出物を本文として読む。**読めるものだけ**（#75）。
@@ -903,7 +960,10 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
             {
                 "me": principal,
                 "digests": digests_for(
-                    console.database, courses, blind_rate=console.blind_sample_rate
+                    console.database,
+                    courses,
+                    blind_rate=console.blind_sample_rate,
+                    judged_by_ai=console.judged_by_ai,
                 ),
                 # 採点しないコース（学習者として取っているもの）。
                 "attending": attending,
@@ -1087,7 +1147,7 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
             blind_pending = {
                 str(row.submission.id)
                 for row in shown
-                if console.needs_blind_mark(row.submission, course.subject_profile)
+                if console.needs_blind_mark(row.submission, course, uow=uow)
                 and uow.reviews.find_blind_mark(row.submission.id) is None
             }
             # IDE からの提出の出どころ（設計書 §9）。**受付終了時の自動提出は
@@ -2194,7 +2254,9 @@ def _load(
         awaiting_ai = uow.jobs.awaiting(submission_id, GradingPhase.AI)
         learner = uow.identity.get_user(submission.learner_id)
 
-    needs_blind = mark is None and console.needs_blind_mark(submission, course.subject_profile)
+    needs_blind = mark is None and console.needs_blind_mark(
+        submission, course, task_version_id=run.context.task_version_id
+    )
     return _Context(
         submission,
         run,
@@ -2289,7 +2351,9 @@ def _queue_rows(
                     "learner": learner,
                     "marked": mark is not None,
                     "needs_blind": mark is None
-                    and console.needs_blind_mark(submission, course.subject_profile),
+                    and console.needs_blind_mark(
+                        submission, course, task_version_id=run.context.task_version_id, uow=uow
+                    ),
                 }
             )
         _number_rows(uow, course.id, rows)
@@ -2324,10 +2388,14 @@ def _blind_rows(
         for submission, run in uow.reviews.pending_for_course(
             course_id, include_decided=True, limit=None
         ):
-            if not console.needs_blind_mark(submission, course.subject_profile):
-                continue
+            # 付いている blind 採点は、AI が判定しない課題の分も「済み」として数える
+            # （消さない・P8）。新しく求めるのは抽出に当たる提出だけ。
             if uow.reviews.find_blind_mark(submission.id) is not None:
                 marked += 1
+                continue
+            if not console.needs_blind_mark(
+                submission, course, task_version_id=run.context.task_version_id, uow=uow
+            ):
                 continue
             version = uow.tasks.get_version(submission.task_version_id)
             task = None if version is None else uow.tasks.get_task(version.task_id)
@@ -2410,7 +2478,9 @@ def _open_rows(console: Console, course: Course) -> tuple[dict, ...]:
                     "contested": blocks_finalization(request_row),
                     # blind 採点がまだ無い抽出済みの提出か（#695）。一覧に総合点を出さない
                     # 目印。抽出は ID のハッシュで決まるので、先にそれで絞ってから記録を引く。
-                    "needs_blind": console.needs_blind_mark(submission, course.subject_profile)
+                    "needs_blind": console.needs_blind_mark(
+                        submission, course, task_version_id=run.context.task_version_id, uow=uow
+                    )
                     and uow.reviews.find_blind_mark(submission.id) is None,
                     # 手動確定の画面に並べるか（2026-09-25）。レビュー方針が人の確認を
                     # 求めた採点は**推奨**で、猶予が明ければ自動で閉じる（ADR 0034）。

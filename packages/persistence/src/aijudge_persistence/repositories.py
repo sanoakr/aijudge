@@ -1083,20 +1083,33 @@ class SqlReviewRepository:
             for submission_row, run_row, request_row in self._session.execute(statement).all()
         )
 
-    def blind_candidates_for_course(self, course_id: CourseId) -> tuple[str, ...]:
-        """blind 採点の候補の提出 ID（Protocol の docstring）。1 文で引く。"""
-        graded = select(GradingRunRow.submission_id)
+    def blind_candidates_for_course(self, course_id: CourseId) -> tuple[tuple[str, str], ...]:
+        """blind 採点の候補の（提出 ID, 最新の採点の課題版 ID）（Protocol の docstring）。"""
+        latest = (
+            select(
+                GradingRunRow.submission_id.label("submission_id"),
+                func.max(GradingRunRow.created_at).label("created_at"),
+            )
+            .group_by(GradingRunRow.submission_id)
+            .subquery()
+        )
         marked = select(BlindMarkRow.submission_id)
         statement = (
-            select(SubmissionRow.id)
+            select(SubmissionRow.id, GradingRunRow.task_version_id)
             .join(TaskVersionRow, TaskVersionRow.id == SubmissionRow.task_version_id)
             .join(TaskRow, TaskRow.id == TaskVersionRow.task_id)
+            .join(GradingRunRow, GradingRunRow.submission_id == SubmissionRow.id)
+            .join(
+                latest,
+                (latest.c.submission_id == GradingRunRow.submission_id)
+                & (latest.c.created_at == GradingRunRow.created_at),
+            )
             .where(TaskRow.course_id == str(course_id))
             .where(SubmissionRow.is_trial.is_(False))
-            .where(SubmissionRow.id.in_(graded))
             .where(SubmissionRow.id.not_in(marked))
+            .distinct()
         )
-        return tuple(self._session.execute(statement).scalars().all())
+        return tuple((row[0], row[1]) for row in self._session.execute(statement).all())
 
     def pending_for_course(
         self, course_id: CourseId, *, include_decided: bool = False, limit: int | None = 200

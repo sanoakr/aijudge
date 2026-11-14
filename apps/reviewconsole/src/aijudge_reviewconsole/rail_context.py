@@ -23,7 +23,9 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from fastapi import Request
 
@@ -167,7 +169,10 @@ def _build(console, request: Request, principal) -> Rail:
         # **テナント管理者は受講登録が無くても管理できる**（#128）。
         can_manage = is_admin or (enrollment is not None and enrollment.role in INSTRUCTOR_ROLES)
         attention = course_attention(
-            uow, course, blind_rate=console.blind_sample_rate(course.subject_profile)
+            uow,
+            course,
+            blind_rate=console.blind_sample_rate(course.subject_profile),
+            judged_by_ai=console.judged_by_ai,
         )
 
     return course_rail(
@@ -198,7 +203,13 @@ class CourseAttention:
         return self.contested > 0 or self.manual > 0 or self.blind > 0
 
 
-def course_attention(uow, course, *, blind_rate: float) -> CourseAttention:
+def course_attention(
+    uow,
+    course,
+    *,
+    blind_rate: float,
+    judged_by_ai: Callable[[Any, Any, Any], bool] | None = None,
+) -> CourseAttention:
     """帯と担当コースの一覧が**同じ数え方**で読む件数（2026-10-19）。
 
     一覧に別の数え方を書くと、一覧で「要対応」と出たコースを開いても帯に
@@ -207,13 +218,20 @@ def course_attention(uow, course, *, blind_rate: float) -> CourseAttention:
     counts = uow.reviews.attention_counts_for_course(course.id)
     tasks = {str(task.id): task for task in uow.tasks.list_for_course(course.id)}
     # blind 採点の残り（2026-10-01）。**抽出率が 0 の科目では引かない。**
+    # AI が何も判定しない課題の提出は数えない（`Console.judged_by_ai`）。
+    # `judged_by_ai` が無ければ絞らない（`(コース, 課題版 ID, uow)` を受ける）。
     candidates = uow.reviews.blind_candidates_for_course(course.id) if blind_rate > 0 else ()
     manual, waiting = _split_unfinalized(course, tasks, counts)
     return CourseAttention(
         contested=counts.contested,
         manual=manual,
         waiting=waiting,
-        blind=sum(1 for submission_id in candidates if is_blind_sample(submission_id, blind_rate)),
+        blind=sum(
+            1
+            for submission_id, version_id in candidates
+            if is_blind_sample(submission_id, blind_rate)
+            and (judged_by_ai is None or judged_by_ai(course, version_id, uow))
+        ),
     )
 
 
