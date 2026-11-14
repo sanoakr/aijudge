@@ -14,6 +14,7 @@ from fastapi import APIRouter, Form, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
+from aijudge_audit import AuditAction
 from aijudge_core import Course, Role
 from aijudge_core.ids import CourseId, UserId
 from aijudge_course_admin.operations import enrol_roster
@@ -21,6 +22,7 @@ from aijudge_course_admin.roster import RosterEntry, RosterError, parse_roster
 from aijudge_identity import INSTRUCTOR_ROLES, AuthService, PermissionDenied, Principal
 
 from .. import mastery
+from ..audit_context import recorder_for
 from ..urls import RedirectResponse
 from .common import (
     GRANTABLE_ROLES,
@@ -35,6 +37,8 @@ from .messages import SAVED_MESSAGES
 
 # 受講登録の結果に載せる「未登録アカウント」の上限。それ以上は件数だけ言う。
 MAX_UNKNOWN_SHOWN = 20
+# 名簿の受講登録を監査に残すとき、1 行に載せる login の上限（名簿が大きくても行を膨らませない）。
+MAX_AUDIT_LOGINS = 200
 
 
 def _is_sso_login(login: str, domains: set[str]) -> bool:
@@ -255,6 +259,7 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
         already: int = 0,
         provisioned: int = 0,
         unknown: str = "",
+        protected: str = "",
     ) -> Response:
         """受講者の一覧。**コースの設定とは別の画面にする。**
 
@@ -325,6 +330,8 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
                         "already": already,
                         "provisioned": provisioned,
                         "unknown": [name for name in unquote(unknown).split(",") if name],
+                        # 役割を変えなかった行（管理者・自分）。黙って飛ばさない（#700）。
+                        "protected": [name for name in unquote(protected).split(",") if name],
                     }
                     if saved == "enrolled"
                     else None
@@ -374,6 +381,20 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
                     ),
                 )
             uow.identity.save_enrollment(existing.model_copy(update={"role": new_role}))
+            # **権限の変更は監査に残す**（#700・ADR 0016）。同じ作業単位に載せる ──
+            # 役割は変わったのに記録が無い、を作らない。
+            target = uow.identity.get_user(UserId(user_id))
+            recorder_for(uow, request, me).record(
+                AuditAction.ENROLLED,
+                target_type="user",
+                target_id=user_id,
+                summary=f"コースでの役割を {new_role.value} に変えた",
+                detail={
+                    "course_id": course_id,
+                    "login": None if target is None else target.login,
+                    "role": {"before": existing.role.value, "after": new_role.value},
+                },
+            )
             uow.commit()
         return RedirectResponse(
             f"/manage/courses/{course_id}/enrolments?saved=role#saved", status_code=303
@@ -421,27 +442,70 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
         # 直すことになる。入った件数と入らなかったアカウントは戻り先の画面に
         # そのまま出す（`enrolments` の `enrol_result`）。
         provisioned = 0
+        protected: list[str] = []
         with console.database.unit_of_work() as uow:
             oidc = uow.identity.get_oidc_settings(me.tenant_id)
             domains = set(oidc.allowed_domains) if oidc else set()
             auth = AuthService(uow.identity, audit=uow.audit)
             known: list[RosterEntry] = []
             for entry in entries:
-                if uow.identity.find_user_by_login(me.tenant_id, entry.login) is not None:
+                existing_user = uow.identity.find_user_by_login(me.tenant_id, entry.login)
+                if existing_user is not None:
+                    # **役割を変える行のうち、管理者と自分は変えない**（#700）。`set_role` は
+                    # 自分の役割の変更と管理者の役割の変更を断るのに、名簿の貼り付けには
+                    # その保護が無く、学期の名簿（自分や同僚の login を含む一覧）を既定の
+                    # 役割で貼り直すと、自分と同僚の教員がそろって学習者に落ちた。
+                    # 役割が同じ行は変更ではないので、そのまま「登録済み」に数える。
+                    current = uow.identity.find_enrollment(CourseId(course_id), existing_user.id)
+                    if (
+                        current is not None
+                        and current.role is not entry.role
+                        and (current.role is Role.ADMIN or existing_user.id == me.user_id)
+                    ):
+                        protected.append(entry.login)
+                        continue
                     known.append(entry)
                 elif _is_sso_login(entry.login, domains):
                     auth.provision_external(tenant_id=me.tenant_id, email=entry.login)
                     provisioned += 1
                     known.append(entry)
             uow.commit()
-        unknown = [entry.login for entry in entries if entry not in known]
+        unknown = [
+            entry.login for entry in entries if entry not in known and entry.login not in protected
+        ]
         enrolled = already = 0
         if known:
+
+            def record_roster(uow, report) -> None:
+                """受講登録を監査に残す（#700）。変えたものがあるときだけ、1 行にまとめる。
+
+                **登録と同じ作業単位で書く**（`enrol_roster` の `before_commit`）。件数と
+                login を残し、貼った名簿が大きくても行が膨らまないよう login は切る。
+                """
+                if not report.enrolled:
+                    return
+                recorder_for(uow, request, me).record(
+                    AuditAction.ENROLLED,
+                    target_type="course",
+                    target_id=course_id,
+                    summary=f"名簿で受講登録した（{len(report.enrolled)} 件）",
+                    detail={
+                        "course_id": course_id,
+                        "role": role,
+                        "enrolled": report.enrolled[:MAX_AUDIT_LOGINS],
+                        "already": report.already[:MAX_AUDIT_LOGINS],
+                        "protected": protected[:MAX_AUDIT_LOGINS],
+                        "truncated": max(len(report.enrolled), len(report.already))
+                        > MAX_AUDIT_LOGINS,
+                    },
+                )
+
             report = enrol_roster(
                 console.database,
                 tenant_id=me.tenant_id,
                 course_id=CourseId(course_id),
                 entries=known,
+                before_commit=record_roster,
             )
             enrolled, already = len(report.enrolled), len(report.already)
         # 未登録の一覧は URL に載せて戻す。**長さは切る** ── 名簿を丸ごと
@@ -452,7 +516,8 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
         return RedirectResponse(
             f"/manage/courses/{course_id}/enrolments?saved=enrolled"
             f"&enrolled={enrolled}&already={already}&provisioned={provisioned}"
-            f"&unknown={quote(shown)}#result",
+            f"&unknown={quote(shown)}"
+            f"&protected={quote(','.join(protected[:MAX_UNKNOWN_SHOWN]))}#result",
             status_code=303,
         )
 
@@ -468,7 +533,31 @@ def register(router: APIRouter, templates: Jinja2Templates) -> None:
             raise HTTPException(status_code=400, detail="自分の受講は取り消せません")
         console = _console(request)
         with console.database.unit_of_work() as uow:
+            existing = uow.identity.find_enrollment(CourseId(course_id), UserId(user_id))
+            # **管理者の受講は画面から外せない**（#700・`set_role` と同じ理由）。外せると
+            # 担当教員が管理者を自分のコースから締め出せる。
+            if existing is not None and existing.role is Role.ADMIN:
+                raise HTTPException(
+                    status_code=403,
+                    detail=(
+                        "管理者の受講はこの画面からは取り消せません"
+                        "（`aijudge-admin` で行ってください）"
+                    ),
+                )
             uow.identity.remove_enrollment(CourseId(course_id), UserId(user_id))
+            if existing is not None:
+                target = uow.identity.get_user(UserId(user_id))
+                recorder_for(uow, request, me).record(
+                    AuditAction.ENROLLED,
+                    target_type="user",
+                    target_id=user_id,
+                    summary="コースの受講を取り消した",
+                    detail={
+                        "course_id": course_id,
+                        "login": None if target is None else target.login,
+                        "role": {"before": existing.role.value, "after": None},
+                    },
+                )
             uow.commit()
         return RedirectResponse(
             f"/manage/courses/{course_id}/enrolments?saved=removed#saved", status_code=303

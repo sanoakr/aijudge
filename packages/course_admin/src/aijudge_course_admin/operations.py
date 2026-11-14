@@ -7,8 +7,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from aijudge_audit import AuditAction, AuditRecorder
 from aijudge_authoring.importers import sharif_judge
@@ -146,11 +148,16 @@ def enrol_roster(
     course_id: CourseId,
     entries: tuple[RosterEntry, ...],
     dry_run: bool = False,
+    before_commit: Callable[[Any, EnrolReport], None] | None = None,
 ) -> EnrolReport:
     """名簿の全員を利用者として用意し、コースに登録する。
 
     **既にある利用者のパスワードは変えない。** 変えると、配ったパスワードが
     名簿を流し直すたびに無効になる。役割の変更（学生 → TA）は反映する。
+
+    `before_commit` は確定の直前に、同じ作業単位と結果を渡して呼ぶ（#700）。権限の変更を
+    監査に残すためで、**別の作業単位で書くと、登録は通ったのに記録が無い、あるいはその
+    逆が起きる**（ADR 0016: 書けなかったら操作ごと失敗させる）。
     """
     report = EnrolReport()
 
@@ -194,6 +201,8 @@ def enrol_roster(
         if dry_run:
             uow.rollback()
         else:
+            if before_commit is not None:
+                before_commit(uow, report)
             uow.commit()
     return report
 
