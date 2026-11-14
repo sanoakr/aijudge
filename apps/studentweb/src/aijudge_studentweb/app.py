@@ -1287,6 +1287,18 @@ def create_app(app_state: StudentApp) -> FastAPI:
                 await run_in_threadpool(handle.abort)
                 raise
 
+        # **受付の判定をここでもう一度行う**（`finish_upload` と同じ理由）。
+        # 上の関門は本文を読む前の 1 回で、本文を受けない早道にすぎない ──
+        # 受付終了の直前に送り始め、本文を少しずつ流して終了後に送り終えれば、
+        # 受付終了後の提出が通っていた。提出が成立するのは本文を受け終えた
+        # この瞬間なので、窓も学内限定もこの時刻で判定し直す。断るなら、
+        # 書き終えた動画を残さない。
+        try:
+            _video_gate(request, me, task_version_id, filename, resumable=False)
+        except BaseException:
+            app_state.video_store.delete(storage_key)
+            raise
+
         try:
             result = app_state.submissions.record_streamed(
                 tenant_id=me.tenant_id,
