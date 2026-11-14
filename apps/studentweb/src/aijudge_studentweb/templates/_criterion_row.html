@@ -1,0 +1,58 @@
+    <tr>
+      <td><strong>{{ row.criterion.title }}</strong><br>
+          <span class="desc">{{ row.criterion.description }}</span></td>
+      <td class="fit" data-label="評価">
+        {% if row.pending %}<span class="pill">{{ row.label }}</span>
+        {% else %}<span class="pill ok">{{ row.label }}</span>
+          {% if row.adjusted %}<br><span class="desc">教員が調整</span>{% endif %}
+        {% endif %}
+      </td>
+      <td class="fit" data-label="判定">
+        {# **教員が段階を直した観点は、判定の出どころが教員である**（2026-11-14）。
+           以前は「AI」「テスト実行」のまま出ていて、直した段階と機械の判定の
+           どちらが成績なのかが学習者に読めなかった。 #}
+        {% if row.pending %}<span class="desc">—</span>
+        {% elif row.adjusted %}<span class="pill">担当教員</span>
+          <br><span class="desc">{% if row.by_ai %}AI{% else %}テスト実行{% endif %}の判定を調整</span>
+        {% elif row.by_ai %}<span class="pill ai">AI</span>
+        {# **人が採点した観点を「テスト実行」と出さない**（#236）。機械の
+           判定が無い観点なので、判定の出どころは教員である。 #}
+        {% elif row.by_human %}<span class="pill">担当教員</span>
+        {% else %}<span class="pill det">テスト実行</span>{% endif %}
+      </td>
+      <td class="grow" data-label="説明">
+        {# **教員が直した観点では、機械の理由を成績の説明として出さない**（2026-11-14）。
+           以前は直した段階の隣に、直す前の判定の理由（例: AI の「説明できている」）が
+           そのまま並び、段階と理由が食い違って見えた。理由は記録として残っている
+           ので（P8）消さずに、直す前のものだと見出しを付けて折りたたむ。教員の理由は
+           提出全体の「担当教員から」に出る（教員が段階を直すときは根拠の説明が必須）。 #}
+        {% if row.adjusted %}
+          <span class="adjusted-note">教員が段階を直しました。理由は下の「担当教員から」を見てください。</span>
+          {% if row.rationale %}
+            <details class="before-adjustment">
+              <summary class="desc">調整する前の判定の説明（{% if row.by_ai %}AI{% else %}テスト実行{% endif %}）</summary>
+              {{ row.rationale }}
+              {% if row.evidence_lines %}
+                <br><span class="desc">該当行: {{ row.evidence_lines | join(', ') }}</span>
+              {% endif %}
+            </details>
+          {% endif %}
+        {% elif row.rationale %}{{ row.rationale }}
+          {% if row.evidence_lines %}
+            <br><span class="desc">該当行: {{ row.evidence_lines | join(', ') }}</span>
+          {% endif %}
+        {% else %}<span class="desc">—</span>{% endif %}
+        {# 落ちたケースの入力（2026-10-18）。**期待出力は出さない**（答えになる）。
+           出すかどうかの判断は `visibility.py` にある。 #}
+        {% if row.failed_inputs %}
+          <div class="failed-inputs">
+            <span class="desc">正しく動かなかった入力{% if row.more_failed %}（最初の {{ row.failed_inputs | length }} 件）{% endif %}:</span>
+            {% for case in row.failed_inputs %}
+              <div class="desc mono">{{ case.name }}</div>
+              <pre>{% if case.input %}{{ case.input }}{% else %}（入力なし）{% endif %}{% if case.truncated %}
+…（以下省略）{% endif %}</pre>
+            {% endfor %}
+          </div>
+        {% endif %}
+      </td>
+    </tr>
