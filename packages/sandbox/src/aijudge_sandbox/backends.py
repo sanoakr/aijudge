@@ -183,10 +183,14 @@ class SeatbeltSandbox(LocalSandboxBase):
             workdir=str(workdir.resolve()),
             extra=extra,
         )
-        profile_path = workdir / ".aijudge-profile.sb"
-        profile_path.write_text(profile, encoding="utf-8")
-
-        return [SANDBOX_EXEC, "-f", str(profile_path), *argv], _base_env(request, workdir)
+        # プロファイルはファイルに書かず `-p` で文字列のまま渡す。以前は作業域の中
+        # （`.aijudge-profile.sb`）へホスト権限で書いていたが、作業域は提出物が
+        # 書ける場所で、`LocalWorkspace.write` の脱出検査も通らずリンクをたどる。
+        # 1 回目の実行で提出物がそこを作業域の外へのシンボリックリンクに差し替えると、
+        # 次の実行の `wrap` がリンク先のホストのファイルを上書きした（実測）。
+        # 文字列で渡せば、提出物が触れるファイルはそもそも存在しない。
+        # 長さは 1 KB 未満で、argv の上限には遠く及ばない。
+        return [SANDBOX_EXEC, "-p", profile, *argv], _base_env(request, workdir)
 
 
 # --------------------------------------------------------------------------
