@@ -714,3 +714,96 @@ def test_enrolling_into_a_course_that_does_not_exist_says_so(database: Database)
 
     assert "コースの ID" in str(exc.value)
     assert "course list" in str(exc.value)
+
+
+def test_enrol_without_credentials_creates_nobody_and_a_rerun_writes_them_all(
+    tmp_path: Path, capsys
+) -> None:
+    """出力先が無いまま流しても、利用者は 1 人も作られない（#696）。
+
+    以前は利用者を作って commit してから出力先が無いことを断ったので、生成したパスワードは
+    捨てられ、案内どおり再実行しても全員が既存利用者で、資格情報は 1 つも書き出されなかった。
+    """
+    _cli(
+        tmp_path, "course", "create", "--code", "network", "--title", "ネットワーク",
+        "--term", "2025-後期", "--profile", "cs_lang_c_intro",
+    )  # fmt: skip
+    course_id = next(
+        line.split()[-1] for line in capsys.readouterr().out.splitlines() if "作成" in line
+    )
+    roster = tmp_path / "roster.txt"
+    roster.write_text(PLAIN_ROSTER, encoding="utf-8")
+
+    assert _cli(tmp_path, "enrol", "--course", course_id, "--roster", str(roster)) == 1
+    assert "--credentials" in capsys.readouterr().err
+
+    db = Database.connect(f"sqlite+pysqlite:///{tmp_path}/cli.db")
+    with db.unit_of_work() as uow:
+        for login in ("t199999", "y239999"):
+            assert uow.identity.find_user_by_login(TENANT, login) is None, "断ったのに作られた"
+    db.dispose()
+
+    out = tmp_path / "pw.tsv"
+    args = ("enrol", "--course", course_id, "--roster", str(roster), "--credentials", str(out))
+    assert _cli(tmp_path, *args) == 0
+    text = out.read_text(encoding="utf-8")
+    assert "t199999" in text and "y239999" in text
+
+
+def _issued_token_id(tmp_path: Path, capsys, login: str = "boss") -> str:
+    """利用者を作ってトークンを発行し、その ID を返す。"""
+    db = Database.connect(f"sqlite+pysqlite:///{tmp_path}/cli.db", create=True)
+    with db.unit_of_work() as uow:
+        AuthService(uow.identity, audit=uow.audit).register(
+            tenant_id=TENANT, login=login, display_name=login, password="correct horse battery"
+        )
+        uow.commit()
+    db.dispose()
+    capsys.readouterr()
+    assert _cli(tmp_path, "token", "issue", "--login", login, "--note", "test") == 0
+    out = capsys.readouterr().out
+    return next(line.split()[-1] for line in out.splitlines() if line.startswith("ID:"))
+
+
+def _token_audits(tmp_path: Path):
+    from aijudge_audit import AuditAction
+
+    db = Database.connect(f"sqlite+pysqlite:///{tmp_path}/cli.db")
+    with db.unit_of_work() as uow:
+        rows = uow.audit.list_recent(TENANT, action=AuditAction.TOKEN_REVOKED)
+    db.dispose()
+    return rows
+
+
+def test_token_revoke_of_a_missing_id_fails_and_records_nothing(tmp_path: Path, capsys) -> None:
+    """存在しない ID で「失効させました」と出さない（#697）。漏れたトークンが有効なまま残る。"""
+    _issued_token_id(tmp_path, capsys)
+
+    assert _cli(tmp_path, "token", "revoke", "--id", "tok_doesnotexist") == 2
+    captured = capsys.readouterr()
+    assert "失効させました" not in captured.out
+    assert _token_audits(tmp_path) == ()
+
+
+def test_token_revoke_does_not_reach_into_another_tenant(tmp_path: Path, capsys) -> None:
+    token_id = _issued_token_id(tmp_path, capsys)
+    other = "ten_" + "9" * 32
+
+    assert _cli(tmp_path, "--tenant", other, "token", "revoke", "--id", token_id) == 2
+    capsys.readouterr()
+    assert _token_audits(tmp_path) == ()
+    # 自テナントからはまだ有効のまま。
+    assert _cli(tmp_path, "token", "list") == 0
+    assert "有効" in capsys.readouterr().out
+
+
+def test_token_revoke_revokes_once_and_says_so_the_second_time(tmp_path: Path, capsys) -> None:
+    token_id = _issued_token_id(tmp_path, capsys)
+
+    assert _cli(tmp_path, "token", "revoke", "--id", token_id) == 0
+    assert "失効させました" in capsys.readouterr().out
+    assert len(_token_audits(tmp_path)) == 1
+
+    assert _cli(tmp_path, "token", "revoke", "--id", token_id) == 0
+    assert "既に失効" in capsys.readouterr().out
+    assert len(_token_audits(tmp_path)) == 1, "二度目は記録しない"
