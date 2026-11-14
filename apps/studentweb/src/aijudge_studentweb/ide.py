@@ -818,6 +818,9 @@ def _store_batch(
             {"detail": "記録の置き場所がありません"}, status_code=503, headers=retry
         )
     try:
+        # 同じ seq の本体が既にあれば `write_batch` は置き換えず、**保存済みの方の**
+        # 指紋と大きさを返す（2026-11-14）。以前は無条件に置き換えてから索引で重複を
+        # 弾いていたので、同じ seq に別の中身を送り直すと貼り付けを消せた。
         path, digest, size = ActivityFiles(deps.state.activity_dir).write_batch(
             session, seq, events, snapshots
         )
@@ -845,4 +848,7 @@ def _store_batch(
             uow.ide_activity.add_paste_marks(paste_marks(session, seq, events))
         uow.commit()
     # 再送（同じ seq）は 200 で受け流す。画面はこれで送信済みとして手放す。
+    # **中身が違う再送も同じ応答にする**。正直な画面が同じ seq に別の中身を送る
+    # ことはなく、送るのは書き換えを試す学習者だけである。本体は既に守られて
+    # いるので応答で区別する利点が無く、4xx にすると画面の再送の扱いが変わる。
     return JSONResponse({"stored": stored})

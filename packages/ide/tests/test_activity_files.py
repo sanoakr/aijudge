@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import gzip
+import hashlib
 import json
 from datetime import UTC, datetime
 from pathlib import Path
@@ -14,6 +15,7 @@ from aijudge_ide import (
     MAX_SOURCE_BYTES,
     ActivityFiles,
     ActivityRejected,
+    ActivityTampered,
     IdeSession,
     IdeSessionId,
     check_events,
@@ -45,6 +47,46 @@ def test_a_batch_is_written_as_gzipped_ndjson(tmp_path: Path) -> None:
     assert [json.loads(line) for line in lines] == events
     assert size == len(gzip.decompress(written.read_bytes()))
     assert len(digest) == 64
+
+
+def test_an_existing_batch_is_never_replaced(tmp_path: Path) -> None:
+    """同じ seq を別の中身で書いても、最初の本体と、その指紋・大きさが返る。"""
+    files = ActivityFiles(tmp_path)
+    first = [{"type": "paste", "t": 2, "len": 120, "origin": "external"}]
+    path, digest, size = files.write_batch(SESSION, 0, first, {})
+    stored = (tmp_path / path).read_bytes()
+
+    again = files.write_batch(SESSION, 0, [{"type": "heartbeat", "t": 3}], {})
+
+    assert again == (path, digest, size)
+    assert (tmp_path / path).read_bytes() == stored
+    assert files.read_batch(path, digest) == first
+    # 一時ファイルを残さない。
+    assert [p.name for p in (tmp_path / path).parent.iterdir()] == ["00000000.ndjson.gz"]
+
+
+def test_a_file_without_an_index_row_is_indexed_from_its_own_contents(tmp_path: Path) -> None:
+    """ファイルを書いた直後に落ちて索引が無いとき、再送は既存のファイルで索引を作る。"""
+    files = ActivityFiles(tmp_path)
+    original = [{"type": "edit", "t": 1, "text": "a"}]
+    path, _, _ = files.write_batch(SESSION, 4, original, {})
+    body = gzip.decompress((tmp_path / path).read_bytes())
+
+    _, digest, size = files.write_batch(SESSION, 4, [{"type": "heartbeat", "t": 9}], {})
+
+    assert digest == hashlib.sha256(body).hexdigest()
+    assert size == len(body)
+
+
+def test_a_body_that_does_not_match_its_index_is_refused(tmp_path: Path) -> None:
+    """置き場所で直接置き換えられた本体は、索引の指紋と照合して読まない。"""
+    files = ActivityFiles(tmp_path)
+    path, digest, _ = files.write_batch(SESSION, 0, [{"type": "edit", "t": 1, "text": "a"}], {})
+    (tmp_path / path).write_bytes(gzip.compress(b'{"type":"heartbeat","t":1}\n'))
+
+    with pytest.raises(ActivityTampered):
+        files.read_batch(path, digest)
+    assert files.read_batch(path) == [{"type": "heartbeat", "t": 1}]
 
 
 def test_the_unit_name_cannot_escape_the_root(tmp_path: Path) -> None:
