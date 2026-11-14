@@ -107,6 +107,22 @@ def test_the_editor_page_lists_only_the_tasks_formats(world: World) -> None:
     assert 'value=".pdf"' not in page
 
 
+def test_the_editor_page_offers_the_layout_controls(world: World) -> None:
+    """問題文を左・上に置く切り替えと、問題文を隠す操作（2026-11-15・アンケートの声）。
+
+    ボタンは JavaScript が `hidden` を外して出す。JavaScript が無い環境では出ず、
+    従来どおり上下に積んだ画面になる。
+    """
+    _editor(world)
+    _learner(world)
+
+    page = world.client.get(f"/courses/{_course_id(world)}/ide").text
+
+    assert 'class="ide-view" hidden' in page
+    assert 'data-view-layout="side"' in page and 'data-view-layout="stack"' in page
+    assert "data-view-statement" in page
+
+
 def test_the_editor_page_does_not_leak_hidden_cases(world: World) -> None:
     """**非公開のテストケースは画面に出さない**（ADR 0024 §4）。"""
     _editor(world)

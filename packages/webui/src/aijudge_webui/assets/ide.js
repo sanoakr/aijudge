@@ -507,6 +507,60 @@
     window.addEventListener("resize", place);
   })();
 
+  // -- 画面の並べ方（2026-11-15） ------------------------------------------------
+  //
+  // 問題文を左に置く（広い画面向け）か上に置くか、問題文を隠すか。選んだ状態はこの
+  // ブラウザに覚える（localStorage が使えなければ、覚えずに動く）。**記録や提出には
+  // 関わらない**（見た目だけ）。初めての既定は、広い画面なら左、狭ければ上。
+  (function () {
+    var group = $(".ide-view");
+    if (!group) return;
+    var WIDE = 1100;
+    function load(key) {
+      try { return window.localStorage.getItem(key); } catch (e) { return null; }
+    }
+    function save(key, value) {
+      try { window.localStorage.setItem(key, value); } catch (e) { /* 覚えられなくてもよい */ }
+    }
+    var layout = load("aijudge.ide.layout");
+    if (layout !== "side" && layout !== "stack") layout = window.innerWidth >= WIDE ? "side" : "stack";
+    var statementHidden = load("aijudge.ide.statement") === "hidden";
+
+    function paint() {
+      $all(".ide-panel").forEach(function (panel) {
+        panel.setAttribute("data-layout", layout);
+        panel.setAttribute("data-statement", statementHidden ? "hidden" : "shown");
+      });
+      $all("[data-view-layout]", group).forEach(function (button) {
+        button.setAttribute("aria-pressed", button.getAttribute("data-view-layout") === layout ? "true" : "false");
+      });
+      var toggle = $("[data-view-statement]", group);
+      toggle.setAttribute("aria-pressed", statementHidden ? "true" : "false");
+      toggle.textContent = statementHidden ? "問題文を表示" : "問題文を隠す";
+      // 固定する見出しの高さ。問題文を左に貼るとき、その下に置く。
+      var sticky = $(".ide-sticky");
+      var bar = $(".topbar");
+      var top = (bar ? bar.getBoundingClientRect().height : 0) + (sticky ? sticky.getBoundingClientRect().height : 0);
+      document.documentElement.style.setProperty("--ide-statement-top", top + "px");
+      editors.forEach(function (editor) { if (editor) editor.layout(); });
+    }
+    $all("[data-view-layout]", group).forEach(function (button) {
+      button.addEventListener("click", function () {
+        layout = button.getAttribute("data-view-layout");
+        save("aijudge.ide.layout", layout);
+        paint();
+      });
+    });
+    $("[data-view-statement]", group).addEventListener("click", function () {
+      statementHidden = !statementHidden;
+      save("aijudge.ide.statement", statementHidden ? "hidden" : "shown");
+      paint();
+    });
+    group.hidden = false;
+    paint();
+    window.addEventListener("resize", paint);
+  })();
+
   // -- タブ ------------------------------------------------------------------
 
   function selectTab(index) {
@@ -1132,6 +1186,10 @@
           acceptSuggestionOnEnter: "off",
           tabCompletion: "off",
           scrollBeyondLastLine: false,
+          // エディタの端まで送ったら、ページを送る（2026-11-15）。既定は常にホイールを
+          // 取るので、エディタの上でページが動かず、「一番下まで来ても画面が下に送られない」
+          // という声があった。
+          scrollbar: { alwaysConsumeMouseWheel: false },
           // 枠を超える長い行は折り返して見せる（2026-09-24 決定）。**表示だけ**で、
           // 中身に改行は入らない（提出も行動記録も変わらない）。折り返した続きは
           // 元の行と同じ字下げから始め、どこからが続きかを読めるようにする。
