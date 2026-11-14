@@ -51,7 +51,8 @@ def _key(path: Path) -> Path:
 def release(tmp_path: Path):
     """origin（bare）と、そこから clone した運用機のチェックアウト。
 
-    タグ: v1.0.0（許可した鍵で署名）・v1.0.1（知らない鍵で署名）・v1.1.0（署名なし）
+    タグ: v1.0.0（許可した鍵で署名）・v1.0.1（知らない鍵で署名）・v1.1.0（署名なし）・
+    v99.0.0（v1.0.0 のタグオブジェクトを名前だけ付け替えたもの）
     """
     git_env = {
         **os.environ,
@@ -103,6 +104,10 @@ def release(tmp_path: Path):
     tag("v1.0.0", allowed)
     tag("v1.0.1", stranger)
     tag("v1.1.0", None)
+    # v1.0.0 の署名済みタグオブジェクトを、別の名前で出し直したもの（origin に push
+    # できる者が `git push origin <オブジェクト>:refs/tags/v99.0.0` とする場合）
+    v100 = _run("git", "rev-parse", "refs/tags/v1.0.0", cwd=work, env=git_env).stdout.strip()
+    _run("git", "update-ref", "refs/tags/v99.0.0", v100, cwd=work, env=git_env)
 
     origin = tmp_path / "origin.git"
     _run("git", "clone", "-q", "--bare", str(work), str(origin), cwd=tmp_path, env=git_env)
@@ -132,6 +137,26 @@ def test_only_a_tag_signed_by_an_allowed_key_passes(release) -> None:
         result = _verify(checkout, env, tag)
         assert result.returncode == 1, tag
         assert "署名を確かめられません" in result.stderr
+
+
+def test_a_signed_tag_republished_under_another_name_is_refused(release) -> None:
+    """署名は本物でも、署名したときの名前と参照名が違うタグは通さない。
+
+    `git verify-tag` は署名しか見ない。通すと、古い署名済みのタグを新しい版の名前で
+    出し直すだけで、autodeploy が古い版を最新として入れる。
+    """
+    checkout, env, _ = release
+    result = _verify(checkout, env, "v99.0.0")
+    assert result.returncode == 1
+    assert "付け替え" in result.stderr
+
+
+def test_autodeploy_skips_a_renamed_tag(release) -> None:
+    checkout, env, _ = release
+    result = _run("bash", str(checkout / "deploy" / AUTODEPLOY.name), cwd=checkout, env=env)
+    assert "DEPLOY v1.0.0" in result.stdout
+    assert "DEPLOY v99.0.0" not in result.stdout
+    assert "v99.0.0" in result.stderr
 
 
 def test_a_signers_file_the_deployer_can_write_is_not_trusted(release) -> None:

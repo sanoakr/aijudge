@@ -6,6 +6,7 @@
 - 下限: 下限のコミットを祖先に持たないタグは、署名済みでも配らない
 - 順序: 最後に配った版より古いタグは配らない。root が切り戻しを指定したときだけ通す
 - 既存の門: 署名の無いタグ・他者が書ける許可リスト・シンボリックリンクの HEAD は断る
+- 名前: 署名済みのタグオブジェクトを別の名前で出し直したタグは断る
 
 本物の git と ssh-keygen でタグを作る。`stat`・`install`・`systemctl` は PATH の
 替え玉にする（root でなくても動かすため。`stat` は「root 所有」と答えるが、権限の
@@ -152,7 +153,7 @@ class World:
                 "git", "rev-parse", "HEAD", cwd=work, env=self.git_env
             ).stdout.strip()
 
-        origin = tmp_path / "origin.git"
+        self.origin = origin = tmp_path / "origin.git"
         _run("git", "clone", "-q", "--bare", str(work), str(origin), cwd=tmp_path, env=self.git_env)
         self.mirror = tmp_path / "mirror.git"
         _run(
@@ -305,6 +306,38 @@ def test_an_unsigned_tag_is_refused(world: World) -> None:
     result = world.run()
     _refused(world, result)
     assert "署名を確かめられません" in result.stderr
+
+
+def test_a_signed_tag_republished_under_another_name_is_refused(world: World) -> None:
+    """origin で v1.2.0 のタグオブジェクトを v9.0.0 として出し直しても、配らない。
+
+    署名は本物なので `verify-tag` は通る。タグオブジェクトの中の名前（v1.2.0）と
+    参照名（v9.0.0）の食い違いで断る。
+    """
+    tag_object = _run(
+        "git",
+        "--git-dir",
+        str(world.origin),
+        "rev-parse",
+        "refs/tags/v1.2.0",
+        cwd=world.tmp,
+        env=world.git_env,
+    ).stdout.strip()
+    _run(
+        "git",
+        "--git-dir",
+        str(world.origin),
+        "update-ref",
+        "refs/tags/v9.0.0",
+        tag_object,
+        cwd=world.tmp,
+        env=world.git_env,
+    )
+    world.head_at("v1.2.0")
+    result = world.run()
+    _refused(world, result)
+    assert "付け替え" in result.stderr
+    assert not world.state.exists()
 
 
 def test_a_signers_file_others_can_write_is_refused(world: World) -> None:

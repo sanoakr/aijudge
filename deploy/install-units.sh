@@ -24,7 +24,8 @@
 # 2. root 所有のミラー（`MIRROR`）を origin から更新し、そのハッシュを指す
 #    `v*` タグを探す
 # 3. タグの署名を root 所有の許可リスト（`SIGNERS`）で確かめる。署名が無い・
-#    知らない鍵なら**何も配らずに失敗する**（OnFailure でメールが届く）
+#    知らない鍵なら**何も配らずに失敗する**（OnFailure でメールが届く）。タグ
+#    オブジェクトの中の名前が参照名と違う（名前を付け替えた）タグも同じく断る
 # 4. 配る中身は、そのタグから `git archive` で取り出したもの
 #
 # aijudge に選べるのは「どの署名済みタグか」だけで、中身は選べない。
@@ -106,8 +107,23 @@ if [ -z "${tag}" ]; then
     echo "コミット ${commit} を指す v* タグが origin にありません" >&2
     exit 1
 fi
-if ! mirror verify-tag "${tag}" >/dev/null 2>&1; then
+if ! mirror verify-tag "refs/tags/${tag}" >/dev/null 2>&1; then
     echo "タグ ${tag} の署名を確かめられません（署名が無いか、${SIGNERS} に無い鍵）" >&2
+    exit 1
+fi
+# 署名したときの名前（タグオブジェクトの `tag` 行）が参照名と同じであること
+# （2026-11-14）。`verify-tag` は署名しか見ないので、古い署名済みのタグを新しい
+# 版の名前で出し直すと通っていた。下の 6 と切り戻しの指定はタグ名で判断するので、
+# 名前が署名の内側のものでなければ意味を持たない。
+# 検査は `deploy/lib/verify-release-tag.sh` と同じ（ここは root の写しが単独で
+# 走るので、チェックアウトの lib を読まずに書き写している）。
+if [ "$(mirror cat-file -t "refs/tags/${tag}")" != "tag" ]; then
+    echo "タグ ${tag} は注釈タグではありません" >&2
+    exit 1
+fi
+signed_name=$(mirror cat-file tag "refs/tags/${tag}" | sed -n '1,/^$/s/^tag //p')
+if [ "${signed_name}" != "${tag}" ]; then
+    echo "タグ ${tag} の中の名前が ${signed_name:-（無し）} です。名前を付け替えたタグは配りません" >&2
     exit 1
 fi
 echo "verified ${tag} (${commit})"

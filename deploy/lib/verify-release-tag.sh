@@ -3,6 +3,9 @@
 #
 #   deploy/lib/verify-release-tag.sh v1.2.3   # 0 = 署名を確かめた / 1 = 確かめられない
 #
+# 確かめるのは、`refs/tags/<tag>` が注釈タグであること、その署名が許可した鍵の
+# ものであること、タグオブジェクトの中の名前が `<tag>` と同じであること。
+#
 # ## なぜ要るか（2026-09-29）
 #
 # 署名を確かめていたのは unit とスクリプトを配る側（`install-units.sh`・root）
@@ -28,9 +31,32 @@ if [ -w "${SIGNERS}" ] && [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
+# 名前の解決をタグに限る（同じ名前のブランチなどを確かめないように）。
+REF="refs/tags/${TAG}"
+
 # 軽量タグ（署名できない）も、知らない鍵の署名も、ここで落ちる。
 if ! git -c gpg.format=ssh -c gpg.ssh.allowedSignersFile="${SIGNERS}" \
-        verify-tag "${TAG}" >/dev/null 2>&1; then
+        verify-tag "${REF}" >/dev/null 2>&1; then
     echo "タグ ${TAG} の署名を確かめられません（署名が無いか、${SIGNERS} に無い鍵）" >&2
+    exit 1
+fi
+
+# **署名したのは「その名前のタグ」であることも確かめる**（2026-11-14）。
+#
+# `git verify-tag` が見るのはタグオブジェクトの署名だけで、オブジェクトの中の
+# `tag` 行（署名したときの名前）と参照名の一致は見ない。origin に push できる者が
+# 古い署名済みのタグオブジェクトを `refs/tags/v99.0.0` として出し直すと、署名は
+# 通り、autodeploy は参照名で新旧を決めるので**古い版を最新として入れていた**
+# （`deployed-tag` に偽の名前が残り、以後の本物のリリースは #564 の検査で断られる）。
+# 名前は署名の内側にあるので、ここが一致すれば参照名も署名者が付けたものである。
+if [ "$(git cat-file -t "${REF}")" != "tag" ]; then
+    echo "タグ ${TAG} は注釈タグではありません" >&2
+    exit 1
+fi
+# ヘッダは最初の空行まで。本文の中の `tag ` で始まる行は読まない。
+# sed は入力を最後まで読む（途中で閉じると pipefail で git 側が落ちる）。
+signed_name=$(git cat-file tag "${REF}" | sed -n '1,/^$/s/^tag //p')
+if [ "${signed_name}" != "${TAG}" ]; then
+    echo "タグ ${TAG} の中の名前が ${signed_name:-（無し）} です。名前を付け替えたタグは信じません" >&2
     exit 1
 fi
