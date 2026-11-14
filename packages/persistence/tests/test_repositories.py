@@ -2130,14 +2130,6 @@ def test_a_job_enqueued_concurrently_returns_the_one_already_there(
         assert uow.jobs.find_by_idempotency_key(first.idempotency_key) == first
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "#687: SqlJobQueue.enqueue は制約違反でセッションごと rollback するので、"
-        "同じトランザクションで先に書いたもの（worker._record_success なら採点結果・"
-        "outbox・DONE）が黙って消える"
-    ),
-)
 def test_an_enqueue_collision_keeps_what_the_transaction_wrote_before(
     database: Database, monkeypatch
 ) -> None:

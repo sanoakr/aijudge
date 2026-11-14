@@ -1164,12 +1164,15 @@ class SqlJobQueue:
         existing = self.find_by_idempotency_key(job.idempotency_key)
         if existing is not None:
             return existing
-        self._session.add(_job_row(job))
         try:
-            self._session.flush()
+            # **衝突しうる INSERT だけを SAVEPOINT で囲む**（#764）。`session.rollback()` は
+            # セッション全体を戻すので、同じトランザクションで先に書いたもの（ワーカーの
+            # `_record_success` なら採点結果・outbox・DONE）が黙って消え、そのあとの commit は
+            # 空のまま成功した。SAVEPOINT なら、止められたこの行だけが戻る。
+            with self._session.begin_nested():
+                self._session.add(_job_row(job))
         except IntegrityError:
             # 同時投入。一意制約が止めた側は既存を読んで返す。
-            self._session.rollback()
             existing = self.find_by_idempotency_key(job.idempotency_key)
             if existing is None:  # pragma: no cover - 制約違反の原因が別
                 raise
