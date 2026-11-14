@@ -94,7 +94,7 @@ import re
 import unicodedata
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from aijudge_core import (
     CriterionScore,
@@ -112,6 +112,8 @@ EVALUATOR_ID = "text_pattern_check"
 
 #: `expect` に書ける唯一の名前。提出者の学籍番号と照合する。
 EXPECT_LEARNER_REFERENCE = "learner_reference"
+#: `expect` に書ける値（空は「書かない」）。ほかの値は宣言の誤りとして断る。
+EXPECT_VALUES = ("", EXPECT_LEARNER_REFERENCE)
 
 #: 「決まらない」観点の確信度。科目の `review_policy.confidence_below` の既定
 #: （0.75）を下回る値にして、人のレビューへ回す。0 にしないのは、確信度の
@@ -156,6 +158,38 @@ class PatternSpec(BaseModel):
     ignore_lines: str = ""
     #: 「何か書いてある」と認める文字数の下限。0 は今までどおり「空でない行があれば満たす」。
     min_chars: int = Field(default=0, ge=0)
+
+    @model_validator(mode="after")
+    def _check_declaration(self) -> PatternSpec:
+        """**宣言の誤りは、黙って緩い判定に変えない**（2026-11-14）。
+
+        `expect` に知らない値を書くと、以前は本人照合が行われず「空でない行が
+        あれば満たす」に落ちていた ── 綴り違い 1 つで、誰の認定証でも必須項目を
+        通る。知らない値・正規表現として読めない値・何も問わない項目は、宣言の
+        誤りとして断る。断れば評価器の失敗になり、観点は未採点のまま人に回る
+        （満点にも 0 点にもしない）。
+        """
+        if self.expect not in EXPECT_VALUES:
+            raise ValueError(
+                f"項目「{self.name}」: expect に知らない値 {self.expect!r} があります"
+                f"（使えるのは {', '.join(repr(v) for v in EXPECT_VALUES if v)}）"
+            )
+        for field in ("pattern", "line_matches", "distinct_by", "section", "ignore_lines"):
+            value = getattr(self, field)
+            if not value:
+                continue
+            try:
+                re.compile(value)
+            except re.error as exc:
+                raise ValueError(
+                    f"項目「{self.name}」: {field} が正規表現として読めません: {exc}"
+                ) from exc
+        if not (self.pattern or self.expect or self.line_matches or self.section):
+            raise ValueError(
+                f"項目「{self.name}」: pattern・expect・line_matches・section のどれも"
+                "書かれていません（何を照合するかが無い）"
+            )
+        return self
 
 
 def normalise(text: str) -> str:
@@ -357,8 +391,44 @@ def specs_of(request: EvaluationRequest, criterion: RubricCriterion) -> tuple[Pa
     return tuple(specs)
 
 
+#: payload に書ける項目。**知らない項目名は断る**（2026-11-14）。拾う項目だけを
+#: 読む作りだと、`patern` のような綴り違いは黙って無視され、その項目の照合が
+#: 宣言の意図より緩くなる（`PatternSpec` の `extra="forbid"` は、ここで拾った
+#: 項目にしか効かない）。
+PAYLOAD_KEYS = frozenset(
+    {
+        "criterion",
+        "pattern",
+        "expect",
+        "line_matches",
+        "required",
+        "expected_count",
+        "distinct_by",
+        "section",
+        "ignore_lines",
+        "min_chars",
+    }
+)
+
+
+class DeclarationError(ValueError):
+    """課題の宣言（検証データの payload）が読めない。評価器の失敗として扱う。"""
+
+
 def _spec_of(case: object) -> PatternSpec:
     payload = dict(getattr(case, "payload", {}) or {})
+    name = str(getattr(case, "name", ""))
+    unknown = sorted(set(payload) - PAYLOAD_KEYS)
+    if unknown:
+        raise DeclarationError(f"項目「{name}」: 知らない項目名があります: {', '.join(unknown)}")
+    try:
+        return _build_spec(case, payload)
+    except ValidationError as exc:
+        messages = "; ".join(str(err.get("msg", "")) for err in exc.errors())
+        raise DeclarationError(messages or str(exc)) from exc
+
+
+def _build_spec(case: object, payload: dict) -> PatternSpec:
     return PatternSpec(
         name=str(getattr(case, "name", "")),
         criterion=str(payload.get("criterion") or ""),
@@ -394,6 +464,19 @@ class TextPatternCheck:
             return EvaluationOutcome(
                 status=EvaluatorStatus.SKIPPED,
                 raw_output={"reason": "no extracted text to match against"},
+            )
+
+        # **宣言を先にすべて読む。** 誤りがあれば、どの観点も採点せずに失敗として
+        # 返す ── 一部の観点だけ確定させると、誤った宣言の観点が「満たさない」
+        # なのか「読めなかった」なのかが記録から分からなくなる。
+        try:
+            for criterion in request.task_version.criteria:
+                if criterion.evaluator_id == EVALUATOR_ID:
+                    specs_of(request, criterion)
+        except DeclarationError as exc:
+            return EvaluationOutcome(
+                status=EvaluatorStatus.FAILED,
+                error=f"課題の宣言が不正です: {exc}",
             )
 
         scores: list[CriterionScore] = []
@@ -568,7 +651,10 @@ def build() -> TextPatternCheck:
 __all__ = [
     "EVALUATOR_ID",
     "EXPECT_LEARNER_REFERENCE",
+    "EXPECT_VALUES",
+    "PAYLOAD_KEYS",
     "UNDECIDED_CONFIDENCE",
+    "DeclarationError",
     "PatternSpec",
     "Presence",
     "TextPatternCheck",
