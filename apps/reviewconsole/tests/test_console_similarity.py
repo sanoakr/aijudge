@@ -425,3 +425,62 @@ def test_without_the_viewer_the_entry_still_opens(world: World, places, monkeypa
     assert "Dolos で開く" not in page.text
     viewer = client.get(f"/courses/{world.course.id}/similarity/{task_id}/{run.run_id}/")
     assert viewer.status_code == 503
+
+
+def _dolos_files_csv(*pseudonyms: str) -> str:
+    """Dolos が書き出す `files.csv` の形（名前は `extra` の JSON の `fullName`）。"""
+    import csv
+    import io
+
+    out = io.StringIO()
+    writer = csv.writer(out, lineterminator="\n")
+    writer.writerow(
+        ["id", "ignored", "path", "content", "amountOfKgrams", "ast", "mapping", "extra"]
+    )
+    for index, name in enumerate(pseudonyms, start=1):
+        extra = {"filename": f"{name}.c", "fullName": name, "id": str(index), "labels": ""}
+        writer.writerow(
+            [
+                index,
+                "false",
+                f"ds/{name}.c",
+                'int main(){\n  return 0, "x";\n}',
+                7,
+                "",
+                "",
+                json.dumps(extra),
+            ]
+        )
+    return out.getvalue()
+
+
+def test_the_viewer_names_files_by_student_number(world: World, places) -> None:
+    """Dolos の画面には学籍番号で出す（2026-11-14）。**保存した報告は仮の名前のまま。**"""
+    import csv
+    import io
+
+    root, _web = places
+    world.register("teacher", Role.INSTRUCTOR)
+    a = world.register("s2400001@mail.ryukoku.ac.jp", Role.LEARNER)
+    b = world.register("s2400002", Role.LEARNER)
+    task_id = _import_example(world)
+    run = _report(world, root, world.course.id, task_id, [a, b])
+    stored = run_dir(root, run) / DATA_DIR / "files.csv"
+    original = _dolos_files_csv("S-001", "S-002", "R-001")
+    stored.write_text(original, encoding="utf-8")
+    client = world.client("teacher")
+
+    served = client.get(
+        f"/courses/{world.course.id}/similarity/{task_id}/{run.run_id}/data/files.csv"
+    )
+
+    assert served.status_code == 200
+    rows = list(csv.DictReader(io.StringIO(served.text)))
+    names = [json.loads(row["extra"])["fullName"] for row in rows]
+    # ドメインは落とす。仮の名前は入口の画面と突き合わせるために括弧で残す。
+    assert names == ["s2400001（S-001）", "s2400002（S-002）", "R-001"]
+    # 中身（コード）と他の列はそのまま。
+    assert rows[0]["content"] == 'int main(){\n  return 0, "x";\n}'
+    assert rows[1]["path"] == "ds/S-002.c"
+    assert stored.read_text(encoding="utf-8") == original, "保存した報告を書き換えた"
+    assert "s2400001" not in stored.read_text(encoding="utf-8")
