@@ -1159,25 +1159,64 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 return group.due_at
         return None
 
-    @app.get("/courses/{course_id}/manual", response_class=HTMLResponse)
-    def manual_queue(request: Request, course_id: str, me: Me) -> HTMLResponse:
-        """手動確定。**人が確定しないと閉じない提出を 1 件ずつ読む画面**（2026-11-13）。
+    @app.get("/courses/{course_id}/read", response_class=HTMLResponse)
+    def reading_queue(request: Request, course_id: str, me: Me) -> HTMLResponse:
+        """人が読む（2026-11-14）。**blind 採点と手動確定の推奨を 1 つの画面に並べる。**
 
-        確定処理から分けた。blind 採点・再確認の依頼と同じく、1 件ずつ読む仕事には
-        画面を 1 つ持たせる。並べるものは 1 件の画面の帯と同じ（`_finalize_rows`）。
+        手動確定が必須でなくなった（ADR 0034）ので、どちらも「教員が任意で 1 件ずつ
+        読む提出の列」になった。仕事の場所を 1 つにまとめるが、**まとめるのは画面だけ**
+        である。行ごとの開き先・記録・測定は分けたまま ── blind は AI を見ずに付ける
+        画面へ、推奨は確定の画面へ開き、一致度に数えるのはハッシュで抽出した blind
+        採点だけ（ADR 0005）。
+
+        並べるものは 1 件の画面の帯と同じ関数で作る（`_blind_rows`・`_finalize_rows`）。
+        両方に当たる提出は、確定の画面を開いても blind へ回される（抽出の門）ので、
+        推奨の側でも blind へつなぐ。
         """
-        course, rows, _marked = _finalize_rows(console, me, CourseId(course_id))
+        course, blind_rows, marked_count = _blind_rows(console, me, CourseId(course_id))
+        _course, manual_rows, _marked = _finalize_rows(console, me, CourseId(course_id))
+        blind_ids = {str(row["submission"].id) for row in blind_rows}
+        rows = [
+            {**row, "kind": "blind", "href": work_href(WORK_BLIND, row["submission"].id)}
+            for row in blind_rows
+        ] + [
+            {
+                **row,
+                "kind": "manual",
+                "blind_first": str(row["submission"].id) in blind_ids,
+                "href": work_href(
+                    WORK_BLIND if str(row["submission"].id) in blind_ids else WORK_FINALIZE,
+                    row["submission"].id,
+                ),
+            }
+            for row in manual_rows
+        ]
+        # 課題の順に並べ直す。`sorted` は安定なので、同じ課題の中では blind が先に
+        # 来る ── AI を見ずに読む方を先に済ませないと、推奨の側で判定を読んでしまう。
+        ordered = _in_task_order(rows)
         return TEMPLATES.TemplateResponse(
             request,
-            "manual_queue.html",
+            "reading_queue.html",
             {
                 "me": me,
                 "course": course,
-                "section": {"label": "手動確定", "href": f"/courses/{course.id}/manual"},
-                "rows": rows,
-                "groups": _task_groups(rows),
+                "section": {"label": "人が読む", "href": f"/courses/{course.id}/read"},
+                "rows": ordered,
+                "groups": _task_groups(ordered),
+                "blind_rows": blind_rows,
+                "manual_rows": manual_rows,
+                # 最後の 1 件が blind の一致で確定したときは、ここに戻ってくる。
+                "agreed": console.notices.take(me.user_id, course.id, notices.BLIND_AGREED),
+                "marked_count": marked_count,
+                "min_sample_size": min_sample_size,
             },
         )
+
+    @app.get("/courses/{course_id}/manual")
+    def manual_queue(course_id: str, me: Me) -> Response:
+        """手動確定の一覧は「人が読む」にまとめた（2026-11-14）。古い URL は転送する。"""
+        del me  # 権限は転送先で確かめる。
+        return RedirectResponse(f"/courses/{course_id}/read", status_code=303)
 
     @app.get("/courses/{course_id}/finalize", response_class=HTMLResponse)
     def finalize_queue(request: Request, course_id: str, me: Me) -> HTMLResponse:
@@ -1209,7 +1248,7 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
                 "course": course,
                 "section": {"label": "確定処理", "href": f"/courses/{course.id}/finalize"},
                 "rows": open_rows,
-                # 下の一覧は自動確定待ちだけ（手動の分は「手動確定」の画面に並ぶ）。
+                # 下の一覧は自動確定待ちだけ（手動の分は「人が読む」の画面に並ぶ）。
                 "waiting_groups": _task_groups(
                     tuple(row for row in open_rows if not row["manual"])
                 ),
@@ -1228,27 +1267,11 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
             },
         )
 
-    @app.get("/courses/{course_id}/blind", response_class=HTMLResponse)
-    def blind_queue(request: Request, course_id: str, me: Me) -> HTMLResponse:
-        """blind 採点の待ち。**再確認の依頼とは別の画面**（ADR 0005 / 0009）。"""
-        course, rows, marked_count = _blind_rows(console, me, CourseId(course_id))
-        return TEMPLATES.TemplateResponse(
-            request,
-            "blind_queue.html",
-            {
-                "me": me,
-                "course": course,
-                "section": {"label": "blind 採点", "href": f"/courses/{course.id}/blind"},
-                "rows": rows,
-                "groups": _task_groups(rows),
-                # 最後の 1 件が blind の一致で確定したときは、ここに戻ってくる。
-                "agreed": console.notices.take(me.user_id, course.id, notices.BLIND_AGREED),
-                "marked_count": marked_count,
-                "min_sample_size": min_sample_size,
-            },
-        )
-
-    # -- blind 採点（抽出対象のみ）----------------------------------------
+    @app.get("/courses/{course_id}/blind")
+    def blind_queue(course_id: str, me: Me) -> Response:
+        """blind 採点の一覧は「人が読む」にまとめた（2026-11-14）。古い URL は転送する。"""
+        del me  # 権限は転送先で確かめる。
+        return RedirectResponse(f"/courses/{course_id}/read", status_code=303)
 
     @app.get("/review/{submission_id}/blind", response_class=HTMLResponse)
     def blind(
@@ -1399,7 +1422,7 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
             return RedirectResponse(
                 f"/review/{next_after}/blind?from={WORK_BLIND}", status_code=303
             )
-        return RedirectResponse(f"/courses/{fresh.course.id}/blind", status_code=303)
+        return RedirectResponse(f"/courses/{fresh.course.id}/read", status_code=303)
 
     @app.post("/review/{submission_id}/blind/correct")
     async def correct_blind(
@@ -1790,7 +1813,7 @@ def create_app(console: Console, *, min_sample_size: int = 30) -> FastAPI:
         if mode == WORK_FINALIZE:
             if next_after:
                 return RedirectResponse(work_href(WORK_FINALIZE, next_after), status_code=303)
-            return RedirectResponse(f"/courses/{context.course.id}/manual", status_code=303)
+            return RedirectResponse(f"/courses/{context.course.id}/read", status_code=303)
         return RedirectResponse(
             _with_mode(f"/review/{submission_id}/reveal", mode), status_code=303
         )
@@ -2438,8 +2461,8 @@ WORK_BLIND = "blind"
 WORK_FINALIZE = "finalize"
 WORK_MODES = frozenset({WORK_QUEUE, WORK_BLIND, WORK_FINALIZE})
 WORK_LABELS = {WORK_QUEUE: "再確認の依頼", WORK_BLIND: "blind 採点", WORK_FINALIZE: "手動確定"}
-# 帯の「一覧へ」の行き先。確定処理の 1 件ずつの仕事は「手動確定」の画面に並ぶ（2026-11-13）。
-WORK_LIST_PAGES = {WORK_QUEUE: "queue", WORK_BLIND: "blind", WORK_FINALIZE: "manual"}
+# 帯の「一覧へ」の行き先。blind 採点と手動確定は「人が読む」の 1 画面に並ぶ（2026-11-14）。
+WORK_LIST_PAGES = {WORK_QUEUE: "queue", WORK_BLIND: "read", WORK_FINALIZE: "read"}
 # 帯に並べる件数。全部並べると作業の画面が下へ押し出される（一部だけを出す）。
 WORK_STRIP_ROWS = 8
 

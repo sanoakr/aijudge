@@ -60,7 +60,7 @@ def test_an_agreeing_blind_mark_finalizes_without_the_reveal_page(blind_world: W
 
     assert response.status_code == 303
     # 待ちはこの 1 件だけなので、一覧に戻る。
-    assert response.headers["location"].endswith(f"/courses/{COURSE}/blind")
+    assert response.headers["location"].endswith(f"/courses/{COURSE}/read")
     review, finalization = _records(blind_world, accepted.submission.id)
     assert review is not None and review.agreed
     assert review.comment.startswith(AGREED_PREFIX)
@@ -248,7 +248,7 @@ def test_an_agreement_opened_outside_the_queue_does_not_show_the_reveal_page(
         follow_redirects=False,
     )
 
-    assert response.headers["location"].endswith(f"/courses/{COURSE}/blind")
+    assert response.headers["location"].endswith(f"/courses/{COURSE}/read")
     assert "一致したので確定しました" in blind_world.client.get(response.headers["location"]).text
 
 

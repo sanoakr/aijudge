@@ -18,11 +18,11 @@
 {# **手動が要るものと、待てば閉じるものを分けて言う**（2026-09-25）。件数だけだと、
    自動確定を待っているのか、教員が閉じないと成績にならないのかが分からない。 #}
 <div class="work-summary" data-live="fin-summary">
-  {# **1 件ずつ読んで閉じる仕事は「手動確定」の画面へ分けた**（2026-11-13）。
+  {# **1 件ずつ読んで閉じる仕事は「人が読む」の画面へ分けた**（2026-11-13・2026-11-14 に blind 採点とまとめた）。
      blind 採点・再確認の依頼と同じく、仕事ごとに画面を 1 つ持つ。ここは
      「残りをまとめて閉じる」画面で、手動の分は件数と行き先だけを出す。 #}
   {% if manual_total %}<span class="pill attn">手動確定を推奨 {{ manual_total }} 件</span>
-    <a class="button-link" href="{{ root_prefix() }}/courses/{{ course.id }}/manual">手動確定へ →</a>
+    <a class="button-link" href="{{ root_prefix() }}/courses/{{ course.id }}/read">人が読むへ →</a>
   {% else %}<span class="pill ok">手動確定を推奨するものはありません</span>{% endif %}
   {% if waiting_total %}<span class="pill">自動確定待ち {{ waiting_total }} 件</span>
     <span class="desc">猶予が明けると自動で確定されます（操作は要りません）。</span>{% endif %}
@@ -114,7 +114,7 @@
 
 <h2>自動確定待ち（<span data-live="fin-total">{{ waiting_total }}</span> 件）</h2>
 {# **自動確定を待っている提出だけを、課題ごとに畳んで並べる**（2026-11-13）。手動の
-   確定が必要なものは「手動確定」の画面に並ぶ。初めは全部畳む ── 見出しの件数で
+   確定を推奨するものは「人が読む」の画面に並ぶ。初めは全部畳む ── 見出しの件数で
    足り、待てば閉じるものを開いて読む用は少ない。開き閉じは自動更新をまたいで残る
    （`live.js` の `carryOpen` は id で突き合わせる）。1 件を開いて先に確定してもよい。 #}
 <div data-live="fin-groups" data-live-rows>
