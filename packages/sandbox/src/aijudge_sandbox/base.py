@@ -8,10 +8,12 @@ from __future__ import annotations
 
 import contextlib
 import functools
+import logging
 import os
 import resource
 import shutil
 import signal
+import stat
 import subprocess
 import tempfile
 import time
@@ -20,6 +22,11 @@ from pathlib import Path
 from typing import Protocol, runtime_checkable
 
 from .types import ExecRequest, ExecResult, Isolation, Limitation, Limits
+
+logger = logging.getLogger(__name__)
+
+# 消せなかったものをログに並べる上限。提出は消せないものを何万個でも作れる。
+_LOGGED_FAILURES = 10
 
 
 def _apply_limit(which: int, soft: int) -> None:
@@ -107,24 +114,118 @@ def _signal_of_negative_code(code: int) -> str | None:
         return None
 
 
-def _workspace_size(root: Path) -> int:
-    """作業域の合計バイト数。シンボリックリンクはたどらない。"""
+def _workspace_size(root: Path) -> int | None:
+    """作業域の合計バイト数。シンボリックリンクはたどらない。
+
+    **数え切れなければ None を返す**（数えられた分だけの合計を返さない）。
+    以前は列挙できないディレクトリを黙って飛ばしていたので、提出が
+    `mkdir("d", 0700)` や `chmod("d", 0)` をしてその下に書けば、中身が
+    合計に入らず #430 の上限をすり抜けた（docker では中は uid 65534 で、
+    ホストのワーカーはその 0700 のディレクトリを読めない）。数え漏れた
+    合計は「上限内」に見えるので、呼ぶ側は None を上限超えとして扱う。
+    """
+    failures: list[OSError] = []
     total = 0
-    for directory, _dirs, files in os.walk(root):
+    for directory, _dirs, files in os.walk(root, onerror=failures.append):
         for name in files:
-            with contextlib.suppress(OSError):
+            try:
                 total += os.lstat(os.path.join(directory, name)).st_size
-    return total
+            except OSError as exc:
+                # 読めるが辿れない（r-- の）ディレクトリでは名前だけ見えて
+                # lstat が失敗する。これも数え漏れである。
+                failures.append(exc)
+    return None if failures else total
 
 
-def _empty(root: Path) -> None:
-    """作業域の中身を消す（作業域そのものは残す）。"""
-    for entry in root.iterdir():
-        if entry.is_dir() and not entry.is_symlink():
-            shutil.rmtree(entry, ignore_errors=True)
-        else:
-            with contextlib.suppress(OSError):
-                entry.unlink()
+def grant_owner_access(root: Path) -> None:
+    """作業域の下の、自分が持ち主のディレクトリに u+rwx を足す。
+
+    親から順に（辿る前に）開けるので、0000 のディレクトリの下にも届く。
+    持ち主でないディレクトリの chmod は失敗するが、それは黙って次へ進む ──
+    取り返せなかったものは、このあとの計測と削除が失敗として拾う。
+    シンボリックリンクはたどらない（`os.chmod` はリンク先を変えるので、
+    リンクは積まない）。
+    """
+    stack = [root]
+    while stack:
+        directory = stack.pop()
+        with contextlib.suppress(OSError):
+            mode = os.lstat(directory).st_mode
+            os.chmod(directory, stat.S_IMODE(mode) | stat.S_IRWXU)
+        try:
+            with os.scandir(directory) as entries:
+                stack.extend(
+                    Path(entry.path) for entry in entries if entry.is_dir(follow_symlinks=False)
+                )
+        except OSError:
+            continue
+
+
+def _remove(path: Path) -> list[str]:
+    """`path` を消す。消せなかったものを返す（握りつぶさない）。"""
+    failures: list[str] = []
+
+    def note(_function: object, failed: str, exc: BaseException) -> None:
+        failures.append(f"{failed}: {exc}")
+
+    if path.is_dir() and not path.is_symlink():
+        shutil.rmtree(path, onexc=note)
+    else:
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            failures.append(f"{path}: {exc}")
+    return failures
+
+
+def _empty_once(root: Path) -> list[str]:
+    try:
+        entries = list(root.iterdir())
+    except OSError as exc:
+        return [f"{root}: {exc}"]
+    return [failure for entry in entries for failure in _remove(entry)]
+
+
+def _empty(root: Path, reclaim: Callable[[Path], None]) -> None:
+    """作業域の中身を消す（作業域そのものは残す）。
+
+    消せなければ `reclaim` で権限を取り返してもう一度試し、それでも残れば
+    ログに出す。以前は失敗を握りつぶしていたので、上限を超えた中身が
+    「消した」ことになったまま残った。
+    """
+    if not _empty_once(root):
+        return
+    reclaim(root)
+    failures = _empty_once(root)
+    if failures:
+        logger.error(
+            "could not empty workspace %s (%d entries left): %s",
+            root,
+            len(failures),
+            "; ".join(failures[:_LOGGED_FAILURES]),
+        )
+
+
+def _discard(directory: Path, reclaim: Callable[[Path], None]) -> None:
+    """作業域を丸ごと消す。`_empty` と同じく、失敗は取り返してから記録する。
+
+    残骸（`aijudge-ws-*`）はこのあと誰も掃除しない。作業域の置き場所は
+    運用機では DB と同じファイルシステムにあり、黙って積もると DB の
+    書き込みが先に止まる。だから残ったら必ず ERROR で記録し、監視に拾わせる。
+    """
+    if not _remove(directory):
+        return
+    reclaim(directory)
+    failures = _remove(directory)
+    if failures:
+        logger.error(
+            "could not remove workspace %s (%d entries left): %s",
+            directory,
+            len(failures),
+            "; ".join(failures[:_LOGGED_FAILURES]),
+        )
 
 
 def _truncate(text: str, cap: int) -> tuple[str, bool]:
@@ -180,8 +281,13 @@ class LocalWorkspace:
         release: Callable[[list[str]], None] | None = None,
         startup_allowance_seconds: float = 0.0,
         timed_out_inside: Callable[[int], bool] | None = None,
+        reclaim: Callable[[Path], None] = grant_owner_access,
     ) -> None:
         self.path = path
+        # 提出が作った、ホストから読めない・消せないディレクトリの権限を
+        # 取り返す手段（`LocalSandboxBase.reclaim`）。計測と削除が失敗した
+        # ときだけ呼ぶ。
+        self._reclaim = reclaim
         # 包んだ先の起動にかかる時間の余裕（#489）。実時間の上限を包んだ先の
         # **中で**掛けるバックエンド（docker）は、外で待つ時間をその分だけ
         # 延ばす。外の待ち時間は、デーモンが詰まったときの歯止めとして残す。
@@ -273,17 +379,28 @@ class LocalWorkspace:
         stderr, cut_err = _truncate(raw_err or "", request.limits.output_bytes)
 
         code = process.returncode if process.returncode is not None else -1
-        exceeded = _workspace_size(self.path) > request.limits.workspace_bytes
+        size = _workspace_size(self.path)
+        if size is None:
+            # 数え切れない。権限を取り返してから数え直す。docker ではそのために
+            # コンテナを 1 つ起動するので、毎回ではなく数え漏れたときだけにする
+            # （ふつうの提出は 0700 のディレクトリを作らない）。
+            self._reclaim(self.path)
+            size = _workspace_size(self.path)
+        # **数え切れなければ上限超えとして扱う**（fail closed）。取り返しにも
+        # 失敗した作業域は、中身がどれだけあるか分からない。
+        exceeded = size is None or size > request.limits.workspace_bytes
         if exceeded:
             # **残させない**（#430）。上限を超えたものを抱えたまま次の実行へ
             # 進むと、作業域のあるファイルシステム（DB と同じことがある）が
             # 積み上がる。中身を消して失敗にする ── 続く実行はファイルが
             # 無くて失敗するが、それがこの提出の正しい扱いである。
-            _empty(self.path)
-            stderr = (
-                f"{stderr}\n[sandbox] the workspace grew past "
-                f"{request.limits.workspace_bytes} bytes and was cleared"
-            ).lstrip("\n")
+            _empty(self.path, self._reclaim)
+            reason = (
+                f"grew past {request.limits.workspace_bytes} bytes"
+                if size is not None
+                else "could not be measured"
+            )
+            stderr = f"{stderr}\n[sandbox] the workspace {reason} and was cleared".lstrip("\n")
         if not timed_out and self._timed_out_inside is not None:
             timed_out = self._timed_out_inside(code)
         signal_name = self._decode_signal(code)
@@ -354,6 +471,15 @@ class LocalSandboxBase:
         """
         return _signal_of_negative_code(code)
 
+    def reclaim(self, directory: Path) -> None:
+        """提出が作業域に作ったものを、ホストが数えて消せる状態に戻す。
+
+        既定は、提出物がホストと同じ uid で動くバックエンド（unsafe /
+        seatbelt）向けで、ホスト側で u+rwx を足せば足りる。中が別の uid で
+        動くバックエンド（docker）は、その uid で直す形に上書きする。
+        """
+        grant_owner_access(directory)
+
     @contextlib.contextmanager
     def workspace(self) -> Iterator[Workspace]:
         root = self.workspace_root
@@ -378,9 +504,10 @@ class LocalSandboxBase:
                 release=self.release,
                 startup_allowance_seconds=self.startup_allowance_seconds,
                 timed_out_inside=self.timed_out_inside,
+                reclaim=self.reclaim,
             )
         finally:
-            shutil.rmtree(directory, ignore_errors=True)
+            _discard(directory, self.reclaim)
 
     def wrap(
         self, argv: list[str], request: ExecRequest, workdir: Path
