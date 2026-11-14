@@ -20,9 +20,10 @@ from pydantic import ValidationError
 
 from aijudge_authoring import DraftKind, TaskChecks, TaskDraftRecord, render_statement
 from aijudge_authoring.drafting import Blueprint, Difficulty
-from aijudge_core import MIN_JUSTIFICATION_LENGTH, ReviewState, new_id
+from aijudge_core import MIN_JUSTIFICATION_LENGTH, ReviewState, Task, new_id
 from aijudge_core.ids import CourseId
 from aijudge_course_admin import rubric
+from aijudge_course_admin.answer_mode import unit_values_for
 from aijudge_course_admin.authoring import save_task
 from aijudge_course_admin.drafting import TaskDrafter
 from aijudge_course_admin.errors import AdminError
@@ -83,16 +84,12 @@ def _place_in_unit(console, course, task, target: str) -> None:
         head = sorted(siblings, key=lambda item: item.sort_key)[0] if siblings else None
         update: dict[str, object] = {"unit": target}
         if head is not None:
-            update |= {
-                "session": head.session,
-                "opens_at": head.opens_at,
-                "submissions_open_at": head.submissions_open_at,
-                "due_at": head.due_at,
-                "auto_finalize_after_minutes": head.auto_finalize_after_minutes,
-            }
+            # **セットの値は `unit_values_for` の 1 か所から取る**（#709）。ここも以前は日程の
+            # 5 欄だけを写し、承認で置いた課題だけ学内限定・秘匿・試験の印が付かなかった。
+            update |= unit_values_for(head, task, course)
         positions = [other.position for other in siblings if other.position is not None]
         update["position"] = max(len(siblings), max(positions, default=0)) + 1
-        uow.tasks.save_task(task.model_copy(update=update))
+        uow.tasks.save_task(Task.model_validate(task.model_dump() | update))
         uow.commit()
 
 

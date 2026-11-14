@@ -790,6 +790,48 @@ def position_for(
     return max(positions, default=0) + 1
 
 
+#: 問題セット（回）単位の値。**同じセットの課題はどれも同じ値を持つ**（2026-11-14・#709）。
+#:
+#: 課題を作る・動かす経路（画面から足す・下書きを採用する・別のセットへ移す）が、どの欄を
+#: セットに揃えるかを別々に書いていたので、経路ごとに一部の欄が既定に戻った。公開前に
+#: 隠すはずの課題が TA に見える、学内限定が外れる、試験の印が付かない ── どれも例外も警告も
+#: 出ない。**揃える欄の一覧はここ 1 か所に置く**（`unit_wide_values`）。
+#:
+#: 含めないもの: `accepted_suffixes`・`case_timeout_seconds`・`editor_template`・
+#: `similarity_references` は**課題ごとに決まる**（同じ回でもコードで出す問題と
+#: レポートで出す問題が並ぶ）。`position`・`title`・`unit` は課題の同一性の側。
+UNIT_WIDE_FIELDS: tuple[str, ...] = (
+    # 日程と、その後ろの扱い。
+    "session",
+    "opens_at",
+    "submissions_open_at",
+    "due_at",
+    "grading_starts_at",
+    "accepts_until",
+    "auto_finalize_after_minutes",
+    "late_penalty_steps",
+    # 誰に・どこから・いつ見せるか。
+    "campus_only",
+    "campus_ranges",
+    "confidential_until_open",
+    "exam",
+    "audience_group_ids",
+    # 答え方と、結果の見せ方。
+    "answer_mode",
+    "editor_completion",
+    "file_upload",
+    "screen_capture",
+    "clear_points",
+    "failed_inputs",
+    "results_after_review",
+)
+
+
+def unit_wide_values(head: Task) -> dict[str, object]:
+    """問題セットの値（`UNIT_WIDE_FIELDS`）を、そのセットの先頭の課題から取る。"""
+    return {name: getattr(head, name) for name in UNIT_WIDE_FIELDS}
+
+
 def effective_max_score(version: TaskVersion, history: Iterable[TaskVersion]) -> float:
     """この版の提出を数えるときの配点。
 

@@ -463,25 +463,38 @@ def _save(
 ) -> None:
     with database.unit_of_work() as uow:
         existing = uow.tasks.get_task(version.task_id)
-        uow.tasks.save_task(
-            Task(
+        # 名前から位置が取れない問題（`pN` でない）は末尾に置く（#484）。
+        placed = position_for(
+            position,
+            unit=unit,
+            current=existing,
+            siblings=uow.tasks.list_for_course(course_id),
+        )
+        if existing is None:
+            task = Task(
                 id=version.task_id,
                 course_id=course_id,
                 title=_title_of(version),
                 unit=unit,
                 session=session,
-                # 名前から位置が取れない問題（`pN` でない）は末尾に置く（#484）。
-                position=position_for(
-                    position,
-                    unit=unit,
-                    current=existing,
-                    siblings=uow.tasks.list_for_course(course_id),
-                ),
-                # 取り込み直しで締切を消さない。教員が設定した値を残す。
-                opens_at=None if existing is None else existing.opens_at,
-                due_at=None if existing is None else existing.due_at,
+                position=placed,
             )
-        )
+        else:
+            # **取り込み直しは、課題の値を消さない**（#709）。以前は `Task` を作り直して
+            # 締切 2 つだけを引き継いだので、学期の頭に何度も流し直す運用で、取り下げ・学内限定・
+            # 秘匿・試験・受付終了・答え方・提出形式が黙って既定に戻った。`save_task` は
+            # 文書を丸ごと置き換える（マージしない）ので、既にある課題はそれを写して、
+            # 取り込みが決める 4 つ（題名・セット・回・位置）だけを差し替える。
+            task = Task.model_validate(
+                existing.model_dump()
+                | {
+                    "title": _title_of(version),
+                    "unit": unit,
+                    "session": session,
+                    "position": placed,
+                }
+            )
+        uow.tasks.save_task(task)
         try:
             uow.tasks.save_version(version)
         except TaskStoreError as exc:
