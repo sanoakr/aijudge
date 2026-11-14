@@ -1768,6 +1768,8 @@ def test_an_observation_is_kept_once_per_task(skill_repo) -> None:
             exam=task == "e",
             submitted_at=at,
             observed_at=at,
+            # 採点の終わった時刻（#678）。文書に載り、読み戻せること。
+            graded_at=at if task == "e" else None,
         )
 
     with skill_repo() as uow:
@@ -1783,6 +1785,8 @@ def test_an_observation_is_kept_once_per_task(skill_repo) -> None:
     assert set(by_task) == {"a", "e"}
     assert by_task["a"].score_ratio == 1.0
     assert by_task["e"].exam is True
+    assert by_task["e"].graded_at == datetime(2026, 10, 28, 9, 0, tzinfo=UTC)
+    assert by_task["a"].graded_at is None, "この欄より前の観測は、時刻を持たないまま読める"
 
 
 def test_history_is_read_per_scope(skill_repo) -> None:

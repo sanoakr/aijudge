@@ -96,6 +96,14 @@ class SkillObservation(BaseModel):
     #: 終わった時刻で決めると、再送や遅れた再採点で古い提出が「最新」になる。
     submitted_at: datetime
     observed_at: datetime
+    #: この観測を作った採点が終わった時刻（`GradingRun.created_at`・2026-11-14）。
+    #: **同じ提出の再採点どうしの順序をこれで決める** ── `submitted_at` は同じ提出なら
+    #: 等しく、`observed_at` は作り直しで提出の時刻に差し替わるので、どちらでも
+    #: 「どの採点が新しいか」は分からない。遅れて届いた古い採点が、新しい採点の
+    #: 観測を上書きしないための事実で、**この欄より前に保存された観測は持たない**
+    #: （None のときは、いままでどおり届いた順で置き換える）。観測は文書（JSON）で
+    #: 保存しているので、欄を足してもマイグレーションは要らない。
+    graded_at: datetime | None = None
 
 
 class SkillPoint(BaseModel):
