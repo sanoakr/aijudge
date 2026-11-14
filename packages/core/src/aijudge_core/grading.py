@@ -792,9 +792,25 @@ def score_withheld(run: GradingRun, review: HumanReview | None = None) -> bool:
     数として入っていた。
 
     **教員が欠けを埋めれば保留は解ける。** 人が段階を付けた時点で、
-    総合点は根拠を持つ（`_reviewed_evaluation`）。
+    総合点は根拠を持つ（`_reviewed_evaluation`）。**埋まっていなければ解けない**（#763）。
+    以前はレビューが 1 件でもあれば中身を見ずに解いたので、C1 だけを直して C2（評価器が
+    落ちた観点）を空のまま残したレビューでも、比例配分の暫定値が保留なしで成績に出た。
+    欠けとは、機械が点を付けなかった観点（`unscored_criteria`・`awaiting_human`）のうち、
+    レビューが段階を入れていない、かつ打ち切りにもなっていないものである。
     """
-    return run.is_provisional and review is None
+    if not run.is_provisional:
+        return False
+    if review is None:
+        return True
+    if not review.adjusted_levels and not review.gated_criteria:
+        # 段階を直さずに「見た」と確定したレビュー（教員が機械の判定を確認した）。既存の
+        # 約束どおり、見た時点で保留は解ける（学習者の画面の確定と同じ扱い）。欠けを部分的に
+        # 埋めたレビュー（下）だけを、埋まるまで保留する。
+        return False
+    filled = set(review.adjusted_levels) | set(review.gated_criteria)
+    return any(
+        criterion_id not in filled for criterion_id in (*run.unscored_criteria, *run.awaiting_human)
+    )
 
 
 def final_score(
