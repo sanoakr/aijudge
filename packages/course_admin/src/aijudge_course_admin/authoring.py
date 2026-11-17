@@ -214,6 +214,9 @@ def save_task(
             auto_finalize_after_minutes=(
                 existing.auto_finalize_after_minutes if existing else None
             ),
+            # 確定後の再確認の期限も運ぶ。course.yaml に欄が無いので、
+            # 運ぶのをやめると `course apply --revise` が黙って消す。
+            review_requests_until=existing.review_requests_until if existing else None,
             # **取り下げも引き継ぐ。** 同じ取りこぼしで、こちらは結果が重い ──
             # 取り下げた課題の誤字を直すと、`withdrawn` が既定に戻って
             # 学習者に出直していた（取り下げは削除ではない・#83）。
