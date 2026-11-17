@@ -282,6 +282,56 @@ def test_the_queue_lists_only_review_requests(world: World) -> None:
 
 
 @needs_c_compiler
+def test_a_request_on_a_finalized_grade_reaches_the_queue_and_is_corrected_append_only(
+    world: World,
+) -> None:
+    """確定後に出た依頼（`Task.review_requests_until`・2026-11-17）の行き先。
+
+    自動確定した成績への依頼も待ち行列に載り、教員は読んで直せる。確定の記録は
+    最初の（自動確定の）まま残り、読んだ事実は `HumanReview` として追記される（P8）。
+    """
+    from datetime import UTC, datetime
+
+    from aijudge_core import Finalization, FinalizationSource
+    from aijudge_core.ids import FinalizationId, new_id
+
+    _, accepted = _instructor_and_submission(world)
+    world.worker.run_until_empty()
+    sid = accepted.submission.id
+    with world.database.unit_of_work() as uow:
+        run = uow.runs.latest_for(sid)
+        assert run is not None
+        uow.reviews.save_finalization(
+            Finalization(
+                id=FinalizationId(new_id("fin")),
+                grading_run_id=run.id,
+                source=FinalizationSource.AUTOMATIC,
+                actor_id=None,
+                review_id=None,
+                justification="締切から所定の時間が経過したため、AI の判定のまま確定しました。",
+                finalized_at=datetime.now(UTC),
+            )
+        )
+        first_finalization = uow.reviews.find_finalization_for_run(run.id)
+        uow.commit()
+    _request_review(world, sid)
+
+    assert str(sid)[:12] in world.client.get(f"/courses/{COURSE}/queue").text
+
+    machine = {score.criterion_id: score.level for score in run.criterion_scores}
+    response = world.client.post(f"/review/{sid}/finalize", data=_agree_form(world, machine))
+    assert response.status_code in (200, 303), response.text
+
+    with world.database.unit_of_work() as uow:
+        assert uow.reviews.find_finalization_for_run(run.id) == first_finalization
+        assert uow.reviews.find_review_for_run(run.id) is not None
+        request = uow.reviews.find_request_for_run(run.id)
+    assert request is not None and not request.pending
+    waiting = world.client.get(f"/courses/{COURSE}/queue").text.split("対応済みの依頼")[0]
+    assert str(sid)[:12] not in waiting
+
+
+@needs_c_compiler
 def test_a_resolved_request_leaves_the_queue(world: World) -> None:
     _, accepted = _instructor_and_submission(world)
     world.worker.run_until_empty()

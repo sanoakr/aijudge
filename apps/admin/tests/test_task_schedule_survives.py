@@ -218,6 +218,7 @@ KEPT = {
     "grading_starts_at",
     "accepts_until",
     "auto_finalize_after_minutes",
+    "review_requests_until",
     "withdrawn",
     "campus_only",
     "campus_ranges",
@@ -448,3 +449,19 @@ def test_applying_a_new_grading_start_moves_submissions_already_waiting(world, t
 
     with database.unit_of_work() as uow:
         assert uow.jobs.get(waiting.job.id).available_at == moved_to
+
+
+def test_revising_a_task_keeps_the_review_request_deadline(world) -> None:
+    """確定後の再確認の期限（2026-11-17）も、課題を直しても（`course apply --revise`
+    が走っても）消えない。course.yaml に欄が無いので、運ぶのをやめると黙って消える。
+    """
+    database, course = world
+    saved = _save(database, course, "本文")
+    until = datetime(2026, 11, 17, 14, 59, tzinfo=UTC)
+    _schedule_the_unit(database, saved.task.id, review_requests_until=until)
+
+    _save(database, course, "本文（誤字を直した）")
+
+    with database.unit_of_work() as uow:
+        after = uow.tasks.get_task(saved.task.id)
+    assert after.review_requests_until == until, "確定後の再確認の期限が消えている"

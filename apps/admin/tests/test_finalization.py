@@ -568,6 +568,45 @@ def test_automatic_finalization_leaves_a_contested_submission_alone(
     assert _finalizations(database, ids)[0] is None
 
 
+def test_a_request_on_an_already_finalized_grade_is_left_alone_by_the_sweep(
+    database: Database, course
+) -> None:
+    """**確定後に出された依頼**（`Task.review_requests_until`・2026-11-17）。
+
+    自動確定の周回は確定済みの採点を候補にしない。確定を二重に書かず、落ちず、
+    依頼を閉じもしない（誰かが答えるまで残る・P8）。
+    """
+    ids = _world(database, course.id)
+    _with_grace(database, course, 24.0)
+    assert sweep_deadlines(database, now=AFTER).finalized == 1
+    first = _finalizations(database, ids)[0]
+    assert first is not None
+    with database.unit_of_work() as uow:
+        run = uow.runs.latest_for(ids[0])
+        submission = uow.submissions.get(ids[0])
+        uow.reviews.save_request(
+            ReviewRequest(
+                id=ReviewRequestId(new_id("rrq")),
+                submission_id=ids[0],
+                grading_run_id=run.id,
+                learner_id=submission.learner_id,
+                reason="確定後ですが、テストケース 3 の想定出力が違うと思います。",
+                requested_at=AFTER,
+            )
+        )
+        uow.commit()
+
+    report = sweep_deadlines(database, now=AFTER + timedelta(days=1))
+
+    assert report.finalized == 0
+    assert not report.failed_courses
+    after = _finalizations(database, ids)[0]
+    assert after is not None and after.id == first.id, "確定が書き換わっている"
+    with database.unit_of_work() as uow:
+        request = uow.reviews.find_request_for_run(run.id)
+    assert request is not None and request.pending, "依頼が勝手に閉じている"
+
+
 def test_a_task_without_a_deadline_is_still_finalized(database: Database, course) -> None:
     """**締切が無くても確定する。** 数えるのは採点が終わってからなので。
 

@@ -501,6 +501,14 @@ class Task(BaseModel):
     accepts_until: AwareDatetime | None = None
     # 成績の自動確定までの猶予（分）。**空なら科目の設定**（`grace_minutes`）。
     auto_finalize_after_minutes: int | None = Field(default=None, gt=0)
+    # 確定済みの成績にも再確認を依頼できる期限（2026-11-17）。**空なら従来どおり**
+    # （確定したら学習者の欄は閉じる・ADR 0010）。値があるあいだは、自動確定の猶予が
+    # 明けた成績・確定した成績にも、担当教員が読んでいなければ依頼できる。
+    #
+    # 再採点で開け直さない代わりの口である ── AI の判定は揺れ、教員が直した点も
+    # 消える（P8）。依頼のあとは、自動確定 → 異議 → 教員が読んで追記で訂正する
+    # 既存の経路を通る。期限は絶対時刻で、過ぎれば設定が無いのと同じに戻る。
+    review_requests_until: AwareDatetime | None = None
     # 遅延の減点の段（ユニット単位の上書き・2026-10-08）。**None ならコースの設定**
     # （`Course.late_penalty_steps`）に従う。**空のタプルは「この課題は減点しない」**
     # という明示の指定で、None とは違う ── コースに段があっても、この回だけ外せる。
@@ -809,6 +817,7 @@ UNIT_WIDE_FIELDS: tuple[str, ...] = (
     "grading_starts_at",
     "accepts_until",
     "auto_finalize_after_minutes",
+    "review_requests_until",
     "late_penalty_steps",
     # 誰に・どこから・いつ見せるか。
     "campus_only",

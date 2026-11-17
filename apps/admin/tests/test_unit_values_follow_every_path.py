@@ -56,6 +56,7 @@ EXAM_VALUES: dict[str, object] = {
     "accepts_until": DUE,
     "grading_starts_at": DUE,
     "auto_finalize_after_minutes": 90,
+    "review_requests_until": DUE,
 }
 
 
@@ -111,7 +112,8 @@ def test_the_shared_list_covers_the_fields_the_unit_screens_set() -> None:
     """一覧はここ 1 か所。足し忘れを見つけるため、期待する欄をテストにも書く。"""
     expected = {
         "session", "opens_at", "submissions_open_at", "due_at", "grading_starts_at",
-        "accepts_until", "auto_finalize_after_minutes", "late_penalty_steps", "campus_only",
+        "accepts_until", "auto_finalize_after_minutes", "review_requests_until",
+            "late_penalty_steps", "campus_only",
         "campus_ranges", "confidential_until_open", "exam", "audience_group_ids", "answer_mode",
         "editor_completion", "file_upload", "screen_capture", "clear_points", "failed_inputs",
         "results_after_review",
