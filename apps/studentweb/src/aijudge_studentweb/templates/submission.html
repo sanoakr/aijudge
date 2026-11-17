@@ -121,7 +121,13 @@
      成績が「教員が確認しました」に見える（ADR 0010）。 #}
   {% if view.confirmed %}
     <p class="desc" style="margin:0">{{ view.confirmation_label }}です。</p>
-    {% if not view.reviewed_individually %}
+    {% if view.review_window_until and view.can_request_review %}
+      {# 期限つきで確定後にも依頼を受けている（`Task.review_requests_until`）。 #}
+      <p class="desc" style="margin:.4rem 0 0">
+        <strong>確定済みですが、{{ view.review_window_until | local('%m月%d日 %H:%M') }} まで再確認を依頼できます。</strong>
+        内容に疑問があれば、下の欄から依頼してください。
+      </p>
+    {% elif not view.reviewed_individually %}
       <p class="desc" style="margin:.4rem 0 0">
         内容に疑問があるときは、担当教員に直接申し出てください。
       </p>
@@ -217,7 +223,7 @@
 
 {{ resubmit_block() }}
 
-<h2>採点の再確認を依頼する{% if view.provisional_pending %}（{{ view.settles_at | local('%m/%d %H:%M') }} まで）{% endif %}</h2>
+<h2>採点の再確認を依頼する{% if view.review_window_until %}（{{ view.review_window_until | local('%m/%d %H:%M') }} まで）{% elif view.provisional_pending %}（{{ view.settles_at | local('%m/%d %H:%M') }} まで）{% endif %}</h2>
 {# 前の採点に出した依頼は、再採点で置き換わったので終了した（2026-11-13）。
    依頼はその採点への申し立てで、新しい採点を読んだ確認では答えない。 #}
 {% if view.request_closed_by_regrade %}
@@ -243,7 +249,9 @@
       担当教員が内容を確認し、根拠を添えて回答します。
     {% endif %}
     何が違うと考えるかを具体的に書いてください。
-    {% if view.settles_at %}
+    {% if view.review_window_until %}
+      <strong>{{ view.review_window_until | local('%m/%d %H:%M') }} を過ぎるとこの欄からは依頼できなくなります。</strong>
+    {% elif view.settles_at %}
       <strong>{{ view.settles_at | local('%m/%d %H:%M') }} を過ぎるとこの欄からは依頼できなくなります。</strong>
     {% endif %}
   </p>

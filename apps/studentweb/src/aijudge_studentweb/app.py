@@ -2295,6 +2295,7 @@ def _submission_view(
             failed_inputs=task.failed_inputs,
             deadline=task.accepts_until or task.due_at,
             results_after_review=task.results_after_review,
+            review_requests_until=task.review_requests_until,
         )
     )
     return LoadedSubmission(

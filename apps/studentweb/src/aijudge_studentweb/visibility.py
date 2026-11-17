@@ -239,6 +239,8 @@ class ResultView:
     corrected: bool = False
     # 再確認の依頼を出せるか。出せないなら理由。
     can_request_review: bool = False
+    #: 確定後の依頼を受けている期限（`Task.review_requests_until`）。受けていなければ None。
+    review_window_until: datetime | None = None
     request_reason: str | None = None
     requested: bool = False
     #: 前の採点に出した依頼が、再採点で置き換わって終了したか（2026-11-13）。
@@ -348,6 +350,9 @@ def build_result_view(
     deadline: datetime | None = None,
     #: 教員が確認するまで結果を見せない回か（`Task.results_after_review`・ADR 0033）。
     results_after_review: bool = False,
+    #: 確定したあとも依頼できる期限（`Task.review_requests_until`・2026-11-17）。
+    #: 過ぎていれば（または無ければ）従来どおり、確定で欄を閉じる。
+    review_requests_until: datetime | None = None,
 ) -> ResultView:
     """採点結果を学習者向けの表示に畳む。
 
@@ -483,11 +488,25 @@ def build_result_view(
     # なので期限と実際の確定の間に隙があり、そこで出された依頼は自動確定を
     # 恒久的に止める（誰も気づかないまま学期末まで残る）。
     elapsed = window is GradeWindow.ELAPSED
-    can_request = not confirmed and not elapsed and request is None and not unscored
+    # **期限つきで確定後にも開ける**（2026-11-17）。担当教員が読んだ成績は開けない
+    # （読んだ上での確定で、もう一度は教員への直接の申し出）。点が定まっていない
+    # ものも開けない（教員が確認する側）。可否はここ 1 か所で、POST も同じ値を見る。
+    after_window = (
+        review_requests_until is not None
+        and (now or datetime.now(UTC)) < review_requests_until
+        and review is None
+        and (confirmed or elapsed)
+    )
+    can_request = (
+        request is None and not unscored and ((not confirmed and not elapsed) or after_window)
+    )
 
     reason: str | None = None
     if reviewed:
         reason = "担当教員が確認した成績です。"
+    elif request is not None and after_window:
+        # 確定済みでも、依頼が出ているなら「確定済み」より先に依頼の状態を言う。
+        reason = "再確認を依頼済みです。担当教員の対応をお待ちください。"
     elif confirmed or elapsed:
         reason = "確定済みの成績です。申し出は担当教員に直接お願いします。"
     elif request is not None:
@@ -518,6 +537,7 @@ def build_result_view(
         review_comment=_justification(finalization, review),
         corrected=reviews > 1,
         can_request_review=can_request,
+        review_window_until=review_requests_until if after_window else None,
         request_reason=reason,
         requested=request is not None,
         # この採点にまだ依頼が無いときだけ出す。新しい採点に改めて出したら、
