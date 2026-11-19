@@ -191,12 +191,29 @@
 
       var clock = startClock(o.tickMs, tick);
 
+      // 止まった理由を調べる手がかり（#783）。ブラウザが共有を終わらせた（`ended`）とき、
+      // その前後に何があったかを残す。タブ切り替えで止まる環境が見つかっていないので、
+      // 「いつ・どの表示状態で・トラックがどうなっていたか」を数件だけ持つ。
+      var startedAt = performance.now();
+      var trail = [];
+      function note(what) {
+        trail.push({ e: what, ms: Math.round(performance.now() - startedAt),
+                     v: document.visibilityState, rs: track.readyState, muted: track.muted });
+        if (trail.length > 8) trail.shift();
+      }
+      track.addEventListener("mute", function () { note("mute"); });
+      track.addEventListener("unmute", function () { note("unmute"); });
+      stream.addEventListener("inactive", function () { note("inactive"); });
+      document.addEventListener("visibilitychange", function () { note("visibility"); });
+      window.addEventListener("pagehide", function () { note("pagehide"); });
+
       function end(reason) {
         if (state.stopped) return;
         state.stopped = true;
+        note(reason);
         clock.stop();
         stream.getTracks().forEach(function (t) { t.stop(); });
-        onState("stopped", { reason: reason });
+        onState("stopped", { reason: reason, trail: trail.slice() });
       }
       track.addEventListener("ended", function () { end("ended"); });
 

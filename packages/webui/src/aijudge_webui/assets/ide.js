@@ -303,7 +303,10 @@
 
   function screenReport(name, detail) {
     var surface = (detail && detail.surface) || "";
-    record("screen", { state: name, surface: surface, reason: (detail && detail.reason) || "" }, true);
+    // `trail` は止まった前後の手がかり（screen.js・#783）。止まったときだけ付く。
+    var entry = { state: name, surface: surface, reason: (detail && detail.reason) || "" };
+    if (detail && detail.trail) entry.trail = detail.trail;
+    record("screen", entry, true);
     screenLast = { name: name, surface: surface };
     postScreenState();
   }
